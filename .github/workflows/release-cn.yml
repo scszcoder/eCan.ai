@@ -388,7 +388,6 @@ jobs:
           Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Validate Gitee credentials
-        shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
         # for https://gitee.com' checkout failure.
         #
@@ -407,23 +406,146 @@ jobs:
         #      substitution in the secret field can add CR + LF on
         #      copy-paste). Fingerprint lets us compare across jobs /
         #      runs without leaking the token itself.
+        #
+        # Runs under pwsh (PowerShell 7). On GitHub-hosted runners
+        # (ubuntu-latest / macos-latest) pwsh 7 is preinstalled and
+        # reachable as `pwsh`. On self-hosted Windows the previous
+        # "Ensure ..." step adds pwsh.exe to GITHUB_PATH so this
+        # step finds it.
+        shell: pwsh
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          if [ -z "${GITEE_TOKEN:-}" ]; then
-            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
+          if ([string]::IsNullOrEmpty($env:GITEE_TOKEN)) {
+            '::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to ''oauth2''). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with ''terminal prompts disabled'' — the very symptom this step is meant to replace.'
             exit 1
-          fi
-          # sha256sum (Git Bash) over python3 — avoids the WindowsApps
-          # Store python3.exe stub that takes precedence on PATH.
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          FPR=$(printf '%s' "$CLEAN" | sha256sum | awk '{print substr($1,1,8)}')
-          LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
-          echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
+          }
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) so the fingerprint is stable across jobs.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($clean)
+          $hash  = [System.Security.Cryptography.SHA256]::HashData($bytes)
+          $fpr   = ($hash | ForEach-Object { $_.ToString('x2') }) -join ''
+          Write-Host "[OK] GITEE_TOKEN present (length=$($bytes.Length) bytes, sha256=$($fpr.Substring(0,8)))"
+
+      - name: Checkout from GitHub
+        # GitHub-hosted runner path. Uses stock actions/checkout@v6
+        # against the canonical github.com remote — no Gitee mirror,
+        # no DNS workaround, no GIT_ASKPASS. Mutually exclusive with
+        # the "Checkout from Gitee mirror" step below; the two ifs
+        # cover the same two runner_group values without overlap.
+        if: github.event.inputs.runner_group == 'github-hosted'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Probe Gitee reachability
+        # Cheap end-to-end probe that exercises the same network
+        # path as the upcoming `git fetch origin` step. Runs
+        # `git ls-remote <url> HEAD` and fails the step on non-zero
+        # exit. This catches:
+        #   - DNS-poisoned gitee.com (CNAME hijack to baiduads.com)
+        #   - outbound TCP:443 blocked at the corporate firewall
+        #   - Gitee CDN routing failures
+        # before we spend 30s on a doomed fetch.
+        #
+        # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
+        # runners, self-hosted Windows runners). Uses
+        # find-prerequisites.ps1's Find-GitExe helper to locate git
+        # (PATH lookup) before falling back to bash.exe-relative
+        # candidates on Windows.
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            function Find-BashLocation {
+              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
+                if (Test-Path -LiteralPath $c) { return $c }
+              }
+              return (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
+            }
+            function Find-GitExe {
+              # Cross-platform: Linux/macOS runners have `git` (no
+              # extension); Windows runners have git.exe. Try the
+              # platform-correct name first.
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $src = $pathHit.Source
+                $parent = Split-Path -Parent $src
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
+                  return $src
+                }
+              }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $src = $pathHit.Source
+                $parent = Split-Path -Parent $src
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
+                  return $src
+                }
+              }
+              $bashExe = Find-BashLocation
+              if ($bashExe) {
+                $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
+                $gitRoot = [System.IO.Path]::GetDirectoryName($bashDir)
+                foreach ($rel in @('git.exe', 'mingw64\bin\git.exe')) {
+                  $c = Join-Path $bashDir $rel
+                  if (Test-Path -LiteralPath $c) { return $c }
+                }
+                foreach ($rel in @('mingw64\bin\git.exe', 'cmd\git.exe', 'libexec\git-core\git.exe')) {
+                  $c = Join-Path $gitRoot $rel
+                  if (Test-Path -LiteralPath $c) { return $c }
+                }
+              }
+              return $null
+            }
+          }
+          $gitExe = Find-GitExe
+          if (-not $gitExe) {
+            # Print diagnostic state. Find-GitExe internally tries:
+            # PATH lookup of `git` (Linux/macOS), PATH lookup of
+            # `git.exe` (Windows), then 5 same-dir candidates relative
+            # to bash.exe's bin/. Report both PATH probes so the
+            # operator can see which platform tier failed.
+            $bashProbe = Find-BashLocation
+            $pathGit    = (Get-Command git    -ErrorAction SilentlyContinue).Source
+            $pathGitExe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
+            $os = if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') { 'Windows' } elseif ($IsMacOS) { 'macOS' } else { 'Linux' }
+            '::error::Cannot locate git on this ' + $os + ' runner. PATH `git`: ' + ($(if ($pathGit) { $pathGit } else { '(not in PATH)' })) +
+              '. PATH `git.exe`: ' + ($(if ($pathGitExe) { $pathGitExe } else { '(not in PATH)' })) +
+              '. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
+              '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
+            exit 1
+          }
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          # Probe the .git/info/refs endpoint directly — full URL,
+          # not bare-host — so the very path that the upcoming
+          # `git fetch origin` will use is what's tested. HTTP 200
+          # from this URL with valid auth means DNS + TCP:443 + TLS
+          # + oauth2 handshake all worked end-to-end.
+          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
+          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            $last = ($out | Select-Object -Last 1).ToString()
+            "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
+            exit 1
+          }
+          Write-Host "[OK] git ls-remote $probeUrl HEAD succeeded"
 
       - name: Checkout from Gitee mirror
-        shell: bash
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
         # header with username x-access-token (the GitHub PAT
@@ -435,295 +557,169 @@ jobs:
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
-        # directly, using a job-scoped GIT_ASKPASS script that returns
-        # the same oauth2:<token> shape that Gitee expects.
+        # directly via pwsh, using URL-embedded credentials:
+        # https://oauth2:<token>@gitee.com/... This is more reliable
+        # than GIT_ASKPASS which can fail due to path translation
+        # issues across the pwsh/git subprocess boundary.
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
+        timeout-minutes: 30
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          REF="${{ github.event.inputs.ref || github.ref }}"
+          $ErrorActionPreference = 'Stop'
 
-          # Two channels for the manual-ref input, both possible:
-          #   1. workflow_dispatch with inputs.ref = lq_dev_multi
-          #      → REF ends up as lq_dev_multi
-          #   2. push event
-          #      → github.ref = refs/heads/<branch>
-          #      → REF ends up as refs/heads/<branch>
-          # For actions/checkout, that was fine because v6 trimmed
-          # it; here we need a "bare ref name" that works for
-          # git checkout -B and git fetch origin <ref>.
-          case "$REF" in
-            refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
-            *) SHORT_REF="$REF" ;;
-          esac
+          $ref = "${{ github.event.inputs.ref || github.ref }}"
 
-          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # git init (instead of git clone) lets us:
-          #   (a) skip the early Smart-HTTP probe that triggers the
-          #       401 in some Gitee accounts (the probe goes through
-          #       before our credential helper is consulted),
-          #   (b) avoid writing the credential into the URL ever.
-          cd "$GITHUB_WORKSPACE"
+          if ($ref -match '^refs/(heads|tags)/(.*)$') { $shortRef = $Matches[2] } else { $shortRef = $ref }
+
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) { . $helper }
+          $gitExe = Find-GitExe
+          if (-not $gitExe) {
+            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            exit 1
+          }
+
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          Set-Location $env:GITHUB_WORKSPACE
           # Nuke any stale .git left over from a prior job run on the
           # same runner. Without this, git init warns "re-init: ignored
           # --initial-branch=main" and subsequent operations can silently
           # misbehave (e.g. fetch refspecs produce no output).
-          rm -rf .git
-          git init -q -b main .
-          git remote set-url origin https://gitee.com/songszchen/eCan.ai.git 2>/dev/null || \
-            git remote add origin https://gitee.com/songszchen/eCan.ai.git
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitExe init -q -b main .
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          & $gitExe remote remove origin 2>$null
+          & $gitExe remote add origin $originUrl
 
-          # DNS pollution workaround for China-based runners.
-          # The local resolver returns a poisoned CNAME
-          # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
-          # IP, we ask a known-clean DNS server and validate the
-          # answer is a public, non-DNS-server IP — RFC1918/private
-          # ranges and the DNS servers themselves are rejected. If
-          # every clean DNS lookup fails, we deliberately do NOT
-          # write a guessed IP to the hosts file: a wrong hosts
-          # entry silently routes Gitee traffic to whoever owns
-          # that IP (often Baidu/Ads CNAMEs that respond 200 to
-          # /), which masks the real problem and produces auth
-          # failures or stale content downstream. Preferring
-          # fast-fail over silent failure here.
-          echo "[DEBUG] Resolving gitee.com via clean DNS..."
+          # Strip any leading "refs/heads/" or "refs/tags/" so the
+          # bare ref name is available for the ls-remote query.
+          if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          GITEE_IP=""
-          for DNS in 1.0.0.1 8.8.4.4 114.114.114.115; do
-            DNS_OUT=$(nslookup gitee.com "$DNS" 2>&1)
-            CANDIDATE=$(echo "$DNS_OUT" \
-                        | awk '/^Non-authoritative answer:/{found=1; next} \
-                               found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
-            case "$CANDIDATE" in
-              # Reject the DNS server IPs themselves and known
-              # RFC1918/private/loopback ranges. Anything that
-              # matches one of these came from a poisoned resolver
-              # or a captured DNS server, not gitee.com.
-              ''|\
-              8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222|\
-              10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*|127.*|0.*)
-                continue
-                ;;
-            esac
-            if [ -n "$CANDIDATE" ]; then
-              GITEE_IP="$CANDIDATE"
-              echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
-              break
-            fi
-          done
-
-          if [ -z "$GITEE_IP" ]; then
-            echo "::error::Could not resolve gitee.com via any clean DNS server (1.0.0.1, 8.8.4.4, 114.114.114.115). Every answer was either the DNS server IP itself, a RFC1918 address, or empty — typical of DNS poisoning on a China-based runner. Refusing to fall back to a hardcoded IP because a wrong hosts entry silently redirects traffic to whoever owns that IP. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+          $env:GIT_HTTP_TIMEOUT = '15000'
+          $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+          $lsExit = $LASTEXITCODE
+          if ($lsExit -ne 0) {
+            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
-          fi
-          echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
-
-
-
-          # Configure credential helper via GIT_ASKPASS (NOT inline
-          # credential.helper). The inline `!f() { ... }; f` form
-          # works on Linux but FAILS on Windows self-hosted runners:
-          # Git for Windows invokes helpers via `sh -c "..."` and
-          # PortableGit's sh is dash (not bash), which rejects
-          # `f() { ... }` function syntax with `syntax error: 'f'
-          # unexpected`. The helper then silently dies, git blocks
-          # waiting for a credential prompt, and `GIT_TERMINAL_PROMPT=0`
-          # causes ls-remote/fetch to hang for ~58 minutes until the
-          # runner forces step cancellation. This is the verified
-          # bug behind WorkflowRun #87058232932.
-          #
-          # GIT_ASKPASS executes a SCRIPT FILE with the appropriate
-          # interpreter (sh on Windows, sh on Linux), so a plain
-          # case-statement works on both platforms. `sed -i 's/\r$//'`
-          # strips any CRLF that GHA runner 2.336.0 sneaks into
-          # heredoc writes on Windows runners (actions/runner#912).
-          GIT_ASKPASS=$(mktemp)
-          cat > "$GIT_ASKPASS" <<'EOF'
-          #!/bin/sh
-          case "$1" in
-            Username*) echo 'oauth2' ;;
-            Password*) printf '%s' "$GITEE_TOKEN" ;;
-            *) echo ;;
-          esac
-          EOF
-          # Use `tr -d '\r'` instead of `sed -i 's/\r$//'`. The
-          # sed form breaks on macOS self-hosted runners: BSD
-          # sed requires `sed -i '' ...` (the empty-string
-          # backup-suffix arg is mandatory), and without it
-          # the script becomes `sed -i 's/\r$//' FILE` which
-          # BSD parses as "use 's/\r$//' as the backup suffix
-          # and treat FILE as the script" — emitting
-          # `invalid command code f` and exit 1. `tr` is
-          # POSIX, behaves identically on GNU/BSD/Git-Bash.
-          tr -d '\r' < "$GIT_ASKPASS" > "$GIT_ASKPASS.tmp" \
-            && mv "$GIT_ASKPASS.tmp" "$GIT_ASKPASS"
-          chmod 700 "$GIT_ASKPASS"
-          export GIT_ASKPASS
-          # Belt-and-suspenders: GIT_TERMINAL_PROMPT=0 still tells git
-          # to fail-fast if a credential prompt is somehow requested,
-          # but with GIT_ASKPASS set, git never asks — it just runs
-          # our script. Keep credential.helper unset to avoid the
-          # Windows-specific bug above.
-
-          # Resolve the ref to one of two shapes:
-          #   * refs/heads/<branch> — typical for push events and
-          #     workflow_dispatch refs that are branches.
-          #   * refs/tags/<tag> — typical for tag-driven runs.
-          # The full prefix is what we pass into git ls-remote and
-          # into the fetch refspec, so git always fetches into the
-          # matching local namespace (refs/heads/X stays refs/heads/X
-          # instead of landing as refs/remotes/origin/X).
-          # Probe Gitee with ls-remote before fetching. This catches
-          # "branch not mirrored yet" in seconds instead of hanging git fetch
-          # for 60s. GIT_HTTP_TIMEOUT=15s guards against a stalled Gitee
-          # connection (e.g. mainland-China DNS glitch or Gitee CDN hiccup).
-          #
-          # Strip any leading "refs/heads/" or "refs/tags/" so the bare ref
-          # name is available for the ls-remote query. Without this, a
-          # REF like "refs/heads/lq_dev_multi" would be queried as
-          # "refs/heads/refs/heads/lq_dev_multi" (double prefix → not found).
-          case "$REF" in
-            refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
-            *) BARE_REF="$REF" ;;
-          esac
-          GIT_TERMINAL_PROMPT=0 \
-          GIT_HTTP_TIMEOUT=15000 \
-            LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
-          # Strip the trailing sentinel
-          LS_RAW=${LS_RAW%$'\n'EXIT=*}
-          LS_EXIT=${LS_RAW##*EXIT=}
-          LS_REMOTE_OUT=${LS_RAW%EXIT=*}
-          echo "[DEBUG] ls-remote raw: '$LS_REMOTE_OUT', exit: '$LS_EXIT'"
-          FULL_REF=$(printf '%s\n' "$LS_REMOTE_OUT" \
-                     | awk 'NF==2 {print $2; exit}')
-          if [ -z "$FULL_REF" ]; then
-            echo "::error::Ref '$REF' not found on gitee.com/songszchen/eCan.ai (ls-remote said: '$LS_REMOTE_OUT', exit=$LS_EXIT). Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+          }
+          $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
+          if (-not $fullRef) {
+            "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
             exit 1
-          fi
+          }
+          Write-Host "[DEBUG] ls-remote resolved $ref -> $fullRef"
 
           # Fetch only this one ref. With --depth=1, git pulls just
-          # the commit object the ref points at. Compared to the
-          # previous +refs/heads/* +refs/tags/* refspec (one commit
-          # per ref — hundreds of objects for a repo with many
-          # user-prefixed release tags), this drops wire transfer to
-          # ~MBs instead of ~tens-of-MBs.
-          #
-          # The source:dest refspec forces the fetched commit to
-          # land at the local namespace that matches its remote
-          # namespace — so a remote refs/heads/lq_dev_multi
-          # becomes a local refs/heads/lq_dev_multi, which makes
-          # the checkout step below branch-aware without any
-          # git show-ref indirection.
-          # Guard against indefinitely hanging fetch if the remote ref does not
-          # exist (e.g. a new branch that sync-to-gitee has not yet mirrored).
-          # 60s is generous for a depth=1 fetch over Smart-HTTP.
-          GIT_TERMINAL_PROMPT=0 \
-          GIT_HTTP_TIMEOUT=60000 \
-            git -c protocol.version=2 \
-                fetch --no-tags --prune --no-recurse-submodules --depth=1 \
-                origin \
-                "$FULL_REF:$FULL_REF"
+          # the commit object the ref points at. The source:dest
+          # refspec forces the fetched commit to land at the local
+          # namespace that matches its remote namespace.
+          $env:GIT_HTTP_TIMEOUT = '60000'
+          & $gitExe -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
-          case "$FULL_REF" in
-            refs/heads/*)
-              SHORT_REF="${FULL_REF#refs/heads/}"
-              git checkout --force -B "$SHORT_REF" "$FULL_REF"
-              ;;
-            refs/tags/*)
-              # For tags, detach HEAD to leave the tree on the tag
-              # commit (no local branch ref created), matching what
-              # actions/checkout does for tag refs.
-              SHORT_REF="${FULL_REF#refs/tags/}"
-              git checkout --force "$SHORT_REF"
-              ;;
-            *)
-              echo "::error::Internal: resolved FULL_REF '$FULL_REF' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing." >&2
-              exit 1
-              ;;
-          esac
+          if ($fullRef -like 'refs/heads/*') {
+            $localShort = $fullRef.Substring('refs/heads/'.Length)
+            & $gitExe checkout --force -B $localShort $fullRef
+          } elseif ($fullRef -like 'refs/tags/*') {
+            $localShort = $fullRef.Substring('refs/tags/'.Length)
+            & $gitExe checkout --force $localShort
+          } else {
+            "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
+            exit 1
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
-
-          # Clean up the GIT_ASKPASS temp file. Belt-and-suspenders
-          # cleanup handles runner-side kill of the script without
-          # 'trap' exit (gives GHA one less secret-bearing file
-          # on disk to wipe).
-          rm -f "$GIT_ASKPASS"
+          $head = (& $gitExe rev-parse --short HEAD).Trim()
+          Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
-        shell: bash
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
         # of the appcast/last-release.json. The earlier 'Checkout from
-        # Gitee mirror' step handles its own auth via $RUNNER_TEMP/
-        # .git-askpass-gitee, so this step doesn't have to.
+        # Gitee mirror' step handles its own auth via a $env:TEMP askpass
+        # file, so this step doesn't have to.
         #
-        # We write our own credential.store file at $RUNNER_TEMP,
+        # We write our own credential.store file at $env:RUNNER_TEMP,
         # point git at it via a job-scoped GIT_CONFIG_GLOBAL
-        # (exported through $GITHUB_ENV so subsequent steps inherit
+        # (exported through $env:GITHUB_ENV so subsequent steps inherit
         # it), and let git's standard credential subsystem handle
-        # auth. Why $GITHUB_ENV instead of `git config --global`:
+        # auth. Why $env:GITHUB_ENV instead of `git config --global`:
         # on a self-hosted runner that's been used for many repos,
         # the runner's user-global .gitconfig is shared across jobs.
         # Setting credential.* there would leak our token to every
-        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
+        # other job the runner ever runs. $env:RUNNER_TEMP is per-job, so
         # the helper file is automatically GC'd at job end.
         #
         # This step MUST run after 'Checkout from Gitee mirror' —
-        # the helper script lives in the just-checked-out tree at
-        # .github/scripts/write_gitconfig_gitee.py, so running it
-        # before checkout would fail with "can't open file" (see run
-        # #86809645182 for the original failure that motivated this
-        # ordering).
+        # $env:GITHUB_WORKSPACE is the just-checked-out tree. The
+        # previous bash version also relied on the python script at
+        # .github/scripts/write_gitconfig_gitee.py, but pwsh's
+        # [IO.File]::WriteAllText + here-string sidesteps the bash
+        # LF→CRLF translation entirely, so no helper script is needed
+        # any more. The script is left in-tree for any third-party
+        # workflow that still imports it.
+        #
+        # The previous bash version routed through
+        # .github/scripts/write_gitconfig_gitee.py because `with open(...)
+        # as f:` at column 0 inside a `run: |` block trips YAML's
+        # block-mapping parser. pwsh doesn't have that ambiguity, so
+        # we inline the LF-only file write here.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
-          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
+          $ErrorActionPreference = 'Stop'
 
-          # The Python helper script reads these from os.environ; without
-          # `export`, they'd be local bash variables invisible to the
-          # python3 child process and the script would fail with
-          # "error: GITCONFIG_FILE and CREDS_FILE env vars are required".
-          export CREDS_FILE GITCONFIG_FILE
+          $credsFile    = Join-Path $env:RUNNER_TEMP '.git-credentials-gitee'
+          $gitconfigFile = Join-Path $env:RUNNER_TEMP '.gitconfig-gitee'
 
-          # The credential store format is the URL with embedded
-          # username:password. We deliberately include the scheme +
-          # host so it only matches gitee.com (not, e.g., a hypothetical
-          # future gitee enterprise tenant URL).
-          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
-          chmod 600 "$CREDS_FILE"
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) before embedding in the credentials URL.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
 
-          # Job-scoped gitconfig. We use `credential.helper = store
-          # --file=...` scoped to the gitee.com URL so other hosts (if
-          # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig. We use Python to bypass bash's
-          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
-          # file write is not affected by bash's line-ending translation.
-          # Write job-scoped gitconfig. Python's file I/O is the
-          # only way to produce LF-only output on Windows Git Bash
-          # (which translates LF→CRLF on every file write through
-          # bash). See .github/scripts/write_gitconfig_gitee.py
-          # for the full rationale. Keeping the body in a separate
-          # file avoids the YAML ambiguity that arises when
-          # `python -c '...'` content starts at column 0 and
-          # contains lines like `with open(...) as f:`.
-          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
+          # credential.store format: URL with embedded username:password.
+          # We deliberately include the scheme + host so it only matches
+          # gitee.com (not, e.g., a hypothetical future gitee enterprise
+          # tenant URL).
+          $credsLine = "https://oauth2:${clean}@gitee.com"
+          # LF-only write: .NET 8's WriteAllText on Windows writes CRLF
+          # per Environment.NewLine; .gitconfig parsed by PortableGit
+          # accepts CRLF, but writing LF keeps the file identical
+          # across all three runner platforms.
+          [System.IO.File]::WriteAllText($credsFile, ($credsLine + "`n"), [System.Text.UTF8Encoding]::new($false))
+
+          # Job-scoped gitconfig. The [credential "https://gitee.com"]
+          # section scopes the helper to gitee.com only — other hosts
+          # (if any later step needs them) aren't affected.
+          # core.autocrlf=false prevents git from re-expanding LF→CRLF
+          # on read of the credentials file (which would break the
+          # embedded newline detection in git's credential store).
+          $gitconfigBody = @"
+          [core]
+              autocrlf = false
+          [credential "https://gitee.com"]
+              helper = store --file $credsFile
+              username = oauth2
+          "@
+          [System.IO.File]::WriteAllText($gitconfigFile, ($gitconfigBody -replace '\r\n?', "`n"), [System.Text.UTF8Encoding]::new($false))
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
-          {
-            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
-          } >> "$GITHUB_ENV"
+          "GIT_CONFIG_GLOBAL=$gitconfigFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "GITEE_CREDENTIALS_FILE=$credsFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
-          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
+          Write-Host "[OK] Gitee credential helper installed at $credsFile"
+          Write-Host "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
 
       - name: Validate and extract version
         id: validate
@@ -1167,7 +1163,6 @@ jobs:
           Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Validate Gitee credentials
-        shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
         # for https://gitee.com' checkout failure.
         #
@@ -1186,24 +1181,146 @@ jobs:
         #      substitution in the secret field can add CR + LF on
         #      copy-paste). Fingerprint lets us compare across jobs /
         #      runs without leaking the token itself.
+        #
+        # Runs under pwsh (PowerShell 7). On GitHub-hosted runners
+        # (ubuntu-latest / macos-latest) pwsh 7 is preinstalled and
+        # reachable as `pwsh`. On self-hosted Windows the previous
+        # "Ensure ..." step adds pwsh.exe to GITHUB_PATH so this
+        # step finds it.
+        shell: pwsh
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          if [ -z "${GITEE_TOKEN:-}" ]; then
-            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
+          if ([string]::IsNullOrEmpty($env:GITEE_TOKEN)) {
+            '::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to ''oauth2''). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with ''terminal prompts disabled'' — the very symptom this step is meant to replace.'
             exit 1
-          fi
-          # sha256sum (Git Bash) over python3 — avoids the WindowsApps
-          # Store python3.exe stub that takes precedence on PATH.
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          FPR=$(printf '%s' "$CLEAN" | sha256sum | awk '{print substr($1,1,8)}')
-          LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
-          echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
+          }
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) so the fingerprint is stable across jobs.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($clean)
+          $hash  = [System.Security.Cryptography.SHA256]::HashData($bytes)
+          $fpr   = ($hash | ForEach-Object { $_.ToString('x2') }) -join ''
+          Write-Host "[OK] GITEE_TOKEN present (length=$($bytes.Length) bytes, sha256=$($fpr.Substring(0,8)))"
+
+      - name: Checkout from GitHub
+        # GitHub-hosted runner path. Uses stock actions/checkout@v6
+        # against the canonical github.com remote — no Gitee mirror,
+        # no DNS workaround, no GIT_ASKPASS. Mutually exclusive with
+        # the "Checkout from Gitee mirror" step below; the two ifs
+        # cover the same two runner_group values without overlap.
+        if: github.event.inputs.runner_group == 'github-hosted'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Probe Gitee reachability
+        # Cheap end-to-end probe that exercises the same network
+        # path as the upcoming `git fetch origin` step. Runs
+        # `git ls-remote <url> HEAD` and fails the step on non-zero
+        # exit. This catches:
+        #   - DNS-poisoned gitee.com (CNAME hijack to baiduads.com)
+        #   - outbound TCP:443 blocked at the corporate firewall
+        #   - Gitee CDN routing failures
+        # before we spend 30s on a doomed fetch.
+        #
+        # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
+        # runners, self-hosted Windows runners). Uses
+        # find-prerequisites.ps1's Find-GitExe helper to locate git
+        # (PATH lookup) before falling back to bash.exe-relative
+        # candidates on Windows.
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            function Find-BashLocation {
+              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
+                if (Test-Path -LiteralPath $c) { return $c }
+              }
+              return (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
+            }
+            function Find-GitExe {
+              # Cross-platform: Linux/macOS runners have `git` (no
+              # extension); Windows runners have git.exe. Try the
+              # platform-correct name first.
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $src = $pathHit.Source
+                $parent = Split-Path -Parent $src
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
+                  return $src
+                }
+              }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $src = $pathHit.Source
+                $parent = Split-Path -Parent $src
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
+                  return $src
+                }
+              }
+              $bashExe = Find-BashLocation
+              if ($bashExe) {
+                $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
+                $gitRoot = [System.IO.Path]::GetDirectoryName($bashDir)
+                foreach ($rel in @('git.exe', 'mingw64\bin\git.exe')) {
+                  $c = Join-Path $bashDir $rel
+                  if (Test-Path -LiteralPath $c) { return $c }
+                }
+                foreach ($rel in @('mingw64\bin\git.exe', 'cmd\git.exe', 'libexec\git-core\git.exe')) {
+                  $c = Join-Path $gitRoot $rel
+                  if (Test-Path -LiteralPath $c) { return $c }
+                }
+              }
+              return $null
+            }
+          }
+          $gitExe = Find-GitExe
+          if (-not $gitExe) {
+            # Print diagnostic state. Find-GitExe internally tries:
+            # PATH lookup of `git` (Linux/macOS), PATH lookup of
+            # `git.exe` (Windows), then 5 same-dir candidates relative
+            # to bash.exe's bin/. Report both PATH probes so the
+            # operator can see which platform tier failed.
+            $bashProbe = Find-BashLocation
+            $pathGit    = (Get-Command git    -ErrorAction SilentlyContinue).Source
+            $pathGitExe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
+            $os = if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') { 'Windows' } elseif ($IsMacOS) { 'macOS' } else { 'Linux' }
+            '::error::Cannot locate git on this ' + $os + ' runner. PATH `git`: ' + ($(if ($pathGit) { $pathGit } else { '(not in PATH)' })) +
+              '. PATH `git.exe`: ' + ($(if ($pathGitExe) { $pathGitExe } else { '(not in PATH)' })) +
+              '. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
+              '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
+            exit 1
+          }
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          # Probe the .git/info/refs endpoint directly — full URL,
+          # not bare-host — so the very path that the upcoming
+          # `git fetch origin` will use is what's tested. HTTP 200
+          # from this URL with valid auth means DNS + TCP:443 + TLS
+          # + oauth2 handshake all worked end-to-end.
+          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
+          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            $last = ($out | Select-Object -Last 1).ToString()
+            "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
+            exit 1
+          }
+          Write-Host "[OK] git ls-remote $probeUrl HEAD succeeded"
 
       - name: Checkout from Gitee mirror
-        shell: bash
-        timeout-minutes: 30
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
         # header with username x-access-token (the GitHub PAT
@@ -1215,315 +1332,169 @@ jobs:
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
-        # directly, using a job-scoped GIT_ASKPASS script that returns
-        # the same oauth2:<token> shape that Gitee expects.
+        # directly via pwsh, using URL-embedded credentials:
+        # https://oauth2:<token>@gitee.com/... This is more reliable
+        # than GIT_ASKPASS which can fail due to path translation
+        # issues across the pwsh/git subprocess boundary.
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
+        timeout-minutes: 30
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          REF="${{ github.event.inputs.ref || github.ref }}"
+          $ErrorActionPreference = 'Stop'
 
-          # Two channels for the manual-ref input, both possible:
-          #   1. workflow_dispatch with inputs.ref = lq_dev_multi
-          #      → REF ends up as lq_dev_multi
-          #   2. push event
-          #      → github.ref = refs/heads/<branch>
-          #      → REF ends up as refs/heads/<branch>
-          # For actions/checkout, that was fine because v6 trimmed
-          # it; here we need a "bare ref name" that works for
-          # git checkout -B and git fetch origin <ref>.
-          case "$REF" in
-            refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
-            *) SHORT_REF="$REF" ;;
-          esac
+          $ref = "${{ github.event.inputs.ref || github.ref }}"
 
-          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # git init (instead of git clone) lets us:
-          #   (a) skip the early Smart-HTTP probe that triggers the
-          #       401 in some Gitee accounts (the probe goes through
-          #       before our credential helper is consulted),
-          #   (b) avoid writing the credential into the URL ever.
-          cd "$GITHUB_WORKSPACE"
+          if ($ref -match '^refs/(heads|tags)/(.*)$') { $shortRef = $Matches[2] } else { $shortRef = $ref }
+
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) { . $helper }
+          $gitExe = Find-GitExe
+          if (-not $gitExe) {
+            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            exit 1
+          }
+
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          Set-Location $env:GITHUB_WORKSPACE
           # Nuke any stale .git left over from a prior job run on the
           # same runner. Without this, git init warns "re-init: ignored
           # --initial-branch=main" and subsequent operations can silently
           # misbehave (e.g. fetch refspecs produce no output).
-          rm -rf .git
-          git init -q -b main .
-          git remote set-url origin https://gitee.com/songszchen/eCan.ai.git 2>/dev/null || \
-            git remote add origin https://gitee.com/songszchen/eCan.ai.git
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitExe init -q -b main .
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          & $gitExe remote remove origin 2>$null
+          & $gitExe remote add origin $originUrl
 
-          # DNS pollution workaround for China-based runners.
-          # The local resolver returns a poisoned CNAME
-          # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
-          # IP, we ask a known-clean DNS server and validate the
-          # answer is a public, non-DNS-server IP — RFC1918/private
-          # ranges and the DNS servers themselves are rejected. If
-          # every clean DNS lookup fails, we deliberately do NOT
-          # write a guessed IP to the hosts file: a wrong hosts
-          # entry silently routes Gitee traffic to whoever owns
-          # that IP (often Baidu/Ads CNAMEs that respond 200 to
-          # /), which masks the real problem and produces auth
-          # failures or stale content downstream. Preferring
-          # fast-fail over silent failure here.
-          echo "[DEBUG] Resolving gitee.com via clean DNS..."
+          # Strip any leading "refs/heads/" or "refs/tags/" so the
+          # bare ref name is available for the ls-remote query.
+          if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          GITEE_IP=""
-          for DNS in 1.0.0.1 8.8.4.4 114.114.114.115; do
-            DNS_OUT=$(nslookup gitee.com "$DNS" 2>&1)
-            CANDIDATE=$(echo "$DNS_OUT" \
-                        | awk '/^Non-authoritative answer:/{found=1; next} \
-                               found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
-            case "$CANDIDATE" in
-              # Reject the DNS server IPs themselves and known
-              # RFC1918/private/loopback ranges. Anything that
-              # matches one of these came from a poisoned resolver
-              # or a captured DNS server, not gitee.com.
-              ''|\
-              8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222|\
-              10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*|127.*|0.*)
-                continue
-                ;;
-            esac
-            if [ -n "$CANDIDATE" ]; then
-              GITEE_IP="$CANDIDATE"
-              echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
-              break
-            fi
-          done
-
-          if [ -z "$GITEE_IP" ]; then
-            echo "::error::Could not resolve gitee.com via any clean DNS server (1.0.0.1, 8.8.4.4, 114.114.114.115). Every answer was either the DNS server IP itself, a RFC1918 address, or empty — typical of DNS poisoning on a China-based runner. Refusing to fall back to a hardcoded IP because a wrong hosts entry silently redirects traffic to whoever owns that IP. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+          $env:GIT_HTTP_TIMEOUT = '15000'
+          $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+          $lsExit = $LASTEXITCODE
+          if ($lsExit -ne 0) {
+            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
-          fi
-          echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
-
-
-
-          # Configure credential helper via GIT_ASKPASS (NOT inline
-          # credential.helper). The inline `!f() { ... }; f` form
-          # works on Linux but FAILS on Windows self-hosted runners:
-          # Git for Windows invokes helpers via `sh -c "..."` and
-          # PortableGit's sh is dash (not bash), which rejects
-          # `f() { ... }` function syntax with `syntax error: 'f'
-          # unexpected`. The helper then silently dies, git blocks
-          # waiting for a credential prompt, and `GIT_TERMINAL_PROMPT=0`
-          # causes ls-remote/fetch to hang for ~58 minutes until the
-          # runner forces step cancellation. This is the verified
-          # bug behind WorkflowRun #87058232932.
-          #
-          # GIT_ASKPASS executes a SCRIPT FILE with the appropriate
-          # interpreter (sh on Windows, sh on Linux), so a plain
-          # case-statement works on both platforms. `sed -i 's/\r$//'`
-          # strips any CRLF that GHA runner 2.336.0 sneaks into
-          # heredoc writes on Windows runners (actions/runner#912).
-          GIT_ASKPASS=$(mktemp)
-          cat > "$GIT_ASKPASS" <<'EOF'
-          #!/bin/sh
-          case "$1" in
-            Username*) echo 'oauth2' ;;
-            Password*) printf '%s' "$GITEE_TOKEN" ;;
-            *) echo ;;
-          esac
-          EOF
-          # Use `tr -d '\r'` instead of `sed -i 's/\r$//'`. The
-          # sed form breaks on macOS self-hosted runners: BSD
-          # sed requires `sed -i '' ...` (the empty-string
-          # backup-suffix arg is mandatory), and without it
-          # the script becomes `sed -i 's/\r$//' FILE` which
-          # BSD parses as "use 's/\r$//' as the backup suffix
-          # and treat FILE as the script" — emitting
-          # `invalid command code f` and exit 1. `tr` is
-          # POSIX, behaves identically on GNU/BSD/Git-Bash.
-          tr -d '\r' < "$GIT_ASKPASS" > "$GIT_ASKPASS.tmp" \
-            && mv "$GIT_ASKPASS.tmp" "$GIT_ASKPASS"
-          chmod 700 "$GIT_ASKPASS"
-          export GIT_ASKPASS
-          # Belt-and-suspenders: GIT_TERMINAL_PROMPT=0 still tells git
-          # to fail-fast if a credential prompt is somehow requested,
-          # but with GIT_ASKPASS set, git never asks — it just runs
-          # our script. Keep credential.helper unset to avoid the
-          # Windows-specific bug above.
-
-          # Resolve the ref to one of two shapes:
-          #   * refs/heads/<branch> — typical for push events and
-          #     workflow_dispatch refs that are branches.
-          #   * refs/tags/<tag> — typical for tag-driven runs.
-          # The full prefix is what we pass into git ls-remote and
-          # into the fetch refspec, so git always fetches into the
-          # matching local namespace (refs/heads/X stays refs/heads/X
-          # instead of landing as refs/remotes/origin/X).
-          # Probe Gitee with ls-remote before fetching. This catches
-          # "branch not mirrored yet" in seconds instead of hanging git fetch
-          # for 60s. GIT_HTTP_TIMEOUT=15s guards against a stalled Gitee
-          # connection (e.g. mainland-China DNS glitch or Gitee CDN hiccup).
-          #
-          # Strip any leading "refs/heads/" or "refs/tags/" so the bare ref
-          # name is available for the ls-remote query. Without this, a
-          # REF like "refs/heads/lq_dev_multi" would be queried as
-          # "refs/heads/refs/heads/lq_dev_multi" (double prefix → not found).
-          case "$REF" in
-            refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
-            *) BARE_REF="$REF" ;;
-          esac
-
-          # ── Network diagnostics ───────────────────────────────────────
-          # Diagnose why Windows self-hosted runners hang on gitee.com:
-          # DNS resolution, TCP connect time, and git remote URL.
-          echo "=== Network diagnostics ==="
-          echo "[1] DNS: gitee.com resolves to:"
-          nslookup gitee.com 2>&1 | grep -E "Name:|Address:|Addresses:" || echo "(nslookup unavailable)"
-          echo ""
-          echo "[2] TCP connect test (10s timeout) to gitee.com:443:"
-          START=$(date +%s)
-          if curl -s --connect-timeout 10 -o /dev/null -w "HTTP=%{http_code} time_connect=%{time_connect}s time_namelookup=%{time_namelookup}s" "https://gitee.com" 2>&1; then
-            :
-          else
-            echo " => gitee.com FAILED or TIMEOUT after 10s"
-          fi
-          END=$(date +%s)
-          echo "[3] curl elapsed: $((END-START))s"
-          echo "[4] Git remote URL: $(git remote get-url origin)"
-          echo "=== End diagnostics ==="
-          echo ""
-          GIT_TERMINAL_PROMPT=0 \
-          GIT_HTTP_TIMEOUT=15000 \
-            LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
-          # Strip the trailing sentinel
-          LS_RAW=${LS_RAW%$'\n'EXIT=*}
-          LS_EXIT=${LS_RAW##*EXIT=}
-          LS_REMOTE_OUT=${LS_RAW%EXIT=*}
-          echo "[DEBUG] ls-remote raw: '$LS_REMOTE_OUT', exit: '$LS_EXIT'"
-          FULL_REF=$(printf '%s\n' "$LS_REMOTE_OUT" \
-                     | awk 'NF==2 {print $2; exit}')
-          if [ -z "$FULL_REF" ]; then
-            echo "::error::Ref '$REF' not found on gitee.com/songszchen/eCan.ai (ls-remote said: '$LS_REMOTE_OUT', exit=$LS_EXIT). Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+          }
+          $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
+          if (-not $fullRef) {
+            "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
             exit 1
-          fi
+          }
+          Write-Host "[DEBUG] ls-remote resolved $ref -> $fullRef"
 
           # Fetch only this one ref. With --depth=1, git pulls just
-          # the commit object the ref points at. Compared to the
-          # previous +refs/heads/* +refs/tags/* refspec (one commit
-          # per ref — hundreds of objects for a repo with many
-          # user-prefixed release tags), this drops wire transfer to
-          # ~MBs instead of ~tens-of-MBs.
-          #
-          # The source:dest refspec forces the fetched commit to
-          # land at the local namespace that matches its remote
-          # namespace — so a remote refs/heads/lq_dev_multi
-          # becomes a local refs/heads/lq_dev_multi, which makes
-          # the checkout step below branch-aware without any
-          # git show-ref indirection.
-          # Guard against indefinitely hanging fetch if the remote ref does not
-          # exist (e.g. a new branch that sync-to-gitee has not yet mirrored).
-          # 60s is generous for a depth=1 fetch over Smart-HTTP.
-          GIT_TERMINAL_PROMPT=0 \
-          GIT_HTTP_TIMEOUT=60000 \
-            git -c protocol.version=2 \
-                fetch --no-tags --prune --no-recurse-submodules --depth=1 \
-                origin \
-                "$FULL_REF:$FULL_REF"
+          # the commit object the ref points at. The source:dest
+          # refspec forces the fetched commit to land at the local
+          # namespace that matches its remote namespace.
+          $env:GIT_HTTP_TIMEOUT = '60000'
+          & $gitExe -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
-          case "$FULL_REF" in
-            refs/heads/*)
-              SHORT_REF="${FULL_REF#refs/heads/}"
-              git checkout --force -B "$SHORT_REF" "$FULL_REF"
-              ;;
-            refs/tags/*)
-              # For tags, detach HEAD to leave the tree on the tag
-              # commit (no local branch ref created), matching what
-              # actions/checkout does for tag refs.
-              SHORT_REF="${FULL_REF#refs/tags/}"
-              git checkout --force "$SHORT_REF"
-              ;;
-            *)
-              echo "::error::Internal: resolved FULL_REF '$FULL_REF' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing." >&2
-              exit 1
-              ;;
-          esac
+          if ($fullRef -like 'refs/heads/*') {
+            $localShort = $fullRef.Substring('refs/heads/'.Length)
+            & $gitExe checkout --force -B $localShort $fullRef
+          } elseif ($fullRef -like 'refs/tags/*') {
+            $localShort = $fullRef.Substring('refs/tags/'.Length)
+            & $gitExe checkout --force $localShort
+          } else {
+            "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
+            exit 1
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
-
-          # Clean up the GIT_ASKPASS temp file. Belt-and-suspenders
-          # cleanup handles runner-side kill of the script without
-          # 'trap' exit (gives GHA one less secret-bearing file
-          # on disk to wipe).
-          rm -f "$GIT_ASKPASS"
+          $head = (& $gitExe rev-parse --short HEAD).Trim()
+          Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
-        shell: bash
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
         # of the appcast/last-release.json. The earlier 'Checkout from
-        # Gitee mirror' step handles its own auth via $RUNNER_TEMP/
-        # .git-askpass-gitee, so this step doesn't have to.
+        # Gitee mirror' step handles its own auth via a $env:TEMP askpass
+        # file, so this step doesn't have to.
         #
-        # We write our own credential.store file at $RUNNER_TEMP,
+        # We write our own credential.store file at $env:RUNNER_TEMP,
         # point git at it via a job-scoped GIT_CONFIG_GLOBAL
-        # (exported through $GITHUB_ENV so subsequent steps inherit
+        # (exported through $env:GITHUB_ENV so subsequent steps inherit
         # it), and let git's standard credential subsystem handle
-        # auth. Why $GITHUB_ENV instead of `git config --global`:
+        # auth. Why $env:GITHUB_ENV instead of `git config --global`:
         # on a self-hosted runner that's been used for many repos,
         # the runner's user-global .gitconfig is shared across jobs.
         # Setting credential.* there would leak our token to every
-        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
+        # other job the runner ever runs. $env:RUNNER_TEMP is per-job, so
         # the helper file is automatically GC'd at job end.
         #
         # This step MUST run after 'Checkout from Gitee mirror' —
-        # the helper script lives in the just-checked-out tree at
-        # .github/scripts/write_gitconfig_gitee.py, so running it
-        # before checkout would fail with "can't open file" (see run
-        # #86809645182 for the original failure that motivated this
-        # ordering).
+        # $env:GITHUB_WORKSPACE is the just-checked-out tree. The
+        # previous bash version also relied on the python script at
+        # .github/scripts/write_gitconfig_gitee.py, but pwsh's
+        # [IO.File]::WriteAllText + here-string sidesteps the bash
+        # LF→CRLF translation entirely, so no helper script is needed
+        # any more. The script is left in-tree for any third-party
+        # workflow that still imports it.
+        #
+        # The previous bash version routed through
+        # .github/scripts/write_gitconfig_gitee.py because `with open(...)
+        # as f:` at column 0 inside a `run: |` block trips YAML's
+        # block-mapping parser. pwsh doesn't have that ambiguity, so
+        # we inline the LF-only file write here.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
-          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
+          $ErrorActionPreference = 'Stop'
 
-          # The Python helper script reads these from os.environ; without
-          # `export`, they'd be local bash variables invisible to the
-          # python3 child process and the script would fail with
-          # "error: GITCONFIG_FILE and CREDS_FILE env vars are required".
-          export CREDS_FILE GITCONFIG_FILE
+          $credsFile    = Join-Path $env:RUNNER_TEMP '.git-credentials-gitee'
+          $gitconfigFile = Join-Path $env:RUNNER_TEMP '.gitconfig-gitee'
 
-          # The credential store format is the URL with embedded
-          # username:password. We deliberately include the scheme +
-          # host so it only matches gitee.com (not, e.g., a hypothetical
-          # future gitee enterprise tenant URL).
-          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
-          chmod 600 "$CREDS_FILE"
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) before embedding in the credentials URL.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
 
-          # Job-scoped gitconfig. We use `credential.helper = store
-          # --file=...` scoped to the gitee.com URL so other hosts (if
-          # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig. We use Python to bypass bash's
-          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
-          # file write is not affected by bash's line-ending translation.
-          # Write job-scoped gitconfig. Python's file I/O is the
-          # only way to produce LF-only output on Windows Git Bash
-          # (which translates LF→CRLF on every file write through
-          # bash). See .github/scripts/write_gitconfig_gitee.py
-          # for the full rationale. Keeping the body in a separate
-          # file avoids the YAML ambiguity that arises when
-          # `python -c '...'` content starts at column 0 and
-          # contains lines like `with open(...) as f:`.
-          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
+          # credential.store format: URL with embedded username:password.
+          # We deliberately include the scheme + host so it only matches
+          # gitee.com (not, e.g., a hypothetical future gitee enterprise
+          # tenant URL).
+          $credsLine = "https://oauth2:${clean}@gitee.com"
+          # LF-only write: .NET 8's WriteAllText on Windows writes CRLF
+          # per Environment.NewLine; .gitconfig parsed by PortableGit
+          # accepts CRLF, but writing LF keeps the file identical
+          # across all three runner platforms.
+          [System.IO.File]::WriteAllText($credsFile, ($credsLine + "`n"), [System.Text.UTF8Encoding]::new($false))
+
+          # Job-scoped gitconfig. The [credential "https://gitee.com"]
+          # section scopes the helper to gitee.com only — other hosts
+          # (if any later step needs them) aren't affected.
+          # core.autocrlf=false prevents git from re-expanding LF→CRLF
+          # on read of the credentials file (which would break the
+          # embedded newline detection in git's credential store).
+          $gitconfigBody = @"
+          [core]
+              autocrlf = false
+          [credential "https://gitee.com"]
+              helper = store --file $credsFile
+              username = oauth2
+          "@
+          [System.IO.File]::WriteAllText($gitconfigFile, ($gitconfigBody -replace '\r\n?', "`n"), [System.Text.UTF8Encoding]::new($false))
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
-          {
-            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
-          } >> "$GITHUB_ENV"
+          "GIT_CONFIG_GLOBAL=$gitconfigFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "GITEE_CREDENTIALS_FILE=$credsFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
-          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
+          Write-Host "[OK] Gitee credential helper installed at $credsFile"
+          Write-Host "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -2094,7 +2065,6 @@ jobs:
           Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Validate Gitee credentials
-        shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
         # for https://gitee.com' checkout failure.
         #
@@ -2113,23 +2083,146 @@ jobs:
         #      substitution in the secret field can add CR + LF on
         #      copy-paste). Fingerprint lets us compare across jobs /
         #      runs without leaking the token itself.
+        #
+        # Runs under pwsh (PowerShell 7). On GitHub-hosted runners
+        # (ubuntu-latest / macos-latest) pwsh 7 is preinstalled and
+        # reachable as `pwsh`. On self-hosted Windows the previous
+        # "Ensure ..." step adds pwsh.exe to GITHUB_PATH so this
+        # step finds it.
+        shell: pwsh
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          if [ -z "${GITEE_TOKEN:-}" ]; then
-            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
+          if ([string]::IsNullOrEmpty($env:GITEE_TOKEN)) {
+            '::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to ''oauth2''). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with ''terminal prompts disabled'' — the very symptom this step is meant to replace.'
             exit 1
-          fi
-          # sha256sum (Git Bash) over python3 — avoids the WindowsApps
-          # Store python3.exe stub that takes precedence on PATH.
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          FPR=$(printf '%s' "$CLEAN" | sha256sum | awk '{print substr($1,1,8)}')
-          LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
-          echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
+          }
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) so the fingerprint is stable across jobs.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($clean)
+          $hash  = [System.Security.Cryptography.SHA256]::HashData($bytes)
+          $fpr   = ($hash | ForEach-Object { $_.ToString('x2') }) -join ''
+          Write-Host "[OK] GITEE_TOKEN present (length=$($bytes.Length) bytes, sha256=$($fpr.Substring(0,8)))"
+
+      - name: Checkout from GitHub
+        # GitHub-hosted runner path. Uses stock actions/checkout@v6
+        # against the canonical github.com remote — no Gitee mirror,
+        # no DNS workaround, no GIT_ASKPASS. Mutually exclusive with
+        # the "Checkout from Gitee mirror" step below; the two ifs
+        # cover the same two runner_group values without overlap.
+        if: github.event.inputs.runner_group == 'github-hosted'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Probe Gitee reachability
+        # Cheap end-to-end probe that exercises the same network
+        # path as the upcoming `git fetch origin` step. Runs
+        # `git ls-remote <url> HEAD` and fails the step on non-zero
+        # exit. This catches:
+        #   - DNS-poisoned gitee.com (CNAME hijack to baiduads.com)
+        #   - outbound TCP:443 blocked at the corporate firewall
+        #   - Gitee CDN routing failures
+        # before we spend 30s on a doomed fetch.
+        #
+        # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
+        # runners, self-hosted Windows runners). Uses
+        # find-prerequisites.ps1's Find-GitExe helper to locate git
+        # (PATH lookup) before falling back to bash.exe-relative
+        # candidates on Windows.
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            function Find-BashLocation {
+              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
+                if (Test-Path -LiteralPath $c) { return $c }
+              }
+              return (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
+            }
+            function Find-GitExe {
+              # Cross-platform: Linux/macOS runners have `git` (no
+              # extension); Windows runners have git.exe. Try the
+              # platform-correct name first.
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $src = $pathHit.Source
+                $parent = Split-Path -Parent $src
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
+                  return $src
+                }
+              }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $src = $pathHit.Source
+                $parent = Split-Path -Parent $src
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
+                  return $src
+                }
+              }
+              $bashExe = Find-BashLocation
+              if ($bashExe) {
+                $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
+                $gitRoot = [System.IO.Path]::GetDirectoryName($bashDir)
+                foreach ($rel in @('git.exe', 'mingw64\bin\git.exe')) {
+                  $c = Join-Path $bashDir $rel
+                  if (Test-Path -LiteralPath $c) { return $c }
+                }
+                foreach ($rel in @('mingw64\bin\git.exe', 'cmd\git.exe', 'libexec\git-core\git.exe')) {
+                  $c = Join-Path $gitRoot $rel
+                  if (Test-Path -LiteralPath $c) { return $c }
+                }
+              }
+              return $null
+            }
+          }
+          $gitExe = Find-GitExe
+          if (-not $gitExe) {
+            # Print diagnostic state. Find-GitExe internally tries:
+            # PATH lookup of `git` (Linux/macOS), PATH lookup of
+            # `git.exe` (Windows), then 5 same-dir candidates relative
+            # to bash.exe's bin/. Report both PATH probes so the
+            # operator can see which platform tier failed.
+            $bashProbe = Find-BashLocation
+            $pathGit    = (Get-Command git    -ErrorAction SilentlyContinue).Source
+            $pathGitExe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
+            $os = if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') { 'Windows' } elseif ($IsMacOS) { 'macOS' } else { 'Linux' }
+            '::error::Cannot locate git on this ' + $os + ' runner. PATH `git`: ' + ($(if ($pathGit) { $pathGit } else { '(not in PATH)' })) +
+              '. PATH `git.exe`: ' + ($(if ($pathGitExe) { $pathGitExe } else { '(not in PATH)' })) +
+              '. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
+              '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
+            exit 1
+          }
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          # Probe the .git/info/refs endpoint directly — full URL,
+          # not bare-host — so the very path that the upcoming
+          # `git fetch origin` will use is what's tested. HTTP 200
+          # from this URL with valid auth means DNS + TCP:443 + TLS
+          # + oauth2 handshake all worked end-to-end.
+          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
+          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            $last = ($out | Select-Object -Last 1).ToString()
+            "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
+            exit 1
+          }
+          Write-Host "[OK] git ls-remote $probeUrl HEAD succeeded"
 
       - name: Checkout from Gitee mirror
-        shell: bash
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
         # header with username x-access-token (the GitHub PAT
@@ -2141,295 +2234,169 @@ jobs:
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
-        # directly, using a job-scoped GIT_ASKPASS script that returns
-        # the same oauth2:<token> shape that Gitee expects.
+        # directly via pwsh, using URL-embedded credentials:
+        # https://oauth2:<token>@gitee.com/... This is more reliable
+        # than GIT_ASKPASS which can fail due to path translation
+        # issues across the pwsh/git subprocess boundary.
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
+        timeout-minutes: 30
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          REF="${{ github.event.inputs.ref || github.ref }}"
+          $ErrorActionPreference = 'Stop'
 
-          # Two channels for the manual-ref input, both possible:
-          #   1. workflow_dispatch with inputs.ref = lq_dev_multi
-          #      → REF ends up as lq_dev_multi
-          #   2. push event
-          #      → github.ref = refs/heads/<branch>
-          #      → REF ends up as refs/heads/<branch>
-          # For actions/checkout, that was fine because v6 trimmed
-          # it; here we need a "bare ref name" that works for
-          # git checkout -B and git fetch origin <ref>.
-          case "$REF" in
-            refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
-            *) SHORT_REF="$REF" ;;
-          esac
+          $ref = "${{ github.event.inputs.ref || github.ref }}"
 
-          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # git init (instead of git clone) lets us:
-          #   (a) skip the early Smart-HTTP probe that triggers the
-          #       401 in some Gitee accounts (the probe goes through
-          #       before our credential helper is consulted),
-          #   (b) avoid writing the credential into the URL ever.
-          cd "$GITHUB_WORKSPACE"
+          if ($ref -match '^refs/(heads|tags)/(.*)$') { $shortRef = $Matches[2] } else { $shortRef = $ref }
+
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) { . $helper }
+          $gitExe = Find-GitExe
+          if (-not $gitExe) {
+            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            exit 1
+          }
+
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          Set-Location $env:GITHUB_WORKSPACE
           # Nuke any stale .git left over from a prior job run on the
           # same runner. Without this, git init warns "re-init: ignored
           # --initial-branch=main" and subsequent operations can silently
           # misbehave (e.g. fetch refspecs produce no output).
-          rm -rf .git
-          git init -q -b main .
-          git remote set-url origin https://gitee.com/songszchen/eCan.ai.git 2>/dev/null || \
-            git remote add origin https://gitee.com/songszchen/eCan.ai.git
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitExe init -q -b main .
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          & $gitExe remote remove origin 2>$null
+          & $gitExe remote add origin $originUrl
 
-          # DNS pollution workaround for China-based runners.
-          # The local resolver returns a poisoned CNAME
-          # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
-          # IP, we ask a known-clean DNS server and validate the
-          # answer is a public, non-DNS-server IP — RFC1918/private
-          # ranges and the DNS servers themselves are rejected. If
-          # every clean DNS lookup fails, we deliberately do NOT
-          # write a guessed IP to the hosts file: a wrong hosts
-          # entry silently routes Gitee traffic to whoever owns
-          # that IP (often Baidu/Ads CNAMEs that respond 200 to
-          # /), which masks the real problem and produces auth
-          # failures or stale content downstream. Preferring
-          # fast-fail over silent failure here.
-          echo "[DEBUG] Resolving gitee.com via clean DNS..."
+          # Strip any leading "refs/heads/" or "refs/tags/" so the
+          # bare ref name is available for the ls-remote query.
+          if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          GITEE_IP=""
-          for DNS in 1.0.0.1 8.8.4.4 114.114.114.115; do
-            DNS_OUT=$(nslookup gitee.com "$DNS" 2>&1)
-            CANDIDATE=$(echo "$DNS_OUT" \
-                        | awk '/^Non-authoritative answer:/{found=1; next} \
-                               found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
-            case "$CANDIDATE" in
-              # Reject the DNS server IPs themselves and known
-              # RFC1918/private/loopback ranges. Anything that
-              # matches one of these came from a poisoned resolver
-              # or a captured DNS server, not gitee.com.
-              ''|\
-              8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222|\
-              10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*|127.*|0.*)
-                continue
-                ;;
-            esac
-            if [ -n "$CANDIDATE" ]; then
-              GITEE_IP="$CANDIDATE"
-              echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
-              break
-            fi
-          done
-
-          if [ -z "$GITEE_IP" ]; then
-            echo "::error::Could not resolve gitee.com via any clean DNS server (1.0.0.1, 8.8.4.4, 114.114.114.115). Every answer was either the DNS server IP itself, a RFC1918 address, or empty — typical of DNS poisoning on a China-based runner. Refusing to fall back to a hardcoded IP because a wrong hosts entry silently redirects traffic to whoever owns that IP. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+          $env:GIT_HTTP_TIMEOUT = '15000'
+          $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+          $lsExit = $LASTEXITCODE
+          if ($lsExit -ne 0) {
+            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
-          fi
-          echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
-
-
-
-          # Configure credential helper via GIT_ASKPASS (NOT inline
-          # credential.helper). The inline `!f() { ... }; f` form
-          # works on Linux but FAILS on Windows self-hosted runners:
-          # Git for Windows invokes helpers via `sh -c "..."` and
-          # PortableGit's sh is dash (not bash), which rejects
-          # `f() { ... }` function syntax with `syntax error: 'f'
-          # unexpected`. The helper then silently dies, git blocks
-          # waiting for a credential prompt, and `GIT_TERMINAL_PROMPT=0`
-          # causes ls-remote/fetch to hang for ~58 minutes until the
-          # runner forces step cancellation. This is the verified
-          # bug behind WorkflowRun #87058232932.
-          #
-          # GIT_ASKPASS executes a SCRIPT FILE with the appropriate
-          # interpreter (sh on Windows, sh on Linux), so a plain
-          # case-statement works on both platforms. `sed -i 's/\r$//'`
-          # strips any CRLF that GHA runner 2.336.0 sneaks into
-          # heredoc writes on Windows runners (actions/runner#912).
-          GIT_ASKPASS=$(mktemp)
-          cat > "$GIT_ASKPASS" <<'EOF'
-          #!/bin/sh
-          case "$1" in
-            Username*) echo 'oauth2' ;;
-            Password*) printf '%s' "$GITEE_TOKEN" ;;
-            *) echo ;;
-          esac
-          EOF
-          # Use `tr -d '\r'` instead of `sed -i 's/\r$//'`. The
-          # sed form breaks on macOS self-hosted runners: BSD
-          # sed requires `sed -i '' ...` (the empty-string
-          # backup-suffix arg is mandatory), and without it
-          # the script becomes `sed -i 's/\r$//' FILE` which
-          # BSD parses as "use 's/\r$//' as the backup suffix
-          # and treat FILE as the script" — emitting
-          # `invalid command code f` and exit 1. `tr` is
-          # POSIX, behaves identically on GNU/BSD/Git-Bash.
-          tr -d '\r' < "$GIT_ASKPASS" > "$GIT_ASKPASS.tmp" \
-            && mv "$GIT_ASKPASS.tmp" "$GIT_ASKPASS"
-          chmod 700 "$GIT_ASKPASS"
-          export GIT_ASKPASS
-          # Belt-and-suspenders: GIT_TERMINAL_PROMPT=0 still tells git
-          # to fail-fast if a credential prompt is somehow requested,
-          # but with GIT_ASKPASS set, git never asks — it just runs
-          # our script. Keep credential.helper unset to avoid the
-          # Windows-specific bug above.
-
-          # Resolve the ref to one of two shapes:
-          #   * refs/heads/<branch> — typical for push events and
-          #     workflow_dispatch refs that are branches.
-          #   * refs/tags/<tag> — typical for tag-driven runs.
-          # The full prefix is what we pass into git ls-remote and
-          # into the fetch refspec, so git always fetches into the
-          # matching local namespace (refs/heads/X stays refs/heads/X
-          # instead of landing as refs/remotes/origin/X).
-          # Probe Gitee with ls-remote before fetching. This catches
-          # "branch not mirrored yet" in seconds instead of hanging git fetch
-          # for 60s. GIT_HTTP_TIMEOUT=15s guards against a stalled Gitee
-          # connection (e.g. mainland-China DNS glitch or Gitee CDN hiccup).
-          #
-          # Strip any leading "refs/heads/" or "refs/tags/" so the bare ref
-          # name is available for the ls-remote query. Without this, a
-          # REF like "refs/heads/lq_dev_multi" would be queried as
-          # "refs/heads/refs/heads/lq_dev_multi" (double prefix → not found).
-          case "$REF" in
-            refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
-            *) BARE_REF="$REF" ;;
-          esac
-          GIT_TERMINAL_PROMPT=0 \
-          GIT_HTTP_TIMEOUT=15000 \
-            LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
-          # Strip the trailing sentinel
-          LS_RAW=${LS_RAW%$'\n'EXIT=*}
-          LS_EXIT=${LS_RAW##*EXIT=}
-          LS_REMOTE_OUT=${LS_RAW%EXIT=*}
-          echo "[DEBUG] ls-remote raw: '$LS_REMOTE_OUT', exit: '$LS_EXIT'"
-          FULL_REF=$(printf '%s\n' "$LS_REMOTE_OUT" \
-                     | awk 'NF==2 {print $2; exit}')
-          if [ -z "$FULL_REF" ]; then
-            echo "::error::Ref '$REF' not found on gitee.com/songszchen/eCan.ai (ls-remote said: '$LS_REMOTE_OUT', exit=$LS_EXIT). Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+          }
+          $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
+          if (-not $fullRef) {
+            "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
             exit 1
-          fi
+          }
+          Write-Host "[DEBUG] ls-remote resolved $ref -> $fullRef"
 
           # Fetch only this one ref. With --depth=1, git pulls just
-          # the commit object the ref points at. Compared to the
-          # previous +refs/heads/* +refs/tags/* refspec (one commit
-          # per ref — hundreds of objects for a repo with many
-          # user-prefixed release tags), this drops wire transfer to
-          # ~MBs instead of ~tens-of-MBs.
-          #
-          # The source:dest refspec forces the fetched commit to
-          # land at the local namespace that matches its remote
-          # namespace — so a remote refs/heads/lq_dev_multi
-          # becomes a local refs/heads/lq_dev_multi, which makes
-          # the checkout step below branch-aware without any
-          # git show-ref indirection.
-          # Guard against indefinitely hanging fetch if the remote ref does not
-          # exist (e.g. a new branch that sync-to-gitee has not yet mirrored).
-          # 60s is generous for a depth=1 fetch over Smart-HTTP.
-          GIT_TERMINAL_PROMPT=0 \
-          GIT_HTTP_TIMEOUT=60000 \
-            git -c protocol.version=2 \
-                fetch --no-tags --prune --no-recurse-submodules --depth=1 \
-                origin \
-                "$FULL_REF:$FULL_REF"
+          # the commit object the ref points at. The source:dest
+          # refspec forces the fetched commit to land at the local
+          # namespace that matches its remote namespace.
+          $env:GIT_HTTP_TIMEOUT = '60000'
+          & $gitExe -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
-          case "$FULL_REF" in
-            refs/heads/*)
-              SHORT_REF="${FULL_REF#refs/heads/}"
-              git checkout --force -B "$SHORT_REF" "$FULL_REF"
-              ;;
-            refs/tags/*)
-              # For tags, detach HEAD to leave the tree on the tag
-              # commit (no local branch ref created), matching what
-              # actions/checkout does for tag refs.
-              SHORT_REF="${FULL_REF#refs/tags/}"
-              git checkout --force "$SHORT_REF"
-              ;;
-            *)
-              echo "::error::Internal: resolved FULL_REF '$FULL_REF' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing." >&2
-              exit 1
-              ;;
-          esac
+          if ($fullRef -like 'refs/heads/*') {
+            $localShort = $fullRef.Substring('refs/heads/'.Length)
+            & $gitExe checkout --force -B $localShort $fullRef
+          } elseif ($fullRef -like 'refs/tags/*') {
+            $localShort = $fullRef.Substring('refs/tags/'.Length)
+            & $gitExe checkout --force $localShort
+          } else {
+            "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
+            exit 1
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
-
-          # Clean up the GIT_ASKPASS temp file. Belt-and-suspenders
-          # cleanup handles runner-side kill of the script without
-          # 'trap' exit (gives GHA one less secret-bearing file
-          # on disk to wipe).
-          rm -f "$GIT_ASKPASS"
+          $head = (& $gitExe rev-parse --short HEAD).Trim()
+          Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
-        shell: bash
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
         # of the appcast/last-release.json. The earlier 'Checkout from
-        # Gitee mirror' step handles its own auth via $RUNNER_TEMP/
-        # .git-askpass-gitee, so this step doesn't have to.
+        # Gitee mirror' step handles its own auth via a $env:TEMP askpass
+        # file, so this step doesn't have to.
         #
-        # We write our own credential.store file at $RUNNER_TEMP,
+        # We write our own credential.store file at $env:RUNNER_TEMP,
         # point git at it via a job-scoped GIT_CONFIG_GLOBAL
-        # (exported through $GITHUB_ENV so subsequent steps inherit
+        # (exported through $env:GITHUB_ENV so subsequent steps inherit
         # it), and let git's standard credential subsystem handle
-        # auth. Why $GITHUB_ENV instead of `git config --global`:
+        # auth. Why $env:GITHUB_ENV instead of `git config --global`:
         # on a self-hosted runner that's been used for many repos,
         # the runner's user-global .gitconfig is shared across jobs.
         # Setting credential.* there would leak our token to every
-        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
+        # other job the runner ever runs. $env:RUNNER_TEMP is per-job, so
         # the helper file is automatically GC'd at job end.
         #
         # This step MUST run after 'Checkout from Gitee mirror' —
-        # the helper script lives in the just-checked-out tree at
-        # .github/scripts/write_gitconfig_gitee.py, so running it
-        # before checkout would fail with "can't open file" (see run
-        # #86809645182 for the original failure that motivated this
-        # ordering).
+        # $env:GITHUB_WORKSPACE is the just-checked-out tree. The
+        # previous bash version also relied on the python script at
+        # .github/scripts/write_gitconfig_gitee.py, but pwsh's
+        # [IO.File]::WriteAllText + here-string sidesteps the bash
+        # LF→CRLF translation entirely, so no helper script is needed
+        # any more. The script is left in-tree for any third-party
+        # workflow that still imports it.
+        #
+        # The previous bash version routed through
+        # .github/scripts/write_gitconfig_gitee.py because `with open(...)
+        # as f:` at column 0 inside a `run: |` block trips YAML's
+        # block-mapping parser. pwsh doesn't have that ambiguity, so
+        # we inline the LF-only file write here.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
-          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
+          $ErrorActionPreference = 'Stop'
 
-          # The Python helper script reads these from os.environ; without
-          # `export`, they'd be local bash variables invisible to the
-          # python3 child process and the script would fail with
-          # "error: GITCONFIG_FILE and CREDS_FILE env vars are required".
-          export CREDS_FILE GITCONFIG_FILE
+          $credsFile    = Join-Path $env:RUNNER_TEMP '.git-credentials-gitee'
+          $gitconfigFile = Join-Path $env:RUNNER_TEMP '.gitconfig-gitee'
 
-          # The credential store format is the URL with embedded
-          # username:password. We deliberately include the scheme +
-          # host so it only matches gitee.com (not, e.g., a hypothetical
-          # future gitee enterprise tenant URL).
-          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
-          chmod 600 "$CREDS_FILE"
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) before embedding in the credentials URL.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
 
-          # Job-scoped gitconfig. We use `credential.helper = store
-          # --file=...` scoped to the gitee.com URL so other hosts (if
-          # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig. We use Python to bypass bash's
-          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
-          # file write is not affected by bash's line-ending translation.
-          # Write job-scoped gitconfig. Python's file I/O is the
-          # only way to produce LF-only output on Windows Git Bash
-          # (which translates LF→CRLF on every file write through
-          # bash). See .github/scripts/write_gitconfig_gitee.py
-          # for the full rationale. Keeping the body in a separate
-          # file avoids the YAML ambiguity that arises when
-          # `python -c '...'` content starts at column 0 and
-          # contains lines like `with open(...) as f:`.
-          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
+          # credential.store format: URL with embedded username:password.
+          # We deliberately include the scheme + host so it only matches
+          # gitee.com (not, e.g., a hypothetical future gitee enterprise
+          # tenant URL).
+          $credsLine = "https://oauth2:${clean}@gitee.com"
+          # LF-only write: .NET 8's WriteAllText on Windows writes CRLF
+          # per Environment.NewLine; .gitconfig parsed by PortableGit
+          # accepts CRLF, but writing LF keeps the file identical
+          # across all three runner platforms.
+          [System.IO.File]::WriteAllText($credsFile, ($credsLine + "`n"), [System.Text.UTF8Encoding]::new($false))
+
+          # Job-scoped gitconfig. The [credential "https://gitee.com"]
+          # section scopes the helper to gitee.com only — other hosts
+          # (if any later step needs them) aren't affected.
+          # core.autocrlf=false prevents git from re-expanding LF→CRLF
+          # on read of the credentials file (which would break the
+          # embedded newline detection in git's credential store).
+          $gitconfigBody = @"
+          [core]
+              autocrlf = false
+          [credential "https://gitee.com"]
+              helper = store --file $credsFile
+              username = oauth2
+          "@
+          [System.IO.File]::WriteAllText($gitconfigFile, ($gitconfigBody -replace '\r\n?', "`n"), [System.Text.UTF8Encoding]::new($false))
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
-          {
-            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
-          } >> "$GITHUB_ENV"
+          "GIT_CONFIG_GLOBAL=$gitconfigFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "GITEE_CREDENTIALS_FILE=$credsFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
-          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
+          Write-Host "[OK] Gitee credential helper installed at $credsFile"
+          Write-Host "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -2793,7 +2760,6 @@ jobs:
           Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Validate Gitee credentials
-        shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
         # for https://gitee.com' checkout failure.
         #
@@ -2812,23 +2778,146 @@ jobs:
         #      substitution in the secret field can add CR + LF on
         #      copy-paste). Fingerprint lets us compare across jobs /
         #      runs without leaking the token itself.
+        #
+        # Runs under pwsh (PowerShell 7). On GitHub-hosted runners
+        # (ubuntu-latest / macos-latest) pwsh 7 is preinstalled and
+        # reachable as `pwsh`. On self-hosted Windows the previous
+        # "Ensure ..." step adds pwsh.exe to GITHUB_PATH so this
+        # step finds it.
+        shell: pwsh
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          if [ -z "${GITEE_TOKEN:-}" ]; then
-            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
+          if ([string]::IsNullOrEmpty($env:GITEE_TOKEN)) {
+            '::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to ''oauth2''). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with ''terminal prompts disabled'' — the very symptom this step is meant to replace.'
             exit 1
-          fi
-          # sha256sum (Git Bash) over python3 — avoids the WindowsApps
-          # Store python3.exe stub that takes precedence on PATH.
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          FPR=$(printf '%s' "$CLEAN" | sha256sum | awk '{print substr($1,1,8)}')
-          LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
-          echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
+          }
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) so the fingerprint is stable across jobs.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($clean)
+          $hash  = [System.Security.Cryptography.SHA256]::HashData($bytes)
+          $fpr   = ($hash | ForEach-Object { $_.ToString('x2') }) -join ''
+          Write-Host "[OK] GITEE_TOKEN present (length=$($bytes.Length) bytes, sha256=$($fpr.Substring(0,8)))"
+
+      - name: Checkout from GitHub
+        # GitHub-hosted runner path. Uses stock actions/checkout@v6
+        # against the canonical github.com remote — no Gitee mirror,
+        # no DNS workaround, no GIT_ASKPASS. Mutually exclusive with
+        # the "Checkout from Gitee mirror" step below; the two ifs
+        # cover the same two runner_group values without overlap.
+        if: github.event.inputs.runner_group == 'github-hosted'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Probe Gitee reachability
+        # Cheap end-to-end probe that exercises the same network
+        # path as the upcoming `git fetch origin` step. Runs
+        # `git ls-remote <url> HEAD` and fails the step on non-zero
+        # exit. This catches:
+        #   - DNS-poisoned gitee.com (CNAME hijack to baiduads.com)
+        #   - outbound TCP:443 blocked at the corporate firewall
+        #   - Gitee CDN routing failures
+        # before we spend 30s on a doomed fetch.
+        #
+        # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
+        # runners, self-hosted Windows runners). Uses
+        # find-prerequisites.ps1's Find-GitExe helper to locate git
+        # (PATH lookup) before falling back to bash.exe-relative
+        # candidates on Windows.
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            function Find-BashLocation {
+              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
+                if (Test-Path -LiteralPath $c) { return $c }
+              }
+              return (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
+            }
+            function Find-GitExe {
+              # Cross-platform: Linux/macOS runners have `git` (no
+              # extension); Windows runners have git.exe. Try the
+              # platform-correct name first.
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $src = $pathHit.Source
+                $parent = Split-Path -Parent $src
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
+                  return $src
+                }
+              }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $src = $pathHit.Source
+                $parent = Split-Path -Parent $src
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
+                  return $src
+                }
+              }
+              $bashExe = Find-BashLocation
+              if ($bashExe) {
+                $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
+                $gitRoot = [System.IO.Path]::GetDirectoryName($bashDir)
+                foreach ($rel in @('git.exe', 'mingw64\bin\git.exe')) {
+                  $c = Join-Path $bashDir $rel
+                  if (Test-Path -LiteralPath $c) { return $c }
+                }
+                foreach ($rel in @('mingw64\bin\git.exe', 'cmd\git.exe', 'libexec\git-core\git.exe')) {
+                  $c = Join-Path $gitRoot $rel
+                  if (Test-Path -LiteralPath $c) { return $c }
+                }
+              }
+              return $null
+            }
+          }
+          $gitExe = Find-GitExe
+          if (-not $gitExe) {
+            # Print diagnostic state. Find-GitExe internally tries:
+            # PATH lookup of `git` (Linux/macOS), PATH lookup of
+            # `git.exe` (Windows), then 5 same-dir candidates relative
+            # to bash.exe's bin/. Report both PATH probes so the
+            # operator can see which platform tier failed.
+            $bashProbe = Find-BashLocation
+            $pathGit    = (Get-Command git    -ErrorAction SilentlyContinue).Source
+            $pathGitExe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
+            $os = if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') { 'Windows' } elseif ($IsMacOS) { 'macOS' } else { 'Linux' }
+            '::error::Cannot locate git on this ' + $os + ' runner. PATH `git`: ' + ($(if ($pathGit) { $pathGit } else { '(not in PATH)' })) +
+              '. PATH `git.exe`: ' + ($(if ($pathGitExe) { $pathGitExe } else { '(not in PATH)' })) +
+              '. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
+              '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
+            exit 1
+          }
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          # Probe the .git/info/refs endpoint directly — full URL,
+          # not bare-host — so the very path that the upcoming
+          # `git fetch origin` will use is what's tested. HTTP 200
+          # from this URL with valid auth means DNS + TCP:443 + TLS
+          # + oauth2 handshake all worked end-to-end.
+          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
+          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            $last = ($out | Select-Object -Last 1).ToString()
+            "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
+            exit 1
+          }
+          Write-Host "[OK] git ls-remote $probeUrl HEAD succeeded"
 
       - name: Checkout from Gitee mirror
-        shell: bash
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
         # header with username x-access-token (the GitHub PAT
@@ -2840,295 +2929,169 @@ jobs:
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
-        # directly, using a job-scoped GIT_ASKPASS script that returns
-        # the same oauth2:<token> shape that Gitee expects.
+        # directly via pwsh, using URL-embedded credentials:
+        # https://oauth2:<token>@gitee.com/... This is more reliable
+        # than GIT_ASKPASS which can fail due to path translation
+        # issues across the pwsh/git subprocess boundary.
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
+        timeout-minutes: 30
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          REF="${{ github.event.inputs.ref || github.ref }}"
+          $ErrorActionPreference = 'Stop'
 
-          # Two channels for the manual-ref input, both possible:
-          #   1. workflow_dispatch with inputs.ref = lq_dev_multi
-          #      → REF ends up as lq_dev_multi
-          #   2. push event
-          #      → github.ref = refs/heads/<branch>
-          #      → REF ends up as refs/heads/<branch>
-          # For actions/checkout, that was fine because v6 trimmed
-          # it; here we need a "bare ref name" that works for
-          # git checkout -B and git fetch origin <ref>.
-          case "$REF" in
-            refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
-            *) SHORT_REF="$REF" ;;
-          esac
+          $ref = "${{ github.event.inputs.ref || github.ref }}"
 
-          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # git init (instead of git clone) lets us:
-          #   (a) skip the early Smart-HTTP probe that triggers the
-          #       401 in some Gitee accounts (the probe goes through
-          #       before our credential helper is consulted),
-          #   (b) avoid writing the credential into the URL ever.
-          cd "$GITHUB_WORKSPACE"
+          if ($ref -match '^refs/(heads|tags)/(.*)$') { $shortRef = $Matches[2] } else { $shortRef = $ref }
+
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) { . $helper }
+          $gitExe = Find-GitExe
+          if (-not $gitExe) {
+            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            exit 1
+          }
+
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          Set-Location $env:GITHUB_WORKSPACE
           # Nuke any stale .git left over from a prior job run on the
           # same runner. Without this, git init warns "re-init: ignored
           # --initial-branch=main" and subsequent operations can silently
           # misbehave (e.g. fetch refspecs produce no output).
-          rm -rf .git
-          git init -q -b main .
-          git remote set-url origin https://gitee.com/songszchen/eCan.ai.git 2>/dev/null || \
-            git remote add origin https://gitee.com/songszchen/eCan.ai.git
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitExe init -q -b main .
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          & $gitExe remote remove origin 2>$null
+          & $gitExe remote add origin $originUrl
 
-          # DNS pollution workaround for China-based runners.
-          # The local resolver returns a poisoned CNAME
-          # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
-          # IP, we ask a known-clean DNS server and validate the
-          # answer is a public, non-DNS-server IP — RFC1918/private
-          # ranges and the DNS servers themselves are rejected. If
-          # every clean DNS lookup fails, we deliberately do NOT
-          # write a guessed IP to the hosts file: a wrong hosts
-          # entry silently routes Gitee traffic to whoever owns
-          # that IP (often Baidu/Ads CNAMEs that respond 200 to
-          # /), which masks the real problem and produces auth
-          # failures or stale content downstream. Preferring
-          # fast-fail over silent failure here.
-          echo "[DEBUG] Resolving gitee.com via clean DNS..."
+          # Strip any leading "refs/heads/" or "refs/tags/" so the
+          # bare ref name is available for the ls-remote query.
+          if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          GITEE_IP=""
-          for DNS in 1.0.0.1 8.8.4.4 114.114.114.115; do
-            DNS_OUT=$(nslookup gitee.com "$DNS" 2>&1)
-            CANDIDATE=$(echo "$DNS_OUT" \
-                        | awk '/^Non-authoritative answer:/{found=1; next} \
-                               found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
-            case "$CANDIDATE" in
-              # Reject the DNS server IPs themselves and known
-              # RFC1918/private/loopback ranges. Anything that
-              # matches one of these came from a poisoned resolver
-              # or a captured DNS server, not gitee.com.
-              ''|\
-              8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222|\
-              10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*|127.*|0.*)
-                continue
-                ;;
-            esac
-            if [ -n "$CANDIDATE" ]; then
-              GITEE_IP="$CANDIDATE"
-              echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
-              break
-            fi
-          done
-
-          if [ -z "$GITEE_IP" ]; then
-            echo "::error::Could not resolve gitee.com via any clean DNS server (1.0.0.1, 8.8.4.4, 114.114.114.115). Every answer was either the DNS server IP itself, a RFC1918 address, or empty — typical of DNS poisoning on a China-based runner. Refusing to fall back to a hardcoded IP because a wrong hosts entry silently redirects traffic to whoever owns that IP. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+          $env:GIT_HTTP_TIMEOUT = '15000'
+          $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+          $lsExit = $LASTEXITCODE
+          if ($lsExit -ne 0) {
+            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
-          fi
-          echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
-
-
-
-          # Configure credential helper via GIT_ASKPASS (NOT inline
-          # credential.helper). The inline `!f() { ... }; f` form
-          # works on Linux but FAILS on Windows self-hosted runners:
-          # Git for Windows invokes helpers via `sh -c "..."` and
-          # PortableGit's sh is dash (not bash), which rejects
-          # `f() { ... }` function syntax with `syntax error: 'f'
-          # unexpected`. The helper then silently dies, git blocks
-          # waiting for a credential prompt, and `GIT_TERMINAL_PROMPT=0`
-          # causes ls-remote/fetch to hang for ~58 minutes until the
-          # runner forces step cancellation. This is the verified
-          # bug behind WorkflowRun #87058232932.
-          #
-          # GIT_ASKPASS executes a SCRIPT FILE with the appropriate
-          # interpreter (sh on Windows, sh on Linux), so a plain
-          # case-statement works on both platforms. `sed -i 's/\r$//'`
-          # strips any CRLF that GHA runner 2.336.0 sneaks into
-          # heredoc writes on Windows runners (actions/runner#912).
-          GIT_ASKPASS=$(mktemp)
-          cat > "$GIT_ASKPASS" <<'EOF'
-          #!/bin/sh
-          case "$1" in
-            Username*) echo 'oauth2' ;;
-            Password*) printf '%s' "$GITEE_TOKEN" ;;
-            *) echo ;;
-          esac
-          EOF
-          # Use `tr -d '\r'` instead of `sed -i 's/\r$//'`. The
-          # sed form breaks on macOS self-hosted runners: BSD
-          # sed requires `sed -i '' ...` (the empty-string
-          # backup-suffix arg is mandatory), and without it
-          # the script becomes `sed -i 's/\r$//' FILE` which
-          # BSD parses as "use 's/\r$//' as the backup suffix
-          # and treat FILE as the script" — emitting
-          # `invalid command code f` and exit 1. `tr` is
-          # POSIX, behaves identically on GNU/BSD/Git-Bash.
-          tr -d '\r' < "$GIT_ASKPASS" > "$GIT_ASKPASS.tmp" \
-            && mv "$GIT_ASKPASS.tmp" "$GIT_ASKPASS"
-          chmod 700 "$GIT_ASKPASS"
-          export GIT_ASKPASS
-          # Belt-and-suspenders: GIT_TERMINAL_PROMPT=0 still tells git
-          # to fail-fast if a credential prompt is somehow requested,
-          # but with GIT_ASKPASS set, git never asks — it just runs
-          # our script. Keep credential.helper unset to avoid the
-          # Windows-specific bug above.
-
-          # Resolve the ref to one of two shapes:
-          #   * refs/heads/<branch> — typical for push events and
-          #     workflow_dispatch refs that are branches.
-          #   * refs/tags/<tag> — typical for tag-driven runs.
-          # The full prefix is what we pass into git ls-remote and
-          # into the fetch refspec, so git always fetches into the
-          # matching local namespace (refs/heads/X stays refs/heads/X
-          # instead of landing as refs/remotes/origin/X).
-          # Probe Gitee with ls-remote before fetching. This catches
-          # "branch not mirrored yet" in seconds instead of hanging git fetch
-          # for 60s. GIT_HTTP_TIMEOUT=15s guards against a stalled Gitee
-          # connection (e.g. mainland-China DNS glitch or Gitee CDN hiccup).
-          #
-          # Strip any leading "refs/heads/" or "refs/tags/" so the bare ref
-          # name is available for the ls-remote query. Without this, a
-          # REF like "refs/heads/lq_dev_multi" would be queried as
-          # "refs/heads/refs/heads/lq_dev_multi" (double prefix → not found).
-          case "$REF" in
-            refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
-            *) BARE_REF="$REF" ;;
-          esac
-          GIT_TERMINAL_PROMPT=0 \
-          GIT_HTTP_TIMEOUT=15000 \
-            LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
-          # Strip the trailing sentinel
-          LS_RAW=${LS_RAW%$'\n'EXIT=*}
-          LS_EXIT=${LS_RAW##*EXIT=}
-          LS_REMOTE_OUT=${LS_RAW%EXIT=*}
-          echo "[DEBUG] ls-remote raw: '$LS_REMOTE_OUT', exit: '$LS_EXIT'"
-          FULL_REF=$(printf '%s\n' "$LS_REMOTE_OUT" \
-                     | awk 'NF==2 {print $2; exit}')
-          if [ -z "$FULL_REF" ]; then
-            echo "::error::Ref '$REF' not found on gitee.com/songszchen/eCan.ai (ls-remote said: '$LS_REMOTE_OUT', exit=$LS_EXIT). Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+          }
+          $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
+          if (-not $fullRef) {
+            "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
             exit 1
-          fi
+          }
+          Write-Host "[DEBUG] ls-remote resolved $ref -> $fullRef"
 
           # Fetch only this one ref. With --depth=1, git pulls just
-          # the commit object the ref points at. Compared to the
-          # previous +refs/heads/* +refs/tags/* refspec (one commit
-          # per ref — hundreds of objects for a repo with many
-          # user-prefixed release tags), this drops wire transfer to
-          # ~MBs instead of ~tens-of-MBs.
-          #
-          # The source:dest refspec forces the fetched commit to
-          # land at the local namespace that matches its remote
-          # namespace — so a remote refs/heads/lq_dev_multi
-          # becomes a local refs/heads/lq_dev_multi, which makes
-          # the checkout step below branch-aware without any
-          # git show-ref indirection.
-          # Guard against indefinitely hanging fetch if the remote ref does not
-          # exist (e.g. a new branch that sync-to-gitee has not yet mirrored).
-          # 60s is generous for a depth=1 fetch over Smart-HTTP.
-          GIT_TERMINAL_PROMPT=0 \
-          GIT_HTTP_TIMEOUT=60000 \
-            git -c protocol.version=2 \
-                fetch --no-tags --prune --no-recurse-submodules --depth=1 \
-                origin \
-                "$FULL_REF:$FULL_REF"
+          # the commit object the ref points at. The source:dest
+          # refspec forces the fetched commit to land at the local
+          # namespace that matches its remote namespace.
+          $env:GIT_HTTP_TIMEOUT = '60000'
+          & $gitExe -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
-          case "$FULL_REF" in
-            refs/heads/*)
-              SHORT_REF="${FULL_REF#refs/heads/}"
-              git checkout --force -B "$SHORT_REF" "$FULL_REF"
-              ;;
-            refs/tags/*)
-              # For tags, detach HEAD to leave the tree on the tag
-              # commit (no local branch ref created), matching what
-              # actions/checkout does for tag refs.
-              SHORT_REF="${FULL_REF#refs/tags/}"
-              git checkout --force "$SHORT_REF"
-              ;;
-            *)
-              echo "::error::Internal: resolved FULL_REF '$FULL_REF' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing." >&2
-              exit 1
-              ;;
-          esac
+          if ($fullRef -like 'refs/heads/*') {
+            $localShort = $fullRef.Substring('refs/heads/'.Length)
+            & $gitExe checkout --force -B $localShort $fullRef
+          } elseif ($fullRef -like 'refs/tags/*') {
+            $localShort = $fullRef.Substring('refs/tags/'.Length)
+            & $gitExe checkout --force $localShort
+          } else {
+            "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
+            exit 1
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
-
-          # Clean up the GIT_ASKPASS temp file. Belt-and-suspenders
-          # cleanup handles runner-side kill of the script without
-          # 'trap' exit (gives GHA one less secret-bearing file
-          # on disk to wipe).
-          rm -f "$GIT_ASKPASS"
+          $head = (& $gitExe rev-parse --short HEAD).Trim()
+          Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
-        shell: bash
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
         # of the appcast/last-release.json. The earlier 'Checkout from
-        # Gitee mirror' step handles its own auth via $RUNNER_TEMP/
-        # .git-askpass-gitee, so this step doesn't have to.
+        # Gitee mirror' step handles its own auth via a $env:TEMP askpass
+        # file, so this step doesn't have to.
         #
-        # We write our own credential.store file at $RUNNER_TEMP,
+        # We write our own credential.store file at $env:RUNNER_TEMP,
         # point git at it via a job-scoped GIT_CONFIG_GLOBAL
-        # (exported through $GITHUB_ENV so subsequent steps inherit
+        # (exported through $env:GITHUB_ENV so subsequent steps inherit
         # it), and let git's standard credential subsystem handle
-        # auth. Why $GITHUB_ENV instead of `git config --global`:
+        # auth. Why $env:GITHUB_ENV instead of `git config --global`:
         # on a self-hosted runner that's been used for many repos,
         # the runner's user-global .gitconfig is shared across jobs.
         # Setting credential.* there would leak our token to every
-        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
+        # other job the runner ever runs. $env:RUNNER_TEMP is per-job, so
         # the helper file is automatically GC'd at job end.
         #
         # This step MUST run after 'Checkout from Gitee mirror' —
-        # the helper script lives in the just-checked-out tree at
-        # .github/scripts/write_gitconfig_gitee.py, so running it
-        # before checkout would fail with "can't open file" (see run
-        # #86809645182 for the original failure that motivated this
-        # ordering).
+        # $env:GITHUB_WORKSPACE is the just-checked-out tree. The
+        # previous bash version also relied on the python script at
+        # .github/scripts/write_gitconfig_gitee.py, but pwsh's
+        # [IO.File]::WriteAllText + here-string sidesteps the bash
+        # LF→CRLF translation entirely, so no helper script is needed
+        # any more. The script is left in-tree for any third-party
+        # workflow that still imports it.
+        #
+        # The previous bash version routed through
+        # .github/scripts/write_gitconfig_gitee.py because `with open(...)
+        # as f:` at column 0 inside a `run: |` block trips YAML's
+        # block-mapping parser. pwsh doesn't have that ambiguity, so
+        # we inline the LF-only file write here.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
-          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
+          $ErrorActionPreference = 'Stop'
 
-          # The Python helper script reads these from os.environ; without
-          # `export`, they'd be local bash variables invisible to the
-          # python3 child process and the script would fail with
-          # "error: GITCONFIG_FILE and CREDS_FILE env vars are required".
-          export CREDS_FILE GITCONFIG_FILE
+          $credsFile    = Join-Path $env:RUNNER_TEMP '.git-credentials-gitee'
+          $gitconfigFile = Join-Path $env:RUNNER_TEMP '.gitconfig-gitee'
 
-          # The credential store format is the URL with embedded
-          # username:password. We deliberately include the scheme +
-          # host so it only matches gitee.com (not, e.g., a hypothetical
-          # future gitee enterprise tenant URL).
-          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
-          chmod 600 "$CREDS_FILE"
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) before embedding in the credentials URL.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
 
-          # Job-scoped gitconfig. We use `credential.helper = store
-          # --file=...` scoped to the gitee.com URL so other hosts (if
-          # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig. We use Python to bypass bash's
-          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
-          # file write is not affected by bash's line-ending translation.
-          # Write job-scoped gitconfig. Python's file I/O is the
-          # only way to produce LF-only output on Windows Git Bash
-          # (which translates LF→CRLF on every file write through
-          # bash). See .github/scripts/write_gitconfig_gitee.py
-          # for the full rationale. Keeping the body in a separate
-          # file avoids the YAML ambiguity that arises when
-          # `python -c '...'` content starts at column 0 and
-          # contains lines like `with open(...) as f:`.
-          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
+          # credential.store format: URL with embedded username:password.
+          # We deliberately include the scheme + host so it only matches
+          # gitee.com (not, e.g., a hypothetical future gitee enterprise
+          # tenant URL).
+          $credsLine = "https://oauth2:${clean}@gitee.com"
+          # LF-only write: .NET 8's WriteAllText on Windows writes CRLF
+          # per Environment.NewLine; .gitconfig parsed by PortableGit
+          # accepts CRLF, but writing LF keeps the file identical
+          # across all three runner platforms.
+          [System.IO.File]::WriteAllText($credsFile, ($credsLine + "`n"), [System.Text.UTF8Encoding]::new($false))
+
+          # Job-scoped gitconfig. The [credential "https://gitee.com"]
+          # section scopes the helper to gitee.com only — other hosts
+          # (if any later step needs them) aren't affected.
+          # core.autocrlf=false prevents git from re-expanding LF→CRLF
+          # on read of the credentials file (which would break the
+          # embedded newline detection in git's credential store).
+          $gitconfigBody = @"
+          [core]
+              autocrlf = false
+          [credential "https://gitee.com"]
+              helper = store --file $credsFile
+              username = oauth2
+          "@
+          [System.IO.File]::WriteAllText($gitconfigFile, ($gitconfigBody -replace '\r\n?', "`n"), [System.Text.UTF8Encoding]::new($false))
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
-          {
-            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
-          } >> "$GITHUB_ENV"
+          "GIT_CONFIG_GLOBAL=$gitconfigFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "GITEE_CREDENTIALS_FILE=$credsFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
-          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
+          Write-Host "[OK] Gitee credential helper installed at $credsFile"
+          Write-Host "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -3482,7 +3445,6 @@ jobs:
           Write-Host "[OK] Prerequisite check complete: Git Bash + PowerShell 7 reachable, ExecutionPolicy=$($effectiveEp)"
 
       - name: Validate Gitee credentials
-        shell: bash
         # Diagnostic guard for the 'fatal: could not read Username
         # for https://gitee.com' checkout failure.
         #
@@ -3501,23 +3463,146 @@ jobs:
         #      substitution in the secret field can add CR + LF on
         #      copy-paste). Fingerprint lets us compare across jobs /
         #      runs without leaking the token itself.
+        #
+        # Runs under pwsh (PowerShell 7). On GitHub-hosted runners
+        # (ubuntu-latest / macos-latest) pwsh 7 is preinstalled and
+        # reachable as `pwsh`. On self-hosted Windows the previous
+        # "Ensure ..." step adds pwsh.exe to GITHUB_PATH so this
+        # step finds it.
+        shell: pwsh
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          if [ -z "${GITEE_TOKEN:-}" ]; then
-            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
+          if ([string]::IsNullOrEmpty($env:GITEE_TOKEN)) {
+            '::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to ''oauth2''). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with ''terminal prompts disabled'' — the very symptom this step is meant to replace.'
             exit 1
-          fi
-          # sha256sum (Git Bash) over python3 — avoids the WindowsApps
-          # Store python3.exe stub that takes precedence on PATH.
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          FPR=$(printf '%s' "$CLEAN" | sha256sum | awk '{print substr($1,1,8)}')
-          LEN=$(printf '%s' "$CLEAN" | wc -c | tr -d ' ')
-          echo "[OK] GITEE_TOKEN present (length=${LEN} bytes, sha256=${FPR})"
+          }
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) so the fingerprint is stable across jobs.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($clean)
+          $hash  = [System.Security.Cryptography.SHA256]::HashData($bytes)
+          $fpr   = ($hash | ForEach-Object { $_.ToString('x2') }) -join ''
+          Write-Host "[OK] GITEE_TOKEN present (length=$($bytes.Length) bytes, sha256=$($fpr.Substring(0,8)))"
+
+      - name: Checkout from GitHub
+        # GitHub-hosted runner path. Uses stock actions/checkout@v6
+        # against the canonical github.com remote — no Gitee mirror,
+        # no DNS workaround, no GIT_ASKPASS. Mutually exclusive with
+        # the "Checkout from Gitee mirror" step below; the two ifs
+        # cover the same two runner_group values without overlap.
+        if: github.event.inputs.runner_group == 'github-hosted'
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Probe Gitee reachability
+        # Cheap end-to-end probe that exercises the same network
+        # path as the upcoming `git fetch origin` step. Runs
+        # `git ls-remote <url> HEAD` and fails the step on non-zero
+        # exit. This catches:
+        #   - DNS-poisoned gitee.com (CNAME hijack to baiduads.com)
+        #   - outbound TCP:443 blocked at the corporate firewall
+        #   - Gitee CDN routing failures
+        # before we spend 30s on a doomed fetch.
+        #
+        # Runs under pwsh 7 (cross-platform: ubuntu/macos GitHub-hosted
+        # runners, self-hosted Windows runners). Uses
+        # find-prerequisites.ps1's Find-GitExe helper to locate git
+        # (PATH lookup) before falling back to bash.exe-relative
+        # candidates on Windows.
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            function Find-BashLocation {
+              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
+                if (Test-Path -LiteralPath $c) { return $c }
+              }
+              return (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
+            }
+            function Find-GitExe {
+              # Cross-platform: Linux/macOS runners have `git` (no
+              # extension); Windows runners have git.exe. Try the
+              # platform-correct name first.
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $src = $pathHit.Source
+                $parent = Split-Path -Parent $src
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
+                  return $src
+                }
+              }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) {
+                $src = $pathHit.Source
+                $parent = Split-Path -Parent $src
+                if ($parent -ne "$env:SystemRoot\System32" -and $parent -ne "$env:WinDir\System32") {
+                  return $src
+                }
+              }
+              $bashExe = Find-BashLocation
+              if ($bashExe) {
+                $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
+                $gitRoot = [System.IO.Path]::GetDirectoryName($bashDir)
+                foreach ($rel in @('git.exe', 'mingw64\bin\git.exe')) {
+                  $c = Join-Path $bashDir $rel
+                  if (Test-Path -LiteralPath $c) { return $c }
+                }
+                foreach ($rel in @('mingw64\bin\git.exe', 'cmd\git.exe', 'libexec\git-core\git.exe')) {
+                  $c = Join-Path $gitRoot $rel
+                  if (Test-Path -LiteralPath $c) { return $c }
+                }
+              }
+              return $null
+            }
+          }
+          $gitExe = Find-GitExe
+          if (-not $gitExe) {
+            # Print diagnostic state. Find-GitExe internally tries:
+            # PATH lookup of `git` (Linux/macOS), PATH lookup of
+            # `git.exe` (Windows), then 5 same-dir candidates relative
+            # to bash.exe's bin/. Report both PATH probes so the
+            # operator can see which platform tier failed.
+            $bashProbe = Find-BashLocation
+            $pathGit    = (Get-Command git    -ErrorAction SilentlyContinue).Source
+            $pathGitExe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
+            $os = if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') { 'Windows' } elseif ($IsMacOS) { 'macOS' } else { 'Linux' }
+            '::error::Cannot locate git on this ' + $os + ' runner. PATH `git`: ' + ($(if ($pathGit) { $pathGit } else { '(not in PATH)' })) +
+              '. PATH `git.exe`: ' + ($(if ($pathGitExe) { $pathGitExe } else { '(not in PATH)' })) +
+              '. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
+              '. Fix: (a) On Windows: install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR re-run setup-prerequisites.ps1 §2. (b) On Linux: install git via apt-get install git (or distro equivalent). (c) On macOS: install Xcode Command Line Tools via xcode-select --install.'
+            exit 1
+          }
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $repoUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          # Probe the .git/info/refs endpoint directly — full URL,
+          # not bare-host — so the very path that the upcoming
+          # `git fetch origin` will use is what's tested. HTTP 200
+          # from this URL with valid auth means DNS + TCP:443 + TLS
+          # + oauth2 handshake all worked end-to-end.
+          $probeUrl = "$repoUrl/info/refs?service=git-upload-pack"
+          $out = & $gitExe ls-remote --exit-code $repoUrl HEAD 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            $last = ($out | Select-Object -Last 1).ToString()
+            "::error::git ls-remote $probeUrl HEAD failed (exit=$LASTEXITCODE): $last. This blocks every self-hosted release-cn job. Fix the runner host: (a) configure system DNS / DoH so gitee.com resolves to a real Gitee IP and not a baiduads CNAME hijack sink, (b) open outbound TCP:443 to gitee.com in the corporate firewall, (c) export http_proxy/https_proxy in the runner service environment."
+            exit 1
+          }
+          Write-Host "[OK] git ls-remote $probeUrl HEAD succeeded"
 
       - name: Checkout from Gitee mirror
-        shell: bash
         # Direct replacement for actions/checkout@v6, which on a
         # non-github.com server URL + PAT issues an HTTP basic-auth
         # header with username x-access-token (the GitHub PAT
@@ -3529,295 +3614,169 @@ jobs:
         # run #86639859775 for the exact failure pattern.
         #
         # We sidestep actions/checkout@v6 entirely and drive git
-        # directly, using a job-scoped GIT_ASKPASS script that returns
-        # the same oauth2:<token> shape that Gitee expects.
+        # directly via pwsh, using URL-embedded credentials:
+        # https://oauth2:<token>@gitee.com/... This is more reliable
+        # than GIT_ASKPASS which can fail due to path translation
+        # issues across the pwsh/git subprocess boundary.
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
+        timeout-minutes: 30
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          REF="${{ github.event.inputs.ref || github.ref }}"
+          $ErrorActionPreference = 'Stop'
 
-          # Two channels for the manual-ref input, both possible:
-          #   1. workflow_dispatch with inputs.ref = lq_dev_multi
-          #      → REF ends up as lq_dev_multi
-          #   2. push event
-          #      → github.ref = refs/heads/<branch>
-          #      → REF ends up as refs/heads/<branch>
-          # For actions/checkout, that was fine because v6 trimmed
-          # it; here we need a "bare ref name" that works for
-          # git checkout -B and git fetch origin <ref>.
-          case "$REF" in
-            refs/heads/*|refs/tags/*) SHORT_REF="${REF#refs/*/}" ;;
-            *) SHORT_REF="$REF" ;;
-          esac
+          $ref = "${{ github.event.inputs.ref || github.ref }}"
 
-          # Init a fresh local repo at $GITHUB_WORKSPACE. Using
-          # git init (instead of git clone) lets us:
-          #   (a) skip the early Smart-HTTP probe that triggers the
-          #       401 in some Gitee accounts (the probe goes through
-          #       before our credential helper is consulted),
-          #   (b) avoid writing the credential into the URL ever.
-          cd "$GITHUB_WORKSPACE"
+          if ($ref -match '^refs/(heads|tags)/(.*)$') { $shortRef = $Matches[2] } else { $shortRef = $ref }
+
+          $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
+          if (Test-Path -LiteralPath $helper) { . $helper }
+          $gitExe = Find-GitExe
+          if (-not $gitExe) {
+            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+            exit 1
+          }
+
+          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
+          # This is more reliable than GIT_ASKPASS which can fail due to
+          # path translation issues across pwsh/git boundary.
+          Set-Location $env:GITHUB_WORKSPACE
           # Nuke any stale .git left over from a prior job run on the
           # same runner. Without this, git init warns "re-init: ignored
           # --initial-branch=main" and subsequent operations can silently
           # misbehave (e.g. fetch refspecs produce no output).
-          rm -rf .git
-          git init -q -b main .
-          git remote set-url origin https://gitee.com/songszchen/eCan.ai.git 2>/dev/null || \
-            git remote add origin https://gitee.com/songszchen/eCan.ai.git
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $gitExe init -q -b main .
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          & $gitExe remote remove origin 2>$null
+          & $gitExe remote add origin $originUrl
 
-          # DNS pollution workaround for China-based runners.
-          # The local resolver returns a poisoned CNAME
-          # (gitee.com-XXXX.baiduads.com). To get a real gitee.com
-          # IP, we ask a known-clean DNS server and validate the
-          # answer is a public, non-DNS-server IP — RFC1918/private
-          # ranges and the DNS servers themselves are rejected. If
-          # every clean DNS lookup fails, we deliberately do NOT
-          # write a guessed IP to the hosts file: a wrong hosts
-          # entry silently routes Gitee traffic to whoever owns
-          # that IP (often Baidu/Ads CNAMEs that respond 200 to
-          # /), which masks the real problem and produces auth
-          # failures or stale content downstream. Preferring
-          # fast-fail over silent failure here.
-          echo "[DEBUG] Resolving gitee.com via clean DNS..."
+          # Strip any leading "refs/heads/" or "refs/tags/" so the
+          # bare ref name is available for the ls-remote query.
+          if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          GITEE_IP=""
-          for DNS in 1.0.0.1 8.8.4.4 114.114.114.115; do
-            DNS_OUT=$(nslookup gitee.com "$DNS" 2>&1)
-            CANDIDATE=$(echo "$DNS_OUT" \
-                        | awk '/^Non-authoritative answer:/{found=1; next} \
-                               found && /^Address: / && !/#/ && !/\.$/ {print $2; exit}')
-            case "$CANDIDATE" in
-              # Reject the DNS server IPs themselves and known
-              # RFC1918/private/loopback ranges. Anything that
-              # matches one of these came from a poisoned resolver
-              # or a captured DNS server, not gitee.com.
-              ''|\
-              8.8.8.8|8.8.4.4|1.0.0.1|1.1.1.1|114.114.114.115|114.114.115.115|208.67.222.222|\
-              10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*|192.168.*|127.*|0.*)
-                continue
-                ;;
-            esac
-            if [ -n "$CANDIDATE" ]; then
-              GITEE_IP="$CANDIDATE"
-              echo "[DEBUG] Using gitee.com IP from $DNS: $GITEE_IP"
-              break
-            fi
-          done
-
-          if [ -z "$GITEE_IP" ]; then
-            echo "::error::Could not resolve gitee.com via any clean DNS server (1.0.0.1, 8.8.4.4, 114.114.114.115). Every answer was either the DNS server IP itself, a RFC1918 address, or empty — typical of DNS poisoning on a China-based runner. Refusing to fall back to a hardcoded IP because a wrong hosts entry silently redirects traffic to whoever owns that IP. Fix the runner's resolver or route DNS through a clean upstream, then re-run." >&2
+          $env:GIT_HTTP_TIMEOUT = '15000'
+          $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+          $lsExit = $LASTEXITCODE
+          if ($lsExit -ne 0) {
+            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
-          fi
-          echo "[OK] Resolved gitee.com -> $GITEE_IP (clean DNS)"
-
-
-
-          # Configure credential helper via GIT_ASKPASS (NOT inline
-          # credential.helper). The inline `!f() { ... }; f` form
-          # works on Linux but FAILS on Windows self-hosted runners:
-          # Git for Windows invokes helpers via `sh -c "..."` and
-          # PortableGit's sh is dash (not bash), which rejects
-          # `f() { ... }` function syntax with `syntax error: 'f'
-          # unexpected`. The helper then silently dies, git blocks
-          # waiting for a credential prompt, and `GIT_TERMINAL_PROMPT=0`
-          # causes ls-remote/fetch to hang for ~58 minutes until the
-          # runner forces step cancellation. This is the verified
-          # bug behind WorkflowRun #87058232932.
-          #
-          # GIT_ASKPASS executes a SCRIPT FILE with the appropriate
-          # interpreter (sh on Windows, sh on Linux), so a plain
-          # case-statement works on both platforms. `sed -i 's/\r$//'`
-          # strips any CRLF that GHA runner 2.336.0 sneaks into
-          # heredoc writes on Windows runners (actions/runner#912).
-          GIT_ASKPASS=$(mktemp)
-          cat > "$GIT_ASKPASS" <<'EOF'
-          #!/bin/sh
-          case "$1" in
-            Username*) echo 'oauth2' ;;
-            Password*) printf '%s' "$GITEE_TOKEN" ;;
-            *) echo ;;
-          esac
-          EOF
-          # Use `tr -d '\r'` instead of `sed -i 's/\r$//'`. The
-          # sed form breaks on macOS self-hosted runners: BSD
-          # sed requires `sed -i '' ...` (the empty-string
-          # backup-suffix arg is mandatory), and without it
-          # the script becomes `sed -i 's/\r$//' FILE` which
-          # BSD parses as "use 's/\r$//' as the backup suffix
-          # and treat FILE as the script" — emitting
-          # `invalid command code f` and exit 1. `tr` is
-          # POSIX, behaves identically on GNU/BSD/Git-Bash.
-          tr -d '\r' < "$GIT_ASKPASS" > "$GIT_ASKPASS.tmp" \
-            && mv "$GIT_ASKPASS.tmp" "$GIT_ASKPASS"
-          chmod 700 "$GIT_ASKPASS"
-          export GIT_ASKPASS
-          # Belt-and-suspenders: GIT_TERMINAL_PROMPT=0 still tells git
-          # to fail-fast if a credential prompt is somehow requested,
-          # but with GIT_ASKPASS set, git never asks — it just runs
-          # our script. Keep credential.helper unset to avoid the
-          # Windows-specific bug above.
-
-          # Resolve the ref to one of two shapes:
-          #   * refs/heads/<branch> — typical for push events and
-          #     workflow_dispatch refs that are branches.
-          #   * refs/tags/<tag> — typical for tag-driven runs.
-          # The full prefix is what we pass into git ls-remote and
-          # into the fetch refspec, so git always fetches into the
-          # matching local namespace (refs/heads/X stays refs/heads/X
-          # instead of landing as refs/remotes/origin/X).
-          # Probe Gitee with ls-remote before fetching. This catches
-          # "branch not mirrored yet" in seconds instead of hanging git fetch
-          # for 60s. GIT_HTTP_TIMEOUT=15s guards against a stalled Gitee
-          # connection (e.g. mainland-China DNS glitch or Gitee CDN hiccup).
-          #
-          # Strip any leading "refs/heads/" or "refs/tags/" so the bare ref
-          # name is available for the ls-remote query. Without this, a
-          # REF like "refs/heads/lq_dev_multi" would be queried as
-          # "refs/heads/refs/heads/lq_dev_multi" (double prefix → not found).
-          case "$REF" in
-            refs/heads/*|refs/tags/*) BARE_REF="${REF#refs/*/}" ;;
-            *) BARE_REF="$REF" ;;
-          esac
-          GIT_TERMINAL_PROMPT=0 \
-          GIT_HTTP_TIMEOUT=15000 \
-            LS_RAW=$(git ls-remote --exit-code origin "refs/heads/$BARE_REF" "refs/tags/$BARE_REF" 2>&1; echo "EXIT=$?")
-          # Strip the trailing sentinel
-          LS_RAW=${LS_RAW%$'\n'EXIT=*}
-          LS_EXIT=${LS_RAW##*EXIT=}
-          LS_REMOTE_OUT=${LS_RAW%EXIT=*}
-          echo "[DEBUG] ls-remote raw: '$LS_REMOTE_OUT', exit: '$LS_EXIT'"
-          FULL_REF=$(printf '%s\n' "$LS_REMOTE_OUT" \
-                     | awk 'NF==2 {print $2; exit}')
-          if [ -z "$FULL_REF" ]; then
-            echo "::error::Ref '$REF' not found on gitee.com/songszchen/eCan.ai (ls-remote said: '$LS_REMOTE_OUT', exit=$LS_EXIT). Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule." >&2
+          }
+          $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
+          if (-not $fullRef) {
+            "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
             exit 1
-          fi
+          }
+          Write-Host "[DEBUG] ls-remote resolved $ref -> $fullRef"
 
           # Fetch only this one ref. With --depth=1, git pulls just
-          # the commit object the ref points at. Compared to the
-          # previous +refs/heads/* +refs/tags/* refspec (one commit
-          # per ref — hundreds of objects for a repo with many
-          # user-prefixed release tags), this drops wire transfer to
-          # ~MBs instead of ~tens-of-MBs.
-          #
-          # The source:dest refspec forces the fetched commit to
-          # land at the local namespace that matches its remote
-          # namespace — so a remote refs/heads/lq_dev_multi
-          # becomes a local refs/heads/lq_dev_multi, which makes
-          # the checkout step below branch-aware without any
-          # git show-ref indirection.
-          # Guard against indefinitely hanging fetch if the remote ref does not
-          # exist (e.g. a new branch that sync-to-gitee has not yet mirrored).
-          # 60s is generous for a depth=1 fetch over Smart-HTTP.
-          GIT_TERMINAL_PROMPT=0 \
-          GIT_HTTP_TIMEOUT=60000 \
-            git -c protocol.version=2 \
-                fetch --no-tags --prune --no-recurse-submodules --depth=1 \
-                origin \
-                "$FULL_REF:$FULL_REF"
+          # the commit object the ref points at. The source:dest
+          # refspec forces the fetched commit to land at the local
+          # namespace that matches its remote namespace.
+          $env:GIT_HTTP_TIMEOUT = '60000'
+          & $gitExe -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
-          case "$FULL_REF" in
-            refs/heads/*)
-              SHORT_REF="${FULL_REF#refs/heads/}"
-              git checkout --force -B "$SHORT_REF" "$FULL_REF"
-              ;;
-            refs/tags/*)
-              # For tags, detach HEAD to leave the tree on the tag
-              # commit (no local branch ref created), matching what
-              # actions/checkout does for tag refs.
-              SHORT_REF="${FULL_REF#refs/tags/}"
-              git checkout --force "$SHORT_REF"
-              ;;
-            *)
-              echo "::error::Internal: resolved FULL_REF '$FULL_REF' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing." >&2
-              exit 1
-              ;;
-          esac
+          if ($fullRef -like 'refs/heads/*') {
+            $localShort = $fullRef.Substring('refs/heads/'.Length)
+            & $gitExe checkout --force -B $localShort $fullRef
+          } elseif ($fullRef -like 'refs/tags/*') {
+            $localShort = $fullRef.Substring('refs/tags/'.Length)
+            & $gitExe checkout --force $localShort
+          } else {
+            "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
+            exit 1
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          echo "[OK] Checked out $REF at $(git rev-parse --short HEAD)"
-
-          # Clean up the GIT_ASKPASS temp file. Belt-and-suspenders
-          # cleanup handles runner-side kill of the script without
-          # 'trap' exit (gives GHA one less secret-bearing file
-          # on disk to wipe).
-          rm -f "$GIT_ASKPASS"
+          $head = (& $gitExe rev-parse --short HEAD).Trim()
+          Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
-        shell: bash
+        if: github.event.inputs.runner_group != 'github-hosted'
+        shell: pwsh
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
         # of the appcast/last-release.json. The earlier 'Checkout from
-        # Gitee mirror' step handles its own auth via $RUNNER_TEMP/
-        # .git-askpass-gitee, so this step doesn't have to.
+        # Gitee mirror' step handles its own auth via a $env:TEMP askpass
+        # file, so this step doesn't have to.
         #
-        # We write our own credential.store file at $RUNNER_TEMP,
+        # We write our own credential.store file at $env:RUNNER_TEMP,
         # point git at it via a job-scoped GIT_CONFIG_GLOBAL
-        # (exported through $GITHUB_ENV so subsequent steps inherit
+        # (exported through $env:GITHUB_ENV so subsequent steps inherit
         # it), and let git's standard credential subsystem handle
-        # auth. Why $GITHUB_ENV instead of `git config --global`:
+        # auth. Why $env:GITHUB_ENV instead of `git config --global`:
         # on a self-hosted runner that's been used for many repos,
         # the runner's user-global .gitconfig is shared across jobs.
         # Setting credential.* there would leak our token to every
-        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
+        # other job the runner ever runs. $env:RUNNER_TEMP is per-job, so
         # the helper file is automatically GC'd at job end.
         #
         # This step MUST run after 'Checkout from Gitee mirror' —
-        # the helper script lives in the just-checked-out tree at
-        # .github/scripts/write_gitconfig_gitee.py, so running it
-        # before checkout would fail with "can't open file" (see run
-        # #86809645182 for the original failure that motivated this
-        # ordering).
+        # $env:GITHUB_WORKSPACE is the just-checked-out tree. The
+        # previous bash version also relied on the python script at
+        # .github/scripts/write_gitconfig_gitee.py, but pwsh's
+        # [IO.File]::WriteAllText + here-string sidesteps the bash
+        # LF→CRLF translation entirely, so no helper script is needed
+        # any more. The script is left in-tree for any third-party
+        # workflow that still imports it.
+        #
+        # The previous bash version routed through
+        # .github/scripts/write_gitconfig_gitee.py because `with open(...)
+        # as f:` at column 0 inside a `run: |` block trips YAML's
+        # block-mapping parser. pwsh doesn't have that ambiguity, so
+        # we inline the LF-only file write here.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          set -euo pipefail
-          CLEAN=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
-          CREDS_FILE="$RUNNER_TEMP/.git-credentials-gitee"
-          GITCONFIG_FILE="$RUNNER_TEMP/.gitconfig-gitee"
+          $ErrorActionPreference = 'Stop'
 
-          # The Python helper script reads these from os.environ; without
-          # `export`, they'd be local bash variables invisible to the
-          # python3 child process and the script would fail with
-          # "error: GITCONFIG_FILE and CREDS_FILE env vars are required".
-          export CREDS_FILE GITCONFIG_FILE
+          $credsFile    = Join-Path $env:RUNNER_TEMP '.git-credentials-gitee'
+          $gitconfigFile = Join-Path $env:RUNNER_TEMP '.gitconfig-gitee'
 
-          # The credential store format is the URL with embedded
-          # username:password. We deliberately include the scheme +
-          # host so it only matches gitee.com (not, e.g., a hypothetical
-          # future gitee enterprise tenant URL).
-          printf 'https://oauth2:%s@gitee.com\n' "$CLEAN" > "$CREDS_FILE"
-          chmod 600 "$CREDS_FILE"
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) before embedding in the credentials URL.
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
 
-          # Job-scoped gitconfig. We use `credential.helper = store
-          # --file=...` scoped to the gitee.com URL so other hosts (if
-          # any later step needs them) aren't affected.
-          # Write job-scoped gitconfig. We use Python to bypass bash's
-          # text-mode \\r\\n expansion on Windows GitHub runners. Python's
-          # file write is not affected by bash's line-ending translation.
-          # Write job-scoped gitconfig. Python's file I/O is the
-          # only way to produce LF-only output on Windows Git Bash
-          # (which translates LF→CRLF on every file write through
-          # bash). See .github/scripts/write_gitconfig_gitee.py
-          # for the full rationale. Keeping the body in a separate
-          # file avoids the YAML ambiguity that arises when
-          # `python -c '...'` content starts at column 0 and
-          # contains lines like `with open(...) as f:`.
-          python3 "$GITHUB_WORKSPACE/.github/scripts/write_gitconfig_gitee.py"
+          # credential.store format: URL with embedded username:password.
+          # We deliberately include the scheme + host so it only matches
+          # gitee.com (not, e.g., a hypothetical future gitee enterprise
+          # tenant URL).
+          $credsLine = "https://oauth2:${clean}@gitee.com"
+          # LF-only write: .NET 8's WriteAllText on Windows writes CRLF
+          # per Environment.NewLine; .gitconfig parsed by PortableGit
+          # accepts CRLF, but writing LF keeps the file identical
+          # across all three runner platforms.
+          [System.IO.File]::WriteAllText($credsFile, ($credsLine + "`n"), [System.Text.UTF8Encoding]::new($false))
+
+          # Job-scoped gitconfig. The [credential "https://gitee.com"]
+          # section scopes the helper to gitee.com only — other hosts
+          # (if any later step needs them) aren't affected.
+          # core.autocrlf=false prevents git from re-expanding LF→CRLF
+          # on read of the credentials file (which would break the
+          # embedded newline detection in git's credential store).
+          $gitconfigBody = @"
+          [core]
+              autocrlf = false
+          [credential "https://gitee.com"]
+              helper = store --file $credsFile
+              username = oauth2
+          "@
+          [System.IO.File]::WriteAllText($gitconfigFile, ($gitconfigBody -replace '\r\n?', "`n"), [System.Text.UTF8Encoding]::new($false))
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
-          {
-            echo "GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
-            echo "GITEE_CREDENTIALS_FILE=$CREDS_FILE"
-          } >> "$GITHUB_ENV"
+          "GIT_CONFIG_GLOBAL=$gitconfigFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "GITEE_CREDENTIALS_FILE=$credsFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-          echo "[OK] Gitee credential helper installed at $CREDS_FILE"
-          echo "       git will use GIT_CONFIG_GLOBAL=$GITCONFIG_FILE"
+          Write-Host "[OK] Gitee credential helper installed at $credsFile"
+          Write-Host "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
