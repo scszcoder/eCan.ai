@@ -963,7 +963,21 @@ jobs:
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $shortRef = $Matches[2] } else { $shortRef = $ref }
 
           $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
-          if (Test-Path -LiteralPath $helper) { . $helper }
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            # Inline fallback for older checkouts or when checkout didn't happen.
+            function Find-GitExe {
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              foreach ($c in @("$env:ProgramFiles\Git\bin\git.exe","${env:ProgramFiles(x86)}\Git\bin\git.exe","$env:LOCALAPPDATA\Programs\Git\bin\git.exe")) {
+                if (Test-Path $c) { return $c }
+              }
+              return $null
+            }
+          }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
             '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
@@ -1762,7 +1776,21 @@ jobs:
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $shortRef = $Matches[2] } else { $shortRef = $ref }
 
           $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
-          if (Test-Path -LiteralPath $helper) { . $helper }
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            # Inline fallback for older checkouts or when checkout didn't happen.
+            function Find-GitExe {
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              foreach ($c in @("$env:ProgramFiles\Git\bin\git.exe","${env:ProgramFiles(x86)}\Git\bin\git.exe","$env:LOCALAPPDATA\Programs\Git\bin\git.exe")) {
+                if (Test-Path $c) { return $c }
+              }
+              return $null
+            }
+          }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
             '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
@@ -2354,7 +2382,21 @@ jobs:
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $shortRef = $Matches[2] } else { $shortRef = $ref }
 
           $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
-          if (Test-Path -LiteralPath $helper) { . $helper }
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            # Inline fallback for older checkouts or when checkout didn't happen.
+            function Find-GitExe {
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              foreach ($c in @("$env:ProgramFiles\Git\bin\git.exe","${env:ProgramFiles(x86)}\Git\bin\git.exe","$env:LOCALAPPDATA\Programs\Git\bin\git.exe")) {
+                if (Test-Path $c) { return $c }
+              }
+              return $null
+            }
+          }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
             '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
@@ -2936,7 +2978,21 @@ jobs:
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $shortRef = $Matches[2] } else { $shortRef = $ref }
 
           $helper = Join-Path $env:GITHUB_WORKSPACE 'build_system/scripts/runner/find-prerequisites.ps1'
-          if (Test-Path -LiteralPath $helper) { . $helper }
+          if (Test-Path -LiteralPath $helper) {
+            . $helper
+          } else {
+            # Inline fallback for older checkouts or when checkout didn't happen.
+            function Find-GitExe {
+              $pathHit = Get-Command git -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
+              foreach ($c in @("$env:ProgramFiles\Git\bin\git.exe","${env:ProgramFiles(x86)}\Git\bin\git.exe","$env:LOCALAPPDATA\Programs\Git\bin\git.exe")) {
+                if (Test-Path $c) { return $c }
+              }
+              return $null
+            }
+          }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
             '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
