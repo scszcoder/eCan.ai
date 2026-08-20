@@ -640,6 +640,16 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             except Exception:
                 pass
 
+            # CN-only SSE display streaming: run concurrently with the
+            # blocking cloud relay below. Deltas render in the panel's
+            # streaming status line; the canonical response replaces them.
+            _sse_stop = None
+            try:
+                from gui.ipc.w2p_handlers.llm_display_stream import start_display_stream
+                _sse_stop = start_display_stream(session_id, f"sse-{uuid.uuid4()}", content)
+            except Exception as _sse_err:
+                logger.debug(f"[SkillEditorChat] Display stream not started: {_sse_err}")
+
             cloud_result = relay_send_message(
                 session_id=session_id,
                 content=content,
@@ -648,6 +658,10 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 clarification_responses=parsed_clarification if isinstance(parsed_clarification, dict) else None,
                 flowgram_id=p.get("flowgramId"),
             )
+            # Stop display streaming before any stream_end / fallback push so
+            # a late chunk can't overwrite the finalized message state.
+            if _sse_stop is not None:
+                _sse_stop.set()
             if cloud_result is not None:
                 logger.info(
                     f"[SkillEditorChat] Cloud send_message OK: state={cloud_result.get('state')}, "
@@ -895,7 +909,47 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             }
         )
         _chat_store.add_message(session_id, user_message)
-        
+
+        # If no usable local LLM is configured (placeholder/missing API key),
+        # don't run the agent — every LLM call would 401 and the pipeline
+        # would emit a fake "Here is the workflow I'm planning to build"
+        # template. Return a clear unavailable notice instead.
+        if not _local_llm_usable():
+            logger.warning(
+                "[SkillEditorChat] Local fallback skipped: no usable local LLM "
+                "(API key missing or placeholder)"
+            )
+            unavailable_text = (
+                "⚠️ Chat service unavailable — the cloud chat backend could not "
+                "process this request, and no local LLM API key is configured "
+                "for fallback. Please try again later, or configure an LLM "
+                "provider in Settings to enable local chat."
+            )
+            assistant_message = ChatMessage(
+                id=str(uuid.uuid4()),
+                role=ChatRole.ASSISTANT,
+                content=unavailable_text,
+                timestamp=int(time.time() * 1000),
+                metadata={"backendUnavailable": True},
+            )
+            _chat_store.add_message(session_id, assistant_message)
+            try:
+                from gui.ipc.api import IPCAPI
+                IPCAPI.get_instance().push_skill_editor_chat_done(
+                    session_id=session_id,
+                    message_id=assistant_message.id,
+                    full_content=unavailable_text,
+                )
+            except Exception:
+                pass
+            return create_success_response(request, {
+                "message": asdict(assistant_message),
+                "sessionId": session_id,
+                "sessionName": session.name,
+                "state": "complete",
+                "intent": None,
+            })
+
         # Mark generation as active
         _chat_store.set_generation_active(session_id, True)
 
@@ -1542,6 +1596,23 @@ def handle_delete_session(request: IPCRequest, params: Optional[Dict[str, Any]])
 
 # Flag to control whether to use the full LLM agent or fallback responses
 USE_LLM_AGENT = True
+
+
+def _local_llm_usable() -> bool:
+    """True when the local SkillEditorAgent has a real LLM configured.
+
+    An LLM instance created without an API key gets a placeholder key and is
+    marked ``_needs_onboarding`` by ``pick_llm``; running the agent with it
+    just 401s on every call.
+    """
+    try:
+        from agent.skill_editor import get_skill_editor_agent
+        from agent.ec_skills.llm_utils.llm_utils import needs_onboarding
+        llm = get_skill_editor_agent().planner.llm
+        return llm is not None and not needs_onboarding(llm)
+    except Exception as e:
+        logger.warning(f"[SkillEditorChat] Local LLM availability check failed: {e}")
+        return False
 
 
 def _process_chat_message(
