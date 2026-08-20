@@ -181,27 +181,25 @@ function Find-BashLocation {
 # `git ls-remote` is the probe used by both the runner-setup
 # (setup-prerequisites.ps1 §7) and the release-cn checkout step
 # (release-cn.yml "Probe Gitee reachability"). On every supported
-# install layout (Git for Windows MSI, scoop, choco, portable),
-# git.exe lives in the same bin/ directory as bash.exe. We start
-# from bash.exe to inherit the same probe logic, then look one
-# directory up for mingw64/bin/git.exe and the same directory
-# for git.exe (Git for Windows puts git.exe in bin/, mingw64/
-# for newer versions).
+# install layout (Git for Windows MSI, scoop, choco, portable,
+# winget), git.exe lives in the same bin/ directory as bash.exe OR
+# one directory up in mingw64/bin/ (newer Git for Windows split the
+# native binaries into mingw64/). We start from bash.exe to inherit
+# the same probe logic, then expand to PATH search so an install
+# where bash.exe and git.exe ended up in different bins still works.
+#
+# Returns $null on miss. Callers should treat that as a hard error,
+# not a silent skip — git is required for the Gitee checkout.
 # ---------------------------------------------------------------------------
 function Find-GitExe {
     [CmdletBinding()]
     [OutputType([string])]
     param()
 
-    $bashExe = Find-BashLocation
-    if (-not $bashExe) { return $null }
-    $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
-    # Git for Windows: bin/git.exe (older) OR mingw64/bin/git.exe (newer).
-    foreach ($rel in @('git.exe', 'mingw64\bin\git.exe')) {
-        $candidate = Join-Path $bashDir $rel
-        if (Test-Path -LiteralPath $candidate) { return $candidate }
-    }
-    # Last-resort: PATH lookup, filtered to avoid the System32 WSL shadow.
+    # (0) Try the System32-free PATH lookup FIRST. This handles the
+    #     common case where git is installed (via winget, choco, or
+    #     manual add-to-PATH) but bash.exe somehow isn't — the Gitee
+    #     checkout only needs git, not bash. Returns early.
     $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
     if ($pathHit) {
         $src = $pathHit.Source
@@ -210,6 +208,26 @@ function Find-GitExe {
             return $src
         }
     }
+
+    # (1) Same-directory candidates relative to bash.exe's bin/.
+    #     Covers Git for Windows MSI (mingw64 layout), scoop, choco,
+    #     winget, and the older GfW layout where git.exe ships in bin/.
+    $bashExe = Find-BashLocation
+    if ($bashExe) {
+        $bashDir = [System.IO.Path]::GetDirectoryName($bashExe)
+        $gitRoot = [System.IO.Path]::GetDirectoryName($bashDir)
+        $candidates = @(
+            (Join-Path $bashDir     'git.exe'),              # MSI bin/, scoop, choco
+            (Join-Path $bashDir     'mingw64\bin\git.exe'),  # newer MSI mingw64/
+            (Join-Path $gitRoot     'mingw64\bin\git.exe'),  # if bash is in bin/, root is the install dir
+            (Join-Path $gitRoot     'cmd\git.exe'),          # very old GfW placed git in cmd/
+            (Join-Path $gitRoot     'libexec\git-core\git.exe') # pre-2.x source-tree layout
+        )
+        foreach ($c in $candidates) {
+            if ($c -and (Test-Path -LiteralPath $c)) { return $c }
+        }
+    }
+
     return $null
 }
 

@@ -485,7 +485,18 @@ jobs:
           }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
-            '::error::Cannot locate git.exe. Setup-prerequisites.ps1 §2 or the "Ensure Git Bash + PowerShell 7" preflight above should have placed git.exe next to bash.exe. Re-run the preflight; if that also fails, install Git for Windows manually (https://git-scm.com/download/win).'
+            # Print diagnostic state so the operator can fix the runner
+            # host without re-running the whole job. Find-GitExe
+            # internally already tries (in order) PATH lookup (filtered
+            # to skip System32 WSL shadow), then 5 same-dir candidates
+            # relative to bash.exe's bin/. If all fail the layout is
+            # non-standard and the operator needs to see exactly what
+            # we checked.
+            $bashProbe = Find-BashLocation
+            $pathProbe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
+            '::error::Cannot locate git.exe. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
+              '. PATH git.exe: ' + ($(if ($pathProbe) { $pathProbe } else { '(not in PATH)' })) +
+              '. Checked bin/git.exe, bin/mingw64/bin/git.exe, mingw64/bin/git.exe, cmd/git.exe, libexec/git-core/git.exe relative to bash.exe. Fix: (a) install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR (b) re-run setup-prerequisites.ps1 §2 which auto-installs Git for Windows to the canonical path and forwards it to SYSTEM PATH.'
             exit 1
           }
           $probeUrl = 'https://gitee.com/songszchen/eCan.ai.git'
@@ -1248,7 +1259,18 @@ jobs:
           }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
-            '::error::Cannot locate git.exe. Setup-prerequisites.ps1 §2 or the "Ensure Git Bash + PowerShell 7" preflight above should have placed git.exe next to bash.exe. Re-run the preflight; if that also fails, install Git for Windows manually (https://git-scm.com/download/win).'
+            # Print diagnostic state so the operator can fix the runner
+            # host without re-running the whole job. Find-GitExe
+            # internally already tries (in order) PATH lookup (filtered
+            # to skip System32 WSL shadow), then 5 same-dir candidates
+            # relative to bash.exe's bin/. If all fail the layout is
+            # non-standard and the operator needs to see exactly what
+            # we checked.
+            $bashProbe = Find-BashLocation
+            $pathProbe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
+            '::error::Cannot locate git.exe. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
+              '. PATH git.exe: ' + ($(if ($pathProbe) { $pathProbe } else { '(not in PATH)' })) +
+              '. Checked bin/git.exe, bin/mingw64/bin/git.exe, mingw64/bin/git.exe, cmd/git.exe, libexec/git-core/git.exe relative to bash.exe. Fix: (a) install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR (b) re-run setup-prerequisites.ps1 §2 which auto-installs Git for Windows to the canonical path and forwards it to SYSTEM PATH.'
             exit 1
           }
           $probeUrl = 'https://gitee.com/songszchen/eCan.ai.git'
@@ -2138,7 +2160,18 @@ jobs:
           }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
-            '::error::Cannot locate git.exe. Setup-prerequisites.ps1 §2 or the "Ensure Git Bash + PowerShell 7" preflight above should have placed git.exe next to bash.exe. Re-run the preflight; if that also fails, install Git for Windows manually (https://git-scm.com/download/win).'
+            # Print diagnostic state so the operator can fix the runner
+            # host without re-running the whole job. Find-GitExe
+            # internally already tries (in order) PATH lookup (filtered
+            # to skip System32 WSL shadow), then 5 same-dir candidates
+            # relative to bash.exe's bin/. If all fail the layout is
+            # non-standard and the operator needs to see exactly what
+            # we checked.
+            $bashProbe = Find-BashLocation
+            $pathProbe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
+            '::error::Cannot locate git.exe. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
+              '. PATH git.exe: ' + ($(if ($pathProbe) { $pathProbe } else { '(not in PATH)' })) +
+              '. Checked bin/git.exe, bin/mingw64/bin/git.exe, mingw64/bin/git.exe, cmd/git.exe, libexec/git-core/git.exe relative to bash.exe. Fix: (a) install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR (b) re-run setup-prerequisites.ps1 §2 which auto-installs Git for Windows to the canonical path and forwards it to SYSTEM PATH.'
             exit 1
           }
           $probeUrl = 'https://gitee.com/songszchen/eCan.ai.git'
@@ -2821,7 +2854,18 @@ jobs:
           }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
-            '::error::Cannot locate git.exe. Setup-prerequisites.ps1 §2 or the "Ensure Git Bash + PowerShell 7" preflight above should have placed git.exe next to bash.exe. Re-run the preflight; if that also fails, install Git for Windows manually (https://git-scm.com/download/win).'
+            # Print diagnostic state so the operator can fix the runner
+            # host without re-running the whole job. Find-GitExe
+            # internally already tries (in order) PATH lookup (filtered
+            # to skip System32 WSL shadow), then 5 same-dir candidates
+            # relative to bash.exe's bin/. If all fail the layout is
+            # non-standard and the operator needs to see exactly what
+            # we checked.
+            $bashProbe = Find-BashLocation
+            $pathProbe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
+            '::error::Cannot locate git.exe. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
+              '. PATH git.exe: ' + ($(if ($pathProbe) { $pathProbe } else { '(not in PATH)' })) +
+              '. Checked bin/git.exe, bin/mingw64/bin/git.exe, mingw64/bin/git.exe, cmd/git.exe, libexec/git-core/git.exe relative to bash.exe. Fix: (a) install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR (b) re-run setup-prerequisites.ps1 §2 which auto-installs Git for Windows to the canonical path and forwards it to SYSTEM PATH.'
             exit 1
           }
           $probeUrl = 'https://gitee.com/songszchen/eCan.ai.git'
@@ -3494,7 +3538,18 @@ jobs:
           }
           $gitExe = Find-GitExe
           if (-not $gitExe) {
-            '::error::Cannot locate git.exe. Setup-prerequisites.ps1 §2 or the "Ensure Git Bash + PowerShell 7" preflight above should have placed git.exe next to bash.exe. Re-run the preflight; if that also fails, install Git for Windows manually (https://git-scm.com/download/win).'
+            # Print diagnostic state so the operator can fix the runner
+            # host without re-running the whole job. Find-GitExe
+            # internally already tries (in order) PATH lookup (filtered
+            # to skip System32 WSL shadow), then 5 same-dir candidates
+            # relative to bash.exe's bin/. If all fail the layout is
+            # non-standard and the operator needs to see exactly what
+            # we checked.
+            $bashProbe = Find-BashLocation
+            $pathProbe = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
+            '::error::Cannot locate git.exe. Bash.exe probe: ' + ($(if ($bashProbe) { $bashProbe } else { '(not found)' })) +
+              '. PATH git.exe: ' + ($(if ($pathProbe) { $pathProbe } else { '(not in PATH)' })) +
+              '. Checked bin/git.exe, bin/mingw64/bin/git.exe, mingw64/bin/git.exe, cmd/git.exe, libexec/git-core/git.exe relative to bash.exe. Fix: (a) install Git for Windows (https://git-scm.com/download/win) and ensure its bin/ directory is in $env:Path, OR (b) re-run setup-prerequisites.ps1 §2 which auto-installs Git for Windows to the canonical path and forwards it to SYSTEM PATH.'
             exit 1
           }
           $probeUrl = 'https://gitee.com/songszchen/eCan.ai.git'
