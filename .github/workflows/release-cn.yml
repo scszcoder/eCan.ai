@@ -1092,10 +1092,24 @@ jobs:
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
           & $gitCmd config --global http.timeout 15
+          # GIT_TRACE lets us see exactly which phase of the HTTP exchange
+          # is hanging (resolve / connect / TLS / request / response). If
+          # ls-remote fails with no output, this trace is the only signal.
+          $env:GIT_TRACE = '1'
+          $env:GIT_TRACE_SETUP = '1'
+          $env:GIT_CURL_VERBOSE = '1'
+          Write-Host "[DEBUG] About to invoke: & $gitCmd ls-remote --exit-code origin refs/heads/$bareRef refs/tags/$bareRef"
           $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
+          Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
-            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            # Guard against $lsRaw being null/empty: Select-Object -Last 1
+            # returns $null, and calling .ToString() on $null under
+            # $ErrorActionPreference='Stop' throws NullReferenceException,
+            # which terminates the step before the ::error:: line is
+            # written. Coalesce to '' so the error always renders.
+            $last = ''
+            if ($lsRaw) { $last = ($lsRaw | Select-Object -Last 1).ToString() }
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
@@ -1993,10 +2007,24 @@ jobs:
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
           & $gitCmd config --global http.timeout 15
+          # GIT_TRACE lets us see exactly which phase of the HTTP exchange
+          # is hanging (resolve / connect / TLS / request / response). If
+          # ls-remote fails with no output, this trace is the only signal.
+          $env:GIT_TRACE = '1'
+          $env:GIT_TRACE_SETUP = '1'
+          $env:GIT_CURL_VERBOSE = '1'
+          Write-Host "[DEBUG] About to invoke: & $gitCmd ls-remote --exit-code origin refs/heads/$bareRef refs/tags/$bareRef"
           $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
+          Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
-            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            # Guard against $lsRaw being null/empty: Select-Object -Last 1
+            # returns $null, and calling .ToString() on $null under
+            # $ErrorActionPreference='Stop' throws NullReferenceException,
+            # which terminates the step before the ::error:: line is
+            # written. Coalesce to '' so the error always renders.
+            $last = ''
+            if ($lsRaw) { $last = ($lsRaw | Select-Object -Last 1).ToString() }
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
@@ -2687,10 +2715,24 @@ jobs:
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
           & $gitCmd config --global http.timeout 15
+          # GIT_TRACE lets us see exactly which phase of the HTTP exchange
+          # is hanging (resolve / connect / TLS / request / response). If
+          # ls-remote fails with no output, this trace is the only signal.
+          $env:GIT_TRACE = '1'
+          $env:GIT_TRACE_SETUP = '1'
+          $env:GIT_CURL_VERBOSE = '1'
+          Write-Host "[DEBUG] About to invoke: & $gitCmd ls-remote --exit-code origin refs/heads/$bareRef refs/tags/$bareRef"
           $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
+          Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
-            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            # Guard against $lsRaw being null/empty: Select-Object -Last 1
+            # returns $null, and calling .ToString() on $null under
+            # $ErrorActionPreference='Stop' throws NullReferenceException,
+            # which terminates the step before the ::error:: line is
+            # written. Coalesce to '' so the error always renders.
+            $last = ''
+            if ($lsRaw) { $last = ($lsRaw | Select-Object -Last 1).ToString() }
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
@@ -3371,10 +3413,24 @@ jobs:
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
           & $gitCmd config --global http.timeout 15
+          # GIT_TRACE lets us see exactly which phase of the HTTP exchange
+          # is hanging (resolve / connect / TLS / request / response). If
+          # ls-remote fails with no output, this trace is the only signal.
+          $env:GIT_TRACE = '1'
+          $env:GIT_TRACE_SETUP = '1'
+          $env:GIT_CURL_VERBOSE = '1'
+          Write-Host "[DEBUG] About to invoke: & $gitCmd ls-remote --exit-code origin refs/heads/$bareRef refs/tags/$bareRef"
           $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
+          Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
-            $last = ($lsRaw | Select-Object -Last 1).ToString()
+            # Guard against $lsRaw being null/empty: Select-Object -Last 1
+            # returns $null, and calling .ToString() on $null under
+            # $ErrorActionPreference='Stop' throws NullReferenceException,
+            # which terminates the step before the ::error:: line is
+            # written. Coalesce to '' so the error always renders.
+            $last = ''
+            if ($lsRaw) { $last = ($lsRaw | Select-Object -Last 1).ToString() }
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
