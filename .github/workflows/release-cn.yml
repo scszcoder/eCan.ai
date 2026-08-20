@@ -1006,7 +1006,7 @@ jobs:
             & $bashExe $scriptFile 2>&1
             $exitCode = $LASTEXITCODE
             Remove-Item $scriptFile -Force -ErrorAction SilentlyContinue
-            if ($exitCode -ne 0) { exit $exitCode }
+            # Don't exit here; let the caller decide based on $LASTEXITCODE
           }
 
           # Credential helper approach: write the token to a per-job credentials
@@ -1078,13 +1078,15 @@ jobs:
           }
 
           $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git ls-remote --exit-code origin 'refs/heads/$bareRef' 'refs/tags/$bareRef'"
+          $lsRaw = Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git ls-remote --exit-code origin 'refs/heads/$bareRef' 'refs/tags/$bareRef' 2>/dev/null"
           $lsExit = $LASTEXITCODE
           if ($lsExit -ne 0) {
             $last = ($lsRaw | Select-Object -Last 1).ToString()
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
+          # Filter out any non-commit-hash lines (e.g. git security warnings, progress messages)
+          $lsRaw = $lsRaw | Where-Object { $_ -match '^[0-9a-f]{7,40}\s+' }
           $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
           if (-not $fullRef) {
             "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
@@ -1893,7 +1895,7 @@ jobs:
             & $bashExe $scriptFile 2>&1
             $exitCode = $LASTEXITCODE
             Remove-Item $scriptFile -Force -ErrorAction SilentlyContinue
-            if ($exitCode -ne 0) { exit $exitCode }
+            # Don't exit here; let the caller decide based on $LASTEXITCODE
           }
 
           # Credential helper approach: write the token to a per-job credentials
@@ -1965,13 +1967,15 @@ jobs:
           }
 
           $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git ls-remote --exit-code origin 'refs/heads/$bareRef' 'refs/tags/$bareRef'"
+          $lsRaw = Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git ls-remote --exit-code origin 'refs/heads/$bareRef' 'refs/tags/$bareRef' 2>/dev/null"
           $lsExit = $LASTEXITCODE
           if ($lsExit -ne 0) {
             $last = ($lsRaw | Select-Object -Last 1).ToString()
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
+          # Filter out any non-commit-hash lines (e.g. git security warnings, progress messages)
+          $lsRaw = $lsRaw | Where-Object { $_ -match '^[0-9a-f]{7,40}\s+' }
           $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
           if (-not $fullRef) {
             "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
@@ -2573,7 +2577,7 @@ jobs:
             & $bashExe $scriptFile 2>&1
             $exitCode = $LASTEXITCODE
             Remove-Item $scriptFile -Force -ErrorAction SilentlyContinue
-            if ($exitCode -ne 0) { exit $exitCode }
+            # Don't exit here; let the caller decide based on $LASTEXITCODE
           }
 
           # Credential helper approach: write the token to a per-job credentials
@@ -2645,13 +2649,15 @@ jobs:
           }
 
           $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git ls-remote --exit-code origin 'refs/heads/$bareRef' 'refs/tags/$bareRef'"
+          $lsRaw = Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git ls-remote --exit-code origin 'refs/heads/$bareRef' 'refs/tags/$bareRef' 2>/dev/null"
           $lsExit = $LASTEXITCODE
           if ($lsExit -ne 0) {
             $last = ($lsRaw | Select-Object -Last 1).ToString()
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
+          # Filter out any non-commit-hash lines (e.g. git security warnings, progress messages)
+          $lsRaw = $lsRaw | Where-Object { $_ -match '^[0-9a-f]{7,40}\s+' }
           $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
           if (-not $fullRef) {
             "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
@@ -3243,7 +3249,7 @@ jobs:
             & $bashExe $scriptFile 2>&1
             $exitCode = $LASTEXITCODE
             Remove-Item $scriptFile -Force -ErrorAction SilentlyContinue
-            if ($exitCode -ne 0) { exit $exitCode }
+            # Don't exit here; let the caller decide based on $LASTEXITCODE
           }
 
           # Credential helper approach: write the token to a per-job credentials
@@ -3315,13 +3321,15 @@ jobs:
           }
 
           $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git ls-remote --exit-code origin 'refs/heads/$bareRef' 'refs/tags/$bareRef'"
+          $lsRaw = Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git ls-remote --exit-code origin 'refs/heads/$bareRef' 'refs/tags/$bareRef' 2>/dev/null"
           $lsExit = $LASTEXITCODE
           if ($lsExit -ne 0) {
             $last = ($lsRaw | Select-Object -Last 1).ToString()
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
+          # Filter out any non-commit-hash lines (e.g. git security warnings, progress messages)
+          $lsRaw = $lsRaw | Where-Object { $_ -match '^[0-9a-f]{7,40}\s+' }
           $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
           if (-not $fullRef) {
             "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
