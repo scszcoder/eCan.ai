@@ -984,24 +984,63 @@ jobs:
             exit 1
           }
 
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
+          # Credential helper approach: write the token to a per-job credentials
+          # file at $env:RUNNER_TEMP and tell git to use it via
+          # GIT_CONFIG_GLOBAL. This avoids the shell-quoting and URL-parse
+          # issues that plague URL-embedded credentials (the previous approach).
+          # $env:RUNNER_TEMP is job-scoped, so the file is GC'd at job end.
           Set-Location $env:GITHUB_WORKSPACE
-          # Nuke any stale .git left over from a prior job run on the
-          # same runner. Without this, git init warns "re-init: ignored
-          # --initial-branch=main" and subsequent operations can silently
-          # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
+
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+
+          $credsFile     = Join-Path $env:RUNNER_TEMP ('gitee-cred-' + [System.IO.Path]::GetRandomFileName())
+          $gitconfigFile = Join-Path $env:RUNNER_TEMP ('gitee-gitconfig-' + [System.IO.Path]::GetRandomFileName())
+
+          # credential.store format: one line per host, URL with username:password.
+          # The trailing LF is written explicitly so there is no platform newline
+          # ambiguity when the file is parsed by git's store helper.
+          [System.IO.File]::WriteAllText($credsFile, "https://oauth2:${clean}@gitee.com`n", [System.Text.UTF8Encoding]::new($false))
+
+          # Job-scoped gitconfig: only gitee.com uses this helper.
+          # Use string concatenation instead of a heredoc to avoid YAML
+          # indentation issues (heredoc content must be at column 0 to not
+          # confuse the YAML block scalar parser).
+          $nl = [Environment]::NewLine
+          $gitconfigBody = "[credential]$($nl)    helper = store --file `"$credsFile`"$($nl)$($nl)[core]$($nl)    autocrlf = false$($nl)"
+          [System.IO.File]::WriteAllText($gitconfigFile, $gitconfigBody, [System.Text.UTF8Encoding]::new($false))
+
+          $env:GIT_CONFIG_GLOBAL = $gitconfigFile
+          $env:GIT_TERMINAL_PROMPT = '0'
+
           & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
+          & $gitExe remote add origin https://gitee.com/songszchen/eCan.ai.git
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
+
+          # DNS override: runner's DNS may be poisoned (gitee.com resolved
+          # to baiduads or other sink). Use a known-good IP resolved via
+          # Google's public DNS (8.8.8.8) and tell git to use it via
+          # GIT_EXTERNAL_IP. This avoids git's own DNS resolution which
+          # inherits the poisoned system resolver.
+          $dnsServer = '8.8.8.8'
+          try {
+            $dnsResult = Resolve-DnsName -Name 'gitee.com' -Type A -Server $dnsServer -ErrorAction Stop | Select-Object -First 1
+            $giteeIp = $dnsResult.IPAddress
+            Write-Host "[DNS] gitee.com resolved via $dnsServer -> $giteeIp"
+          } catch {
+            "::error::Cannot resolve gitee.com via $dnsServer. Public DNS unreachable from this runner."
+            exit 1
+          }
+          $env:GIT_EXTERNAL_IP = $giteeIp
+
+          # Append DNS override to gitconfig: tell git to connect to the
+          # correct IP for gitee.com instead of using poisoned system DNS.
+          $httpSection = "[http `"https://gitee.com/`"$($nl)    connectHost = $giteeIp$($nl)"
+          [System.IO.File]::AppendAllText($gitconfigFile, $httpSection, [System.Text.UTF8Encoding]::new($false))
 
           # Probe TCP:443 to gitee.com before attempting git ls-remote.
           # If the runner can't reach gitee.com (corporate firewall / DNS
@@ -1819,24 +1858,63 @@ jobs:
             exit 1
           }
 
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
+          # Credential helper approach: write the token to a per-job credentials
+          # file at $env:RUNNER_TEMP and tell git to use it via
+          # GIT_CONFIG_GLOBAL. This avoids the shell-quoting and URL-parse
+          # issues that plague URL-embedded credentials (the previous approach).
+          # $env:RUNNER_TEMP is job-scoped, so the file is GC'd at job end.
           Set-Location $env:GITHUB_WORKSPACE
-          # Nuke any stale .git left over from a prior job run on the
-          # same runner. Without this, git init warns "re-init: ignored
-          # --initial-branch=main" and subsequent operations can silently
-          # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
+
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+
+          $credsFile     = Join-Path $env:RUNNER_TEMP ('gitee-cred-' + [System.IO.Path]::GetRandomFileName())
+          $gitconfigFile = Join-Path $env:RUNNER_TEMP ('gitee-gitconfig-' + [System.IO.Path]::GetRandomFileName())
+
+          # credential.store format: one line per host, URL with username:password.
+          # The trailing LF is written explicitly so there is no platform newline
+          # ambiguity when the file is parsed by git's store helper.
+          [System.IO.File]::WriteAllText($credsFile, "https://oauth2:${clean}@gitee.com`n", [System.Text.UTF8Encoding]::new($false))
+
+          # Job-scoped gitconfig: only gitee.com uses this helper.
+          # Use string concatenation instead of a heredoc to avoid YAML
+          # indentation issues (heredoc content must be at column 0 to not
+          # confuse the YAML block scalar parser).
+          $nl = [Environment]::NewLine
+          $gitconfigBody = "[credential]$($nl)    helper = store --file `"$credsFile`"$($nl)$($nl)[core]$($nl)    autocrlf = false$($nl)"
+          [System.IO.File]::WriteAllText($gitconfigFile, $gitconfigBody, [System.Text.UTF8Encoding]::new($false))
+
+          $env:GIT_CONFIG_GLOBAL = $gitconfigFile
+          $env:GIT_TERMINAL_PROMPT = '0'
+
           & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
+          & $gitExe remote add origin https://gitee.com/songszchen/eCan.ai.git
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
+
+          # DNS override: runner's DNS may be poisoned (gitee.com resolved
+          # to baiduads or other sink). Use a known-good IP resolved via
+          # Google's public DNS (8.8.8.8) and tell git to use it via
+          # GIT_EXTERNAL_IP. This avoids git's own DNS resolution which
+          # inherits the poisoned system resolver.
+          $dnsServer = '8.8.8.8'
+          try {
+            $dnsResult = Resolve-DnsName -Name 'gitee.com' -Type A -Server $dnsServer -ErrorAction Stop | Select-Object -First 1
+            $giteeIp = $dnsResult.IPAddress
+            Write-Host "[DNS] gitee.com resolved via $dnsServer -> $giteeIp"
+          } catch {
+            "::error::Cannot resolve gitee.com via $dnsServer. Public DNS unreachable from this runner."
+            exit 1
+          }
+          $env:GIT_EXTERNAL_IP = $giteeIp
+
+          # Append DNS override to gitconfig: tell git to connect to the
+          # correct IP for gitee.com instead of using poisoned system DNS.
+          $httpSection = "[http `"https://gitee.com/`"$($nl)    connectHost = $giteeIp$($nl)"
+          [System.IO.File]::AppendAllText($gitconfigFile, $httpSection, [System.Text.UTF8Encoding]::new($false))
 
           # Probe TCP:443 to gitee.com before attempting git ls-remote.
           # If the runner can't reach gitee.com (corporate firewall / DNS
@@ -2447,24 +2525,63 @@ jobs:
             exit 1
           }
 
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
+          # Credential helper approach: write the token to a per-job credentials
+          # file at $env:RUNNER_TEMP and tell git to use it via
+          # GIT_CONFIG_GLOBAL. This avoids the shell-quoting and URL-parse
+          # issues that plague URL-embedded credentials (the previous approach).
+          # $env:RUNNER_TEMP is job-scoped, so the file is GC'd at job end.
           Set-Location $env:GITHUB_WORKSPACE
-          # Nuke any stale .git left over from a prior job run on the
-          # same runner. Without this, git init warns "re-init: ignored
-          # --initial-branch=main" and subsequent operations can silently
-          # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
+
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+
+          $credsFile     = Join-Path $env:RUNNER_TEMP ('gitee-cred-' + [System.IO.Path]::GetRandomFileName())
+          $gitconfigFile = Join-Path $env:RUNNER_TEMP ('gitee-gitconfig-' + [System.IO.Path]::GetRandomFileName())
+
+          # credential.store format: one line per host, URL with username:password.
+          # The trailing LF is written explicitly so there is no platform newline
+          # ambiguity when the file is parsed by git's store helper.
+          [System.IO.File]::WriteAllText($credsFile, "https://oauth2:${clean}@gitee.com`n", [System.Text.UTF8Encoding]::new($false))
+
+          # Job-scoped gitconfig: only gitee.com uses this helper.
+          # Use string concatenation instead of a heredoc to avoid YAML
+          # indentation issues (heredoc content must be at column 0 to not
+          # confuse the YAML block scalar parser).
+          $nl = [Environment]::NewLine
+          $gitconfigBody = "[credential]$($nl)    helper = store --file `"$credsFile`"$($nl)$($nl)[core]$($nl)    autocrlf = false$($nl)"
+          [System.IO.File]::WriteAllText($gitconfigFile, $gitconfigBody, [System.Text.UTF8Encoding]::new($false))
+
+          $env:GIT_CONFIG_GLOBAL = $gitconfigFile
+          $env:GIT_TERMINAL_PROMPT = '0'
+
           & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
+          & $gitExe remote add origin https://gitee.com/songszchen/eCan.ai.git
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
+
+          # DNS override: runner's DNS may be poisoned (gitee.com resolved
+          # to baiduads or other sink). Use a known-good IP resolved via
+          # Google's public DNS (8.8.8.8) and tell git to use it via
+          # GIT_EXTERNAL_IP. This avoids git's own DNS resolution which
+          # inherits the poisoned system resolver.
+          $dnsServer = '8.8.8.8'
+          try {
+            $dnsResult = Resolve-DnsName -Name 'gitee.com' -Type A -Server $dnsServer -ErrorAction Stop | Select-Object -First 1
+            $giteeIp = $dnsResult.IPAddress
+            Write-Host "[DNS] gitee.com resolved via $dnsServer -> $giteeIp"
+          } catch {
+            "::error::Cannot resolve gitee.com via $dnsServer. Public DNS unreachable from this runner."
+            exit 1
+          }
+          $env:GIT_EXTERNAL_IP = $giteeIp
+
+          # Append DNS override to gitconfig: tell git to connect to the
+          # correct IP for gitee.com instead of using poisoned system DNS.
+          $httpSection = "[http `"https://gitee.com/`"$($nl)    connectHost = $giteeIp$($nl)"
+          [System.IO.File]::AppendAllText($gitconfigFile, $httpSection, [System.Text.UTF8Encoding]::new($false))
 
           # Probe TCP:443 to gitee.com before attempting git ls-remote.
           # If the runner can't reach gitee.com (corporate firewall / DNS
@@ -3065,24 +3182,63 @@ jobs:
             exit 1
           }
 
-          # Use URL-embedded credentials: Gitee accepts oauth2:<token>@ format.
-          # This is more reliable than GIT_ASKPASS which can fail due to
-          # path translation issues across pwsh/git boundary.
+          # Credential helper approach: write the token to a per-job credentials
+          # file at $env:RUNNER_TEMP and tell git to use it via
+          # GIT_CONFIG_GLOBAL. This avoids the shell-quoting and URL-parse
+          # issues that plague URL-embedded credentials (the previous approach).
+          # $env:RUNNER_TEMP is job-scoped, so the file is GC'd at job end.
           Set-Location $env:GITHUB_WORKSPACE
-          # Nuke any stale .git left over from a prior job run on the
-          # same runner. Without this, git init warns "re-init: ignored
-          # --initial-branch=main" and subsequent operations can silently
-          # misbehave (e.g. fetch refspecs produce no output).
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
+
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+
+          $credsFile     = Join-Path $env:RUNNER_TEMP ('gitee-cred-' + [System.IO.Path]::GetRandomFileName())
+          $gitconfigFile = Join-Path $env:RUNNER_TEMP ('gitee-gitconfig-' + [System.IO.Path]::GetRandomFileName())
+
+          # credential.store format: one line per host, URL with username:password.
+          # The trailing LF is written explicitly so there is no platform newline
+          # ambiguity when the file is parsed by git's store helper.
+          [System.IO.File]::WriteAllText($credsFile, "https://oauth2:${clean}@gitee.com`n", [System.Text.UTF8Encoding]::new($false))
+
+          # Job-scoped gitconfig: only gitee.com uses this helper.
+          # Use string concatenation instead of a heredoc to avoid YAML
+          # indentation issues (heredoc content must be at column 0 to not
+          # confuse the YAML block scalar parser).
+          $nl = [Environment]::NewLine
+          $gitconfigBody = "[credential]$($nl)    helper = store --file `"$credsFile`"$($nl)$($nl)[core]$($nl)    autocrlf = false$($nl)"
+          [System.IO.File]::WriteAllText($gitconfigFile, $gitconfigBody, [System.Text.UTF8Encoding]::new($false))
+
+          $env:GIT_CONFIG_GLOBAL = $gitconfigFile
+          $env:GIT_TERMINAL_PROMPT = '0'
+
           & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
+          & $gitExe remote add origin https://gitee.com/songszchen/eCan.ai.git
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
+
+          # DNS override: runner's DNS may be poisoned (gitee.com resolved
+          # to baiduads or other sink). Use a known-good IP resolved via
+          # Google's public DNS (8.8.8.8) and tell git to use it via
+          # GIT_EXTERNAL_IP. This avoids git's own DNS resolution which
+          # inherits the poisoned system resolver.
+          $dnsServer = '8.8.8.8'
+          try {
+            $dnsResult = Resolve-DnsName -Name 'gitee.com' -Type A -Server $dnsServer -ErrorAction Stop | Select-Object -First 1
+            $giteeIp = $dnsResult.IPAddress
+            Write-Host "[DNS] gitee.com resolved via $dnsServer -> $giteeIp"
+          } catch {
+            "::error::Cannot resolve gitee.com via $dnsServer. Public DNS unreachable from this runner."
+            exit 1
+          }
+          $env:GIT_EXTERNAL_IP = $giteeIp
+
+          # Append DNS override to gitconfig: tell git to connect to the
+          # correct IP for gitee.com instead of using poisoned system DNS.
+          $httpSection = "[http `"https://gitee.com/`"$($nl)    connectHost = $giteeIp$($nl)"
+          [System.IO.File]::AppendAllText($gitconfigFile, $httpSection, [System.Text.UTF8Encoding]::new($false))
 
           # Probe TCP:443 to gitee.com before attempting git ls-remote.
           # If the runner can't reach gitee.com (corporate firewall / DNS
