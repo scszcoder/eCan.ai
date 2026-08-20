@@ -25,6 +25,7 @@ import { chatStateManager } from './managers/ChatStateManager';
 import { eventBus } from '@/utils/eventBus';
 import { UserStorageManager } from '@/services/storage/UserStorageManager';
 import { subscribeToA2AChannel } from '@/services/web/appSyncSubscriptions';
+import { streamChatCompletion, fetchLlmStreamConfig } from '@/services/llmStream';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
@@ -316,6 +317,44 @@ const ChatPage: React.FC = () => {
         logger.info('[Chat] Subscribing to A2A channel:', activeChatId);
         subscribeToA2AChannel(activeChatId);
     }, [activeChatId]);
+
+    // --- SSE display streaming (optional; final message stays canonical) ---
+    // Tracks the in-flight display stream and its temporary assistant bubble.
+    // The persisted assistant message delivered by chatter (WS subscription /
+    // local push) REPLACES the temp bubble — SSE is display-progress only.
+    const llmStreamRef = useRef<{ chatId: string; tempId: string; abort: AbortController } | null>(null);
+
+    const removeTempStreamBubble = useCallback((chatId: string, tempId: string) => {
+        messageManager.setMessages(
+            chatId,
+            messageManager.getMessages(chatId).filter(m => m.id !== tempId)
+        );
+    }, []);
+
+    // Replace the temp bubble when the persisted assistant message arrives,
+    // on either inbound path (desktop: chat:newMessage, web: a2a:message).
+    useEffect(() => {
+        const clearOnFinalAssistant = (params: any) => {
+            const stream = llmStreamRef.current;
+            if (!stream) return;
+            const msg = params?.message && params?.chatId !== undefined ? params.message : params;
+            const chatId = params?.chatId || msg?.chatId || msg?.channelId;
+            if (chatId !== stream.chatId) return;
+            const role = msg?.role || msg?.message?.role;
+            if (role !== 'assistant' && role !== 'agent') return;
+            if (msg?.id === stream.tempId) return;
+            logger.info('[Chat] Persisted assistant message arrived — replacing SSE temp bubble');
+            stream.abort.abort();
+            llmStreamRef.current = null;
+            removeTempStreamBubble(stream.chatId, stream.tempId);
+        };
+        eventBus.on('chat:newMessage', clearOnFinalAssistant);
+        eventBus.on('a2a:message', clearOnFinalAssistant);
+        return () => {
+            eventBus.off('chat:newMessage', clearOnFinalAssistant);
+            eventBus.off('a2a:message', clearOnFinalAssistant);
+        };
+    }, [removeTempStreamBubble]);
 
     // Listen for incoming A2A messages from AppSync subscription
     useEffect(() => {
@@ -1083,6 +1122,82 @@ const ChatPage: React.FC = () => {
     }, [activeChatId, agentId, updateMessages, chats]);
 
     // handleMessageSend SendMessage时加 log
+    // Open an SSE display stream for the reply and render it in a temporary
+    // assistant bubble. Best-effort: any failure silently leaves the buffered
+    // A2A-only flow intact.
+    const startDisplayStream = useCallback(async (chatId: string, receiverId?: string, receiverName?: string) => {
+        try {
+            const config = await fetchLlmStreamConfig();
+            if (!config.enabled) return;
+
+            // One display stream at a time — drop any stale temp bubble.
+            const prior = llmStreamRef.current;
+            if (prior) {
+                prior.abort.abort();
+                llmStreamRef.current = null;
+                removeTempStreamBubble(prior.chatId, prior.tempId);
+            }
+
+            // Recent history (includes the just-sent user message) as
+            // OpenAI-style messages for the display completion.
+            const history = messageManager.getMessages(chatId)
+                .filter(m => (m.role === 'user' || m.role === 'assistant' || m.role === 'agent')
+                    && typeof m.content === 'string' && m.content)
+                .slice(-10)
+                .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
+            if (history.length === 0 || history[history.length - 1].role !== 'user') return;
+
+            const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+            const tempId = `llm_stream_${requestId}`;
+            const abort = new AbortController();
+            llmStreamRef.current = { chatId, tempId, abort };
+            let streamed = '';
+
+            addMessageToChat(chatId, {
+                id: tempId,
+                chatId,
+                role: 'assistant',
+                content: '',
+                createAt: Date.now(),
+                status: 'incomplete',
+                senderId: receiverId,
+                senderName: receiverName,
+            } as Message);
+
+            await streamChatCompletion({
+                config,
+                messages: history,
+                requestId,
+                signal: abort.signal,
+                onDelta: (text) => {
+                    if (llmStreamRef.current?.tempId !== tempId) return;
+                    streamed += text;
+                    updateMessage(chatId, tempId, { content: streamed });
+                },
+                onDone: () => {
+                    // Keep the bubble (and llmStreamRef) — the persisted A2A
+                    // assistant message replaces it via clearOnFinalAssistant.
+                    if (llmStreamRef.current?.tempId === tempId && streamed) {
+                        updateMessage(chatId, tempId, { status: 'complete' });
+                    }
+                },
+                onError: (err) => {
+                    logger.warn(`[Chat] SSE display stream failed: ${err}`);
+                    if (llmStreamRef.current?.tempId === tempId) {
+                        llmStreamRef.current = null;
+                        if (!streamed) {
+                            removeTempStreamBubble(chatId, tempId);
+                        } else {
+                            updateMessage(chatId, tempId, { status: 'complete' });
+                        }
+                    }
+                },
+            });
+        } catch (err) {
+            logger.warn(`[Chat] Display stream skipped: ${err}`);
+        }
+    }, [addMessageToChat, updateMessage, removeTempStreamBubble]);
+
     const handleMessageSend = useCallback(async (content: string, attachments: Attachment[]) => {
         console.log('[handleMessageSend] called, content:', content, 'attachments:', attachments);
         if (!activeChatId) {
@@ -1201,9 +1316,15 @@ const ChatPage: React.FC = () => {
                 updateMessage(activeChatId, userMessage.id, { status: 'error' as const });
                 return;
             }
-            
+
             // Check if backend returned a new chatId (when chat was auto-created)
             const responseData = response.data as any;
+
+            // Kick off optional SSE display streaming (fire-and-forget).
+            // The canonical assistant message still arrives via the A2A
+            // subscription and replaces the streamed bubble.
+            const streamChatId = responseData?.realChatId || activeChatId;
+            void startDisplayStream(streamChatId, receiverId, receiverName);
             if (responseData && responseData.realChatId && responseData.originalChatId) {
                 const newChatId = responseData.realChatId;
                 const oldChatId = responseData.originalChatId;
@@ -1283,7 +1404,7 @@ const ChatPage: React.FC = () => {
             // UpdateMessageStatus为Error
             updateMessage(activeChatId, userMessage.id, { status: 'error' as const });
         }
-    }, [activeChatId, chats, addMessageToChat, allMessages, updateMessage, currentUserId, currentUserName, agentId]);
+    }, [activeChatId, chats, addMessageToChat, allMessages, updateMessage, currentUserId, currentUserName, agentId, startDisplayStream]);
     
     const currentChat = (!activeChatId || !chats || chats.length === 0)
         ? null

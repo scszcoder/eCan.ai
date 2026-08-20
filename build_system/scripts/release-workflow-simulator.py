@@ -464,7 +464,7 @@ ALLOWED_RUNNER_GROUP = (
     "github-hosted",
     "ecan-windows-amd64",
     "ecan-macos-amd64",
-    "ecan-macos-arm64",
+    "ecan-macos-aarch64",
     "ecan-linux-amd64",
 )
 
@@ -819,12 +819,85 @@ def summarise(results: list[CaseResult], label: str) -> tuple[int, int, int]:
     return len(results), len(valid), len(invalid)
 
 
+def audit_reusable_workflow_inputs(repo_root: Path) -> list[dict]:
+    """Static check: every `with:` input passed by a caller to a
+    reusable workflow must be declared on the callee's
+    `on.workflow_call.inputs`. GH Actions rejects the workflow with
+    "Invalid input, X is not defined in the referenced workflow" if a
+    caller passes an undefined input.
+
+    Returns a list of mismatches; empty list means the audit passed.
+
+    A mismatch is dict-shaped so callers (the simulator's main() and
+    the unit tests) can format it however they want.
+    """
+    workflows_dir = repo_root / ".github" / "workflows"
+    if not workflows_dir.exists():
+        return []
+
+    # Map every shared-*.yml to its declared inputs.
+    shared_inputs: dict[str, set[str]] = {}
+    for path in workflows_dir.glob("shared-*.yml"):
+        try:
+            data = yaml.safe_load(path.read_text())
+        except yaml.YAMLError:
+            continue
+        on = data.get(True) or data.get("on") or {}
+        if "workflow_call" not in on:
+            continue
+        shared_inputs[path.name] = set(
+            (on["workflow_call"].get("inputs") or {}).keys()
+        )
+
+    # For each caller (release-intl.yml, release-cn.yml), find every
+    # job that uses a shared-* workflow and check the `with:` keys.
+    mismatches: list[dict] = []
+    # Any workflow file in the directory that uses a shared-* workflow
+    # is a caller. We deliberately don't hard-code release-intl.yml /
+    # release-cn.yml so future workflows (or PR-time test fixtures)
+    # are picked up automatically.
+    for caller_path in sorted(workflows_dir.glob("*.yml")):
+        if caller_path.name in shared_inputs:
+            # Don't audit a callee as a caller of itself.
+            continue
+        try:
+            data = yaml.safe_load(caller_path.read_text())
+        except yaml.YAMLError:
+            continue
+        jobs = (data or {}).get("jobs") or {}
+        for job_name, job_def in jobs.items():
+            if not isinstance(job_def, dict):
+                continue
+            uses = str(job_def.get("uses") or "")
+            # Find which shared-* workflow this job uses.
+            callee_name = None
+            for sn in shared_inputs:
+                if sn in uses:
+                    callee_name = sn
+                    break
+            if callee_name is None:
+                continue
+            with_block = job_def.get("with") or {}
+            if not isinstance(with_block, dict):
+                continue
+            passed = set(with_block.keys())
+            declared = shared_inputs[callee_name]
+            for missing in passed - declared:
+                mismatches.append({
+                    "caller": caller_path.name,
+                    "job": job_name,
+                    "callee": callee_name,
+                    "input": missing,
+                })
+    return mismatches
+
+
 RUNNER_PLATFORM = {
     # Map each self-hosted runner group to the platform/arch it can run.
     # Used to filter out impossible combinations from the "anomaly" set.
     "ecan-windows-amd64": {"platforms": ("windows",),   "archs": ("amd64",)},
     "ecan-macos-amd64":   {"platforms": ("macos",),     "archs": ("amd64",)},
-    "ecan-macos-arm64":   {"platforms": ("macos",),     "archs": ("aarch64",)},
+    "ecan-macos-aarch64":   {"platforms": ("macos",),     "archs": ("aarch64",)},
     "ecan-linux-amd64":   {"platforms": ("linux",),     "archs": ("amd64",)},
     # "github-hosted" can run any platform/arch.
 }
@@ -951,6 +1024,27 @@ def main() -> int:
     print(f"  release-intl.yml : {n_intl} cases, {v_intl} valid, {f_intl} invalid, {bad_intl} anomalies")
     print(f"  release-cn.yml   : {n_cn} cases, {v_cn} valid, {f_cn} invalid, {bad_cn} anomalies")
     print(f"  total            : {n_intl + n_cn} cases")
+
+    # Structural lint: every reusable-workflow caller must only pass
+    # inputs that the callee declares. The GHA server rejects the
+    # workflow with "Invalid input, X is not defined in the referenced
+    # workflow" if a caller passes an undefined input. Run this check
+    # locally so the PR gate catches the drift before GitHub does.
+    print()
+    print("=" * 72)
+    print("Reusable-workflow input audit")
+    print("=" * 72)
+    input_audit = audit_reusable_workflow_inputs(repo)
+    if not input_audit:
+        print("  OK: every `with:` block in caller jobs maps to a defined input on the callee.")
+    else:
+        for miss in input_audit:
+            print(f"  ❌ {miss['caller']} job '{miss['job']}' passes input "
+                  f"'{miss['input']}' to {miss['callee']} but the callee "
+                  f"does not declare that input.")
+        # Don't fail the matrix on this — the gate is informational.
+        # The CI symmetry-check already enforces byte-equal shape; this
+        # audit makes the *input-mismatch* class of bug visible.
 
     return 0 if (bad_intl == 0 and bad_cn == 0) else 1
 

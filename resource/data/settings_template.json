@@ -43,9 +43,9 @@
   "local_server_port": "4668",
   
   "lan_api_endpoint": "",
-  "wan_api_endpoint": "https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql",
-  "ws_api_endpoint": "wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql",
-  "ws_api_host": "3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com",
+  "wan_api_endpoint": "",
+  "ws_api_endpoint": "",
+  "ws_api_host": "",
   "ecan_cloud_searcher_url": "http://52.204.81.197:5808/search_components",
   
   "wan_api_key": "",

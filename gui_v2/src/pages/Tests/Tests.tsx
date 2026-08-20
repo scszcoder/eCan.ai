@@ -825,7 +825,7 @@ const Tests: React.FC = () => {
 
     const handleC2CWebsocketTest = async () => {
         const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
-        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const getEnv = (): ImportMetaEnv => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : ({} as ImportMetaEnv));
         const env = getEnv();
         
         // Parse test argument first to allow API key override
@@ -912,7 +912,7 @@ const Tests: React.FC = () => {
 
     const handleSendPassiveCmd = async () => {
         const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
-        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const getEnv = (): ImportMetaEnv => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : ({} as ImportMetaEnv));
         const env = getEnv();
         
         // Parse test argument first to allow overrides
@@ -990,7 +990,7 @@ const Tests: React.FC = () => {
 
     const handlePingCloudWorker = async () => {
         const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
-        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const getEnv = (): ImportMetaEnv => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : ({} as ImportMetaEnv));
         const env = getEnv();
         
         // Parse test argument first to allow API key override
@@ -1052,7 +1052,7 @@ const Tests: React.FC = () => {
     
     const handleStepCloudWorker = async () => {
         const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
-        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const getEnv = (): ImportMetaEnv => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : ({} as ImportMetaEnv));
         const env = getEnv();
         
         // Parse test argument first to allow API key override
@@ -1114,7 +1114,7 @@ const Tests: React.FC = () => {
 
     const handleL2CWebsocketTest = async () => {
         const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
-        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const getEnv = (): ImportMetaEnv => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : ({} as ImportMetaEnv));
         const env = getEnv();
         
         let parsedArgs: any = {};
@@ -1281,7 +1281,7 @@ const Tests: React.FC = () => {
 
     const handleRunCloudTask = async () => {
         const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
-        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const getEnv = (): ImportMetaEnv => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : ({} as ImportMetaEnv));
         const env = getEnv();
 
         let parsedArgs: any = {};
@@ -1381,7 +1381,7 @@ const Tests: React.FC = () => {
 
     const handleGetRunId = async () => {
         const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
-        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const getEnv = (): ImportMetaEnv => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : ({} as ImportMetaEnv));
         const env = getEnv();
 
         let parsedArgs: any = {};

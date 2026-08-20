@@ -355,54 +355,44 @@ def create_asgi_app():
                 "sessions": SessionManager.get_instance().get_session_count()
             }
         
-        # App config endpoint - returns all frontend configuration at runtime
+        # App config endpoint - returns frontend runtime configuration.
+        # Mirrors the IPC handler `getAppConfig` payload shape so the frontend
+        # can use the same normalization in both modes (desktop → IPC,
+        # web deployment → this HTTP endpoint). See gui_v2/src/contexts/
+        # AppConfigContext.tsx for the consumer.
         @app.get("/api/config")
         async def get_config():
-            import platform
-            import socket
-
             app_id = get_app_id()
             is_cn_flag = _is_cn()
-            is_desktop = getattr(sys, 'frozen', False)
 
-            # Determine API endpoints based on environment
-            if is_desktop:
-                # Desktop app: connect to local backend
-                api_base = os.getenv("VITE_API_BASE", "http://localhost:4668")
-                ws_url = os.getenv("VITE_WS_URL", "ws://localhost:8765")
-            else:
-                # Web deployment: use current host
-                api_base = os.getenv("VITE_API_BASE", "http://localhost:4668")
-                ws_url = os.getenv("VITE_WS_URL", "ws://localhost:8765")
+            cloudbase_env_id = ""
+            wechat_app_id = ""
+            cognito_domain = ""
+            cognito_client_id = ""
+            try:
+                from auth.auth_config import AuthConfig
+                if is_cn_flag:
+                    cb = AuthConfig.CLOUDBASE
+                    cloudbase_env_id = getattr(cb, "ENV_ID", "") or ""
+                    wx = AuthConfig.WECHAT
+                    wechat_app_id = getattr(wx, "APP_ID", "") or ""
+                else:
+                    cog = AuthConfig.COGNITO
+                    cognito_domain = getattr(cog, "DOMAIN", "") or ""
+                    cognito_client_id = getattr(cog, "CLIENT_ID", "") or ""
+            except Exception:
+                pass
 
             return {
-                # Identity
                 "app_id": app_id,
                 "is_cn": is_cn_flag,
                 "auth_type": "cloudbase" if is_cn_flag else "cognito",
-
-                # Endpoints
-                "api_base": api_base,
-                "ws_url": ws_url,
-
-                # Auth config
                 "auth": {
-                    # CloudBase (CN)
-                    "cloudbase_env_id": os.getenv("VITE_CLOUDBASE_ENV_ID", ""),
-                    # Cognito (Intl)
-                    "cognito_domain": os.getenv("VITE_COGNITO_DOMAIN", ""),
-                    "cognito_client_id": os.getenv("VITE_COGNITO_CLIENT_ID", ""),
-                    "cognito_redirect_uri": os.getenv("VITE_COGNITO_REDIRECT_URI", "http://localhost:3000/auth/callback"),
-                    "cognito_logout_uri": os.getenv("VITE_COGNITO_LOGOUT_URI", "http://localhost:3000/login"),
-                    "cognito_scopes": os.getenv("VITE_COGNITO_SCOPES", "openid email profile"),
+                    "cloudbase_env_id": cloudbase_env_id,
+                    "wechat_app_id": wechat_app_id,
+                    "cognito_domain": cognito_domain,
+                    "cognito_client_id": cognito_client_id,
                 },
-
-                # Platform info
-                "platform": {
-                    "is_desktop": is_desktop,
-                    "system": platform.system(),
-                    "hostname": socket.gethostname(),
-                }
             }
         
         # Serve static frontend files (if available)

@@ -2,11 +2,18 @@
 Tests for utils.app_config_loader.AppConfigLoader endpoint accessors.
 
 These tests verify that ``AppConfigLoader`` resolves each named property
-(``graphql_url``, ``storage_url``, ``get_storage_config()``, ...) to the
-correct field value for the active app. They also pin the storage-critical
-fields (``storage_region`` / ``storage_bucket`` / ``cdn``) and the new
+(``storage_url``, ``get_storage_config()``, ...) to the correct field value
+for the active app. They also pin the storage-critical fields
+(``storage_region`` / ``storage_bucket`` / ``cdn``) and the new
 ``backend_*_bucket`` fields end-to-end, so a regression in either the JSON
 file or the loader accessors surfaces here.
+
+Note: As of the cloud_endpoints.json cleanup, only ``storage_url`` is
+exposed via the loader. The legacy ``graphql_url`` / ``websocket_url`` /
+``auth_url`` / ``update_url`` / ``privacy_policy_url`` / ``terms_url``
+properties were removed because the underlying JSON fields were
+unreferenced in production code — Cloud GraphQL/WS endpoints live in
+auth_config.yml -> APPSYNC.* and are read by agent/cloud_api/endpoints.py.
 """
 
 import importlib
@@ -44,27 +51,12 @@ def _loader(monkeypatch, app_id: str, mod):
 
 
 # ===========================================================================
-# graphql_url / websocket_url / auth_url / storage_url / update_url /
-# privacy_policy_url / terms_url
-#
-# These map 1:1 to identically-named fields in cloud_endpoints.json.
+# storage_url — the only remaining shared accessor backed by cloud_endpoints.json.
 # ===========================================================================
 class TestSharedEndpointAccessors:
     """AppConfigLoader properties that mirror cloud_endpoints.json fields."""
 
     EXPECTED: dict[str, dict[str, str]] = {
-        "graphql_url": {
-            "intl": "https://api.ecan.ai/graphql",
-            "cn": "https://api.fastprecisiontech.com/graphql",
-        },
-        "websocket_url": {
-            "intl": "wss://ws.ecan.ai/graphql",
-            "cn": "wss://ws.fastprecisiontech.com/graphql",
-        },
-        "auth_url": {
-            "intl": "https://auth.ecan.ai",
-            "cn": "https://auth.fastprecisiontech.com",
-        },
         "storage_url": {
             # See apps/{intl,cn}/config/cloud_endpoints.json for the rationale.
             # Both URLs are virtual-hosted–style with the bucket embedded in
@@ -72,18 +64,6 @@ class TestSharedEndpointAccessors:
             # COS SDKs construct URLs for the rest of the codebase.
             "intl": "https://ecan-skills.s3.us-east-1.amazonaws.com",
             "cn": "https://ecan-skills-1251680599.cos.ap-shanghai.myqcloud.com",
-        },
-        "update_url": {
-            "intl": "https://update.ecan.ai",
-            "cn": "https://update.fastprecisiontech.com",
-        },
-        "privacy_policy_url": {
-            "intl": "https://www.ecan.ai/privacy",
-            "cn": "https://www.fastprecisiontech.com/privacy",
-        },
-        "terms_url": {
-            "intl": "https://www.ecan.ai/terms",
-            "cn": "https://www.fastprecisiontech.com/terms",
         },
     }
 

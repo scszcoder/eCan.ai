@@ -25,7 +25,6 @@ venv
 # Node dependencies (built dist stays in)
 gui_v2/node_modules
 gui_v2/coverage
-cloudbase-graphql/node_modules
 apps/cn/services/worker-launcher/node_modules
 
 # Desktop build outputs / packaging

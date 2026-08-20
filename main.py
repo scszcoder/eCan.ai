@@ -24,34 +24,42 @@ load_dotenv()
 #
 # Detection rules (in order):
 #   1. ECAN_APP_ID already set in the OS environment (CI, tests, manual).
-#   2. Frozen executable: read CFBundleIdentifier from Contents/Info.plist and
-#      match against the canonical ids in apps/{cn,intl}/config/app_manifest.json.
+#   2. Frozen executable: detect from exe filename or parent directory name.
 #   3. Fallback: leave unset; downstream code defaults to 'intl'.
+#
+# IMPORTANT: Each version (cn/intl) uses independent paths, so co-installing
+# both versions works correctly. The exe filename or parent dir determines
+# which version is running.
 # ============================================================================
 def _detect_app_id_from_bundle() -> str | None:
+    """Detect ECAN_APP_ID from the running bundle.
+    
+    Platform-specific detection:
+    - Windows: Parse from exe filename or parent directory (e.g., eCan.cn.exe).
+    - macOS: Read CFBundleIdentifier from Contents/Info.plist.
+    - Linux: Parse from executable filename (eCan.cn or eCan.intl).
+    
+    Each version has independent paths, so co-installing both versions works.
+    """
     if not getattr(sys, 'frozen', False):
         return None
+    
     exe_path = getattr(sys, 'executable', '') or ''
-    # macOS: .../eCan.cn.app/Contents/MacOS/eCan.cn
-    # Windows: ...\eCan.cn.exe  (no Info.plist; falls through)
-    # Linux: .../eCan.cn (no Info.plist)
-    contents_dir = os.path.dirname(os.path.dirname(exe_path))  # Contents/
-    info_plist = os.path.join(contents_dir, 'Info.plist')
-    if not os.path.isfile(info_plist):
-        return None
-    try:
-        import plistlib
-        with open(info_plist, 'rb') as f:
-            data = plistlib.load(f)
-    except Exception:
-        return None
-    bundle_id = (data.get('CFBundleIdentifier') or '').lower()
-    # Canonical ids from apps/{cn,intl}/config/app_manifest.json
-    if 'cn' in bundle_id:
+    exe_name = os.path.basename(exe_path).lower()
+    parent_dir = os.path.basename(os.path.dirname(exe_path)).lower()
+    
+    # ---- Windows/Linux: Detect from exe filename or parent directory ----
+    # CN versions: eCan.cn.exe, eCan.cn.app, eCan.cn
+    # Intl versions: eCan.exe, eCan.app, eCan (no suffix = intl)
+    if 'cn' in exe_name or 'cn' in parent_dir:
         return 'cn'
-    if 'intl' in bundle_id or 'ecan.ai' in bundle_id:
+    
+    # Intl: no 'cn' suffix (eCan.exe, eCan, eCan.app)
+    if 'intl' in exe_name or 'intl' in parent_dir:
         return 'intl'
-    return None
+    
+    # No suffix means intl
+    return 'intl'
 
 if 'ECAN_APP_ID' not in os.environ:
     detected = _detect_app_id_from_bundle()

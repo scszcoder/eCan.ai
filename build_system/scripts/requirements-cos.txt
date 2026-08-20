@@ -1,0 +1,22 @@
+# ============================================================================
+# Build system script dependencies (CN / COS variant)
+# ============================================================================
+# Used by GitHub Actions workflows for CN COS upload and appcast generation.
+# Kept narrow on purpose: only the packages the build_system/scripts/*.py
+# entry points actually import. The umbrella `requirements-cn.txt` at the
+# repo root pulls in the full runtime app (LangChain, PySide6, Playwright,
+# LightRAG, FAISS, Neo4j, …) which is irrelevant to a 30-second artifact
+# transfer and inflates cold-start by ~60s on every CI run.
+#
+# Intl variant: uses AWS S3 instead of COS. Install with:
+#   pip install -r build_system/scripts/requirements.txt
+# ============================================================================
+
+# Tencent Cloud COS S3-compatible SDK (CN storage backend)
+cos-python-sdk-v5==1.9.30
+
+# YAML parser (OTA config)
+pyyaml>=6.0.1
+
+# Version parsing (semantic version comparison in latest.json generation)
+packaging>=23.0

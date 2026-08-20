@@ -11,7 +11,7 @@
 #   2. POST {WS_TCS_URL}/publish   → 鉴权 + 跨实例推送 (X-WS-Push-Secret header)
 #   3. WS end-to-end (graphql-ws subprotocol) → 客户端订阅 + 服务端 push + 收到 data frame
 #
-# 前提 (cloudbase-graphql/.env.local):
+# 前提（私有 Tencent 后端的 `.env.local`）:
 #   - WS_TCS_URL     # TCS cloudrun 服务地址 (http(s)://...), 由 bin/deploy-ws.sh 回写
 #   - WS_PUSH_SECRET # SCF → WS 推送密钥
 #
@@ -27,7 +27,9 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CB_ENV_FILE="$ROOT/cloudbase-graphql/.env.local"
+BACKEND_ROOT="${ECAN_TENCENT_BACKEND_ROOT:-}"
+[[ -n "$BACKEND_ROOT" ]] || { echo -e "${RED}❌ ECAN_TENCENT_BACKEND_ROOT missing${NC}"; exit 1; }
+CB_ENV_FILE="$BACKEND_ROOT/.env.local"
 
 if [[ ! -f "$CB_ENV_FILE" ]]; then
   echo -e "${RED}❌ $CB_ENV_FILE not found${NC}"
@@ -44,7 +46,7 @@ WS_TCS_URL="${WS_TCS_URL:-${CLOUDBASE_API_BASE:-}}"
 WS_PUBLIC_URL="${WS_PUBLIC_URL:-https://ecan-graphql-ws-288118-5-1251680599.sh.run.tcloudbase.com}"
 if [[ -z "$WS_TCS_URL" ]]; then
   echo -e "${RED}❌ WS_TCS_URL (or CLOUDBASE_API_BASE) missing in $CB_ENV_FILE${NC}"
-  echo "  跑 cloudbase-graphql/bin/deploy-ws.sh 完成 WS 部署,会自动写入 WS_TCS_URL"
+  echo "  跑私有 Tencent 后端的 bin/deploy-ws.sh 完成 WS 部署,会自动写入 WS_TCS_URL"
   exit 1
 fi
 

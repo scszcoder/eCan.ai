@@ -188,7 +188,7 @@ WECHAT:
 | `AWS_COGNITO_CLIENT_ID` | ✅ | - | Intl | **私密** | Cognito Client |
 | `AWS_COGNITO_CLIENT_SECRET` | ✅ | - | Intl | **私密** | Cognito Client Secret |
 
-### 前端 Vite 变量（仅 web 版，桌面 App 走 `/api/config`）
+### 前端 Vite 变量（仅 web 版；桌面 App 走 IPC handler `getAppConfig`）
 
 | 变量名 | 适用 | 分类 | 说明 |
 |--------|------|------|------|
@@ -232,8 +232,14 @@ cd gui_v2 && npm run dev:cn    # 终端 2: 前端
 # 查看当前生效的 yml 配置
 cat apps/cn/config/auth_config.yml
 
-# 启动后端后，访问运行时配置端点
-curl http://localhost:4668/api/config | jq .
+# 启动后端后，通过 IPC handler getAppConfig 验证运行时配置
+python3 -c "
+from gui.ipc.w2p_handlers import _ensure_handlers_loaded
+_ensure_handlers_loaded()
+from gui.ipc.registry import IPCHandlerRegistry
+from gui.ipc.types import IPCRequest
+print(IPCHandlerRegistry.get_handler('getAppConfig')[0](IPCRequest(id='t', method='getAppConfig', params={}), {}).get('result'))
+"
 
 # 验证私密字段是否生效
 python -c "
@@ -398,8 +404,15 @@ for k in ['ECAN_TENCENT_SECRET_ID', 'ECAN_TENCENT_SECRET_KEY']:
     print(f'{k}: {\"SET\" if v else \"MISSING\"}')
 "
 
-# 3. 调用 /api/config 看公开字段
-curl http://localhost:4668/api/config | jq .auth.cloudbase_env_id
+# 3. 调用 IPC handler getAppConfig 看公开字段
+python3 -c "
+from gui.ipc.w2p_handlers import _ensure_handlers_loaded
+_ensure_handlers_loaded()
+from gui.ipc.registry import IPCHandlerRegistry
+from gui.ipc.types import IPCRequest
+r = IPCHandlerRegistry.get_handler('getAppConfig')[0](IPCRequest(id='t', method='getAppConfig', params={}), {})
+print('cloudbase_env_id:', r.get('result', {}).get('auth', {}).get('cloudbase_env_id'))
+"
 
 # 4. 调用 cloudbase_check_config IPC
 #    通过 IPC 客户端调用 "cloudbase_check_config"

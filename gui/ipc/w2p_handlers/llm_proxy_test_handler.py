@@ -48,6 +48,39 @@ IPCHandlerRegistry.add_to_whitelist('test_lambda_proxy_browser_use')
 IPCHandlerRegistry.add_to_whitelist('test_lambda_proxy_embedding')
 
 
+@IPCHandlerRegistry.handler('llm_proxy.get_stream_config')
+def handle_llm_proxy_get_stream_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Return the Lambda proxy SSE streaming config for the frontend.
+
+    The chat UI uses this to open a fetch()-based SSE request directly to
+    ``<endpoint>/v1/chat/completions`` for token-by-token display streaming.
+    Streaming is optional: when no proxy endpoint is configured this returns
+    ``{'enabled': False}`` (success, not an error) so the UI silently keeps
+    the buffered A2A-only flow.
+
+    NOT whitelisted: this returns the auth token, so it must only be served
+    to an authenticated IPC session.
+
+    CN-only feature: intl builds always get {'enabled': False}.
+    """
+    try:
+        from utils.app_env import is_cn_app
+        if not is_cn_app():
+            return create_success_response(request, {'enabled': False, 'reason': 'intl mode'})
+        config = _get_proxy_config()
+        return create_success_response(request, {
+            'enabled': bool(config['auth_token']),
+            'endpoint': config['endpoint'].rstrip('/'),
+            'auth_token': config['auth_token'],
+            'user_id': config['user_id'],
+            'provider': config['provider'],
+            'model': config['model'],
+        })
+    except Exception as e:
+        logger.info(f"[llm_proxy] Stream config unavailable: {e}")
+        return create_success_response(request, {'enabled': False, 'reason': str(e)})
+
+
 @IPCHandlerRegistry.handler('test_lambda_proxy_ping')
 def handle_test_lambda_proxy_ping(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Health-check the Lambda proxy endpoint.

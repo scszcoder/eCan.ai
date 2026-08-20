@@ -52,6 +52,15 @@ export default defineConfig(() => {
       port: 3000,
       strictPort: true, // 如果端口被占用，则直接退出
       host: true, // 监听所有地址
+      // vite proxy intentionally does NOT include `/api/config`:
+      //   - desktop dev: AppConfigProvider uses apiRouter.execute({method:
+      //     'getAppConfig'}) → /graphql (proxied above) → IPC handler. No
+      //     HTTP fetch to /api/config involved.
+      //   - web dev: served by `python web_server.py` (not vite), so the
+      //     proxy here is irrelevant.
+      // Adding /api/config here would be tempting but actually routes the
+      // request to LocalServer (not web_server), which serves nothing
+      // for that path — do not add.
       proxy: {
         '/graphql': {
           target: localServerTarget,
@@ -147,12 +156,25 @@ export default defineConfig(() => {
         'sigma',
         '@sigma/node-border',
         '@sigma/edge-curve',
+        // graphology layouts used by LightRAGPorted/graph (prebundle to avoid 504)
+        'graphology-layout',
+        'graphology-layout-force',
+        'graphology-layout-forceatlas2',
+        'graphology-layout-noverlap',
+        // markdown + syntax highlighting used by LightRAGPorted (prebundle to avoid 504)
+        'react-markdown',
+        'remark-gfm',
+        'react-syntax-highlighter',
+        'react-syntax-highlighter/dist/cjs/styles/prism',
+        'lucide-react',
         // emotion - used in Tasks and other pages, must be pre-bundled to avoid 504
         '@emotion/react',
         '@emotion/styled',
         // i18n
         'react-i18next',
         'i18next',
+        // lodash-es (used via @/components/Common/SearchFilter; lazy-discovered in Vehicles/Chat)
+        'lodash-es',
         // date
         'dayjs',
         'dayjs/plugin/relativeTime',

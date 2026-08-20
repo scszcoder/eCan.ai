@@ -41,20 +41,17 @@ export type Region = 'cn' | 'intl';
 /**
  * 获取当前区域 (基于运行时配置)
  *
- * 同步读取 AppConfig 缓存值；构建期通过 import.meta.env.VITE_APP_ID 兜底。
+ * 同步读取 AppConfig 缓存值；AppConfig 还没加载完时，
+ * 根据构建期是否有 VITE_CLOUDBASE_ENV_ID 兜底。
  * 业务侧应通过 useAppConfig() 获取运行时区域。
  */
 export function getCurrentRegion(): Region {
-  // 1. 运行时配置（来自后端 /api/config）
+  // 1. 运行时配置（来自后端 IPC handler getAppConfig, 由 AppConfigProvider 注入）
   const cached = cachedRegion();
   if (cached) return cached;
 
-  // 2. 构建期配置（仅 dev / web 部署时生效）
-  if (import.meta.env.VITE_APP_ID === 'cn' || import.meta.env.VITE_APP_ID === 'intl') {
-    return import.meta.env.VITE_APP_ID as Region;
-  }
-
-  // 3. 历史兜底：根据是否有 CloudBase envId 推断（仅本地 dev 用）
+  // 2. 构建期兜底：仅在开发期 npm run dev / Web 部署且后端尚未加载时生效。
+  //    VITE_APP_ID 是过时的构建期区分方式，构建系统从未设置过它，已不再使用。
   if (import.meta.env.VITE_CLOUDBASE_ENV_ID) {
     return 'cn';
   }
@@ -86,6 +83,7 @@ export function isAuthConfigured(): boolean {
 }
 
 let _cachedAuthSnapshot: {
+  auth_type: 'cloudbase' | 'cognito';
   cloudbase_env_id: string;
   cognito_domain: string;
   cognito_client_id: string;
@@ -378,8 +376,7 @@ let cachedAdapter: IAuthAdapter | null = null;
  *
  * 区域检测顺序：
  *   1. 运行时缓存（由 AppConfigProvider 调用 setCachedRegion 注入）
- *   2. 构建期 VITE_APP_ID
- *   3. 根据是否有 VITE_CLOUDBASE_ENV_ID 推断
+ *   2. 构建期兜底：是否有 VITE_CLOUDBASE_ENV_ID
  */
 export function getAuthAdapter(): IAuthAdapter {
   if (cachedAdapter) return cachedAdapter;
@@ -388,11 +385,10 @@ export function getAuthAdapter(): IAuthAdapter {
   const runtimeRegion = cachedRegion();
   if (runtimeRegion) {
     region = runtimeRegion;
-  } else if (import.meta.env.VITE_APP_ID === 'cn' || import.meta.env.VITE_APP_ID === 'intl') {
-    region = import.meta.env.VITE_APP_ID as Region;
+  } else if (import.meta.env.VITE_CLOUDBASE_ENV_ID) {
+    region = 'cn';
   } else {
-    const hasCloudBase = !!import.meta.env.VITE_CLOUDBASE_ENV_ID;
-    region = hasCloudBase ? 'cn' : 'intl';
+    region = 'intl';
   }
 
   cachedAdapter = region === 'cn'

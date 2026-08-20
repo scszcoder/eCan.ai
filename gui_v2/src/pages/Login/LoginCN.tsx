@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Select, App, Spin, Checkbox } from 'antd';
+import { Form, Input, Button, Select, App, Spin, Checkbox, Typography } from 'antd';
 import { UserOutlined, LockOutlined, MobileOutlined, WechatOutlined, MailOutlined, SafetyCertificateOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { APIResponse } from '../../services/ipc/api';
@@ -22,6 +22,8 @@ import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
 import './Login.css';
 
+const { Text } = Typography;
+
 interface LoginFormValues {
   username: string;
   password: string;
@@ -32,7 +34,7 @@ interface LoginFormValues {
   newPassword?: string;
 }
 
-type AuthMode = 'email-login' | 'email-signup' | 'phone-login' | 'phone-signup' | 'forgot';
+type AuthMode = 'email-login' | 'email-signup' | 'email-signup-verify' | 'phone-login' | 'phone-signup' | 'forgot';
 
 const LoginCN: React.FC = () => {
   const navigate = useNavigate();
@@ -40,6 +42,13 @@ const LoginCN: React.FC = () => {
   const { message: messageApi } = App.useApp();
   const { config: appConfig } = useAppConfig();
   const [form] = Form.useForm<LoginFormValues>();
+
+  // 订阅 phone 字段变化: form.getFieldValue('phone') 是 getter,不触发组件 re-render。
+  // 这里用 useWatch 让 disabled prop 在用户输入时能响应式更新 (修复 Bug:
+  // "手机登陆点击不了获取验证吗按钮")。同理 code 字段也订阅,让 onClick handler
+  // 在用户输入验证码时拿到最新值,避免闭包过期问题。
+  const phoneValue = Form.useWatch('phone', form);
+  const codeValue = Form.useWatch('code', form);
 
   // State
   const [activeTab, setActiveTab] = useState<'email' | 'phone' | 'wechat'>('email');
@@ -67,6 +76,34 @@ const LoginCN: React.FC = () => {
   useEffect(() => {
     forceCleanupInitializationProgress();
   }, []);
+
+  // 清空表单的初始状态 — 防止 Antd Form 在 mount 时从 localStorage /
+  // 上次会话残留恢复任何字段值。这是修复"邮箱输入框里有 wechat /
+  // 电话号码"的最后一道防线:即使后端 last_login 返回了非 password
+  // 模式的 username/password(理论上后端已 gating),前端也会主动清空。
+  //
+  // 只清空跨登录方式的标识字段(username/password/phone/code/newPassword/
+  // confirmPassword),不碰 role,避免 100ms IPC 延迟期间角色下拉框变空。
+  useEffect(() => {
+    form.resetFields(['username', 'password', 'confirmPassword', 'phone', 'code', 'newPassword']);
+  }, [form]);
+
+  // 浏览器自动填充防御:延迟清空 username 字段
+  // 浏览器自动填充发生在页面渲染完成后,约 500ms-1s。
+  // 这里在 1.5s 后强制清空 username 字段,确保任何浏览器的自动填充
+  // 值都会被清除。
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      // 只有当 activeTab 是 email 且 login_type 不是 password 时才清空
+      // 这样可以避免清除正常的 rememberMe 回填值
+      const loginTypeFromStorage = sessionStorage.getItem('last_login_type');
+      if (activeTab === 'email' && loginTypeFromStorage && loginTypeFromStorage !== 'password') {
+        form.setFieldValue('username', '');
+        console.log('[LoginCN] Browser autofill cleared: username field reset for non-password login');
+      }
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [activeTab, form]);
 
   // 初始化 CloudBase
   useEffect(() => {
@@ -245,6 +282,22 @@ const LoginCN: React.FC = () => {
   }, [initProgress, loginSuccessful, hasNavigated, navigate]);
 
   // 加载上次登录信息
+  //
+  // Cross-tab field-bleed fix (邮件 / 手机号 / 微信 三种登录方式间切换时,
+  // 旧登录方式的字段残留到新登录方式的输入框):
+  //
+  // 之前这段代码只会在用户主动点击 tab 时跑 ``handleTabChange`` —— 而
+  // ``handleTabChange`` 已经会 reset 跨 tab 字段。但是这里直接走
+  // ``setActiveTab('wechat' / 'phone' / 'email')``,绕过了
+  // ``handleTabChange`` 的清理逻辑,导致 form store 中其他 tab 的字段
+  // 值依然保留(例如: 用户先在 email tab 输入过 username,再切到 phone
+  // tab 用手机号登录成功,退出后再进来,email tab 的 username 字段仍
+  // 残留旧值)。
+  //
+  // 同时,后端 ``get_saved_login_info`` 已经根据 ``login_type`` 过滤掉
+  // 非 password 模式的 username/password — 这里直接根据 ``login_type``
+  // 分发,既不会再误填,也能让 phone/wechat 模式显式清掉 email tab 的
+  // 字段。
   useEffect(() => {
     const initialize = async () => {
       try {
@@ -269,17 +322,38 @@ const LoginCN: React.FC = () => {
             localStorage.setItem('i18nextLng', language);
           }
 
-          // 根据 login_type 切换到对应的 tab 并填充对应字段
+          // 保存 login_type 到 sessionStorage,供延迟清空逻辑判断
+          sessionStorage.setItem('last_login_type', login_type || 'password');
+
+          // 根据 login_type 决定激活哪个 tab + 哪些字段需要被清空。
+          //
+          // 字段清理原则 (修复 "邮箱输入框里有 wechat / 电话号码"):
+          //   * 微信登录 (login_type='wechat')  → 清空 email tab 的
+          //     username/password (因为后端会保留 wechat_xxx 这种标识符
+          //     到 last_identifier,但前端不应该让它出现在 email 字段)。
+          //   * 手机登录 (login_type='phone')   → 清空 email tab 的
+          //     username/password。
+          //   * 密码登录 (login_type='password' 或未设置) → 把 username
+          //     和 password 填进 email tab,正常使用 rememberMe。
+          //
+          // 注意:不能在此统一调用 ``form.resetFields()`` 清空全部字段,
+          // 因为用户切换 tab 时 ``handleTabChange`` 会做精细清理,而这里
+          // 我们只需要确保"非 password 模式不会污染 email 字段"。
           if (login_type === 'wechat') {
-            // 微信登录
+            // 微信登录:切到微信 tab,清掉 email / phone 字段防止误填。
             setActiveTab('wechat');
+            setMode('email-login'); // mode 维持默认,微信 tab 不依赖 mode
+            form.resetFields(['username', 'password', 'confirmPassword', 'phone', 'code', 'newPassword']);
             form.setFieldsValue({
               role: machine_role || 'Commander'
             });
           } else if (login_type === 'phone') {
-            // 手机登录
+            // 手机登录:切到 phone tab,只填 phone (后端 username 字段对
+            // phone 模式已是手机号,因为我们在后端做了 login_type gating)。
+            // 同时清掉 email tab 的 username/password,避免残留。
             setActiveTab('phone');
             setMode('phone-login');
+            form.resetFields(['username', 'password', 'confirmPassword', 'code', 'newPassword']);
             form.setFieldsValue({
               phone: username,
               role: machine_role || 'Commander'
@@ -288,6 +362,9 @@ const LoginCN: React.FC = () => {
             // 邮箱/密码登录（默认）
             setActiveTab('email');
             setMode('email-login');
+            // 清掉其他 tab 的字段(phone/code),但保留 username/password
+            // 让 rememberMe 起作用。
+            form.resetFields(['phone', 'code', 'newPassword', 'confirmPassword']);
             form.setFieldsValue({
               username,
               password,
@@ -299,6 +376,10 @@ const LoginCN: React.FC = () => {
           if (password) {
             setRememberMe(true);
           }
+        } else {
+          // 没有 last_login 数据时,设置默认的 login_type
+          // (避免延迟清空逻辑误判)
+          sessionStorage.setItem('last_login_type', 'password');
         }
       } catch (error) {
         console.warn('[LoginCN] Failed to load last login info:', error);
@@ -366,47 +447,42 @@ const LoginCN: React.FC = () => {
       setMode('phone-login');
     }
     // 微信 tab 不改变 mode，点击后直接触发登录
-    
-    // 保存所有输入字段
-    const savedUsername = form.getFieldValue('username');
-    const savedPassword = form.getFieldValue('password');
-    const savedPhone = form.getFieldValue('phone');
+
+    // 保存 role
     const savedRole = form.getFieldValue('role');
-    
-    // 根据目标 tab 重置特定字段，而不是全部重置
+
+    // 切换 tab 时清掉旧 tab 的所有字段,防止跨 tab 字段残留
+    // (例如 email tab 的 password 切到 phone tab 不能残留)
     const fieldsToReset: (keyof LoginFormValues)[] = [];
     if (tab === 'email') {
-      // 切换到邮箱登录/注册：重置密码相关字段
-      if (prevTab === 'phone') {
-        fieldsToReset.push('code');
+      // 切换到邮箱: 清掉 phone tab 的字段
+      fieldsToReset.push('phone', 'code', 'newPassword');
+      // 浏览器自动填充防御:如果上次登录不是 password 类型,清空 username
+      // (防止 wechat/phone 的凭证被浏览器填充到 email 输入框)
+      const loginTypeFromStorage = sessionStorage.getItem('last_login_type');
+      if (loginTypeFromStorage && loginTypeFromStorage !== 'password') {
+        fieldsToReset.push('username');
       }
     } else if (tab === 'phone') {
-      // 切换到手机登录：重置用户名和密码
-      if (prevTab === 'email') {
-        fieldsToReset.push('username', 'password', 'confirmPassword');
-      }
+      // 切换到手机: 清掉 email tab 的 username+password+confirmPassword
+      // (这是修复"邮箱注册号码直接登录"的关键: 切到 phone tab 不会带过去旧 email 凭证)
+      fieldsToReset.push('username', 'password', 'confirmPassword', 'newPassword');
+    } else if (tab === 'wechat') {
+      fieldsToReset.push('username', 'password', 'confirmPassword', 'phone', 'code', 'newPassword');
     }
-    
     if (fieldsToReset.length > 0) {
       form.resetFields(fieldsToReset);
     }
-    
-    // 恢复所有字段
+
     if (savedRole) {
       form.setFieldValue('role', savedRole);
     }
-    if (savedUsername && tab === 'email') {
-      form.setFieldValue('username', savedUsername);
-    }
-    if (savedPassword && tab === 'email') {
-      form.setFieldValue('password', savedPassword);
-    }
-    if (savedPhone && tab === 'phone') {
-      form.setFieldValue('phone', savedPhone);
-    }
-    
+
+    // 切 tab 时清掉验证码/session 状态(同 handleModeChange)
     setCodeSent(false);
+    setVerificationId(null);
     setPendingSignupCode(null);
+    setCountdown(0);
     setLastError(null);
   }, [form, activeTab]);
 
@@ -467,20 +543,31 @@ const LoginCN: React.FC = () => {
     try {
       const result = await cloudbaseAuth.sendPhoneCode(phone, 'login');
       if (result.success) {
+        // CloudBase 在不同版本下可能不返回 verification_id (rate-limit 边界、字段命名
+        // 差异 verification_id vs verificationId 等)。必须 fail-safe：缺失时立刻报错，
+        // 而不是 setCodeSent(true) 让用户看到"验证码已发送"但后续 login 必然 401。
+        if (!result.verificationId) {
+          messageApi.error(
+            t('login.codeSendFailed') || '验证码发送失败，请稍后重试'
+          );
+          setCodeSent(false);
+          setVerificationId(null);
+          return;
+        }
         setCodeSent(true);
         setCountdown(60);
-        if (result.verificationId) {
-          setVerificationId(result.verificationId);
-        }
+        setVerificationId(result.verificationId);
         messageApi.success(t('login.codeSent'));
         if (result.devCode) {
           messageApi.info(`[Dev] Code: ${result.devCode}`, 5);
         }
       } else {
         messageApi.error(result.error || t('login.codeSendFailed'));
+        setVerificationId(null);
       }
     } catch (error) {
       messageApi.error(String(error));
+      setVerificationId(null);
     }
   }, [countdown, ensureCloudbase, messageApi, t]);
 
@@ -492,8 +579,18 @@ const LoginCN: React.FC = () => {
     }
     setLoginProgress('authenticating');
 
+    // 防御性检查: 必须在发送验证码后才有 verificationId
+    if (!verificationId) {
+      messageApi.error(
+        t('login.codeSendFailed') || '请先发送验证码'
+      );
+      setLoginProgress('idle');
+      setLastError(t('login.codeSendFailed') || '请先发送验证码');
+      return false;
+    }
+
     try {
-      const result = await cloudbaseAuth.loginWithPhone(phone, code, verificationId || undefined);
+      const result = await cloudbaseAuth.loginWithPhone(phone, code, verificationId);
 
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
@@ -581,20 +678,29 @@ const LoginCN: React.FC = () => {
     try {
       const result = await cloudbaseAuth.sendPasswordResetCode(phone);
       if (result.success) {
+        // 同 handleSendCode：verification_id 缺失必须 fail-safe
+        if (!result.verificationId) {
+          messageApi.error(
+            t('login.codeSendFailed') || '验证码发送失败，请稍后重试'
+          );
+          setCodeSent(false);
+          setVerificationId(null);
+          return;
+        }
         setCodeSent(true);
         setCountdown(60);
-        if (result.verificationId) {
-          setVerificationId(result.verificationId);
-        }
+        setVerificationId(result.verificationId);
         messageApi.success(t('login.codeSent'));
         if (result.devCode) {
           messageApi.info(`[Dev] Code: ${result.devCode}`, 5);
         }
       } else {
         messageApi.error(result.error || t('login.codeSendFailed'));
+        setVerificationId(null);
       }
     } catch (error) {
       messageApi.error(String(error));
+      setVerificationId(null);
     }
   }, [countdown, ensureCloudbase, messageApi, t]);
 
@@ -606,8 +712,17 @@ const LoginCN: React.FC = () => {
     }
     setLoginProgress('authenticating');
 
+    // 防御性检查: 必须先发送验证码获得 verificationId
+    if (!verificationId) {
+      messageApi.error(
+        t('login.codeSendFailed') || '请先发送验证码'
+      );
+      setLoginProgress('idle');
+      return;
+    }
+
     try {
-      const result = await cloudbaseAuth.resetPasswordWithPhone(phone, code, newPassword, verificationId || undefined);
+      const result = await cloudbaseAuth.resetPasswordWithPhone(phone, code, newPassword, verificationId);
 
       if (result.success) {
         messageApi.success(t('login.forgotSuccess'));
@@ -634,8 +749,17 @@ const LoginCN: React.FC = () => {
     }
     setLoginProgress('authenticating');
 
+    // 防御性检查: 必须先发送验证码获得 verificationId
+    if (!verificationId) {
+      messageApi.error(
+        t('login.codeSendFailed') || '请先发送验证码'
+      );
+      setLoginProgress('idle');
+      return false;
+    }
+
     try {
-      const result = await cloudbaseAuth.signupWithPhone(phone, code, undefined, verificationId || undefined);
+      const result = await cloudbaseAuth.signupWithPhone(phone, code, undefined, verificationId);
 
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
@@ -665,42 +789,76 @@ const LoginCN: React.FC = () => {
       return;
     }
 
+    setLoading(true);
+    console.log('[LoginCN] handleSignup: calling signupWithEmail');
+    const result = await cloudbaseAuth.signupWithEmail(email, password);
+    console.log('[LoginCN] handleSignup: result', result);
+
+    if (result.success) {
+      // verificationId 缺失 fail-safe: 不能进入 pendingSignupCode 状态,
+      // 否则后续 confirm 时 backend 会 INVALID_PARAMS
+      if (!result.verificationId) {
+        messageApi.error(
+          result.error || t('login.codeSendFailed') || '验证码发送失败，请稍后重试'
+        );
+        setLoading(false);
+        return;
+      }
+      // 与国际版一致：注册成功后切换到验证邮箱页面，等用户确认后才登录
+      console.log('[LoginCN] handleSignup: setting pendingSignupCode and switching to email-signup-verify');
+      setPendingSignupCode({ email, password, verificationId: result.verificationId });
+      setMode('email-signup-verify');
+      setActiveTab('email');
+      messageApi.success(t('login.codeSent') || '验证码已发送');
+      setLoading(false);
+      setShowInitProgress(false);
+    } else {
+      messageApi.error(result.error || t('login.failed'));
+      setLoading(false);
+      setShowInitProgress(false);
+    }
+  }, [ensureCloudbase, messageApi, t, setShowInitProgress]);
+
+  // 邮箱注册 - 确认验证码完成注册
+  const handleSignupVerify = useCallback(async () => {
+    console.log('[LoginCN] handleSignupVerify called');
+    if (!pendingSignupCode) {
+      console.log('[LoginCN] handleSignupVerify: pendingSignupCode is null, returning to email-signup');
+      messageApi.error('注册会话已过期，请重新注册');
+      setMode('email-signup');
+      setPendingSignupCode(null);
+      return;
+    }
+
+    const values = form.getFieldsValue(['code']) as { code?: string };
+    const code = (values.code || '').trim();
+    if (!code) {
+      messageApi.error(t('login.codeRequired') || '请输入验证码');
+      return;
+    }
+
+    // 二次提交时,如果 pendingSignupCode.verificationId 缺失 (state 闭包异常),
+    // 不应继续提交,而是提示用户重新发送验证码
+    if (!pendingSignupCode.verificationId) {
+      console.log('[LoginCN] handleSignupVerify: verificationId is missing');
+      messageApi.error(
+        t('login.codeSendFailed') || '验证码已过期，请重新发送'
+      );
+      setPendingSignupCode(null);
+      setMode('email-signup');
+      return;
+    }
+
+    setLoading(true);
     try {
-      if (!pendingSignupCode) {
-        setLoading(true);
-        const result = await cloudbaseAuth.signupWithEmail(email, password);
-
-        if (result.success) {
-          if (result.verificationId) {
-            setPendingSignupCode({ email, password, verificationId: result.verificationId });
-            setCodeSent(true);
-            setCountdown(60);
-            messageApi.success(t('login.codeSent') || '验证码已发送');
-          } else {
-            messageApi.info(t('login.emailAlreadyRegistered') || '该邮箱已注册，请直接登录');
-            setMode('email-login');
-          }
-        } else {
-          messageApi.error(result.error || t('login.failed'));
-        }
-        return;
-      }
-
-      // 输入验证码完成注册
-      setLoading(true);
-      const values = form.getFieldsValue(['code']) as { code?: string };
-      const code = (values.code || '').trim();
-      if (!code) {
-        messageApi.error(t('login.codeRequired') || '请输入验证码');
-        return;
-      }
-
+      console.log('[LoginCN] handleSignupVerify: calling confirmSignupWithEmail');
       const result = await cloudbaseAuth.confirmSignupWithEmail(
         pendingSignupCode.email,
         code,
         pendingSignupCode.password,
         pendingSignupCode.verificationId,
       );
+      console.log('[LoginCN] handleSignupVerify: result', result);
 
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
@@ -719,7 +877,7 @@ const LoginCN: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [ensureCloudbase, messageApi, t, pendingSignupCode, form, saveLoginSession]);
+  }, [pendingSignupCode, form, saveLoginSession, messageApi, t]);
 
   // 微信登录
   const handleWechatLogin = useCallback(async () => {
@@ -782,13 +940,19 @@ const LoginCN: React.FC = () => {
 
   // 提交处理
   const handleSubmit = useCallback(async (values: LoginFormValues) => {
-    if (loading || loginSuccessful) return;
+    if (loading || loginSuccessful) {
+      console.log(`[LoginCN] handleSubmit BLOCKED: loading=${loading}, loginSuccessful=${loginSuccessful}`);
+      return;
+    }
 
     const now = Date.now();
     if (now - lastLoginAttemptRef.current < LOGIN_DEBOUNCE_MS) {
       return;
     }
     lastLoginAttemptRef.current = now;
+
+    // Log current mode to help debug "signup triggers login" issue
+    console.log(`[LoginCN] handleSubmit START: mode=${mode}, activeTab=${activeTab}, values.keys=${Object.keys(values)}`);
 
     setLoading(true);
     setLoginSuccessful(false);
@@ -812,6 +976,9 @@ const LoginCN: React.FC = () => {
             return;
           }
           await handleSignup(values.username, values.password);
+          break;
+        case 'email-signup-verify':
+          await handleSignupVerify();
           break;
         case 'phone-login':
           await handlePhoneLogin(values.phone!, values.code!);
@@ -844,54 +1011,53 @@ const LoginCN: React.FC = () => {
         setLoading(false);
       }
     }
-  }, [loading, loginSuccessful, mode, handleEmailLogin, handleSignup, handlePhoneLogin, handlePhoneSignup, handleResetPassword, messageApi, t]);
+  }, [loading, loginSuccessful, mode, handleEmailLogin, handleSignup, handleSignupVerify, handlePhoneLogin, handlePhoneSignup, handleResetPassword, messageApi, t]);
 
   // 模式切换
   const handleModeChange = useCallback((newMode: AuthMode) => {
-    // 保存所有字段
-    const savedUsername = form.getFieldValue('username');
-    const savedPassword = form.getFieldValue('password');
-    const savedPhone = form.getFieldValue('phone');
+    // 保存 role 字段 (跨模式保留)
     const savedRole = form.getFieldValue('role');
-    
+
+    console.log(`[LoginCN] handleModeChange: ${mode} -> ${newMode}`);
     setMode(newMode);
-    if (newMode === 'email-login' || newMode === 'email-signup') {
+    if (newMode === 'email-login' || newMode === 'email-signup' || newMode === 'email-signup-verify') {
       setActiveTab('email');
     } else if (newMode === 'phone-login' || newMode === 'phone-signup') {
       setActiveTab('phone');
     }
-    
-    // 根据新模式选择性重置字段
-    const fieldsToReset: (keyof LoginFormValues)[] = [];
-    if (newMode === 'email-login' || newMode === 'email-signup') {
-      // 邮箱模式：重置密码相关
-      fieldsToReset.push('password', 'confirmPassword');
-    } else if (newMode === 'phone-login' || newMode === 'phone-signup') {
-      // 手机模式：重置用户名和密码
-      fieldsToReset.push('username', 'password', 'confirmPassword');
+
+    // 重置表单: 切到 signup/forgot 模式时,清掉 username+password,避免用户
+    // 误以为在"注册"而实际表单已被自动填充成旧账号的登录凭证 — 这是
+    // "邮箱注册号码直接登录"的根本原因 (见 CLAUDE.md §6: 必须 fail-safe,
+    // 不能让旧 keyring 凭证污染新流程)。
+    if (newMode === 'email-signup') {
+      // 注册是"创建新账号",必须清空旧 login 凭证
+      form.resetFields(['username', 'password', 'confirmPassword', 'code', 'newPassword']);
+    } else if (newMode === 'email-signup-verify') {
+      // 验证页面保留 username，只清掉密码相关字段
+      form.resetFields(['password', 'confirmPassword', 'newPassword']);
+    } else if (newMode === 'phone-signup' || newMode === 'phone-login') {
+      form.resetFields(['username', 'password', 'confirmPassword', 'code', 'newPassword']);
+    } else if (newMode === 'email-login') {
+      // 切回 login 时清掉 code + confirmPassword + newPassword,保留 username/password 让 rememberMe 起作用
+      form.resetFields(['code', 'confirmPassword', 'newPassword']);
     } else if (newMode === 'forgot') {
-      // 忘记密码模式
-      fieldsToReset.push('password', 'confirmPassword', 'code', 'newPassword');
+      form.resetFields(['username', 'password', 'confirmPassword', 'code', 'newPassword']);
     }
-    
-    if (fieldsToReset.length > 0) {
-      form.resetFields(fieldsToReset);
-    }
-    
-    // 恢复所有字段
+
+    // 恢复 role
     if (savedRole) {
       form.setFieldValue('role', savedRole);
     }
-    if (savedUsername) {
-      form.setFieldValue('username', savedUsername);
+
+    // 切到 signup 模式时: 关闭 rememberMe,避免注册成功后自动保存旧密码到 keyring
+    if (newMode === 'email-signup' || newMode === 'phone-signup') {
+      setRememberMe(false);
+    } else if (newMode === 'email-login' || newMode === 'phone-login') {
+      setRememberMe(true);
     }
-    if (savedPassword) {
-      form.setFieldValue('password', savedPassword);
-    }
-    if (savedPhone) {
-      form.setFieldValue('phone', savedPhone);
-    }
-    
+
+    // 切模式时清掉所有验证码/session 状态
     setLoading(false);
     setLoginSuccessful(false);
     setHasNavigated(false);
@@ -909,8 +1075,9 @@ const LoginCN: React.FC = () => {
     switch (mode) {
       case 'email-login': return t('login.title');
       case 'email-signup': return t('login.createAccount');
-      case 'phone-login': return t('login.phoneLogin');
-      case 'phone-signup': return t('login.phoneSignup');
+      case 'email-signup-verify': return t('login.verifyEmail');
+      case 'phone-login': return t('login.phoneLogin'); // "手机登录 / 注册"
+      case 'phone-signup': return t('login.phoneSignup'); // 不再通过 UI 进入
       case 'forgot': return t('login.forgotPassword');
       default: return t('login.title');
     }
@@ -1021,7 +1188,8 @@ const LoginCN: React.FC = () => {
                       prefix={<UserOutlined />}
                       placeholder={t('common.email')}
                       size="large"
-                      autoComplete="username"
+                      autoComplete="off"
+                      id="ecan-email-login-username"
                     />
                   </Form.Item>
 
@@ -1091,20 +1259,39 @@ const LoginCN: React.FC = () => {
                           autoComplete="new-password"
                         />
                       </Form.Item>
-                      {pendingSignupCode && (
-                        <Form.Item
-                          name="code"
-                          rules={[{ required: true, message: t('login.codeRequired') }]}
-                        >
-                          <Input
-                            prefix={<SafetyCertificateOutlined />}
-                            placeholder={t('login.codePlaceholder')}
-                            size="large"
-                            maxLength={6}
-                            disabled={loginSuccessful}
-                          />
-                        </Form.Item>
-                      )}
+                    </>
+                  )}
+
+                  {/* 邮箱注册 - 验证邮箱页面 */}
+                  {mode === 'email-signup-verify' && pendingSignupCode && (
+                    <>
+                      <div style={{
+                        marginBottom: 16,
+                        padding: '12px 16px',
+                        background: 'rgba(56, 161, 105, 0.1)',
+                        border: '1px solid rgba(56, 161, 105, 0.3)',
+                        borderRadius: 8,
+                        textAlign: 'center'
+                      }}>
+                        <Text style={{ color: '#73d13d', fontSize: 13 }}>
+                          {t('login.signupCodeSent') || '验证码已发送到您的邮箱'}
+                        </Text>
+                        <br />
+                        <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>
+                          {pendingSignupCode.email}
+                        </Text>
+                      </div>
+                      <Form.Item
+                        name="code"
+                        rules={[{ required: true, message: t('login.codeRequired') }]}
+                      >
+                        <Input
+                          prefix={<SafetyCertificateOutlined />}
+                          placeholder={t('login.codePlaceholder')}
+                          size="large"
+                          maxLength={6}
+                        />
+                      </Form.Item>
                     </>
                   )}
 
@@ -1151,8 +1338,8 @@ const LoginCN: React.FC = () => {
                         <button
                           type="button"
                           className="cn-send-code-btn"
-                          disabled={countdown > 0 || !form.getFieldValue('phone')}
-                          onClick={() => handleSendCode(form.getFieldValue('phone'))}
+                          disabled={countdown > 0 || !phoneValue}
+                          onClick={() => handleSendCode(phoneValue)}
                         >
                           {countdown > 0 ? `${countdown}s` : t('login.sendCode')}
                         </button>
@@ -1219,8 +1406,8 @@ const LoginCN: React.FC = () => {
                         <button
                           type="button"
                           className="cn-send-code-btn"
-                          disabled={countdown > 0 || !form.getFieldValue('phone')}
-                          onClick={() => handleSendForgotCode(form.getFieldValue('phone'))}
+                          disabled={countdown > 0 || !phoneValue}
+                          onClick={() => handleSendForgotCode(phoneValue)}
                         >
                           {countdown > 0 ? `${countdown}s` : t('login.sendCode')}
                         </button>
@@ -1282,7 +1469,9 @@ const LoginCN: React.FC = () => {
                       ? t('login.loggingIn')
                       : mode === 'email-login' || mode === 'phone-login'
                         ? t('login.loginButton')
-                        : t('login.signUp')}
+                        : mode === 'email-signup-verify'
+                          ? t('login.confirmSignup') || '确认注册'
+                          : t('login.signUp')}
                   </Button>
                 </Form.Item>
               )}
@@ -1309,7 +1498,7 @@ const LoginCN: React.FC = () => {
 
               {/* 链接按钮 */}
               <div className="cn-link-row">
-                {mode === 'forgot' ? (
+                {mode === 'forgot' || mode === 'email-signup-verify' ? (
                   <button
                     type="button"
                     className="cn-link-button"
@@ -1331,20 +1520,20 @@ const LoginCN: React.FC = () => {
                       </button>
                     )}
 
-                    {/* 切换登录/注册 */}
-                    <button
-                      type="button"
-                      className="cn-link-button cn-link-primary"
-                      onClick={() => handleModeChange(
-                        mode === 'email-login' ? 'email-signup' :
-                        mode === 'email-signup' ? 'email-login' :
-                        mode === 'phone-login' ? 'phone-signup' : 'phone-login'
-                      )}
-                    >
-                      {mode === 'email-signup' || mode === 'phone-signup'
-                        ? t('login.backToLogin')
-                        : t('login.signUp')}
-                    </button>
+                    {/* 切换登录/注册 — 手机号模式不显示 (智能登录/注册一站式,后端自动 sign_in/sign_up) */}
+                    {(mode === 'email-login' || mode === 'email-signup') && (
+                      <button
+                        type="button"
+                        className="cn-link-button cn-link-primary"
+                        onClick={() => handleModeChange(
+                          mode === 'email-login' ? 'email-signup' : 'email-login'
+                        )}
+                      >
+                        {mode === 'email-signup'
+                          ? t('login.backToLogin')
+                          : t('login.signUp')}
+                      </button>
+                    )}
                   </>
                 )}
               </div>

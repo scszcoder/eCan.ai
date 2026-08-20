@@ -120,13 +120,13 @@ cmd_status() {
         echo -e "   区域:      ap-guangzhou"
         echo -e ""
         echo -e "   ${BOLD}启动命令:${NC}"
-        echo -e "   ${CYAN}cd gui_v2 && npm run dev:cn${NC}"
+        echo -e "   ${CYAN}cd gui_v2 && npm run dev${NC}"
     else
         echo -e "   认证:      Cognito (AWS)"
         echo -e "   区域:      us-east-1"
         echo -e ""
         echo -e "   ${BOLD}启动命令:${NC}"
-        echo -e "   ${CYAN}cd gui_v2 && npm run dev:intl${NC}"
+        echo -e "   ${CYAN}cd gui_v2 && npm run dev${NC}"
     fi
 
     # Section: .env 文件
@@ -145,17 +145,10 @@ cmd_status() {
         echo -e "      .env          ${YELLOW}不存在${NC} - 请运行: ${CYAN}cp .env.example .env${NC}"
     fi
 
-    echo -e "   前端配置:"
-    if [ -f "$GUI_DIR/.env.cn" ]; then
-        echo -e "      .env.cn       ${GREEN}存在${NC}"
-    else
-        echo -e "      .env.cn       ${RED}不存在${NC}"
-    fi
-    if [ -f "$GUI_DIR/.env.intl" ]; then
-        echo -e "      .env.intl     ${GREEN}存在${NC}"
-    else
-        echo -e "      .env.intl     ${RED}不存在${NC}"
-    fi
+# 新架构：前端不再使用 .env.cn / .env.intl。运行时配置由后端提供：
+#   - desktop dev: IPC handler getAppConfig (see gui/ipc/w2p_handlers/app_config_handler.py)
+#   - web deploy: web_server.py 同源 GET /api/config
+echo -e "   前端配置: ${GREEN}运行时由后端提供 (无需前端 .env.cn/.env.intl)${NC}"
 
     # Section: 运行状态
     section "运行状态"
@@ -187,17 +180,17 @@ cmd_status() {
         echo -e "      cd $PROJECT_ROOT"
         echo -e "      python main.py"
         echo -e ""
-        echo -e "      ${CYAN}# 终端 2: 启动 CN 前端${NC}"
+        echo -e "      ${CYAN}# 终端 2: 启动前端（前后端通过 IPC handler getAppConfig 自动同步 ECAN_APP_ID）${NC}"
         echo -e "      cd $GUI_DIR"
-        echo -e "      npm run dev:cn"
+        echo -e "      npm run dev"
     else
         echo -e "      ${CYAN}# 终端 1: 启动后端${NC}"
         echo -e "      cd $PROJECT_ROOT"
         echo -e "      python main.py"
         echo -e ""
-        echo -e "      ${CYAN}# 终端 2: 启动 Intl 前端${NC}"
+        echo -e "      ${CYAN}# 终端 2: 启动前端（前后端通过 IPC handler getAppConfig 自动同步 ECAN_APP_ID）${NC}"
         echo -e "      cd $GUI_DIR"
-        echo -e "      npm run dev:intl"
+        echo -e "      npm run dev"
     fi
 
     echo ""
@@ -236,32 +229,17 @@ cmd_switch() {
         echo "ECAN_APP_ID=${target}" >> "$ENV_FILE"
     fi
 
-    # ========================================
-    # 更新前端基础 .env (关键改进!)
-    # ========================================
-    local gui_env="$GUI_DIR/.env"
-    if [ -f "$gui_env" ]; then
-        # 更新 VITE_APP_ID
-        if grep -q "^VITE_APP_ID=" "$gui_env"; then
-            sed -i '' "s/^VITE_APP_ID=.*/VITE_APP_ID=${target}/" "$gui_env"
-        fi
-        # 更新 VITE_IS_CN
-        local is_cn_val="false"
-        if [ "$target" = "cn" ]; then
-            is_cn_val="true"
-        fi
-        if grep -q "^VITE_IS_CN=" "$gui_env"; then
-            sed -i '' "s/^VITE_IS_CN=.*/VITE_IS_CN=${is_cn_val}/" "$gui_env"
-        fi
-        ok "已更新前端 .env: VITE_APP_ID=${target}, VITE_IS_CN=${is_cn_val}"
-    fi
+# ========================================
+# 新架构：前端不再读 VITE_APP_ID/VITE_IS_CN
+# 运行时配置由后端提供：
+#   - desktop dev: IPC handler getAppConfig
+#   - web deploy: web_server.py 同源 GET /api/config
+# ========================================
 
     print_header
     echo -e "   ${BOLD}切换完成${NC}"
     echo -e ""
     echo -e "   ${GREEN}ECAN_APP_ID = $target${NC} (后端)"
-    echo -e "   ${GREEN}VITE_APP_ID = $target${NC} (前端 .env)"
-    echo -e "   ${GREEN}VITE_IS_CN  = ${is_cn_val}${NC} (前端)"
 
     if [ "$target" = "cn" ]; then
         echo -e ""
@@ -277,7 +255,7 @@ cmd_switch() {
     echo -e "   ${YELLOW}⚠  需要手动重启后端才能生效${NC}"
     echo ""
 
-    ok "切换成功! 请使用 'npm run dev:${target}' 启动前端"
+    ok "切换成功! 请使用 'npm run dev' 启动前端（前后端自动通过 IPC handler getAppConfig 同步 ECAN_APP_ID）"
 }
 
 # ==============================================================================

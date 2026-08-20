@@ -11,16 +11,29 @@ import { initWebSocketEventListeners } from './wsEventListeners';
 import { unifiedEventHandler, createStandardizedEvent } from '@/services/events/unifiedEventHandler';
 import { detectPlatform } from '@/config/platform';
 import { userStorageManager } from '@/services/storage/UserStorageManager';
+import { getCachedAppConfig } from '@/contexts/AppConfigContext';
 
 /**
- * CN check: check build-time VITE_APP_ID.
- * Desktop builds use ECAN_APP_ID=cn env var; web builds use VITE_APP_ID.
- * When running in desktop mode, the backend is always the local LocalServer
- * (which routes to TCB for CN), so we skip AppSync entirely for CN.
+ * CN check: read the runtime config populated by AppConfigProvider from the
+ * IPC handler `getAppConfig` (see gui/ipc/w2p_handlers/app_config_handler.py).
+ * The backend derives is_cn from the ECAN_APP_ID env var via
+ * utils.app_env.is_cn(), so this is the single source of truth (no build-time
+ * VITE_APP_ID branching).
+ *
+ * Why this matters: in desktop mode the backend is always the local
+ * LocalServer, which routes CN traffic to TCB through its own WS endpoint
+ * and Intl traffic to AppSync. Skipping AppSync for CN is therefore
+ * correct regardless of whether we are in web or desktop mode.
  */
 const isCNBuild = (): boolean => {
-  const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
-  return env.VITE_APP_ID === 'cn' || env.VITE_CLOUDBASE_ENV_ID !== undefined;
+  // Read the same module-level cache that AuthProvider uses. We cannot
+  // call useAppConfig() outside a React component, so the cache is the
+  // only synchronous option. AppConfigContext populates it from the
+  // getAppConfig IPC call; before that call resolves we fall back to Intl
+  // (matching AppConfigContext's default and the existing behaviour).
+  const cached = getCachedAppConfig();
+  if (cached) return cached.is_cn;
+  return false;
 };
 
 /**

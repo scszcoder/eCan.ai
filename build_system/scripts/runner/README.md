@@ -22,7 +22,7 @@
 |------|--------------|--------------------|
 | Linux x64 | `self-hosted,linux,x64,ecan-build` | `ecan-linux-amd64` |
 | macOS x64 | `self-hosted,macos,x64,ecan-build` | `ecan-macos-amd64` |
-| macOS arm64 | `self-hosted,macos,arm64,ecan-build` | `ecan-macos-arm64` |
+| macOS aarch64 | `self-hosted,macos,aarch64,ecan-build` | `ecan-macos-aarch64` |
 | Windows x64 | `self-hosted,windows,x64,ecan-build` | `ecan-windows-amd64` |
 | Windows arm64 | `self-hosted,windows,arm64,ecan-build` | `ecan-windows-arm64` |
 
@@ -98,7 +98,7 @@ Done.
   Next step   : In the 'Run workflow' UI, pick
                 runner_group = ecan-windows-amd64
                 (other families: ecan-linux-amd64 / ecan-macos-amd64 /
-                 ecan-macos-arm64 / ecan-windows-arm64)
+                 ecan-macos-aarch64 / ecan-windows-arm64)
   Service     : Get-Service "actions.runner.liuqiang-eCan.ai.ecan-windows-amd64-01"
 ────────────────────────────────────────────────────────────────────────────
 ```
@@ -123,6 +123,8 @@ Done.
 | `download failed` | 网络受限；手动下载 `actions-runner-{os}-{arch}-<ver>.{tar.gz|zip}` 放到 `RUNNER_DIR` 后重跑 |
 | `runner '<name>' not found in API` | token 已过期，重新申请 |
 | `MISSING required labels: ...` | GitHub 端残留旧 runner 持有同名；先在 UI 删除再重跑 |
+| `MISSING bash on PATH ... Exit code 4` | `release-cn.yml` 的 Gitee checkout step 用 `shell: bash`（commit `fd0ed0c0`）。Windows runner 必须能 `bash --version`。装 [Git for Windows](https://git-scm.com/download/win)，确认 `C:\Program Files\Git\bin` 在系统 PATH，重跑脚本 |
+| WindowsApps Store stub 抢走 `python3` (`Permission denied`, exit 126) | Win10 1709+ 在 `C:\Users\<user>\AppData\Local\Microsoft\WindowsApps\python3.exe` 注册了 Store 的 App Execution Alias；release-cn.yml 的 `shell: bash` 步骤如果直接调 `python3`，且 SYSTEM PATH 上没有真 Python，会命中这个占位符并报 126。**修复**：装 Python 3.12.10 到 `C:\Python312\`（`choco install python --version=3.12.10 -y --installarguments="InstallAllUsers=1 PrependPath=1 TargetDir=C:\Python312"`），setup-prerequisites.ps1 步骤 [3.5] 会自动装并把 `C:\Python312\` 和 `C:\Python312\Scripts\` 放到 SYSTEM PATH 前面 |
 
 ---
 
@@ -143,7 +145,8 @@ Done.
 | arch 映射 | Linux `x86_64|amd64 → x64`，`aarch64|arm64 → arm64`；macOS `x86_64 → x64`，`arm64 → arm64`；Windows `PROCESSOR_ARCHITECTURE` 同上 |
 | tarball/zip 命名 | `actions-runner-{linux|osx|win}-{x64|arm64}-{ver}.{tar.gz|zip}` |
 | 注册方式 | `--unattended --replace --runasservice`（macOS 上 `--runasservice` 被静默忽略） |
-| 退出码 | `0` 成功 / `1` 通用失败 / `2` runner 未找到 / `3` label 不全 |
+| 退出码 | `0` 成功 / `1` 通用失败 / `2` runner 未找到 / `3` label 不全 / `4` bash 缺失（Windows runner） |
+| Exit codes (英文) | `0` ok / `1` generic / `2` runner not found / `3` labels incomplete / `4` bash missing (Windows runner) |
 
 ### 2. 关键流程图
 
@@ -208,7 +211,8 @@ runs-on: ${{ runner_group == 'ecan-windows-amd64' &&
 
 ### 4. 与 eCan 构建环境的协同
 
-- **Runner 不必预装 Python/Node/Inno Setup**：release.yml 的 `setup-python-env` / `setup-node-env` / `Install Inno Setup` 等 step 会在每次 job 内重新初始化。Runner 只提供 OS + 网络 + sudo / 管理员能力。
+- **Runner 不必预装 Node/Inno Setup**：release.yml 的 `setup-node-env` / `Install Inno Setup` 等 step 会在每次 job 内重新初始化。Runner 提供 OS + 网络 + sudo / 管理员能力。
+- **Python 3.12 是 Windows runner 上的硬依赖**（与 GitHub-hosted `windows-latest` 保持一致）。`release-cn.yml` 的 `shell: bash` 步骤直接调用 `python3`（如 Gitee token 校验的 SHA256 fingerprint），必须在 SYSTEM PATH 上有真 Python 3.12.x，否则会命中 Windows 10 1709+ 的 WindowsApps Store App Execution Alias 占位符（`C:\Users\<user>\AppData\Local\Microsoft\WindowsApps\python3.exe`），并以 126 `Permission denied` 失败。`setup-prerequisites.ps1` 步骤 [3.5] 自动 `choco install python --version=3.12.10` 到 `C:\Python312\` 并把该目录 + `Scripts\` 放到 SYSTEM PATH 前面。Python 3.12.10 与 GitHub-hosted 默认一致；build_validator 拒绝 3.11，已锁定此版本。
 - **缓存目录**：构建缓存命中依赖于 runner **磁盘持久**（`~/.cache/pip`、`gui_v2/node_modules`、`third_party/ms-playwright` 都在 runner 本地）。
 - **磁盘空间**：建议预留 ≥ 30 GB；PyInstaller + Playwright Chromium 解压后会超过 8 GB。
 
@@ -242,6 +246,28 @@ runs-on: ${{ runner_group == 'ecan-windows-amd64' &&
 3. **离线环境**：无法从 GitHub 下载 tarball 时需手动放置；脚本已设计为"目录内已有 `config.sh/config.cmd` 时跳过下载"。
 4. **macOS arm64 路径**：GitHub 官方 tarball 命名为 `actions-runner-osx-arm64-*`，脚本中 `PLATFORM_OS=osx` 与 `LABEL_OS=macos` 是有意解耦的。
 5. **Windows ARM64**：当前 `release.yml` 仅启用 `windows-latest`（x64）；脚本已支持 arm64 以备扩展。
+6. **共享出口 IP 的 429 限流**：self-hosted runner 固定出口 IP，多 job 并发引用同一 action 时会触发 codeload.github.com per-IP 二级限流。修复见 §「Action Archive 缓存」。
+
+### 7.5 Action Archive 缓存（429 限流缓解）
+
+**症状**：runner 跑 `release-cn.yml` 的多个 job 时,`Prepare all required actions` 阶段报：
+
+```
+Warning: Failed to download action 'https://codeload.github.com/actions/cache/zip/<SHA>'.
+Error: Response status code does not indicate success: 429 (Too Many Requests).
+```
+
+**机制**：runner ≥2.319 支持 `ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE`(actions/runner#2857)。预下载 action 归档到本地目录后,runner 从本地读取,跳过 codeload.github.com —— GitHub-hosted runner 内部走的就是这条路径。
+
+**预热脚本**：`build_system/scripts/runner/warm-actions-cache.ps1`,由 `register_runner.ps1` 自动调用。手动重跑(例如 codeload 缓存被清)：
+
+```powershell
+cd C:\actions-runner
+.\warm-actions-cache.ps1            # 预热 + 重启 svc
+.\warm-actions-cache.ps1 -Check     # dry-run
+```
+
+**验证**：`.\check-prerequisites.ps1` 段 [8] 应显示 `Cache root: ... (X archives, Y MB)`。
 
 ### 8. 故障矩阵（用于排错）
 
@@ -255,6 +281,7 @@ runs-on: ${{ runner_group == 'ecan-windows-amd64' &&
 | svc start | 端口占用 | 检查 `_diag/` 目录；runner 默认 0 端口监听，问题罕见 |
 | API verify | 403 rate limit | 等 60 s 重跑，关闭 `gh auth token` 兜底即可 |
 | API verify | label 不全 | runner 端未注册成功，重新执行 `config.cmd`（不重下） |
+| 运行时 429 | `codeload.github.com` per-IP 限流（多 job 并发声明同一 action 时） | 跑 `warm-actions-cache.ps1` 预热 `ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE`，见 §「Action Archive 缓存」 |
 
 ### 9. 版本演进记录（建议保留）
 
@@ -266,6 +293,7 @@ runs-on: ${{ runner_group == 'ecan-windows-amd64' &&
 - `.github/actions/setup-python-env/action.yml`（无直接影响）
 - `release.yml` 中 `setup-python` 版本要求
 - 私有镜像（如使用）：重新构建并 push runner 镜像
+- `warm-actions-cache.ps1` 的 `-Actions` 默认列表（新增 action 时同步加入）
 
 ---
 

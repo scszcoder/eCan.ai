@@ -56,6 +56,11 @@ on:
         required: false
         type: string
         default: 'all'
+      app:
+        description: 'App identifier (cn | intl). Defaults to cn.'
+        required: false
+        type: string
+        default: 'cn'
     outputs:
       appcast-generated:
         description: 'Whether appcast generation was successful'
@@ -77,12 +82,17 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
-          cache-dependency-path: 'requirements-cn.txt'
+          # Narrow CN-side requirements (cos-python-sdk-v5 + pyyaml + packaging).
+          # The umbrella requirements-cn.txt drags in the full runtime app
+          # (LangChain, PySide6, Playwright, LightRAG, FAISS, Neo4j, …) which
+          # an appcast reader never needs — replace it with the parity-mirrored
+          # build_system/scripts/requirements-cos.txt.
+          cache-dependency-path: 'build_system/scripts/requirements-cos.txt'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-cn.txt
+          pip install -r build_system/scripts/requirements-cos.txt
 
       - name: Generate Appcast
         id: generate
@@ -93,10 +103,11 @@ jobs:
           USER_PREFIX: ${{ inputs.user-prefix }}
           PLATFORM: ${{ inputs.platform }}
           ARCH: ${{ inputs.arch }}
+          APP: ${{ inputs.app }}
           ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID }}
           ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
         run: |
-          echo "=== Generating CN App Appcast ==="
+          echo "=== Generating $APP App Appcast ==="
           echo "Environment: $ENVIRONMENT"
           echo "Channel: $CHANNEL"
           echo "Version: $VERSION"
@@ -105,7 +116,7 @@ jobs:
 
           python3 build_system/scripts/generate_appcast.py \
             --env "$ENVIRONMENT" \
-            --app cn \
+            --app "$APP" \
             ${CHANNEL:+--channel "$CHANNEL"} \
             ${VERSION:+--version "$VERSION"} \
             ${PLATFORM:+--platform "$PLATFORM"} \

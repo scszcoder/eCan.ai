@@ -176,7 +176,8 @@ def get_app_config() -> Any:
     Use this for build-time / manifest config:
       - app_name, app_short_name
       - bundle_id, url_scheme
-      - graphql_url (from cloud_endpoints.json, differs from cloud_graphql_endpoint)
+      - storage_url (from cloud_endpoints.json -> 'storage')
+      - cloud_graphql_endpoint / cloud_ws_endpoint (from auth_config.yml -> APPSYNC.*)
     """
     return _get_app_config_loader()()
 

@@ -347,7 +347,7 @@ def test_find_installation_package():
             # Wrong extension → finds correct file
             # NOTE: with sorted glob, Setup.exe is found first and wins the tie
             ("eCan-1.0.0-windows-x64.pkg",  "windows", "eCan-1.0.0-windows-amd64-Setup.exe"),
-            ("eCan-1.0.0-macos-arm64.exe",    "macos",   "eCan-1.0.0-macos-aarch64.pkg"),
+            ("eCan-1.0.0-macos-aarch64.exe",    "macos",   "eCan-1.0.0-macos-aarch64.pkg"),
             ("eCan-1.0.0-linux-amd64.pkg",    "linux",   "eCan-1.0.0-linux-amd64.deb"),
         ]
         all_pass = True

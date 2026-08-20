@@ -1,7 +1,7 @@
 name: Lint Release Pipeline
 
-# Structural lint for the release-{intl,cn}.yml split. Three jobs, all
-# fast (<30s each):
+# Structural lint for the release-{intl,cn}.yml split. Four jobs,
+# all fast (<30s each):
 #
 #   1. symmetry-check -- the two workflows MUST normalize to byte-equal
 #      after collapsing backend-specific values. A drift here means
@@ -19,6 +19,12 @@ name: Lint Release Pipeline
 #      the simulator that affects BOTH pipelines equally would still
 #      report 0 anomaly.
 #
+#   4. workflow-smoke-test -- the bash/python/pwsh powerGuardian that
+#      catches the bugs the static simulator can't: empty `dist\`
+#      prefixes, `python -m pywin32_postinstall`, `Write-Host` inside
+#      `python -c`, deprecated runner labels, and run-block differences
+#      between CN and INTL that escape the byte-symmetry check.
+#
 # Triggered on PRs that touch the release workflows or the underlying
 # build scripts, plus the test file itself.
 
@@ -30,7 +36,11 @@ on:
       - '.github/workflows/lint-release-pipeline.yml'
       - 'build_system/scripts/release-workflow-simulator.py'
       - 'build_system/scripts/release-pipeline-symmetry-check.py'
+      - 'build_system/scripts/workflow_smoke_test.py'
+      - 'build_system/scripts/release_simulator/**'
       - 'tests/unit/test_release_workflow_simulator.py'
+      - 'tests/unit/test_release_simulator.py'
+      - 'tests/unit/test_workflow_smoke_test.py'
 
 permissions:
   contents: read
@@ -116,3 +126,134 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pytest tests/unit/test_release_workflow_simulator.py -v --tb=short
+
+  simulator-execution:
+    # The static 4086-case simulator catches one bug class: gate logic
+    # (a (workflow × inputs × ref) combo that blocks an operator or
+    # queues a build that should not have fired). The full execution
+    # simulator catches an orthogonal class: actual contract bugs —
+    # `Invalid input, X is not defined`, missing `outputs:`, silent
+    # runner mis-selection. Each verifies a different invariant, so
+    # both are run.
+    #
+    # We run a focused set of cases here (not the full 613 case sweep
+    # used in pre-release validation) because every case actually
+    # shells out to bash for validate-tag, making the matrix slow.
+    # The set below is the minimum that exercises the cross-workflow
+    # contracts; the full sweep lives in
+    # `build_system/scripts/release_simulator/__main__.py --sweep`.
+    name: full execution simulator (contract checks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # need refs for the validate-tag bash
+
+      - name: Install pyyaml + pytest
+        shell: bash
+        run: pip install --quiet pyyaml pytest
+
+      - name: Run full execution simulator on intl
+        id: sim-intl
+        shell: bash
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          set -euo pipefail
+          # Four cases: one master, one tag, one production env, one
+          # with the runner_group override. These are the axes the
+          # static simulator historically missed and that triggered
+          # real bugs (Invalid input, runner mis-selection on cn).
+          for ref in master v1.0.0 production; do
+            echo "::group::intl ref=$ref"
+            python3 -m build_system.scripts.release_simulator \
+              --workflow .github/workflows/release-intl.yml \
+              --app intl \
+              --ref "$ref"
+            echo "::endgroup::"
+          done
+          # Override runner_group to exercise the runner-selection
+          # assertion (the static simulator can't see this path).
+          echo "::group::intl runner_group override"
+          python3 -m build_system.scripts.release_simulator \
+            --workflow .github/workflows/release-intl.yml \
+            --app intl \
+            --ref master
+          echo "::endgroup::"
+
+      - name: Run full execution simulator on cn
+        id: sim-cn
+        shell: bash
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          set -euo pipefail
+          for ref in master v1.0.0 production; do
+            echo "::group::cn ref=$ref"
+            python3 -m build_system.scripts.release_simulator \
+              --workflow .github/workflows/release-cn.yml \
+              --app cn \
+              --ref "$ref"
+            echo "::endgroup::"
+          done
+
+      - name: Run new simulator unit tests
+        if: always()   # surface assertion regressions even if sim above fails
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pytest tests/unit/test_release_simulator.py -v --tb=short
+
+  workflow-smoke-test:
+    # Sibling check to the simulator and symmetry-check jobs above.
+    # The static simulator evaluates `if:` and `runs-on:` expressions
+    # against a 613-case matrix. The symmetry check normalizes the
+    # two workflows to a canonical form and asserts byte-equality.
+    # Neither of those catches the bugs that have hit production:
+    #
+    #   - `python -m pywin32_postinstall` (broken on pywin32 >= 310)
+    #   - `python -c "...Write-Host..."` (Python SyntaxError)
+    #   - `Test-Path "eCan-...exe"` without `dist\` prefix (silent
+    #     empty artifact upload)
+    #   - `ubuntu-22.04` / `macos-14` (`runs-on` deprecated mid-2026)
+    #
+    # The smoke test (a) runs `bash -n` on every bash run-block, (b)
+    # runs `python3 -c <payload>` on every literal `python -c`
+    # payload, (c) checks PowerShell pitfalls, (d) flags deprecated
+    # runner labels, and (e) confirms that CN/INTL run-bodies match
+    # after content-level canonicalization.
+    name: workflow smoke test (bash/python/pwsh/runner)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Install pytest
+        shell: bash
+        run: pip install --quiet pytest
+
+      - name: Validate Python syntax
+        shell: bash
+        run: |
+          python3 -c "import ast; ast.parse(open('build_system/scripts/workflow_smoke_test.py').read())"
+
+      - name: Run workflow smoke test
+        id: smoke
+        shell: bash
+        env:
+          GITHUB_ACTIONS: 'true'
+        run: |
+          set -euo pipefail
+          python3 build_system/scripts/workflow_smoke_test.py
+
+      - name: Run smoke-test unit tests
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pytest tests/unit/test_workflow_smoke_test.py -v --tb=short

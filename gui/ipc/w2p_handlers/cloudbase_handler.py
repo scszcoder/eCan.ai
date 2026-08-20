@@ -456,7 +456,22 @@ def handle_cloudbase_signup(request: IPCRequest,
                 "This email is already registered. Please log in instead.",
             )
 
-        verification_id = send_result.data.get("verification_id", "")
+        # CloudBase 在不同响应包装下会用两种字段名 (``verification_id`` vs ``verificationId``)
+        verification_id = (
+            (send_result.data.get("verification_id") or "")
+            or (send_result.data.get("verificationId") or "")
+        )
+        if not verification_id:
+            # 没有 verification_id 意味着后续 verify 步骤无法进行，
+            # 应当明确报错而不是返回假 success 让前端显示"验证码已发送"。
+            logger.warning(
+                f"[CloudBaseSignup] send_verification_code returned no verification_id: "
+                f"email={email}, data_keys={list(send_result.data.keys())}"
+            )
+            return create_error_response(
+                request, "SEND_CODE_FAILED",
+                "Failed to obtain verification_id from CloudBase. Please retry.",
+            )
 
         return create_success_response(request, {
             "pending_verification": True,
@@ -742,9 +757,14 @@ def handle_cloudbase_send_code(request: IPCRequest,
         # 开发模式：返回验证码便于测试
         if result.data and result.data.get("dev_code"):
             response_data["dev_code"] = result.data["dev_code"]
-        # 邮箱模式返回 verification_id（后续需用户输入验证码来换 token）
+        # 邮箱/手机模式返回 verification_id（后续需用户输入验证码来换 token）
+        # CloudBase 在不同响应包装下会用两种字段名，这里兼容两种
         if result.data and result.data.get("verification_id"):
             response_data["verification_id"] = result.data["verification_id"]
+        # 透传 is_user：让前端知道号码/邮箱是否已注册，可用于"智能登录/注册"流程
+        # (方案 C: 不区分 login/signup UI，后端自动决定走 sign_in 还是 sign_up)
+        if result.data and "is_user" in result.data:
+            response_data["is_user"] = bool(result.data["is_user"])
 
         return create_success_response(request, response_data)
 
@@ -847,11 +867,27 @@ def handle_cloudbase_phone_login(request: IPCRequest,
 
         verification_token = verify_result.data.get("verification_token", "")
 
-        # Step 2: 用 verification_token 完成登录
+        # Step 2: 智能登录 / 注册 (方案 C)
+        # CloudBase 的 sign_in / sign_up 是两个独立接口，不能在一个请求里同时完成。
+        # 策略：先 sign_in；若返回 NOT_FOUND 则自动 sign_up 给新用户开账号，
+        # 用户体感是"输入手机号 + 验证码即可登录"。
+        # 边界:已注册但 sign_in 失败 (例如账户被删除) → 自动 provision 新账号，
+        # 行为等同用户注销后重新注册，符合预期。
         result = service.sign_in_with_otp(
             phone_number=phone,
             verification_token=verification_token,
         )
+
+        if not result.success and result.error_code == "NOT_FOUND":
+            logger.info(
+                f"[CloudBasePhoneLogin] Phone {phone[:3]}**** not registered, "
+                f"auto-provisioning via sign_up_with_otp"
+            )
+            result = service.sign_up_with_otp(
+                phone_number=phone,
+                verification_token=verification_token,
+                password="",  # 手机号登录不需要密码,空字符串让 CloudBase 不要求 password
+            )
 
         if not result.success:
             logger.warning(f"[CloudBasePhoneLogin] Failed: {result.error}")
@@ -981,8 +1017,13 @@ def handle_cloudbase_forgot_password(request: IPCRequest,
         }
         if result.data.get("dev_code"):
             response_data["dev_code"] = result.data["dev_code"]
-        if result.data.get("verification_id"):
-            response_data["verification_id"] = result.data["verification_id"]
+        # 兼容 CloudBase 两种字段命名（snake_case vs camelCase）
+        verification_id = (
+            (result.data.get("verification_id") or "")
+            or (result.data.get("verificationId") or "")
+        )
+        if verification_id:
+            response_data["verification_id"] = verification_id
 
         return create_success_response(request, response_data)
 

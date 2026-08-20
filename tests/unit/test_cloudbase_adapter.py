@@ -423,6 +423,7 @@ class TestAuthManagerCNBranches:
                 )
             m._update_saved_login_info.assert_called_once_with(
                 username="u@x.com", password="MySecret!", role="Commander",
+                login_type=None,  # user_profile has no login_type
             )
 
         def test_swallows_keyring_errors(self):

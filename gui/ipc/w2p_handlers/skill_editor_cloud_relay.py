@@ -63,7 +63,7 @@ def _appsync_request(query_string: str, ctx: Dict[str, Any],
     Uses Content-Type: application/json (matching the web app's appSyncClient.ts)
     because AppSync requires JSON content-type when variables are present.
     """
-    from agent.cloud_api.cloud_api import get_appsync_endpoint
+    from agent.cloud_api.cloud_api import get_appsync_endpoint, _http_auth_header
 
     endpoint = ctx.get("endpoint") or get_appsync_endpoint()
     token = ctx["token"]
@@ -71,7 +71,7 @@ def _appsync_request(query_string: str, ctx: Dict[str, Any],
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": token,
+        "Authorization": _http_auth_header(token),
         "cache-control": "no-cache",
     }
 
