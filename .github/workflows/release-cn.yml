@@ -1057,27 +1057,20 @@ jobs:
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          # DNS override: runner's DNS may be poisoned (gitee.com resolved
-          # to baiduads or other sink). Use a known-good IP resolved via
-          # Google's public DNS (8.8.8.8) and tell git to use it via
-          # GIT_EXTERNAL_IP. This avoids git's own DNS resolution which
-          # inherits the poisoned system resolver.
-          $dnsServer = '8.8.8.8'
-          try {
-            $dnsResult = Resolve-DnsName -Name 'gitee.com' -Type A -Server $dnsServer -ErrorAction Stop | Select-Object -First 1
-            $giteeIp = $dnsResult.IPAddress
-            Write-Host "[DNS] gitee.com resolved via $dnsServer -> $giteeIp"
-          } catch {
-            "::error::Cannot resolve gitee.com via $dnsServer. Public DNS unreachable from this runner."
-            exit 1
-          }
-          $env:GIT_EXTERNAL_IP = $giteeIp
-
           # Probe TCP:443 to gitee.com before attempting git ls-remote.
           # If the runner can't reach gitee.com (corporate firewall / DNS
           # poisoning), fail fast instead of hanging git ls-remote for the
           # full step timeout (6h). TCP probe uses .NET's TcpClient which
           # has its own connect timeout independent of git timeouts.
+          # NOTE: We deliberately do NOT set GIT_EXTERNAL_IP here. The
+          # earlier "DNS override" path forced git to connect to the IP
+          # resolved via 8.8.8.8, but gitee.com's CDN returns different
+          # IPs from public vs. system DNS, and the GIT_EXTERNAL_IP
+          # override skips git's own DNS resolution -- which means SNI
+          # host (gitee.com) is sent to whatever IP 8.8.8.8 returns,
+          # often a CDN edge that doesn't speak Smart-HTTP, leaving
+          # ls-remote hanging. The TCP probe below validates system DNS
+          # + connectivity; if it passes, we trust git's own resolver.
           try {
             $tcp = New-Object System.Net.Sockets.TcpClient
             $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
@@ -1965,27 +1958,20 @@ jobs:
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          # DNS override: runner's DNS may be poisoned (gitee.com resolved
-          # to baiduads or other sink). Use a known-good IP resolved via
-          # Google's public DNS (8.8.8.8) and tell git to use it via
-          # GIT_EXTERNAL_IP. This avoids git's own DNS resolution which
-          # inherits the poisoned system resolver.
-          $dnsServer = '8.8.8.8'
-          try {
-            $dnsResult = Resolve-DnsName -Name 'gitee.com' -Type A -Server $dnsServer -ErrorAction Stop | Select-Object -First 1
-            $giteeIp = $dnsResult.IPAddress
-            Write-Host "[DNS] gitee.com resolved via $dnsServer -> $giteeIp"
-          } catch {
-            "::error::Cannot resolve gitee.com via $dnsServer. Public DNS unreachable from this runner."
-            exit 1
-          }
-          $env:GIT_EXTERNAL_IP = $giteeIp
-
           # Probe TCP:443 to gitee.com before attempting git ls-remote.
           # If the runner can't reach gitee.com (corporate firewall / DNS
           # poisoning), fail fast instead of hanging git ls-remote for the
           # full step timeout (6h). TCP probe uses .NET's TcpClient which
           # has its own connect timeout independent of git timeouts.
+          # NOTE: We deliberately do NOT set GIT_EXTERNAL_IP here. The
+          # earlier "DNS override" path forced git to connect to the IP
+          # resolved via 8.8.8.8, but gitee.com's CDN returns different
+          # IPs from public vs. system DNS, and the GIT_EXTERNAL_IP
+          # override skips git's own DNS resolution -- which means SNI
+          # host (gitee.com) is sent to whatever IP 8.8.8.8 returns,
+          # often a CDN edge that doesn't speak Smart-HTTP, leaving
+          # ls-remote hanging. The TCP probe below validates system DNS
+          # + connectivity; if it passes, we trust git's own resolver.
           try {
             $tcp = New-Object System.Net.Sockets.TcpClient
             $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
@@ -2666,27 +2652,20 @@ jobs:
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          # DNS override: runner's DNS may be poisoned (gitee.com resolved
-          # to baiduads or other sink). Use a known-good IP resolved via
-          # Google's public DNS (8.8.8.8) and tell git to use it via
-          # GIT_EXTERNAL_IP. This avoids git's own DNS resolution which
-          # inherits the poisoned system resolver.
-          $dnsServer = '8.8.8.8'
-          try {
-            $dnsResult = Resolve-DnsName -Name 'gitee.com' -Type A -Server $dnsServer -ErrorAction Stop | Select-Object -First 1
-            $giteeIp = $dnsResult.IPAddress
-            Write-Host "[DNS] gitee.com resolved via $dnsServer -> $giteeIp"
-          } catch {
-            "::error::Cannot resolve gitee.com via $dnsServer. Public DNS unreachable from this runner."
-            exit 1
-          }
-          $env:GIT_EXTERNAL_IP = $giteeIp
-
           # Probe TCP:443 to gitee.com before attempting git ls-remote.
           # If the runner can't reach gitee.com (corporate firewall / DNS
           # poisoning), fail fast instead of hanging git ls-remote for the
           # full step timeout (6h). TCP probe uses .NET's TcpClient which
           # has its own connect timeout independent of git timeouts.
+          # NOTE: We deliberately do NOT set GIT_EXTERNAL_IP here. The
+          # earlier "DNS override" path forced git to connect to the IP
+          # resolved via 8.8.8.8, but gitee.com's CDN returns different
+          # IPs from public vs. system DNS, and the GIT_EXTERNAL_IP
+          # override skips git's own DNS resolution -- which means SNI
+          # host (gitee.com) is sent to whatever IP 8.8.8.8 returns,
+          # often a CDN edge that doesn't speak Smart-HTTP, leaving
+          # ls-remote hanging. The TCP probe below validates system DNS
+          # + connectivity; if it passes, we trust git's own resolver.
           try {
             $tcp = New-Object System.Net.Sockets.TcpClient
             $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
@@ -3357,27 +3336,20 @@ jobs:
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          # DNS override: runner's DNS may be poisoned (gitee.com resolved
-          # to baiduads or other sink). Use a known-good IP resolved via
-          # Google's public DNS (8.8.8.8) and tell git to use it via
-          # GIT_EXTERNAL_IP. This avoids git's own DNS resolution which
-          # inherits the poisoned system resolver.
-          $dnsServer = '8.8.8.8'
-          try {
-            $dnsResult = Resolve-DnsName -Name 'gitee.com' -Type A -Server $dnsServer -ErrorAction Stop | Select-Object -First 1
-            $giteeIp = $dnsResult.IPAddress
-            Write-Host "[DNS] gitee.com resolved via $dnsServer -> $giteeIp"
-          } catch {
-            "::error::Cannot resolve gitee.com via $dnsServer. Public DNS unreachable from this runner."
-            exit 1
-          }
-          $env:GIT_EXTERNAL_IP = $giteeIp
-
           # Probe TCP:443 to gitee.com before attempting git ls-remote.
           # If the runner can't reach gitee.com (corporate firewall / DNS
           # poisoning), fail fast instead of hanging git ls-remote for the
           # full step timeout (6h). TCP probe uses .NET's TcpClient which
           # has its own connect timeout independent of git timeouts.
+          # NOTE: We deliberately do NOT set GIT_EXTERNAL_IP here. The
+          # earlier "DNS override" path forced git to connect to the IP
+          # resolved via 8.8.8.8, but gitee.com's CDN returns different
+          # IPs from public vs. system DNS, and the GIT_EXTERNAL_IP
+          # override skips git's own DNS resolution -- which means SNI
+          # host (gitee.com) is sent to whatever IP 8.8.8.8 returns,
+          # often a CDN edge that doesn't speak Smart-HTTP, leaving
+          # ls-remote hanging. The TCP probe below validates system DNS
+          # + connectivity; if it passes, we trust git's own resolver.
           try {
             $tcp = New-Object System.Net.Sockets.TcpClient
             $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
