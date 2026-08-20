@@ -1097,7 +1097,7 @@ jobs:
           # diagnostic when TCP probe passes but ls-remote hangs: if the IPs
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
-          & $gitCmd ls-remote --exit-code --get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
+          & $gitCmd remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
 
           # Wrap ls-remote in a PowerShell Background Job so we can enforce a
           # hard timeout from the PowerShell side.  MSYS2 git's http.timeout
@@ -2036,7 +2036,7 @@ jobs:
           # diagnostic when TCP probe passes but ls-remote hangs: if the IPs
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
-          & $gitCmd ls-remote --exit-code --get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
+          & $gitCmd remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
 
           # Wrap ls-remote in a PowerShell Background Job so we can enforce a
           # hard timeout from the PowerShell side.  MSYS2 git's http.timeout
@@ -2768,7 +2768,7 @@ jobs:
           # diagnostic when TCP probe passes but ls-remote hangs: if the IPs
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
-          & $gitCmd ls-remote --exit-code --get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
+          & $gitCmd remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
 
           # Wrap ls-remote in a PowerShell Background Job so we can enforce a
           # hard timeout from the PowerShell side.  MSYS2 git's http.timeout
@@ -3490,7 +3490,7 @@ jobs:
           # diagnostic when TCP probe passes but ls-remote hangs: if the IPs
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
-          & $gitCmd ls-remote --exit-code --get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
+          & $gitCmd remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
 
           # Wrap ls-remote in a PowerShell Background Job so we can enforce a
           # hard timeout from the PowerShell side.  MSYS2 git's http.timeout
