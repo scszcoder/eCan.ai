@@ -785,11 +785,11 @@ const LoginCN: React.FC = () => {
   // 邮箱注册
   const handleSignup = useCallback(async (email: string, password: string) => {
     if (!ensureCloudbase()) {
-      setLoading(false);
       return;
     }
 
     setLoading(true);
+    setLoginProgress('authenticating');
     console.log('[LoginCN] handleSignup: calling signupWithEmail');
     const result = await cloudbaseAuth.signupWithEmail(email, password);
     console.log('[LoginCN] handleSignup: result', result);
@@ -802,6 +802,7 @@ const LoginCN: React.FC = () => {
           result.error || t('login.codeSendFailed') || '验证码发送失败，请稍后重试'
         );
         setLoading(false);
+        setLoginProgress('idle');
         return;
       }
       // 与国际版一致：注册成功后切换到验证邮箱页面，等用户确认后才登录
@@ -811,13 +812,13 @@ const LoginCN: React.FC = () => {
       setActiveTab('email');
       messageApi.success(t('login.codeSent') || '验证码已发送');
       setLoading(false);
-      setShowInitProgress(false);
+      setLoginProgress('idle');
     } else {
       messageApi.error(result.error || t('login.failed'));
       setLoading(false);
-      setShowInitProgress(false);
+      setLoginProgress('idle');
     }
-  }, [ensureCloudbase, messageApi, t, setShowInitProgress]);
+  }, [ensureCloudbase, messageApi, t]);
 
   // 邮箱注册 - 确认验证码完成注册
   const handleSignupVerify = useCallback(async () => {
@@ -958,7 +959,10 @@ const LoginCN: React.FC = () => {
     setLoginSuccessful(false);
     setHasNavigated(false);
     setLastError(null);
-    setShowInitProgress(true);
+    // email-signup 模式不发 showInitProgress，避免发送验证码时显示加载动画
+    if (mode !== 'email-signup') {
+      setShowInitProgress(true);
+    }
 
     let loginAttempted = false;
 
@@ -1100,9 +1104,9 @@ const LoginCN: React.FC = () => {
         </Select>
       </div>
 
-      {/* 加载进度 */}
+      {/* 加载进度 - email-signup 模式不显示（发送验证码很快，不需要遮罩） */}
       <LoadingProgress
-        visible={loading || showInitProgress}
+        visible={(loading || showInitProgress) && mode !== 'email-signup'}
         progress={initProgress}
         title={loginProgress === 'redirecting' ? t('login.redirectingToMain') : undefined}
         onComplete={() => {
@@ -1113,7 +1117,7 @@ const LoginCN: React.FC = () => {
 
       {/* 登录卡片 */}
       <div className="cn-login-card">
-        {loading && loginProgress === 'authenticating' ? (
+        {loading && loginProgress === 'authenticating' && mode !== 'email-signup' ? (
           <div className="cn-loading-container">
             <Spin size="large" />
             <div className="cn-loading-text">

@@ -429,9 +429,27 @@ def handle_cloudbase_signup(request: IPCRequest,
 
         email = data["email"].strip().lower()
         password = data["password"]
-        username = data.get("username", "").strip() or email.split("@")[0]
+        # CloudBase Username 必须符合正则: ^[a-z][0-9a-z_-]{5,24}$
+        # 邮箱前缀可能是数字开头(如 1050588178@qq.com)，需要处理
+        raw_username = data.get("username", "").strip() or email.split("@")[0]
+        # 确保 username 以小写字母开头
+        if raw_username and raw_username[0].isdigit():
+            raw_username = "user_" + raw_username
+        # 只保留有效字符（小写字母、数字、下划线、连字符），截取到最大长度 24
+        import re
+        clean_username = re.sub(r'[^a-z0-9_-]', '', raw_username.lower())
+        if len(clean_username) > 24:
+            clean_username = clean_username[:24]
+        # 确保最小长度 6（正则要求的最小长度）
+        if len(clean_username) < 6:
+            clean_username = clean_username + "12345"[:6 - len(clean_username)]
+        # 确保以小写字母开头
+        if clean_username and not clean_username[0].isalpha():
+            clean_username = "u" + clean_username
+        username = clean_username
         lang = data.get("lang", auth_messages.DEFAULT_LANG)
         auth_messages.set_language(lang)
+        logger.info(f"[CloudBaseSignup] Generated username: {username} from email: {email}")
 
         service = _get_service()
         if not service:
@@ -517,9 +535,27 @@ def handle_cloudbase_signup_confirm(request: IPCRequest,
         code = data["code"].strip()
         verification_id = data["verification_id"].strip()
         password = data.get("password", "")
-        username = data.get("username", "").strip() or email.split("@")[0]
+        # CloudBase Username 必须符合正则: ^[a-z][0-9a-z_-]{5,24}$
+        # 邮箱前缀可能是数字开头(如 1050588178@qq.com)，需要处理
+        import re as regex_module
+        raw_username = data.get("username", "").strip() or email.split("@")[0]
+        # 确保 username 以小写字母开头
+        if raw_username and raw_username[0].isdigit():
+            raw_username = "user_" + raw_username
+        # 只保留有效字符（小写字母、数字，下划线、连字符），截取到最大长度 24
+        clean_username = regex_module.sub(r'[^a-z0-9_-]', '', raw_username.lower())
+        if len(clean_username) > 24:
+            clean_username = clean_username[:24]
+        # 确保最小长度 6（正则要求的最小长度）
+        if len(clean_username) < 6:
+            clean_username = clean_username + "12345"[:6 - len(clean_username)]
+        # 确保以小写字母开头
+        if clean_username and not clean_username[0].isalpha():
+            clean_username = "u" + clean_username
+        username = clean_username
         lang = data.get("lang", auth_messages.DEFAULT_LANG)
         auth_messages.set_language(lang)
+        logger.info(f"[CloudBaseSignupConfirm] Generated username: {username} from email: {email}")
 
         service = _get_service()
         if not service:
