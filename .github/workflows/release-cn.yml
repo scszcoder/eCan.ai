@@ -967,47 +967,24 @@ jobs:
             . $helper
           } else {
             # Inline fallback for older checkouts or when checkout didn't happen.
-            function Find-GitExe {
-              $pathHit = Get-Command git -ErrorAction SilentlyContinue
-              if ($pathHit) { return $pathHit.Source }
-              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
-              if ($pathHit) { return $pathHit.Source }
-              foreach ($c in @("$env:ProgramFiles\Git\bin\git.exe","${env:ProgramFiles(x86)}\Git\bin\git.exe","$env:LOCALAPPDATA\Programs\Git\bin\git.exe")) {
+            # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
+            # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
+            # fixing TLS hangs on runners with corporate MITM proxies.
+            function Find-GitCmd {
+              foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
                 if (Test-Path $c) { return $c }
               }
-              return $null
-            }
-            function Find-BashExe {
-              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe","${env:ProgramFiles(x86)}\Git\bin\bash.exe","$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
-                if (Test-Path $c) { return $c }
-              }
+              $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
               return $null
             }
           }
-          $gitExe = Find-GitExe
-          if (-not $gitExe) {
-            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+          $gitCmd = Find-GitCmd
+          if (-not $gitCmd) {
+            '::error::git.cmd not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
             exit 1
           }
-          $bashExe = Find-BashExe
-          if (-not $bashExe) {
-            '::error::bash.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
-            exit 1
-          }
-          Write-Host "[DEBUG] Using git=$gitExe, bash=$bashExe"
-
-          # Use Git Bash for git operations to avoid Windows system proxy interference.
-          # The embedded MSYS2 libcurl in Git Bash ignores Windows proxy settings.
-          # We write the bash script to a temp file to avoid PowerShell YAML quoting issues.
-          function Invoke-GitBash {
-            param([string]$cmd)
-            $scriptFile = Join-Path $env:TEMP "git_bash_$(Get-Random).sh"
-            $cmd | Out-File -FilePath $scriptFile -Encoding utf8
-            & $bashExe $scriptFile 2>&1
-            $exitCode = $LASTEXITCODE
-            Remove-Item $scriptFile -Force -ErrorAction SilentlyContinue
-            # Don't exit here; let the caller decide based on $LASTEXITCODE
-          }
+          Write-Host "[DEBUG] Using git.cmd=$gitCmd"
 
           # Credential helper approach: write the token to a per-job credentials
           # file at $env:RUNNER_TEMP and tell git to use it via
@@ -1016,24 +993,30 @@ jobs:
           # $env:RUNNER_TEMP is job-scoped, so the file is GC'd at job end.
           Set-Location $env:GITHUB_WORKSPACE
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          Invoke-GitBash "cd '$env:GITHUB_WORKSPACE' && git init -q -b main"
+          & $gitCmd init -q -b main .
 
           # Use URL-embedded credentials (more reliable than credential.helper
           # on Windows runners). Gitee accepts oauth2:<token>@ format.
           Set-Location $env:GITHUB_WORKSPACE
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          Invoke-GitBash "cd '$env:GITHUB_WORKSPACE' && git init -q -b main"
+          & $gitCmd init -q -b main .
 
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
           $env:GIT_TERMINAL_PROMPT = '0'
-          # Disable all proxy env vars and git proxy configs for Git Bash
-          Invoke-GitBash "git config --global http.sslVerify false"
-          Invoke-GitBash "git config --global http.proxy ''"
-          Invoke-GitBash "git config --global https.proxy ''"
-          Invoke-GitBash "git remote remove origin 2>/dev/null || true"
-          Invoke-GitBash "git remote add origin '$originUrl'"
+          # Disable all proxy env vars and git proxy configs
+          $env:HTTP_PROXY = ''
+          $env:HTTPS_PROXY = ''
+          $env:NO_PROXY = '*'
+          $env:http_proxy = ''
+          $env:https_proxy = ''
+          $env:no_proxy = '*'
+          & $gitCmd config --global http.sslVerify false
+          & $gitCmd config --global http.proxy ""
+          & $gitCmd config --global https.proxy ""
+          & $gitCmd remote remove origin 2>$null
+          & $gitCmd remote add origin $originUrl
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -1078,15 +1061,13 @@ jobs:
           }
 
           $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git ls-remote --exit-code origin 'refs/heads/$bareRef' 'refs/tags/$bareRef' 2>/dev/null"
+          $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
           if ($lsExit -ne 0) {
             $last = ($lsRaw | Select-Object -Last 1).ToString()
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
-          # Filter out any non-commit-hash lines (e.g. git security warnings, progress messages)
-          $lsRaw = $lsRaw | Where-Object { $_ -match '^[0-9a-f]{7,40}\s+' }
           $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
           if (-not $fullRef) {
             "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
@@ -1099,23 +1080,23 @@ jobs:
           # refspec forces the fetched commit to land at the local
           # namespace that matches its remote namespace.
           $env:GIT_HTTP_TIMEOUT = '60000'
-          Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin '${fullRef}:${fullRef}'"
+          & $gitCmd -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
           if ($fullRef -like 'refs/heads/*') {
             $localShort = $fullRef.Substring('refs/heads/'.Length)
-            Invoke-GitBash "git checkout --force -B $localShort $fullRef"
+            & $gitCmd checkout --force -B $localShort $fullRef
           } elseif ($fullRef -like 'refs/tags/*') {
             $localShort = $fullRef.Substring('refs/tags/'.Length)
-            Invoke-GitBash "git checkout --force $localShort"
+            & $gitCmd checkout --force $localShort
           } else {
             "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
             exit 1
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          $head = (Invoke-GitBash "git rev-parse --short HEAD").Trim()
+          $head = (& $gitCmd rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
@@ -1856,47 +1837,24 @@ jobs:
             . $helper
           } else {
             # Inline fallback for older checkouts or when checkout didn't happen.
-            function Find-GitExe {
-              $pathHit = Get-Command git -ErrorAction SilentlyContinue
-              if ($pathHit) { return $pathHit.Source }
-              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
-              if ($pathHit) { return $pathHit.Source }
-              foreach ($c in @("$env:ProgramFiles\Git\bin\git.exe","${env:ProgramFiles(x86)}\Git\bin\git.exe","$env:LOCALAPPDATA\Programs\Git\bin\git.exe")) {
+            # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
+            # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
+            # fixing TLS hangs on runners with corporate MITM proxies.
+            function Find-GitCmd {
+              foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
                 if (Test-Path $c) { return $c }
               }
-              return $null
-            }
-            function Find-BashExe {
-              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe","${env:ProgramFiles(x86)}\Git\bin\bash.exe","$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
-                if (Test-Path $c) { return $c }
-              }
+              $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
               return $null
             }
           }
-          $gitExe = Find-GitExe
-          if (-not $gitExe) {
-            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+          $gitCmd = Find-GitCmd
+          if (-not $gitCmd) {
+            '::error::git.cmd not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
             exit 1
           }
-          $bashExe = Find-BashExe
-          if (-not $bashExe) {
-            '::error::bash.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
-            exit 1
-          }
-          Write-Host "[DEBUG] Using git=$gitExe, bash=$bashExe"
-
-          # Use Git Bash for git operations to avoid Windows system proxy interference.
-          # The embedded MSYS2 libcurl in Git Bash ignores Windows proxy settings.
-          # We write the bash script to a temp file to avoid PowerShell YAML quoting issues.
-          function Invoke-GitBash {
-            param([string]$cmd)
-            $scriptFile = Join-Path $env:TEMP "git_bash_$(Get-Random).sh"
-            $cmd | Out-File -FilePath $scriptFile -Encoding utf8
-            & $bashExe $scriptFile 2>&1
-            $exitCode = $LASTEXITCODE
-            Remove-Item $scriptFile -Force -ErrorAction SilentlyContinue
-            # Don't exit here; let the caller decide based on $LASTEXITCODE
-          }
+          Write-Host "[DEBUG] Using git.cmd=$gitCmd"
 
           # Credential helper approach: write the token to a per-job credentials
           # file at $env:RUNNER_TEMP and tell git to use it via
@@ -1905,24 +1863,30 @@ jobs:
           # $env:RUNNER_TEMP is job-scoped, so the file is GC'd at job end.
           Set-Location $env:GITHUB_WORKSPACE
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          Invoke-GitBash "cd '$env:GITHUB_WORKSPACE' && git init -q -b main"
+          & $gitCmd init -q -b main .
 
           # Use URL-embedded credentials (more reliable than credential.helper
           # on Windows runners). Gitee accepts oauth2:<token>@ format.
           Set-Location $env:GITHUB_WORKSPACE
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          Invoke-GitBash "cd '$env:GITHUB_WORKSPACE' && git init -q -b main"
+          & $gitCmd init -q -b main .
 
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
           $env:GIT_TERMINAL_PROMPT = '0'
-          # Disable all proxy env vars and git proxy configs for Git Bash
-          Invoke-GitBash "git config --global http.sslVerify false"
-          Invoke-GitBash "git config --global http.proxy ''"
-          Invoke-GitBash "git config --global https.proxy ''"
-          Invoke-GitBash "git remote remove origin 2>/dev/null || true"
-          Invoke-GitBash "git remote add origin '$originUrl'"
+          # Disable all proxy env vars and git proxy configs
+          $env:HTTP_PROXY = ''
+          $env:HTTPS_PROXY = ''
+          $env:NO_PROXY = '*'
+          $env:http_proxy = ''
+          $env:https_proxy = ''
+          $env:no_proxy = '*'
+          & $gitCmd config --global http.sslVerify false
+          & $gitCmd config --global http.proxy ""
+          & $gitCmd config --global https.proxy ""
+          & $gitCmd remote remove origin 2>$null
+          & $gitCmd remote add origin $originUrl
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -1967,15 +1931,13 @@ jobs:
           }
 
           $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git ls-remote --exit-code origin 'refs/heads/$bareRef' 'refs/tags/$bareRef' 2>/dev/null"
+          $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
           if ($lsExit -ne 0) {
             $last = ($lsRaw | Select-Object -Last 1).ToString()
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
-          # Filter out any non-commit-hash lines (e.g. git security warnings, progress messages)
-          $lsRaw = $lsRaw | Where-Object { $_ -match '^[0-9a-f]{7,40}\s+' }
           $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
           if (-not $fullRef) {
             "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
@@ -1988,23 +1950,23 @@ jobs:
           # refspec forces the fetched commit to land at the local
           # namespace that matches its remote namespace.
           $env:GIT_HTTP_TIMEOUT = '60000'
-          Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin '${fullRef}:${fullRef}'"
+          & $gitCmd -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
           if ($fullRef -like 'refs/heads/*') {
             $localShort = $fullRef.Substring('refs/heads/'.Length)
-            Invoke-GitBash "git checkout --force -B $localShort $fullRef"
+            & $gitCmd checkout --force -B $localShort $fullRef
           } elseif ($fullRef -like 'refs/tags/*') {
             $localShort = $fullRef.Substring('refs/tags/'.Length)
-            Invoke-GitBash "git checkout --force $localShort"
+            & $gitCmd checkout --force $localShort
           } else {
             "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
             exit 1
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          $head = (Invoke-GitBash "git rev-parse --short HEAD").Trim()
+          $head = (& $gitCmd rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
@@ -2538,47 +2500,24 @@ jobs:
             . $helper
           } else {
             # Inline fallback for older checkouts or when checkout didn't happen.
-            function Find-GitExe {
-              $pathHit = Get-Command git -ErrorAction SilentlyContinue
-              if ($pathHit) { return $pathHit.Source }
-              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
-              if ($pathHit) { return $pathHit.Source }
-              foreach ($c in @("$env:ProgramFiles\Git\bin\git.exe","${env:ProgramFiles(x86)}\Git\bin\git.exe","$env:LOCALAPPDATA\Programs\Git\bin\git.exe")) {
+            # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
+            # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
+            # fixing TLS hangs on runners with corporate MITM proxies.
+            function Find-GitCmd {
+              foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
                 if (Test-Path $c) { return $c }
               }
-              return $null
-            }
-            function Find-BashExe {
-              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe","${env:ProgramFiles(x86)}\Git\bin\bash.exe","$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
-                if (Test-Path $c) { return $c }
-              }
+              $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
               return $null
             }
           }
-          $gitExe = Find-GitExe
-          if (-not $gitExe) {
-            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+          $gitCmd = Find-GitCmd
+          if (-not $gitCmd) {
+            '::error::git.cmd not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
             exit 1
           }
-          $bashExe = Find-BashExe
-          if (-not $bashExe) {
-            '::error::bash.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
-            exit 1
-          }
-          Write-Host "[DEBUG] Using git=$gitExe, bash=$bashExe"
-
-          # Use Git Bash for git operations to avoid Windows system proxy interference.
-          # The embedded MSYS2 libcurl in Git Bash ignores Windows proxy settings.
-          # We write the bash script to a temp file to avoid PowerShell YAML quoting issues.
-          function Invoke-GitBash {
-            param([string]$cmd)
-            $scriptFile = Join-Path $env:TEMP "git_bash_$(Get-Random).sh"
-            $cmd | Out-File -FilePath $scriptFile -Encoding utf8
-            & $bashExe $scriptFile 2>&1
-            $exitCode = $LASTEXITCODE
-            Remove-Item $scriptFile -Force -ErrorAction SilentlyContinue
-            # Don't exit here; let the caller decide based on $LASTEXITCODE
-          }
+          Write-Host "[DEBUG] Using git.cmd=$gitCmd"
 
           # Credential helper approach: write the token to a per-job credentials
           # file at $env:RUNNER_TEMP and tell git to use it via
@@ -2587,24 +2526,30 @@ jobs:
           # $env:RUNNER_TEMP is job-scoped, so the file is GC'd at job end.
           Set-Location $env:GITHUB_WORKSPACE
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          Invoke-GitBash "cd '$env:GITHUB_WORKSPACE' && git init -q -b main"
+          & $gitCmd init -q -b main .
 
           # Use URL-embedded credentials (more reliable than credential.helper
           # on Windows runners). Gitee accepts oauth2:<token>@ format.
           Set-Location $env:GITHUB_WORKSPACE
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          Invoke-GitBash "cd '$env:GITHUB_WORKSPACE' && git init -q -b main"
+          & $gitCmd init -q -b main .
 
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
           $env:GIT_TERMINAL_PROMPT = '0'
-          # Disable all proxy env vars and git proxy configs for Git Bash
-          Invoke-GitBash "git config --global http.sslVerify false"
-          Invoke-GitBash "git config --global http.proxy ''"
-          Invoke-GitBash "git config --global https.proxy ''"
-          Invoke-GitBash "git remote remove origin 2>/dev/null || true"
-          Invoke-GitBash "git remote add origin '$originUrl'"
+          # Disable all proxy env vars and git proxy configs
+          $env:HTTP_PROXY = ''
+          $env:HTTPS_PROXY = ''
+          $env:NO_PROXY = '*'
+          $env:http_proxy = ''
+          $env:https_proxy = ''
+          $env:no_proxy = '*'
+          & $gitCmd config --global http.sslVerify false
+          & $gitCmd config --global http.proxy ""
+          & $gitCmd config --global https.proxy ""
+          & $gitCmd remote remove origin 2>$null
+          & $gitCmd remote add origin $originUrl
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -2649,15 +2594,13 @@ jobs:
           }
 
           $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git ls-remote --exit-code origin 'refs/heads/$bareRef' 'refs/tags/$bareRef' 2>/dev/null"
+          $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
           if ($lsExit -ne 0) {
             $last = ($lsRaw | Select-Object -Last 1).ToString()
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
-          # Filter out any non-commit-hash lines (e.g. git security warnings, progress messages)
-          $lsRaw = $lsRaw | Where-Object { $_ -match '^[0-9a-f]{7,40}\s+' }
           $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
           if (-not $fullRef) {
             "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
@@ -2670,23 +2613,23 @@ jobs:
           # refspec forces the fetched commit to land at the local
           # namespace that matches its remote namespace.
           $env:GIT_HTTP_TIMEOUT = '60000'
-          Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin '${fullRef}:${fullRef}'"
+          & $gitCmd -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
           if ($fullRef -like 'refs/heads/*') {
             $localShort = $fullRef.Substring('refs/heads/'.Length)
-            Invoke-GitBash "git checkout --force -B $localShort $fullRef"
+            & $gitCmd checkout --force -B $localShort $fullRef
           } elseif ($fullRef -like 'refs/tags/*') {
             $localShort = $fullRef.Substring('refs/tags/'.Length)
-            Invoke-GitBash "git checkout --force $localShort"
+            & $gitCmd checkout --force $localShort
           } else {
             "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
             exit 1
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          $head = (Invoke-GitBash "git rev-parse --short HEAD").Trim()
+          $head = (& $gitCmd rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
@@ -3210,47 +3153,24 @@ jobs:
             . $helper
           } else {
             # Inline fallback for older checkouts or when checkout didn't happen.
-            function Find-GitExe {
-              $pathHit = Get-Command git -ErrorAction SilentlyContinue
-              if ($pathHit) { return $pathHit.Source }
-              $pathHit = Get-Command git.exe -ErrorAction SilentlyContinue
-              if ($pathHit) { return $pathHit.Source }
-              foreach ($c in @("$env:ProgramFiles\Git\bin\git.exe","${env:ProgramFiles(x86)}\Git\bin\git.exe","$env:LOCALAPPDATA\Programs\Git\bin\git.exe")) {
+            # Use git.cmd (Git Bash wrapper) instead of git.exe (native Windows).
+            # git.cmd uses MSYS2 libcurl which ignores Windows system proxy,
+            # fixing TLS hangs on runners with corporate MITM proxies.
+            function Find-GitCmd {
+              foreach ($c in @("$env:ProgramFiles\Git\cmd\git.cmd","${env:ProgramFiles(x86)}\Git\cmd\git.cmd","$env:LOCALAPPDATA\Programs\Git\cmd\git.cmd")) {
                 if (Test-Path $c) { return $c }
               }
-              return $null
-            }
-            function Find-BashExe {
-              foreach ($c in @("$env:ProgramFiles\Git\bin\bash.exe","${env:ProgramFiles(x86)}\Git\bin\bash.exe","$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
-                if (Test-Path $c) { return $c }
-              }
+              $pathHit = Get-Command git.cmd -ErrorAction SilentlyContinue
+              if ($pathHit) { return $pathHit.Source }
               return $null
             }
           }
-          $gitExe = Find-GitExe
-          if (-not $gitExe) {
-            '::error::git.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
+          $gitCmd = Find-GitCmd
+          if (-not $gitCmd) {
+            '::error::git.cmd not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
             exit 1
           }
-          $bashExe = Find-BashExe
-          if (-not $bashExe) {
-            '::error::bash.exe not found. Run the preflight "Ensure Git Bash + PowerShell 7" step first.'
-            exit 1
-          }
-          Write-Host "[DEBUG] Using git=$gitExe, bash=$bashExe"
-
-          # Use Git Bash for git operations to avoid Windows system proxy interference.
-          # The embedded MSYS2 libcurl in Git Bash ignores Windows proxy settings.
-          # We write the bash script to a temp file to avoid PowerShell YAML quoting issues.
-          function Invoke-GitBash {
-            param([string]$cmd)
-            $scriptFile = Join-Path $env:TEMP "git_bash_$(Get-Random).sh"
-            $cmd | Out-File -FilePath $scriptFile -Encoding utf8
-            & $bashExe $scriptFile 2>&1
-            $exitCode = $LASTEXITCODE
-            Remove-Item $scriptFile -Force -ErrorAction SilentlyContinue
-            # Don't exit here; let the caller decide based on $LASTEXITCODE
-          }
+          Write-Host "[DEBUG] Using git.cmd=$gitCmd"
 
           # Credential helper approach: write the token to a per-job credentials
           # file at $env:RUNNER_TEMP and tell git to use it via
@@ -3259,24 +3179,30 @@ jobs:
           # $env:RUNNER_TEMP is job-scoped, so the file is GC'd at job end.
           Set-Location $env:GITHUB_WORKSPACE
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          Invoke-GitBash "cd '$env:GITHUB_WORKSPACE' && git init -q -b main"
+          & $gitCmd init -q -b main .
 
           # Use URL-embedded credentials (more reliable than credential.helper
           # on Windows runners). Gitee accepts oauth2:<token>@ format.
           Set-Location $env:GITHUB_WORKSPACE
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
-          Invoke-GitBash "cd '$env:GITHUB_WORKSPACE' && git init -q -b main"
+          & $gitCmd init -q -b main .
 
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
           $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
 
           $env:GIT_TERMINAL_PROMPT = '0'
-          # Disable all proxy env vars and git proxy configs for Git Bash
-          Invoke-GitBash "git config --global http.sslVerify false"
-          Invoke-GitBash "git config --global http.proxy ''"
-          Invoke-GitBash "git config --global https.proxy ''"
-          Invoke-GitBash "git remote remove origin 2>/dev/null || true"
-          Invoke-GitBash "git remote add origin '$originUrl'"
+          # Disable all proxy env vars and git proxy configs
+          $env:HTTP_PROXY = ''
+          $env:HTTPS_PROXY = ''
+          $env:NO_PROXY = '*'
+          $env:http_proxy = ''
+          $env:https_proxy = ''
+          $env:no_proxy = '*'
+          & $gitCmd config --global http.sslVerify false
+          & $gitCmd config --global http.proxy ""
+          & $gitCmd config --global https.proxy ""
+          & $gitCmd remote remove origin 2>$null
+          & $gitCmd remote add origin $originUrl
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -3321,15 +3247,13 @@ jobs:
           }
 
           $env:GIT_HTTP_TIMEOUT = '15000'
-          $lsRaw = Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git ls-remote --exit-code origin 'refs/heads/$bareRef' 'refs/tags/$bareRef' 2>/dev/null"
+          $lsRaw = & $gitCmd ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
           if ($lsExit -ne 0) {
             $last = ($lsRaw | Select-Object -Last 1).ToString()
             "::error::git ls-remote failed (exit=$lsExit): $last. Either the manual-ref input points to a branch or tag that has not yet been mirrored to Gitee, or the Gitee mirror has not yet caught up to GitHub. Trigger sync-to-gitee, or wait up to 6 hours for the safety-net schedule."
             exit 1
           }
-          # Filter out any non-commit-hash lines (e.g. git security warnings, progress messages)
-          $lsRaw = $lsRaw | Where-Object { $_ -match '^[0-9a-f]{7,40}\s+' }
           $fullRef = ($lsRaw | Select-Object -First 1) -split "`t" | Select-Object -Last 1
           if (-not $fullRef) {
             "::error::Ref '$ref' not found on gitee.com/songszchen/eCan.ai. ls-remote returned no refs for bareRef='$bareRef'. Either the branch/tag has not been mirrored yet or Gitee has not yet caught up to GitHub."
@@ -3342,23 +3266,23 @@ jobs:
           # refspec forces the fetched commit to land at the local
           # namespace that matches its remote namespace.
           $env:GIT_HTTP_TIMEOUT = '60000'
-          Invoke-GitBash "GIT_EXTERNAL_IP='$giteeIp' git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin '${fullRef}:${fullRef}'"
+          & $gitCmd -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "${fullRef}:${fullRef}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           # Working-tree checkout.
           if ($fullRef -like 'refs/heads/*') {
             $localShort = $fullRef.Substring('refs/heads/'.Length)
-            Invoke-GitBash "git checkout --force -B $localShort $fullRef"
+            & $gitCmd checkout --force -B $localShort $fullRef
           } elseif ($fullRef -like 'refs/tags/*') {
             $localShort = $fullRef.Substring('refs/tags/'.Length)
-            Invoke-GitBash "git checkout --force $localShort"
+            & $gitCmd checkout --force $localShort
           } else {
             "::error::Internal: resolved fullRef '$fullRef' is neither refs/heads/* nor refs/tags/*. Failing fast rather than guessing."
             exit 1
           }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          $head = (Invoke-GitBash "git rev-parse --short HEAD").Trim()
+          $head = (& $gitCmd rev-parse --short HEAD).Trim()
           Write-Host "[OK] Checked out $ref at $head"
 
       - name: Prepare Gitee credential helper
