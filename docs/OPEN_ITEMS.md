@@ -15,13 +15,17 @@ _Last updated: 2026-08-19_
   work after the 2026-08-19 llm_proxy fix). Client now falls back to local
   sessions gracefully, but cloud chat history is invisible until the resolver
   is fixed. See docs/CN_SKILL_EDITOR_CHAT_DEBUG_2026_08_19.md.
-- **AuthManager loses the WeChat 30-day session token after access-JWT expiry** —
-  at 21:42 on 2026-08-19, ~36 min after the 10-min WeChat JWT expired,
-  AuthManager reported "Token expired, no WeChat session token available"
-  although the session token (2592000s) was registered at login. Result:
-  `se_cloud_relay` had no auth token mid-session and chat silently fell back
-  to local. Investigate why `get_auth_token()`/session-token lookup goes empty
-  instead of serving the 30-day token.
+- **Server kills the WeChat 30-day session token within ~10 min (TCB)** —
+  root cause of "no WeChat session token available": `refreshWeChatToken`
+  returns SESSION_EXPIRED/WX_TOKEN_EXPIRED ~5–10 min after
+  `registerWeChatSession` mints the token (expiresIn=2592000), so the client
+  (correctly) deletes it and signs out. Reproduced 3/3 runs 2026-08-19.
+  Server-side fix needed — likely the session row depends on the short-lived
+  CloudBase/WeChat access token instead of a durable secret. Client-side
+  diagnosis was blocked for weeks by the SessionSupervisor logging to an
+  unconfigured logger (`eCan.session_supervisor`) — ✅ fixed 2026-08-19
+  (now logs via logger_helper; refresh failures now log the server's code).
+  See docs/CN_SKILL_EDITOR_CHAT_DEBUG_2026_08_19.md "Follow-up session".
 - **AppSync account-info GraphQL parse error** — fetching account info fails with
   `Syntax Error: Expected Name, found String "action"` (`GRAPHQL_PARSE_FAILED`).
   Non-fatal (MainWindow init continues, "Failed to fetch account info"), but the
