@@ -1003,6 +1003,28 @@ jobs:
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
+          # Probe TCP:443 to gitee.com before attempting git ls-remote.
+          # If the runner can't reach gitee.com (corporate firewall / DNS
+          # poisoning), fail fast instead of hanging git ls-remote for the
+          # full step timeout (6h). TCP probe uses .NET's TcpClient which
+          # has its own connect timeout independent of git timeouts.
+          try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
+            $wait = $async.AsyncWaitHandle.WaitOne(5000, $false)
+            if ($wait) {
+              try { $tcp.EndConnect($async) | Out-Null } catch {}
+              Write-Host "[OK] TCP:443 to gitee.com reachable"
+            } else {
+              $tcp.Close()
+              "::error::Cannot reach TCP:443 on gitee.com from this runner. Corporate firewall blocking outbound HTTPS, or DNS poisoning redirecting gitee.com. Fix the runner host or re-run on a GitHub-hosted runner."
+              exit 1
+            }
+          } catch {
+            "::error::TCP probe to gitee.com:443 failed: $($_.Exception.Message)"
+            exit 1
+          }
+
           $env:GIT_HTTP_TIMEOUT = '15000'
           $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
@@ -1816,6 +1838,28 @@ jobs:
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
+          # Probe TCP:443 to gitee.com before attempting git ls-remote.
+          # If the runner can't reach gitee.com (corporate firewall / DNS
+          # poisoning), fail fast instead of hanging git ls-remote for the
+          # full step timeout (6h). TCP probe uses .NET's TcpClient which
+          # has its own connect timeout independent of git timeouts.
+          try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
+            $wait = $async.AsyncWaitHandle.WaitOne(5000, $false)
+            if ($wait) {
+              try { $tcp.EndConnect($async) | Out-Null } catch {}
+              Write-Host "[OK] TCP:443 to gitee.com reachable"
+            } else {
+              $tcp.Close()
+              "::error::Cannot reach TCP:443 on gitee.com from this runner. Corporate firewall blocking outbound HTTPS, or DNS poisoning redirecting gitee.com. Fix the runner host or re-run on a GitHub-hosted runner."
+              exit 1
+            }
+          } catch {
+            "::error::TCP probe to gitee.com:443 failed: $($_.Exception.Message)"
+            exit 1
+          }
+
           $env:GIT_HTTP_TIMEOUT = '15000'
           $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
@@ -2422,6 +2466,28 @@ jobs:
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
+          # Probe TCP:443 to gitee.com before attempting git ls-remote.
+          # If the runner can't reach gitee.com (corporate firewall / DNS
+          # poisoning), fail fast instead of hanging git ls-remote for the
+          # full step timeout (6h). TCP probe uses .NET's TcpClient which
+          # has its own connect timeout independent of git timeouts.
+          try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
+            $wait = $async.AsyncWaitHandle.WaitOne(5000, $false)
+            if ($wait) {
+              try { $tcp.EndConnect($async) | Out-Null } catch {}
+              Write-Host "[OK] TCP:443 to gitee.com reachable"
+            } else {
+              $tcp.Close()
+              "::error::Cannot reach TCP:443 on gitee.com from this runner. Corporate firewall blocking outbound HTTPS, or DNS poisoning redirecting gitee.com. Fix the runner host or re-run on a GitHub-hosted runner."
+              exit 1
+            }
+          } catch {
+            "::error::TCP probe to gitee.com:443 failed: $($_.Exception.Message)"
+            exit 1
+          }
+
           $env:GIT_HTTP_TIMEOUT = '15000'
           $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
           $lsExit = $LASTEXITCODE
@@ -3017,6 +3083,28 @@ jobs:
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
+
+          # Probe TCP:443 to gitee.com before attempting git ls-remote.
+          # If the runner can't reach gitee.com (corporate firewall / DNS
+          # poisoning), fail fast instead of hanging git ls-remote for the
+          # full step timeout (6h). TCP probe uses .NET's TcpClient which
+          # has its own connect timeout independent of git timeouts.
+          try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
+            $wait = $async.AsyncWaitHandle.WaitOne(5000, $false)
+            if ($wait) {
+              try { $tcp.EndConnect($async) | Out-Null } catch {}
+              Write-Host "[OK] TCP:443 to gitee.com reachable"
+            } else {
+              $tcp.Close()
+              "::error::Cannot reach TCP:443 on gitee.com from this runner. Corporate firewall blocking outbound HTTPS, or DNS poisoning redirecting gitee.com. Fix the runner host or re-run on a GitHub-hosted runner."
+              exit 1
+            }
+          } catch {
+            "::error::TCP probe to gitee.com:443 failed: $($_.Exception.Message)"
+            exit 1
+          }
 
           $env:GIT_HTTP_TIMEOUT = '15000'
           $lsRaw = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
