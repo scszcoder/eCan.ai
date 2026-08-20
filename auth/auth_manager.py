@@ -630,7 +630,23 @@ class AuthManager:
 
                 # Save signed-in user and refresh token for session persistence
                 if self.current_user:
-                    self._set_saved_username(self.current_user)
+                    # Use ``_update_saved_login_info`` (instead of plain
+                    # ``_set_saved_username``) so we also persist
+                    # ``login_type='google'`` — otherwise the next
+                    # ``get_saved_login_info`` returns ``login_type=None``
+                    # and the frontend treats this as a password login,
+                    # which would auto-fill the Google email into the
+                    # username field without a password (an empty-password
+                    # 401 + browser autofill noise). See CLAUDE.md §6
+                    # ("Backend-side fixes for backend-side errors") —
+                    # login_type metadata must follow the same code path
+                    # for all providers.
+                    self._update_saved_login_info(
+                        username=self.current_user,
+                        password="",  # Google OAuth doesn't have a password
+                        role=role,
+                        login_type="google",
+                    )
                 refresh_token = self.tokens.get('RefreshToken')
                 if refresh_token and self.current_user:
                     self._store_refresh_token(self.current_user, refresh_token)
@@ -776,7 +792,8 @@ class AuthManager:
                                       user_identifier: str,
                                       role: str = "Commander",
                                       user_profile: Optional[Dict[str, Any]] = None,
-                                      password: str = "") -> Dict[str, Any]:
+                                      password: str = "",
+                                      login_type: Optional[str] = None) -> Dict[str, Any]:
         """Install already-issued tokens into the session, without re-calling any auth backend.
 
         Use this when the upstream provider (CloudBase OTP / WeChat OAuth / etc.)
@@ -867,11 +884,24 @@ class AuthManager:
             # CN) — that's intentional, mirroring Intl's password-login
             # behavior. For OTP / phone / WeChat flows the password is
             # empty, which keyring happily accepts.
+            #
+            # login_type gating (fix for "邮箱输入框被填充成 wechat id / 手机号"):
+            # we explicitly persist `login_type` so the next
+            # ``get_saved_login_info`` can filter out username/password for
+            # non-password logins. Falls back to ``user_profile.login_type``
+            # if the caller didn't pass it explicitly (preserves the
+            # ``complete_login_from_provider`` call shape used by the
+            # cloudbase_handler IPC).
+            effective_login_type = (
+                login_type
+                or (user_profile.get("login_type") if user_profile else None)
+            )
             try:
                 self._update_saved_login_info(
                     username=self.current_user,
                     password=password or "",
                     role=role,
+                    login_type=effective_login_type,
                 )
             except Exception as e:
                 logger.warning(f"[AuthManager] complete_login: save login info failed: {e}")
@@ -1244,7 +1274,21 @@ class AuthManager:
                 )
                 self.current_user = ident
                 if self.current_user:
-                    self._set_saved_username(self.current_user)
+                    # Use ``_update_saved_login_info`` so we also persist
+                    # ``login_type='wechat'`` — otherwise the next
+                    # ``get_saved_login_info`` returns ``login_type=None``
+                    # and the frontend treats this as a password login,
+                    # auto-filling the synthetic WeChat identifier
+                    # (``wechat_xxx@wechat.local``) into the email field
+                    # on the login page. See CLAUDE.md §6 ("Backend-side
+                    # fixes for backend-side errors") and the
+                    # ``google_login()`` parallel below for the rationale.
+                    self._update_saved_login_info(
+                        username=self.current_user,
+                        password="",  # WeChat OAuth doesn't have a password
+                        role=role,
+                        login_type="wechat",
+                    )
                 rt = tokens.get("RefreshToken") or tokens.get("refresh_token")
                 if rt and self.current_user:
                     try:
@@ -1404,7 +1448,27 @@ class AuthManager:
             return {"success": False, "error": str(e), "error_code": "NETWORK_ERROR"}
 
     def get_saved_login_info(self):
-        """Get saved login information from keyring storage."""
+        """Get saved login information from keyring storage.
+
+        IMPORTANT — login_type gating (fix for "微信/手机号登录后再次进入登录页,
+        邮箱输入框被填充成 wechat id / 手机号"):
+
+        ``uli.json`` 的 ``user`` 字段对所有登录方式都填入了"标识符":
+          * email 登录 → ``user@example.com`` (可作为 username 填充到表单)
+          * 手机号登录 → ``13800138000`` (不是邮箱,绝对不能填到 email 字段)
+          * 微信登录 → ``wechat_xxx@wechat.local`` (不是邮箱)
+          * Google 登录 → ``user@gmail.com`` (实际是 email,但因不带 password,
+            也不应该自动填充)
+
+        如果无脑把 ``user`` 字段回填到登录表单的 ``username`` 字段,会导致
+        邮箱输入框显示 "wechat_xxx@wechat.local" 或 "13800138000" —
+        既不是用户预期的邮箱,也触发浏览器/React keyring 的 autofill
+        干扰下次输入。
+
+        这里只对 ``login_type == "password"`` 返回 ``username/password``,
+        其他登录方式通过 ``last_identifier`` (供前端识别) + 空 username/password
+        通知前端"这个登录类型不应该自动填任何字段"。
+        """
         try:
             username = self._get_saved_username()
             logger.debug(f"[get_saved_login_info] Retrieved username from uli.json: '{username}'")
@@ -1415,16 +1479,8 @@ class AuthManager:
             if not self.machine_role:
                 self.machine_role = "Commander"
 
-            password = ""
-            if username:
-                success, result = self._get_credentials(username)
-                if success:
-                    password = result
-                    logger.debug(f"[get_saved_login_info] Password retrieved successfully (length: {len(password)})")
-                else:
-                    logger.warning(f"[get_saved_login_info] Could not retrieve password: {result}")
-
-            # Read language and theme and login_type from uli.json
+            # Read login_type from uli.json FIRST so we can decide whether to
+            # expose username/password at all.
             language = None
             theme = None
             login_type = None
@@ -1438,18 +1494,57 @@ class AuthManager:
                 except Exception as e:
                     logger.warning(f"Error reading preferences from {self.acct_file}: {e}")
 
+            # Login-type gating: only password login should autofill credentials.
+            # For wechat / phone / google / custom, the "user" stored in
+            # uli.json is NOT an email and must NEVER be put into the
+            # login form's username field. The frontend uses login_type to
+            # decide which tab to activate and which fields to render.
+            is_password_login = (login_type == "password")
+
+            password = ""
+            if is_password_login and username:
+                success, result = self._get_credentials(username)
+                if success:
+                    password = result
+                    logger.debug(f"[get_saved_login_info] Password retrieved (login_type=password)")
+                else:
+                    logger.warning(f"[get_saved_login_info] Could not retrieve password: {result}")
+
+            # For non-password login types, return the identifier under a
+            # distinct field (``last_identifier``) so the frontend can log /
+            # debug it WITHOUT leaking it into the form.
+            #
+            # Rationale for splitting: previously the response shape was
+            # ``{username, password, login_type}`` and the frontend
+            # special-cased login_type in JSX — but a stale `username` from a
+            # previous login attempt (e.g. user typed an email then switched
+            # to phone) could still leak through. Trimming at the source
+            # closes that gap permanently.
+            response_username = username if is_password_login else ""
+            response_password = password if is_password_login else ""
+
             return {
                 "machine_role": self.machine_role,
-                "username": username or "",
-                "password": password,
+                "username": response_username,
+                "password": response_password,
                 "language": language,
                 "theme": theme,
-                "login_type": login_type
+                "login_type": login_type,
+                # last_identifier: the raw identifier (wechat id / phone /
+                # google email) preserved for debugging / future use. The
+                # frontend MUST NOT put this into any login form field.
+                "last_identifier": username or "",
             }
         except Exception as e:
             logger.error(f"Error getting saved login info: {e}")
             # Ensure machine_role has a default value even on error
-            return {"machine_role": self.machine_role or "Commander", "username": "", "password": "", "login_type": None}
+            return {
+                "machine_role": self.machine_role or "Commander",
+                "username": "",
+                "password": "",
+                "login_type": None,
+                "last_identifier": "",
+            }
 
     def _update_saved_login_info(self, username, password, role, login_type=None):
         """Update saved login information with new username and password.

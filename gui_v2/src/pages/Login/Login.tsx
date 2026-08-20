@@ -74,6 +74,16 @@ const Login: React.FC = () => {
 		forceCleanupInitializationProgress();
 	}, []);
 
+	// Clear login form on mount — last line of defense against "Google 登录后
+	// 再次进入登录页, 邮箱输入框被填充成 Google 邮箱". Even if the backend
+	// gating somehow regresses and returns a non-password username, this
+	// makes sure the form starts blank. role is preserved (it's filled by
+	// initialValues; we don't want to flash empty role during the 100ms
+	// IPC window).
+	useEffect(() => {
+		form.resetFields(['username', 'password', 'confirmPassword', 'confirmCode', 'newPassword']);
+	}, [form]);
+
 	// 标准跳转逻辑：仅当系统初始化就绪且登录成功时才跳转到主页面
 	useEffect(() => {
 		console.log('[Login] Navigation check:', { 
@@ -112,14 +122,33 @@ const Login: React.FC = () => {
 				// api-router 已自动解包 GraphQL 响应，直接访问 last_login
 				const loginData = (response?.data as any)?.last_login;
 				if (loginData) {
-					const { username, password, machine_role, language } = loginData;
+					const { username, password, machine_role, language, login_type, last_identifier } = loginData;
 
 					if (language && i18n.language !== language) {
 						await i18n.changeLanguage(language);
 						localStorage.setItem('i18nextLng', language);
 					}
 
-					updateFormWithRole(username, password, machine_role || 'Commander');
+					// login_type gating (fix for "Google 登录成功后再次进入登录页,
+					// 邮箱输入框被填充成 Google 邮箱,密码为空导致登录必然 401"):
+					//
+					// 后端 ``get_saved_login_info`` 已经只在 login_type=='password'
+					// 时回填 username/password — 这里再做一次前端防御:
+					// 如果 login_type 不是 password(比如 'google' / 'phone' /
+					// 'wechat'),强制把 username/password 清空,只保留 role。
+					// last_identifier 留作日志/调试,绝不进入表单。
+					const isPasswordLogin = !login_type || login_type === 'password';
+					if (isPasswordLogin) {
+						updateFormWithRole(username, password, machine_role || 'Commander');
+					} else {
+						console.log(
+							`[Login] last login was via ${login_type}; skipping autofill ` +
+							`(last_identifier=${last_identifier || ''})`
+						);
+						// 仅保留 role,清空可能残留的 username/password
+						form.resetFields(['username', 'password', 'confirmPassword', 'confirmCode', 'newPassword']);
+						form.setFieldValue('role', machine_role || 'Commander');
+					}
 
 					// Flood-test harness (ECAN_AUTOLOGIN=1): the backend marks the
 					// last-login response with autologin=true. Auto-submit the
@@ -190,7 +219,6 @@ const Login: React.FC = () => {
 
 	const handleModeChange = useCallback((newMode: AuthMode) => {
 		// 保存公共字段（跨模式保留）
-		const savedUsername = form.getFieldValue('username');
 		const savedRole = form.getFieldValue('role');
 		
 		setMode(newMode);
@@ -198,7 +226,10 @@ const Login: React.FC = () => {
 		// 只重置当前模式特有的字段，保留公共字段
 		const fieldsToReset: (keyof LoginFormValues)[] = [];
 		if (newMode === 'signup') {
-			fieldsToReset.push('password', 'confirmPassword');
+			// 注册是"创建新账号"，必须清空登录时残留的 username，避免
+			// "邮箱注册号码直接登录"——用户误以为在注册新账号，
+			// 实际后端收到的是旧账号的邮箱 + 新密码的登录请求。
+			fieldsToReset.push('username', 'password', 'confirmPassword');
 		} else if (newMode === 'forgot') {
 			if (!codeSent) {
 				fieldsToReset.push('confirmCode', 'newPassword');
@@ -216,10 +247,7 @@ const Login: React.FC = () => {
 			form.resetFields(fieldsToReset);
 		}
 		
-		// 恢复公共字段
-		if (savedUsername) {
-			form.setFieldValue('username', savedUsername);
-		}
+		// 只恢复 role（跨模式保留），不恢复 username（signup 必须清空）
 		if (savedRole) {
 			form.setFieldValue('role', savedRole);
 		}
@@ -534,7 +562,10 @@ const Login: React.FC = () => {
 	};
 
 	const handleSubmit = async (values: LoginFormValues) => {
-		if (loading || loginSuccessful) return; // Prevent double submission
+		if (loading || loginSuccessful) {
+			console.log(`[Login] handleSubmit BLOCKED: loading=${loading}, loginSuccessful=${loginSuccessful}`);
+			return; // Prevent double submission
+		}
 
 		// Time-based debounce: reject if last attempt was less than 3s ago
 		const now = Date.now();
@@ -543,6 +574,9 @@ const Login: React.FC = () => {
 			return;
 		}
 		lastLoginAttemptRef.current = now;
+
+		// Log current mode to help debug "signup triggers login" issue
+		console.log(`[Login] handleSubmit START: mode=${mode}, isWeb=${isWeb}, values.keys=${Object.keys(values)}`);
 
 		if (isWeb) {
 			setLoading(true);
