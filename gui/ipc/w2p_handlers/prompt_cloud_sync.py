@@ -213,7 +213,11 @@ def sync_prompt_to_cloud(prompt: Dict[str, Any]) -> None:
             errors = resp.get("errors")
             if errors:
                 logger.error(f"[prompt_sync] ❌ CLOUD SYNC FAILED for {prompt.get('id')}: {errors}")
-                logger.error(f"[prompt_sync] This indicates AWS AppSync settings may be incorrect")
+                logger.error(
+                    "[prompt_sync] Known cause on CN/TCB: addPrompts is INSERT-only "
+                    "server-side — re-adding an existing prompt id 500s (needs "
+                    "upsert). See docs/OPEN_ITEMS.md."
+                )
             else:
                 data = resp.get("data", {}).get("addPrompts", [])
                 logger.warning(f"[prompt_sync] ✅ SUCCESS - Synced prompt '{prompt.get('id')}' to cloud: {data}")

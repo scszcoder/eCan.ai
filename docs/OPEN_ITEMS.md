@@ -10,6 +10,23 @@ _Last updated: 2026-08-19_
 
 ## 🔴 Bugs (unfixed)
 
+- **TCB `addPrompts` is INSERT-only — prompt UPDATES never reach the cloud**
+  (found 2026-08-21). Proven with a live probe: first add of a new id → OK,
+  second add of the same id → `INTERNAL_SERVER_ERROR "Unexpected error."`
+  (unique-constraint violation). The AWS original (DynamoDB put_item) is an
+  upsert, and the client contract assumes upsert — the TCB resolver must do
+  `INSERT … ON CONFLICT (id) DO UPDATE` scoped to owner. Consequences: cloud
+  prompt rows freeze at first-insert content; the startup bulk sync now
+  reports "0 ok, 9 errors" every run (all rows already exist — it was "8 ok"
+  only when the table was empty). Server-side fix (CLAUDE.md §5).
+- **TCB `removePrompts` schema drifted from the client/AWS contract**
+  (found 2026-08-21): client sends `removePrompts(input: [ID!]!)` expecting a
+  scalar list; the TCB SDL is `removePrompts(ids: [ID!]!): [PromptMutationResult!]!`.
+  Every cloud prompt deletion fails with GRAPHQL_VALIDATION_FAILED (silently —
+  local delete still works). Also `addPrompts` result type lost its `owner`/
+  `version` fields (`PromptMutationResult` only has `id`; the client's bulk-
+  sync selection asking for `id` works, but selecting `owner` errors). Align
+  the TCB SDL with the AWS schema server-side; do not fork the client.
 - **TCB `getSkillEditorChatSessions` returns `INTERNAL_SERVER_ERROR`** on every
   call (server-side; `createSkillEditorChatSession` and `sendSkillEditorChatMessage`
   work after the 2026-08-19 llm_proxy fix). Client now falls back to local
