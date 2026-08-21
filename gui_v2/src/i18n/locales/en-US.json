@@ -3113,6 +3113,10 @@
     "initializing": "Initializing",
     "loadingServices": "Loading Services"
   },
+  "system": {
+    "initializing": "Initializing",
+    "ready": "Ready"
+  },
   "loading": {
     "authentication": "Authentication",
     "backgroundInit": "Background Init",

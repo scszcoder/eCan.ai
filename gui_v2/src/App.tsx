@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, HashRouter, Routes, Route } from 'react-router-dom';
 import { ConfigProvider, theme, App as AntdApp } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { registerOnboardingModalApi } from './services/onboarding/onboardingService';
 import { routes, RouteConfig } from './routes';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -115,6 +116,7 @@ const AppContent = () => {
     // Wait for AppConfig to load before rendering children
     // This prevents flash of wrong region content on page refresh
     const configLoading = useConfigLoading();
+    const { t } = useTranslation();
 
     const ModalRegistrar: React.FC = () => {
         const api = AntdApp.useApp();
@@ -268,7 +270,7 @@ const AppContent = () => {
                 height: '100vh',
                 backgroundColor: '#0f172a'
             }}>
-                <div style={{ color: '#f8fafc', fontSize: 14 }}>Loading configuration...</div>
+                <div style={{ color: '#f8fafc', fontSize: 14 }}>{t('system.initializing', '加载中...')}</div>
             </div>
         );
     }

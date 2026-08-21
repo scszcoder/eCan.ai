@@ -284,7 +284,75 @@
         "techniquesTitle": "编写技巧",
         "mistakesTitle": "常见错误与修正",
         "good": "好",
-        "bad": "差"
+        "bad": "差",
+        "principles": {
+          "clarity": {
+            "title": "清晰性 - 明确的目标和步骤",
+            "good": "在亚马逊搜索「笔记本电脑」，找出第一个 1000 元以下的产品",
+            "bad": "帮我找一台便宜的笔记本",
+            "tip": "使用具体的数字、品牌、价格区间"
+          },
+          "verifiable": {
+            "title": "可验证性 - 包含明确的验证点",
+            "good": "获取销量前三产品的标题、价格和评分",
+            "bad": "看看有什么好产品",
+            "tip": "明确指定要提取的数据字段和数量"
+          },
+          "structured": {
+            "title": "结构化 - 使用清晰的格式",
+            "good": "任务：搜索\\n筛选条件：价格 500-1000 元\\n输出格式：表格",
+            "bad": "找 500 到 1000 之间的，用表格显示",
+            "tip": "使用标签、列表、表格来组织结构"
+          },
+          "scoped": {
+            "title": "边界控制 - 控制复杂度",
+            "good": "简单：3-5 步 | 中等：5-8 步 | 复杂：8-12 步",
+            "bad": "做一份完整的市场调研报告（不限步骤）",
+            "tip": "将复杂任务拆分为简单步骤"
+          }
+        },
+        "techniques": {
+          "role": {
+            "title": "1. 角色定义",
+            "desc": "明确 AI 的角色和专业领域",
+            "example": "你是一位专注于产品比较的电商分析专家。"
+          },
+          "context": {
+            "title": "2. 背景信息",
+            "desc": "提供必要的上下文和约束条件",
+            "example": "背景：用户正在为大学生寻找预算内的游戏笔记本电脑。"
+          },
+          "task": {
+            "title": "3. 任务描述",
+            "desc": "清晰描述具体任务",
+            "example": "任务：在亚马逊搜索游戏笔记本电脑，按价格 $800-$1500 筛选，比较前三名。"
+          },
+          "format": {
+            "title": "4. 输出格式",
+            "desc": "指定期望的输出格式和结构",
+            "example": "输出格式：Markdown 表格，列：产品名、价格、CPU、内存、评分。"
+          },
+          "examples": {
+            "title": "5. 示例",
+            "desc": "提供期望输出的具体示例",
+            "example": "示例：\\n| 产品 | 价格 | CPU | 内存 |\\n| 华硕 ROG | $1299 | i7-12700H | 16GB |"
+          },
+          "constraints": {
+            "title": "6. 约束条件",
+            "desc": "定义限制和边界",
+            "example": "约束条件：最多 3 个产品，仅来自评分 4 星以上的卖家，仅限包邮商品。"
+          }
+        },
+        "mistakes": {
+          "vague": "描述过于模糊",
+          "vagueFix": "使用具体的数字、品牌、条件",
+          "noFormat": "未指定输出格式",
+          "noFormatFix": "明确要求表格、JSON、列表格式",
+          "tooComplex": "任务过于复杂",
+          "tooComplexFix": "拆分为简单步骤",
+          "noValidation": "缺少验证点",
+          "noValidationFix": "添加明确的成功标准"
+        }
       },
       "templates": {
         "title": "提示词模板库",
@@ -1105,6 +1173,7 @@
       "immediate": "立即",
       "hourly": "每小时",
       "daily": "每日",
+      "weekly": "每周",
       "actions": "操作",
       "system_settings": "系统设置",
       "general_settings": "基础设置",
@@ -3104,6 +3173,10 @@
     "finalizing": "完成中",
     "initializing": "初始化中",
     "loadingServices": "加载服务"
+  },
+  "system": {
+    "initializing": "初始化中",
+    "ready": "就绪"
   },
   "loading": {
     "authentication": "认证",

@@ -1,5 +1,6 @@
 import React, { Suspense } from 'react';
 import { Navigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import MainLayout from '../components/Layout/MainLayout';
 import { Button, Spin } from 'antd';
 import { userStorageManager } from '../services/storage/UserStorageManager';
@@ -83,6 +84,7 @@ function LoginPageWrapper() {
 
 // 配置加载中页面
 function ConfigLoadingPage() {
+  const { t } = useTranslation();
   return (
     <div style={{
       display: 'flex',
@@ -93,7 +95,7 @@ function ConfigLoadingPage() {
       color: '#f8fafc'
     }}>
       <Spin size="large">
-        <div style={{ color: '#f8fafc' }}>Loading configuration...</div>
+        <div style={{ color: '#f8fafc' }}>{t('system.initializing', '加载中...')}</div>
       </Spin>
     </div>
   );
