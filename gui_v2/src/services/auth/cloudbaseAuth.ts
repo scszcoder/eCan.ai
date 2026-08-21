@@ -309,7 +309,11 @@ class CloudBaseAuthService {
             refreshToken: data.refresh_token || data.token,
             userInfo: {
               uuid: data.user_info?.uuid || '',
-              phoneNumber: phone,
+              // Keep a canonical username for all downstream stores.  The
+              // previous phone path only populated phoneNumber, while the
+              // org/agent sync service keys every request by username.
+              username: data.user_info?.username || data.user_info?.phone || phone,
+              phoneNumber: data.user_info?.phone || phone,
               loginType: 'phone',
             },
           },

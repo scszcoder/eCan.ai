@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QMainWindow, QApplication)
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings, QWebEnginePage, QWebEngineScript
 from PySide6.QtCore import QUrl, Qt, Slot, Signal
+from PySide6.QtGui import QColor
 from utils.logger_helper import logger_helper as logger
 from gui.core.request_interceptor import RequestInterceptor
 from gui.ipc.api import IPCAPI
@@ -491,7 +492,7 @@ class WebEngineView(QWebEngineView):
         try:
             # Configure page
             page = self.page()
-            page.setBackgroundColor(Qt.white)
+            page.setBackgroundColor(QColor("#0f172a"))
 
             # Configure WebEngine settings - use the profile from page
             profile = page.profile()

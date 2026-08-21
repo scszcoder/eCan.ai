@@ -13,7 +13,7 @@ import { APIResponse } from '../../services/ipc/api';
 import { get_ipc_api } from '../../services/ipc_api';
 import { userStorageManager, type LoginSession } from '../../services/storage/UserStorageManager';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
-import { useInitializationProgress, forceCleanupInitializationProgress } from '../../hooks/useInitializationProgress';
+import { eventBus } from '../../utils/eventBus';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import { cloudbaseAuth } from '../../services/auth/cloudbaseAuth';
 import { isDesktopPlatform } from '../../config/platform';
@@ -36,6 +36,13 @@ interface LoginFormValues {
 
 type AuthMode = 'email-login' | 'email-signup' | 'email-signup-verify' | 'phone-login' | 'phone-signup' | 'forgot';
 
+/** Convert CloudBase's "+86 13800138000" form back to the 11-digit value
+ * accepted by the CN phone input. */
+export const normalizeSavedCnPhone = (identifier?: string): string => {
+  const digits = (identifier || '').replace(/\D/g, '');
+  return digits.length === 13 && digits.startsWith('86') ? digits.slice(2) : digits;
+};
+
 const LoginCN: React.FC = () => {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
@@ -54,7 +61,6 @@ const LoginCN: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'email' | 'phone' | 'wechat'>('email');
   const [mode, setMode] = useState<AuthMode>('email-login');
   const [loading, setLoading] = useState(false);
-  const [showInitProgress, setShowInitProgress] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
   const [loginSuccessful, setLoginSuccessful] = useState(false);
   const [hasNavigated, setHasNavigated] = useState(false);
@@ -70,12 +76,7 @@ const LoginCN: React.FC = () => {
   const lastLoginAttemptRef = useRef<number>(0);
   const LOGIN_DEBOUNCE_MS = 3000;
 
-  const { progress: initProgress } = useInitializationProgress(loading || showInitProgress);
-
   // 初始化
-  useEffect(() => {
-    forceCleanupInitializationProgress();
-  }, []);
 
   // 清空表单的初始状态 — 防止 Antd Form 在 mount 时从 localStorage /
   // 上次会话残留恢复任何字段值。这是修复"邮箱输入框里有 wechat /
@@ -97,7 +98,12 @@ const LoginCN: React.FC = () => {
       // 只有当 activeTab 是 email 且 login_type 不是 password 时才清空
       // 这样可以避免清除正常的 rememberMe 回填值
       const loginTypeFromStorage = sessionStorage.getItem('last_login_type');
-      if (activeTab === 'email' && loginTypeFromStorage && loginTypeFromStorage !== 'password') {
+      if (
+        activeTab === 'email' &&
+        loginTypeFromStorage &&
+        loginTypeFromStorage !== 'password' &&
+        !form.isFieldTouched('username')
+      ) {
         form.setFieldValue('username', '');
         console.log('[LoginCN] Browser autofill cleared: username field reset for non-password login');
       }
@@ -141,7 +147,6 @@ const LoginCN: React.FC = () => {
       (async () => {
         try {
           setLoginProgress('authenticating');
-          setShowInitProgress(true);
 
           const cloudbase = (await import('@cloudbase/js-sdk')).default;
           const app = cloudbase.init({
@@ -162,9 +167,8 @@ const LoginCN: React.FC = () => {
             loginResult = await auth.signInWithProvider({ provider_token });
           } catch (e: any) {
             if (e?.error === 'not_found') {
-              messageApi.warning('请先注册账号，然后再次扫码登录');
+              messageApi.warning(t('login.pleaseRegisterFirst'));
               setLoginProgress('idle');
-              setShowInitProgress(false);
               return;
             }
             throw e;
@@ -262,24 +266,21 @@ const LoginCN: React.FC = () => {
         } catch (err: any) {
           console.error('[WeChat Callback] Error:', err);
           setLoginProgress('idle');
-          setShowInitProgress(false);
-          messageApi.error(err?.message || '微信登录失败');
+          messageApi.error(err?.message || t('login.wechat_login_failed'));
         }
       })();
     }
   }, [navigate, messageApi, t, appConfig?.auth?.cloudbase_env_id]);
 
-  // 导航逻辑
+  // 导航逻辑 - 登录成功后直接跳转，不需要等待 initProgress
   useEffect(() => {
-    if (!initProgress?.ui_ready) return;
     if (!loginSuccessful) return;
     if (hasNavigated) return;
 
     setHasNavigated(true);
     setLoading(false);
-    setShowInitProgress(false);
     navigate('/agents');
-  }, [initProgress, loginSuccessful, hasNavigated, navigate]);
+  }, [loginSuccessful, hasNavigated, navigate]);
 
   // 加载上次登录信息
   //
@@ -315,7 +316,7 @@ const LoginCN: React.FC = () => {
 
         const loginData = (response?.data as any)?.last_login;
         if (loginData) {
-          const { username, password, machine_role, language, login_type } = loginData;
+          const { username, password, machine_role, language, login_type, last_identifier } = loginData;
 
           if (language && i18n.language !== language) {
             await i18n.changeLanguage(language);
@@ -348,14 +349,15 @@ const LoginCN: React.FC = () => {
               role: machine_role || 'Commander'
             });
           } else if (login_type === 'phone') {
-            // 手机登录:切到 phone tab,只填 phone (后端 username 字段对
-            // phone 模式已是手机号,因为我们在后端做了 login_type gating)。
-            // 同时清掉 email tab 的 username/password,避免残留。
+            // 手机登录:后端为了避免污染邮箱输入框，会将 username 清空，
+            // 手机号保存在 last_identifier。CloudBase profile 可能返回
+            // "+86 13800138000"，回填前规范化为 11 位国内号码。
+            // 邮箱字段使用独立的 form key，不会显示在手机号 tab。
             setActiveTab('phone');
             setMode('phone-login');
             form.resetFields(['username', 'password', 'confirmPassword', 'code', 'newPassword']);
             form.setFieldsValue({
-              phone: username,
+              phone: normalizeSavedCnPhone(last_identifier),
               role: machine_role || 'Commander'
             });
           } else {
@@ -451,24 +453,28 @@ const LoginCN: React.FC = () => {
     // 保存 role
     const savedRole = form.getFieldValue('role');
 
-    // 切换 tab 时清掉旧 tab 的所有字段,防止跨 tab 字段残留
-    // (例如 email tab 的 password 切到 phone tab 不能残留)
+    // username/password 与 phone 是不同的 Form 字段，不会跨 tab 显示，
+    // 因此切换时保留它们，让用户返回原 tab 后仍能继续登录。只清理
+    // 验证码、确认密码等与当前流程绑定的一次性字段。
     const fieldsToReset: (keyof LoginFormValues)[] = [];
     if (tab === 'email') {
-      // 切换到邮箱: 清掉 phone tab 的字段
-      fieldsToReset.push('phone', 'code', 'newPassword');
+      fieldsToReset.push('code', 'newPassword', 'confirmPassword');
       // 浏览器自动填充防御:如果上次登录不是 password 类型,清空 username
       // (防止 wechat/phone 的凭证被浏览器填充到 email 输入框)
       const loginTypeFromStorage = sessionStorage.getItem('last_login_type');
-      if (loginTypeFromStorage && loginTypeFromStorage !== 'password') {
+      // 仅清除浏览器悄悄填入的值；用户已在本次页面会话中输入的邮箱
+      // 必须保留。dirty/touched 表明该字段经过了用户操作。
+      if (
+        loginTypeFromStorage &&
+        loginTypeFromStorage !== 'password' &&
+        !form.isFieldTouched('username')
+      ) {
         fieldsToReset.push('username');
       }
     } else if (tab === 'phone') {
-      // 切换到手机: 清掉 email tab 的 username+password+confirmPassword
-      // (这是修复"邮箱注册号码直接登录"的关键: 切到 phone tab 不会带过去旧 email 凭证)
-      fieldsToReset.push('username', 'password', 'confirmPassword', 'newPassword');
+      fieldsToReset.push('confirmPassword', 'newPassword');
     } else if (tab === 'wechat') {
-      fieldsToReset.push('username', 'password', 'confirmPassword', 'phone', 'code', 'newPassword');
+      fieldsToReset.push('confirmPassword', 'code', 'newPassword');
     }
     if (fieldsToReset.length > 0) {
       form.resetFields(fieldsToReset);
@@ -504,7 +510,7 @@ const LoginCN: React.FC = () => {
     const loginSession: LoginSession = {
       token,
       userInfo: {
-        username: userInfo.username || userInfo.email || userInfo.phone || '',
+        username: userInfo.username || userInfo.email || userInfo.phone || userInfo.phoneNumber || '',
         email: userInfo.email || '',
         role,
         name: userInfo.name || '',
@@ -518,6 +524,10 @@ const LoginCN: React.FC = () => {
     };
 
     userStorageManager.saveLoginSession(loginSession);
+    // Backend initialization events can arrive a few milliseconds before the
+    // login response is stored. Emit once more after username is available so
+    // org/agent loading starts immediately instead of waiting for a later push.
+    eventBus.emit('org-agents-update', { source: 'login-session-saved' });
     pageRefreshManager.enable();
     sessionStorage.removeItem('token_expired_notification_shown');
 
@@ -785,11 +795,11 @@ const LoginCN: React.FC = () => {
   // 邮箱注册
   const handleSignup = useCallback(async (email: string, password: string) => {
     if (!ensureCloudbase()) {
-      setLoading(false);
       return;
     }
 
     setLoading(true);
+    setLoginProgress('authenticating');
     console.log('[LoginCN] handleSignup: calling signupWithEmail');
     const result = await cloudbaseAuth.signupWithEmail(email, password);
     console.log('[LoginCN] handleSignup: result', result);
@@ -802,6 +812,7 @@ const LoginCN: React.FC = () => {
           result.error || t('login.codeSendFailed') || '验证码发送失败，请稍后重试'
         );
         setLoading(false);
+        setLoginProgress('idle');
         return;
       }
       // 与国际版一致：注册成功后切换到验证邮箱页面，等用户确认后才登录
@@ -811,20 +822,20 @@ const LoginCN: React.FC = () => {
       setActiveTab('email');
       messageApi.success(t('login.codeSent') || '验证码已发送');
       setLoading(false);
-      setShowInitProgress(false);
+      setLoginProgress('idle');
     } else {
       messageApi.error(result.error || t('login.failed'));
       setLoading(false);
-      setShowInitProgress(false);
+      setLoginProgress('idle');
     }
-  }, [ensureCloudbase, messageApi, t, setShowInitProgress]);
+  }, [ensureCloudbase, messageApi, t]);
 
   // 邮箱注册 - 确认验证码完成注册
   const handleSignupVerify = useCallback(async () => {
     console.log('[LoginCN] handleSignupVerify called');
     if (!pendingSignupCode) {
       console.log('[LoginCN] handleSignupVerify: pendingSignupCode is null, returning to email-signup');
-      messageApi.error('注册会话已过期，请重新注册');
+      messageApi.error(t('login.registrationSessionExpired'));
       setMode('email-signup');
       setPendingSignupCode(null);
       return;
@@ -888,7 +899,6 @@ const LoginCN: React.FC = () => {
     if (isDesktopPlatform()) {
       try {
         setLoading(true);
-        setShowInitProgress(true);
         setLoginProgress('authenticating');
         const resp = await cloudbaseAuth.loginWithWechatQR('Commander', i18n.language);
         if (resp.success && resp.data) {
@@ -911,13 +921,11 @@ const LoginCN: React.FC = () => {
           setLoginProgress('redirecting');
         } else {
           setLoading(false);
-          setShowInitProgress(false);
           setLoginProgress('idle');
           messageApi.error(resp.error || 'WeChat login failed');
         }
       } catch (error) {
         setLoading(false);
-        setShowInitProgress(false);
         setLoginProgress('idle');
         console.error('[WeChat QR] Error:', error);
         messageApi.error(String(error));
@@ -930,7 +938,7 @@ const LoginCN: React.FC = () => {
       console.log('[WeChat H5] Response:', resp);
 
       if (!resp.success) {
-        messageApi.error(resp.error || 'Failed to start WeChat login');
+        messageApi.error(t('login.wechatFailedToStart'));
       }
     } catch (error) {
       console.error('[WeChat H5] Error:', error);
@@ -958,7 +966,6 @@ const LoginCN: React.FC = () => {
     setLoginSuccessful(false);
     setHasNavigated(false);
     setLastError(null);
-    setShowInitProgress(true);
 
     let loginAttempted = false;
 
@@ -972,7 +979,6 @@ const LoginCN: React.FC = () => {
           if (values.password !== values.confirmPassword) {
             messageApi.error(t('login.passwordMismatch'));
             setLoading(false);
-            setShowInitProgress(false);
             return;
           }
           await handleSignup(values.username, values.password);
@@ -990,7 +996,6 @@ const LoginCN: React.FC = () => {
           if (values.newPassword !== values.confirmPassword) {
             messageApi.error(t('login.passwordMismatch'));
             setLoading(false);
-            setShowInitProgress(false);
             return;
           }
           await handleResetPassword(values.phone!, values.code!, values.newPassword!);
@@ -1004,7 +1009,6 @@ const LoginCN: React.FC = () => {
 
       if (mode === 'email-login' && loginAttempted) {
         setLoading(false);
-        setShowInitProgress(false);
       }
     } finally {
       if (mode !== 'email-login' || !loginAttempted) {
@@ -1062,7 +1066,6 @@ const LoginCN: React.FC = () => {
     setLoginSuccessful(false);
     setHasNavigated(false);
     setCodeSent(false);
-    setShowInitProgress(false);
     setLoginProgress('idle');
     setLastError(null);
     setCountdown(0);
@@ -1100,31 +1103,19 @@ const LoginCN: React.FC = () => {
         </Select>
       </div>
 
-      {/* 加载进度 */}
+      {/* 加载进度 - email-signup 模式不显示（发送验证码很快，不需要遮罩） */}
       <LoadingProgress
-        visible={loading || showInitProgress}
-        progress={initProgress}
-        title={loginProgress === 'redirecting' ? t('login.redirectingToMain') : undefined}
-        onComplete={() => {
-          setLoading(false);
-          setShowInitProgress(false);
-        }}
+        visible={loading && mode !== 'email-signup'}
+        message={loginProgress === 'redirecting'
+          ? t('login.redirectingToMain')
+          : loginProgress === 'success'
+            ? t('login.success')
+            : t('login.verifying')}
       />
 
-      {/* 登录卡片 */}
-      <div className="cn-login-card">
-        {loading && loginProgress === 'authenticating' ? (
-          <div className="cn-loading-container">
-            <Spin size="large" />
-            <div className="cn-loading-text">
-              {loginProgress === 'redirecting'
-                ? t('login.redirectingToMain')
-                : loginProgress === 'success'
-                  ? t('login.success')
-                  : t('login.verifying')}
-            </div>
-          </div>
-        ) : (
+      {/* 隐藏登录卡片 during loading */}
+      {!loading && (
+        <div className="cn-login-card">
           <>
             {/* Logo */}
             <div className="cn-login-logo">
@@ -1539,8 +1530,8 @@ const LoginCN: React.FC = () => {
               </div>
             </Form>
           </>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -2682,47 +2682,24 @@ export class IPCAPI {
     }
 
     /**
-     * GetInitialize进度
-     * @returns Promise 对象，Parse为Initialize进度Information
+     * Get system initialization status
+     * @returns Promise with simple ready status and i18n key
      */
-    public async getInitializationProgress<T = {
-        ui_ready: boolean;
-        critical_services_ready: boolean;
-        async_init_complete: boolean;
-        fully_ready: boolean;
-        sync_init_complete: boolean;
-        message: string;
-    }>(): Promise<APIResponse<T & {
-        sync_init_complete: boolean;
-        message: string;
+    public async getInitializationProgress(): Promise<APIResponse<{
+        ready: boolean;
+        status: string;  // i18n key like 'system.ready' or 'system.initializing'
     }>> {
-        // Get username from localStorage for owner/userId
-        const username = localStorage.getItem('username');
-        const response = await apiRouter.execute<any>(
-      {
-        method: 'get_initialization_progress',
-        graphql: {
-          query: GRAPHQL_QUERIES.GET_ALL_MINE,
-          resultPath: 'getAllMine'
-        }
-      },
-      { owner: username, userId: username }
-    );
+        const response = await apiRouter.execute<{ready: boolean; status: string}>(
+            { method: 'get_initialization_progress' }
+        );
 
-        // api-router 已自动解包 GraphQL 响应，直接使用即可
         if (response.success && response.data) {
-            const data = response.data as any;
-            const initProgress = {
-                ui_ready: data.ui_ready ?? false,
-                critical_services_ready: data.critical_services_ready ?? false,
-                async_init_complete: data.async_init_complete ?? false,
-                fully_ready: data.fully_ready ?? false,
-                sync_init_complete: data.sync_init_complete ?? false,
-                message: data.message ?? 'Checking initialization...',
-            };
             return {
                 success: true,
-                data: initProgress as any
+                data: {
+                    ready: response.data.ready ?? false,
+                    status: response.data.status ?? 'system.initializing'
+                }
             };
         }
 

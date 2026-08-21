@@ -60,12 +60,11 @@ def _get_skill_pool() -> ThreadPoolExecutor:
     return _SKILL_POOL
 
 
-# Phase E: optional status callback invoked after each skill finishes building.
-# MainGUI registers a callable that forwards to StartupBusyOverlay.set_status.
-# The callback must be safe to invoke from any thread (the executor workers
-# call it); typical implementation uses QMetaObject.invokeMethod with a
-# QueuedConnection to marshal back to the GUI thread. Kept opt-in so cloud
-# workers (no Qt) don't need any of this.
+# Phase E: optional status callback for build progress reporting.
+# Workers call this callback after each skill finishes building.
+# The callback must be thread-safe (typically uses QMetaObject.invokeMethod
+# with QueuedConnection to marshal back to the GUI thread). Kept opt-in so
+# cloud workers (no Qt) don't need any of this.
 _status_callback: Optional[Callable[[str], None]] = None
 
 

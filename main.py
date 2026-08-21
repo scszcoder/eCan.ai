@@ -810,7 +810,17 @@ try:
         if not startup_splash:
             startup_splash = None
 
-    progress_manager.update_progress(5, "Loading core modules...")
+    # Get i18n messages for splash screen
+    try:
+        from gui.splash import _get_splash_messages
+        _splash_msg = _get_splash_messages()
+        def splash_msg(key):
+            return _splash_msg.get(key)
+    except Exception:
+        def splash_msg(key):
+            return key  # fallback: use key as-is
+
+    progress_manager.update_progress(5, splash_msg('loading_core_modules'))
 
     # Standard imports
     asyncio = globals().get('ASYNCIO')
@@ -818,14 +828,14 @@ try:
         asyncio = _import_asyncio_safely()
         globals()['ASYNCIO'] = asyncio
     import qasync
-    progress_manager.update_progress(10, "Importing standard libraries...")
+    progress_manager.update_progress(10, splash_msg('importing_std_libs'))
 
     # Basic configuration imports
     from config.app_info import app_info
     from config.app_settings import app_settings
     from utils.logger_helper import logger_helper as logger
     from app_context import AppContext
-    progress_manager.update_progress(15, "Loading configuration...")
+    progress_manager.update_progress(15, splash_msg('loading_config'))
 
     # Print startup banner
     _print_startup_banner(logger, app_info)
@@ -865,10 +875,10 @@ try:
         logger.warning(f"Failed to configure third-party loggers: {e}")
 
     # Runtime environment is already initialized above
-    progress_manager.update_progress(20, "Setting up environment...")
+    progress_manager.update_progress(20, splash_msg('setting_up_env'))
 
     # Load shell environment variables early (for non-terminal launches)
-    progress_manager.update_progress(22, "Loading environment variables...")
+    progress_manager.update_progress(22, splash_msg('loading_env_vars'))
     try:
         from utils.env import load_shell_environment
         loaded_count = load_shell_environment()
@@ -890,7 +900,7 @@ try:
     except Exception as e:
         print(f"Warning: Failed to enforce direct-connection baseline: {e}")
 
-    progress_manager.update_progress(28, "Starting local server...")
+    progress_manager.update_progress(28, splash_msg('starting_local_server'))
     try:
         from gui.LocalServer import start_local_server_early
         local_server_port = int(os.environ.get('ECAN_LOCAL_SERVER_PORT', os.environ.get('VITE_LOCAL_SERVER_PORT', '4668')))
@@ -901,13 +911,13 @@ try:
         print(f"Warning: Failed to start local server early: {e}")
 
     # Import other necessary modules
-    progress_manager.update_progress(30, "Loading Login components...")
+    progress_manager.update_progress(30, splash_msg('loading_login'))
     from gui.LoginoutGUI import Login
-    progress_manager.update_progress(32, "Loading WebGUI components...")
+    progress_manager.update_progress(32, splash_msg('loading_webgui'))
     from gui.WebGUI import WebGUI
     
     # Patch browser-use to use UTF-8 encoding
-    progress_manager.update_progress(33, "Patching browser-use to UTF-8...")
+    progress_manager.update_progress(33, splash_msg('patching_browser'))
     _patch_browser_use_to_utf8()
 
     # Compatibility shim: httpx >= 0.20 renamed TimeoutError → TimeoutException.
@@ -932,7 +942,7 @@ try:
             set_crash_boundary_phase("startup:main_entered")
         except Exception:
             pass
-        progress_manager.update_progress(35, "Initializing application...")
+        progress_manager.update_progress(35, splash_msg('init_app'))
 
         # Start hot reload monitoring (development mode)
         # if app_settings.is_dev_mode:
@@ -951,12 +961,12 @@ try:
             raise RuntimeError("QApplication was not properly initialized")
 
         # Set application info and icon (unified management)
-        progress_manager.update_progress(40, "Setting up application info...")
+        progress_manager.update_progress(40, splash_msg('setting_up_app_info'))
         from utils.app_setup_helper import setup_application_info
         setup_application_info(app, logger)
 
         # Initialize global AppContext
-        progress_manager.update_progress(45, "Initializing application context...")
+        progress_manager.update_progress(45, splash_msg('init_app_context'))
         try:
             from utils.crash_boundary import set_crash_boundary_phase
             set_crash_boundary_phase("startup:app_context")
@@ -980,7 +990,7 @@ try:
         init_gui_dispatch()
 
         # Verify application icon (already set early for macOS/Linux)
-        progress_manager.update_progress(50, "Verifying application icons...")
+        progress_manager.update_progress(50, splash_msg('verifying_icons'))
         from utils.icon_manager import get_icon_manager
         icon_mgr = get_icon_manager()
         icon_mgr.set_logger(logger)
@@ -999,7 +1009,7 @@ try:
         # (requires window handle, especially important for frozen/packaged builds)
 
         # Create event loop
-        progress_manager.update_progress(55, "Creating event loop...")
+        progress_manager.update_progress(55, splash_msg('creating_event_loop'))
         loop = qasync.QEventLoop(app)
         asyncio.set_event_loop(loop)
 
@@ -1029,11 +1039,11 @@ try:
 
         # Async preload will be started by WebGUI after event loop is running
         # This allows heavy modules to load in background during user login
-        progress_manager.update_progress(58, "Preparing background preload...")
+        progress_manager.update_progress(58, splash_msg('preparing_preload'))
         logger.info("✅ [Startup] Async preload will start after event loop is ready")
 
         # Create login component
-        progress_manager.update_progress(60, "Initializing login system...")
+        progress_manager.update_progress(60, splash_msg('init_login_system'))
         login = Login()
         ctx.set_login(login)
         ctx.set_main_loop(loop)
@@ -1069,7 +1079,7 @@ try:
             logger.warning(f"Failed to start memory monitor: {e}")
 
         # Print current running mode
-        progress_manager.update_progress(65, "Configuring runtime mode...")
+        progress_manager.update_progress(65, splash_msg('config_runtime'))
         if app_settings.is_dev_mode:
             logger.info("Running in development mode (Vite dev server)")
         else:
@@ -1077,7 +1087,7 @@ try:
 
         # Create Web GUI (do not show yet; wait until resources are loaded)
         logger.info("Creating WebGUI instance...")
-        progress_manager.update_progress(70, "Creating main interface...")
+        progress_manager.update_progress(70, splash_msg('creating_ui'))
         try:
             from utils.crash_boundary import set_crash_boundary_phase
             set_crash_boundary_phase("startup:webgui")
@@ -1091,7 +1101,7 @@ try:
         web_gui = WebGUI(splash=startup_splash, progress_callback=webgui_progress_callback)
         logger.info("WebGUI instance created successfully")
 
-        progress_manager.update_progress(80, "Setting up URL scheme handling...")
+        progress_manager.update_progress(80, splash_msg('setting_up_url'))
 
         # Setup URL scheme handling
         try:
@@ -1102,7 +1112,7 @@ try:
         except Exception as e:
             logger.warning(f"URL scheme setup failed: {e}")
 
-        progress_manager.update_progress(85, "Finalizing setup...")
+        progress_manager.update_progress(85, splash_msg('finalizing'))
         ctx.set_web_gui(web_gui)
 
         # Set UI references for login controller (WebGUI is the "login window")
@@ -1151,7 +1161,7 @@ try:
         logger.info("Registered OTA updater cleanup on application quit.")
 
         # Finish splash screen
-        progress_manager.update_progress(100, "Ready to launch!")
+        progress_manager.update_progress(100, splash_msg('ready'))
         progress_manager.finish(web_gui)
 
         # Initialize proxy environment after splash (non-blocking, in background)

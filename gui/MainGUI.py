@@ -226,33 +226,31 @@ class MainWindow:
         # PHASE 2: BACKGROUND INITIALIZATION (Non-blocking)
         # ============================================================================
         logger.info("[MainWindow] Phase 2: Starting background initialization...")
-
-        # Show a modal busy overlay on the WebGUI while Phase 2 runs
-        self._startup_overlay = None
+        
+        # 🚀 UX OPTIMIZATION: Set fully_ready=True immediately after Phase 1
+        # This allows the user to see the main UI within 2 seconds instead of
+        # waiting ~70 seconds for Phase 3 (agent initialization) to complete.
+        # Phase 3 runs in the background and updates the UI when done.
+        self._initialization_status['fully_ready'] = True
+        logger.info("[MainWindow] ✅ fully_ready=True set immediately - user sees main UI now")
+        
+        # Phase 1 complete - UI is fully interactive
+        self._dismiss_startup_overlay()
+        logger.info("[MainWindow] ✅ Phase 1 complete - UI is fully interactive!")
+        
+        # Notify frontend to update pages immediately after Phase 1
         try:
             from app_context import AppContext
-            from gui.startup_busy_overlay import StartupBusyOverlay
-            _web_gui = AppContext.get_web_gui()
-            if _web_gui is not None:
-                self._startup_overlay = StartupBusyOverlay.show_on(_web_gui)
-                if self._startup_overlay is not None:
-                    logger.info("[MainWindow] 🛡️ Startup busy overlay shown")
-                    try:
-                        from agent.ec_skills import build_agent_skills as _bas
-                        _ov_ref = self._startup_overlay
+            web_gui = AppContext.get_web_gui()
+            if web_gui and web_gui.get_ipc_api():
+                ipc = web_gui.get_ipc_api()
+                ipc.update_org_agents()
+                ipc.update_home_agents()
+                logger.info("[MainWindow] ✅ Frontend notified after Phase 1")
+        except Exception as _e:
+            logger.debug(f"[MainWindow] Frontend notification after Phase 1 skipped: {_e}")
 
-                        def _ov_status(text: str, _ov=_ov_ref) -> None:
-                            try:
-                                _ov.post_status(text)
-                            except Exception:
-                                pass
-                        _bas.set_status_callback(_ov_status)
-                    except Exception as _cb_err:
-                        logger.debug(f"[MainWindow] skill-build status hook skipped: {_cb_err}")
-        except Exception as _ov_err:
-            logger.debug(f"[MainWindow] startup overlay skipped: {_ov_err}")
-
-        # Note: fully_ready will be set to True after async_agents_init() completes
+        # Phase 1.5: Start LAN zeroconf discovery
         try:
             from gui.ipc.registry import IPCHandlerRegistry
             IPCHandlerRegistry.force_system_ready(True)
@@ -260,9 +258,17 @@ class MainWindow:
             logger.warning(f"[MainWindow] Failed to update IPC registry cache: {cache_e}")
 
         # Phase 1.5: Start LAN zeroconf discovery
+        #
+        # Zeroconf constructor + ServiceBrowser init can take 5-12 seconds
+        # on macOS when the network stack doesn't immediately respond to
+        # mDNS queries (Aug-20 trace measured 10.7s blocking the MainWindow
+        # constructor and stalling every concurrent frontend IPC request
+        # including get_initialization_progress polling). Discovery is
+        # opportunistic — never block UI initialization on it. Run the
+        # blocking work on a daemon thread and return immediately.
         self._lan_discovery = None
         try:
-            self._lan_discovery = self._start_lan_discovery_safe()
+            self._lan_discovery = self._start_lan_discovery_safe_async()
         except Exception as _zc_err:
             logger.warning(f"[MainWindow] LAN zeroconf discovery start failed (non-fatal): {_zc_err}")
 
@@ -393,23 +399,8 @@ class MainWindow:
             return len([t for t in self._async_tasks if t is not None and not t.done()])
 
     def _dismiss_startup_overlay(self) -> None:
-        """Take down the click-blocking startup overlay (idempotent, safe to call multiple times)."""
-        ov = getattr(self, "_startup_overlay", None)
-        if ov is None:
-            return
-        # Detach the build-progress callback first so any late executor
-        # completions don't try to emit into a torn-down widget.
-        try:
-            from agent.ec_skills import build_agent_skills as _bas
-            _bas.set_status_callback(None)
-        except Exception:
-            pass
-        try:
-            ov.dismiss()
-        except Exception as e:
-            logger.debug(f"[MainWindow] dismiss_startup_overlay error (ignored): {e}")
-        self._startup_overlay = None
-        logger.info("[MainWindow] 🛡️ Startup busy overlay dismissed")
+        """Dismiss startup overlay (stub - overlay was removed)."""
+        logger.debug("[MainWindow] _dismiss_startup_overlay called (no-op)")
 
     # ------------------------------------------------------------------------
     # LAN zeroconf discovery (Phase 1 — additive; runs alongside legacy
@@ -417,12 +408,26 @@ class MainWindow:
     # doc in conversation history and memory note `project-startup-apphang`.
     # ------------------------------------------------------------------------
 
-    def _start_lan_discovery_safe(self):
-        """Start the zeroconf-based node advertiser.
+    def _start_lan_discovery_safe_async(self):
+        """Start the zeroconf-based node advertiser on a daemon thread.
 
-        Errors here are swallowed and logged — discovery is opportunistic
-        and must never block startup or crash the app.
+        The synchronous path (``Zeroconf`` constructor + ``ServiceBrowser``
+        startup) blocks 5-12 seconds on macOS when the network stack is slow
+        to answer mDNS queries (Aug-20 trace: 10.7s). Running this in
+        ``MainWindow.__init__`` stalls every concurrent IPC request
+        including ``get_initialization_progress`` polling, which delays
+        the frontend's login → main navigation.
+
+        Discovery is opportunistic — UI must not depend on it. We compute
+        the params on the calling thread (cheap), then offload the
+        blocking ``start_lan_discovery`` to a daemon thread. Failures are
+        swallowed; the result is stored on ``self._lan_discovery`` for
+        later refresh / shutdown.
         """
+        import threading
+
+        # Compute the lightweight params on the calling thread so
+        # ``self._derive_org_slug`` etc. touch instance state safely.
         try:
             from agent.a2a.discovery import (
                 get_machine_id,
@@ -432,8 +437,6 @@ class MainWindow:
             logger.warning(f"[MainWindow] discovery imports failed: {imp_err}")
             return None
 
-        # machine_id is persisted under the user's data home so it survives
-        # restarts; first launch generates a fresh UUID.
         try:
             data_home = getattr(self, "my_ecb_data_homepath", None) or ""
             machine_id = get_machine_id(data_home)
@@ -441,35 +444,45 @@ class MainWindow:
             logger.warning(f"[MainWindow] machine_id resolution failed: {mid_err}")
             return None
 
-        # Sanitize the user email into a stable org slug (same convention
-        # used for user_data_dir naming throughout the app).
         org = self._derive_org_slug()
         machine_name = self._safe_machine_name()
         role = self._safe_role_string()
         os_name = self._safe_os_name()
         arch = self._safe_arch()
         ecan_ver = self._safe_ecan_ver()
-        # api_port: the local IPC/web server runs on 4668 — that's the
-        # closest thing to a "node RPC" endpoint we have today. Phase 2
-        # will add a proper node API and switch this to it.
         api_port = 4668
 
-        svc = start_lan_discovery(
-            machine_id=machine_id,
-            org=org,
-            machine_name=machine_name,
-            role=role,
-            os_name=os_name,
-            arch=arch,
-            ecan_ver=ecan_ver,
-            api_port=api_port,
-        )
-        if svc is not None:
-            logger.info(
-                f"[MainWindow] 🌐 LAN discovery started — machine_id={machine_id[:8]}.."
-                f" org={org} role={role}"
-            )
-        return svc
+        # Capture `self` by reference; the daemon thread only writes to
+        # ``self._lan_discovery`` once ``start_lan_discovery`` returns.
+        main_window_ref = self
+
+        def _run():
+            try:
+                svc = start_lan_discovery(
+                    machine_id=machine_id,
+                    org=org,
+                    machine_name=machine_name,
+                    role=role,
+                    os_name=os_name,
+                    arch=arch,
+                    ecan_ver=ecan_ver,
+                    api_port=api_port,
+                )
+                main_window_ref._lan_discovery = svc
+                if svc is not None:
+                    logger.info(
+                        f"[MainWindow] 🌐 LAN discovery started (async) — "
+                        f"machine_id={machine_id[:8]}.. org={org} role={role}"
+                    )
+            except Exception as bg_err:
+                logger.warning(
+                    f"[MainWindow] background zeroconf start failed (non-fatal): {bg_err}"
+                )
+
+        threading.Thread(target=_run, name="ecan-lan-discovery", daemon=True).start()
+        return None  # Caller can't use the svc immediately — refresh_lan_agent_advertising
+                     # is gated by `self._lan_discovery is not None` and will no-op
+                     # until the background thread assigns it.
 
     def _refresh_lan_agent_advertising(self):
         """Re-publish the set of agents advertised over zeroconf AND cloud.
@@ -1039,11 +1052,10 @@ class MainWindow:
             logger.info("[MainWindow] ðŸ Starting final background services...")
             await self._finalize_async_initialization()
 
-            # Mark full initialization as complete
+            # Mark Phase 2 as complete
             self._initialization_status['async_init_complete'] = True
 
-            # Hide the click-blocking startup overlay now that Phase 2 is done.
-            self._dismiss_startup_overlay()
+            # Phase 2 cleanup
 
             # Now that agents are launched and have allocated A2A ports,
             # publish them via the zeroconf discovery service so other eCan
@@ -1096,10 +1108,8 @@ class MainWindow:
             logger.error(f"[MainWindow] Background initialization error traceback:\n{traceback.format_exc()}")
             # Even if background init fails, mark as complete to prevent hanging
             self._initialization_status['async_init_complete'] = True
-            # Always dismiss the overlay on failure too, so the user isn't
-            # locked out of a half-broken app.
             self._dismiss_startup_overlay()
-            logger.info("[MainWindow] Cloud LLM Marked async_init_complete=True after background initialization failure")
+            logger.info("[MainWindow] ✅ async_init_complete=True (after failure)")
 
     def _test_push_demo_ad(self):
         """TEST: Push a demo ad to frontend after initialization. Comment out after testing."""
@@ -1255,12 +1265,12 @@ class MainWindow:
             logger.error(f"[MainWindow]  No running event loop for final background services: {e}")
             logger.info("[MainWindow] Skipping background services - system will work with basic functionality")
 
-        # Dismiss startup overlay IMMEDIATELY to unblock UI
-        # Agents will initialize in background while user can already interact with UI
+        # Phase 1 complete - user can interact with UI
+        # Agents will initialize in background
         self._dismiss_startup_overlay()
-        logger.info("[MainWindow] Startup overlay dismissed - UI is now responsive!")
+        logger.info("[MainWindow] ✅ Phase 1 complete - UI is now responsive!")
 
-        # Do lightweight operations after overlay dismissed
+        # Do lightweight operations after Phase 1
         try:
             # Notify update home agents page
             from app_context import AppContext
@@ -1277,7 +1287,7 @@ class MainWindow:
 
             logger.info("[MainWindow] System is now fully ready with all data loaded!")
         except Exception as e:
-            logger.error(f"[MainWindow] Error after dismissing overlay: {e}")
+            logger.error(f"[MainWindow] Error after Phase 1: {e}")
 
 
         logger.info("[MainWindow] Cloud LLM Async initialization finalized")

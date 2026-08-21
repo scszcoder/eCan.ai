@@ -605,8 +605,12 @@ class WebGUI(QMainWindow):
             except Exception as e:
                 logger.warning(f"Failed to set Windows window style: {e}")
         else:
-            # Non-Windows platform, keep default style
-            logger.info(f"Current platform {sys.platform} does not support custom window styles; using system default")
+            # Non-Windows platform (macOS, Linux)
+            self.setStyleSheet("""
+                QMainWindow {
+                    background-color: #0f172a;
+                }
+            """)
 
     def _apply_messagebox_style(self, msg_box):
         """Apply dark gray theme to QMessageBox with logo background support"""

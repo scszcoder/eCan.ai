@@ -64,33 +64,49 @@ class OrgDataSyncService {
 
     /**
      * Process org-agents-update Event
+     *
+     * WebSocket push from backend is itself the "system ready" signal —
+     * the backend only emits update_org_agents after `_notify_initialization_complete`
+     * runs (gui/MainGUI.py:1297). Trusting it removes the 10s waitForSystemReady
+     * blocking that delayed login by ~40s in the Aug-20 trace.
      */
     private async handleOrgAgentsUpdate(data: any): Promise<void> {
         logger.info('[OrgDataSyncService] 📥 Received org-agents-update event', data);
-        
+
         this.retryCount = 0;
-        await this.fetchWithRetry();
+        // No waitForSystemReady here — the WebSocket push implies the backend
+        // IPC handlers and MainWindow are ready (see MainGUI._notify_initialization_complete).
+        await this.fetchAllOrgAgents();
     }
 
     /**
-     * Wait for system to be fully ready before fetching data
+     * Wait for system to be fully ready before fetching data.
+     *
+     * Two callers, two timeout regimes:
+     * - Proactive path (component mount): default 3s, fixed-interval poll.
+     * - SYSTEM_NOT_READY retry path: explicit 60s with exponential backoff
+     *   so we retry the moment `fully_ready` flips, not on a fixed clock.
      */
-    private async waitForSystemReady(timeoutMs: number = 30000): Promise<boolean> {
+    private async waitForSystemReady(
+        timeoutMs: number = 3000,
+        useBackoff: boolean = false
+    ): Promise<boolean> {
         const startTime = Date.now();
-        const checkInterval = 500;
-        
+        let currentInterval = 500;
+        const minInterval = 500;
+        const maxInterval = 4000;
+
         while (Date.now() - startTime < timeoutMs) {
             try {
                 const api = get_ipc_api();
                 if (!api) {
-                    await new Promise(resolve => setTimeout(resolve, checkInterval));
+                    await new Promise(resolve => setTimeout(resolve, currentInterval));
                     continue;
                 }
 
                 const response = await api.getInitializationProgress();
                 if (response?.success && response.data) {
                     const progress = response.data;
-                    // Check if critical services are ready (sync_init_complete means IPC handlers are ready)
                     if (progress.sync_init_complete || progress.fully_ready) {
                         logger.info('[OrgDataSyncService] ✅ System is ready for data sync', progress);
                         return true;
@@ -100,25 +116,32 @@ class OrgDataSyncService {
             } catch (error) {
                 logger.debug('[OrgDataSyncService] Error checking system readiness:', error);
             }
-            
-            await new Promise(resolve => setTimeout(resolve, checkInterval));
+
+            if (useBackoff) {
+                currentInterval = Math.min(currentInterval * 2, maxInterval);
+            }
+            await new Promise(resolve => setTimeout(resolve, Math.min(currentInterval, maxInterval)));
+            // Reset for next iteration's first step
+            if (useBackoff && currentInterval > maxInterval) {
+                currentInterval = minInterval;
+            }
         }
-        
+
         logger.warn('[OrgDataSyncService] ⚠️ System ready timeout, proceeding anyway');
         return false;
     }
 
     /**
-     * Fetch org data with retry logic for backend initialization delays
+     * Fetch org data with retry logic for backend initialization delays.
+     * Used by WebSocket-driven path (no waitForSystemReady).
      */
-    private async fetchWithRetry(): Promise<void> {
-        // Prevent concurrent sync attempts
+    private async fetchAllOrgAgents(): Promise<void> {
         if (this.isSyncing) {
             logger.debug('[OrgDataSyncService] ⏳ Sync already in progress, skipping');
             return;
         }
         this.isSyncing = true;
-        
+
         try {
             const username = useUserStore.getState().username;
             if (!username) {
@@ -133,24 +156,19 @@ class OrgDataSyncService {
                 companyName = '';
             }
 
-            // Wait for system to be ready before attempting to fetch data
-            await this.waitForSystemReady(10000);
-
             while (this.retryCount < this.maxRetries) {
                 try {
                     logger.info(`[OrgDataSyncService] 🔄 Fetching org data (attempt ${this.retryCount + 1}/${this.maxRetries})...`);
 
                     const response = await get_ipc_api().getAllOrgAgents(username, companyName);
-                    
+
                     if (response?.success && response.data) {
-                        // Update orgStore
                         const orgStore = useOrgStore.getState();
                         orgStore.setAllOrgAgents(response.data);
                         logger.info('[OrgDataSyncService] ✅ orgStore updated');
 
-                        // Extract all agents and update agentStore
                         const allAgents = this.extractAllAgents(response.data.orgs);
-                        
+
                         if (allAgents.length > 0) {
                             const mappedAgents = this.mapAgentsForStore(allAgents);
                             const agentStore = useAgentStore.getState();
@@ -161,16 +179,32 @@ class OrgDataSyncService {
                         }
 
                         logger.info('[OrgDataSyncService] 🎉 Data sync completed successfully');
-                        return;  // Success - exit retry loop
+                        return;
                     }
 
-                    // Handle SYSTEM_NOT_READY specially - it's expected during startup
                     const errorCode = (response as any)?.error?.code;
                     if (errorCode === 'SYSTEM_NOT_READY') {
-                        logger.warn(`[OrgDataSyncService] ⚠️ System not ready (attempt ${this.retryCount + 1}), waiting...`);
-                        // Longer wait for SYSTEM_NOT_READY since it means backend is still initializing
-                        await new Promise(resolve => setTimeout(resolve, this.retryDelayMs * 2));
+                        logger.warn(`[OrgDataSyncService] ⚠️ System not ready (attempt ${this.retryCount + 1}/${this.maxRetries}), waiting for fully_ready...`);
                         this.retryCount++;
+                        // Give up early if we've burned through the retry budget.
+                        if (this.retryCount >= this.maxRetries) {
+                            logger.error(
+                                `[OrgDataSyncService] ❌ Backend never became ready after ${this.maxRetries} attempts`
+                            );
+                            break;
+                        }
+                        // Poll get_initialization_progress for fully_ready instead of
+                        // a blind sleep. Backend is currently still building
+                        // MainWindow (DB / agent build / lightrag) — sleep-then-
+                        // retry just adds latency on top. Watching fully_ready lets
+                        // us retry the moment the system flips to ready.
+                        const ready = await this.waitForSystemReady(60000, true);
+                        if (ready) {
+                            // Loop back to the top — don't increment retryCount again
+                            // so we don't double-charge against the budget.
+                            this.retryCount--;
+                            continue;
+                        }
                         continue;
                     }
 
