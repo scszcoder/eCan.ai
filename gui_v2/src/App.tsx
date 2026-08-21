@@ -28,6 +28,7 @@ import { webAuthSession } from './services/auth/webAuthSession';
 import { tokenRefreshService } from './services/auth/tokenRefreshService';
 import { startWebSubscriptions } from './services/web/appSyncSubscriptions';
 import { GlobalAgentChat } from './components/GlobalAgentChat';
+import LoadingProgress from './components/LoadingProgress/LoadingProgress';
 import './utils/videoSupport'; // Initialize video support check on page load
 
 const getEnv = () => (typeof import.meta !== 'undefined' && (import.meta as any).env ? (import.meta as any).env : {});
