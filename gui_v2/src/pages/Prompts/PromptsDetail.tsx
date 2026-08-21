@@ -1227,26 +1227,58 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
         ...(s.customLabel ? { customLabel: String(s.customLabel) } : {}),
       })), []);
 
+  const readImportFileText = useCallback(async (file: File): Promise<string> => {
+    // file.text() first; FileReader fallback for embedded engines where the
+    // Blob promise API misbehaves after the native dialog closes.
+    try {
+      if (typeof (file as any).text === 'function') {
+        return await file.text();
+      }
+    } catch (err) {
+      console.warn('[prompts-import] file.text() failed, falling back to FileReader', err);
+    }
+    return await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result ?? ''));
+      fr.onerror = () => reject(fr.error);
+      fr.readAsText(file);
+    });
+  }, []);
+
   const handleImportFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    // Reset so picking the same file again re-fires onChange
-    e.target.value = '';
-    if (!file || !draft) return;
+    const inputEl = e.target;
+    const file = inputEl.files?.[0];
+    if (!file) {
+      console.warn('[prompts-import] change event fired with no file');
+      inputEl.value = '';
+      return;
+    }
+    if (!draft) {
+      console.warn('[prompts-import] no draft (no prompt selected)');
+      inputEl.value = '';
+      return;
+    }
 
     const name = (file.name || '').toLowerCase();
     const isMd = name.endsWith('.md') || name.endsWith('.markdown');
     const isJson = name.endsWith('.json');
     if (!isMd && !isJson) {
+      inputEl.value = '';
       message.warning(t('pages.prompts.importUnsupported', { defaultValue: 'Unsupported file type — pick a .md or .json file' }));
       return;
     }
 
     let text: string;
     try {
-      text = await file.text();
-    } catch {
+      text = await readImportFileText(file);
+    } catch (err) {
+      console.error('[prompts-import] read failed', err);
       message.error(t('pages.prompts.importReadFailed', { defaultValue: 'Could not read the file' }));
       return;
+    } finally {
+      // Reset AFTER the read: some engines invalidate the File once the
+      // input's value is cleared. Also lets the same file re-fire onChange.
+      inputEl.value = '';
     }
     // Strip a UTF-8 BOM if present (json.parse and the backend loader reject it)
     if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
@@ -1289,8 +1321,9 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
     setEditing(true);
     hasPendingChangesRef.current = true;
     scheduleAutosave();
+    console.info(`[prompts-import] imported ${file.name} (${text.length} chars, ${isMd ? 'md' : 'json'} mode)`);
     message.success(t('pages.prompts.importSuccess', { defaultValue: 'Imported {{name}}', name: file.name }));
-  }, [draft, pushUndoStack, clonePrompt, normalizeImportedSections, scheduleAutosave, t]);
+  }, [draft, pushUndoStack, clonePrompt, normalizeImportedSections, readImportFileText, scheduleAutosave, t]);
 
   return (
     <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0f172a' }}>
