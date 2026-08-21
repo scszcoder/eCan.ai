@@ -176,6 +176,12 @@
   "pages": {
     "prompts": {
       "details": "详情",
+      "importFromFile": "从文件导入（.md / .json）",
+      "importUnsupported": "不支持的文件类型 — 请选择 .md 或 .json 文件",
+      "importInvalidJson": "文件不是有效的 JSON",
+      "importNotPrompt": "JSON 中没有提示词内容（需要 sections / userSections / mdContent）",
+      "importReadFailed": "无法读取文件",
+      "importSuccess": "已导入 {{name}}",
       "newPrompt": "新提示词",
       "searchPlaceholder": "搜索提示词",
       "uses": "次使用",

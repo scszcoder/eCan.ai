@@ -176,6 +176,12 @@
   "pages": {
     "prompts": {
       "details": "Details",
+      "importFromFile": "Import from file (.md / .json)",
+      "importUnsupported": "Unsupported file type — pick a .md or .json file",
+      "importInvalidJson": "File is not valid JSON",
+      "importNotPrompt": "JSON has no prompt content (expected sections / userSections / mdContent)",
+      "importReadFailed": "Could not read the file",
+      "importSuccess": "Imported {{name}}",
       "newPrompt": "New Prompt",
       "searchPlaceholder": "Search prompts",
       "uses": "uses",

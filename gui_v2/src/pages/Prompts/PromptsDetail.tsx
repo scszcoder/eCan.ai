@@ -17,6 +17,7 @@ import {
   SearchOutlined,
   CloseOutlined,
   CodeSandboxOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons';
 import type { Prompt, PromptSection, PromptSectionType, PromptFormat } from './types';
 import { useTranslation } from 'react-i18next';
@@ -1209,6 +1210,88 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
     try { await navigator.clipboard.writeText(textToCopy); message.success(t('pages.prompts.copied', { defaultValue: 'Copied' })); } catch {}
   };
 
+  // ── Import prompt contents from a local .md / .json file ──────────────
+  // The hidden <input type="file"> opens the native file dialog; the picked
+  // file is read once (and thereby "closed"), its contents replace the
+  // draft's content fields, the editor format auto-switches to match the
+  // file type, and the editor enters edit mode.
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const normalizeImportedSections = useCallback((arr: any[]): PromptSection[] =>
+    arr
+      .filter((s) => s && typeof s === 'object')
+      .map((s, i) => ({
+        id: typeof s.id === 'string' && s.id ? s.id : `imported_${Date.now()}_${i}`,
+        type: SECTION_TYPE_KEYS.includes(s.type) ? s.type : 'custom',
+        items: Array.isArray(s.items) ? s.items.map(String) : [],
+        ...(s.customLabel ? { customLabel: String(s.customLabel) } : {}),
+      })), []);
+
+  const handleImportFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset so picking the same file again re-fires onChange
+    e.target.value = '';
+    if (!file || !draft) return;
+
+    const name = (file.name || '').toLowerCase();
+    const isMd = name.endsWith('.md') || name.endsWith('.markdown');
+    const isJson = name.endsWith('.json');
+    if (!isMd && !isJson) {
+      message.warning(t('pages.prompts.importUnsupported', { defaultValue: 'Unsupported file type — pick a .md or .json file' }));
+      return;
+    }
+
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      message.error(t('pages.prompts.importReadFailed', { defaultValue: 'Could not read the file' }));
+      return;
+    }
+    // Strip a UTF-8 BOM if present (json.parse and the backend loader reject it)
+    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+
+    if (isJson) {
+      let parsed: any;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        message.error(t('pages.prompts.importInvalidJson', { defaultValue: 'File is not valid JSON' }));
+        return;
+      }
+      const hasContent = parsed && typeof parsed === 'object' && (
+        Array.isArray(parsed.sections) || Array.isArray(parsed.userSections) ||
+        typeof parsed.mdContent === 'string'
+      );
+      if (!hasContent) {
+        message.error(t('pages.prompts.importNotPrompt', { defaultValue: 'JSON has no prompt content (expected sections / userSections / mdContent)' }));
+        return;
+      }
+      pushUndoStack(clonePrompt(draft));
+      // Content fields only — the prompt's identity (id/title/owner/source)
+      // stays with the currently selected prompt. mdContent is replaced (or
+      // cleared) because the runtime prefers it over sections.
+      setDraft((prev) => prev ? {
+        ...prev,
+        format: 'json',
+        sections: Array.isArray(parsed.sections) ? normalizeImportedSections(parsed.sections) : prev.sections,
+        userSections: Array.isArray(parsed.userSections) ? normalizeImportedSections(parsed.userSections) : prev.userSections,
+        humanInputs: Array.isArray(parsed.humanInputs) ? parsed.humanInputs.map(String) : prev.humanInputs,
+        mdContent: typeof parsed.mdContent === 'string' ? parsed.mdContent : '',
+      } : prev);
+      setEditFormat('json');
+    } else {
+      pushUndoStack(clonePrompt(draft));
+      setDraft((prev) => prev ? { ...prev, format: 'md', mdContent: text } : prev);
+      setEditFormat('md');
+    }
+
+    setEditing(true);
+    hasPendingChangesRef.current = true;
+    scheduleAutosave();
+    message.success(t('pages.prompts.importSuccess', { defaultValue: 'Imported {{name}}', name: file.name }));
+  }, [draft, pushUndoStack, clonePrompt, normalizeImportedSections, scheduleAutosave, t]);
+
   return (
     <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0f172a' }}>
       {!hasDraft ? (
@@ -1287,6 +1370,22 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                 {t('common.cancel')}
               </Button>
             )}
+            <Tooltip title={t('pages.prompts.importFromFile', { defaultValue: 'Import from file (.md / .json)' })}>
+              <Button
+                size="small"
+                icon={<FolderOpenOutlined />}
+                onClick={() => importFileInputRef.current?.click()}
+                disabled={!!active.readOnly}
+                className={styles.smallButton}
+              />
+            </Tooltip>
+            <input
+              ref={importFileInputRef}
+              type="file"
+              accept=".md,.markdown,.json"
+              style={{ display: 'none' }}
+              onChange={handleImportFileChange}
+            />
             <Button
               type={editing ? 'primary' : 'default'}
               size="small"
