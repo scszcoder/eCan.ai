@@ -3,7 +3,6 @@ import {
     Space,
     Tag,
     Tooltip,
-    Avatar,
     Button,
     Empty,
     Spin,
@@ -37,8 +36,6 @@ import {
     getSkillPalette,
     formatNumber,
     isPaidSkill,
-    getInitials,
-    colorFromString,
     safeTags,
 } from './skillPalette';
 
@@ -108,11 +105,24 @@ const IconBadge = styled.div<{ $bg: [string, string] }>`
     }
 `;
 
-const HeaderBadges = styled.div`
+const HeaderRight = styled.div`
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 6px;
     align-items: flex-end;
+`;
+
+const HeaderBadges = styled.div`
+    display: flex;
+    flex-direction: row;
+    gap: 5px;
+    align-items: center;
+`;
+
+const HeaderActions = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 6px;
 `;
 
 const HeaderBadge = styled.div<{ $bg: string }>`
@@ -228,31 +238,6 @@ const Stat = styled.div`
         color: var(--text-secondary);
         font-weight: 500;
     }
-`;
-
-const Footer = styled.div`
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-    gap: 10px;
-`;
-
-const AuthorRow = styled.div`
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-`;
-
-const AuthorName = styled.span`
-    font-size: 11px;
-    color: var(--text-secondary);
-    max-width: 100px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 `;
 
 const PrimaryAction = styled.button<{ $variant?: 'subscribe' | 'owned' | 'favorited' }>`
@@ -553,20 +538,93 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
 
                 <CardHeader $bg={palette.bg}>
                     <IconBadge>{palette.icon}</IconBadge>
-                    <HeaderBadges>
-                        <HeaderBadge $bg="rgba(0,0,0,0.35)">
-                            <UserOutlined /> {String((skill as any).owner || '').split('@')[0] || 'unknown'}
-                        </HeaderBadge>
-                        <HeaderBadge $bg="rgba(0,0,0,0.35)">
-                            {isCode ? (
-                                <><LockOutlined /> {t('pages.skills.code', 'Code')}</>
-                            ) : (skill as any)?.public ? (
-                                <><CheckCircleOutlined /> {t('pages.skills.public', 'Public')}</>
-                            ) : (
-                                <><CloseOutlined /> {t('pages.skills.private', 'Private')}</>
+                    <HeaderRight>
+                        <HeaderBadges>
+                            <HeaderBadge $bg="rgba(0,0,0,0.35)" title={String((skill as any).owner || '')}>
+                                <UserOutlined /> {String((skill as any).owner || '').split('@')[0] || 'unknown'}
+                            </HeaderBadge>
+                            <HeaderBadge $bg="rgba(0,0,0,0.35)">
+                                {isCode ? (
+                                    <><LockOutlined /> {t('pages.skills.code', 'Code')}</>
+                                ) : (skill as any)?.public ? (
+                                    <><CheckCircleOutlined /> {t('pages.skills.public', 'Public')}</>
+                                ) : (
+                                    <><CloseOutlined /> {t('pages.skills.private', 'Private')}</>
+                                )}
+                            </HeaderBadge>
+                        </HeaderBadges>
+                        <HeaderActions>
+                            {onFavoriteToggle && !owned && (
+                                <FavoriteButton
+                                    $active={favorited}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onFavoriteToggle(skill);
+                                    }}
+                                    title={favorited ? t('pages.skills.unfavorite', 'Unfavorite') : t('pages.skills.favorite', 'Favorite')}
+                                >
+                                    {favorited ? <HeartFilled /> : <HeartOutlined />}
+                                </FavoriteButton>
                             )}
-                        </HeaderBadge>
-                    </HeaderBadges>
+                            {owned ? (
+                                <PrimaryAction
+                                    $variant="owned"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onEditInGrid(skill);
+                                    }}
+                                >
+                                    <EditOutlined /> {t('pages.skills.edit', 'Edit')}
+                                </PrimaryAction>
+                            ) : subscribed ? (
+                                <Dropdown
+                                    menu={{
+                                        items: [
+                                            {
+                                                key: 'unsubscribe',
+                                                icon: <CloseOutlined />,
+                                                label: t('pages.skills.unsubscribe', 'Unsubscribe'),
+                                                danger: true,
+                                                onClick: () => onUnsubscribe(skillIdStr),
+                                            },
+                                            ...moreMenuItems,
+                                        ],
+                                    }}
+                                    trigger={['click']}
+                                    placement="bottomRight"
+                                >
+                                    <PrimaryAction
+                                        $variant="owned"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <CheckCircleOutlined /> {t('pages.skills.subscribed', 'Subscribed')}
+                                    </PrimaryAction>
+                                </Dropdown>
+                            ) : (
+                                <PrimaryAction
+                                    $variant="subscribe"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onSubscribe(skillIdStr);
+                                    }}
+                                    title={t('pages.skills.subscribeGet', 'Get')}
+                                >
+                                    <DownloadOutlined /> {t('pages.skills.getAction', 'Get')}
+                                </PrimaryAction>
+                            )}
+                            {moreMenuItems.length > 0 && (
+                                <Dropdown menu={{ items: moreMenuItems }} trigger={['click']} placement="bottomRight">
+                                    <FavoriteButton
+                                        onClick={(e) => e.stopPropagation()}
+                                        title={t('pages.skills.moreActions', 'More actions')}
+                                        style={{ width: 28, height: 28 }}
+                                    >
+                                        <MoreOutlined />
+                                    </FavoriteButton>
+                                </Dropdown>
+                            )}
+                        </HeaderActions>
+                    </HeaderRight>
                 </CardHeader>
 
                 <Body>
@@ -631,90 +689,6 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
                     </StatsRow>
                 </Body>
 
-                <Footer>
-                    <AuthorRow>
-                        <Avatar size={20} style={{ background: colorFromString((skill as any).owner), fontSize: 10, fontWeight: 700 }}>
-                            {getInitials((skill as any).owner)}
-                        </Avatar>
-                        <AuthorName title={String((skill as any).owner || '')}>
-                            {String((skill as any).owner || '').split('@')[0]}
-                        </AuthorName>
-                    </AuthorRow>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {onFavoriteToggle && !owned && (
-                            <FavoriteButton
-                                $active={favorited}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onFavoriteToggle(skill);
-                                }}
-                                title={favorited ? t('pages.skills.unfavorite', 'Unfavorite') : t('pages.skills.favorite', 'Favorite')}
-                            >
-                                {favorited ? <HeartFilled /> : <HeartOutlined />}
-                            </FavoriteButton>
-                        )}
-
-                        {owned ? (
-                            <PrimaryAction
-                                $variant="owned"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onEditInGrid(skill);
-                                }}
-                            >
-                                <EditOutlined /> {t('pages.skills.edit', 'Edit')}
-                            </PrimaryAction>
-                        ) : subscribed ? (
-                            <Dropdown
-                                menu={{
-                                    items: [
-                                        {
-                                            key: 'unsubscribe',
-                                            icon: <CloseOutlined />,
-                                            label: t('pages.skills.unsubscribe', 'Unsubscribe'),
-                                            danger: true,
-                                            onClick: () => onUnsubscribe(skillIdStr),
-                                        },
-                                        ...moreMenuItems,
-                                    ],
-                                }}
-                                trigger={['click']}
-                                placement="topRight"
-                            >
-                                <PrimaryAction
-                                    $variant="owned"
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    <CheckCircleOutlined /> {t('pages.skills.subscribed', 'Subscribed')}
-                                </PrimaryAction>
-                            </Dropdown>
-                        ) : (
-                            <PrimaryAction
-                                $variant="subscribe"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onSubscribe(skillIdStr);
-                                }}
-                                title={t('pages.skills.subscribeGet', 'Get')}
-                            >
-                                <DownloadOutlined /> {t('pages.skills.getAction', 'Get')}
-                            </PrimaryAction>
-                        )}
-
-                        {moreMenuItems.length > 0 && (
-                            <Dropdown menu={{ items: moreMenuItems }} trigger={['click']} placement="topRight">
-                                <FavoriteButton
-                                    onClick={(e) => e.stopPropagation()}
-                                    title={t('pages.skills.moreActions', 'More actions')}
-                                    style={{ width: 28, height: 28 }}
-                                >
-                                    <MoreOutlined />
-                                </FavoriteButton>
-                            </Dropdown>
-                        )}
-                    </div>
-                </Footer>
             </Card>
         );
     };
