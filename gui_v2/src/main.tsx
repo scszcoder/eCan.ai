@@ -50,20 +50,6 @@ const setInitialTheme = () => {
 // 立即Settings主题
 setInitialTheme();
 
-// AsyncRender应用，避免阻塞
-const renderApp = () => {
-    const root = ReactDOM.createRoot(document.getElementById('root')!);
-
-    // 清除初始Load界面并Render应用
-    const rootElement = document.getElementById('root')!;
-    rootElement.innerHTML = ''; // 清除初始LoadContent
-
-    root.render(<App />);
-};
-
-// 使用 requestIdleCallback 或 setTimeout 来DelayRender，让Browser有TimeProcess其他任务
-if ('requestIdleCallback' in window) {
-    requestIdleCallback(renderApp);
-} else {
-    setTimeout(renderApp, 0);
-}
+// 立即渲染应用
+const root = ReactDOM.createRoot(document.getElementById('root')!);
+root.render(<App />);
