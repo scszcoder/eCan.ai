@@ -2677,17 +2677,33 @@ class AuthManager:
             logger.warning(f"[_register_wechat_session] failed: {e}")
             return False, str(e)
 
+    # Whether the deployed refreshWeChatToken payload exposes a rotated
+    # sessionToken. None = unknown (try optimistically); flipped to False on a
+    # schema-validation error so we retry with the legacy selection.
+    _refresh_returns_rotated_session: Optional[bool] = None
+
     def _refresh_wechat_token(self, session_token: str) -> tuple[bool, Any]:
-        """Call GraphQL refreshWeChatToken to get a fresh access_token."""
-        mutation = """
-            mutation RefreshWeChatToken($input: RefreshWeChatTokenInput!) {
-                refreshWeChatToken(input: $input) {
-                    accessToken
-                    expiresIn
-                }
-            }
+        """Call GraphQL refreshWeChatToken to get a fresh access_token.
+
+        Refresh endpoints in this stack ROTATE the durable session credential
+        (the web auth_refresh.php atomically replaces the opaque token), so if
+        the server returns a rotated ``sessionToken`` we MUST persist it —
+        keeping the old one strands us with a revoked credential and the next
+        refresh fails with SESSION_EXPIRED. Falls back to the legacy
+        ``accessToken expiresIn`` selection when the deployed schema has no
+        sessionToken field on the payload.
         """
-        try:
+        def _post(select_rotation: bool):
+            fields = "accessToken\n                    expiresIn"
+            if select_rotation:
+                fields += "\n                    sessionToken"
+            mutation = f"""
+                mutation RefreshWeChatToken($input: RefreshWeChatTokenInput!) {{
+                    refreshWeChatToken(input: $input) {{
+                        {fields}
+                    }}
+                }}
+            """
             import requests as _req
             from agent.cloud_api.cloud_api import get_appsync_endpoint
             endpoint = get_appsync_endpoint()
@@ -2702,11 +2718,46 @@ class AuthManager:
             resp = _req.post(endpoint, json={'query': mutation, 'variables': {
                 'input': {'sessionToken': session_token}
             }}, headers=headers, timeout=30)
-            body = resp.json() if resp.text else {}
+            return resp.json() if resp.text else {}
+
+        try:
+            cls = type(self)
+            select_rotation = cls._refresh_returns_rotated_session is not False
+            body = _post(select_rotation)
+            errors = body.get('errors', [])
+
+            # Schema without the rotated-token field: remember and retry once
+            # with the legacy selection.
+            if select_rotation and errors and any(
+                isinstance(e, dict) and 'sessionToken' in str(e.get('message', ''))
+                and 'Cannot query field' in str(e.get('message', ''))
+                for e in errors
+            ):
+                logger.info(
+                    "[_refresh_wechat_token] payload has no sessionToken field; "
+                    "using legacy selection from now on"
+                )
+                cls._refresh_returns_rotated_session = False
+                body = _post(False)
+                errors = body.get('errors', [])
+
             data = (body.get('data') or {}).get('refreshWeChatToken')
             if data:
+                new_st = data.get('sessionToken')
+                if isinstance(new_st, str) and new_st:
+                    cls._refresh_returns_rotated_session = True
+                    if new_st != session_token:
+                        if self._save_wechat_session_token(new_st):
+                            logger.info(
+                                "[_refresh_wechat_token] rotated session token "
+                                "persisted (server replaced the old one)"
+                            )
+                        else:
+                            logger.warning(
+                                "[_refresh_wechat_token] rotated session token "
+                                "could not be persisted — next refresh may fail"
+                            )
                 return True, data
-            errors = body.get('errors', [])
             # Decode error code
             code = None
             msg = str(errors)

@@ -187,6 +187,7 @@ mutation RequestDebugDone($zipKey: String!, $owner: String!) {
 def _get_cloud_context() -> Optional[Dict[str, Any]]:
     try:
         from app_context import AppContext
+        from agent.cloud_api.cloud_api import normalize_cloud_owner
         mainwin = AppContext.get_main_window()
         if mainwin is None:
             return None
@@ -197,7 +198,7 @@ def _get_cloud_context() -> Optional[Dict[str, Any]]:
             "session": mainwin.session,
             "token": token,
             "endpoint": mainwin.getWanApiEndpoint() if hasattr(mainwin, "getWanApiEndpoint") else None,
-            "owner": getattr(mainwin, "user", "") or "",
+            "owner": normalize_cloud_owner(getattr(mainwin, "user", "") or ""),
         }
     except Exception as exc:
         logger.warning(f"[debug_log] Failed to get cloud context: {exc}")
@@ -205,11 +206,12 @@ def _get_cloud_context() -> Optional[Dict[str, Any]]:
 
 
 def _appsync_request(query: str, ctx: Dict[str, Any], variables: Optional[Dict] = None) -> Dict:
-    from agent.cloud_api.cloud_api import get_appsync_endpoint
+    from agent.cloud_api.cloud_api import get_appsync_endpoint, _http_auth_header
     endpoint = ctx.get("endpoint") or get_appsync_endpoint()
     headers = {
         "Content-Type": "application/json",
-        "Authorization": ctx["token"],
+        # CN needs the session-token bearer; Intl passes the token through.
+        "Authorization": _http_auth_header(ctx["token"]),
         "cache-control": "no-cache",
     }
     payload: Dict[str, Any] = {"query": query}

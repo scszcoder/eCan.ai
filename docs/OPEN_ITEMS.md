@@ -23,6 +23,18 @@ _Last updated: 2026-08-19_
   HTTP) that sent the raw combined token instead of `_http_auth_header()` —
   their CN cloud calls failed auth even with a live session. Server fix still
   needed so WS tokens can be re-minted past the first JWT TTL.
+  **VERDICT 2026-08-20 23:00 (live run): code = `WX_TOKEN_EXPIRED`; rotation
+  RULED OUT.** The refresh payload has no `sessionToken` field (client fell
+  back to legacy selection), and the login-time session token still
+  authenticated HTTP 29 min after mint — so nothing rotates; the server just
+  cannot re-mint WS JWTs once the underlying wx credential expires.
+  Client resilience CONFIRMED working: app stayed signed in ~18 min past the
+  historical death point, prompt sync completed (8 prompts verified in the
+  cloud table), HTTP live-probed OK. Remaining impact: WS-only (wan_chat /
+  subscriptions have no fresh JWT). Server fix: `refreshWeChatToken` must
+  mint the access JWT from the durable `wechat_sessions` row instead of the
+  login-time wx credential. Optional client cleanup: throttle the 30s
+  "WS-token refresh unavailable" retry warnings.
 - **Server kills the WeChat 30-day session token within ~10 min (TCB)** —
   root cause of "no WeChat session token available": `refreshWeChatToken`
   returns SESSION_EXPIRED/WX_TOKEN_EXPIRED ~5–10 min after
