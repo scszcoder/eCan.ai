@@ -66,7 +66,7 @@ export const FloatingToggleButton: React.FC<FloatingToggleButtonProps> = ({
   onClick,
   leftOffset,
 }) => {
-  const { t } = useTranslation('skillEditor');
+  const { t } = useTranslation();
 
   return (
     <FloatingButtonWrapper $leftOffset={leftOffset}>
