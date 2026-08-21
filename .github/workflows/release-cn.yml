@@ -995,7 +995,7 @@ jobs:
           $gitCmd = $null
           $dir = Split-Path -Parent $gitExe
           for ($i = 0; $i -lt 4 -and $dir; $i++) {
-            $candidate = Join-Path $dir 'bin\git.exe'
+            $candidate = Join-Path $dir 'mingw64\bin\git.exe'
             if (Test-Path -LiteralPath $candidate) { $gitExe = $candidate; break }
             $dir = Split-Path -Parent $dir
           }
@@ -1934,7 +1934,7 @@ jobs:
           $gitCmd = $null
           $dir = Split-Path -Parent $gitExe
           for ($i = 0; $i -lt 4 -and $dir; $i++) {
-            $candidate = Join-Path $dir 'bin\git.exe'
+            $candidate = Join-Path $dir 'mingw64\bin\git.exe'
             if (Test-Path -LiteralPath $candidate) { $gitExe = $candidate; break }
             $dir = Split-Path -Parent $dir
           }
@@ -2666,7 +2666,7 @@ jobs:
           $gitCmd = $null
           $dir = Split-Path -Parent $gitExe
           for ($i = 0; $i -lt 4 -and $dir; $i++) {
-            $candidate = Join-Path $dir 'bin\git.exe'
+            $candidate = Join-Path $dir 'mingw64\bin\git.exe'
             if (Test-Path -LiteralPath $candidate) { $gitExe = $candidate; break }
             $dir = Split-Path -Parent $dir
           }
@@ -3388,7 +3388,7 @@ jobs:
           $gitCmd = $null
           $dir = Split-Path -Parent $gitExe
           for ($i = 0; $i -lt 4 -and $dir; $i++) {
-            $candidate = Join-Path $dir 'bin\git.exe'
+            $candidate = Join-Path $dir 'mingw64\bin\git.exe'
             if (Test-Path -LiteralPath $candidate) { $gitExe = $candidate; break }
             $dir = Split-Path -Parent $dir
           }
