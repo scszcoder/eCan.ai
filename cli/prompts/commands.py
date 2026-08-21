@@ -32,16 +32,44 @@ from ..base.decorators import requires_auth
 # my_prompts store helpers (mirror gui/ipc/w2p_handlers/prompt_handler.py)
 # ---------------------------------------------------------------------------
 
-# File schema keys we persist (matches what the app writes / reads).
+# File schema keys we persist (matches the app's _serialize_prompt_for_storage
+# in gui/ipc/w2p_handlers/prompt_handler.py — keep the two in sync, or an
+# --overwrite here silently drops fields the app wrote, e.g. agentChatHistory).
 _STORE_KEYS = (
     "id", "title", "topic", "usageCount", "humanInputs",
     "sections", "userSections", "format", "mdContent", "lastModified",
+    "rawContent", "agentChatHistory",
 )
 
 
 def _my_prompts_dir() -> Path:
-    """The user-specific my_prompts directory the app loads from."""
+    """The user-specific my_prompts directory the app loads from.
+
+    Must resolve the SAME per-user dir as the running app (keyed by
+    MainWindow.log_user): email logins map 'a@b.com' → 'a_b_com'; non-email
+    usernames (e.g. CN WeChat 'wechat_<openid>') get the app's synthetic
+    '@local' domain → '<name>_local'. Resolution order:
+      1. ECAN_LOG_USER — the exact dir name, set by app-spawned subprocesses
+      2. the CLI session/ECAN_CLI_USER username, mapped like the app does
+      3. app_context fallback (in-process use) — note: with no user at all
+         this lands in 'default_user/', a store the app never reads.
+    """
     from utils.user_path_helper import get_user_data_dir
+    log_user = os.environ.get("ECAN_LOG_USER")
+    if log_user:
+        return Path(get_user_data_dir(user_email=log_user, subdir="my_prompts"))
+    username = None
+    try:
+        from ..base.context import get_context
+        username = get_context().username
+    except Exception:
+        pass
+    if username:
+        if "@" not in username:
+            # Mirror MainGUI's synthetic domain for non-email logins so the
+            # dir comes out '<name>_local', matching the running app.
+            username = f"{username}@local"
+        return Path(get_user_data_dir(user_email=username, subdir="my_prompts"))
     return Path(get_user_data_dir(subdir="my_prompts"))
 
 
@@ -291,6 +319,11 @@ def remove(name, force):
         out.error(f"Failed to delete prompt: {exc}")
         raise SystemExit(1)
     out.success(f"Prompt '{doc.get('title')}' deleted!")
+    out.info(
+        "Deleted locally only. If this prompt exists in the cloud, the app's "
+        "next sync may restore it — delete it in the app's Prompts page to "
+        "remove it from the cloud as well."
+    )
 
 
 @prompts.command()
