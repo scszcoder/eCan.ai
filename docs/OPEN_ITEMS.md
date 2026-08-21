@@ -15,6 +15,14 @@ _Last updated: 2026-08-19_
   work after the 2026-08-19 llm_proxy fix). Client now falls back to local
   sessions gracefully, but cloud chat history is invisible until the resolver
   is fixed. See docs/CN_SKILL_EDITOR_CHAT_DEBUG_2026_08_19.md.
+- **UPDATE 2026-08-20: client no longer amplifies this into a logout.** Only
+  `SESSION_EXPIRED` now signs the user out; `WX_TOKEN_EXPIRED` / transient
+  refresh failures keep the session alive — HTTP GraphQL continues on the
+  30-day session-token bearer, only WS features degrade. Also fixed 4 handlers
+  (prompt_cloud_sync, prompt_completion, skill_file_sync, chat_handler A2A
+  HTTP) that sent the raw combined token instead of `_http_auth_header()` —
+  their CN cloud calls failed auth even with a live session. Server fix still
+  needed so WS tokens can be re-minted past the first JWT TTL.
 - **Server kills the WeChat 30-day session token within ~10 min (TCB)** —
   root cause of "no WeChat session token available": `refreshWeChatToken`
   returns SESSION_EXPIRED/WX_TOKEN_EXPIRED ~5–10 min after
