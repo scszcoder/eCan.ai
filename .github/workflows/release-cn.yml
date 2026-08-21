@@ -992,7 +992,7 @@ jobs:
           # places git.exe directly in cmd\, so we also check cmd\git.exe in
           # the immediate parent (already covered by the loop), and the
           # install root's cmd\ subdirectory.
-          $gitExe = $null
+          $gitCmd = $null
           $dir = Split-Path -Parent $gitExe
           for ($i = 0; $i -lt 4 -and $dir; $i++) {
             $candidate = Join-Path $dir 'cmd\git.exe'
@@ -1931,7 +1931,7 @@ jobs:
           # places git.exe directly in cmd\, so we also check cmd\git.exe in
           # the immediate parent (already covered by the loop), and the
           # install root's cmd\ subdirectory.
-          $gitExe = $null
+          $gitCmd = $null
           $dir = Split-Path -Parent $gitExe
           for ($i = 0; $i -lt 4 -and $dir; $i++) {
             $candidate = Join-Path $dir 'cmd\git.exe'
@@ -2663,7 +2663,7 @@ jobs:
           # places git.exe directly in cmd\, so we also check cmd\git.exe in
           # the immediate parent (already covered by the loop), and the
           # install root's cmd\ subdirectory.
-          $gitExe = $null
+          $gitCmd = $null
           $dir = Split-Path -Parent $gitExe
           for ($i = 0; $i -lt 4 -and $dir; $i++) {
             $candidate = Join-Path $dir 'cmd\git.exe'
@@ -3385,7 +3385,7 @@ jobs:
           # places git.exe directly in cmd\, so we also check cmd\git.exe in
           # the immediate parent (already covered by the loop), and the
           # install root's cmd\ subdirectory.
-          $gitExe = $null
+          $gitCmd = $null
           $dir = Split-Path -Parent $gitExe
           for ($i = 0; $i -lt 4 -and $dir; $i++) {
             $candidate = Join-Path $dir 'cmd\git.exe'
