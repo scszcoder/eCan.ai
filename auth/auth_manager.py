@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import base64
+import threading
 from os.path import exists
 from typing import Any, Dict, Optional
 
@@ -896,47 +897,74 @@ class AuthManager:
                 login_type
                 or (user_profile.get("login_type") if user_profile else None)
             )
-            try:
-                self._update_saved_login_info(
-                    username=self.current_user,
-                    password=password or "",
-                    role=role,
-                    login_type=effective_login_type,
-                )
-            except Exception as e:
-                logger.warning(f"[AuthManager] complete_login: save login info failed: {e}")
-            if refresh_token:
-                if self._is_cn:
+            # macOS Keychain ``set_password`` can take 1-12s on cold start
+            # (Aug-20 trace measured 11.3s, blocking the whole login HTTP
+            # roundtrip). The persistence below is for the NEXT launch only —
+            # the current session's tokens are already in ``self.tokens``
+            # above. Run it on a daemon thread and return immediately so the
+            # frontend isn't gated on Keychain latency. The thread holds its
+            # own copies (str / bool / AuthManager ref) and never touches
+            # mutable shared state.
+            persist_username = self.current_user
+            persist_role = role
+            persist_password = password or ""
+            persist_refresh_token = refresh_token
+            persist_is_cn = self._is_cn
+            persist_effective_login_type = effective_login_type
+            auth_manager_ref = self
+
+            def _persist_credentials():
+                try:
+                    auth_manager_ref._update_saved_login_info(
+                        username=persist_username,
+                        password=persist_password,
+                        role=persist_role,
+                        login_type=persist_effective_login_type,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"[AuthManager] complete_login: background save login info failed: {e}"
+                    )
+                if persist_refresh_token:
                     try:
-                        keyring.set_password("ecan_cloudbase_refresh",
-                                              self.current_user, refresh_token)
+                        if persist_is_cn:
+                            keyring.set_password(
+                                "ecan_cloudbase_refresh",
+                                persist_username,
+                                persist_refresh_token,
+                            )
+                        else:
+                            auth_manager_ref._store_refresh_token(
+                                persist_username, persist_refresh_token
+                            )
                     except Exception as e:
-                        # See ``wechat_login`` for the rationale: CN
-                        # keyring writes used to silently lose the
-                        # refresh token, forcing the user to re-scan
-                        # the QR on every restart.  Mirror the Intl
-                        # path and fall back to the encrypted file store
-                        # so a future ``try_restore_cloudbase_session``
-                        # can still recover the session.
-                        logger.warning(f"[AuthManager] complete_login: CN keyring save failed: {e}")
-                        try:
-                            self._store_refresh_token_file(
-                                self.current_user, refresh_token,
-                            )
-                            logger.info(
-                                "[AuthManager] complete_login: CN refresh_token "
-                                "persisted via file fallback"
-                            )
-                        except Exception as file_e:
-                            logger.warning(
-                                f"[AuthManager] complete_login: CN refresh_token "
-                                f"file fallback also failed: {file_e}"
-                            )
-                else:
-                    try:
-                        self._store_refresh_token(self.current_user, refresh_token)
-                    except Exception as e:
-                        logger.warning(f"[AuthManager] complete_login: refresh-token save failed: {e}")
+                        logger.warning(
+                            f"[AuthManager] complete_login: background refresh-token save failed: {e}"
+                        )
+                        # CN keyring fallback: encrypted file store. See
+                        # ``wechat_login`` for the rationale — without this
+                        # the user would have to re-scan the QR on every
+                        # restart when macOS Keychain misbehaves.
+                        if persist_is_cn:
+                            try:
+                                auth_manager_ref._store_refresh_token_file(
+                                    persist_username, persist_refresh_token,
+                                )
+                                logger.info(
+                                    "[AuthManager] complete_login: background "
+                                    "CN refresh_token persisted via file fallback"
+                                )
+                            except Exception as file_e:
+                                logger.warning(
+                                    f"[AuthManager] complete_login: background "
+                                    f"CN refresh_token file fallback failed: {file_e}"
+                                )
+
+            threading.Thread(
+                target=_persist_credentials,
+                name="persist-login-credentials",
+                daemon=True,
+            ).start()
 
             # Start the background refresh loop. Same fallback as
             # ``try_restore_session`` — wrap in try so a missing event loop

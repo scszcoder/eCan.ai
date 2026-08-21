@@ -56,6 +56,9 @@ class InitializationProgressManager {
   }
 
   private isFetching = false; // Add fetch guard
+  private currentBackoff = 1000; // Start at 1s, ramp up to 8s max
+  private readonly maxBackoff = 8000; // Cap polling interval at 8s
+  private lastStatusMessage: string | null = null;
 
   private async fetchProgress(): Promise<boolean> {
     // Prevent concurrent fetches
@@ -83,11 +86,21 @@ class InitializationProgressManager {
         // Notify all subscribers
         this.subscribers.forEach(callback => callback(this.currentProgress));
 
-        // Stop polling if fully ready
+        // Stop polling if fully ready — also reset backoff so next session starts fresh
         if (data.fully_ready) {
+          this.currentBackoff = this.pollInterval;
           this.stopPolling();
-          return true; // Signal to stop polling
+          return true;
         }
+
+        // Adaptive backoff: when progress is changing we're warming up,
+        // when it's stuck on the same message we can slow down
+        if (this.lastStatusMessage === data.message) {
+          this.currentBackoff = Math.min(this.currentBackoff * 2, this.maxBackoff);
+        } else {
+          this.currentBackoff = this.pollInterval;
+        }
+        this.lastStatusMessage = data.message;
       } else {
         logger.error('Failed to get initialization progress:', response.error?.message);
       }
@@ -108,24 +121,22 @@ class InitializationProgressManager {
 
     this.isPolling = true;
     this.pollingStartTime = Date.now(); // 记录开始Time
+    this.currentBackoff = this.pollInterval; // Reset backoff for new session
+    this.lastStatusMessage = null;
     logger.debug(`[InitProgressManager] Starting polling... (subscribers: ${this.subscribers.size})`);
 
     // Initial fetch — always fetch on subscribe, even if currentProgress already
     // shows fully_ready=True. Without this, a stale singleton currentProgress
     // (from a previous login session) blocks new subscribers from ever receiving
     // the progress update, causing LoginCN's navigate useEffect to never fire.
-    this.fetchProgress().then(shouldStop => {
-      if (shouldStop) {
-        return;
-      }
-
-      // Start interval polling with timeout protection
-      this.intervalId = setInterval(async () => {
+    const schedule = (): void => {
+      if (!this.isPolling) return;
+      this.intervalId = setTimeout(async () => {
         // Check是否Timeout
         if (this.pollingStartTime && Date.now() - this.pollingStartTime > this.maxPollingDuration) {
           logger.warn('[InitProgressManager] ⚠️ Polling timeout after 60s, stopping...');
           this.stopPolling();
-          
+
           // Notification订阅者TimeoutStatus
           const timeoutProgress: InitializationProgress = {
             ui_ready: false,
@@ -139,13 +150,18 @@ class InitializationProgressManager {
           this.subscribers.forEach(callback => callback(timeoutProgress));
           return;
         }
-        
-        logger.debug(`[InitProgressManager] Interval fetch (subscribers: ${this.subscribers.size})`);
+
+        logger.debug(`[InitProgressManager] Interval fetch (backoff=${this.currentBackoff}ms, subscribers: ${this.subscribers.size})`);
         const shouldStop = await this.fetchProgress();
-        if (shouldStop) {
-          this.stopPolling();
+        if (!shouldStop) {
+          schedule();
         }
-      }, this.pollInterval);
+      }, this.currentBackoff);
+    };
+
+    this.fetchProgress().then(shouldStop => {
+      if (shouldStop) return;
+      schedule();
     });
   }
 
@@ -158,7 +174,7 @@ class InitializationProgressManager {
     this.pollingStartTime = null; // Reset开始Time
 
     if (this.intervalId) {
-      clearInterval(this.intervalId);
+      clearTimeout(this.intervalId);
       this.intervalId = null;
     }
     logger.debug('[InitProgressManager] Polling stopped');
