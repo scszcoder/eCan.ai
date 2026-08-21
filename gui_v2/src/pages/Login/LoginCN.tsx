@@ -17,6 +17,7 @@ import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import { cloudbaseAuth } from '../../services/auth/cloudbaseAuth';
 import { isDesktopPlatform } from '../../config/platform';
 import { useAppConfig } from '../../contexts/AppConfigContext';
+import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
 import './Login.css';
 
@@ -153,7 +154,7 @@ const LoginCN: React.FC = () => {
             loginResult = await auth.signInWithProvider({ provider_token });
           } catch (e: any) {
             if (e?.error === 'not_found') {
-              messageApi.warning('请先注册账号，然后再次扫码登录');
+              messageApi.warning(t('login.pleaseRegisterFirst'));
               setLoginProgress('idle');
               return;
             }
@@ -252,7 +253,7 @@ const LoginCN: React.FC = () => {
         } catch (err: any) {
           console.error('[WeChat Callback] Error:', err);
           setLoginProgress('idle');
-          messageApi.error(err?.message || '微信登录失败');
+          messageApi.error(err?.message || t('login.wechat_login_failed'));
         }
       })();
     }
@@ -812,7 +813,7 @@ const LoginCN: React.FC = () => {
     console.log('[LoginCN] handleSignupVerify called');
     if (!pendingSignupCode) {
       console.log('[LoginCN] handleSignupVerify: pendingSignupCode is null, returning to email-signup');
-      messageApi.error('注册会话已过期，请重新注册');
+      messageApi.error(t('login.registrationSessionExpired'));
       setMode('email-signup');
       setPendingSignupCode(null);
       return;
@@ -915,7 +916,7 @@ const LoginCN: React.FC = () => {
       console.log('[WeChat H5] Response:', resp);
 
       if (!resp.success) {
-        messageApi.error(resp.error || 'Failed to start WeChat login');
+        messageApi.error(t('login.wechatFailedToStart'));
       }
     } catch (error) {
       console.error('[WeChat H5] Error:', error);

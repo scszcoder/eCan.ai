@@ -261,20 +261,20 @@ const TokenUsageSection: React.FC = () => {
         }
     }, []);
 
-    const fetchBreakdown = useCallback(async (start?: string, end?: string, label?: string) => {
+    const fetchBreakdown = useCallback(async (start?: string, end?: string, periodKey?: string) => {
         setLoadingBreakdown(true);
         try {
             const res = await ipcApi.getTokenUsageBreakdown<BreakdownData>(start, end);
             if (res.success && res.data) {
                 setBreakdown(res.data);
-                if (label) setPieLabel(label);
+                if (periodKey) setPieLabel(t(periodKey));
             }
         } catch (e) {
             console.error('[TokenUsageSection] fetchBreakdown error:', e);
         } finally {
             setLoadingBreakdown(false);
         }
-    }, []);
+    }, [t]);
 
     const fetchAlarms = useCallback(async () => {
         setLoadingAlarms(true);
@@ -295,7 +295,7 @@ const TokenUsageSection: React.FC = () => {
     // === Initial loads ===
     useEffect(() => {
         fetchTimeSeries('1m');
-        fetchBreakdown(undefined, undefined, 'Last 24 hours');
+        fetchBreakdown(undefined, undefined, 'tokenUsage.period24h');
         fetchAlarms();
     }, [fetchTimeSeries, fetchBreakdown, fetchAlarms]);
 
@@ -323,7 +323,7 @@ const TokenUsageSection: React.FC = () => {
 
     const handleRefresh = () => {
         fetchTimeSeries(period);
-        fetchBreakdown(undefined, undefined, 'Last 24 hours');
+        fetchBreakdown(undefined, undefined, 'tokenUsage.period24h');
         fetchAlarms();
         message.success(t('common.refresh_success', 'Data refreshed successfully'));
     };
@@ -348,7 +348,7 @@ const TokenUsageSection: React.FC = () => {
             label = periodStr;
         }
 
-        fetchBreakdown(start.toISOString(), end.toISOString(), label);
+        fetchBreakdown(start.toISOString(), end.toISOString(), `tokenUsage.customPeriod:${label}`);
     }, [granularity, fetchBreakdown]);
 
     const handleSaveAlarm = async () => {

@@ -10,6 +10,7 @@ import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import { isWebPlatform } from '../../config/platform';
 import { cognitoAuth } from '../../services/auth/cognitoAuth';
+import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
 import googleIcon from '../../assets/Google_Icons.png';
 import appleIcon from '../../assets/Apple_Icon3.png';
@@ -243,7 +244,6 @@ const Login: React.FC = () => {
 		setHasNavigated(false);
 		setForgotPasswordLoading(false);
 		setCodeSent(false);
-		setShowInitProgress(false);
 		setLoginProgress('idle');
 		setGoogleLoginProgress('idle');
 		setLastError(null);
@@ -325,7 +325,7 @@ const Login: React.FC = () => {
 				console.error('Login failed', response.error);
 				setLoginProgress('idle');
 				messageApi.error(response.error?.message || t('login.failed'));
-				throw new Error(response.error?.message || 'Login failed');
+				throw new Error(response.error?.message || t('login.loginFailed'));
 			}
 		} catch (error) {
 			console.error('Login error:', error);
@@ -345,7 +345,7 @@ const Login: React.FC = () => {
 			// Check if email already exists
 			const errCode = (response?.error as any)?.code;
 			if (errCode === 'USER_EXISTS') {
-				messageApi.error(t('login.emailExists') || 'This email is already registered. Please log in instead.');
+				messageApi.error(t('login.emailAlreadyRegistered'));
 			} else {
 				messageApi.error(response?.error?.message || t('login.failed'));
 			}
@@ -362,7 +362,7 @@ const Login: React.FC = () => {
 				verificationId: data.verification_id,
 			});
 			setMode('signup-verify');
-			messageApi.info(data.message || t('login.signupCodeSent') || 'Verification code sent to your email');
+			messageApi.info(t('login.verificationCodeSent'));
 			return;
 		}
 
@@ -379,7 +379,7 @@ const Login: React.FC = () => {
 	// Signup step 2: confirm verification code and complete registration
 	const handleSignupVerify = async (values: LoginFormValues, api: IPCAPI) => {
 		if (!signupPending) {
-			messageApi.error('Registration session expired. Please sign up again.');
+			messageApi.error(t('login.registrationSessionExpired'));
 			setMode('signup');
 			return;
 		}
@@ -442,7 +442,6 @@ const Login: React.FC = () => {
 				});
 
 				setLoginProgress('redirecting');
-				setShowInitProgress(true);
 				return; // Don't let finally block reset loading
 			} else {
 				const errMsg = (response.error as any)?.message || t('login.failed');
@@ -463,7 +462,6 @@ const Login: React.FC = () => {
 
 		if (isWeb) {
 			setLoading(true);
-			setShowInitProgress(true);
 			await cognitoAuth.startHostedLogin({ screenHint: 'login' });
 			return;
 		}
@@ -505,7 +503,6 @@ const Login: React.FC = () => {
 
 		if (isWeb) {
 			setLoading(true);
-			setShowInitProgress(true);
 			await cognitoAuth.startHostedLogin({ screenHint: 'login' });
 			return;
 		}
@@ -565,7 +562,6 @@ const Login: React.FC = () => {
 
 		if (isWeb) {
 			setLoading(true);
-			setShowInitProgress(true);
 			sessionStorage.setItem('cognito_login_method', mode === 'signup' ? 'password' : 'password');
 			await cognitoAuth.startHostedLogin({
 				screenHint: mode === 'signup' ? 'signup' : 'login'
@@ -587,8 +583,6 @@ const Login: React.FC = () => {
 				case 'login':
 					loginAttempted = true;
 					setHasNavigated(false); // Reset navigation flag for new login attempt
-					// 立即DisplayLogin进度UI
-					setShowInitProgress(true);
 					await handleLogin(values, api);
 					// Don't reset loading here for successful login - let the navigation effect handle it
 					return;
@@ -618,7 +612,6 @@ const Login: React.FC = () => {
 				setLoading(false);
 				setLoginSuccessful(false);
 				setLoginProgress('idle');
-				setShowInitProgress(false); // Hide进度UI
 			}
 		} finally {
 			// Reset loading for non-login modes or if login wasn't attempted
@@ -634,7 +627,6 @@ const Login: React.FC = () => {
 
 		if (isWeb) {
 			setLoading(true);
-			setShowInitProgress(true);
 	  sessionStorage.setItem('cognito_login_method', 'google');
 			await cognitoAuth.startHostedLogin({ identityProvider: 'Google' });
 			return;
@@ -645,9 +637,6 @@ const Login: React.FC = () => {
     setHasNavigated(false); // Reset navigation flag for new login attempt
     setLastError(null); // Clear previous errors
     setGoogleLoginProgress('opening');
-
-    // 立即DisplayLogin进度UI
-    setShowInitProgress(true);
 
     try {
       const api = get_ipc_api();
@@ -720,14 +709,14 @@ const Login: React.FC = () => {
 			}
 		});
 
-        messageApi.success(message || t('login.googleSuccess') || 'Google login successful');
+        messageApi.success(t('login.googleLoginSuccess'));
         setLoginSuccessful(true);
         setGoogleLoginProgress('redirecting');
 
       } else {
         console.error('Google login failed', response.error);
         setGoogleLoginProgress('idle');
-        const errorMessage = response.error?.message || t('login.googleFailed') || 'Google login failed';
+        const errorMessage = response.error?.message || t('login.googleLoginFailed');
 
         // Recovery path: the OAuth callback port (default 9382) is held by
         // another eCan.exe instance left over from a prior session. Backend
@@ -792,7 +781,6 @@ const Login: React.FC = () => {
     } catch (error) {
       console.error('Google login error:', error);
       setGoogleLoginProgress('idle');
-      setShowInitProgress(false); // Hide进度UI
       const errorMessage = error instanceof Error ? error.message : String(error);
       setLastError(errorMessage);
 
