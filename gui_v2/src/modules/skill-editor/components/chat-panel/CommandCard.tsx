@@ -167,7 +167,7 @@ const OtherRow = styled.div`
 `;
 
 const CopyButton: React.FC<{ text: string }> = ({ text }) => {
-  const { t } = useTranslation('skillEditor');
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -198,7 +198,7 @@ export const CommandCard: React.FC<CommandCardProps> = ({
   submittedAction,
   result,
 }) => {
-  const { t } = useTranslation('skillEditor');
+  const { t } = useTranslation();
   const isReadOnly = !!submittedAction;
   const [choice, setChoice] = useState<'confirm' | 'cancel' | 'other' | ''>('');
   const [otherText, setOtherText] = useState('');

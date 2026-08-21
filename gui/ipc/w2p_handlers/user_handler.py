@@ -1,4 +1,5 @@
 import traceback
+import threading
 from typing import Any, Optional, Dict
 from app_context import AppContext
 from gui.ipc.handlers import validate_params
@@ -330,8 +331,15 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
 @IPCHandlerRegistry.handler('save_login_info')
 def handle_save_login_info(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """Handles save_login_info requests - saves login credentials to keyring.
-    
+
     This is used when the user checks 'Remember password' during login.
+
+    The keyring.set_password() call (macOS Keychain) can take 1-12 seconds on
+    cold start (Aug-20 trace measured 11.3s). That blocks the Starlette worker
+    long enough to stall every other concurrent frontend request — including
+    get_initialization_progress polling that the LoginCN page watches before
+    navigating. We offload the actual write to a daemon thread and return
+    immediately so the user's UI flow is never blocked by Keychain latency.
     """
     lang = auth_messages.DEFAULT_LANG
     try:
@@ -348,12 +356,25 @@ def handle_save_login_info(request: IPCRequest, params: Optional[Any]) -> IPCRes
         if not username:
             return create_error_response(request, 'INVALID_PARAMS', 'Username is required')
 
+        # Resolve the auth_manager once, on the request thread, so we don't
+        # touch AppContext from the background thread.
         login = AppContext.get_login()
         if login is None:
-            # Fallback: try to get AuthManager directly
+            auth_manager = None
+        else:
+            auth_manager = login.auth_manager
+
+        if auth_manager is None:
+            # Fallback: build AuthManager directly so we still complete the save
             try:
                 from auth.auth_manager import AuthManager
                 auth_manager = AuthManager()
+            except Exception as fallback_init_error:
+                logger.error(f"Failed to construct AuthManager for save_login_info: {fallback_init_error}")
+                return create_error_response(request, 'SAVE_ERROR', str(fallback_init_error))
+
+        def _do_save():
+            try:
                 success = auth_manager._update_saved_login_info(
                     username=username,
                     password=password or "",
@@ -361,27 +382,18 @@ def handle_save_login_info(request: IPCRequest, params: Optional[Any]) -> IPCRes
                     login_type=login_type
                 )
                 if success:
-                    return create_success_response(request, {
-                        'message': 'Login info saved successfully'
-                    })
+                    logger.info(f"[save_login_info] Background keyring save completed for {username}")
                 else:
-                    return create_error_response(request, 'SAVE_FAILED', 'Failed to save login info')
-            except Exception as fallback_error:
-                logger.error(f"Fallback save failed: {fallback_error}")
-                return create_error_response(request, 'SAVE_ERROR', str(fallback_error))
-        else:
-            success = login.auth_manager._update_saved_login_info(
-                username=username,
-                password=password or "",
-                role=role or "Commander",
-                login_type=login_type
-            )
-            if success:
-                return create_success_response(request, {
-                    'message': 'Login info saved successfully'
-                })
-            else:
-                return create_error_response(request, 'SAVE_FAILED', 'Failed to save login info')
+                    logger.warning(f"[save_login_info] Background keyring save returned failure for {username}")
+            except Exception as bg_err:
+                logger.error(f"[save_login_info] Background save failed for {username}: {bg_err} {traceback.format_exc()}")
+
+        threading.Thread(target=_do_save, name="save-login-info", daemon=True).start()
+
+        return create_success_response(request, {
+            'message': 'Login info save scheduled',
+            'async': True,
+        })
 
     except Exception as e:
         logger.error(f"Error in save_login_info handler: {e} {traceback.format_exc()}")

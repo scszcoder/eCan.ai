@@ -1,277 +1,74 @@
-import { useState, useEffect, useCallback } from 'react';
-import { loadNodeStateSchema } from '../stores/nodeStateSchemaStore';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { get_ipc_api } from '../services/ipc_api';
 import { logger } from '../utils/logger';
-import { logoutManager } from '../services/LogoutManager';
+import i18n from '../i18n';
 
-// Global singleton to prevent multiple polling instances
-class InitializationProgressManager {
-  private static instance: InitializationProgressManager;
-  private subscribers: Set<(progress: InitializationProgress | null) => void> = new Set();
-  private currentProgress: InitializationProgress | null = null;
-  private isPolling = false;
-  private intervalId: NodeJS.Timeout | null = null;
-  private pollInterval = 1000; // Default 1 second
-  // First-run MainWindow init (fresh profile: DB migration creates all tables,
-  // LightRAG server startup, agent/skill build) routinely exceeds 60s — one
-  // measured cold start took ~148s. A 60s cap made the poller give up long
-  // before `fully_ready`, leaving the login page stuck on the transition
-  // screen forever. 5 minutes covers a slow first login with margin.
-  private maxPollingDuration = 300000; // 5 minutes timeout
-  private pollingStartTime: number | null = null;
+export interface SystemStatus {
+  ready: boolean;
+  status: string;  // i18n key like 'system.ready' or 'system.initializing'
+}
 
-  static getInstance(): InitializationProgressManager {
-    if (!InitializationProgressManager.instance) {
-      logger.debug('[InitProgressManager] Creating singleton instance');
-      InitializationProgressManager.instance = new InitializationProgressManager();
-      // RegisterCleanupFunction到logout管理器
-      InitializationProgressManager.instance.registerLogoutCleanup();
-    } else {
-      logger.debug('[InitProgressManager] Returning existing singleton instance');
-    }
-    return InitializationProgressManager.instance;
-  }
+/**
+ * Simple hook to check system initialization status.
+ * Polls backend every 2 seconds until ready.
+ */
+export function useSystemStatus(enabled: boolean = true) {
+  const [status, setStatus] = useState<SystemStatus | null>(null);
+  const [isChecking, setIsChecking] = useState(true);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  subscribe(callback: (progress: InitializationProgress | null) => void): () => void {
-    logger.debug(`[InitProgressManager] New subscriber added. Total: ${this.subscribers.size + 1}`);
-    this.subscribers.add(callback);
-
-    // Send current progress immediately
-    if (this.currentProgress) {
-      callback(this.currentProgress);
-    }
-
-    // Start polling if not already started
-    this.startPolling();
-
-    // Return unsubscribe function
-    return () => {
-      this.subscribers.delete(callback);
-      logger.debug(`[InitProgressManager] Subscriber removed. Remaining: ${this.subscribers.size}`);
-      if (this.subscribers.size === 0) {
-        logger.debug('[InitProgressManager] No more subscribers, stopping polling');
-        this.stopPolling();
-      }
-    };
-  }
-
-  private isFetching = false; // Add fetch guard
-
-  private async fetchProgress(): Promise<boolean> {
-    // Prevent concurrent fetches
-    if (this.isFetching) {
-      logger.debug('[InitProgressManager] Fetch already in progress, skipping...');
-      return false;
-    }
-
-    this.isFetching = true;
-
+  const checkStatus = useCallback(async () => {
     try {
       const ipcApi = get_ipc_api();
-      if (!ipcApi) {
-        throw new Error('IPC API not available');
-      }
+      if (!ipcApi) return;
 
-      const requestId = Math.random().toString(36).substring(2, 11);
-      logger.debug(`[InitProgressManager] Sending getInitializationProgress request [${requestId}]...`);
       const response = await ipcApi.getInitializationProgress();
-
       if (response.success && response.data) {
-        const data = response.data as InitializationProgress;
-        this.currentProgress = data;
+        const data = response.data as SystemStatus;
+        setStatus(data);
+        setIsChecking(false);
 
-        // Notify all subscribers
-        this.subscribers.forEach(callback => callback(this.currentProgress));
-
-        // Stop polling if fully ready
-        if (data.fully_ready) {
-          this.stopPolling();
-          return true; // Signal to stop polling
+        // Stop polling when ready
+        if (data.ready && intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
         }
-      } else {
-        logger.error('Failed to get initialization progress:', response.error?.message);
       }
     } catch (err) {
-      logger.error('Failed to fetch initialization progress:', err);
-    } finally {
-      this.isFetching = false;
-    }
-
-    return false; // Continue polling
-  }
-
-  private startPolling(): void {
-    if (this.isPolling) {
-      logger.debug(`[InitProgressManager] Already polling, skipping start (subscribers: ${this.subscribers.size})`);
-      return; // Already polling
-    }
-
-    this.isPolling = true;
-    this.pollingStartTime = Date.now(); // 记录开始Time
-    logger.debug(`[InitProgressManager] Starting polling... (subscribers: ${this.subscribers.size})`);
-
-    // Initial fetch — always fetch on subscribe, even if currentProgress already
-    // shows fully_ready=True. Without this, a stale singleton currentProgress
-    // (from a previous login session) blocks new subscribers from ever receiving
-    // the progress update, causing LoginCN's navigate useEffect to never fire.
-    this.fetchProgress().then(shouldStop => {
-      if (shouldStop) {
-        return;
-      }
-
-      // Start interval polling with timeout protection
-      this.intervalId = setInterval(async () => {
-        // Check是否Timeout
-        if (this.pollingStartTime && Date.now() - this.pollingStartTime > this.maxPollingDuration) {
-          logger.warn('[InitProgressManager] ⚠️ Polling timeout after 60s, stopping...');
-          this.stopPolling();
-          
-          // Notification订阅者TimeoutStatus
-          const timeoutProgress: InitializationProgress = {
-            ui_ready: false,
-            critical_services_ready: false,
-            async_init_complete: false,
-            fully_ready: false,
-            sync_init_complete: false,
-            message: 'Initialization timeout - please refresh the page'
-          };
-          this.currentProgress = timeoutProgress;
-          this.subscribers.forEach(callback => callback(timeoutProgress));
-          return;
-        }
-        
-        logger.debug(`[InitProgressManager] Interval fetch (subscribers: ${this.subscribers.size})`);
-        const shouldStop = await this.fetchProgress();
-        if (shouldStop) {
-          this.stopPolling();
-        }
-      }, this.pollInterval);
-    });
-  }
-
-  private stopPolling(): void {
-    if (!this.isPolling) {
-      return;
-    }
-
-    this.isPolling = false;
-    this.pollingStartTime = null; // Reset开始Time
-
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
-    }
-    logger.debug('[InitProgressManager] Polling stopped');
-  }
-
-  /**
-   * RegisterlogoutCleanupFunction
-   */
-  private registerLogoutCleanup(): void {
-    logoutManager.registerCleanup({
-      name: 'InitializationProgressManager',
-      cleanup: () => {
-        logger.info('[InitProgressManager] Cleaning up for logout...');
-        this.stopPolling();
-        this.subscribers.clear();
-        this.currentProgress = null;
-        this.isFetching = false;
-        logger.info('[InitProgressManager] Cleanup completed');
-      },
-      priority: 10 // 高Priority，尽早Cleanup
-    });
-  }
-
-  /**
-   * 强制CleanupAllStatus（Used forlogout）
-   */
-  public forceCleanup(): void {
-    logger.info('[InitProgressManager] Force cleanup initiated');
-    this.stopPolling();
-    this.subscribers.clear();
-    this.currentProgress = null;
-    this.isFetching = false;
-  }
-
-  // Method to manually refetch (for external use)
-  async refetch(): Promise<void> {
-    await this.fetchProgress();
-  }
-}
-
-export interface InitializationProgress {
-  ui_ready: boolean;
-  critical_services_ready: boolean;
-  async_init_complete: boolean;
-  fully_ready: boolean;
-  sync_init_complete: boolean;
-  message: string;
-}
-
-export interface UseInitializationProgressReturn {
-  progress: InitializationProgress | null;
-  isLoading: boolean;
-  error: string | null;
-  refetch: () => Promise<void>;
-}
-
-/**
- * Force cleanup the singleton progress manager (e.g., on token expiry / forced logout)
- */
-export function forceCleanupInitializationProgress(): void {
-  InitializationProgressManager.getInstance().forceCleanup();
-}
-
-/**
- * Hook to monitor MainWindow initialization progress using singleton manager
- * Note: pollInterval is now managed globally by the singleton
- */
-export function useInitializationProgress(
-  enabled: boolean = true
-): UseInitializationProgressReturn {
-  const [progress, setProgress] = useState<InitializationProgress | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const refetch = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      await InitializationProgressManager.getInstance().refetch();
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setError(errorMessage);
-      logger.error('Failed to refetch initialization progress:', err);
+      logger.debug('[useSystemStatus] Check failed:', err);
     }
   }, []);
 
   useEffect(() => {
-    if (!enabled) {
-      return;
-    }
+    if (!enabled) return;
 
-    const manager = InitializationProgressManager.getInstance();
+    // Initial check
+    checkStatus();
 
-    // Subscribe to progress updates
-    const unsubscribe = manager.subscribe((newProgress) => {
-      setProgress(newProgress);
-      setError(null);
+    // Poll every 2 seconds until ready
+    intervalRef.current = setInterval(checkStatus, 2000);
 
-      // Stop loading if fully ready
-      if (newProgress?.fully_ready) {
-        setIsLoading(false);
-        // Prefetch NodeState schema so node editors don't wait later
-        loadNodeStateSchema().catch(() => {/* ignore errors; panel will fallback */});
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
-    });
+    };
+  }, [enabled, checkStatus]);
 
-    return unsubscribe;
-  }, [enabled]);
+  // Get localized message based on status i18n key
+  const message = status?.status ? i18n.t(status.status) : i18n.t('system.initializing', '加载中...');
 
   return {
-    progress,
-    isLoading,
-    error,
-    refetch
+    status,
+    isReady: status?.ready ?? false,
+    isChecking,
+    message,
+    refetch: checkStatus
   };
 }
+
+// Backward compatibility alias
+export const useInitializationProgress = useSystemStatus;
+export const forceCleanupInitializationProgress = () => {};
+export interface InitializationProgress extends SystemStatus {}

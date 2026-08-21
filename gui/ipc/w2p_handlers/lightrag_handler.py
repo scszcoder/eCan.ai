@@ -1689,107 +1689,6 @@ def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         return create_error_response(request, 'QUERY_GRAPH_ERROR', str(e))
 
 
-def _convert_providers_to_lightrag_ui(providers: List[Dict[str, Any]], provider_type: str, manager) -> List[Dict[str, Any]]:
-    """
-    Convert standard provider format to LightRAG UI format.
-    
-    Args:
-        providers: List of provider dicts from manager.get_all_providers()
-        provider_type: 'LLM', 'EMBEDDING', or 'RERANK'
-        manager: Manager instance for retrieving API keys
-    
-    Returns:
-        List of provider dicts in LightRAG UI format
-    """
-    ui_providers = []
-    
-    for p in providers:
-        # Build model field
-        model_key = f'{provider_type}_MODEL'
-        default_model = p.get('default_model', '')
-        model_field = {
-            'key': model_key,
-            'label': 'fields.model',
-            'type': 'text',
-            'required': True,
-            'defaultValue': default_model
-        }
-        
-        # Add model options if available
-        supported_models = p.get('supported_models', [])
-        if supported_models:
-            model_field['type'] = 'select'
-            model_field['options'] = [
-                {'value': m.get('model_id'), 'label': m.get('display_name') or m.get('name')}
-                for m in supported_models
-            ]
-        
-        fields = [model_field]
-        model_metadata = {}
-        
-        # Embedding-specific fields
-        if provider_type == 'EMBEDDING':
-            fields.append({'key': 'EMBEDDING_DIM', 'label': 'fields.dimensions', 'type': 'number', 'placeholder': '1024', 'disabled': True})
-            fields.append({'key': 'EMBEDDING_TOKEN_LIMIT', 'label': 'fields.tokenLimit', 'type': 'number', 'placeholder': '8192', 'disabled': True})
-            # Build model metadata
-            for m in supported_models:
-                model_metadata[m.get('model_id')] = {
-                    'dimensions': m.get('dimensions'),
-                    'max_tokens': m.get('max_tokens')
-                }
-        
-        # Host field for local providers
-        if p.get('base_url') or p.get('is_local'):
-            host_key = f'{provider_type}_BINDING_HOST'
-            fields.append({
-                'key': host_key,
-                'label': 'fields.apiHost',
-                'type': 'text',
-                'defaultValue': p.get('base_url', ''),
-                'disabled': True
-            })
-        
-        # API key field
-        api_key_env_vars = p.get('api_key_env_vars', [])
-        if api_key_env_vars and manager:
-            api_key_key = f'{provider_type}_BINDING_API_KEY'
-            field_def = {
-                'key': api_key_key,
-                'label': 'fields.apiKey',
-                'type': 'password',
-                'required': True
-            }
-            
-            # Try to retrieve API key
-            try:
-                for env_var in api_key_env_vars:
-                    api_key = manager.retrieve_api_key(env_var)
-                    if api_key:
-                        field_def['isSystemManaged'] = True
-                        field_def['defaultValue'] = api_key
-                        break
-            except Exception as e:
-                logger.warning(f"Failed to retrieve API key for {p.get('provider')}: {e}")
-            
-            fields.append(field_def)
-        
-        # Build provider UI object
-        provider_ui = {
-            'id': p.get('provider'),
-            'name': p.get('display_name'),
-            'description': p.get('description'),
-            'fields': fields
-        }
-        
-        # Add model metadata for embedding providers
-        if provider_type == 'EMBEDDING' and model_metadata:
-            provider_ui['modelMetadata'] = model_metadata
-        
-        ui_providers.append(provider_ui)
-    
-    return ui_providers
-
-
 @IPCHandlerRegistry.handler('lightrag.getSystemProviders')
 def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
@@ -1837,15 +1736,10 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
             provider_type='rerank'
         )
         
-        # Convert to LightRAG UI format
-        llm_providers_ui = _convert_providers_to_lightrag_ui(llm_providers, 'LLM', llm_manager)
-        embedding_providers_ui = _convert_providers_to_lightrag_ui(embedding_providers, 'EMBEDDING', embedding_manager)
-        rerank_providers_ui = _convert_providers_to_lightrag_ui(rerank_providers, 'RERANK', rerank_manager)
-        
         return create_success_response(request, {
-            'llm_providers': llm_providers_ui,
-            'embedding_providers': embedding_providers_ui,
-            'rerank_providers': rerank_providers_ui
+            'llm_providers': llm_providers,
+            'embedding_providers': embedding_providers,
+            'rerank_providers': rerank_providers
         })
     except Exception as e:
         logger.error(f"Error getting system providers: {e}")

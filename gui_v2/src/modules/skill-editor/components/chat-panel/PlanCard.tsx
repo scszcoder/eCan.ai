@@ -186,7 +186,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({
   isSubmitting = false,
   submittedAction,
 }) => {
-  const { t } = useTranslation('skillEditor');
+  const { t } = useTranslation();
   // Read-only mode when submittedAction is provided
   const isReadOnly = !!submittedAction;
 
@@ -195,7 +195,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({
     const safeSteps = Array.isArray(plan?.steps) ? plan.steps : [];
     const safeEstimatedNodes = Array.isArray(plan?.estimated_nodes) ? plan.estimated_nodes : [];
     return {
-      summary: plan?.summary || 'No summary provided yet.',
+      summary: plan?.summary || t('chatPanel.noSummaryProvided'),
       steps: safeSteps,
       estimated_nodes: safeEstimatedNodes,
       complexity: safeComplexity,

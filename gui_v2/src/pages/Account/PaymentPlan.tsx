@@ -2,19 +2,19 @@ import React, { useEffect, useState } from 'react';
 import { Button, Card, Col, Row, Typography, message } from 'antd';
 import { ArrowLeftOutlined, AlipayCircleOutlined, WechatOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { ipcApi } from '../../services/ipc/api';
 import { useIsCN } from '../../contexts/AppConfigContext';
 
 const { Title, Text } = Typography;
 
 const PaymentPlan: React.FC = () => {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const isCN = useIsCN();
     const [payingPlan, setPayingPlan] = useState<string | null>(null);
 
     useEffect(() => {
-        // Stripe is the international path only. Don't load its script in CN
-        // (blocked in China; CN uses Alipay + WeChat Pay via the in-app dialog).
         if (isCN) {
             return;
         }
@@ -31,7 +31,6 @@ const PaymentPlan: React.FC = () => {
         navigate('/account');
     };
 
-    // CN: open the same Alipay + WeChat Pay dialog the top-up button uses.
     const handleCnPay = async (planKey: string, amount: number) => {
         setPayingPlan(planKey);
         try {
@@ -42,18 +41,18 @@ const PaymentPlan: React.FC = () => {
             );
             const data = (response?.data as any) || {};
             if (response?.success && data.status === 'SUCCESS') {
-                message.success(data.message || '支付成功');
+                message.success(data.message || t('account.paymentSuccess', 'Payment successful'));
                 navigate('/account');
             } else if (data.status === 'CANCELLED') {
-                message.info(data.message || '支付已取消');
+                message.info(data.message || t('account.paymentCancelled', 'Payment cancelled'));
             } else if (response?.success) {
-                message.warning(data.message || '支付未完成');
+                message.warning(data.message || t('account.paymentPending', 'Payment pending'));
             } else {
-                message.error(response?.error?.message || 'Payment failed');
+                message.error(response?.error?.message || t('account.paymentFailed', 'Payment failed'));
             }
         } catch (error) {
             console.error('Plan payment error:', error);
-            message.error('Payment error');
+            message.error(t('account.paymentError', 'Payment error'));
         } finally {
             setPayingPlan(null);
         }
@@ -69,10 +68,10 @@ const PaymentPlan: React.FC = () => {
                         onClick={handleBack}
                         style={{ marginBottom: 8 }}
                     >
-                        Back to Account
+                        {t('account.backToAccount', 'Back to Account')}
                     </Button>
-                    <Title level={3} style={{ margin: 0 }}>Payment Plan</Title>
-                    <Text type="secondary">Choose a subscription plan that fits your needs.</Text>
+                    <Title level={3} style={{ margin: 0 }}>{t('account.paymentPlan', 'Payment Plan')}</Title>
+                    <Text type="secondary">{t('account.choosePlan', 'Choose a subscription plan that fits your needs.')}</Text>
                 </Col>
             </Row>
 
@@ -80,55 +79,55 @@ const PaymentPlan: React.FC = () => {
                 <>
                     <Row gutter={[24, 24]}>
                         <Col xs={24} md={12} lg={8}>
-                            <Card title="订阅套餐" style={{ textAlign: 'center' }}>
+                            <Card title={t('account.subscriptionPlan', 'Subscription Plan')} style={{ textAlign: 'center' }}>
                                 <div style={{ marginBottom: 16 }}>
-                                    <Text type="secondary">订阅以解锁高级功能与增强能力。</Text>
+                                    <Text type="secondary">{t('account.subscribeDesc', 'Subscribe to unlock premium features and enhanced capabilities.')}</Text>
                                 </div>
-                                <Title level={3} style={{ margin: '8px 0 16px' }}>¥68 / 月</Title>
+                                <Title level={3} style={{ margin: '8px 0 16px' }}>¥68 / {t('account.month', 'Month')}</Title>
                                 <Button
                                     type="primary"
                                     block
                                     loading={payingPlan === 'subscription'}
                                     onClick={() => handleCnPay('subscription', 68)}
                                 >
-                                    订阅（支付宝 / 微信支付）
+                                    {t('account.subscribe', 'Subscribe')}（{t('account.alipayWechat', 'Alipay / WeChat Pay')}）
                                 </Button>
                             </Card>
                         </Col>
                         <Col xs={24} md={12} lg={8}>
-                            <Card title="附加套餐" style={{ textAlign: 'center' }}>
+                            <Card title={t('account.additionalPlan', 'Additional Plan')} style={{ textAlign: 'center' }}>
                                 <div style={{ marginBottom: 16 }}>
                                     <Text type="secondary">
-                                        按结果计费的月度套餐，最低 ¥0.50 起充。
+                                        {t('account.additionalDesc', 'Choose this plan for result-driven monthly charging, with a minimum of ¥0.50 initial top-up.')}
                                     </Text>
                                 </div>
-                                <Title level={3} style={{ margin: '8px 0 16px' }}>¥0.50 起</Title>
+                                <Title level={3} style={{ margin: '8px 0 16px' }}>¥0.50 {t('account.from', 'from')}</Title>
                                 <Button
                                     type="primary"
                                     block
                                     loading={payingPlan === 'additional'}
                                     onClick={() => handleCnPay('additional', 0.5)}
                                 >
-                                    购买（支付宝 / 微信支付）
+                                    {t('account.purchase', 'Purchase')}（{t('account.alipayWechat', 'Alipay / WeChat Pay')}）
                                 </Button>
                             </Card>
                         </Col>
                     </Row>
                     <div style={{ marginTop: 16 }}>
                         <Text type="secondary" style={{ fontSize: 12 }}>
-                            <AlipayCircleOutlined style={{ color: '#1677ff' }} /> 支付宝
+                            <AlipayCircleOutlined style={{ color: '#1677ff' }} /> {t('account.alipay', 'Alipay')}
                             &nbsp;·&nbsp;
-                            <WechatOutlined style={{ color: '#07c160' }} /> 微信支付
+                            <WechatOutlined style={{ color: '#07c160' }} /> {t('account.wechatPay', 'WeChat Pay')}
                         </Text>
                     </div>
                 </>
             ) : (
                 <Row gutter={[24, 24]}>
                     <Col xs={24} md={12} lg={8}>
-                        <Card title="Subscription Plan" style={{ textAlign: 'center' }}>
+                        <Card title={t('account.subscriptionPlan', 'Subscription Plan')} style={{ textAlign: 'center' }}>
                             <div style={{ marginBottom: 16 }}>
                                 <Text type="secondary">
-                                    Subscribe to unlock premium features and enhanced capabilities.
+                                    {t('account.subscribeDesc', 'Subscribe to unlock premium features and enhanced capabilities.')}
                                 </Text>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'center' }}>
@@ -141,10 +140,10 @@ const PaymentPlan: React.FC = () => {
                         </Card>
                     </Col>
                     <Col xs={24} md={12} lg={8}>
-                        <Card title="Additional Plan" style={{ textAlign: 'center' }}>
+                        <Card title={t('account.additionalPlan', 'Additional Plan')} style={{ textAlign: 'center' }}>
                             <div style={{ marginBottom: 16 }}>
                                 <Text type="secondary">
-                                    Choose this plan for result driven monthly charge, with a minimum of $0.50 initial top-up to start with.
+                                    {t('account.additionalDesc', 'Choose this plan for result-driven monthly charging, with a minimum of $0.50 initial top-up.')}
                                 </Text>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'center' }}>
