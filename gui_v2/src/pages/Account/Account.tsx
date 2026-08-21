@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Button, Card, Col, Divider, Input, InputNumber, Row, Space, Tooltip, Typography, message, Popconfirm } from 'antd';
 import { ReloadOutlined, DollarOutlined, ArrowRightOutlined, KeyOutlined, CopyOutlined, EyeOutlined, EyeInvisibleOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAccountStore } from '../../stores/accountStore';
 import { ipcApi } from '../../services/ipc/api';
 import { useIsCN } from '../../contexts/AppConfigContext';
@@ -15,6 +16,7 @@ const maskApiKey = (key: string): string => {
 };
 
 const Account: React.FC = () => {
+    const { t } = useTranslation();
     const [topUpAmount, setTopUpAmount] = useState<number | null>(50);
     const [toppingUp, setToppingUp] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -34,13 +36,13 @@ const Account: React.FC = () => {
             if (response?.success && response.data) {
                 const data = response.data as any;
                 setAccountData(data.accountInfo || data);
-                message.success('Account info refreshed');
+                message.success(t('account.refreshSuccess', 'Account info refreshed'));
             } else {
-                message.error(response?.error?.message || 'Failed to fetch account info');
+                message.error(response?.error?.message || t('account.fetchFailed', 'Failed to fetch account info'));
             }
         } catch (error) {
             console.error('Error fetching account info:', error);
-            message.error('Error fetching account info');
+            message.error(t('account.fetchError', 'Error fetching account info'));
         } finally {
             setRefreshing(false);
         }
@@ -54,18 +56,12 @@ const Account: React.FC = () => {
         if (!topUpAmount || topUpAmount <= 0) {
             return;
         }
-        // International: use the existing Stripe flow. CN: open the in-app
-        // Alipay + WeChat Pay dialog (backend blocks until the payment reaches
-        // a terminal, server-verified state).
         if (!isCN) {
             navigate('/account/payment-plan');
             return;
         }
         setToppingUp(true);
         try {
-            // Payment can take minutes (scan + confirm); override the default
-            // 30s IPC timeout so the request outlives the flow (backend caps
-            // the dialog at 600s + 30s).
             const response = await ipcApi.executeRequest(
                 'payment_topup',
                 { amount: topUpAmount },
@@ -73,18 +69,18 @@ const Account: React.FC = () => {
             );
             const data = (response?.data as any) || {};
             if (response?.success && data.status === 'SUCCESS') {
-                message.success(data.message || '支付成功');
+                message.success(data.message || t('account.paymentSuccess', 'Payment successful'));
                 await handleRefresh();
             } else if (data.status === 'CANCELLED') {
-                message.info(data.message || '支付已取消');
+                message.info(data.message || t('account.paymentCancelled', 'Payment cancelled'));
             } else if (response?.success) {
-                message.warning(data.message || '支付未完成');
+                message.warning(data.message || t('account.paymentPending', 'Payment pending'));
             } else {
-                message.error(response?.error?.message || 'Payment failed');
+                message.error(response?.error?.message || t('account.paymentFailed', 'Payment failed'));
             }
         } catch (error) {
             console.error('Top up error:', error);
-            message.error('Payment error');
+            message.error(t('account.paymentError', 'Payment error'));
         } finally {
             setToppingUp(false);
         }
@@ -99,17 +95,16 @@ const Account: React.FC = () => {
                 const key = resp?.apiKey || '';
                 if (key) {
                     setApiKey(key);
-                    setApiKeyVisible(false);
-                    message.success(resp?.message || 'API key generated successfully');
+                    message.success(resp?.message || t('account.apiKeySuccess', 'API key generated successfully'));
                 } else {
-                    message.error(resp?.message || 'Failed to get API key: empty response');
+                    message.error(resp?.message || t('account.apiKeyEmpty', 'Failed to get API key: empty response'));
                 }
             } else {
-                message.error(response?.error?.message || 'Failed to get API key');
+                message.error(response?.error?.message || t('account.apiKeyFailed', 'Failed to get API key'));
             }
         } catch (error) {
             console.error('Error requesting API key:', error);
-            message.error(`Failed to get API key: ${error instanceof Error ? error.message : String(error)}`);
+            message.error(t('account.apiKeyError', 'Error requesting API key'));
         } finally {
             setRequestingKey(false);
         }
@@ -123,14 +118,13 @@ const Account: React.FC = () => {
             const response = await ipcApi.executeRequest('remove_api_key', { masked_keys: [maskedKey] });
             if (response?.success) {
                 setApiKey('');
-                setApiKeyVisible(false);
-                message.success('API key removed');
+                message.success(t('account.apiKeyRemoved', 'API key removed'));
             } else {
-                message.error(response?.error?.message || 'Failed to remove API key');
+                message.error(response?.error?.message || t('account.removeFailed', 'Failed to remove API key'));
             }
         } catch (error) {
             console.error('Error removing API key:', error);
-            message.error(`Failed to remove API key: ${error instanceof Error ? error.message : String(error)}`);
+            message.error(t('account.removeError', 'Error removing API key'));
         } finally {
             setRemovingKey(false);
         }
@@ -139,9 +133,9 @@ const Account: React.FC = () => {
     const handleCopyApiKey = () => {
         if (!apiKey) return;
         navigator.clipboard.writeText(apiKey).then(() => {
-            message.success('API key copied to clipboard');
+            message.success(t('account.copied', 'API key copied to clipboard'));
         }).catch(() => {
-            message.error('Failed to copy API key');
+            message.error(t('account.copyFailed', 'Failed to copy API key'));
         });
     };
 
@@ -149,12 +143,11 @@ const Account: React.FC = () => {
         <div style={{ padding: 24, height: '100%', overflow: 'auto' }}>
             <Row justify="space-between" align="middle" style={{ marginBottom: 24 }}>
                 <Col>
-                    <Title level={3} style={{ margin: 0 }}>Account</Title>
-                    <Text type="secondary">Manage your subscription and billing details.</Text>
+                    <Title level={3} style={{ margin: 0 }}>{t('account.title', 'Account')}</Title>
                 </Col>
                 <Col>
                     <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={refreshing}>
-                        Refresh
+                        {t('account.refresh', 'Refresh')}
                     </Button>
                 </Col>
             </Row>
@@ -163,32 +156,32 @@ const Account: React.FC = () => {
                 <Col xs={24} lg={14}>
                     <Card>
                         <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                            <Title level={4} style={{ margin: 0 }}>Current Plan</Title>
+                            <Title level={4} style={{ margin: 0 }}>{t('account.currentPlan', 'Current Plan')}</Title>
                             <Text type="secondary">
-                                {accountData?.acctInfo?.email || 'Subscription details will appear after refresh.'}
+                                {accountData?.acctInfo?.email || t('account.noDetails', 'Subscription details will appear after refresh.')}
                             </Text>
                             <Space size={32} wrap>
                                 <div>
-                                    <Text type="secondary">Plan</Text><br />
+                                    <Text type="secondary">{t('account.plan', 'Plan')}</Text><br />
                                     <Text strong>
-                                        {accountData?.acctInfo?.subs && accountData.acctInfo.subs !== '[]' && accountData.acctInfo.subs.trim() !== '' 
-                                            ? accountData.acctInfo.subs 
-                                            : 'Free Tier'}
+                                        {accountData?.acctInfo?.subs && accountData.acctInfo.subs !== '[]' && accountData.acctInfo.subs.trim() !== ''
+                                            ? accountData.acctInfo.subs
+                                            : t('account.freeTier', 'Free Tier')}
                                     </Text>
                                 </div>
                                 <Divider type="vertical" style={{ height: 'auto' }} />
                                 <div>
-                                    <Text type="secondary">Balance</Text><br />
+                                    <Text type="secondary">{t('account.balance', 'Balance')}</Text><br />
                                     <Text strong>{isCN ? '¥' : '$'}{accountData?.acctInfo?.fund ?? 0}</Text>
                                 </div>
                                 <Divider type="vertical" style={{ height: 'auto' }} />
                                 <div>
-                                    <Text type="secondary">Quota</Text><br />
+                                    <Text type="secondary">{t('account.quota', 'Quota')}</Text><br />
                                     <Text strong>{accountData?.acctInfo?.quota ?? 0}</Text>
                                 </div>
                             </Space>
                             <Button type="primary" icon={<ArrowRightOutlined />} onClick={handleChangePlan}>
-                                Change plan
+                                {t('account.changePlan', 'Change plan')}
                             </Button>
                         </Space>
                     </Card>
@@ -196,8 +189,8 @@ const Account: React.FC = () => {
                 <Col xs={24} lg={10}>
                     <Card>
                         <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                            <Title level={4} style={{ margin: 0 }}>Top up balance</Title>
-                            <Text type="secondary">Add credits to your account instantly.</Text>
+                            <Title level={4} style={{ margin: 0 }}>{t('account.topUp', 'Top up balance')}</Title>
+                            <Text type="secondary">{t('account.topUpDesc', 'Add credits to your account instantly.')}</Text>
                             <Space>
                                 <InputNumber
                                     min={0}
@@ -208,7 +201,7 @@ const Account: React.FC = () => {
                                     style={{ width: 160 }}
                                 />
                                 <Button type="primary" onClick={handleTopUp} loading={toppingUp} disabled={!topUpAmount || topUpAmount <= 0}>
-                                    Top up
+                                    {t('account.topUp', 'Top up')}
                                 </Button>
                             </Space>
                         </Space>
@@ -222,10 +215,10 @@ const Account: React.FC = () => {
                         <Space direction="vertical" size={12} style={{ width: '100%' }}>
                             <Title level={4} style={{ margin: 0 }}>
                                 <KeyOutlined style={{ marginRight: 8 }} />
-                                API Key
+                                {t('account.apiKey', 'API Key')}
                             </Title>
                             <Text type="secondary">
-                                Generate an API key to access eCan services programmatically.
+                                {t('account.apiKeyDesc', 'Generate an API key to access eCan services programmatically.')}
                             </Text>
                             {apiKey ? (
                                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
@@ -235,14 +228,14 @@ const Account: React.FC = () => {
                                             value={apiKeyVisible ? apiKey : maskApiKey(apiKey)}
                                             style={{ fontFamily: 'monospace', maxWidth: 480 }}
                                         />
-                                        <Tooltip title={apiKeyVisible ? 'Hide' : 'Show'}>
+                                        <Tooltip title={apiKeyVisible ? t('account.hide', 'Hide') : t('account.show', 'Show')}>
                                             <Button
                                                 type="text"
                                                 icon={apiKeyVisible ? <EyeInvisibleOutlined /> : <EyeOutlined />}
                                                 onClick={() => setApiKeyVisible(!apiKeyVisible)}
                                             />
                                         </Tooltip>
-                                        <Tooltip title="Copy to clipboard">
+                                        <Tooltip title={t('account.copyToClipboard', 'Copy to clipboard')}>
                                             <Button
                                                 type="text"
                                                 icon={<CopyOutlined />}
@@ -250,13 +243,13 @@ const Account: React.FC = () => {
                                             />
                                         </Tooltip>
                                         <Popconfirm
-                                            title="Remove API key?"
-                                            description="This will permanently revoke this API key."
+                                            title={t('account.removeKeyTitle', 'Remove API key?')}
+                                            description={t('account.removeKeyDesc', 'This will permanently revoke this API key.')}
                                             onConfirm={handleRemoveApiKey}
-                                            okText="Remove"
+                                            okText={t('account.remove', 'Remove')}
                                             okButtonProps={{ danger: true }}
                                         >
-                                            <Tooltip title="Remove API key">
+                                            <Tooltip title={t('account.removeKey', 'Remove API key')}>
                                                 <Button
                                                     type="text"
                                                     danger
@@ -274,7 +267,7 @@ const Account: React.FC = () => {
                                     onClick={handleGetApiKey}
                                     loading={requestingKey}
                                 >
-                                    Get API Key
+                                    {t('account.getApiKey', 'Get API Key')}
                                 </Button>
                             )}
                         </Space>

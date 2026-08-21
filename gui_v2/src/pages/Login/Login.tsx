@@ -66,7 +66,7 @@ const Login: React.FC = () => {
 	const LOGIN_DEBOUNCE_MS = 3000;
 
 	// Poll backend initialization progress during login
-	const { progress: initProgress } = useInitializationProgress(loading || showInitProgress);
+	const { status: initProgress, message: initMessage } = useInitializationProgress(loading || showInitProgress);
 
 	// On mount: reset stale singleton state from previous session so that a cached
 	// fully_ready=true cannot cause an immediate redirect before the user logs in.
@@ -86,14 +86,13 @@ const Login: React.FC = () => {
 
 	// 标准跳转逻辑：仅当系统初始化就绪且登录成功时才跳转到主页面
 	useEffect(() => {
-		console.log('[Login] Navigation check:', { 
-			ui_ready: initProgress?.ui_ready, 
-			loginSuccessful, 
-			hasNavigated,
-			initProgress 
+		console.log('[Login] Navigation check:', {
+			ready: initProgress?.ready,
+			loginSuccessful,
+			hasNavigated
 		});
-		
-		if (!initProgress?.ui_ready) return;
+
+		if (!initProgress?.ready) return;
 		if (!loginSuccessful) return;
 		if (hasNavigated) return;
 
@@ -852,24 +851,15 @@ const Login: React.FC = () => {
 				</Select>
 			</div>
 
-			{/* Show initialization progress during login process */}
+			{/* Show loading during login process */}
 			<LoadingProgress
 				visible={loading || showInitProgress}
-				progress={initProgress}
-				title={loginProgress === 'redirecting' || googleLoginProgress === 'redirecting'
-					? t('login.redirectingToMain') || 'Redirecting to main page...'
-					: loginProgress === 'success' || googleLoginProgress === 'success'
-						? t('login.loginSuccess') || 'Login successful!'
-						: undefined
-				}
-				onComplete={() => {
-					// 只负责关闭进度UI，跳转由统一的 effect 处理
-					setLoading(false);
-					setShowInitProgress(false);
-				}}
+				message={initMessage}
 			/>
 
-			<Card className="intl-login-card">
+			{/* Hide login card during loading */}
+			{!(loading || showInitProgress) && (
+				<Card className="intl-login-card">
 				{loading ? (
 					<div className="intl-loading-container">
 						<Spin
@@ -1228,6 +1218,7 @@ const Login: React.FC = () => {
 					</>
 				)}
 			</Card>
+			)}
 		</div>
 	);
 };

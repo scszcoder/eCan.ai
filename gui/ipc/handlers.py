@@ -420,55 +420,36 @@ def handle_test_task(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
 
 @IPCHandlerRegistry.handler('get_initialization_progress')
 def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """Get MainWindow initialization progress
+    """Get system initialization status.
 
-    Args:
-        request: IPC request object
-        params: Request parameters (not used)
-
-    Returns:
-        IPCResponse: JSON response with initialization progress
+    Simplified response: 'ready' boolean and 'status' key for i18n.
     """
     try:
-        # logger.debug(f"Get initialization progress handler called with request: {request}")
-
         main_window = AppContext.get_main_window()
-        logger.info(f"[InitProgress] MainWindow instance: {main_window is not None}, ECAN_MODE: {os.getenv('ECAN_MODE', 'desktop')}")
-        
+
+        # Web mode - always ready
         if main_window is None and os.getenv("ECAN_MODE", "desktop") == "web":
-            # In web mode we don't create a Qt MainWindow; report ready so the frontend can proceed
-            logger.info("[InitProgress] Web mode detected, returning ready status")
             return create_success_response(request, {
-                'ui_ready': True,
-                'critical_services_ready': True,
-                'async_init_complete': True,
-                'fully_ready': True,
-                'sync_init_complete': True,
-                'message': 'Web mode: backend ready'
+                'ready': True,
+                'status': 'system.ready'
             })
+
+        # MainWindow not created yet
         if main_window is None:
-            logger.warning("[InitProgress] ⚠️ MainWindow not yet created - returning not ready")
-            # MainWindow not yet created
             return create_success_response(request, {
-                'ui_ready': False,
-                'critical_services_ready': False,
-                'async_init_complete': False,
-                'fully_ready': False,
-                'sync_init_complete': False,
-                'message': 'MainWindow not yet initialized'
+                'ready': False,
+                'status': 'system.initializing'
             })
 
         # Get progress from MainWindow
-        progress = main_window.get_initialization_progress()
-        progress['message'] = 'Initialization progress retrieved successfully'
-
-        logger.info(f"[InitProgress] ✅ Returning progress: ui_ready={progress.get('ui_ready')}, fully_ready={progress.get('fully_ready')}")
-        return create_success_response(request, progress)
+        is_ready = main_window.is_fully_initialized()
+        return create_success_response(request, {
+            'ready': is_ready,
+            'status': 'system.ready' if is_ready else 'system.initializing'
+        })
 
     except Exception as e:
         logger.error(f"Error in get initialization progress handler: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
         return create_error_response(
             request,
             'INIT_PROGRESS_ERROR',

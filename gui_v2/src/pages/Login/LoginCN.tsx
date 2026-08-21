@@ -70,7 +70,7 @@ const LoginCN: React.FC = () => {
   const lastLoginAttemptRef = useRef<number>(0);
   const LOGIN_DEBOUNCE_MS = 3000;
 
-  const { progress: initProgress } = useInitializationProgress(loading || showInitProgress);
+  const { status: initProgress, message: initMessage } = useInitializationProgress(loading || showInitProgress);
 
   // 初始化
   useEffect(() => {
@@ -271,7 +271,7 @@ const LoginCN: React.FC = () => {
 
   // 导航逻辑
   useEffect(() => {
-    if (!initProgress?.ui_ready) return;
+    if (!initProgress?.ready) return;
     if (!loginSuccessful) return;
     if (hasNavigated) return;
 
@@ -1107,26 +1107,22 @@ const LoginCN: React.FC = () => {
       {/* 加载进度 - email-signup 模式不显示（发送验证码很快，不需要遮罩） */}
       <LoadingProgress
         visible={(loading || showInitProgress) && mode !== 'email-signup'}
-        progress={initProgress}
-        title={loginProgress === 'redirecting' ? t('login.redirectingToMain') : undefined}
-        onComplete={() => {
-          setLoading(false);
-          setShowInitProgress(false);
-        }}
+        message={initMessage}
       />
 
-      {/* 登录卡片 */}
-      <div className="cn-login-card">
-        {loading && loginProgress === 'authenticating' && mode !== 'email-signup' ? (
-          <div className="cn-loading-container">
-            <Spin size="large" />
-            <div className="cn-loading-text">
-              {loginProgress === 'redirecting'
-                ? t('login.redirectingToMain')
-                : loginProgress === 'success'
-                  ? t('login.success')
-                  : t('login.verifying')}
-            </div>
+      {/* 隐藏登录卡片 during loading */}
+      {!(loading || showInitProgress) && (
+        <div className="cn-login-card">
+          {loading && loginProgress === 'authenticating' && mode !== 'email-signup' ? (
+            <div className="cn-loading-container">
+              <Spin size="large" />
+              <div className="cn-loading-text">
+                {loginProgress === 'redirecting'
+                  ? t('login.redirectingToMain')
+                  : loginProgress === 'success'
+                    ? t('login.success')
+                    : t('login.verifying')}
+              </div>
           </div>
         ) : (
           <>
@@ -1544,7 +1540,8 @@ const LoginCN: React.FC = () => {
             </Form>
           </>
         )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

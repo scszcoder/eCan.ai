@@ -262,10 +262,10 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
             case 'logout':
                 // Show confirmation modal before logout
                 modal.confirm({
-                    title: t('common.logout_confirm_title') || '确认退出',
-                    content: t('common.logout_confirm_message') || '您确定要退出登录吗？',
-                    okText: t('common.confirm') || '确认',
-                    cancelText: t('common.cancel') || '取消',
+                    title: t('common.logout_confirm_title'),
+                    content: t('common.logout_confirm_message'),
+                    okText: t('common.confirm'),
+                    cancelText: t('common.cancel'),
                     onOk: () => {
                         onLogout();
                     },
