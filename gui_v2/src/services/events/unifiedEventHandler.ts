@@ -137,6 +137,23 @@ export class UnifiedEventHandler {
         // No logging needed to reduce noise
         return;
       
+      // Onboarding events - route to onboarding service
+      case 'onboarding_message':
+        // Forward to onboarding service via eventBus
+        eventBus.emit('onboarding-message', event.payload);
+        return;
+      
+      // Agent status update events - route to agent store/listeners
+      case 'update_agents_status':
+        // Emit event for agent store components to handle
+        eventBus.emit('agents-status-update', event.payload);
+        return;
+
+      case 'update_home_agents':
+        // Emit event for home agents components to handle
+        eventBus.emit('home-agents-update', event.payload);
+        return;
+      
       default:
         logger.warn(`[UnifiedEventHandler] Unknown event type: ${type}`);
     }

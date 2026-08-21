@@ -922,7 +922,7 @@ const Settings: React.FC = () => {
               label: (
                 <span>
                   <MessageOutlined style={{ marginRight: 8 }} />
-                  Channels
+                  {t('pages.settings.channels_tab_title')}
                 </span>
               ),
               children: <ChannelSettings />,

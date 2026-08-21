@@ -1,10 +1,21 @@
 {
+  "regions": {
+    "cn": {
+      "default_provider": "Jina",
+      "default_model": "jina-embeddings-v3"
+    },
+    "intl": {
+      "default_provider": "OpenAI",
+      "default_model": "text-embedding-3-large"
+    }
+  },
   "providers": {
     "OpenAI": {
       "name": "OpenAI",
       "display_name": "OpenAI",
       "provider": "openai",
       "class_name": "OpenAIEmbeddings",
+      "regions": ["intl"],
       "api_key_env_vars": [
         "OPENAI_API_KEY"
       ],
@@ -42,6 +53,7 @@
       "display_name": "Azure OpenAI",
       "provider": "azure_openai",
       "class_name": "AzureOpenAIEmbeddings",
+      "regions": ["intl"],
       "api_key_env_vars": [
         "AZURE_ENDPOINT",
         "AZURE_OPENAI_API_KEY"
@@ -80,6 +92,7 @@
       "display_name": "Voyage AI",
       "provider": "voyageai",
       "class_name": "VoyageEmbeddings",
+      "regions": ["intl"],
       "api_key_env_vars": [
         "VOYAGE_API_KEY"
       ],
@@ -125,6 +138,7 @@
       "display_name": "Jina",
       "provider": "jina",
       "class_name": "JinaEmbeddings",
+      "regions": ["cn", "intl"],
       "api_key_env_vars": [
         "JINA_API_KEY"
       ],
@@ -162,6 +176,7 @@
       "display_name": "Google Gemini",
       "provider": "google",
       "class_name": "VertexAIEmbeddings",
+      "regions": ["intl"],
       "api_key_env_vars": [
         "GOOGLE_API_KEY"
       ],
@@ -191,6 +206,7 @@
       "display_name": "Qwen (DashScope)",
       "provider": "alibaba_qwen",
       "class_name": "QwenEmbeddings",
+      "regions": ["cn", "intl"],
       "api_key_env_vars": [
         "DASHSCOPE_API_KEY"
       ],
@@ -220,6 +236,7 @@
       "display_name": "Baidu Qianfan",
       "provider": "baidu_qianfan",
       "class_name": "BaiduQianfanEmbeddings",
+      "regions": ["cn", "intl"],
       "api_key_env_vars": [
         "BAIDU_API_KEY"
       ],
@@ -265,6 +282,7 @@
       "display_name": "Cohere",
       "provider": "cohere",
       "class_name": "CohereEmbeddings",
+      "regions": ["intl"],
       "api_key_env_vars": [
         "COHERE_API_KEY"
       ],
@@ -302,6 +320,7 @@
       "display_name": "HuggingFace",
       "provider": "huggingface",
       "class_name": "HuggingFaceEmbeddings",
+      "regions": ["intl"],
       "api_key_env_vars": [
         "HUGGINGFACE_API_KEY"
       ],
@@ -339,6 +358,7 @@
       "display_name": "Bytedance",
       "provider": "doubao",
       "class_name": "DoubaoEmbeddings",
+      "regions": ["cn", "intl"],
       "api_key_env_vars": [
         "ARK_API_KEY"
       ],
@@ -368,6 +388,7 @@
       "display_name": "Ollama",
       "provider": "ollama",
       "class_name": "OpenAIEmbeddings",
+      "regions": ["cn", "intl"],
       "api_key_env_vars": [
         "OLLAMA_EMBEDDING_API_KEY"
       ],
@@ -388,6 +409,7 @@
       "display_name": "RyoAIS",
       "provider": "ryoais",
       "class_name": "OpenAIEmbeddings",
+      "regions": ["cn", "intl"],
       "api_key_env_vars": [
         "RYOAIS_EMBEDDING_API_KEY"
       ],
@@ -405,9 +427,9 @@
     }
   },
   "metadata": {
-    "version": "1.1.1",
-    "last_updated": "2025-11-26",
-    "description": "Embedding provider configurations for eCan.ai - Updated for Nov 2025",
+    "version": "2.0.0",
+    "last_updated": "2026-08-20",
+    "description": "Embedding provider configurations for eCan.ai - Updated models verified Aug 2026",
     "schema_version": "1.0"
   }
 }
