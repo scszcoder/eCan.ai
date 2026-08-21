@@ -902,6 +902,15 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                 {t(`pages.skills.levels.${(skill as any)?.level || 'entry'}`, String((skill as any)?.level || 'entry'))}
                             </Text>
                         </div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>ID</div>
+                            <Text
+                                copyable={(skill as any)?.id ? { text: String((skill as any).id) } : false}
+                                style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace' }}
+                            >
+                                {String((skill as any)?.id || '—')}
+                            </Text>
+                        </div>
                     </div>
 
                     {/* Description */}
@@ -1329,6 +1338,14 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                         <ClockCircleOutlined style={{ color: 'rgba(255,255,255,0.4)' }} />
                                         <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>{(skill as any).lastUsed}</Text>
                                     </Space>
+                                )}
+                                {!isNew && (skill as any)?.id && (
+                                    <Text
+                                        copyable={{ text: String((skill as any).id) }}
+                                        style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, fontFamily: 'monospace' }}
+                                    >
+                                        ID: {String((skill as any).id)}
+                                    </Text>
                                 )}
                             </Space>
                         </div>

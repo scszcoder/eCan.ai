@@ -576,6 +576,23 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
                         </PriceTag>
                     </TitleRow>
 
+                    {(skill as any)?.id && (
+                        <div
+                            title={String((skill as any).id)}
+                            style={{
+                                fontSize: 10.5,
+                                fontFamily: 'monospace',
+                                color: 'rgba(255,255,255,0.35)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                marginTop: -2,
+                            }}
+                        >
+                            {String((skill as any).id)}
+                        </div>
+                    )}
+
                     {skill.description && <Description>{skill.description}</Description>}
 
                     <TagsRow>

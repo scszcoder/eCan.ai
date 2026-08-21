@@ -337,6 +337,20 @@ const SkillMarketplaceList: React.FC<SkillMarketplaceListProps> = ({
         const titleLine = (
             <TitleText>
                 {skill.name}
+                {(skill as any)?.id && (
+                    <span
+                        title={String((skill as any).id)}
+                        style={{
+                            marginLeft: 8,
+                            fontSize: 10.5,
+                            fontFamily: 'monospace',
+                            color: 'rgba(255,255,255,0.35)',
+                            fontWeight: 400,
+                        }}
+                    >
+                        {String((skill as any).id)}
+                    </span>
+                )}
                 {isCode && (
                     <Tag color="orange" style={{ marginLeft: 6, fontSize: 10, padding: '0 6px', borderRadius: 6 }}>
                         <LockOutlined /> {t('pages.skills.code', 'Code')}
