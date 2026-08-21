@@ -45,7 +45,7 @@ def _appsync_request(query_string: str, ctx: Dict[str, Any],
                      variables: Optional[Dict] = None,
                      timeout: int = 60) -> Dict:
     """Send a GraphQL request to AppSync (JSON content-type for variables support)."""
-    from agent.cloud_api.cloud_api import get_appsync_endpoint
+    from agent.cloud_api.cloud_api import get_appsync_endpoint, _http_auth_header
 
     endpoint = ctx.get("endpoint") or get_appsync_endpoint()
     token = ctx["token"]
@@ -53,7 +53,8 @@ def _appsync_request(query_string: str, ctx: Dict[str, Any],
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": token,
+        # CN needs the session-token bearer; Intl passes the token through.
+        "Authorization": _http_auth_header(token),
         "cache-control": "no-cache",
     }
 

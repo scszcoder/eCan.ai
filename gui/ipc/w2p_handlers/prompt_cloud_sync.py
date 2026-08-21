@@ -86,7 +86,7 @@ def _appsync_request(query_string: str, ctx: Dict[str, Any], variables: Optional
     The shared ``appsync_http_request`` uses ``application/graphql`` which causes
     AppSync to ignore the variables dict.
     """
-    from agent.cloud_api.cloud_api import get_appsync_endpoint
+    from agent.cloud_api.cloud_api import get_appsync_endpoint, _http_auth_header
 
     endpoint = ctx.get("endpoint") or get_appsync_endpoint()
     token = ctx["token"]
@@ -94,7 +94,9 @@ def _appsync_request(query_string: str, ctx: Dict[str, Any], variables: Optional
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": token,
+        # CN: session-token bearer (the only credential the SCF HTTP gate
+        # accepts); Intl: raw Cognito token — same as skill_editor_cloud_relay.
+        "Authorization": _http_auth_header(token),
         "cache-control": "no-cache",
     }
 

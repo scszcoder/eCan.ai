@@ -550,17 +550,39 @@ class SessionSupervisor:
                         f"[SessionSupervisor] Session-token refresh failed "
                         f"({err_code}): {err_msg}"
                     )
-                    if err_code in ("SESSION_EXPIRED", "WX_TOKEN_EXPIRED"):
+                    if err_code == "SESSION_EXPIRED":
                         # Session token itself is dead — clean it up so a
-                        # future re-login doesn't try to reuse it.
+                        # future re-login doesn't try to reuse it, and fall
+                        # through to the expired emit below.
                         try:
                             am._delete_wechat_session_token()
                         except Exception:
                             pass
+                    else:
+                        # WX_TOKEN_EXPIRED or a transient failure: only the
+                        # WS JWT is unavailable. The 30-day session token
+                        # still authenticates HTTP GraphQL, so stay signed
+                        # in — do NOT emit expired (that logs the user out).
+                        logger.warning(
+                            f"[SessionSupervisor] WS-token refresh unavailable "
+                            f"({err_code}); staying signed in — HTTP continues "
+                            f"on the 30-day session token."
+                        )
+                        with self._lock:
+                            self._silently_refreshing = False
+                            self._silent_refresh_next_attempt = 0.0
+                        return
         except Exception as exc:
+            # Transport-level failure (network blip, endpoint down): treat as
+            # transient — never log the user out over an unreachable server.
             logger.warning(
-                f"[SessionSupervisor] session-token refresh raised: {exc}"
+                f"[SessionSupervisor] session-token refresh raised: {exc}; "
+                "staying signed in (transient)"
             )
+            with self._lock:
+                self._silently_refreshing = False
+                self._silent_refresh_next_attempt = 0.0
+            return
 
         logger.warning(
             "[SessionSupervisor] Session expired (no refresh_token); "
@@ -687,7 +709,7 @@ class SessionSupervisor:
                 f"[SessionSupervisor] proactive session-token refresh failed "
                 f"({err_code}): {err_msg}"
             )
-            if err_code in ("SESSION_EXPIRED", "WX_TOKEN_EXPIRED"):
+            if err_code == "SESSION_EXPIRED":
                 logger.warning(
                     "[SessionSupervisor] server declared the 30-day session "
                     "token dead — deleting it and signing out"
@@ -700,6 +722,15 @@ class SessionSupervisor:
                 # downstream subscribers (WS, offline sync) tear down.
                 self.notify_session_cleared(
                     source="_attempt_wechat_session_token_refresh"
+                )
+            else:
+                # WX_TOKEN_EXPIRED / transient: HTTP still authenticates via
+                # the 30-day session token — keep the session (and the local
+                # token) so only WS features degrade until refresh recovers.
+                logger.warning(
+                    f"[SessionSupervisor] WS-token refresh unavailable "
+                    f"({err_code}); staying signed in — HTTP continues on "
+                    f"the 30-day session token."
                 )
             return False
         new_at = result.get("accessToken")

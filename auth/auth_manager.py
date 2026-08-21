@@ -236,7 +236,7 @@ class AuthManager:
                         err_code = (result or {}).get('code') if isinstance(result, dict) else None
                         err_msg = (result or {}).get('error') if isinstance(result, dict) else str(result)
                         logger.warning(f"AuthManager: WeChat session token refresh failed ({err_code}): {err_msg}")
-                        if err_code in ('SESSION_EXPIRED', 'WX_TOKEN_EXPIRED'):
+                        if err_code == 'SESSION_EXPIRED':
                             logger.error("AuthManager: WeChat session expired — please re-scan QR code")
                             self.signed_in = False
                             self._delete_wechat_session_token()
@@ -247,7 +247,18 @@ class AuthManager:
                                     sup.notify_session_cleared(source="ensure_valid_tokens")
                             except Exception:
                                 pass
-                        return False
+                            return False
+                        # WX_TOKEN_EXPIRED or a transient failure: only the WS
+                        # JWT could not be refreshed. The 30-day session token
+                        # still authenticates every HTTP GraphQL call
+                        # (_http_auth_header swaps it in), so keep the session
+                        # alive instead of logging the user out.
+                        logger.warning(
+                            "AuthManager: WS-token refresh unavailable "
+                            f"({err_code}); staying signed in — HTTP continues "
+                            "on the 30-day session token."
+                        )
+                        return True
                 else:
                     logger.warning("AuthManager: Token expired, no WeChat session token available")
                     self.signed_in = False
@@ -2848,10 +2859,13 @@ class AuthManager:
                         err_msg = (result or {}).get('error') if isinstance(result, dict) else str(result)
                         consecutive_failures += 1
                         logger.warning(f"AuthManager: WeChat token refresh failed ({err_code}): {err_msg}")
-                        if err_code in ('SESSION_EXPIRED', 'WX_TOKEN_EXPIRED'):
+                        if err_code == 'SESSION_EXPIRED':
                             logger.error("AuthManager: WeChat session expired — please re-scan QR code")
                             self.signed_in = False
                             break
+                        # WX_TOKEN_EXPIRED / transient: HTTP still works on the
+                        # 30-day session token — keep looping (with backoff) in
+                        # case the server starts minting WS tokens again.
                         continue
 
                 logger.info("AuthManager: Refreshing tokens...")
