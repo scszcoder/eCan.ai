@@ -206,10 +206,11 @@ const StatsRow = styled.div`
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 0;
+    padding: 6px 0;
     border-top: 1px solid rgba(255, 255, 255, 0.05);
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     gap: 8px;
+    white-space: nowrap;
 `;
 
 const Stat = styled.div`
@@ -595,16 +596,19 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
 
                     {skill.description && <Description>{skill.description}</Description>}
 
-                    <TagsRow>
+                    {tags.length > 0 && (
+                        <TagsRow>
+                            {tags.map((tag, idx) => (
+                                <TagPill key={`${tag}-${idx}`} $color="#722ed1">#{tag}</TagPill>
+                            ))}
+                        </TagsRow>
+                    )}
+
+                    {/* Level + rating + downloads + subscribers on a single row */}
+                    <StatsRow>
                         <TagPill $color="#1890ff">
                             {t(`pages.skills.levels.${level}`, level)}
                         </TagPill>
-                        {tags.map((tag, idx) => (
-                            <TagPill key={`${tag}-${idx}`} $color="#722ed1">#{tag}</TagPill>
-                        ))}
-                    </TagsRow>
-
-                    <StatsRow>
                         <Tooltip title={t('pages.skills.rating', 'Rating')}>
                             <Stat>
                                 <StarFilled style={{ color: '#faad14' }} />
