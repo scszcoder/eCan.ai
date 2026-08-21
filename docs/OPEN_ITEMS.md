@@ -10,7 +10,21 @@ _Last updated: 2026-08-19_
 
 ## 🔴 Bugs (unfixed)
 
-- **TCB `addPrompts` is INSERT-only — prompt UPDATES never reach the cloud**
+- **TCB skills schema drift blocks BOTH skill sync directions** (completed
+  diagnosis 2026-08-21). The AWS canonical schema has `public: Boolean` on
+  AgentSkill/AgentSkillInput; the TCB SDL renamed it `is_public`/`isPublic`
+  on `AgentSkill` AND `SkillInput`. Result: `queryAgentSkills` fails
+  validation every startup ("Cloud returned no skills"), and editor-created
+  skills — which DO go through the full intended pipeline (skill editor →
+  local DB → OfflineSyncManager → addAgentSkills) — die on
+  `Field "public" is not defined by type "SkillInput"`, with the offline
+  queue retrying into the same wall. Server fix: add the `public` alias to
+  both types (TCB already dual-aliases camel/snake). Verified by live probe
+  that the resolver itself works (insert OK/visible/removable; re-add same
+  id → graceful success:false, still not upsert). Separately: the 4
+  built-in panel skills (resource/my_skills) have NO sync path at all —
+  they're disk-loaded, ownerless until request-time stamping; syncing them
+  is a feature decision, not a bug.
   (found 2026-08-21). Proven with a live probe: first add of a new id → OK,
   second add of the same id → `INTERNAL_SERVER_ERROR "Unexpected error."`
   (unique-constraint violation). The AWS original (DynamoDB put_item) is an
