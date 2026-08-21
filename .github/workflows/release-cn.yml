@@ -1098,12 +1098,33 @@ jobs:
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
-          # Run ls-remote directly.  TCP probe already confirmed gitee.com:443 is
-          # reachable.  Step-level timeout (6h) is the safety net.
-          Write-Host "[DEBUG] Running ls-remote..."
-          & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" | Tee-Object -Variable lsOut
-          $lsExit = $LASTEXITCODE
-          $lsRaw = $lsOut
+          # Run ls-remote via .NET Process with reliable wall-clock timeout.
+          # MSYS2 curl's http.timeout does not reliably interrupt TLS handshake
+          # hangs on Windows; Start-Job has argv-mangling issues on this runner.
+          # Using System.Diagnostics.Process gives us guaranteed per-call timeout.
+          $timeoutSec = 30
+          Write-Host "[DEBUG] Running ls-remote with ${timeoutSec}s timeout..."
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName  = $gitExe
+          $psi.Arguments  = "ls-remote --exit-code origin `"refs/heads/$bareRef`" `"refs/tags/$bareRef`""
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError  = $true
+          $psi.UseShellExecute = $false
+          $psi.CreateNoWindow  = $true
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          $ok   = $proc.WaitForExit($timeoutSec * 1000)
+          if (-not $ok) {
+            $proc.Kill($true)
+            $proc.WaitForExit(5000)
+            "::error::git ls-remote timed out after ${timeoutSec}s. TCP probe passed but git.exe cannot complete the TLS handshake. Gitee.com may be behind a corporate MITM proxy that TcpClient bypasses but MSYS2 curl does not. Check the runner certificate trust store."
+            exit 1
+          }
+          $stdout = $proc.StandardOutput.ReadToEnd()
+          $stderr = $proc.StandardError.ReadToEnd()
+          $lsExit = $proc.ExitCode
+          $proc.Dispose()
+          if ($stderr -and $stderr.Trim()) { $stderr -split "`n" | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
+          $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
@@ -2017,12 +2038,33 @@ jobs:
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
-          # Run ls-remote directly.  TCP probe already confirmed gitee.com:443 is
-          # reachable.  Step-level timeout (6h) is the safety net.
-          Write-Host "[DEBUG] Running ls-remote..."
-          & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" | Tee-Object -Variable lsOut
-          $lsExit = $LASTEXITCODE
-          $lsRaw = $lsOut
+          # Run ls-remote via .NET Process with reliable wall-clock timeout.
+          # MSYS2 curl's http.timeout does not reliably interrupt TLS handshake
+          # hangs on Windows; Start-Job has argv-mangling issues on this runner.
+          # Using System.Diagnostics.Process gives us guaranteed per-call timeout.
+          $timeoutSec = 30
+          Write-Host "[DEBUG] Running ls-remote with ${timeoutSec}s timeout..."
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName  = $gitExe
+          $psi.Arguments  = "ls-remote --exit-code origin `"refs/heads/$bareRef`" `"refs/tags/$bareRef`""
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError  = $true
+          $psi.UseShellExecute = $false
+          $psi.CreateNoWindow  = $true
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          $ok   = $proc.WaitForExit($timeoutSec * 1000)
+          if (-not $ok) {
+            $proc.Kill($true)
+            $proc.WaitForExit(5000)
+            "::error::git ls-remote timed out after ${timeoutSec}s. TCP probe passed but git.exe cannot complete the TLS handshake. Gitee.com may be behind a corporate MITM proxy that TcpClient bypasses but MSYS2 curl does not. Check the runner certificate trust store."
+            exit 1
+          }
+          $stdout = $proc.StandardOutput.ReadToEnd()
+          $stderr = $proc.StandardError.ReadToEnd()
+          $lsExit = $proc.ExitCode
+          $proc.Dispose()
+          if ($stderr -and $stderr.Trim()) { $stderr -split "`n" | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
+          $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
@@ -2729,12 +2771,33 @@ jobs:
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
-          # Run ls-remote directly.  TCP probe already confirmed gitee.com:443 is
-          # reachable.  Step-level timeout (6h) is the safety net.
-          Write-Host "[DEBUG] Running ls-remote..."
-          & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" | Tee-Object -Variable lsOut
-          $lsExit = $LASTEXITCODE
-          $lsRaw = $lsOut
+          # Run ls-remote via .NET Process with reliable wall-clock timeout.
+          # MSYS2 curl's http.timeout does not reliably interrupt TLS handshake
+          # hangs on Windows; Start-Job has argv-mangling issues on this runner.
+          # Using System.Diagnostics.Process gives us guaranteed per-call timeout.
+          $timeoutSec = 30
+          Write-Host "[DEBUG] Running ls-remote with ${timeoutSec}s timeout..."
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName  = $gitExe
+          $psi.Arguments  = "ls-remote --exit-code origin `"refs/heads/$bareRef`" `"refs/tags/$bareRef`""
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError  = $true
+          $psi.UseShellExecute = $false
+          $psi.CreateNoWindow  = $true
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          $ok   = $proc.WaitForExit($timeoutSec * 1000)
+          if (-not $ok) {
+            $proc.Kill($true)
+            $proc.WaitForExit(5000)
+            "::error::git ls-remote timed out after ${timeoutSec}s. TCP probe passed but git.exe cannot complete the TLS handshake. Gitee.com may be behind a corporate MITM proxy that TcpClient bypasses but MSYS2 curl does not. Check the runner certificate trust store."
+            exit 1
+          }
+          $stdout = $proc.StandardOutput.ReadToEnd()
+          $stderr = $proc.StandardError.ReadToEnd()
+          $lsExit = $proc.ExitCode
+          $proc.Dispose()
+          if ($stderr -and $stderr.Trim()) { $stderr -split "`n" | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
+          $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
@@ -3431,12 +3494,33 @@ jobs:
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
-          # Run ls-remote directly.  TCP probe already confirmed gitee.com:443 is
-          # reachable.  Step-level timeout (6h) is the safety net.
-          Write-Host "[DEBUG] Running ls-remote..."
-          & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" | Tee-Object -Variable lsOut
-          $lsExit = $LASTEXITCODE
-          $lsRaw = $lsOut
+          # Run ls-remote via .NET Process with reliable wall-clock timeout.
+          # MSYS2 curl's http.timeout does not reliably interrupt TLS handshake
+          # hangs on Windows; Start-Job has argv-mangling issues on this runner.
+          # Using System.Diagnostics.Process gives us guaranteed per-call timeout.
+          $timeoutSec = 30
+          Write-Host "[DEBUG] Running ls-remote with ${timeoutSec}s timeout..."
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName  = $gitExe
+          $psi.Arguments  = "ls-remote --exit-code origin `"refs/heads/$bareRef`" `"refs/tags/$bareRef`""
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError  = $true
+          $psi.UseShellExecute = $false
+          $psi.CreateNoWindow  = $true
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          $ok   = $proc.WaitForExit($timeoutSec * 1000)
+          if (-not $ok) {
+            $proc.Kill($true)
+            $proc.WaitForExit(5000)
+            "::error::git ls-remote timed out after ${timeoutSec}s. TCP probe passed but git.exe cannot complete the TLS handshake. Gitee.com may be behind a corporate MITM proxy that TcpClient bypasses but MSYS2 curl does not. Check the runner certificate trust store."
+            exit 1
+          }
+          $stdout = $proc.StandardOutput.ReadToEnd()
+          $stderr = $proc.StandardError.ReadToEnd()
+          $lsExit = $proc.ExitCode
+          $proc.Dispose()
+          if ($stderr -and $stderr.Trim()) { $stderr -split "`n" | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
+          $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
