@@ -202,6 +202,7 @@ class SessionSupervisor:
             self._silently_refreshing = False
             self._last_token_installed_at = time.time()
             self._fresh_token_rejection_count = 0
+            self._ws_degraded_announced = False
         self._emit_refreshed()
 
     def notify_session_cleared(self, source: str = "auth_manager") -> None:
@@ -489,6 +490,11 @@ class SessionSupervisor:
         wall_now = time.time()
         with self._lock:
             installed_at = self._last_token_installed_at
+            next_attempt = self._silent_refresh_next_attempt
+        # Backoff gate: when the server is in the expected WX_TOKEN_EXPIRED
+        # state, don't re-attempt (and re-log) on every 30s tick.
+        if next_attempt and time.monotonic() < next_attempt:
+            return
         token_age = wall_now - installed_at if installed_at > 0 else float("inf")
         remaining = exp - wall_now
 
@@ -517,7 +523,8 @@ class SessionSupervisor:
         try:
             ok_st, session_tok = am._get_wechat_session_token()
             if ok_st and session_tok:
-                logger.info(
+                _log = logger.debug if getattr(self, '_ws_degraded_announced', False) else logger.info
+                _log(
                     "[SessionSupervisor] Trying session-token silent refresh "
                     "before surfacing session_expired"
                 )
@@ -561,16 +568,25 @@ class SessionSupervisor:
                     else:
                         # WX_TOKEN_EXPIRED or a transient failure: only the
                         # WS JWT is unavailable. The 30-day session token
-                        # still authenticates HTTP GraphQL, so stay signed
-                        # in — do NOT emit expired (that logs the user out).
-                        logger.warning(
-                            f"[SessionSupervisor] WS-token refresh unavailable "
-                            f"({err_code}); staying signed in — HTTP continues "
-                            f"on the 30-day session token."
-                        )
+                        # still authenticates HTTP GraphQL AND the WS bridge
+                        # (get_auth_token serves it once the JWT expires), so
+                        # stay signed in — do NOT emit expired. Expected
+                        # state: announce once, then back off + debug.
+                        if not getattr(self, '_ws_degraded_announced', False):
+                            self._ws_degraded_announced = True
+                            logger.warning(
+                                f"[SessionSupervisor] WS-token refresh unavailable "
+                                f"({err_code}); staying signed in — HTTP and WS "
+                                f"continue on the 30-day session token."
+                            )
+                        else:
+                            logger.debug(
+                                f"[SessionSupervisor] WS-token refresh still "
+                                f"unavailable ({err_code})"
+                            )
                         with self._lock:
                             self._silently_refreshing = False
-                            self._silent_refresh_next_attempt = 0.0
+                            self._silent_refresh_next_attempt = time.monotonic() + 120
                         return
         except Exception as exc:
             # Transport-level failure (network blip, endpoint down): treat as
@@ -581,7 +597,7 @@ class SessionSupervisor:
             )
             with self._lock:
                 self._silently_refreshing = False
-                self._silent_refresh_next_attempt = 0.0
+                self._silent_refresh_next_attempt = time.monotonic() + 120
             return
 
         logger.warning(
@@ -727,11 +743,19 @@ class SessionSupervisor:
                 # WX_TOKEN_EXPIRED / transient: HTTP still authenticates via
                 # the 30-day session token — keep the session (and the local
                 # token) so only WS features degrade until refresh recovers.
-                logger.warning(
-                    f"[SessionSupervisor] WS-token refresh unavailable "
-                    f"({err_code}); staying signed in — HTTP continues on "
-                    f"the 30-day session token."
-                )
+                # Expected state: announce once, then debug.
+                if not getattr(self, '_ws_degraded_announced', False):
+                    self._ws_degraded_announced = True
+                    logger.warning(
+                        f"[SessionSupervisor] WS-token refresh unavailable "
+                        f"({err_code}); staying signed in — HTTP and WS "
+                        f"continue on the 30-day session token."
+                    )
+                else:
+                    logger.debug(
+                        f"[SessionSupervisor] WS-token refresh still "
+                        f"unavailable ({err_code})"
+                    )
             return False
         new_at = result.get("accessToken")
         if not new_at:

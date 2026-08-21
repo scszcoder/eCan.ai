@@ -218,10 +218,21 @@ class AuthManager:
                 # WeChat (or CN login without refresh token): try session token first.
                 ok, session_tok = self._get_wechat_session_token()
                 if ok:
+                    # Cooldown: get_auth_token() runs this on EVERY API call.
+                    # When the server is in the known WX_TOKEN_EXPIRED state a
+                    # refresh attempt per call just hammers refreshWeChatToken;
+                    # retry at most once per minute and keep the session alive
+                    # in between (HTTP runs on the session token anyway).
+                    now_ts = time.time()
+                    if now_ts - getattr(self, '_wx_refresh_last_attempt', 0.0) < 60:
+                        return True
+                    self._wx_refresh_last_attempt = now_ts
                     ok2, result = self._refresh_wechat_token(session_tok)
                     if ok2:
                         self.tokens['AccessToken'] = result.get('accessToken', self.tokens.get('AccessToken'))
                         self.tokens['access_token'] = result.get('accessToken', self.tokens.get('access_token'))
+                        self._wx_refresh_last_attempt = 0.0
+                        self._wx_degraded_announced = False
                         logger.info("AuthManager: WeChat token refreshed via session token (on-demand).")
                         try:
                             from auth.session_supervisor import get_session_supervisor
@@ -250,13 +261,22 @@ class AuthManager:
                         # WX_TOKEN_EXPIRED or a transient failure: only the WS
                         # JWT could not be refreshed. The 30-day session token
                         # still authenticates every HTTP GraphQL call
-                        # (_http_auth_header swaps it in), so keep the session
-                        # alive instead of logging the user out.
-                        logger.warning(
-                            "AuthManager: WS-token refresh unavailable "
-                            f"({err_code}); staying signed in — HTTP continues "
-                            "on the 30-day session token."
-                        )
+                        # (_http_auth_header swaps it in) AND the WS bridge
+                        # (get_auth_token falls back to it), so keep the
+                        # session alive instead of logging the user out.
+                        # Announce once per degradation episode; this state is
+                        # expected, not exceptional.
+                        if not getattr(self, '_wx_degraded_announced', False):
+                            self._wx_degraded_announced = True
+                            logger.warning(
+                                "AuthManager: WS-token refresh unavailable "
+                                f"({err_code}); staying signed in — HTTP and WS "
+                                "continue on the 30-day session token."
+                            )
+                        else:
+                            logger.debug(
+                                f"AuthManager: WS-token refresh still unavailable ({err_code})"
+                            )
                         return True
                 else:
                     logger.warning("AuthManager: Token expired, no WeChat session token available")

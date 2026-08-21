@@ -100,9 +100,13 @@ validates the inner JWT (`uid` claim). Do **not** "unify" this with the HTTP
 path — the WS bridge cannot validate the HS256 session token and the HTTP
 gate cannot validate the JWT.
 
-Consequence: WS connectivity genuinely depends on a fresh JWT. When JWT
-refresh is broken server-side, WS features degrade (wan_chat 401-retries with
-backoff) while HTTP keeps working.
+Consequence: WS prefers a fresh JWT — but the WS bridge ALSO accepts the
+30-day session token (verified live 2026-08-21: `connection_init` →
+`connection_ack` with the session token as Authorization, both raw and
+Bearer-prefixed). Since 2026-08-21, `MainWindow.get_auth_token()` serves the
+session token whenever the JWT is expired, so WS reconnects keep working for
+the session token's full lifetime even when `refreshWeChatToken` returns
+`WX_TOKEN_EXPIRED`.
 
 ### 3.3 Local IPC (frontend ↔ backend)
 
@@ -173,11 +177,14 @@ death. A network blip could log you out.
 
 ### 4.3 What still degrades when refresh fails
 
-With a live session token but no fresh JWT:
+With a live session token but no fresh JWT (post-2026-08-21):
 - ✅ all HTTP GraphQL (chat relay, prompt sync, skills/tasks/agents CRUD)
-- ❌ WS subscriptions / wan_chat (401 handshakes, capped retries)
-- ❌ anything explicitly gated on `ensure_valid_tokens()` returning a fresh
-  JWT — none of the HTTP paths do anymore
+- ✅ WS subscriptions / wan_chat — `get_auth_token()` falls back to the
+  session token, which the WS bridge accepts
+- Refresh attempts are rate-limited (60 s on-demand cooldown, 120 s
+  supervisor backoff) and the "WS-token refresh unavailable" warning is
+  announced once per degradation episode (then DEBUG) — this state is
+  expected, not exceptional.
 
 ---
 
@@ -216,7 +223,8 @@ With a live session token but no fresh JWT:
 | `[_refresh_wechat_token] rotated session token persisted` | server rotates; rotation handled |
 | `payload has no sessionToken field; using legacy selection` | server does not expose rotation |
 | `proactive session-token refresh failed (<code>): <msg>` | the server's verdict on the session token — the key diagnostic |
-| `WS-token refresh unavailable (…); staying signed in` | JWT refresh failed non-fatally; HTTP still up |
+| `WS-token refresh unavailable (…); staying signed in` | JWT refresh failed non-fatally (announced once per episode); HTTP + WS continue on the session token |
+| `get_auth_token: JWT expired, serving 30-day session token` | WS/HTTP callers now receive the session token as the credential |
 | `server declared the 30-day session token dead — deleting it and signing out` | genuine `SESSION_EXPIRED` |
 | `Bearer token required` (from server) | wrong credential type sent on HTTP (see §3.1), not expiry |
 | `[se_cloud_relay] No auth token` | client-side: signed out / tokens cleared — request never left the machine |

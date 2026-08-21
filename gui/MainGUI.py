@@ -2798,20 +2798,47 @@ class MainWindow:
             tokens = self.auth_manager.get_tokens()
             if not tokens or not isinstance(tokens, dict):
                 return None
+            candidate = None
             # Common flat shapes from OAuth token exchange
-            for k in ('IdToken', 'id_token'):
+            for k in ('IdToken', 'id_token', 'AccessToken', 'access_token'):
                 if k in tokens and isinstance(tokens[k], str) and tokens[k]:
-                    return tokens[k]
-            for k in ('AccessToken', 'access_token'):
-                if k in tokens and isinstance(tokens[k], str) and tokens[k]:
-                    return tokens[k]
-            # Nested shape from Cognito AWSSRP / refresh
-            ar = tokens.get('AuthenticationResult') if isinstance(tokens, dict) else None
-            if isinstance(ar, dict):
-                for k in ('IdToken', 'AccessToken'):
-                    if k in ar and isinstance(ar[k], str) and ar[k]:
-                        return ar[k]
-            return None
+                    candidate = tokens[k]
+                    break
+            if candidate is None:
+                # Nested shape from Cognito AWSSRP / refresh
+                ar = tokens.get('AuthenticationResult') if isinstance(tokens, dict) else None
+                if isinstance(ar, dict):
+                    for k in ('IdToken', 'AccessToken'):
+                        if k in ar and isinstance(ar[k], str) and ar[k]:
+                            candidate = ar[k]
+                            break
+            if candidate is None:
+                return None
+
+            # CN WeChat: when the short-lived JWT is expired and cannot be
+            # re-minted (server WX_TOKEN_EXPIRED), serve the 30-day eCan
+            # session token instead — both the WS bridge and the HTTP gate
+            # accept it (verified live 2026-08-21), so WS features keep
+            # working for the session token's full lifetime.
+            try:
+                from agent.cloud_api.cloud_api import is_cn_app
+                if is_cn_app() and getattr(self.auth_manager, '_is_cn', False):
+                    jwt = candidate.split('/@@/', 1)[-1] if '/@@/' in candidate else candidate
+                    exp = self.auth_manager._decode_token_expiry_unsafe(jwt)
+                    import time as _time
+                    if exp is not None and exp <= int(_time.time()):
+                        ok_st, session_tok = self.auth_manager._get_wechat_session_token()
+                        if ok_st and session_tok:
+                            if not getattr(self, '_ws_session_token_fallback_announced', False):
+                                self._ws_session_token_fallback_announced = True
+                                logger.info(
+                                    "[MainWindow] get_auth_token: JWT expired, "
+                                    "serving 30-day session token (WS+HTTP fallback)"
+                                )
+                            return session_tok
+            except Exception:
+                pass
+            return candidate
         except Exception as e:
             err_msg = get_traceback(e, "ErrorGetAuthToken")
             logger.error(f"[MainWindow] ErrorGetAuthToken: {err_msg}")
