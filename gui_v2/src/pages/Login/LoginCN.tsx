@@ -13,12 +13,10 @@ import { APIResponse } from '../../services/ipc/api';
 import { get_ipc_api } from '../../services/ipc_api';
 import { userStorageManager, type LoginSession } from '../../services/storage/UserStorageManager';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
-import { useInitializationProgress, forceCleanupInitializationProgress } from '../../hooks/useInitializationProgress';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import { cloudbaseAuth } from '../../services/auth/cloudbaseAuth';
 import { isDesktopPlatform } from '../../config/platform';
 import { useAppConfig } from '../../contexts/AppConfigContext';
-import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
 import './Login.css';
 
@@ -54,7 +52,6 @@ const LoginCN: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'email' | 'phone' | 'wechat'>('email');
   const [mode, setMode] = useState<AuthMode>('email-login');
   const [loading, setLoading] = useState(false);
-  const [showInitProgress, setShowInitProgress] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
   const [loginSuccessful, setLoginSuccessful] = useState(false);
   const [hasNavigated, setHasNavigated] = useState(false);
@@ -70,12 +67,7 @@ const LoginCN: React.FC = () => {
   const lastLoginAttemptRef = useRef<number>(0);
   const LOGIN_DEBOUNCE_MS = 3000;
 
-  const { status: initProgress, message: initMessage } = useInitializationProgress(loading || showInitProgress);
-
   // 初始化
-  useEffect(() => {
-    forceCleanupInitializationProgress();
-  }, []);
 
   // 清空表单的初始状态 — 防止 Antd Form 在 mount 时从 localStorage /
   // 上次会话残留恢复任何字段值。这是修复"邮箱输入框里有 wechat /
@@ -141,7 +133,6 @@ const LoginCN: React.FC = () => {
       (async () => {
         try {
           setLoginProgress('authenticating');
-          setShowInitProgress(true);
 
           const cloudbase = (await import('@cloudbase/js-sdk')).default;
           const app = cloudbase.init({
@@ -164,7 +155,6 @@ const LoginCN: React.FC = () => {
             if (e?.error === 'not_found') {
               messageApi.warning('请先注册账号，然后再次扫码登录');
               setLoginProgress('idle');
-              setShowInitProgress(false);
               return;
             }
             throw e;
@@ -262,24 +252,21 @@ const LoginCN: React.FC = () => {
         } catch (err: any) {
           console.error('[WeChat Callback] Error:', err);
           setLoginProgress('idle');
-          setShowInitProgress(false);
           messageApi.error(err?.message || '微信登录失败');
         }
       })();
     }
   }, [navigate, messageApi, t, appConfig?.auth?.cloudbase_env_id]);
 
-  // 导航逻辑
+  // 导航逻辑 - 登录成功后直接跳转，不需要等待 initProgress
   useEffect(() => {
-    if (!initProgress?.ready) return;
     if (!loginSuccessful) return;
     if (hasNavigated) return;
 
     setHasNavigated(true);
     setLoading(false);
-    setShowInitProgress(false);
     navigate('/agents');
-  }, [initProgress, loginSuccessful, hasNavigated, navigate]);
+  }, [loginSuccessful, hasNavigated, navigate]);
 
   // 加载上次登录信息
   //
@@ -889,7 +876,6 @@ const LoginCN: React.FC = () => {
     if (isDesktopPlatform()) {
       try {
         setLoading(true);
-        setShowInitProgress(true);
         setLoginProgress('authenticating');
         const resp = await cloudbaseAuth.loginWithWechatQR('Commander', i18n.language);
         if (resp.success && resp.data) {
@@ -912,13 +898,11 @@ const LoginCN: React.FC = () => {
           setLoginProgress('redirecting');
         } else {
           setLoading(false);
-          setShowInitProgress(false);
           setLoginProgress('idle');
           messageApi.error(resp.error || 'WeChat login failed');
         }
       } catch (error) {
         setLoading(false);
-        setShowInitProgress(false);
         setLoginProgress('idle');
         console.error('[WeChat QR] Error:', error);
         messageApi.error(String(error));
@@ -959,10 +943,6 @@ const LoginCN: React.FC = () => {
     setLoginSuccessful(false);
     setHasNavigated(false);
     setLastError(null);
-    // email-signup 模式不发 showInitProgress，避免发送验证码时显示加载动画
-    if (mode !== 'email-signup') {
-      setShowInitProgress(true);
-    }
 
     let loginAttempted = false;
 
@@ -976,7 +956,6 @@ const LoginCN: React.FC = () => {
           if (values.password !== values.confirmPassword) {
             messageApi.error(t('login.passwordMismatch'));
             setLoading(false);
-            setShowInitProgress(false);
             return;
           }
           await handleSignup(values.username, values.password);
@@ -994,7 +973,6 @@ const LoginCN: React.FC = () => {
           if (values.newPassword !== values.confirmPassword) {
             messageApi.error(t('login.passwordMismatch'));
             setLoading(false);
-            setShowInitProgress(false);
             return;
           }
           await handleResetPassword(values.phone!, values.code!, values.newPassword!);
@@ -1008,7 +986,6 @@ const LoginCN: React.FC = () => {
 
       if (mode === 'email-login' && loginAttempted) {
         setLoading(false);
-        setShowInitProgress(false);
       }
     } finally {
       if (mode !== 'email-login' || !loginAttempted) {
@@ -1066,7 +1043,6 @@ const LoginCN: React.FC = () => {
     setLoginSuccessful(false);
     setHasNavigated(false);
     setCodeSent(false);
-    setShowInitProgress(false);
     setLoginProgress('idle');
     setLastError(null);
     setCountdown(0);
@@ -1106,25 +1082,17 @@ const LoginCN: React.FC = () => {
 
       {/* 加载进度 - email-signup 模式不显示（发送验证码很快，不需要遮罩） */}
       <LoadingProgress
-        visible={(loading || showInitProgress) && mode !== 'email-signup'}
-        message={initMessage}
+        visible={loading && mode !== 'email-signup'}
+        message={loginProgress === 'redirecting'
+          ? t('login.redirectingToMain')
+          : loginProgress === 'success'
+            ? t('login.success')
+            : t('login.verifying')}
       />
 
       {/* 隐藏登录卡片 during loading */}
-      {!(loading || showInitProgress) && (
+      {!loading && (
         <div className="cn-login-card">
-          {loading && loginProgress === 'authenticating' && mode !== 'email-signup' ? (
-            <div className="cn-loading-container">
-              <Spin size="large" />
-              <div className="cn-loading-text">
-                {loginProgress === 'redirecting'
-                  ? t('login.redirectingToMain')
-                  : loginProgress === 'success'
-                    ? t('login.success')
-                    : t('login.verifying')}
-              </div>
-          </div>
-        ) : (
           <>
             {/* Logo */}
             <div className="cn-login-logo">
@@ -1539,7 +1507,6 @@ const LoginCN: React.FC = () => {
               </div>
             </Form>
           </>
-        )}
         </div>
       )}
     </div>

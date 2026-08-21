@@ -262,16 +262,10 @@ const AppContent = () => {
     // Block rendering until AppConfig is loaded to prevent flash of wrong region content
     if (configLoading) {
         return (
-            <div style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                width: '100vw',
-                height: '100vh',
-                backgroundColor: '#0f172a'
-            }}>
-                <div style={{ color: '#f8fafc', fontSize: 14 }}>{t('system.initializing', '加载中...')}</div>
-            </div>
+            <LoadingProgress
+                visible={true}
+                message={t('system.initializing')}
+            />
         );
     }
 

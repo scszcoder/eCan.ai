@@ -7,9 +7,7 @@ import { APIResponse, IPCAPI } from '../../services/ipc/api';
 import { get_ipc_api } from '../../services/ipc_api';
 import { userStorageManager, type LoginSession } from '../../services/storage/UserStorageManager';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
-import { useInitializationProgress, forceCleanupInitializationProgress } from '../../hooks/useInitializationProgress';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
-import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import { isWebPlatform } from '../../config/platform';
 import { cognitoAuth } from '../../services/auth/cognitoAuth';
 import logo from '../../assets/logoWhite22.png';
@@ -40,7 +38,6 @@ const Login: React.FC = () => {
 	// State
 	const [mode, setMode] = useState<AuthMode>('login');
 	const [loading, setLoading] = useState(false);
-	const [showInitProgress, setShowInitProgress] = useState(false);
 	const isWeb = isWebPlatform();
 	// 新增Local state 控制Validate码Send
 	const [codeSent, setCodeSent] = useState(false);
@@ -65,15 +62,6 @@ const Login: React.FC = () => {
 	const lastLoginAttemptRef = useRef<number>(0);
 	const LOGIN_DEBOUNCE_MS = 3000;
 
-	// Poll backend initialization progress during login
-	const { status: initProgress, message: initMessage } = useInitializationProgress(loading || showInitProgress);
-
-	// On mount: reset stale singleton state from previous session so that a cached
-	// fully_ready=true cannot cause an immediate redirect before the user logs in.
-	useEffect(() => {
-		forceCleanupInitializationProgress();
-	}, []);
-
 	// Clear login form on mount — last line of defense against "Google 登录后
 	// 再次进入登录页, 邮箱输入框被填充成 Google 邮箱". Even if the backend
 	// gating somehow regresses and returns a non-password username, this
@@ -84,22 +72,20 @@ const Login: React.FC = () => {
 		form.resetFields(['username', 'password', 'confirmPassword', 'confirmCode', 'newPassword']);
 	}, [form]);
 
-	// 标准跳转逻辑：仅当系统初始化就绪且登录成功时才跳转到主页面
+	// 标准跳转逻辑：登录成功后直接跳转
 	useEffect(() => {
 		console.log('[Login] Navigation check:', {
-			ready: initProgress?.ready,
 			loginSuccessful,
 			hasNavigated
 		});
 
-		if (!initProgress?.ready) return;
 		if (!loginSuccessful) return;
 		if (hasNavigated) return;
 
 		setHasNavigated(true);
 		console.log('[Login] ✅ Navigating to /agents');
 		navigate('/agents');
-	}, [initProgress, loginSuccessful, hasNavigated, navigate]);
+	}, [loginSuccessful, hasNavigated, navigate]);
 
 	// Initialize IPC API and load login info and language preference
 	useEffect(() => {
@@ -333,8 +319,8 @@ const Login: React.FC = () => {
 				messageApi.success(t('login.success'));
 				setLoginSuccessful(true);
 
-				// LoginSuccess，Settings跳转Status（showInitProgress已在handleSubmit中Settings）
-				setLoginProgress('redirecting');
+			// Login成功
+			setLoginProgress('redirecting');
 			} else {
 				console.error('Login failed', response.error);
 				setLoginProgress('idle');
@@ -853,25 +839,18 @@ const Login: React.FC = () => {
 
 			{/* Show loading during login process */}
 			<LoadingProgress
-				visible={loading || showInitProgress}
-				message={initMessage}
+				visible={loading}
+				message={loginProgress === 'redirecting'
+					? t('login.redirectingToMain')
+					: loginProgress === 'success'
+						? t('login.success')
+						: t('login.verifying')}
 			/>
 
 			{/* Hide login card during loading */}
-			{!(loading || showInitProgress) && (
-				<Card className="intl-login-card">
-				{loading ? (
-					<div className="intl-loading-container">
-						<Spin
-							indicator={<LoadingOutlined style={{ fontSize: 48, color: '#1890ff' }} spin />}
-							size="large"
-						/>
-						<div className="intl-loading-text">
-							{t('login.verifying')}
-						</div>
-					</div>
-				) : (
-					<>
+			{!loading && (
+				<>
+					<Card className="intl-login-card">
 						<div style={{ textAlign: 'center', marginBottom: 24 }}>
 							<div className="intl-logo-container">
 								<img
@@ -1112,13 +1091,9 @@ const Login: React.FC = () => {
 												case 'redirecting':
 													return t('login.redirecting') || 'Redirecting...';
 												default:
-													return loading && showInitProgress
-														? t('login.redirecting') || 'Redirecting...'
-														: loading
-															? t('login.loggingIn') || 'Logging in...'
-															: loginSuccessful
-																? t('login.loginSuccess') || 'Success!'
-																: t('login.loginButton');
+													return loading
+														? t('login.loggingIn') || 'Logging in...'
+														: t('login.loginButton');
 											}
 										})() : loading
 											? t('login.loggingIn') || 'Logging in...'
@@ -1215,9 +1190,8 @@ const Login: React.FC = () => {
 								)}
 							</div>
 						</Form>
-					</>
-				)}
-			</Card>
+					</Card>
+				</>
 			)}
 		</div>
 	);

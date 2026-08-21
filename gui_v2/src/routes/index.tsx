@@ -1,12 +1,12 @@
 import React, { Suspense } from 'react';
 import { Navigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
+import { Button } from 'antd';
 import MainLayout from '../components/Layout/MainLayout';
-import { Button, Spin } from 'antd';
 import { userStorageManager } from '../services/storage/UserStorageManager';
 import { useAppConfig, useAuthType } from '../contexts/AppConfigContext';
 import AgentsRouteWrapper from './AgentsRouteWrapper';
 import MainRouteWrapper from './MainRouteWrapper';
+import LoadingProgress from '../components/LoadingProgress/LoadingProgress';
 
 const VITE_LAZY_RELOAD_KEY = 'vite:lazy-reload-once';
 
@@ -80,25 +80,6 @@ function useLoginComponent() {
 function LoginPageWrapper() {
   const LoginComponent = useLoginComponent();
   return <LoginComponent />;
-}
-
-// 配置加载中页面
-function ConfigLoadingPage() {
-  const { t } = useTranslation();
-  return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      height: '100vh',
-      backgroundColor: '#0f172a',
-      color: '#f8fafc'
-    }}>
-      <Spin size="large">
-        <div style={{ color: '#f8fafc' }}>{t('system.initializing', '加载中...')}</div>
-      </Spin>
-    </div>
-  );
 }
 
 interface LazyErrorBoundaryState {
@@ -228,12 +209,12 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
 const LoginRoute: React.FC = () => {
     const { loading } = useAppConfig();
     if (loading) {
-        return <ConfigLoadingPage />;
+        return <LoadingProgress visible={true} />;
     }
     if (isAuthenticated()) {
         return <Navigate to="/" replace />;
     }
-    return <LazyWrapper><LoginPageWrapper /></LazyWrapper>;
+    return <LoginPageWrapper />;
 };
 
 // Public路由
