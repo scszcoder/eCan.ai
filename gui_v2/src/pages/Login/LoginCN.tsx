@@ -13,6 +13,7 @@ import { APIResponse } from '../../services/ipc/api';
 import { get_ipc_api } from '../../services/ipc_api';
 import { userStorageManager, type LoginSession } from '../../services/storage/UserStorageManager';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
+import { eventBus } from '../../utils/eventBus';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import { cloudbaseAuth } from '../../services/auth/cloudbaseAuth';
 import { isDesktopPlatform } from '../../config/platform';
@@ -34,6 +35,13 @@ interface LoginFormValues {
 }
 
 type AuthMode = 'email-login' | 'email-signup' | 'email-signup-verify' | 'phone-login' | 'phone-signup' | 'forgot';
+
+/** Convert CloudBase's "+86 13800138000" form back to the 11-digit value
+ * accepted by the CN phone input. */
+export const normalizeSavedCnPhone = (identifier?: string): string => {
+  const digits = (identifier || '').replace(/\D/g, '');
+  return digits.length === 13 && digits.startsWith('86') ? digits.slice(2) : digits;
+};
 
 const LoginCN: React.FC = () => {
   const navigate = useNavigate();
@@ -90,7 +98,12 @@ const LoginCN: React.FC = () => {
       // 只有当 activeTab 是 email 且 login_type 不是 password 时才清空
       // 这样可以避免清除正常的 rememberMe 回填值
       const loginTypeFromStorage = sessionStorage.getItem('last_login_type');
-      if (activeTab === 'email' && loginTypeFromStorage && loginTypeFromStorage !== 'password') {
+      if (
+        activeTab === 'email' &&
+        loginTypeFromStorage &&
+        loginTypeFromStorage !== 'password' &&
+        !form.isFieldTouched('username')
+      ) {
         form.setFieldValue('username', '');
         console.log('[LoginCN] Browser autofill cleared: username field reset for non-password login');
       }
@@ -303,7 +316,7 @@ const LoginCN: React.FC = () => {
 
         const loginData = (response?.data as any)?.last_login;
         if (loginData) {
-          const { username, password, machine_role, language, login_type } = loginData;
+          const { username, password, machine_role, language, login_type, last_identifier } = loginData;
 
           if (language && i18n.language !== language) {
             await i18n.changeLanguage(language);
@@ -336,14 +349,15 @@ const LoginCN: React.FC = () => {
               role: machine_role || 'Commander'
             });
           } else if (login_type === 'phone') {
-            // 手机登录:切到 phone tab,只填 phone (后端 username 字段对
-            // phone 模式已是手机号,因为我们在后端做了 login_type gating)。
-            // 同时清掉 email tab 的 username/password,避免残留。
+            // 手机登录:后端为了避免污染邮箱输入框，会将 username 清空，
+            // 手机号保存在 last_identifier。CloudBase profile 可能返回
+            // "+86 13800138000"，回填前规范化为 11 位国内号码。
+            // 邮箱字段使用独立的 form key，不会显示在手机号 tab。
             setActiveTab('phone');
             setMode('phone-login');
             form.resetFields(['username', 'password', 'confirmPassword', 'code', 'newPassword']);
             form.setFieldsValue({
-              phone: username,
+              phone: normalizeSavedCnPhone(last_identifier),
               role: machine_role || 'Commander'
             });
           } else {
@@ -439,24 +453,28 @@ const LoginCN: React.FC = () => {
     // 保存 role
     const savedRole = form.getFieldValue('role');
 
-    // 切换 tab 时清掉旧 tab 的所有字段,防止跨 tab 字段残留
-    // (例如 email tab 的 password 切到 phone tab 不能残留)
+    // username/password 与 phone 是不同的 Form 字段，不会跨 tab 显示，
+    // 因此切换时保留它们，让用户返回原 tab 后仍能继续登录。只清理
+    // 验证码、确认密码等与当前流程绑定的一次性字段。
     const fieldsToReset: (keyof LoginFormValues)[] = [];
     if (tab === 'email') {
-      // 切换到邮箱: 清掉 phone tab 的字段
-      fieldsToReset.push('phone', 'code', 'newPassword');
+      fieldsToReset.push('code', 'newPassword', 'confirmPassword');
       // 浏览器自动填充防御:如果上次登录不是 password 类型,清空 username
       // (防止 wechat/phone 的凭证被浏览器填充到 email 输入框)
       const loginTypeFromStorage = sessionStorage.getItem('last_login_type');
-      if (loginTypeFromStorage && loginTypeFromStorage !== 'password') {
+      // 仅清除浏览器悄悄填入的值；用户已在本次页面会话中输入的邮箱
+      // 必须保留。dirty/touched 表明该字段经过了用户操作。
+      if (
+        loginTypeFromStorage &&
+        loginTypeFromStorage !== 'password' &&
+        !form.isFieldTouched('username')
+      ) {
         fieldsToReset.push('username');
       }
     } else if (tab === 'phone') {
-      // 切换到手机: 清掉 email tab 的 username+password+confirmPassword
-      // (这是修复"邮箱注册号码直接登录"的关键: 切到 phone tab 不会带过去旧 email 凭证)
-      fieldsToReset.push('username', 'password', 'confirmPassword', 'newPassword');
+      fieldsToReset.push('confirmPassword', 'newPassword');
     } else if (tab === 'wechat') {
-      fieldsToReset.push('username', 'password', 'confirmPassword', 'phone', 'code', 'newPassword');
+      fieldsToReset.push('confirmPassword', 'code', 'newPassword');
     }
     if (fieldsToReset.length > 0) {
       form.resetFields(fieldsToReset);
@@ -492,7 +510,7 @@ const LoginCN: React.FC = () => {
     const loginSession: LoginSession = {
       token,
       userInfo: {
-        username: userInfo.username || userInfo.email || userInfo.phone || '',
+        username: userInfo.username || userInfo.email || userInfo.phone || userInfo.phoneNumber || '',
         email: userInfo.email || '',
         role,
         name: userInfo.name || '',
@@ -506,6 +524,10 @@ const LoginCN: React.FC = () => {
     };
 
     userStorageManager.saveLoginSession(loginSession);
+    // Backend initialization events can arrive a few milliseconds before the
+    // login response is stored. Emit once more after username is available so
+    // org/agent loading starts immediately instead of waiting for a later push.
+    eventBus.emit('org-agents-update', { source: 'login-session-saved' });
     pageRefreshManager.enable();
     sessionStorage.removeItem('token_expired_notification_shown');
 

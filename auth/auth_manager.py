@@ -998,7 +998,10 @@ class AuthManager:
             except Exception as e:
                 logger.debug(f"[AuthManager] notify_token_installed skipped: {e}")
 
-            # WeChat session token (30-day) — ONLY for CN WeChat flows.
+            # CN HTTP session token.  The CloudBase access token is suitable
+            # for provider/WS authentication, but the SCF GraphQL gate expects
+            # an eCan-minted bearer token.  WeChat keeps its legacy exchange;
+            # phone/password/email use mintHttpSessionToken.
             # Detected by: CN env + access_token present + NO refresh_token
             # (CloudBase WeChat OAuth doesn't return one) + the access_token
             # is a JWT carrying an ``openid`` claim (set in user_profile above).
@@ -1007,9 +1010,9 @@ class AuthManager:
             # session token. Idempotent: re-running with the same access_token
             # just refreshes the DB row (upsert on openid).
             try:
-                self._finalize_wechat_session_token()
+                self._finalize_http_session_token()
             except Exception as e:
-                logger.warning(f"[AuthManager] wechat session finalize skipped: {e}")
+                logger.warning(f"[AuthManager] HTTP session finalize skipped: {e}")
 
             logger.info(f"[AuthManager] complete_login_from_provider OK for {self.current_user}")
             return {
@@ -1571,7 +1574,8 @@ class AuthManager:
                 "login_type": login_type,
                 # last_identifier: the raw identifier (wechat id / phone /
                 # google email) preserved for debugging / future use. The
-                # frontend MUST NOT put this into any login form field.
+                # frontend may use a phone identifier only for the dedicated
+                # phone field; it must never put it into the email field.
                 "last_identifier": username or "",
             }
         except Exception as e:
@@ -2644,6 +2648,74 @@ class AuthManager:
         )
         return False
 
+    def _finalize_http_session_token(self) -> bool:
+        """Install the durable bearer used by the CN HTTP GraphQL gateway.
+
+        WeChat has a provider-specific exchange.  Other CloudBase providers
+        use the generic mintHttpSessionToken mutation.  Intl authentication
+        is unchanged.
+        """
+        if not self._is_cn:
+            return True
+        if self._is_wechat_flow():
+            return self._finalize_wechat_session_token()
+        return self._mint_http_session_token()
+
+    def _mint_http_session_token(self) -> bool:
+        """Exchange a non-WeChat CloudBase token for an HTTP session token."""
+        access_token = self.tokens.get("AccessToken") or self.tokens.get("access_token")
+        if not access_token:
+            logger.warning("[AuthManager] No access token for HTTP session mint")
+            return False
+
+        login_type = (self.user_profile or {}).get("login_type") or "password"
+        mutation = """
+            mutation MintHttpSessionToken($input: MintHttpSessionTokenInput!) {
+                mintHttpSessionToken(input: $input) {
+                    sessionToken
+                    expiresIn
+                }
+            }
+        """
+        try:
+            import requests as _req
+            from agent.cloud_api.cloud_api import get_appsync_endpoint
+
+            jwt = access_token.split('/@@/', 1)[-1] if '/@@/' in access_token else access_token
+            resp = _req.post(
+                get_appsync_endpoint(),
+                json={
+                    'query': mutation,
+                    'variables': {'input': {
+                        'accessToken': access_token,
+                        'loginType': login_type,
+                        'userIdentifier': self.current_user,
+                    }},
+                },
+                headers={
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer {jwt}',
+                },
+                timeout=30,
+            )
+            body = resp.json() if resp.text else {}
+            data = (body.get('data') or {}).get('mintHttpSessionToken')
+            session_token = (data or {}).get('sessionToken')
+            if session_token:
+                self._save_wechat_session_token(session_token)
+                logger.info(
+                    "[AuthManager] HTTP session token minted for login_type=%s "
+                    "(expires in %ss)", login_type, (data or {}).get('expiresIn', 0)
+                )
+                return True
+            logger.warning(
+                "[_mint_http_session_token] GraphQL errors: %s",
+                body.get('errors', []),
+            )
+        except Exception as e:
+            logger.warning(f"[_mint_http_session_token] failed: {e}")
+        return False
+
     def _register_wechat_session(self, access_token: str) -> tuple[bool, Any]:
         """Call GraphQL registerWeChatSession to mint a 30-day session token."""
         mutation = """
@@ -2966,4 +3038,3 @@ class AuthManager:
                     f"AuthManager: Unexpected error in token refresh loop: {e} "
                     f"(consecutive failures: {consecutive_failures})"
                 )
-

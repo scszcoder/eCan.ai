@@ -220,9 +220,16 @@ def _build_login_response(request: IPCRequest, token: str,
                     "login_type": login_type,
                 },
             )
+            # Never stringify auth_result here: it contains live access and
+            # refresh tokens.  The old log line leaked both credentials into
+            # ordinary support logs.
+            result_data = auth_result.get("data", {}) if isinstance(auth_result, dict) else {}
             logger.info(
-                f"[_build_login_response] complete_login_from_provider returned: "
-                f"{auth_result}"
+                "[_build_login_response] complete_login_from_provider returned: "
+                "success=%s, user_identifier=%r, token_keys=%s",
+                auth_result.get("success") if isinstance(auth_result, dict) else False,
+                result_data.get("user_identifier"),
+                sorted((result_data.get("tokens") or {}).keys()),
             )
         except Exception as e:
             logger.error(
