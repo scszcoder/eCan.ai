@@ -1098,33 +1098,13 @@ jobs:
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
+          # Run ls-remote directly.  TCP probe already confirmed gitee.com:443 is
+          # reachable.  Step-level timeout (6h) is the safety net.
+          Write-Host "[DEBUG] Running ls-remote..."
+          & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" | Tee-Object -Variable lsOut
+          $lsExit = $LASTEXITCODE
+          $lsRaw = $lsOut
 
-          # Wrap ls-remote in a PowerShell Background Job so we can enforce a
-          # hard timeout from the PowerShell side.  MSYS2 git's http.timeout
-          # does NOT reliably time out TLS handshake hangs on Windows; curl
-          # only counts the read phase, not the connect/TLS phase.  Using a
-          # Job + Wait-Job -Timeout gives us a guaranteed wall-clock deadline
-          # regardless of what git/curl is doing.
-          $timeoutSec = 20
-          Write-Host "[DEBUG] Starting ls-remote with ${timeoutSec}s hard timeout..."
-          $job = Start-Job -ScriptBlock {
-            param($git, $args)
-            & $git $args 2>&1
-          } -ArgumentList $gitExe, @('ls-remote', '--exit-code', 'origin', "refs/heads/$bareRef", "refs/tags/$bareRef")
-          $done = Wait-Job -Job $job -Timeout $timeoutSec
-          if ($done) {
-            $lsRaw = Receive-Job -Job $job -ErrorAction SilentlyContinue
-            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-            $lsExit = $LASTEXITCODE
-          } else {
-            # Timed out: kill the job, then kill any orphaned git.exe
-            Stop-Job -Job $job -ErrorAction SilentlyContinue
-            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-            Get-Process git -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*ls-remote*' } | Stop-Process -Force -ErrorAction SilentlyContinue
-            Write-Host "[DEBUG] ls-remote timed out after ${timeoutSec}s"
-            $lsRaw = $null
-            $lsExit = -1
-          }
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
             # Guard against $lsRaw being null/empty: Select-Object -Last 1
@@ -2037,33 +2017,13 @@ jobs:
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
+          # Run ls-remote directly.  TCP probe already confirmed gitee.com:443 is
+          # reachable.  Step-level timeout (6h) is the safety net.
+          Write-Host "[DEBUG] Running ls-remote..."
+          & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" | Tee-Object -Variable lsOut
+          $lsExit = $LASTEXITCODE
+          $lsRaw = $lsOut
 
-          # Wrap ls-remote in a PowerShell Background Job so we can enforce a
-          # hard timeout from the PowerShell side.  MSYS2 git's http.timeout
-          # does NOT reliably time out TLS handshake hangs on Windows; curl
-          # only counts the read phase, not the connect/TLS phase.  Using a
-          # Job + Wait-Job -Timeout gives us a guaranteed wall-clock deadline
-          # regardless of what git/curl is doing.
-          $timeoutSec = 20
-          Write-Host "[DEBUG] Starting ls-remote with ${timeoutSec}s hard timeout..."
-          $job = Start-Job -ScriptBlock {
-            param($git, $args)
-            & $git $args 2>&1
-          } -ArgumentList $gitExe, @('ls-remote', '--exit-code', 'origin', "refs/heads/$bareRef", "refs/tags/$bareRef")
-          $done = Wait-Job -Job $job -Timeout $timeoutSec
-          if ($done) {
-            $lsRaw = Receive-Job -Job $job -ErrorAction SilentlyContinue
-            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-            $lsExit = $LASTEXITCODE
-          } else {
-            # Timed out: kill the job, then kill any orphaned git.exe
-            Stop-Job -Job $job -ErrorAction SilentlyContinue
-            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-            Get-Process git -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*ls-remote*' } | Stop-Process -Force -ErrorAction SilentlyContinue
-            Write-Host "[DEBUG] ls-remote timed out after ${timeoutSec}s"
-            $lsRaw = $null
-            $lsExit = -1
-          }
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
             # Guard against $lsRaw being null/empty: Select-Object -Last 1
@@ -2769,33 +2729,13 @@ jobs:
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
+          # Run ls-remote directly.  TCP probe already confirmed gitee.com:443 is
+          # reachable.  Step-level timeout (6h) is the safety net.
+          Write-Host "[DEBUG] Running ls-remote..."
+          & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" | Tee-Object -Variable lsOut
+          $lsExit = $LASTEXITCODE
+          $lsRaw = $lsOut
 
-          # Wrap ls-remote in a PowerShell Background Job so we can enforce a
-          # hard timeout from the PowerShell side.  MSYS2 git's http.timeout
-          # does NOT reliably time out TLS handshake hangs on Windows; curl
-          # only counts the read phase, not the connect/TLS phase.  Using a
-          # Job + Wait-Job -Timeout gives us a guaranteed wall-clock deadline
-          # regardless of what git/curl is doing.
-          $timeoutSec = 20
-          Write-Host "[DEBUG] Starting ls-remote with ${timeoutSec}s hard timeout..."
-          $job = Start-Job -ScriptBlock {
-            param($git, $args)
-            & $git $args 2>&1
-          } -ArgumentList $gitExe, @('ls-remote', '--exit-code', 'origin', "refs/heads/$bareRef", "refs/tags/$bareRef")
-          $done = Wait-Job -Job $job -Timeout $timeoutSec
-          if ($done) {
-            $lsRaw = Receive-Job -Job $job -ErrorAction SilentlyContinue
-            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-            $lsExit = $LASTEXITCODE
-          } else {
-            # Timed out: kill the job, then kill any orphaned git.exe
-            Stop-Job -Job $job -ErrorAction SilentlyContinue
-            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-            Get-Process git -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*ls-remote*' } | Stop-Process -Force -ErrorAction SilentlyContinue
-            Write-Host "[DEBUG] ls-remote timed out after ${timeoutSec}s"
-            $lsRaw = $null
-            $lsExit = -1
-          }
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
             # Guard against $lsRaw being null/empty: Select-Object -Last 1
@@ -3491,33 +3431,13 @@ jobs:
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
+          # Run ls-remote directly.  TCP probe already confirmed gitee.com:443 is
+          # reachable.  Step-level timeout (6h) is the safety net.
+          Write-Host "[DEBUG] Running ls-remote..."
+          & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" | Tee-Object -Variable lsOut
+          $lsExit = $LASTEXITCODE
+          $lsRaw = $lsOut
 
-          # Wrap ls-remote in a PowerShell Background Job so we can enforce a
-          # hard timeout from the PowerShell side.  MSYS2 git's http.timeout
-          # does NOT reliably time out TLS handshake hangs on Windows; curl
-          # only counts the read phase, not the connect/TLS phase.  Using a
-          # Job + Wait-Job -Timeout gives us a guaranteed wall-clock deadline
-          # regardless of what git/curl is doing.
-          $timeoutSec = 20
-          Write-Host "[DEBUG] Starting ls-remote with ${timeoutSec}s hard timeout..."
-          $job = Start-Job -ScriptBlock {
-            param($git, $args)
-            & $git $args 2>&1
-          } -ArgumentList $gitExe, @('ls-remote', '--exit-code', 'origin', "refs/heads/$bareRef", "refs/tags/$bareRef")
-          $done = Wait-Job -Job $job -Timeout $timeoutSec
-          if ($done) {
-            $lsRaw = Receive-Job -Job $job -ErrorAction SilentlyContinue
-            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-            $lsExit = $LASTEXITCODE
-          } else {
-            # Timed out: kill the job, then kill any orphaned git.exe
-            Stop-Job -Job $job -ErrorAction SilentlyContinue
-            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
-            Get-Process git -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*ls-remote*' } | Stop-Process -Force -ErrorAction SilentlyContinue
-            Write-Host "[DEBUG] ls-remote timed out after ${timeoutSec}s"
-            $lsRaw = $null
-            $lsExit = -1
-          }
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
             # Guard against $lsRaw being null/empty: Select-Object -Last 1
