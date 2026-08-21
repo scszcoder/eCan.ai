@@ -23,6 +23,16 @@ _Last updated: 2026-08-19_
   HTTP) that sent the raw combined token instead of `_http_auth_header()` —
   their CN cloud calls failed auth even with a live session. Server fix still
   needed so WS tokens can be re-minted past the first JWT TTL.
+  **Leading hypothesis (2026-08-20, from web-flow analysis): token ROTATION.**
+  The web `auth_refresh.php` atomically replaces the opaque session token on
+  every refresh. If the desktop `refreshWeChatToken` does the same, our first
+  proactive refresh (~5 min, REFRESH_LEAD=300s of a 600s JWT) succeeds and
+  rotates server-side, the client keeps the OLD token, and the second refresh
+  (~10 min) fails SESSION_EXPIRED — exactly the observed death clock. Client
+  now hardened: `_refresh_wechat_token` selects `sessionToken` in the payload
+  (falling back if the schema lacks it) and persists any rotated value.
+  Confirm with the server: does the desktop refresh rotate `wechat_sessions`,
+  and does its payload expose the replacement token?
 - **Server kills the WeChat 30-day session token within ~10 min (TCB)** —
   root cause of "no WeChat session token available": `refreshWeChatToken`
   returns SESSION_EXPIRED/WX_TOKEN_EXPIRED ~5–10 min after
