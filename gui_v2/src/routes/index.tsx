@@ -3,10 +3,9 @@ import { Navigate } from 'react-router-dom';
 import { Button, Spin } from 'antd';
 import MainLayout from '../components/Layout/MainLayout';
 import { userStorageManager } from '../services/storage/UserStorageManager';
-import { useAppConfig, useAuthType } from '../contexts/AppConfigContext';
+import { useAppConfig } from '../contexts/AppConfigContext';
 import AgentsRouteWrapper from './AgentsRouteWrapper';
 import MainRouteWrapper from './MainRouteWrapper';
-import LoadingProgress from '../components/LoadingProgress/LoadingProgress';
 
 const VITE_LAZY_RELOAD_KEY = 'vite:lazy-reload-once';
 
@@ -70,16 +69,21 @@ const ShippingLabel = lazyWithRetry(() => import('../pages/ShippingLabel/Shippin
 const RAGDocuments = lazyWithRetry(() => import('../pages/RAG/RAGDocuments'));
 const Plugins = lazyWithRetry(() => import('../pages/Plugins/Plugins'));
 
-// 根据 auth_type 动态选择登录组件
+// 根据 auth_type 动态选择登录组件（配置加载期间默认为 cognito/Intl）
 function useLoginComponent() {
-  const authType = useAuthType();
+  const { config } = useAppConfig();
+  const authType = config?.auth_type || 'cognito';
   return authType === 'cloudbase' ? LoginCN : LoginIntl;
 }
 
 // 登录页面包装器
 function LoginPageWrapper() {
   const LoginComponent = useLoginComponent();
-  return <LoginComponent />;
+  return (
+    <LazyWrapper>
+      <LoginComponent />
+    </LazyWrapper>
+  );
 }
 
 interface LazyErrorBoundaryState {
@@ -163,8 +167,9 @@ const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
                 display: 'flex',
                 justifyContent: 'center',
                 alignItems: 'center',
-                height: '200px',
-                background: 'var(--bg-primary, #0f172a)'
+                height: '100vh',
+                width: '100vw',
+                background: '#0f172a'
             }}>
                 <Spin size="large" />
             </div>
@@ -207,10 +212,6 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
 
 // 登录路由组件 - 如果已登录则重定向，根据运行时配置选择登录页面
 const LoginRoute: React.FC = () => {
-    const { loading } = useAppConfig();
-    if (loading) {
-        return <LoadingProgress visible={true} />;
-    }
     if (isAuthenticated()) {
         return <Navigate to="/" replace />;
     }
