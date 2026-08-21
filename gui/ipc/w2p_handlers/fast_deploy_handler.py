@@ -90,6 +90,16 @@ def handle_fast_deploy_generate(request: IPCRequest,
         if uid:
             env["ECAN_CLI_USER"] = uid
             env["ECAN_DEPLOY_OWNER"] = uid
+        # Per-user data dirs (my_prompts etc.) are keyed by MainWindow.log_user,
+        # not the raw username — pass it so the CLI validates against the same
+        # system prompt/skill lists the running app loaded at initialization.
+        try:
+            from app_context import AppContext
+            log_user = getattr(AppContext.get_main_window(), "log_user", None)
+            if log_user:
+                env["ECAN_LOG_USER"] = str(log_user)
+        except Exception:
+            pass
         proc = subprocess.run(
             cmd, cwd=str(PROJECT_ROOT),
             capture_output=True, text=True, timeout=_CLI_TIMEOUT_S,
