@@ -1405,6 +1405,20 @@ def _get_wechat_http_session_token() -> str:
     return ""
 
 
+def normalize_cloud_owner(owner: str) -> str:
+    """Cloud-side identity for owner-enforced resolvers.
+
+    MainWindow.user carries a synthetic ``@local`` suffix for CN WeChat
+    logins (``wechat_<openid>@local``); the cloud knows only the bare
+    username and rejects the suffixed form with FORBIDDEN
+    ("Cross-owner access is forbidden" — verified empirically 2026-08-20).
+    Real emails (Intl logins) pass through unchanged.
+    """
+    if owner and owner.endswith("@local"):
+        return owner[: -len("@local")]
+    return owner
+
+
 def _http_auth_header(token: str) -> str:
     """Authorization header value for an HTTP cloud (GraphQL) request.
 

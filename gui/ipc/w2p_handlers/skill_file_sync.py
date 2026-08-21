@@ -76,7 +76,8 @@ def _get_cloud_context() -> Optional[Dict[str, Any]]:
 
         session = mainwin.session
         endpoint = mainwin.getWanApiEndpoint() if hasattr(mainwin, 'getWanApiEndpoint') else None
-        owner = getattr(mainwin, 'user', None) or ""
+        from agent.cloud_api.cloud_api import normalize_cloud_owner
+        owner = normalize_cloud_owner(getattr(mainwin, 'user', None) or "")
 
         if not owner:
             logger.debug("[skill_file_sync] No owner/user – skipping")
