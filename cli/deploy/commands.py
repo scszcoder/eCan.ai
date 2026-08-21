@@ -22,9 +22,7 @@ once the scenario recipes are finalized).
 
 import json
 import os
-import shutil
 import uuid
-from pathlib import Path
 from urllib.parse import urlsplit
 
 import click
@@ -84,9 +82,17 @@ _RECIPES = {
 # name contains 客户应答 (how the runtime front-desk auto-discovers Q&A agents).
 # Store URLs are baked into the front-desk browser-automation monitor's
 # page_url_patterns. See docs mapping in the Fast Deploy design notes.
+#
+# The designated prompts and skill templates must already be present in the
+# SYSTEM lists the app populates at initialization (my_prompts / my_skills).
+# If any is missing the deployment aborts with a clear reason — nothing is
+# copied in from elsewhere.
 
-# Prompt ids the Feige skills reference (must exist in my_prompts/ at runtime).
+# Prompt ids the Feige skills reference (must exist in the system prompts list).
 _FEIGE_PROMPT_IDS = ("pr-198938", "pr-278012", "pr-101789", "pr-701210")
+# Skill templates the deployment clones (must exist in the system skills list).
+_FEIGE_FD_SKILL = "飞鸽前台0"
+_FEIGE_QA_SKILL = "飞鸽客户应答"
 # Feige IM host the front-desk always monitors (in addition to store hosts).
 _FEIGE_IM_HOST = "im.jinritemai.com"
 
@@ -127,31 +133,45 @@ def _inject_store_urls(workflow: dict, store_urls: list) -> None:
     walk(workflow)
 
 
-def _copy_feige_prompts(project_root: Path):
-    """Copy the canonical Feige prompt templates into the per-user my_prompts
-    dir (preserving their ids) so the skills' prompt refs resolve at runtime."""
-    dest = None
-    try:
-        from cli.prompts.commands import _my_prompts_dir
-        try:
-            dest = Path(_my_prompts_dir())
-        except TypeError:
-            from ..base.context import get_context
-            dest = Path(_my_prompts_dir(get_context()))
-    except Exception:
-        dest = project_root / "my_prompts"
-    dest.mkdir(parents=True, exist_ok=True)
+def _missing_system_prompts(prompt_ids) -> list:
+    """Ids among ``prompt_ids`` NOT present in the system prompts list —
+    the same dirs the runtime prompt_loader searches: the per-user my_prompts
+    store (populated at app initialization; scoped by ECAN_LOG_USER when this
+    CLI runs as an app subprocess) plus the built-in sample_prompts."""
+    from pathlib import Path
+    from utils.user_path_helper import get_user_data_dir
+    from agent.ec_skills.prompt_loader import SAMPLE_PROMPTS_DIR
 
-    copied = []
-    for pid in _FEIGE_PROMPT_IDS:
-        src = project_root / "customer_logs" / f"prompt_{pid}.json"
-        if src.exists():
+    user_dir = Path(get_user_data_dir(
+        os.environ.get("ECAN_LOG_USER") or None, subdir="my_prompts"))
+    have = set()
+    for directory in (user_dir, Path(SAMPLE_PROMPTS_DIR)):
+        if not directory.exists():
+            continue
+        for fp in directory.glob("*.json"):
             try:
-                shutil.copyfile(src, dest / f"{pid}.json")
-                copied.append(pid)
+                # Strict utf-8, exactly like the runtime prompt_loader: a
+                # file it can't read must not count as "present" here.
+                data = json.loads(fp.read_text(encoding="utf-8"))
             except Exception:
-                pass
-    return copied, dest
+                continue
+            if isinstance(data, dict) and data.get("id"):
+                have.add(data["id"])
+    return [p for p in prompt_ids if p not in have]
+
+
+def _load_system_skill(name: str):
+    """Load a skill's diagram JSON from the system skills list — the user
+    skill library (populated at app initialization) with the built-in
+    resource skills as fallback. Returns None when absent from both."""
+    from agent.ec_skills.extern_skills.extern_skills import (
+        user_skills_root, resource_skills_root)
+    dirname = name if name.endswith("_skill") else f"{name}_skill"
+    for root in (user_skills_root(), resource_skills_root()):
+        path = root / dirname / "diagram_dir" / f"{dirname}.json"
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8-sig"))
+    return None
 
 
 def _first_vehicle_id(ctx):
@@ -181,24 +201,27 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     store_urls = [u.strip() for u in (cfg.get("store_urls") or []) if u and str(u).strip()]
     qa = int(cfg.get("qa_agents") or 6)
     log = []
-    created = {"prompts": [], "skills": [], "tasks": [], "agents": []}
-    project_root = Path(ctx.project_root)
+    created = {"skills": [], "tasks": [], "agents": []}
 
-    # 1) Ensure the prompt files the skills reference exist.
-    copied, pdir = _copy_feige_prompts(project_root)
-    created["prompts"] = copied
-    log.append(f"Prompts ensured in {pdir}: {', '.join(copied) or '(none found)'}")
-
-    # 2) Load the canonical skill templates.
-    fd_path = project_root / "customer_logs" / "飞鸽前台0_skill" / "diagram_dir" / "飞鸽前台0_skill.json"
-    qa_path = project_root / "customer_logs" / "飞鸽客户应答_skill" / "diagram_dir" / "飞鸽客户应答_skill.json"
-    if not fd_path.exists() or not qa_path.exists():
+    # 1) The designated prompts must already be in the system prompts list
+    #    (fetched/loaded by the app at initialization). Abort if any missing.
+    missing_prompts = _missing_system_prompts(_FEIGE_PROMPT_IDS)
+    if missing_prompts:
         raise RuntimeError(
-            f"Feige skill templates not found under customer_logs/ "
-            f"(front-desk present={fd_path.exists()}, Q&A present={qa_path.exists()})"
+            f"Prompts not found in system prompts list: {', '.join(missing_prompts)}"
         )
-    fd_tpl = json.loads(fd_path.read_text(encoding="utf-8"))
-    qa_tpl = json.loads(qa_path.read_text(encoding="utf-8"))
+    log.append(f"System prompts verified: {', '.join(_FEIGE_PROMPT_IDS)}")
+
+    # 2) Load the designated skill templates from the system skills list.
+    #    Abort if either is missing.
+    fd_tpl = _load_system_skill(_FEIGE_FD_SKILL)
+    qa_tpl = _load_system_skill(_FEIGE_QA_SKILL)
+    missing_skills = [n for n, t in ((_FEIGE_FD_SKILL, fd_tpl), (_FEIGE_QA_SKILL, qa_tpl)) if t is None]
+    if missing_skills:
+        raise RuntimeError(
+            f"Skills not found in system skills list: {', '.join(missing_skills)}"
+        )
+    log.append(f"System skills verified: {_FEIGE_FD_SKILL}, {_FEIGE_QA_SKILL}")
 
     # 3) Bake the store URLs into the front-desk monitor.
     _inject_store_urls(fd_tpl.get("workFlow") or {}, store_urls)
