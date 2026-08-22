@@ -731,9 +731,19 @@ def _get_skill_service(mainwin):
 
 
 def _get_username(mainwin):
-    """Get username from mainwin - centralized helper"""
+    """Get username from mainwin - centralized helper.
+
+    Returns the canonical (bare) owner name: MainWindow.user carries a
+    synthetic '@local' suffix for CN WeChat logins (wechat_<openid>@local),
+    but local DB rows and cloud records are keyed by the bare username —
+    querying with the suffixed form silently finds 0 rows.
+    """
     if mainwin and hasattr(mainwin, 'user'):
-        return mainwin.user
+        try:
+            from agent.cloud_api.cloud_api import normalize_cloud_owner
+            return normalize_cloud_owner(mainwin.user or '')
+        except Exception:
+            return mainwin.user
     return None
 
 

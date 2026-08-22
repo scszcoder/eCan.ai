@@ -389,6 +389,15 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                             setattr(sk, 'owner', username)
                         except Exception:
                             pass
+                    if not sk_dict.get('owner'):
+                        # Ownerless skills are invisible in the frontend's
+                        # "My Skills" filter — log so a vanishing skill can be
+                        # traced to its source/owner state.
+                        logger.info(
+                            f"[skill_handler] ownerless skill in response: "
+                            f"name={sk_dict.get('name')} id={sk_dict.get('id')} "
+                            f"source={sk_dict.get('source')}"
+                        )
                     # Propagate extra publish metadata if attached to the in-memory skill
                     if 'extra_data' not in sk_dict and hasattr(sk, 'extra_data'):
                         try:

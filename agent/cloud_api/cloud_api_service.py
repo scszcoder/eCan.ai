@@ -320,6 +320,41 @@ class CloudAPIService:
                         f"[CloudAPIService] ℹ️ Ignoring {len(duplicate_errors)} duplicate TASK_SKILL relation error(s) as idempotent ({operation_str})"
                     )
 
+                # Upsert fallback: an UPDATE for a row the cloud never received
+                # fails with "Not found" forever (the original ADD may have
+                # failed during a server schema outage, orphaning the queued
+                # updates). The AWS-era contract (DynamoDB put_item) was an
+                # upsert, so re-send those items as ADD.
+                if item_errors and operation_str == 'update':
+                    not_found_ids = {
+                        str(it.get('id')) for it in result
+                        if isinstance(it, dict) and it.get('id')
+                        and it.get('success') is False
+                        and 'not found' in str(it.get('error') or '').lower()
+                    }
+                    add_locals = [li for li in local_items if str(li.get('id') or '') in not_found_ids]
+                    if add_locals:
+                        logger.warning(
+                            f"[CloudAPIService] {len(add_locals)} {self.data_type} update(s) hit "
+                            f"'Not found' (row never inserted — orphaned update); retrying as ADD"
+                        )
+                        retry = self.sync_to_cloud(add_locals, operation=Operation.ADD, timeout=timeout)
+                        if retry.get('success'):
+                            item_errors = [e for e in item_errors if 'not found' not in str(e).lower()]
+                            if not item_errors:
+                                logger.info(
+                                    f"[CloudAPIService] ✅ Upsert fallback inserted {len(add_locals)} "
+                                    f"{self.data_type}(s) that were missing in cloud"
+                                )
+                                return {
+                                    'success': True,
+                                    'synced': len(local_items),
+                                    'failed': 0,
+                                    'errors': [],
+                                    'response': result,
+                                    'upserted': len(add_locals),
+                                }
+
                 if item_errors:
                     logger.error(
                         f"[CloudAPIService] ❌ Cloud API returned {len(item_errors)} failed item(s) out of {len(result)}"
