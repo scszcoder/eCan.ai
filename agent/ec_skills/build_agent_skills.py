@@ -1515,16 +1515,15 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                 except Exception as e:
                     logger.warning(f"[build_agent_skills] Failed to load mapping rules from {mapping_file}: {e}")
 
-        owner_username = _get_username(mainwin) or ""
-
         def _apply_owner(sk: EC_Skill) -> None:
-            try:
-                if owner_username and not getattr(sk, "owner", ""):
-                    sk.owner = owner_username
-                if owner_username and not getattr(sk, "skill_owner", ""):
-                    sk.skill_owner = owner_username
-            except Exception:
-                pass
+            # Ownership is NEVER claimed implicitly at load time. A skill's
+            # owner comes from its JSON/DB record, or is stamped once at
+            # explicit creation (_prepare_skill_data on editor save).
+            # Blanket-defaulting to the logged-in user made every legacy
+            # ownerless disk skill appear owned by whichever account was
+            # active (intl-era skills showed as the CN user's and vice
+            # versa). Ownerless skills simply stay ownerless.
+            pass
 
         def finalize_skill(sk: EC_Skill, source: str, path: str, skill_root: Path) -> EC_Skill:
             """Common finalization: set source, path, and load mapping rules

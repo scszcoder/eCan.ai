@@ -383,12 +383,9 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             for i, sk in enumerate(memory_skills):
                 try:
                     sk_dict = sk.to_dict()
-                    if not sk_dict.get('owner') and _should_default_owner_to_current_user(sk_dict, username):
-                        sk_dict['owner'] = username
-                        try:
-                            setattr(sk, 'owner', username)
-                        except Exception:
-                            pass
+                    # NOTE: no implicit owner-defaulting here — ownership comes
+                    # from the skill's JSON/DB record or explicit creation
+                    # (_prepare_skill_data). See 2026-08-22 legacy-owner cleanup.
                     if not sk_dict.get('owner'):
                         # Ownerless skills are invisible in the frontend's
                         # "My Skills" filter — log so a vanishing skill can be
@@ -438,8 +435,6 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                 for row in db_rows:
                     if not isinstance(row, dict):
                         continue
-                    if not row.get('owner') and _should_default_owner_to_current_user(row, username):
-                        row['owner'] = username
                     row_id = str(row.get('id') or '').strip()
                     row_askid = str(row.get('askid') or '').strip()
                     if (row_id and row_id in existing_ids) or (row_askid and row_askid in existing_askids):
@@ -484,8 +479,6 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
         for cloud_sk in cloud_skills_dicts:
             cid = str(cloud_sk['id']) if cloud_sk.get('id') else None
             c_askid = str(cloud_sk['askid']) if cloud_sk.get('askid') else None
-            if not cloud_sk.get('owner') and _should_default_owner_to_current_user(cloud_sk, username):
-                cloud_sk['owner'] = username
             cowner = str(cloud_sk.get('owner') or '').strip().lower()
             current_user = str(username or '').strip().lower()
 
