@@ -445,18 +445,106 @@ def _is_intl_app() -> bool:
         return True
 
 
-def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
-    """Zip and upload a single skill's files to S3. Runs in background thread.
+# ── CN (TCB/COS) upload path ────────────────────────────────────────────
+# CN has no S3 presigned-zip flow; instead each text file goes through the
+# writeSkillFile mutation, which registers metadata and returns a signed COS
+# PUT URL per file (the client uploads the bytes — see
+# agent.cloud_api.upload_skill_files_to_cloud). The server stores objects
+# under an authenticated owner-scoped prefix.
 
-    No-op on CN (cloudbase-graphql) — that backend has no S3 presigned-URL
-    flow. CN writes skill files via ``writeSkillFile`` directly.
+_CN_TEXT_EXTS = {
+    '.json', '.py', '.md', '.txt', '.yml', '.yaml', '.js', '.ts',
+    '.csv', '.mmd', '.html', '.css',
+}
+_CN_MAX_FILE_BYTES = 512 * 1024
+_CN_BATCH_SIZE = 50
+# Per-process dedupe so panel-load bulk syncs don't re-upload unchanged
+# skills on every request; a skill re-uploads after an explicit save
+# because save calls upload_skill_files_to_cloud directly (force=True).
+_CN_SYNCED_SKILL_DIRS: set = set()
+
+
+def _cn_upload_skill_dir(skill_dir: Path, ctx: Dict[str, Any]) -> bool:
+    """Upload one skill directory's text files via writeSkillFile (CN)."""
+    from agent.cloud_api.cloud_api import (
+        upload_skill_files_to_cloud as write_skill_files,
+    )
+    owner = str(ctx.get("owner") or "")
+    safe_owner = owner.replace("@", "_").replace(".", "_") or "unknown"
+
+    items = []
+    skipped = 0
+    for root, _dirs, files in os.walk(skill_dir):
+        for fname in files:
+            p = Path(root) / fname
+            if p.suffix.lower() not in _CN_TEXT_EXTS:
+                skipped += 1
+                continue
+            try:
+                if p.stat().st_size > _CN_MAX_FILE_BYTES:
+                    skipped += 1
+                    continue
+                content = p.read_text(encoding="utf-8")
+            except Exception:
+                skipped += 1
+                continue
+            rel = p.relative_to(skill_dir).as_posix()
+            items.append({
+                "filePath": f"{safe_owner}/my_skills/{skill_dir.name}/{rel}",
+                "content": content,
+                "userId": owner,
+            })
+
+    if not items:
+        logger.debug(f"[skill_file_sync] CN: no text files to upload in {skill_dir.name}")
+        return False
+
+    ok_all = True
+    for i in range(0, len(items), _CN_BATCH_SIZE):
+        batch = items[i:i + _CN_BATCH_SIZE]
+        res = write_skill_files(ctx["session"], ctx["token"], batch, ctx.get("endpoint"))
+        if not res.get("success"):
+            ok_all = False
+            logger.warning(
+                f"[skill_file_sync] CN batch {i // _CN_BATCH_SIZE + 1} failed for "
+                f"{skill_dir.name}: {res.get('error') or res.get('errors')}"
+            )
+    logger.info(
+        f"[skill_file_sync] CN uploaded {len(items)} file(s) for {skill_dir.name} "
+        f"({skipped} skipped) -> {'ok' if ok_all else 'PARTIAL FAILURE'}"
+    )
+    return ok_all
+
+
+def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
+    """Upload a single skill's files to cloud storage. Runs in background thread.
+
+    Intl: zip + S3 presigned-URL flow. CN: per-file writeSkillFile + signed
+    COS PUTs.
     """
     if not _is_intl_app():
-        logger.debug(
-            f"[skill_file_sync] Upload skipped on CN for skill "
-            f"'{skill_data.get('name', skill_data.get('id', '?'))}': "
-            f"writeSkillFile is used instead"
-        )
+        def _do_cn():
+            try:
+                ctx = _get_cloud_context()
+                if ctx is None:
+                    return
+                skill_dir = _resolve_skill_dir(skill_data)
+                if skill_dir is None or not skill_dir.is_dir():
+                    logger.debug(
+                        f"[skill_file_sync] CN: no local dir for skill "
+                        f"'{skill_data.get('name')}' — skip upload"
+                    )
+                    return
+                if not _is_valid_skill_dir(skill_dir, skill_data.get('name', '')):
+                    return
+                if _cn_upload_skill_dir(skill_dir, ctx):
+                    _CN_SYNCED_SKILL_DIRS.add(str(skill_dir))
+            except Exception as exc:
+                logger.warning(
+                    f"[skill_file_sync] CN upload failed for skill "
+                    f"'{skill_data.get('id', '?')}': {exc}"
+                )
+        threading.Thread(target=_do_cn, daemon=True, name="skill-file-upload-cn").start()
         return
 
     def _do():
@@ -634,12 +722,40 @@ def sync_all_skill_files_to_cloud(skills: List[Dict[str, Any]]) -> None:
     """Bulk upload all local user skills to S3. Runs in background thread.
 
     Skips code-sourced skills (source='code') and skills without local dirs.
-    No-op on CN (cloudbase-graphql) — see ``_is_intl_app`` for the rationale.
+    CN: uploads each owned skill's text files via writeSkillFile + signed COS
+    PUTs, once per process per skill dir (an explicit save re-uploads via
+    upload_skill_files_to_cloud).
     """
     if not _is_intl_app():
-        logger.debug(
-            f"[skill_file_sync] Bulk upload skipped on CN ({len(skills)} skill(s))"
-        )
+        def _do_cn_bulk():
+            try:
+                ctx = _get_cloud_context()
+                if ctx is None:
+                    return
+                owner = str(ctx.get("owner") or "")
+                done = 0
+                for sk in skills:
+                    if sk.get("source") == "code" or not sk.get("id"):
+                        continue
+                    # Only the current user's skills sync under their COS
+                    # prefix — legacy/other-owner skills stay local.
+                    if str(sk.get("owner") or "") != owner:
+                        continue
+                    skill_dir = _resolve_skill_dir(sk)
+                    if not skill_dir or not skill_dir.is_dir():
+                        continue
+                    if str(skill_dir) in _CN_SYNCED_SKILL_DIRS:
+                        continue
+                    if not _is_valid_skill_dir(skill_dir, sk.get('name', '')):
+                        continue
+                    if _cn_upload_skill_dir(skill_dir, ctx):
+                        _CN_SYNCED_SKILL_DIRS.add(str(skill_dir))
+                        done += 1
+                if done:
+                    logger.info(f"[skill_file_sync] CN bulk sync uploaded {done} skill dir(s)")
+            except Exception as exc:
+                logger.warning(f"[skill_file_sync] CN bulk sync failed: {exc}")
+        threading.Thread(target=_do_cn_bulk, daemon=True, name="skill-file-bulk-cn").start()
         return
 
     def _do():

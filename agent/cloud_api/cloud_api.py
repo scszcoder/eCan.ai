@@ -8672,20 +8672,26 @@ def upload_skill_files_to_cloud(session, token, files: list, endpoint=None, time
     Returns:
         Response from cloud with uploaded file info
     """
-    mutation_string = """
-        mutation WriteSkillFile($input: [SkillFileInput!]!) {
-          writeSkillFile(input: $input) {
+    # CN (TCB/COS): writeSkillFile only registers the file and returns a
+    # signed COS PUT URL — the CLIENT must upload the bytes. Intl (AWS):
+    # the Lambda writes S3 server-side and its SDL has no uploadUrl field,
+    # so the extra selection must stay CN-only.
+    cn = is_cn_app()
+    extra_fields = "\n            uploadUrl\n            method\n            expiresIn" if cn else ""
+    mutation_string = f"""
+        mutation WriteSkillFile($input: [SkillFileInput!]!) {{
+          writeSkillFile(input: $input) {{
             filePath
             fileName
             fileSize
             skillName
-            updatedAt
-          }
-        }
+            updatedAt{extra_fields}
+          }}
+        }}
     """
     logger.info(f"[CloudSkill] Uploading {len(files)} skill files to cloud")
     logger.debug(f"[CloudSkill] writeSkillFile using variables, fileCount={len(files)}")
-    
+
     jresp = appsync_http_request(
         mutation_string,
         session,
@@ -8694,17 +8700,65 @@ def upload_skill_files_to_cloud(session, token, files: list, endpoint=None, time
         timeout=timeout,
         variables={"input": files},
     )
-    
+
     if "errors" in jresp:
         logger.error(f"[CloudSkill] writeSkillFile error: {jresp['errors']}")
         return {"success": False, "errors": jresp["errors"]}
-    
+
     try:
         result = jresp.get("data", {}).get("writeSkillFile")
         uploaded_count = len(result) if result else 0
-        logger.info(f"[CloudSkill] writeSkillFile success: {uploaded_count} files uploaded")
         if uploaded_count == 0:
+            logger.warning("[CloudSkill] writeSkillFile returned zero uploaded files")
             return {"success": False, "error": "writeSkillFile returned zero uploaded files", "data": result}
+
+        # CN: PUT each file's content to its signed COS URL. Without this
+        # step the metadata row exists but the object never lands in COS
+        # (the historical split-persistence bug).
+        if cn:
+            content_by_path = {
+                str(f.get("filePath")): f.get("content")
+                for f in files if isinstance(f, dict) and f.get("filePath")
+            }
+            put_ok, put_fail = 0, 0
+            for item in result:
+                if not isinstance(item, dict):
+                    continue
+                url = item.get("uploadUrl") or item.get("upload_url")
+                if not url:
+                    continue
+                body = content_by_path.get(str(item.get("filePath") or item.get("file_path")))
+                if body is None:
+                    logger.warning(f"[CloudSkill] No local content for signed URL of {item.get('filePath')}")
+                    put_fail += 1
+                    continue
+                method = str(item.get("method") or "PUT").upper()
+                try:
+                    # No explicit Content-Type: the signature may include the
+                    # header set server-side; keep the request minimal.
+                    resp = session.request(
+                        method=method, url=url,
+                        data=body.encode("utf-8") if isinstance(body, str) else body,
+                        timeout=timeout,
+                    )
+                    if resp.status_code in (200, 204):
+                        put_ok += 1
+                    else:
+                        put_fail += 1
+                        logger.warning(
+                            f"[CloudSkill] COS PUT failed ({resp.status_code}) for "
+                            f"{item.get('filePath')}: {resp.text[:200]}"
+                        )
+                except Exception as put_e:
+                    put_fail += 1
+                    logger.warning(f"[CloudSkill] COS PUT raised for {item.get('filePath')}: {put_e}")
+            logger.info(f"[CloudSkill] COS uploads: {put_ok} ok, {put_fail} failed of {uploaded_count}")
+            if put_fail and not put_ok:
+                return {"success": False, "error": f"all {put_fail} COS uploads failed", "data": result}
+            if put_fail:
+                return {"success": False, "error": f"{put_fail} of {uploaded_count} COS uploads failed", "data": result}
+
+        logger.info(f"[CloudSkill] writeSkillFile success: {uploaded_count} files uploaded")
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(f"[CloudSkill] Failed to parse writeSkillFile response: {e}")
