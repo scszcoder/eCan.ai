@@ -10,6 +10,20 @@ _Last updated: 2026-08-19_
 
 ## 🔴 Bugs (unfixed)
 
+- **CN COS signed-upload URLs fail `SignatureDoesNotMatch` (server signing bug,
+  2026-08-21 evening)**. writeSkillFile now returns proper signed PUT URLs
+  (list-contract + metadata both fixed), but every PUT is rejected by COS.
+  Probe evidence: `q-header-list=content-type;host`, and COS's error echoes
+  the expected FormatString `put\n<path>\n\ncontent-type=&host=<bucket-host>` —
+  the server's signature was computed over something else (tried empty +
+  5 common content-types client-side; all 403). Recommended server fix:
+  sign with `host` only (drop content-type from the signed header list) or
+  use the COS SDK's presigned-URL helper; alternatively return the exact
+  signed content-type so clients can echo it. Client side is complete and
+  will start landing files in ecan-skills-1251680599 the moment signatures
+  verify. Meanwhile: updateAgentSkills for skill_511221cb45ba41af returns
+  success:true — metadata sync is fully working.
+
 - **TCB skills schema drift blocks BOTH skill sync directions** (completed
   diagnosis 2026-08-21). The AWS canonical schema has `public: Boolean` on
   AgentSkill/AgentSkillInput; the TCB SDL renamed it `is_public`/`isPublic`
