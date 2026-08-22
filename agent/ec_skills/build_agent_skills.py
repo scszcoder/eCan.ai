@@ -228,6 +228,9 @@ def _create_skill_from_workflow(
         sk.name = core_dict.get("skillName") or core_dict.get("name") or skill_name
         sk.version = str(core_dict.get("version", "1.0.0"))
         sk.description = core_dict.get("description", "")
+        # Ownership is recorded in the skill JSON (top-level "owner"); it is
+        # never defaulted from the logged-in user at load time.
+        sk.owner = str(core_dict.get("owner") or "")
         sk.diagram = core_dict
 
         if isinstance(core_dict.get("config"), dict):
@@ -631,12 +634,14 @@ async def build_agent_skills(mainwin, skill_path=""):
                     logger.error(f"[build_agent_skills] ❌ Invalid: code skill '{db_skill_name}' found in database")
                     continue
 
-                # Skip DB entries that have the same name as a local code skill.
-                # Code skills are loaded from disk and are more authoritative.
-                if db_skill_name in local_code_skill_names:
-                    logger.info(f"[build_agent_skills] ⏭️ Skipping DB skill '{db_skill_name}' - same name exists in local code skills")
-                    skipped_code_skill_conflicts += 1
-                    continue
+                # NOTE (2026-08-22): DB rows are NOT skipped on a name match
+                # with a disk dir any more. Editor-created skills always have
+                # both a DB row (the authoritative record, carrying owner)
+                # and a disk folder — the old skip dropped the DB row and let
+                # the ownerless disk twin win, contradicting the Step-6
+                # design ("DB is authoritative", id-based dedupe handles the
+                # disk duplicate). Genuine code skills in the DB are already
+                # rejected by the source=='code' validation above.
 
                 logger.debug(f"[build_agent_skills] Converting DB skill {i+1}/{len(final_db_skills)}: {db_skill_name}")
                 skill_obj = _convert_db_skill_to_object(db_skill)
@@ -696,6 +701,28 @@ async def build_agent_skills(mainwin, skill_path=""):
 
         # Convert back to list
         all_skills = list(skills_dict.values())
+
+        # Safety net: if a DB row's object conversion failed (so its disk twin
+        # got loaded instead), the merged skill would silently lose the DB
+        # record's owner. Backfill owner by id, then by name, from the raw DB
+        # rows so ownership survives whichever load path won.
+        try:
+            db_owner_by_id = {str(r.get('id')): r.get('owner') for r in (final_db_skills or [])
+                              if isinstance(r, dict) and r.get('id') and r.get('owner')}
+            db_owner_by_name = {str(r.get('name')): r.get('owner') for r in (final_db_skills or [])
+                                if isinstance(r, dict) and r.get('name') and r.get('owner')}
+            for sk in all_skills:
+                if not getattr(sk, 'owner', ''):
+                    owner = db_owner_by_id.get(str(getattr(sk, 'id', ''))) or \
+                            db_owner_by_name.get(str(getattr(sk, 'name', '')))
+                    if owner:
+                        sk.owner = owner
+                        logger.info(
+                            f"[build_agent_skills] owner backfilled from DB row: "
+                            f"{sk.name} -> {owner}"
+                        )
+        except Exception as e:
+            logger.debug(f"[build_agent_skills] owner backfill skipped: {e}")
 
         # Step 7: Update mainwindow.agent_skills memory
         logger.info("[build_agent_skills] Step 7: Updating mainwindow.agent_skills...")
