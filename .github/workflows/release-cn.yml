@@ -1123,7 +1123,19 @@ jobs:
           $stderr = $proc.StandardError.ReadToEnd()
           $lsExit = $proc.ExitCode
           $proc.Dispose()
-          if ($stderr -and $stderr.Trim()) { $stderr -split "`n" | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
+          # Diagnostics
+          Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
+          if ($stderr) {
+            $stderr -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" }
+          }
+          if ($lsExit -eq 0 -and -not $stdout) {
+            # git.exe exited 0 but produced no output — diagnostic: run git version and config
+            Write-Host "[DEBUG] git.exe exited 0 with no output — probing git environment..."
+            & $gitExe version 2>&1 | ForEach-Object { Write-Host "[DEBUG] git version: $_" }
+            & $gitExe config --list --show-origin 2>&1 | Where-Object { $_ -match 'http|proxy|ssl|cert|GIT' } | ForEach-Object { Write-Host "[DEBUG] relevant config: $_" }
+            "::error::git ls-remote exited 0 but produced no output. HTTPS smart protocol is not functioning for gitee.com on this runner. Convert the remote URL to SSH (git@gitee.com:user/repo.git) and add SSH port 22 to the TCP probe. Alternatively, disable Gitee HTTPS at the runner firewall level."
+            exit 1
+          }
           $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
@@ -2063,7 +2075,19 @@ jobs:
           $stderr = $proc.StandardError.ReadToEnd()
           $lsExit = $proc.ExitCode
           $proc.Dispose()
-          if ($stderr -and $stderr.Trim()) { $stderr -split "`n" | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
+          # Diagnostics
+          Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
+          if ($stderr) {
+            $stderr -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" }
+          }
+          if ($lsExit -eq 0 -and -not $stdout) {
+            # git.exe exited 0 but produced no output — diagnostic: run git version and config
+            Write-Host "[DEBUG] git.exe exited 0 with no output — probing git environment..."
+            & $gitExe version 2>&1 | ForEach-Object { Write-Host "[DEBUG] git version: $_" }
+            & $gitExe config --list --show-origin 2>&1 | Where-Object { $_ -match 'http|proxy|ssl|cert|GIT' } | ForEach-Object { Write-Host "[DEBUG] relevant config: $_" }
+            "::error::git ls-remote exited 0 but produced no output. HTTPS smart protocol is not functioning for gitee.com on this runner. Convert the remote URL to SSH (git@gitee.com:user/repo.git) and add SSH port 22 to the TCP probe. Alternatively, disable Gitee HTTPS at the runner firewall level."
+            exit 1
+          }
           $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
@@ -2796,7 +2820,19 @@ jobs:
           $stderr = $proc.StandardError.ReadToEnd()
           $lsExit = $proc.ExitCode
           $proc.Dispose()
-          if ($stderr -and $stderr.Trim()) { $stderr -split "`n" | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
+          # Diagnostics
+          Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
+          if ($stderr) {
+            $stderr -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" }
+          }
+          if ($lsExit -eq 0 -and -not $stdout) {
+            # git.exe exited 0 but produced no output — diagnostic: run git version and config
+            Write-Host "[DEBUG] git.exe exited 0 with no output — probing git environment..."
+            & $gitExe version 2>&1 | ForEach-Object { Write-Host "[DEBUG] git version: $_" }
+            & $gitExe config --list --show-origin 2>&1 | Where-Object { $_ -match 'http|proxy|ssl|cert|GIT' } | ForEach-Object { Write-Host "[DEBUG] relevant config: $_" }
+            "::error::git ls-remote exited 0 but produced no output. HTTPS smart protocol is not functioning for gitee.com on this runner. Convert the remote URL to SSH (git@gitee.com:user/repo.git) and add SSH port 22 to the TCP probe. Alternatively, disable Gitee HTTPS at the runner firewall level."
+            exit 1
+          }
           $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
@@ -3519,7 +3555,19 @@ jobs:
           $stderr = $proc.StandardError.ReadToEnd()
           $lsExit = $proc.ExitCode
           $proc.Dispose()
-          if ($stderr -and $stderr.Trim()) { $stderr -split "`n" | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
+          # Diagnostics
+          Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
+          if ($stderr) {
+            $stderr -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" }
+          }
+          if ($lsExit -eq 0 -and -not $stdout) {
+            # git.exe exited 0 but produced no output — diagnostic: run git version and config
+            Write-Host "[DEBUG] git.exe exited 0 with no output — probing git environment..."
+            & $gitExe version 2>&1 | ForEach-Object { Write-Host "[DEBUG] git version: $_" }
+            & $gitExe config --list --show-origin 2>&1 | Where-Object { $_ -match 'http|proxy|ssl|cert|GIT' } | ForEach-Object { Write-Host "[DEBUG] relevant config: $_" }
+            "::error::git ls-remote exited 0 but produced no output. HTTPS smart protocol is not functioning for gitee.com on this runner. Convert the remote URL to SSH (git@gitee.com:user/repo.git) and add SSH port 22 to the TCP probe. Alternatively, disable Gitee HTTPS at the runner firewall level."
+            exit 1
+          }
           $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
