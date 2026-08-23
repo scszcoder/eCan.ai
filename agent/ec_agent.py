@@ -412,6 +412,30 @@ class EC_Agent(Agent):
 		return task_thread
 
 	def start(self):
+		# ── Vehicle affinity gate (SHARED_SKILL_MULTI_TASK_PLAN Phase 1.5) ──
+		# With one account on multiple hosts, cloud sync gives every host the
+		# same agents/tasks; only start this agent when it is assigned to this
+		# host's vehicle (or has no assignment — back-compat). Fails open.
+		try:
+			from agent.ec_agents.vehicle_affinity import (
+				agent_launch_allowed,
+				register_local_vehicle,
+			)
+			register_local_vehicle(self.mainwin)
+			allowed, reason = agent_launch_allowed(self)
+			if not allowed:
+				logger.info(
+					f"[AGENT_START] Skipping '{self.card.name}' on this host: {reason}"
+				)
+				return
+			if reason == "no-affinity":
+				logger.info(
+					f"[AGENT_START] Agent '{self.card.name}' has no vehicle affinity; "
+					f"it starts on every host of this account"
+				)
+		except Exception as _va_err:
+			logger.warning(f"[AGENT_START] Vehicle affinity gate error (fail-open): {_va_err}")
+
 		# Start A2A server in daemon thread
 		self.start_a2a_server_in_thread(self.a2a_server)
 

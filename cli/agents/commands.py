@@ -228,7 +228,9 @@ def add(name, description, agent_type, config):
               help='New agent status (e.g., active, inactive)')
 @click.option('--config', '-c', type=click.Path(exists=True),
               help='Update configuration from file (JSON or YAML)')
-def update(agent_id, name, description, status, config):
+@click.option('--vehicle',
+              help='Assign agent to a vehicle (host) id; "this" = this machine, "none" = clear')
+def update(agent_id, name, description, status, config, vehicle):
     """
     Update an existing agent.
 
@@ -240,6 +242,8 @@ def update(agent_id, name, description, status, config):
       ecan agents update abc123 --name "New Name"
       ecan agents update abc123 --status inactive
       ecan agents update abc123 -n "Updated" -d "New description" -c update.json
+      ecan agents update abc123 --vehicle this     # pin agent to this machine
+      ecan agents update abc123 --vehicle none     # run on every host
     """
     ctx = get_context()
     out = get_output()
@@ -273,6 +277,20 @@ def update(agent_id, name, description, status, config):
         fields['description'] = description
     if status:
         fields['status'] = status
+    if vehicle is not None:
+        v = vehicle.strip()
+        if v.lower() == 'none':
+            fields['vehicle_id'] = None
+        elif v.lower() == 'this':
+            from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id
+            local_id = resolve_local_vehicle_id(username=ctx.username or '')
+            if not local_id:
+                out.error("Could not resolve this machine's vehicle id "
+                          "(try the explicit id from 'ecan vehicles list')")
+                raise SystemExit(1)
+            fields['vehicle_id'] = local_id
+        else:
+            fields['vehicle_id'] = v
 
     if not fields:
         out.warning("No fields to update")

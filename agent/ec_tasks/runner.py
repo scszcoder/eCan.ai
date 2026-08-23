@@ -27,7 +27,7 @@ from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar, TYPE_CHEC
 
 from a2a.types import TaskState, Message, TextPart, MessageSendParams, TaskStatus as A2ATaskStatus
 from agent.ec_skills.llm_utils.llm_utils import send_response_back
-from agent.ec_skills.prep_skills_run import prep_skills_run
+from agent.ec_skills.prep_skills_run import prep_skills_run, apply_task_vars
 from langgraph.types import Command
 
 # Import thread registry for leak diagnosis (lazy to avoid circular imports)
@@ -8907,6 +8907,12 @@ class TaskRunner(Generic[Context]):
                     except Exception:
                         initial_current_state = None
                     final_state = prep_skills_run(task.skill, self.agent, task.id, msg, initial_current_state)
+
+                # Phase 2 (SHARED_SKILL_MULTI_TASK_PLAN): seed task-carried
+                # variables into the run state for EVERY trigger type — the
+                # message-only current_state merge above never covered
+                # schedule/auto runs (blocker B4).
+                apply_task_vars(task, final_state)
 
                 task_metadata["state"] = final_state
 

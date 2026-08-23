@@ -9441,18 +9441,86 @@ _first_invocation_done: set[str] = set()
 # was bypassed).
 _dispatch_state_by_agent: dict[tuple[str, str, str], dict] = {}
 
-# mt068: per-node last-known agent_id.  A browser-automation node's owning
-# agent is stable for the life of the process, but `state["attributes"]
+# mt068: last-known agent_id recovery cache.  `state["attributes"]
 # ["agent_id"]` is intermittently empty on long-lived front-desk sessions
 # (some node re-entries run on a state that lost it — confirmed in the
 # 2026-06-03 customer trace: agent_id=None on 4/11 front-desk runs after a
 # multi-hour session, 0/25 after a fresh restart).  An empty agent_id makes
 # the front-desk PreDispatch skip ("missing runtime sender agent id") and
 # fall back to the slow LLM agent, which is the single-customer failure.
-# Cache the last non-empty agent_id per node and reuse it when the live
-# resolution comes back empty — this can only ever turn a None into the
-# correct stable id, never override a real one.
-_last_known_agent_id_by_node: dict[str, str] = {}
+# Cache the last non-empty agent_id and reuse it when the live resolution
+# comes back empty — this can only ever turn a None into the correct
+# stable id, never override a real one.
+#
+# SHARED_SKILL_MULTI_TASK_PLAN Phase 1 (B3): the original cache was keyed
+# by node_name alone, on the assumption that a node's owning agent is
+# stable per process.  With multiple agents sharing ONE skill (identical
+# node names), that back-fills agent A's id into agent B's degraded run.
+# The cache is now keyed by (node_name, task scope) where the scope comes
+# from per-run state identifiers.  When the degraded state has lost the
+# scope too, recovery falls back to the bare node ONLY while a single
+# agent_id has ever been recorded for it (the single-agent world, where
+# the old behaviour was safe); with 2+ known agents an unscoped guess
+# would misdispatch, so recovery declines instead.
+_last_known_agent_id_by_node: dict[str, str] = {}   # "node|scope" -> agent_id
+_known_agent_ids_by_node: dict[str, set] = {}       # node_name -> {agent_id, ...}
+
+
+def _agent_recovery_scope(state: dict) -> str:
+    """Per-task disambiguator for the mt068 recovery cache.
+
+    Prefers stable per-task identifiers seeded into state.attributes by
+    the executor (sync_state_identifiers) / run prep.  Returns "" when the
+    state is too degraded to carry any of them.
+    """
+    try:
+        attrs = state.get("attributes") if isinstance(state, dict) else None
+        if isinstance(attrs, dict):
+            for key in ("thread_id", "run_id", "task_id", "chat_id"):
+                v = attrs.get(key)
+                if v:
+                    return str(v)
+    except Exception:
+        pass
+    return ""
+
+
+def _record_or_recover_agent_id(node_name: str, state: dict, agent_id) -> "str | None":
+    """Record a live agent_id for (node, task scope), or recover the last
+    known one when the live resolution came back empty.  See the cache
+    comment above for the sharing-safety rules."""
+    scope = _agent_recovery_scope(state)
+    scoped_key = f"{node_name}|{scope}"
+    if agent_id:
+        _last_known_agent_id_by_node[scoped_key] = agent_id
+        _known_agent_ids_by_node.setdefault(node_name, set()).add(agent_id)
+        return agent_id
+
+    recovered = _last_known_agent_id_by_node.get(scoped_key)
+    if recovered:
+        logger.warning(
+            f"[BrowserAutomation] mt068: agent_id empty for node={node_name} "
+            f"scope={scope!r} (state.attributes lost it); recovered last-known "
+            f"agent_id={recovered!r} to keep PreDispatch alive"
+        )
+        return recovered
+
+    known = _known_agent_ids_by_node.get(node_name) or set()
+    if len(known) == 1:
+        sole = next(iter(known))
+        logger.warning(
+            f"[BrowserAutomation] mt068: agent_id empty for node={node_name} "
+            f"scope={scope!r}; single known agent for this node — recovered "
+            f"agent_id={sole!r}"
+        )
+        return sole
+    if len(known) > 1:
+        logger.warning(
+            f"[BrowserAutomation] mt068: agent_id empty for node={node_name} "
+            f"scope={scope!r} and {len(known)} agents share this node "
+            f"(shared skill); declining ambiguous recovery"
+        )
+    return None
 
 # Cross-scope, cross-agent dispatch-inflight lock keyed by normalised
 # customer_id.  PreDispatch can run in either scope=node:<node> (front-desk)
@@ -9471,6 +9539,7 @@ _DISPATCH_INFLIGHT_TTL_S = 30.0
 # Maximum size for unbounded caches to prevent memory leaks
 _MAX_FIRST_INVOCATION_CACHE_SIZE = 100   # 每个 skill run 添加 1 个，正常运行几十到几百个
 _MAX_DISPATCH_STATE_CACHE_SIZE = 100     # 每个 agent+node 添加 1 个，正常运行几十个
+_MAX_AGENT_ID_RECOVERY_CACHE_SIZE = 200  # 每个 node+task scope 添加 1 个
 
 
 def _cleanup_build_node_caches() -> dict[str, int]:
@@ -9507,11 +9576,20 @@ def _cleanup_build_node_caches() -> dict[str, int]:
     # Clean up _dispatch_inflight - already has TTL but clean expired
     global _dispatch_inflight
     current_time = _cleanup_time.time()
-    expired_keys = [k for k, ts in _dispatch_inflight.items() 
+    expired_keys = [k for k, ts in _dispatch_inflight.items()
                    if current_time - ts > _DISPATCH_INFLIGHT_TTL_S]
     for k in expired_keys:
         _dispatch_inflight.pop(k, None)
-    
+
+    # Cap the mt068 agent-id recovery cache (now keyed per node+task scope,
+    # so it grows with task count; keep the most recent entries)
+    global _last_known_agent_id_by_node
+    if len(_last_known_agent_id_by_node) > _MAX_AGENT_ID_RECOVERY_CACHE_SIZE:
+        old_size = len(_last_known_agent_id_by_node)
+        items = list(_last_known_agent_id_by_node.items())
+        _last_known_agent_id_by_node = dict(items[-_MAX_AGENT_ID_RECOVERY_CACHE_SIZE:])
+        removed['_last_known_agent_id_by_node'] = old_size - len(_last_known_agent_id_by_node)
+
     return removed
 
 
@@ -11375,23 +11453,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             except Exception as e:
                 logger.warning(f"[BrowserAutomation] Failed to extract agent_id: {e}")
 
-            # mt068: durable per-node fallback. The node's owning agent is
-            # stable, but state.attributes.agent_id is intermittently empty on
-            # long-lived front-desk sessions — empty → PreDispatch skips
-            # ("missing runtime sender agent id") → slow-agent fallback → the
-            # single-customer failure. Reuse the last good agent_id for this
-            # node when the live resolution is empty; record it when present.
-            if agent_id:
-                _last_known_agent_id_by_node[node_name] = agent_id
-            else:
-                _recovered = _last_known_agent_id_by_node.get(node_name)
-                if _recovered:
-                    logger.warning(
-                        f"[BrowserAutomation] mt068: agent_id empty for node={node_name} "
-                        f"(state.attributes lost it); recovered last-known agent_id="
-                        f"{_recovered!r} to keep PreDispatch alive"
-                    )
-                    agent_id = _recovered
+            # mt068: durable per-(node, task-scope) fallback. state.attributes
+            # .agent_id is intermittently empty on long-lived front-desk
+            # sessions — empty → PreDispatch skips ("missing runtime sender
+            # agent id") → slow-agent fallback → the single-customer failure.
+            # Reuse the last good agent_id when the live resolution is empty;
+            # record it when present.  Scoped per task so agents sharing one
+            # skill can't contaminate each other (see helper for rules).
+            agent_id = _record_or_recover_agent_id(node_name, state, agent_id)
             
             if not is_cloud_mode:
                 try:

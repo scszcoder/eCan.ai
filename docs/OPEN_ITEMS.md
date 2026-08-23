@@ -4,7 +4,7 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-08-19_
+_Last updated: 2026-08-23_
 
 ---
 
@@ -131,6 +131,45 @@ _Last updated: 2026-08-19_
   detection lane goes live.
 
 ## 🟢 In progress
+
+- **Shared skill / multi-task plan** (2026-08-23) — multiple tasks/agents
+  (and hosts) reference ONE skill with per-task variables; concurrent runs
+  from day one (no per-skill lock). Full phase list + blocker table in
+  `docs/SHARED_SKILL_MULTI_TASK_PLAN.md`.
+  **Phase 1 DONE 2026-08-23**: per-thread checkpoint cleanup in
+  `executor._clear_skill_module_caches` (was wiping the whole shared
+  InMemorySaver) + task-scoped re-key of the mt068 agent-id recovery cache
+  + 10 regression tests (`tests/unit/test_shared_skill_phase1.py`).
+  **Phase 1.5 DONE 2026-08-23**: vehicle/host affinity gate at
+  `EC_Agent.start()` (`agent/ec_agents/vehicle_affinity.py`, fail-open,
+  kill switch `ECAN_DISABLE_VEHICLE_AFFINITY=1`) + local-vehicle
+  registration + `ecan agents update --vehicle this|none|<id>` + 13 tests.
+  gui_v2 vehicle-assignment UI deferred.
+  **Phase 2 DONE 2026-08-23**: per-task `task_vars` seeded into
+  `prompt_refs` for ALL trigger types (`apply_task_vars` in
+  prep_skills_run.py, wired in runner `_execute_skill`); persisted in DB
+  task settings; `ecan tasks add --skill --var k=v` / `update --var`;
+  12 tests (`tests/unit/test_task_vars_phase2.py`). gui_v2 task-create
+  `need_inputs` form deferred; hybrid-cloud path doesn't apply vars yet.
+  **Phase 3 DONE 2026-08-23**: per-task browser identity
+  (`resolve_state_browser_identity` + task `browser_identity` seeded via
+  `apply_task_vars`; profile/user_data_dir/headless/cdp_port resolvable
+  per run, state wins over node config incl. an `acquire_browser`
+  precedence fix) + agent-suffixed pinned browser scopes
+  (`node:<node>:<agent_id>`, mt068-sticky); CLI `--browser k=v`;
+  16 tests (`tests/unit/test_browser_identity_phase3.py`) + updated
+  front-desk scope contract tests.
+  **Phase 4 DONE 2026-08-23**: `ecan skills dedupe [--apply] [--delete]`
+  (identical-diagram duplicate detection + reference re-pointing via new
+  `DBSkillService.find_duplicate_skills`/`merge_skill_references`); FIXED
+  author-prompt wiring gap — `_compile_skill_workflow_from_flow` now
+  injects `skill_obj.skill_owner` as the flow owner so store/rented skill
+  prompts resolve under the AUTHOR (was resolving under the runner);
+  9 tests (`tests/unit/test_skill_dedupe_phase4.py`). Store follow-ups:
+  download flow must persist skill_owner; live two-account e2e untested.
+  Phases 1-4 complete. Phase 5 (same-process multi-session live-chat:
+  typing lock, runner bridge, WS lane) is explicitly DEFERRED — supported
+  pattern is one process per shop.
 
 - **Account top-up / payments** (2026-08-12) — region-detected top-up wired:
   - CN → in-app payment dialog (`gui/payments/payment_dialog.py`, embedded

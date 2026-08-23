@@ -1244,6 +1244,21 @@ def _compile_skill_workflow_from_flow(
         f"[build_agent_skills] Rebuilding workflow diagram: nodes={len(wf_obj.get('nodes') or [])}, edges={len(wf_obj.get('edges') or [])}"
     )
 
+    # SHARED_SKILL_MULTI_TASK_PLAN Phase 4: prompt resolution for nodes uses
+    # the flow's "owner" (flowgram2langgraph → build_llm_node skill_owner).
+    # For a skill authored by someone else (store/rented skill), the local
+    # row's owner is the RUNNER, so prompts would resolve under the wrong
+    # partition. skill_obj.skill_owner tracks the original author — make it
+    # the owner the converter sees. For self-authored skills skill_owner ==
+    # owner, so this is a no-op.
+    _author = str(getattr(skill_obj, "skill_owner", "") or "")
+    if _author and flow_for_convert.get("owner") != _author:
+        flow_for_convert = {**flow_for_convert, "owner": _author}
+        logger.info(
+            f"[build_agent_skills] Compiling '{skill_obj.name}' with author owner "
+            f"'{_author}' for prompt resolution (local row owner differs)"
+        )
+
     bp_mgr = BreakpointManager()
     workflow, bp_list = flowgram2langgraph_v2(flow_for_convert, bundle_json=bundle_dict, enable_subgraph=False, bp_mgr=bp_mgr)
     try:

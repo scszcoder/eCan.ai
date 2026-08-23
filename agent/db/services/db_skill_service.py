@@ -17,8 +17,14 @@ from contextlib import contextmanager
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import and_, or_, func
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import re
+
+
+def _dedupe_logger():
+    """Lazy logger for the dedupe migration methods (see note there)."""
+    from utils.logger_helper import logger_helper
+    return logger_helper
 
 
 class DBSkillService(BaseService):
@@ -292,6 +298,121 @@ class DBSkillService(BaseService):
                 return {"success": True, "data": [skill.to_dict() for skill in skills], "error": None}
         except SQLAlchemyError as e:
             return {"success": False, "data": [], "error": str(e)}
+
+    # ========== Duplicate-skill migration (SHARED_SKILL_MULTI_TASK_PLAN Phase 4) ==========
+    # NOTE: this service layer normally does not log (callers do), but the
+    # dedupe migration rewrites cross-table references — keep a durable trace
+    # in the app log so a bad merge can be reconstructed after the fact.
+
+    def find_duplicate_skills(self, owner):
+        """Find groups of duplicated skills (per-agent copies) for *owner*.
+
+        Two skills are duplicates when their ``diagram`` JSON is identical
+        (canonical-JSON comparison). Code-generated skills and skills with
+        no diagram are excluded. In each group the canonical skill is the
+        earliest-created (tie-break: smallest id); the rest are duplicates
+        whose references can be merged via ``merge_skill_references``.
+
+        Returns {"success", "data": [{"canonical": dict, "duplicates":
+        [dict, ...]}], "error"}.
+        """
+        import json as _json
+        try:
+            with self.session_scope() as s:
+                skills = s.query(DBAgentSkill).filter(DBAgentSkill.owner == owner).all()
+                groups = {}
+                for sk in skills:
+                    if (sk.source or '') == 'code':
+                        continue
+                    if not sk.diagram:
+                        continue
+                    try:
+                        fingerprint = _json.dumps(sk.diagram, sort_keys=True, ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        continue
+                    groups.setdefault(fingerprint, []).append(sk)
+
+                result = []
+                for members in groups.values():
+                    if len(members) < 2:
+                        continue
+                    try:
+                        members.sort(key=lambda sk: (sk.created_at is None,
+                                                     sk.created_at or datetime.min,
+                                                     sk.id))
+                    except TypeError:
+                        # naive/aware datetime mix — fall back to id order
+                        members.sort(key=lambda sk: sk.id)
+                    result.append({
+                        "canonical": members[0].to_dict(),
+                        "duplicates": [sk.to_dict() for sk in members[1:]],
+                    })
+                if result:
+                    _dedupe_logger().info(
+                        f"[SkillDedupe] owner={owner}: {len(result)} duplicate "
+                        f"group(s): " + "; ".join(
+                            f"{g['canonical'].get('name')}({g['canonical'].get('id')}) "
+                            f"<- {[d.get('id') for d in g['duplicates']]}"
+                            for g in result
+                        )
+                    )
+                return {"success": True, "data": result, "error": None}
+        except SQLAlchemyError as e:
+            return {"success": False, "data": [], "error": str(e)}
+
+    def merge_skill_references(self, duplicate_id, canonical_id):
+        """Re-point all references from *duplicate_id* to *canonical_id*.
+
+        Covers both association tables: ``agent_skill_rels`` and
+        ``agent_task_skill_rels``. When the target already has an
+        equivalent relationship (unique constraints on (agent_id, skill_id)
+        / (task_id, skill_id)), the duplicate's row is deleted instead of
+        re-pointed. The duplicate skill row itself is NOT deleted — use
+        ``delete_skill`` afterwards once nothing references it.
+
+        Returns {"success", "data": {"agent_rels_moved", "agent_rels_dropped",
+        "task_rels_moved", "task_rels_dropped"}, "error"}.
+        """
+        from ..models.association_models import DBAgentSkillRel, DBAgentTaskSkillRel
+        if not duplicate_id or not canonical_id or duplicate_id == canonical_id:
+            return {"success": False, "data": None, "error": "duplicate_id and canonical_id must differ and be non-empty"}
+        try:
+            counts = {"agent_rels_moved": 0, "agent_rels_dropped": 0,
+                      "task_rels_moved": 0, "task_rels_dropped": 0}
+            with self.session_scope() as s:
+                for rel in s.query(DBAgentSkillRel).filter(DBAgentSkillRel.skill_id == duplicate_id).all():
+                    exists = s.query(DBAgentSkillRel).filter(
+                        DBAgentSkillRel.agent_id == rel.agent_id,
+                        DBAgentSkillRel.skill_id == canonical_id,
+                    ).first()
+                    if exists:
+                        s.delete(rel)
+                        counts["agent_rels_dropped"] += 1
+                    else:
+                        rel.skill_id = canonical_id
+                        counts["agent_rels_moved"] += 1
+
+                for rel in s.query(DBAgentTaskSkillRel).filter(DBAgentTaskSkillRel.skill_id == duplicate_id).all():
+                    exists = s.query(DBAgentTaskSkillRel).filter(
+                        DBAgentTaskSkillRel.task_id == rel.task_id,
+                        DBAgentTaskSkillRel.skill_id == canonical_id,
+                    ).first()
+                    if exists:
+                        s.delete(rel)
+                        counts["task_rels_dropped"] += 1
+                    else:
+                        rel.skill_id = canonical_id
+                        counts["task_rels_moved"] += 1
+                s.flush()
+            _dedupe_logger().info(
+                f"[SkillDedupe] merged references {duplicate_id} -> {canonical_id}: {counts}"
+            )
+            return {"success": True, "data": counts, "error": None}
+        except SQLAlchemyError as e:
+            _dedupe_logger().error(
+                f"[SkillDedupe] merge FAILED {duplicate_id} -> {canonical_id}: {e}"
+            )
+            return {"success": False, "data": None, "error": str(e)}
 
     def get_public_skills(self):
         """Get all public skills"""

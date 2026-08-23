@@ -414,28 +414,31 @@ def resolve_browser_scope_key(
     """
     # Pin-to-node opt-in: front-desk dispatcher pattern (one shared browser
     # session rotated across customer tabs, vs the default per-chat isolation).
+    # Pinned scopes carry an agent suffix (node:<name>:<agent_id>) so agents
+    # sharing ONE skill don't fight over a single cached session (Phase 3/B6);
+    # falls back to the legacy bare scope when no agent can be determined.
     try:
         if pin_to_node is True:
-            return f"node:{node_name}"
+            return f"node:{node_name}{_agent_pin_suffix(state, node_name)}"
         _attrs_pin = state.get("attributes", {}) if isinstance(state, dict) else {}
         if isinstance(_attrs_pin, dict):
             _v = _attrs_pin.get("pin_browser_scope_to_node")
             if _v is True or (isinstance(_v, str) and _v.strip().lower() in ("1", "true", "yes", "on")):
-                return f"node:{node_name}"
+                return f"node:{node_name}{_agent_pin_suffix(state, node_name)}"
             _params_pin = _attrs_pin.get("params", {}) if isinstance(_attrs_pin, dict) else {}
             if isinstance(_params_pin, dict):
                 _v = _params_pin.get("pinBrowserScopeToNode")
                 if _v is True or (isinstance(_v, str) and _v.strip().lower() in ("1", "true", "yes", "on")):
-                    return f"node:{node_name}"
+                    return f"node:{node_name}{_agent_pin_suffix(state, node_name)}"
             _skill_name = str(
                 skill_name
                 or (_attrs_pin.get("skill_name") if isinstance(_attrs_pin, dict) else "")
                 or ""
             ).strip()
             if _skill_name.lower() in DEFAULT_NODE_SCOPED_SKILL_NAMES:
-                return f"node:{node_name}"
+                return f"node:{node_name}{_agent_pin_suffix(state, node_name)}"
             if _skill_name and _resolve_pin_to_node_from_skill(_skill_name):
-                return f"node:{node_name}"
+                return f"node:{node_name}{_agent_pin_suffix(state, node_name)}"
     except Exception:
         pass
 
@@ -467,6 +470,84 @@ def resolve_browser_scope_key(
     except Exception:
         pass
     return f"node:{node_name}"
+
+
+def _agent_pin_suffix(state, node_name: str) -> str:
+    """Agent suffix for pinned ``node:*`` browser scopes.
+
+    SHARED_SKILL_MULTI_TASK_PLAN Phase 3 (B6): a bare ``node:<name>`` scope
+    collides when multiple agents share ONE skill (identical node names) —
+    two agents would fight over one cached browser session. Suffix the pin
+    scope with the owning agent id, resolved from per-run state with the
+    mt068 sticky-recovery cache keeping the suffix stable on degraded
+    re-entries (state that momentarily lost agent_id). Falls back to ""
+    (legacy shared scope) when no agent can be determined.
+    """
+    try:
+        attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
+        agent_id = attrs.get("agent_id") if isinstance(attrs, dict) else None
+        if not agent_id and isinstance(state, dict):
+            msgs = state.get("messages")
+            if isinstance(msgs, list) and msgs and isinstance(msgs[0], str):
+                agent_id = msgs[0]
+        try:
+            from agent.ec_skills.build_node import _record_or_recover_agent_id
+            agent_id = _record_or_recover_agent_id(node_name, state, agent_id)
+        except Exception:
+            pass
+        if not agent_id:
+            logger.debug(
+                f"[BrowserAutomation] Pinned scope for node={node_name} has no "
+                f"resolvable agent — using legacy shared scope node:{node_name}"
+            )
+        return f":{agent_id}" if agent_id else ""
+    except Exception:
+        return ""
+
+
+def resolve_state_browser_identity(state) -> dict:
+    """Per-run browser identity overrides carried in state.
+
+    SHARED_SKILL_MULTI_TASK_PLAN Phase 3 (B2): tasks sharing ONE skill can
+    each run their own browser identity. Reads the same state locations the
+    runtime browser-slot mechanism already honors — state root, then
+    ``attributes``, then ``attributes.params`` — for:
+    ``browser_profile``, ``cdp_port``, ``browser_slot_id``,
+    ``user_data_dir``, ``headless``.
+
+    Values reach these keys either from the scheduler/BrowserManager slot
+    assignment (pre-existing) or from the task's persisted
+    ``browser_identity`` dict seeded into attributes at run start
+    (``prep_skills_run.apply_task_vars``). Returns only the keys that
+    resolved to a non-empty value; ``headless`` is coerced to bool.
+    """
+    resolved: dict = {}
+    try:
+        st = state if isinstance(state, dict) else {}
+        attrs = st.get("attributes", {}) if isinstance(st.get("attributes"), dict) else {}
+        params = attrs.get("params", {}) if isinstance(attrs.get("params"), dict) else {}
+        for key in ("browser_profile", "cdp_port", "browser_slot_id", "user_data_dir", "headless"):
+            value = st.get(key)
+            if value is None or value == "":
+                value = attrs.get(key)
+            if value is None or value == "":
+                value = params.get(key)
+            if value is None or value == "":
+                continue
+            if key == "headless":
+                if isinstance(value, bool):
+                    resolved[key] = value
+                else:
+                    s = str(value).strip().lower()
+                    if s in ("1", "true", "yes", "on"):
+                        resolved[key] = True
+                    elif s in ("0", "false", "no", "off"):
+                        resolved[key] = False
+            else:
+                resolved[key] = str(value).strip()
+    except Exception as e:
+        logger.debug(f"[resolve_state_browser_identity] failed: {e}")
+    return resolved
 
 
 def cleanup_stale_browser_sessions() -> None:
@@ -739,9 +820,19 @@ async def get_or_create_browser_session(
         _cached_passive_agents.pop(old_sid, None)
         cached_browser_sessions.pop(browser_scope_key, None)
 
-    profile_settings = get_browser_profile_settings(ctx.node_profile)
+    # Per-run browser identity (Phase 3/B2): state-carried overrides win
+    # over the node's build-time config so tasks sharing one skill can run
+    # distinct browser identities.
+    _run_identity = resolve_state_browser_identity(state)
+    _effective_profile = _run_identity.get("browser_profile") or ctx.node_profile
+
+    profile_settings = get_browser_profile_settings(_effective_profile)
     if profile_settings:
-        log_msg = f"[BrowserAutomation] Using profile: {profile_settings.get('name', ctx.node_profile)}"
+        _profile_src = "state" if _run_identity.get("browser_profile") else "config"
+        log_msg = (
+            f"[BrowserAutomation] Using profile: "
+            f"{profile_settings.get('name', _effective_profile)} (from={_profile_src})"
+        )
         logger.info(log_msg)
         send_skill_editor_log("log", log_msg)
 
@@ -777,43 +868,19 @@ async def get_or_create_browser_session(
     }
     browser_type = browser_type_map.get(ctx.browser_type_setting, BrowserType.CHROME)
 
-    # Runtime browser-slot resolution: task state (assigned by scheduler
-    # or auto-assigned by BrowserManager) takes priority over skill config.
-    _state_cdp_port = ""
-    _state_browser_profile = ""
-    _state_slot_id = ""
-    try:
-        _slot_state = state if isinstance(state, dict) else {}
-        _slot_attrs = _slot_state.get("attributes", {}) if isinstance(_slot_state, dict) else {}
-        _slot_params = _slot_attrs.get("params", {}) if isinstance(_slot_attrs, dict) else {}
-        # Check state root, then attributes, then params for cdp_port
-        _state_cdp_port = str(
-            _slot_state.get("cdp_port")
-            or _slot_attrs.get("cdp_port")
-            or _slot_params.get("cdp_port")
-            or ""
-        ).strip()
-        _state_browser_profile = str(
-            _slot_state.get("browser_profile")
-            or _slot_attrs.get("browser_profile")
-            or _slot_params.get("browser_profile")
-            or ""
-        ).strip()
-        _state_slot_id = str(
-            _slot_state.get("browser_slot_id")
-            or _slot_attrs.get("browser_slot_id")
-            or _slot_params.get("browser_slot_id")
-            or ""
-        ).strip()
-        if _state_cdp_port or _state_slot_id:
-            logger.info(
-                f"[BrowserAutomation] Runtime browser slot from state: "
-                f"cdp_port={_state_cdp_port or '(auto)'}, "
-                f"slot_id={_state_slot_id or '(none)'}, "
-                f"profile={_state_browser_profile or '(default)'}"
-            )
-    except Exception as _slot_err:
-        logger.debug(f"[BrowserAutomation] Browser slot resolution from state failed: {_slot_err}")
+    # Runtime browser-slot resolution: task state (assigned by scheduler,
+    # auto-assigned by BrowserManager, or carried by the task's persisted
+    # browser_identity) takes priority over skill config.
+    _state_cdp_port = _run_identity.get("cdp_port", "")
+    _state_browser_profile = _run_identity.get("browser_profile", "")
+    _state_slot_id = _run_identity.get("browser_slot_id", "")
+    if _state_cdp_port or _state_slot_id:
+        logger.info(
+            f"[BrowserAutomation] Runtime browser slot from state: "
+            f"cdp_port={_state_cdp_port or '(auto)'}, "
+            f"slot_id={_state_slot_id or '(none)'}, "
+            f"profile={_state_browser_profile or '(default)'}"
+        )
 
     # If we have a slot_id but no cdp_port, resolve port from the slot
     if _state_slot_id and not _state_cdp_port:
@@ -871,7 +938,10 @@ async def get_or_create_browser_session(
         cdp_port=cdp_port,
         webdriver_path=mainwin.getWebDriverPath(),
         downloads_path=ctx.downloads_path,
-        profile=ctx.node_profile or _state_browser_profile,
+        # State-carried profile wins over node config — same precedence as
+        # cdp_port above (Phase 3/B2; the previous config-first order here
+        # contradicted the documented "state takes priority" intent).
+        profile=_state_browser_profile or ctx.node_profile,
         connect_webdriver=_connect_webdriver,
     )
 

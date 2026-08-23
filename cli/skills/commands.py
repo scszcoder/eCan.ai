@@ -302,3 +302,99 @@ def remove(skill_id, force):
     from ..base.sync import cloud_sync
     from agent.cloud_api.constants import DataType, Operation
     cloud_sync(DataType.SKILL, {'id': skill_id}, Operation.DELETE)
+
+
+
+@skills.command()
+@requires_auth
+@click.option('--apply', 'apply_changes', is_flag=True,
+              help='Re-point agent/task references from duplicates to the canonical skill (default: dry-run report)')
+@click.option('--delete', 'delete_duplicates', is_flag=True,
+              help='With --apply: also delete the duplicate skill rows after re-pointing')
+def dedupe(apply_changes, delete_duplicates):
+    """
+    Find (and optionally merge) duplicated skill copies.
+
+    OPERATION command - migrates the old copy-a-skill-per-agent pattern to
+    shared skills: duplicates (identical diagram) are detected, and with
+    --apply their agent/task references are re-pointed to one canonical
+    skill. Per-task differences belong in task variables afterwards
+    (ecan tasks update <task> --var k=v --browser k=v).
+
+    Requires authentication. Use 'ecan auth login' first.
+
+    Examples:
+      ecan skills dedupe                    # Dry-run: report duplicate groups
+      ecan skills dedupe --apply            # Merge references into canonicals
+      ecan skills dedupe --apply --delete   # ...and delete the duplicate rows
+    """
+    ctx = get_context()
+    out = get_output()
+
+    if delete_duplicates and not apply_changes:
+        out.error("--delete requires --apply")
+        raise SystemExit(1)
+
+    try:
+        result = ctx.db.skill_service.find_duplicate_skills(ctx.username)
+    except Exception as e:
+        out.error(f"Failed to scan for duplicates: {e}")
+        raise SystemExit(1)
+
+    if not result.get('success'):
+        out.error(f"Failed: {result.get('error')}")
+        raise SystemExit(1)
+
+    groups = result.get('data') or []
+    if not groups:
+        out.success("No duplicate skills found.")
+        return
+
+    for group in groups:
+        canonical = group['canonical']
+        dups = group['duplicates']
+        out.print(f"\nCanonical: {canonical.get('name')} ({canonical.get('id')})")
+        for dup in dups:
+            out.print(f"  duplicate: {dup.get('name')} ({dup.get('id')})")
+
+    if not apply_changes:
+        out.info(f"\n{len(groups)} duplicate group(s) found. Re-run with --apply to merge references.")
+        return
+
+    merged = 0
+    deleted = 0
+    for group in groups:
+        canonical_id = group['canonical'].get('id')
+        for dup in group['duplicates']:
+            dup_id = dup.get('id')
+            try:
+                merge = ctx.db.skill_service.merge_skill_references(dup_id, canonical_id)
+            except Exception as e:
+                out.warning(f"Merge failed for {dup_id}: {e}")
+                continue
+            if not merge.get('success'):
+                out.warning(f"Merge failed for {dup_id}: {merge.get('error')}")
+                continue
+            counts = merge.get('data') or {}
+            out.print(f"  {dup_id} -> {canonical_id}: "
+                      f"agents moved={counts.get('agent_rels_moved', 0)} "
+                      f"dropped={counts.get('agent_rels_dropped', 0)}, "
+                      f"tasks moved={counts.get('task_rels_moved', 0)} "
+                      f"dropped={counts.get('task_rels_dropped', 0)}")
+            merged += 1
+            if delete_duplicates:
+                try:
+                    dres = ctx.db.skill_service.delete_skill(dup_id)
+                    if dres.get('success'):
+                        deleted += 1
+                        from ..base.sync import cloud_sync
+                        from agent.cloud_api.constants import DataType, Operation
+                        cloud_sync(DataType.SKILL, {'id': dup_id}, Operation.DELETE)
+                    else:
+                        out.warning(f"Delete failed for {dup_id}: {dres.get('error')}")
+                except Exception as e:
+                    out.warning(f"Delete failed for {dup_id}: {e}")
+
+    out.success(f"Merged {merged} duplicate(s)" + (f", deleted {deleted}" if delete_duplicates else "") + ".")
+    if not delete_duplicates:
+        out.info("Duplicate rows kept (now unreferenced) — remove with 'ecan skills remove <id>' or re-run with --apply --delete.")

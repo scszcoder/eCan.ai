@@ -195,6 +195,20 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
         # Invalid values will be normalized by field_validator
         task_id = task_dict.get('id', str(uuid.uuid4()))
         schedule = _parse_schedule_from_dict(task_dict.get('schedule'))
+
+        # Carry task_vars / browser_identity from the DB task's settings/
+        # metadata JSON into the runtime metadata so shared-skill runs get
+        # their per-task variables and browser identity
+        # (SHARED_SKILL_MULTI_TASK_PLAN Phases 2-3). Only these keys are
+        # copied — runtime metadata also holds executor-owned keys (state,
+        # config) that must not be clobbered by arbitrary DB settings.
+        runtime_metadata = {}
+        db_settings = task_dict.get('metadata', task_dict.get('settings'))
+        if isinstance(db_settings, dict):
+            for carried_key in ('task_vars', 'browser_identity'):
+                if isinstance(db_settings.get(carried_key), dict):
+                    runtime_metadata[carried_key] = dict(db_settings[carried_key])
+
         task_obj = ManagedTask(
             id=task_id,
             context_id=task_id,  # Required by a2a-sdk Task
@@ -206,6 +220,7 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
             trigger=task_dict.get('trigger') or [],  # field_validator normalizes str/list/None
             agent_id=task_dict.get('agent_id') or '',
             schedule=schedule,
+            metadata=runtime_metadata,
         )
         
         # Set skill if found in task_dict

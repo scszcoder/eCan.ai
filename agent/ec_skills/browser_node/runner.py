@@ -4853,17 +4853,41 @@ class BrowserRunSession:
             maybe_apply_extract_patch as _maybe_extract_patch,
         )
 
-        profile_settings = _bh.get_browser_profile_settings(self.ctx.node_profile)
-        
+        # Per-run browser identity (SHARED_SKILL Phase 3/B2): state-carried
+        # overrides (task browser_identity / scheduler slot) win over the
+        # node's build-time config so tasks sharing one skill can each run
+        # their own browser profile / user_data_dir / headless mode.
+        _run_identity = _bh.resolve_state_browser_identity(self.state)
+        _effective_profile = _run_identity.get("browser_profile") or self.ctx.node_profile
+        _effective_user_data_dir = (
+            _run_identity.get("user_data_dir") or self.ctx.user_data_dir_setting
+        )
+        _effective_headless = _run_identity.get("headless")
+        if _effective_headless is None:
+            _effective_headless = self.ctx.node_headless
+        if _run_identity:
+            logger.info(
+                f"[BrowserAutomation] Per-run browser identity overrides for "
+                f"node={self.ctx.node_name}: {sorted(_run_identity.keys())} → "
+                f"effective profile={_effective_profile!r} "
+                f"user_data_dir={_effective_user_data_dir!r} "
+                f"headless={_effective_headless} "
+                f"(node config: profile={self.ctx.node_profile!r} "
+                f"user_data_dir={self.ctx.user_data_dir_setting!r} "
+                f"headless={self.ctx.node_headless})"
+            )
+
+        profile_settings = _bh.get_browser_profile_settings(_effective_profile)
+
         # Merge node-level stealth settings into profile_settings
         if self.ctx.enable_stealth_setting:
             profile_settings = profile_settings or {}
             profile_settings["enableStealth"] = True
-        
-        # Merge node-level user_data_dir if specified (overrides platform profile)
-        if self.ctx.user_data_dir_setting:
+
+        # Merge per-run/node-level user_data_dir if specified (overrides platform profile)
+        if _effective_user_data_dir:
             profile_settings = profile_settings or {}
-            profile_settings["user_data_dir"] = self.ctx.user_data_dir_setting
+            profile_settings["user_data_dir"] = _effective_user_data_dir
         
         # Pass platform profile settings to build_browser_profile
         if self.ctx.enable_platform_profile_setting:
@@ -4895,9 +4919,9 @@ class BrowserRunSession:
         _bp_t0 = time.perf_counter()
         browser_profile = _build_browser_profile(
             profile_settings=profile_settings,
-            node_profile=self.ctx.node_profile,
+            node_profile=_effective_profile,
             keep_alive=keep_browser_alive,
-            headless=self.ctx.node_headless,
+            headless=_effective_headless,
             target_url=target_url,
         )
         _bp_dt_ms = (time.perf_counter() - _bp_t0) * 1000.0

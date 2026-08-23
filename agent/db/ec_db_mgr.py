@@ -28,6 +28,7 @@ from .services.db_chat_service import DBChatService
 from .services.db_task_service import DBTaskService
 from .services.db_avatar_service import DBAvatarService
 from .services.db_token_usage_service import DBTokenUsageService
+from .services.db_vehicle_service import DBVehicleService
 from utils.logger_helper import logger_helper as logger
 
 
@@ -65,6 +66,7 @@ class ECDBMgr:
         self.skill_service = None
         self.chat_service = None
         self.task_service = None
+        self.vehicle_service = None
 
         # Initialize database
         self.initialize_database()
@@ -326,6 +328,7 @@ class ECDBMgr:
             self.chat_service = DBChatService(engine=self.engine)
             self.task_service = DBTaskService(engine=self.engine)
             self.token_usage_service = DBTokenUsageService(engine=self.engine)
+            self.vehicle_service = DBVehicleService(engine=self.engine)
 
             logger.info("[ECDBMgr] Initialized all database services as direct attributes")
             return True
