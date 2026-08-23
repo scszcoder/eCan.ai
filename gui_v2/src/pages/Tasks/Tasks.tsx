@@ -422,7 +422,12 @@ const Tasks: React.FC = () => {
           <StyledActionButton
             shape="circle"
             icon={<PlusOutlined />}
-            onClick={() => setIsAddingNew(true)}
+            onClick={() => {
+              setIsAddingNew(true);
+              if (viewMode === 'grid') {
+                setIsGridDetailOpen(true);
+              }
+            }}
           />
         </Tooltip>
       </Space>
@@ -440,6 +445,7 @@ const Tasks: React.FC = () => {
   const handleTaskCancel = () => {
     if (isAddingNew) {
       setIsAddingNew(false);
+      setIsGridDetailOpen(false);
       unselectItem();
     }
   };
