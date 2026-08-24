@@ -741,11 +741,13 @@ def _notify_supervisor_of_token_rejection(source: str) -> None:
         logger.debug(f"[_fetch_cloud_skills] notify_token_rejected skipped: {exc}")
 
 
-def _fetch_cloud_skills(request=None, params=None) -> list:
+def _fetch_cloud_skills(request=None, params=None, public_catalog: bool = False) -> list:
     """Fetch skills from cloud AppSync API.
 
     Returns a list of skill dicts in the local format.
     Raises on failure so the caller can log and continue.
+    With ``public_catalog=True`` fetches the PUBLIC skill catalog (skill
+    store) instead of the current user's own skills.
     """
     from agent.cloud_api.cloud_api import (
         send_get_agent_skills_request_to_cloud,
@@ -761,7 +763,8 @@ def _fetch_cloud_skills(request=None, params=None) -> list:
 
     endpoint = get_appsync_endpoint()
     session = _get_cloud_session()
-    jresp = send_get_agent_skills_request_to_cloud(session, token, endpoint)
+    jresp = send_get_agent_skills_request_to_cloud(session, token, endpoint,
+                                                   public_catalog=public_catalog)
 
     if not isinstance(jresp, list):
         # Dict response indicates an error from the cloud API
@@ -1183,7 +1186,34 @@ def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any
         if not username:
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        rows = _fetch_cloud_skills(request, params)
+        # Skill store fix (2026-08-24): queryAgentSkills is OWNER-SCOPED, so
+        # filtering the caller's own list for public skills can never surface
+        # ANOTHER user's published skills — customers saw an empty store.
+        # Fetch the real public catalog (CN/TCB: queryAgentSkills
+        # input:{isPublic:true}); fall back to the getPublicSkills Lambda
+        # query (AWS), then to the legacy own-list filter as a last resort.
+        rows = []
+        try:
+            rows = _fetch_cloud_skills(request, params, public_catalog=True)
+            if rows:
+                logger.info(f"[get_public_skills] public catalog returned {len(rows)} skill(s)")
+        except Exception as catalog_err:
+            logger.warning(f"[get_public_skills] public-catalog query failed: {catalog_err}")
+        if not rows:
+            try:
+                from agent.cloud_api.cloud_api import cloud_get_public_skills, get_appsync_endpoint
+                ctx = get_handler_context(request, params)
+                token = ctx.get_auth_token()
+                if token:
+                    resp = cloud_get_public_skills(_get_cloud_session(), token, get_appsync_endpoint())
+                    rows = (resp or {}).get('skills') or []
+                    if rows:
+                        logger.info(f"[get_public_skills] getPublicSkills returned {len(rows)} skill(s)")
+            except Exception as lambda_err:
+                logger.warning(f"[get_public_skills] getPublicSkills fallback failed: {lambda_err}")
+        if not rows:
+            logger.info("[get_public_skills] falling back to own-list public filter (legacy)")
+            rows = _fetch_cloud_skills(request, params)
         username_norm = username.strip().lower()
         skills = []
         seen = set()
@@ -1223,6 +1253,37 @@ def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any
             f"Error during get public skills: {str(e)}"
         )
     
+def _find_cloud_skill_for_subscribe(request, params, skill_id: str):
+    """Locate the full cloud record of a skill being subscribed to.
+
+    Searches the caller's own cloud skills first (legacy behaviour), then
+    the PUBLIC catalog — a customer subscribing to another author's store
+    skill will only ever find it in the catalog (queryAgentSkills is
+    owner-scoped; this was why customer-side subscribe failed with
+    'Skill not found in cloud').
+    """
+    def _match(rows):
+        return next(
+            (
+                s for s in rows
+                if str(s.get('id') or '').strip() == str(skill_id).strip()
+                or str(s.get('askid') or '').strip() == str(skill_id).strip()
+            ),
+            None
+        )
+
+    target = _match(_fetch_cloud_skills(request, params))
+    if target is None:
+        try:
+            target = _match(_fetch_cloud_skills(request, params, public_catalog=True))
+            if target is not None:
+                logger.info(f"[subscribe_to_skill] found {skill_id} in the public catalog "
+                            f"(owner={target.get('owner')})")
+        except Exception as catalog_err:
+            logger.warning(f"[subscribe_to_skill] public-catalog lookup failed: {catalog_err}")
+    return target
+
+
 @IPCHandlerRegistry.handler('subscribe_to_skill')
 def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Subscribe to a public skill by saving it to the local database.
@@ -1266,16 +1327,9 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
                 pass
         if existing.get('success') and existing.get('data'):
             existing_data = existing.get('data') or {}
-            # Fetch latest from cloud and update local record
-            cloud_skills = _fetch_cloud_skills(request, params)
-            target = next(
-                (
-                    s for s in cloud_skills
-                    if str(s.get('id') or '').strip() == str(skill_id).strip()
-                    or str(s.get('askid') or '').strip() == str(skill_id).strip()
-                ),
-                None
-            )
+            # Fetch latest from cloud (own skills OR the public catalog) and
+            # update the local record
+            target = _find_cloud_skill_for_subscribe(request, params, skill_id)
             if target:
                 # Update existing record with latest cloud data
                 skill_data = _prepare_skill_data(target, target.get('owner', username), skill_id)
@@ -1301,16 +1355,9 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
                 'success': True
             })
 
-        # Fetch skill details from cloud to save locally
-        cloud_skills = _fetch_cloud_skills(request, params)
-        target = next(
-            (
-                s for s in cloud_skills
-                if str(s.get('id') or '').strip() == str(skill_id).strip()
-                or str(s.get('askid') or '').strip() == str(skill_id).strip()
-            ),
-            None
-        )
+        # Fetch skill details from cloud (own skills OR the public catalog)
+        # to save locally
+        target = _find_cloud_skill_for_subscribe(request, params, skill_id)
 
         if not target:
             return create_error_response(request, 'SKILL_NOT_FOUND', f'Skill {skill_id} not found in cloud')
