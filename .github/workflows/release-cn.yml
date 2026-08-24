@@ -1179,8 +1179,6 @@ jobs:
             if ($stderr) { $stderr -split "\`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
             $lsRaw = if ($stdout) { ($stdout -split "\`n").Trim() } else { $null }
           }
-          }
-          $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
@@ -2175,8 +2173,6 @@ jobs:
             if ($stderr) { $stderr -split "\`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
             $lsRaw = if ($stdout) { ($stdout -split "\`n").Trim() } else { $null }
           }
-          }
-          $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
@@ -2964,8 +2960,6 @@ jobs:
             if ($stderr) { $stderr -split "\`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
             $lsRaw = if ($stdout) { ($stdout -split "\`n").Trim() } else { $null }
           }
-          }
-          $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
@@ -3743,8 +3737,6 @@ jobs:
             if ($stderr) { $stderr -split "\`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
             $lsRaw = if ($stdout) { ($stdout -split "\`n").Trim() } else { $null }
           }
-          }
-          $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
