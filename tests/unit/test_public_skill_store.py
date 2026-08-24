@@ -33,6 +33,19 @@ class TestQueryGeneration:
         q = gen_get_agent_skills_string(public_catalog=True)
         assert "queryAgentSkills(input: {isPublic: true})" in q
 
+    def test_public_catalog_selects_is_public_field(self):
+        """GraphQL returns ONLY selected fields — without selecting isPublic
+        the catalog rows carry a null `public` and no alias to normalize
+        from, so the store filter drops every row (2026-08-25 incident)."""
+        q = gen_get_agent_skills_string(public_catalog=True)
+        assert "isPublic" in q.split("{", 2)[2]  # in the selection set
+
+    def test_own_skills_query_does_not_select_is_public(self):
+        """The own-skills selection must stay AWS-compatible (no isPublic
+        field on the AWS AgentSkill type)."""
+        q = gen_get_agent_skills_string()
+        assert "isPublic" not in q
+
 
 class TestFindCloudSkillForSubscribe:
     def test_found_in_own_list(self):

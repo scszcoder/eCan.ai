@@ -2004,8 +2004,17 @@ def gen_get_agent_skills_string(public_catalog: bool = False):
     # Query all skills by passing empty input (no filters)
     # AWS schema uses snake_case: price_model, public (see scripts/appsync_schema_latest.graphql)
     _input = '{isPublic: true}' if public_catalog else '{}'
+    # Catalog variant must ALSO select `isPublic`: the CN/TCB resolver
+    # populates isPublic (prisma field) while the legacy `public` alias can
+    # resolve null — and GraphQL returns ONLY selected fields, so without
+    # this the response rows carry no usable flag at all and the store
+    # filter drops every row (customer log 2026-08-25: catalog returned 4
+    # skills, store stayed empty). CN-only selection: on AWS this makes the
+    # catalog attempt fail validation, which is fine — that path already
+    # falls back to the getPublicSkills Lambda query.
+    _extra_fields = '\n            isPublic' if public_catalog else ''
     query_string = '''query MyGetAgentSkillsQuery {
-        queryAgentSkills(input: ''' + _input + ''') {
+        queryAgentSkills(input: ''' + _input + ''') {''' + _extra_fields + '''
             id
             askid
             owner

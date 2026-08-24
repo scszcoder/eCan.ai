@@ -1262,6 +1262,20 @@ def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any
             seen.add(key)
             skills.append(sk)
 
+        # Post-filter observability: "catalog returned N" alone hid a round
+        # of debugging where the filter dropped every row (null public flag).
+        logger.info(
+            f"[get_public_skills] store filter kept {len(skills)} of {len(rows)} "
+            f"fetched row(s) for user {username}"
+        )
+        if rows and not skills:
+            sample = rows[0] if isinstance(rows[0], dict) else {}
+            logger.warning(
+                f"[get_public_skills] ALL rows filtered out — sample row: "
+                f"owner={sample.get('owner')!r} public={sample.get('public')!r} "
+                f"isPublic={sample.get('isPublic')!r} is_public={sample.get('is_public')!r}"
+            )
+
         return create_success_response(request, {
             'skills': skills,
             'message': 'Get public skills successful',
