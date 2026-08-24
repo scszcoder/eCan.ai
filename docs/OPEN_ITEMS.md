@@ -132,6 +132,27 @@ _Last updated: 2026-08-23_
 
 ## 🟢 In progress
 
+- **Cloud↔local skill sync: ownerless-row repair** (2026-08-23, uncommitted).
+  Diagnosed the "skill_71209937ed7449bf / pr-330448 in cloud PG but not in
+  GUI" report: cloud sync-down WORKS (queryAgentSkills returns them — the
+  2026-08-21 `public`-field validation bug appears fixed server-side), but
+  the LOCAL DB rows were ownerless (owner='', public/rentable=0) and the
+  get_agent_skills merge skipped already-local ids without repairing them.
+  Ownerless rows are invisible in gui_v2 My Skills (`owner === username`
+  filter) and skipped by owner-scoped startup loading. FIX:
+  `_repair_local_skill_from_cloud` in skill_handler backfills empty
+  identity/store fields (owner/public/rentable/price) from the user's own
+  cloud row on every get_agent_skills merge — heals on next Skills-page
+  load. 5 tests (`tests/unit/test_skill_cloud_repair.py`).
+  Prompts side: pr-330448/pr-287230 files ARE in my_prompts and the
+  Prompts page has no owner filter — should display; if still missing,
+  suspect the store's one-shot `fetched` cache (fetch before sync-down
+  completed) — re-check after restart.
+  BACKEND ITEM: TCB Query type lacks `getSubscribedSkillIds`
+  (GRAPHQL_VALIDATION_FAILED every Skills-page load, non-fatal — cloud
+  subscription-rel checks silently fail). Fix in eCan_lambda SDL per
+  Section 5.
+
 - **快速生成 → 抖店客服 (douyin_cs Fast Deploy) — REAL, shared-skill model**
   (2026-08-23). `cli/deploy/commands.py::_deploy_douyin_cs` rewritten: verifies
   visibility of skills skill_4f24592c81894ae7 (飞鸽客服问答00) +

@@ -343,6 +343,66 @@ IPCHandlerRegistry.add_to_whitelist('step_sim')
 IPCHandlerRegistry.add_to_whitelist('test_langgraph2flowgram')
 
 
+# Fields the cloud row may repair on an existing local row when the local
+# value is missing/falsy. Deliberately narrow: identity + store flags only —
+# content fields (diagram/config) keep local-wins semantics.
+_CLOUD_REPAIRABLE_SKILL_FIELDS = ('owner', 'public', 'rentable', 'price', 'price_model')
+
+
+def _repair_local_skill_from_cloud(local_sk: Dict[str, Any], cloud_sk: Dict[str, Any],
+                                   request=None, params=None) -> bool:
+    """Backfill missing identity/store fields on a local skill row from its
+    cloud twin (same id, owner verified as the current user by the caller).
+
+    Out-of-sync repair (2026-08-23): local rows were observed OWNERLESS
+    (owner='' with public/rentable=0) while the cloud row carried the
+    correct owner + flags — the merge used to skip already-local ids
+    entirely, so the local row could never heal, and ownerless rows are
+    invisible in the GUI (My Skills filters owner === username) and skipped
+    by owner-scoped startup loading (get_skills_by_owner).
+
+    Only fills fields that are empty/falsy locally and non-empty on the
+    cloud row — never overwrites a real local value. Persists to the DB and
+    patches the in-memory pool + the response dict in place. Returns True
+    when a repair was applied.
+    """
+    fields: Dict[str, Any] = {}
+    for key in _CLOUD_REPAIRABLE_SKILL_FIELDS:
+        local_val = local_sk.get(key)
+        cloud_val = cloud_sk.get(key)
+        local_empty = (local_val is None) or (isinstance(local_val, str) and not local_val.strip()) \
+            or (key in ('public', 'rentable') and not local_val) or (key == 'price' and not local_val)
+        cloud_has = (cloud_val is not None) and (not isinstance(cloud_val, str) or cloud_val.strip()) \
+            and (key not in ('public', 'rentable', 'price') or cloud_val)
+        if local_empty and cloud_has:
+            fields[key] = cloud_val
+    if not fields:
+        return False
+
+    skill_id = str(local_sk.get('id') or '')
+    logger.info(
+        f"[skill_handler] Repairing out-of-sync local skill "
+        f"'{local_sk.get('name')}' ({skill_id}) from cloud: {sorted(fields.keys())}"
+    )
+    try:
+        skill_service = _get_skill_service(request, params)
+        if skill_service and skill_id:
+            result = skill_service.update_skill(skill_id, dict(fields))
+            if not (isinstance(result, dict) and result.get('success')):
+                logger.warning(
+                    f"[skill_handler] DB repair for {skill_id} failed: {(result or {}).get('error')}"
+                )
+    except Exception as db_err:
+        logger.warning(f"[skill_handler] DB repair for {skill_id} failed: {db_err}")
+
+    local_sk.update(fields)
+    try:
+        _update_skill_in_memory(skill_id, local_sk, request, params)
+    except Exception as mem_err:
+        logger.debug(f"[skill_handler] memory repair for {skill_id} skipped: {mem_err}")
+    return True
+
+
 @IPCHandlerRegistry.handler('get_agent_skills')
 def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Get agent skills list from local memory/DB AND cloud.
@@ -471,7 +531,8 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
         # Optimization: Use set comprehension for batch processing (faster than loop)
         local_ids = {str(sk['id']) for sk in skills_dicts if sk.get('id')}
         local_askids = {str(sk['askid']) for sk in skills_dicts if sk.get('askid')}
-        
+        local_by_id = {str(sk['id']): sk for sk in skills_dicts if isinstance(sk, dict) and sk.get('id')}
+
         # Combine all local identifiers for efficient lookup
         all_local_identifiers = local_ids | local_askids
 
@@ -487,10 +548,23 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             # - cloud merge should only backfill skills owned by the current user
             if current_user and cowner and cowner != current_user:
                 continue
-            
+
             # Optimization: Reduced from 6 checks to 3 by combining ID lookups
             # Skip if already present locally (by any identifier)
             if (cid and cid in all_local_identifiers) or (c_askid and c_askid in all_local_identifiers):
+                # Out-of-sync repair: the local row can be OWNERLESS (or miss
+                # public/rentable) while the cloud row — owned by the current
+                # user, verified above — carries them. Ownerless rows are
+                # invisible in the GUI (My Skills filters owner === username)
+                # and are skipped by owner-scoped startup loading, so backfill
+                # the missing fields into the local row instead of dropping
+                # the cloud data on the floor.
+                try:
+                    local_sk = local_by_id.get(cid) if cid else None
+                    if local_sk is not None:
+                        _repair_local_skill_from_cloud(local_sk, cloud_sk, request, params)
+                except Exception as repair_err:
+                    logger.warning(f"[skill_handler] cloud→local field repair failed for {cid}: {repair_err}")
                 continue
             
             if (cid and cid in _DELETED_SKILL_IDS) or (c_askid and c_askid in _DELETED_SKILL_IDS):
