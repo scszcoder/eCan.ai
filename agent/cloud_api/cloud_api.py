@@ -1373,14 +1373,47 @@ def download_file(session, datahome, f2dl, source, token, endpoint, ftype="gener
 
 _wechat_session_auth_mgr = None
 _wechat_session_token_announced = False
+_http_session_mint_last_attempt = 0.0
+_HTTP_SESSION_MINT_RETRY_S = 300.0
+
+
+def _try_lazy_http_session_mint() -> None:
+    """Best-effort mint of the CN HTTP session token from a LIVE session.
+
+    2026-08-25: a running (or restored) session can lack the eCan session
+    token — e.g. the login-time mint failed because the server had not yet
+    deployed mintHttpSessionToken. Without this retry, every HTTP GraphQL
+    call keeps failing "Bearer token required" until the user logs out and
+    back in. Uses the live AppContext auth manager (it holds the CloudBase
+    access token the mint needs); throttled to one attempt per 5 minutes.
+    """
+    global _http_session_mint_last_attempt
+    import time as _t
+    now = _t.time()
+    if now - _http_session_mint_last_attempt < _HTTP_SESSION_MINT_RETRY_S:
+        return
+    _http_session_mint_last_attempt = now
+    try:
+        from app_context import AppContext
+        login = AppContext.get_login()
+        live_mgr = getattr(login, "auth_manager", None)
+        if live_mgr is None or not getattr(live_mgr, "signed_in", False):
+            return
+        logger_helper.info(
+            "[AppSync] No CN HTTP session token — attempting lazy mint via live auth manager"
+        )
+        live_mgr._finalize_http_session_token()
+    except Exception as e:
+        logger_helper.debug(f"[AppSync] lazy HTTP session mint failed: {e}")
 
 
 def _get_wechat_http_session_token() -> str:
-    """Return the eCan-minted 30-day WeChat session token, or '' if unavailable.
+    """Return the eCan-minted 30-day session token, or '' if unavailable.
 
     The SCF HTTP GraphQL gate (cloudbase-graphql/scf/auth.js resolveIdentity)
-    can only validate the eCan self-signed HS256 session token minted by
-    registerWeChatSession — it cannot validate the raw WeChat/CloudBase
+    can only validate the eCan self-signed HS256 session token (minted by
+    registerWeChatSession for WeChat logins, mintHttpSessionToken for
+    email/phone/password logins) — it cannot validate the raw CloudBase
     access token over plain HTTPS. So CN HTTP requests must authenticate
     with the session token; the access token stays in use for WS paths.
     """
@@ -1398,10 +1431,19 @@ def _get_wechat_http_session_token() -> str:
         if ok and tok:
             if not _wechat_session_token_announced:
                 _wechat_session_token_announced = True
-                logger_helper.info("[AppSync] Using WeChat 30-day session token for CN HTTP auth")
+                logger_helper.info("[AppSync] Using 30-day session token for CN HTTP auth")
+            return tok
+        # No stored session token — self-heal from the live session
+        # (throttled), then re-read.
+        _try_lazy_http_session_mint()
+        ok, tok = _wechat_session_auth_mgr._get_wechat_session_token()
+        if ok and tok:
+            if not _wechat_session_token_announced:
+                _wechat_session_token_announced = True
+                logger_helper.info("[AppSync] Using 30-day session token for CN HTTP auth (lazy mint)")
             return tok
     except Exception as e:
-        logger_helper.debug(f"[AppSync] WeChat session token unavailable: {e}")
+        logger_helper.debug(f"[AppSync] session token unavailable: {e}")
     return ""
 
 
