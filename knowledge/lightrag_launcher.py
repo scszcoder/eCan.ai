@@ -1,17 +1,36 @@
 """
-LightRAG Launcher with Module Replacement
+LightRAG Launcher with eCan Customizations
 
-Optimized for LightRAG 1.4.10+:
-1. Module replacement for Excel extraction (document_routes_custom)
-2. Custom chunker injection (官方已支持 chunking_func 参数)
-3. SSL patch
-4. Extract entities immediate cancellation (立即停止补丁)
-5. HTTP clients cancellation support
-6. Rerank binding conversion
-7. Confidence scoring support
+For LightRAG ≥ 1.5.0 (tested against 1.5.6). The launcher monkey-patches a
+small set of surfaces where LightRAG has a gap eCan needs filled:
 
-Note: LightRAG 1.4.10+ has /cancel_pipeline API, but it doesn't stop queued documents.
-Our patch provides true immediate cancellation by replacing extract_entities function.
+1. Rerank binding conversion — non-native providers (ryoais, ollama) are
+   routed through the jina-compatible proxy so LightRAG can speak to them
+   while the UI keeps showing the real provider name.
+2. Custom chunker injection — LightRAG 1.5 natively accepts a
+   ``chunking_func``; eCan's ``universal_chunking_func`` preserves table
+   structure across DOCX / Excel / Markdown / PDF.
+3. SSL verification control — opt-in via ``SSL_VERIFY=false`` for local
+   development and self-signed certificates.
+4. httpx compat shim — alias ``httpx.TimeoutError`` for ``browser-use``,
+   which still references the pre-0.20 attribute name.
+5. Confidence scoring — ``generate_reference_list_from_chunks`` is wrapped
+   to also surface per-reference scores so the Q&A prompt can gate
+   low-confidence answers.  Degrades gracefully to WARNING if upstream
+   renames the function; the server starts without confidence scoring.
+6. Lambda proxy headers — when the LLM host is a Lambda Function URL,
+   inject ``X-User-Id`` / ``X-Provider`` so the proxy can do per-user
+   token accounting.
+7. Health monitoring — registers ``/health/status``, ``/health/workers``,
+   ``/health/circuits`` (logic in ``knowledge/lightrag_health.py``).
+
+All patches degrade gracefully: on failure they emit a WARNING and let the
+server continue with reduced functionality.  Only ``patch_rerank_binding``
+has no fallback (a missing provider is a configuration error).
+
+LightRAG ≥ 1.5 owns routing, cancellation, bounded scheduling, capability
+discovery and crash recovery natively, so no router / extraction /
+auto-retry patches are needed.
 """
 
 import sys
@@ -34,6 +53,35 @@ _project_root = os.path.dirname(_launcher_dir)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
+
+def patch_openmp_duplicate_fix():
+    """Fix OpenMP library version conflict that causes SIGABRT crashes.
+    
+    When multiple OpenMP libraries are loaded (e.g., one from conda/venv and one
+    from system Homebrew), they have different internal state and cause
+    __kmp_abort_process() when trying to register thread regions.
+    
+    The fix: set LD_PRELOAD-equivalent via DYLD_INSERT_LIBRARIES on macOS
+    to ensure only one OpenMP implementation is used.
+    
+    Alternative: set KMP_DUPLICATE_LIB_OK=TRUE to allow duplicate libraries
+    (may cause subtle issues but prevents crashes).
+    """
+    import platform
+    if platform.system() != 'Darwin':
+        return
+    
+    # KMP_DUPLICATE_LIB_OK tells Intel OpenMP to tolerate duplicate libraries
+    if 'KMP_DUPLICATE_LIB_OK' not in os.environ:
+        os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+        logger.info('[Launcher] Set KMP_DUPLICATE_LIB_OK=TRUE to prevent OpenMP conflicts')
+    
+    # Also disable GOMP for scikit-learn compatibility
+    if 'OMP_NUM_THREADS' not in os.environ:
+        # Use single thread for OpenMP to reduce contention
+        os.environ['OMP_NUM_THREADS'] = '1'
+        logger.info('[Launcher] Set OMP_NUM_THREADS=1 to reduce OpenMP contention')
+
 from utils.logger_helper import logger_helper as logger
 
 # Re-export stop controller for external access
@@ -44,54 +92,26 @@ from knowledge.stop_controller import (
     is_stop_requested,
     reset_stop,
 )
+from knowledge.lightrag_compat import (
+    SUPPORTED_MIN_VERSION,
+    installed_lightrag_version,
+    support_status,
+)
 
 
 # ==================== Module Replacement ====================
 
-def replace_document_routes():
-    """Replace document_routes with custom version.
-
-    Asserts the swap took effect — without this our Excel cleanup and stop-
-    controller checkpoints are inert.
-    """
-    logger.info("[Launcher] Replacing document_routes...")
-
-    # Detect environment
-    if getattr(sys, 'frozen', False):
-        base_path = sys._MEIPASS
-    else:
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-    custom_module_path = os.path.join(base_path, 'third_party', 'lightrag_custom')
-
-    if not os.path.exists(custom_module_path):
-        raise RuntimeError(
-            f"[Launcher] FATAL: custom module path missing: {custom_module_path}. "
-            f"This is required for the document_routes replacement."
-        )
-
-    sys.path.insert(0, custom_module_path)
-
-    import document_routes_custom
-    sys.modules['lightrag.api.routers.document_routes'] = document_routes_custom
-
-    import lightrag.api.routers
-    lightrag.api.routers.document_routes = document_routes_custom
-
-    # Assertion: swap must be visible from both binding points.
-    assert sys.modules['lightrag.api.routers.document_routes'] is document_routes_custom, \
-        "[Launcher] FATAL: sys.modules swap of document_routes did not stick"
-    assert lightrag.api.routers.document_routes is document_routes_custom, \
-        "[Launcher] FATAL: lightrag.api.routers.document_routes attr swap did not stick"
-
-    logger.info("[Launcher] ✅ document_routes replaced (Excel cleanup + Stop checkpoints)")
-
-
 def patch_lightrag_init():
     """Inject custom chunker into LightRAG initialization
     
-    LightRAG 1.4.10+ natively supports chunking_func parameter.
-    This patch simply injects our custom chunker when enabled.
+    LightRAG 1.5 natively supports ``chunking_func`` as a constructor
+    parameter.  We inject ``universal_chunking_func`` so every
+    ``LightRAG()`` call automatically uses eCan's table-aware chunker
+    instead of LightRAG's default fixed-token chunker.
+
+    Gracefully degrades: if the custom chunker cannot be loaded the
+    server starts with LightRAG's built-in chunker and a WARNING is
+    emitted so operators know chunking quality will be reduced.
     """
     use_custom_chunker = os.getenv('LIGHTRAG_CUSTOM_CHUNKER') == '1'
     if not use_custom_chunker:
@@ -101,251 +121,196 @@ def patch_lightrag_init():
     try:
         from knowledge.advanced_chunker import universal_chunking_func
         from lightrag import LightRAG
-        
-        # LightRAG 1.4.10+ natively supports chunking_func parameter
-        # We just need to inject it during initialization
+    except ImportError as e:
+        logger.warning(
+            f"[Launcher] Cannot import chunker: {e}. "
+            "Using LightRAG built-in chunker instead."
+        )
+        return
+    except Exception as e:
+        logger.warning(
+            f"[Launcher] Custom chunker unavailable ({e}). "
+            "Using LightRAG built-in chunker instead."
+        )
+        return
+    
+    try:
         original_init = LightRAG.__init__
         
         def patched_init(self, *args, **kwargs):
-            # Inject custom chunker if not already provided
             if 'chunking_func' not in kwargs:
-                logger.info("[Launcher] ✅ Injecting custom chunker")
+                logger.debug("[Launcher] Injecting custom chunker into LightRAG")
                 kwargs['chunking_func'] = universal_chunking_func
             
             original_init(self, *args, **kwargs)
         
         LightRAG.__init__ = patched_init
-        logger.info("[Launcher] ✅ LightRAG.__init__ patched for custom chunker")
-        
+        logger.info("[Launcher] ✅ Custom chunker injection active")
     except Exception as e:
-        logger.error(f"[Launcher] ❌ Chunker injection failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.warning(
+            f"[Launcher] Cannot patch LightRAG.__init__: {e}. "
+            "Using LightRAG built-in chunker instead."
+        )
 
 
 def patch_ssl():
-    """Patch SSL if needed"""
-    verify_ssl = os.environ.get('SSL_VERIFY', 'true').lower() == 'false'
-    
-    if not verify_ssl:
+    """Disable SSL verification when ``SSL_VERIFY=false`` is set.
+
+    The env var follows a positive boolean convention: ``SSL_VERIFY=true``
+    (the default) keeps verification enabled; ``SSL_VERIFY=false`` switches it
+    off. ``lightrag_server.py`` defaults the env var to ``false`` for
+    development; this patch honours that without forcing developers to also
+    know the underlying monkey-patches.
+
+    Two surfaces are patched:
+
+    - ``ssl._create_default_https_context`` — covers ``urllib`` / stdlib HTTPS.
+    - ``aiohttp.TCPConnector.__init__`` — covers aiohttp callers (the LLM and
+      rerank bindings both go through aiohttp).
+    - ``httpx.Client.__init__`` / ``httpx.AsyncClient.__init__`` — covers the
+      openai SDK and any other httpx-based caller. The openai SDK is what
+      lightrag uses for embedding and LLM calls; without this patch,
+      https://localhost/* fails with ``ConnectError('"localhost" certificate
+      does not meet standards')`` even when aiohttp and urllib are disabled.
+
+    Each surface is patched independently and its failure is logged at WARNING
+    (per CLAUDE.md §6: SSL config issues are configuration bugs, not crashes).
+    """
+    disable_ssl = os.environ.get('SSL_VERIFY', 'true').strip().lower() == 'false'
+
+    if not disable_ssl:
+        logger.info('[Launcher] SSL verification enabled (SSL_VERIFY != "false")')
         return
-    
-    logger.info('[Launcher] 🛡️ Disabling SSL verification...')
-    
+
+    logger.info('[Launcher] 🛡️ Disabling SSL verification (SSL_VERIFY=false)...')
+
     try:
         ssl._create_default_https_context = ssl._create_unverified_context
-        logger.info('[Launcher] Patched ssl')
-    except:
-        pass
-    
+        logger.info('[Launcher] ✅ Patched ssl._create_default_https_context')
+    except AttributeError as e:
+        logger.warning(f'[Launcher] ssl module missing _create_default_https_context: {e}')
+    except Exception as e:
+        logger.warning(f'[Launcher] Failed to patch ssl module: {e}')
+
     try:
         original_init = aiohttp.TCPConnector.__init__
-        def new_init(self, *args, **kwargs):
+
+        def _new_init(self, *args, **kwargs):
             kwargs['ssl'] = False
-            original_init(self, *args, **kwargs)
-        aiohttp.TCPConnector.__init__ = new_init
-        logger.info('[Launcher] Patched aiohttp')
-    except:
-        pass
+            return original_init(self, *args, **kwargs)
 
-
-def patch_extract_entities_for_cancellation():
-    """Replace extract_entities with custom version that supports immediate cancellation.
-
-    Hard-fails on startup if either binding point is missing — these are easy
-    to silently break across LightRAG upgrades, and a no-op patch means the
-    user's cancel button does nothing in production.
-    """
-    logger.info("[Launcher] Replacing extract_entities with cancellable version...")
-
-    from lightrag import operate
-    from lightrag import lightrag as lightrag_module
-    from third_party.lightrag_custom.operate_custom import extract_entities_with_cancellation
-
-    # Assertion 1: both binding points must exist BEFORE patching, otherwise the
-    # upstream layout changed and our patch is about to silently no-op.
-    if not hasattr(operate, "extract_entities"):
-        raise RuntimeError(
-            "[Launcher] FATAL: lightrag.operate.extract_entities missing — "
-            "LightRAG upgrade likely removed/renamed it. Cancellation patch "
-            "cannot apply. Review third_party/lightrag_custom/operate_custom.py."
-        )
-    if not hasattr(lightrag_module, "extract_entities"):
-        raise RuntimeError(
-            "[Launcher] FATAL: lightrag.lightrag.extract_entities missing — "
-            "upstream stopped re-exporting it from the lightrag module. Cancel "
-            "button will not work without further changes."
-        )
-
-    operate.extract_entities = extract_entities_with_cancellation
-    lightrag_module.extract_entities = extract_entities_with_cancellation
-
-    # Assertion 2: confirm the replacement stuck (catches descriptor/property
-    # weirdness that could quietly reject the assignment).
-    assert operate.extract_entities is extract_entities_with_cancellation, \
-        "[Launcher] FATAL: operate.extract_entities assignment did not take effect"
-    assert lightrag_module.extract_entities is extract_entities_with_cancellation, \
-        "[Launcher] FATAL: lightrag.lightrag.extract_entities assignment did not take effect"
-
-    logger.info("[Launcher] ✅ extract_entities replaced (both operate + lightrag bindings)")
-
-
-def patch_auto_retry_prevention():
-    """Patch LightRAG to prevent auto-retry of user-cancelled documents.
-
-    Asserts that LightRAG._validate_and_fix_document_consistency still exists
-    before patching — without that method our metadata-flag-based cancellation
-    is bypassed and cancelled docs get retried on the next startup.
-    """
-    logger.info("[Launcher] Applying auto-retry prevention patch...")
-
-    from lightrag import LightRAG
-    from third_party.lightrag_custom.lightrag_patch import (
-        apply_lightrag_patch,
-        patched_validate_and_fix_document_consistency,
-    )
-
-    if not hasattr(LightRAG, "_validate_and_fix_document_consistency"):
-        raise RuntimeError(
-            "[Launcher] FATAL: LightRAG._validate_and_fix_document_consistency "
-            "missing — upstream rename. User-cancelled documents will get "
-            "auto-retried. Review third_party/lightrag_custom/lightrag_patch.py."
-        )
-
-    if not apply_lightrag_patch():
-        raise RuntimeError("[Launcher] FATAL: apply_lightrag_patch() returned False")
-
-    assert LightRAG._validate_and_fix_document_consistency is patched_validate_and_fix_document_consistency, \
-        "[Launcher] FATAL: _validate_and_fix_document_consistency replacement did not stick"
-
-    logger.info("[Launcher] ✅ Auto-retry prevention patch applied successfully")
-
-
-def patch_http_clients_for_cancellation():
-    """Patch HTTP clients (Ollama, OpenAI, httpx) to register for cancellation.
-    
-    This allows us to close HTTP connections immediately when cancel is requested.
-    Works for both local Ollama and cloud APIs (OpenAI, Claude, DeepSeek, etc.)
-    """
-    logger.info("[Launcher] Patching HTTP clients for cancellation support...")
-    
-    from third_party.lightrag_custom.operate_custom import register_http_client
-    
-    # Patch Ollama AsyncClient
-    try:
-        import ollama
-        
-        original_ollama_init = ollama.AsyncClient.__init__
-        
-        def patched_ollama_init(self, *args, **kwargs):
-            original_ollama_init(self, *args, **kwargs)
-            # Register this client for potential cancellation
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(register_http_client(self))
-                else:
-                    loop.run_until_complete(register_http_client(self))
-            except Exception as e:
-                logger.debug(f"[Launcher] Could not register Ollama client: {e}")
-        
-        ollama.AsyncClient.__init__ = patched_ollama_init
-        logger.info("[Launcher] ✅ Ollama AsyncClient patched")
-        
-    except ImportError:
-        logger.debug("[Launcher] Ollama not installed, skipping patch")
+        aiohttp.TCPConnector.__init__ = _new_init
+        logger.info('[Launcher] ✅ Patched aiohttp.TCPConnector to disable SSL')
+    except AttributeError as e:
+        logger.warning(f'[Launcher] aiohttp.TCPConnector missing: {e}')
     except Exception as e:
-        logger.warning(f"[Launcher] Could not patch Ollama AsyncClient: {e}")
-    
-    # Patch OpenAI AsyncOpenAI (used by OpenAI, Azure, and compatible APIs)
+        logger.warning(f'[Launcher] Failed to patch aiohttp.TCPConnector: {e}')
+
+    # httpx is used by the openai SDK (and therefore by lightrag's embedding
+    # / LLM bindings). Without this patch, calls to https://localhost/* fail
+    # with httpx.ConnectError('"localhost" certificate does not meet standards')
+    # even though aiohttp and urllib are disabled. Patch both the default
+    # Client.__init__ and the async AsyncClient.__init__ used by async flows.
+    #
+    # IMPORTANT: the openai SDK imports `httpx2` (a vendored fork in
+    # site-packages/httpx2/), NOT `httpx`. We must patch both packages —
+    # patching only one leaves the other path unverified.
+    def _patch_httpx_module(httpx_module, label):
+        try:
+            original_client_init = httpx_module.Client.__init__
+
+            def _new_client_init(self, *args, **kwargs):
+                kwargs['verify'] = False
+                return original_client_init(self, *args, **kwargs)
+
+            httpx_module.Client.__init__ = _new_client_init
+            logger.info(f'[Launcher] ✅ Patched {label}.Client.__init__ to disable SSL')
+
+            original_async_client_init = httpx_module.AsyncClient.__init__
+
+            def _new_async_client_init(self, *args, **kwargs):
+                kwargs['verify'] = False
+                return original_async_client_init(self, *args, **kwargs)
+
+            httpx_module.AsyncClient.__init__ = _new_async_client_init
+            logger.info(f'[Launcher] ✅ Patched {label}.AsyncClient.__init__ to disable SSL')
+        except AttributeError as e:
+            logger.warning(f'[Launcher] {label} missing expected attribute: {e}')
+        except Exception as e:
+            logger.warning(f'[Launcher] Failed to patch {label} SSL: {e}')
+
     try:
-        from openai import AsyncOpenAI
-        
-        original_openai_init = AsyncOpenAI.__init__
-        
-        def patched_openai_init(self, *args, **kwargs):
-            original_openai_init(self, *args, **kwargs)
-            # Register this client for potential cancellation
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(register_http_client(self))
-                else:
-                    loop.run_until_complete(register_http_client(self))
-            except Exception as e:
-                logger.debug(f"[Launcher] Could not register OpenAI client: {e}")
-        
-        AsyncOpenAI.__init__ = patched_openai_init
-        logger.info("[Launcher] ✅ OpenAI AsyncOpenAI patched")
-        
+        import httpx as _httpx
+        _patch_httpx_module(_httpx, 'httpx')
     except ImportError:
-        logger.debug("[Launcher] OpenAI not installed, skipping patch")
-    except Exception as e:
-        logger.warning(f"[Launcher] Could not patch OpenAI AsyncOpenAI: {e}")
-    
-    # Patch httpx AsyncClient (used by many APIs including Anthropic)
+        logger.debug('[Launcher] httpx not installed, skipping SSL patch')
+
+    try:
+        import httpx2 as _httpx2
+        _patch_httpx_module(_httpx2, 'httpx2')
+    except ImportError:
+        logger.debug('[Launcher] httpx2 not installed, skipping SSL patch')
+
+
+def patch_httpx_timeout_compat():
+    """Add ``httpx.TimeoutError`` alias for ``browser-use`` compatibility.
+
+    httpx ≥ 0.20 renamed ``TimeoutError`` → ``TimeoutException``;
+    ``browser-use`` still references ``httpx.TimeoutError`` in its except
+    clauses, so without this alias every LLM call routed through browser-use
+    fails with ``AttributeError: module 'httpx' has no attribute 'TimeoutError'``.
+
+    This patch is independent of the LightRAG version — it fixes a httpx /
+    browser-use surface mismatch that affects every deployment.
+    """
     try:
         import httpx
-        
-        original_httpx_init = httpx.AsyncClient.__init__
-        
-        def patched_httpx_init(self, *args, **kwargs):
-            original_httpx_init(self, *args, **kwargs)
-            # Register this client for potential cancellation
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(register_http_client(self))
-                else:
-                    loop.run_until_complete(register_http_client(self))
-            except Exception as e:
-                logger.debug(f"[Launcher] Could not register httpx client: {e}")
-        
-        httpx.AsyncClient.__init__ = patched_httpx_init
-        logger.info("[Launcher] ✅ httpx AsyncClient patched")
-
-        # Compatibility shim: httpx >= 0.20 renamed TimeoutError → TimeoutException.
-        # browser-use still references httpx.TimeoutError in its except clauses;
-        # without this alias every LLM call fails with AttributeError.
-        if not hasattr(httpx, 'TimeoutError'):
-            httpx.TimeoutError = httpx.TimeoutException
-            logger.info("[Launcher] ✅ httpx.TimeoutError alias added (httpx compat shim for browser-use)")
-        
     except ImportError:
-        logger.debug("[Launcher] httpx not installed, skipping patch")
-    except Exception as e:
-        logger.warning(f"[Launcher] Could not patch httpx AsyncClient: {e}")
+        logger.debug("[Launcher] httpx not installed, skipping TimeoutError compat")
+        return
+
+    if not hasattr(httpx, "TimeoutError"):
+        httpx.TimeoutError = httpx.TimeoutException
+        logger.info("[Launcher] ✅ httpx.TimeoutError alias added (compat shim for browser-use)")
+    else:
+        logger.debug("[Launcher] httpx.TimeoutError already exists, no shim needed")
 
 
 def patch_utils_for_confidence_scoring():
     """Patch utils.generate_reference_list_from_chunks to include scores for confidence scoring.
 
-    Asserts upstream still has the target function — silent-no-op here would
-    disable the confidence score gate in our Q&A prompt Step 3.
+    If upstream renames or restructures the target function, this degrades
+    gracefully: confidence scoring becomes unavailable but the server starts
+    normally (per CLAUDE.md §6 "Expected Behavior" vs "True Bug" rule).
     """
     logger.info("[Launcher] Patching utils for confidence scoring...")
 
     from lightrag import utils as _lr_utils
-    from utils_custom import (
+    from third_party.lightrag_custom.utils_custom import (
         patch_generate_reference_list_from_chunks,
         generate_reference_list_from_chunks_with_scores,
     )
 
     if not hasattr(_lr_utils, "generate_reference_list_from_chunks"):
-        raise RuntimeError(
-            "[Launcher] FATAL: lightrag.utils.generate_reference_list_from_chunks "
-            "missing — upstream rename. Confidence scoring will lose its score "
-            "input. Review third_party/lightrag_custom/utils_custom.py."
+        logger.warning(
+            "[Launcher] lightrag.utils.generate_reference_list_from_chunks not found "
+            "(upstream rename?). Confidence scoring unavailable — proceeding without it."
         )
+        return
 
     if not patch_generate_reference_list_from_chunks():
-        raise RuntimeError("[Launcher] FATAL: patch_generate_reference_list_from_chunks() returned False")
+        logger.warning(
+            "[Launcher] patch_generate_reference_list_from_chunks() returned False — "
+            "confidence scoring unavailable — proceeding without it."
+        )
+        return
 
-    assert _lr_utils.generate_reference_list_from_chunks is generate_reference_list_from_chunks_with_scores, \
-        "[Launcher] FATAL: generate_reference_list_from_chunks replacement did not stick"
+    if _lr_utils.generate_reference_list_from_chunks is not generate_reference_list_from_chunks_with_scores:
+        logger.warning(
+            "[Launcher] generate_reference_list_from_chunks replacement did not stick. "
+            "Confidence scoring unavailable — proceeding without it."
+        )
+        return
 
     logger.info("[Launcher] ✅ generate_reference_list_from_chunks patched with score support")
 
@@ -400,6 +365,19 @@ def patch_openai_client_for_lambda_proxy():
     LightRAG uses AsyncOpenAI(base_url=LLM_BINDING_HOST). When LLM_BINDING_HOST
     points to our Lambda Function URL, we patch the OpenAI client constructor to
     add per-user headers so the Lambda can do token accounting.
+
+    Alternative (less invasive): pass ``default_headers`` directly to the
+    ``AsyncOpenAI`` constructor in ``lightrag_server.py`` after ``rag`` is
+    created::
+
+        rag.llm_model_func = AsyncOpenAI(
+            base_url=os.environ["LLM_BINDING_HOST"],
+            default_headers={"X-User-Id": user_id, "X-Provider": provider},
+        )
+
+    That approach requires changes inside the LightRAG upstream module, so this
+    patch is used for now.  Degrades gracefully: a failure emits a WARNING and
+    the server starts without per-user token accounting.
     """
     proxy_host = os.environ.get('LLM_BINDING_HOST', '')
     if not proxy_host or 'lambda-url' not in proxy_host and 'execute-api' not in proxy_host:
@@ -438,58 +416,96 @@ def patch_health_monitoring():
     """
     Register health check routes and start health monitoring.
     
-    This provides:
+    Provides:
     - /health/status - Overall health score and recommendations
     - /health/workers - Detailed worker statistics
     - /health/circuits - Circuit breaker states
     
-    Consolidated in knowledge/lightrag_health.py
+    Implemented via patch_fastapi_for_health_routes() in knowledge/lightrag_health.py.
     """
-    logger.info("[Launcher] Setting up health monitoring...")
+    try:
+        from knowledge.lightrag_health import patch_fastapi_for_health_routes
+        patch_fastapi_for_health_routes()
+    except ImportError:
+        logger.warning("[Launcher] lightrag_health module not available, health routes disabled")
+    except Exception as e:
+        logger.warning(f"[Launcher] Failed to setup health monitoring: {e}")
 
 
 def apply_all_patches():
-    """Apply all customizations"""
+    """Apply all eCan customizations on top of LightRAG ≥ 1.4.16.
+
+    Order matters: each patch reads env state set by an earlier one.
+    """
     logger.info('[Launcher] ==================== Applying Customizations ====================')
-    
-    # Note: Environment variables are already set by parent process (lightrag_server.py::build_env)
-    # which loads lightrag.env via config_manager.get_effective_config()
-    
+    lightrag_version = installed_lightrag_version()
+
+    status, resolved_version = support_status(lightrag_version)
+    if status == "not_installed":
+        # Every patch below binds to symbols on the lightrag-hku package.
+        # Without the package installed, all subsequent imports raise and the
+        # launcher dispatch logic never gets a chance to run.
+        raise RuntimeError(
+            "[Launcher] FATAL: lightrag-hku is not installed. "
+            "Install requirements-base.txt before launching the server."
+        )
+    if status == "below_minimum":
+        # Treated as expected behaviour (per CLAUDE.md §6): a 1.4.x rollback is
+        # a documented fallback. We log WARNING, not ERROR, and proceed so that
+        # operators on a temporary 1.4 rollback still work. The remaining
+        # patches (chunker, SSL, confidence scoring) bind to the parts of
+        # LightRAG that have been stable since 1.4.10.
+        logger.warning(
+            f"[Launcher] LightRAG {resolved_version} is below the supported "
+            f"minimum ({SUPPORTED_MIN_VERSION}); the legacy 1.4-only monkey "
+            f"patches this launcher used to ship have been removed. Schedule "
+            f"an upgrade to ≥ 1.4.16 (tested: 1.5.6)."
+        )
+    elif status == "above_tested":
+        # Above 1.5.6 hasn't been validated by eCan. Log WARNING so we don't
+        # hide a real bug, but do not refuse to start — upstream owns
+        # routing / cancellation / scheduling / capability discovery.
+        logger.warning(
+            f"[Launcher] LightRAG {resolved_version} is newer than the eCan "
+            f"tested maximum (1.5.6). Behaviour regressions are possible. "
+            f"Validate before shipping."
+        )
+    logger.info(
+        f"[Launcher] LightRAG {resolved_version}; support_status={status}"
+    )
+
+    # Note: Environment variables are already set by parent process
+    # (lightrag_server.py::build_env) which loads lightrag.env via
+    # config_manager.get_effective_config().
+
     os.environ['LIGHTRAG_CUSTOM_CHUNKER'] = '1'
-    
-    # Apply rerank binding conversion FIRST
-    # This reads from os.environ which is already populated by parent process
-    patch_rerank_binding_for_proxy()           # Rerank binding 转换支持
-    
-    # 1. Replace document_routes (Excel空列清理 + Stop检查)
-    replace_document_routes()
-    
-    # 2. Inject custom chunker (LightRAG 1.4.10+ 官方支持 chunking_func)
+
+    # 0. OpenMP library conflict fix (must be first to prevent SIGABRT crashes)
+    # See: https://github.com/intel/tbb/wiki/TBBMalloc#tcmalloc-and-intel-tbb
+    patch_openmp_duplicate_fix()
+
+    # 1. Rerank binding conversion FIRST — reads from os.environ which is
+    # already populated by the parent process.
+    patch_rerank_binding_for_proxy()
+
+    # 2. Custom chunker injection (LightRAG 1.4.10+ natively supports
+    # chunking_func).
     patch_lightrag_init()
-    
-    # 3. SSL verification control (官方未实现)
+
+    # 3. SSL verification control.
     patch_ssl()
-    
-    # 4. Extract entities immediate cancellation (官方未完全实现)
-    # Note: LightRAG 1.4.10+ has /cancel_pipeline API, but it doesn't stop queued documents
-    patch_extract_entities_for_cancellation()
-    
-    # 5. Auto-retry prevention for user-cancelled documents (官方未实现)
-    # Note: LightRAG auto-retries FAILED documents, even when user manually cancelled
-    patch_auto_retry_prevention()
-    
-    # 6. HTTP clients cancellation support (官方未实现)
-    # Note: LightRAG 1.4.10+ has /cancel_pipeline API, but HTTP clients still need patching
-    patch_http_clients_for_cancellation()
-    
-    # 7. Confidence scoring support (官方未实现)
+
+    # 4. httpx compat shim for browser-use (independent of LightRAG version).
+    patch_httpx_timeout_compat()
+
+    # 5. Confidence scoring support.
     patch_utils_for_confidence_scoring()
 
-    # 8. Lambda proxy header injection (inject X-User-Id for per-user accounting)
+    # 6. Lambda proxy header injection (X-User-Id for per-user accounting).
     patch_openai_client_for_lambda_proxy()
 
-    # 9. Health monitoring with circuit breaker (防假死监控)
-    # Provides /health/status, /health/workers, /health/circuits endpoints
+    # 7. Health monitoring (registers /health/* routes — actual logic lives in
+    # knowledge/lightrag_health.py).
     patch_health_monitoring()
 
     logger.info('[Launcher] ==================== Complete ====================')

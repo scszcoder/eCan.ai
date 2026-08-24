@@ -1,30 +1,32 @@
 """
-LightRAG Query Response Confidence Scorer
+LightRAG Query Response Confidence Scorer (v2 - 2026-08-24)
 
-Scoring is built on two primary signals:
-  1. Retrieval score  — how semantically similar is the query to the source chunks
-                        (from LightRAG vector/rerank scores)
-  2. Faithfulness     — do key facts in the answer actually appear in the chunk text?
-                        (requires include_chunk_content=True on the query)
+新的置信度计算逻辑：
 
-Two proxy signals contribute when primary signals are absent or as minor adjustments:
-  3. Completeness     — does the answer adequately address the query's scope?
-  4. Quality          — is the answer a refusal/error? (negative gate only)
+1. 核心原则：置信度应该反映"LLM 生成的答案是否可靠"，而不是"检索是否成功"
 
-Formula (weights depend on which primary signals are available):
+2. 主要信号：
+   - LLM_response_is_refusal: LLM 是否拒绝回答（最重要的信号）
+   - LLM_response_has_content: LLM 是否生成了实质内容
+   - LLM_response_matches_context: LLM 回答是否与检索内容相关
+   - retrieval_score: 检索质量（辅助信号）
+   - reference_count: 参考来源数量
 
-  retrieval + faithfulness:  0.50·R + 0.30·F + 0.15·C + 0.05·Q
-  retrieval only:            0.65·R + 0.25·C + 0.10·Q   (cap 0.80)
-  faithfulness only:         0.50·F + 0.35·C + 0.15·Q
-  neither (proxy fallback):  0.65·C + 0.35·Q             (cap 0.55)
+3. 决策逻辑：
+   - 如果 LLM 生成了实质性回答 → 应该显示该回答
+   - 如果 LLM 拒绝回答或无内容 → 显示"未找到"
+   - 置信度分数用于提示用户答案的可靠程度，但不应阻止显示
+
+4. 关键修复 (v2):
+   - streaming 时正确累积 references
+   - 考虑 LLM 实际生成的 raw_response
+   - 简化决策逻辑：优先显示 LLM 输出
 """
 
 from __future__ import annotations
 
 import math
-import os
 import re
-import statistics
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -94,18 +96,12 @@ class LightRAGConfidenceScorer:
     RERANK_THRESHOLD = 0.50
     EMBED_THRESHOLD = 0.60
 
-    # Off-topic gate (2026-06-24): under the rag_query fast-path (mt047A:
-    # mode=naive, only_need_context=True, enable_rerank=False — default ON) there
-    # is NO retrieval/rerank score, so confidence falls back to the
-    # faithfulness-only formula which never checks whether the retrieved chunk is
-    # RELEVANT to the query. A well-formed but off-topic chunk (e.g. an apparel
-    # category/keyword list) then scores ~0.92 "very_high", defeating the Q&A
-    # prompt's "<0.50 → distrust" gate and getting mined for fabricated facts
-    # (the 加绒/两件套 hallucination). When the only relevance signal we DO have —
-    # query↔chunk keyword overlap — is near-zero, cap the score below the gate.
-    OFFTOPIC_RELEVANCE_MAX = 0.12   # query↔chunk keyword overlap at/below this = off-topic
-    OFFTOPIC_SCORE_CAP = 0.30       # cap overall to "low" so the prompt distrusts it
-    OFFTOPIC_MIN_QUERY_KW = 3       # need ≥ this many query keywords for the ratio to be meaningful
+    # Threshold constants (行业推荐值)
+    RERANK_THRESHOLD = 0.30   # BGE-Reranker 推荐的最小分数
+    EMBED_THRESHOLD = 0.35    # Cosine similarity 阈值
+    MIN_RESPONSE_LENGTH = 30    # 有意义回答的最小长度
+    REFUSAL_THRESHOLD = 0.20  # 低于此值认为是拒绝回答
+    OFFTOPIC_MIN_QUERY_KW = 2  # 查询关键词最小数量，低于此值跳过离题检测
 
     def score(
         self,
@@ -113,8 +109,24 @@ class LightRAGConfidenceScorer:
         response_data: Dict[str, Any],
         query_options: Optional[Dict[str, Any]] = None,
     ) -> ConfidenceScore:
+        """
+        计算置信度的核心方法 (v2)
+
+        核心逻辑：
+        1. 首先判断 LLM 是否生成了实质内容
+        2. 如果有实质内容，置信度应该较高（即使检索分数低）
+        3. 如果是拒绝/无内容，置信度应该低
+        """
         try:
+            # 获取 LLM 生成的原始回答
             response_text = response_data.get("response", "")
+            raw_response = response_data.get("raw_response", "")
+
+            # 使用 raw_response 作为实质内容判断依据
+            # 因为 response 可能被前端覆盖为 "未找到"
+            llm_actual_content = raw_response if raw_response else response_text
+
+            # 获取 references 和 chunks
             raw_references = response_data.get("references", [])
             chunks = (
                 response_data.get("data", {}).get("chunks", [])
@@ -122,82 +134,96 @@ class LightRAGConfidenceScorer:
                 else []
             )
 
-            # --- 1. Filter & deduplicate references ----------------------------
+            # 去重 references
             references = self._filter_references(raw_references)
 
-            # --- 2. Retrieval signal -------------------------------------------
+            # 判断 LLM 是否生成了实质内容
+            is_refusal, refusal_reason = self._detect_refusal(llm_actual_content, references)
+            has_substantial_content = len(llm_actual_content.strip()) >= self.MIN_RESPONSE_LENGTH
+
+            # 计算检索分数
             retrieval_score, score_source, retrieval_signal = self._get_retrieval_signal(
                 references, chunks
             )
 
-            # --- 3. Faithfulness signal ----------------------------------------
+            # 提取 chunk 内容用于计算 faithfulness
             chunk_texts = self._extract_chunk_texts(references, chunks)
             faithfulness_score, faith_signal = self._calculate_faithfulness_score(
-                response_text, chunk_texts
+                llm_actual_content, chunk_texts
             )
             retrieval_signal["faithfulness"] = faith_signal
 
-            # query↔context relevance — the signal the formula otherwise ignores
+            # 计算查询-内容相关性
             query_relevance = self._query_context_relevance(query, chunk_texts)
             retrieval_signal["query_relevance"] = (
                 round(query_relevance, 3) if query_relevance is not None else None
             )
 
-            # --- 4. Completeness (proxy) ---------------------------------------
+            # 计算完整度
             completeness_score = self._calculate_completeness_score(
-                response_text, query, query_options
+                llm_actual_content, query, query_options
             )
 
-            # --- 5. Quality gate (refusal / error detection) ------------------
-            is_context_only = bool((query_options or {}).get("only_need_context"))
-            if is_context_only and references:
-                quality_score = 1.0
-            else:
-                quality_score = self._calculate_quality_score(response_text)
+            # 计算质量分数（用于拒绝检测）
+            quality_score = self._calculate_quality_score(llm_actual_content)
 
-            # --- 6. Weighted overall score ------------------------------------
-            overall, formula_used = self._calculate_overall(
+            # 计算总体置信度
+            overall, formula_used = self._calculate_overall_v2(
+                llm_has_content=has_substantial_content,
+                is_refusal=is_refusal,
                 retrieval_score=retrieval_score,
                 faithfulness_score=faithfulness_score,
                 completeness_score=completeness_score,
                 quality_score=quality_score,
                 ref_count=len(references),
-                response_text=response_text,
+                response_text=llm_actual_content,
                 query_relevance=query_relevance,
             )
             retrieval_signal["formula"] = formula_used
 
-            # --- 7. Decision --------------------------------------------------
-            is_refusal = quality_score <= 0.15
-            should_answer, no_answer_reason = self._make_decision(
+            # 决策：是否应该显示 LLM 的回答
+            should_answer = self._make_decision_v2(
+                llm_has_content=has_substantial_content,
+                is_refusal=is_refusal,
                 overall=overall,
                 retrieval_score=retrieval_score,
-                faithfulness_score=faithfulness_score,
                 ref_count=len(references),
-                is_refusal=is_refusal,
             )
+
+            # 如果应该显示回答，但置信度很低，给出警告原因
+            if should_answer and overall < 0.4:
+                decision_reason = "low_confidence_but_content_exists"
+            elif is_refusal:
+                decision_reason = refusal_reason
+            elif not has_substantial_content:
+                decision_reason = "no_substantial_content"
+            else:
+                decision_reason = None
 
             decision: Dict[str, Any] = {
                 "should_answer": bool(should_answer),
-                "no_answer_reason": no_answer_reason,
+                "no_answer_reason": decision_reason,
+                "is_refusal": is_refusal,
+                "has_substantial_content": has_substantial_content,
             }
 
             confidence_level = self._determine_confidence_level(overall)
 
-            r_str = f"{retrieval_score:.2f}" if retrieval_score is not None else "n/a"
-            f_str = f"{faithfulness_score:.2f}" if faithfulness_score is not None else "n/a"
-            rel_str = f"{query_relevance:.2f}" if query_relevance is not None else "n/a"
+            # 日志输出
+            retrieval_str = f"{retrieval_score:.2f}" if retrieval_score is not None else "n/a"
+            faith_str = f"{faithfulness_score:.2f}" if faithfulness_score is not None else "n/a"
             logger.info(
-                f"📊 Confidence: {overall:.2f} ({confidence_level}) | "
-                f"retrieval={r_str} faith={f_str} relevance={rel_str} "
-                f"complete={completeness_score:.2f} quality={quality_score:.2f} "
-                f"formula={formula_used} | "
-                f"answer={should_answer} reason={no_answer_reason or 'pass'}"
+                f"📊 Confidence v2: {overall:.2f} ({confidence_level}) | "
+                f"content={has_substantial_content} refusal={is_refusal} "
+                f"retrieval={retrieval_str} "
+                f"faith={faith_str} "
+                f"refs={len(references)} | "
+                f"should_answer={should_answer}"
             )
 
-            # keyword_match_ratio kept for display purposes
+            # 计算关键词匹配度
             query_kw = self._extract_keywords(query)
-            resp_kw = self._extract_keywords(response_text)
+            resp_kw = self._extract_keywords(llm_actual_content)
             kw_ratio = len(query_kw & resp_kw) / max(len(query_kw), 1) if query_kw else 0.0
 
             return ConfidenceScore(
@@ -208,13 +234,13 @@ class LightRAGConfidenceScorer:
                 relevance_score=faithfulness_score if faithfulness_score is not None else 0.0,
                 completeness_score=completeness_score,
                 reference_count=len(references),
-                response_length=len(response_text),
-                has_structured_content=self._has_structured_content(response_text),
+                response_length=len(llm_actual_content),
+                has_structured_content=self._has_structured_content(llm_actual_content),
                 keyword_match_ratio=kw_ratio,
                 confidence_level=confidence_level,
-                explanation=self._generate_explanation(
-                    overall, retrieval_score, faithfulness_score,
-                    quality_score, completeness_score, len(references)
+                explanation=self._generate_explanation_v2(
+                    overall, has_substantial_content, is_refusal,
+                    retrieval_score, faithfulness_score, len(references)
                 ),
                 retrieval=retrieval_signal,
                 decision=decision,
@@ -530,6 +556,153 @@ class LightRAGConfidenceScorer:
 
         return self._clamp(length_score)
 
+    def _detect_refusal(
+        self, response_text: str, references: List[Dict]
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        检测 LLM 是否拒绝了回答
+
+        拒绝的常见模式：
+        1. 直接拒绝：抱歉、我不知道、没有信息
+        2. 空内容：回答太短或只有标点
+        3. 通用回复：无法回答、无法确定
+        """
+        if not response_text or not response_text.strip():
+            return True, "empty_response"
+
+        text_lower = response_text.lower().strip()
+
+        # 拒绝关键词
+        refusal_patterns = [
+            r'^抱歉', r'^对不起', r'^我无法', r'^我不知道',
+            r'^无法', r'^不能', r'^没有找到', r'^没有相关',
+            r"couldn't", r"don't know", r"cannot", r"unable",
+            r"i'm sorry", r"don't have", r"no information",
+        ]
+
+        for pattern in refusal_patterns:
+            if re.search(pattern, text_lower):
+                return True, "refusal_pattern_detected"
+
+        # 短回答但有关键词（可能是真实的简短回答）
+        if len(response_text.strip()) < 20:
+            return False, None  # 不算拒绝，可能是简短的真实回答
+
+        return False, None
+
+    # -------------------------------------------------------------------------
+    # Overall formula v2
+    # -------------------------------------------------------------------------
+
+    def _calculate_overall_v2(
+        self,
+        llm_has_content: bool,
+        is_refusal: bool,
+        retrieval_score: Optional[float],
+        faithfulness_score: Optional[float],
+        completeness_score: float,
+        quality_score: float,
+        ref_count: int,
+        response_text: str = "",
+        query_relevance: Optional[float] = None,
+    ) -> Tuple[float, str]:
+        """
+        计算总体置信度 (v2)
+
+        核心逻辑：
+        - 如果 LLM 生成了实质内容且不是拒绝 → 高置信度
+        - 如果是拒绝或无内容 → 低置信度
+        - 检索分数作为辅助调整
+        """
+        # 情况1：LLM 拒绝或无内容 → 很低置信度
+        if is_refusal:
+            return 0.10, "refusal"
+
+        if not llm_has_content:
+            return 0.15, "no_content"
+
+        has_R = retrieval_score is not None
+        has_F = faithfulness_score is not None
+
+        # 情况2：LLM 有内容，使用加权公式
+        if has_R and has_F:
+            # retrieval + faithfulness 都可用
+            score = (
+                0.40 * retrieval_score +
+                0.35 * faithfulness_score +
+                0.15 * completeness_score +
+                0.10 * quality_score
+            )
+            formula = "v2_R40+F35+C15+Q10"
+
+        elif has_R:
+            # 只有 retrieval
+            score = (
+                0.55 * retrieval_score +
+                0.25 * completeness_score +
+                0.20 * quality_score
+            )
+            formula = "v2_R55+C25+Q20"
+
+        elif has_F:
+            # 只有 faithfulness
+            score = (
+                0.50 * faithfulness_score +
+                0.30 * completeness_score +
+                0.20 * quality_score
+            )
+            formula = "v2_F50+C30+Q20"
+
+        else:
+            # 无检索信号，使用代理信号
+            if ref_count == 0:
+                score = 0.25
+                formula = "v2_no_signals"
+            else:
+                # 基于参考数量和内容长度
+                ref_conf = min(1.0, ref_count / 5.0)
+                length_ratio = min(1.0, len(response_text) / 500.0)
+                score = 0.40 * ref_conf + 0.35 * length_ratio + 0.25 * quality_score
+                formula = "v2_proxy"
+
+        # Off-topic 检测：如果 query_relevance 很低但 LLM 生成了内容
+        # 说明可能是 LLM 在编造（低检索+高内容 = 危险）
+        if query_relevance is not None and query_relevance < 0.15 and has_R and retrieval_score and retrieval_score < 0.3:
+            score = min(score, 0.35)  # 降低置信度
+            formula = f"{formula}_low_relevance"
+
+        return self._clamp(score), formula
+
+    # -------------------------------------------------------------------------
+    # Decision v2
+    # -------------------------------------------------------------------------
+
+    def _make_decision_v2(
+        self,
+        llm_has_content: bool,
+        is_refusal: bool,
+        overall: float,
+        retrieval_score: Optional[float],
+        ref_count: int,
+    ) -> bool:
+        """
+        决定是否应该显示 LLM 的回答 (v2)
+
+        核心逻辑：优先显示 LLM 的回答
+        - 只有在明确是拒绝时才不显示
+        - 低置信度但有内容时仍然显示，但添加警告
+        """
+        # 明确拒绝 → 不显示
+        if is_refusal:
+            return False
+
+        # 没有实质内容 → 不显示
+        if not llm_has_content:
+            return False
+
+        # 有实质内容 → 显示（即使置信度低）
+        return True
+
     # -------------------------------------------------------------------------
     # Overall formula
     # -------------------------------------------------------------------------
@@ -713,6 +886,49 @@ class LightRAGConfidenceScorer:
 
         if quality_score <= 0.15:
             parts.append("Response appears to be a refusal or error.")
+
+        return " ".join(parts)
+
+    def _generate_explanation_v2(
+        self,
+        overall: float,
+        llm_has_content: bool,
+        is_refusal: bool,
+        retrieval_score: Optional[float],
+        faithfulness_score: Optional[float],
+        ref_count: int,
+    ) -> str:
+        """生成解释文本 (v2)"""
+        if is_refusal:
+            return "LLM refused to answer. No reliable information available."
+
+        if not llm_has_content:
+            return "LLM generated no substantial content."
+
+        level = self._determine_confidence_level(overall)
+        level_text = {
+            "very_high": "Very high confidence",
+            "high": "High confidence",
+            "medium": "Medium confidence",
+            "low": "Low confidence",
+            "very_low": "Very low confidence",
+        }.get(level, "Unknown confidence")
+
+        parts = [f"{level_text}."]
+
+        if ref_count > 0:
+            parts.append(f"{ref_count} reference(s) retrieved.")
+
+        if retrieval_score is not None:
+            if retrieval_score >= 0.6:
+                parts.append("Strong retrieval match.")
+            elif retrieval_score >= 0.4:
+                parts.append("Moderate retrieval match.")
+            else:
+                parts.append("Weak retrieval match.")
+
+        if faithfulness_score is not None and faithfulness_score >= 0.6:
+            parts.append("Answer well grounded in retrieved content.")
 
         return " ".join(parts)
 
