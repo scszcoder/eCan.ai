@@ -143,7 +143,13 @@ _Last updated: 2026-08-23_
   `_repair_local_skill_from_cloud` in skill_handler backfills empty
   identity/store fields (owner/public/rentable/price) from the user's own
   cloud row on every get_agent_skills merge — heals on next Skills-page
-  load. 5 tests (`tests/unit/test_skill_cloud_repair.py`).
+  load. SECOND incident same day: 前台00's my_skills FILE twin carried a
+  STALE owner (songc@yahoo.com from the previous intl login) — non-empty
+  ≠ username, so it stayed hidden and fill-empty-only repair skipped it.
+  Repair v2 also corrects owner MISMATCH (the cloud row is pre-verified
+  as the current user's, so it is authoritative for identity); the stale
+  file owner was fixed in place (my_skills = git-ignored user data).
+  6 tests (`tests/unit/test_skill_cloud_repair.py`).
   Prompts side: pr-330448/pr-287230 files ARE in my_prompts and the
   Prompts page has no owner filter — should display; if still missing,
   suspect the store's one-shot `fetched` cache (fetch before sync-down

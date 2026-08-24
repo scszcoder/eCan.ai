@@ -362,9 +362,17 @@ def _repair_local_skill_from_cloud(local_sk: Dict[str, Any], cloud_sk: Dict[str,
     by owner-scoped startup loading (get_skills_by_owner).
 
     Only fills fields that are empty/falsy locally and non-empty on the
-    cloud row — never overwrites a real local value. Persists to the DB and
-    patches the in-memory pool + the response dict in place. Returns True
-    when a repair was applied.
+    cloud row — never overwrites a real local value — with ONE exception:
+    ``owner``. The caller only reaches this helper for cloud rows already
+    verified to belong to the CURRENT user, so a differing local owner is a
+    stale identity (observed: a skill file twin carrying the owner of a
+    previous login account, e.g. an intl email after migrating to a CN
+    WeChat identity), which hides the skill from the GUI exactly like an
+    empty owner does. The current user's own cloud row is authoritative
+    for identity, so a mismatched owner is corrected too (logged old→new).
+
+    Persists to the DB and patches the in-memory pool + the response dict
+    in place. Returns True when a repair was applied.
     """
     fields: Dict[str, Any] = {}
     for key in _CLOUD_REPAIRABLE_SKILL_FIELDS:
@@ -375,6 +383,14 @@ def _repair_local_skill_from_cloud(local_sk: Dict[str, Any], cloud_sk: Dict[str,
         cloud_has = (cloud_val is not None) and (not isinstance(cloud_val, str) or cloud_val.strip()) \
             and (key not in ('public', 'rentable', 'price') or cloud_val)
         if local_empty and cloud_has:
+            fields[key] = cloud_val
+        elif key == 'owner' and cloud_has and not local_empty \
+                and str(local_val).strip().lower() != str(cloud_val).strip().lower():
+            logger.info(
+                f"[skill_handler] Stale owner on local skill "
+                f"'{local_sk.get('name')}' ({local_sk.get('id')}): "
+                f"{local_val!r} → {cloud_val!r} (current user's cloud row is authoritative)"
+            )
             fields[key] = cloud_val
     if not fields:
         return False

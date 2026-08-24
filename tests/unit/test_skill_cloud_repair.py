@@ -44,13 +44,30 @@ class TestRepairLocalSkillFromCloud:
                              "public": True, "rentable": True}
         mem.assert_called_once()
 
-    def test_real_local_values_never_overwritten(self, services):
+    def test_stale_owner_corrected_from_own_cloud_row(self, services):
+        """The second observed incident: the skill file twin carried the
+        owner of a PREVIOUS login account (intl email) after migrating to a
+        CN WeChat identity — non-empty but wrong, so the GUI still hid the
+        skill. The caller only reaches the helper for the current user's
+        own cloud rows, so the cloud owner is authoritative."""
         skill_service, _ = services
-        local = {"id": "s1", "name": "n", "owner": "me@x", "public": True, "rentable": False}
-        cloud = {"id": "s1", "name": "n", "owner": "other@x", "public": False, "rentable": False}
+        local = {"id": "skill_71209937ed7449bf", "name": "飞鸽客服前台00",
+                 "owner": "songc@yahoo.com"}
+        cloud = {"id": "skill_71209937ed7449bf", "name": "飞鸽客服前台00",
+                 "owner": "wechat_b603a407904569a4ea88f9ac"}
+
+        assert sh._repair_local_skill_from_cloud(local, cloud) is True
+        assert local["owner"] == "wechat_b603a407904569a4ea88f9ac"
+
+    def test_matching_owner_and_flags_untouched(self, services):
+        """Same owner (case-insensitive) and real flag values → no repair;
+        a cloud public=False never downgrades a local public=True."""
+        skill_service, _ = services
+        local = {"id": "s1", "name": "n", "owner": "Me@X", "public": True, "rentable": False}
+        cloud = {"id": "s1", "name": "n", "owner": "me@x", "public": False, "rentable": False}
 
         assert sh._repair_local_skill_from_cloud(local, cloud) is False
-        assert local["owner"] == "me@x"
+        assert local["owner"] == "Me@X" and local["public"] is True
         skill_service.update_skill.assert_not_called()
 
     def test_no_repair_when_cloud_also_empty(self, services):
