@@ -1934,14 +1934,23 @@ def gen_query_agent_skills_string(q_setting):
     logger.debug(query_string)
     return query_string
 
-def gen_get_agent_skills_string():
-    """Generate GraphQL query string for getting all skills for current user
+def gen_get_agent_skills_string(public_catalog: bool = False):
+    """Generate GraphQL query string for getting skills.
 
     Server schema: queryAgentSkills(input: SkillQueryInput): [AgentSkill!]!
     SkillQueryInput: { id: ID, name: String, description: String }
     AgentSkill fields: id, askid, owner, name, description, version, level, config, diagram,
                        tags, examples, inputModes, outputModes, apps, limitations, path,
                        source, price, price_model, public, rentable
+
+    Args:
+        public_catalog: when True, request the PUBLIC skill catalog
+            (``input: {isPublic: true}``) — the CN/TCB resolver skips owner
+            scoping in this mode and returns every skill with isPublic=true
+            (skill store). Default False = the caller's own skills.
+            NOTE: the AWS AppSync SkillQueryInput does not define isPublic —
+            callers must be prepared for a validation error there and fall
+            back to the getPublicSkills Lambda query (cloud_get_public_skills).
 
     NOTE on 'source' field:
       The 'source' field returned by the GraphQL query is a SkillSource enum value
@@ -1952,8 +1961,9 @@ def gen_get_agent_skills_string():
     """
     # Query all skills by passing empty input (no filters)
     # AWS schema uses snake_case: price_model, public (see scripts/appsync_schema_latest.graphql)
+    _input = '{isPublic: true}' if public_catalog else '{}'
     query_string = '''query MyGetAgentSkillsQuery {
-        queryAgentSkills(input: {}) {
+        queryAgentSkills(input: ''' + _input + ''') {
             id
             askid
             owner
@@ -3869,12 +3879,15 @@ def send_update_skills_with_files_to_cloud(
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_get_agent_skills_request_to_cloud(session, token, endpoint):
-    """Query all skills for current user using queryAgentSkills
-    
-    Server returns [AgentSkill!]! - an array of skill objects (not AWSJSON)
+def send_get_agent_skills_request_to_cloud(session, token, endpoint, public_catalog: bool = False):
+    """Query skills using queryAgentSkills.
+
+    Server returns [AgentSkill!]! - an array of skill objects (not AWSJSON).
+    With ``public_catalog=True`` the PUBLIC skill catalog is requested
+    (CN/TCB ``input: {isPublic: true}`` mode) instead of the caller's own
+    skills — see gen_get_agent_skills_string for backend caveats.
     """
-    queryInfo = gen_get_agent_skills_string()
+    queryInfo = gen_get_agent_skills_string(public_catalog=public_catalog)
 
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 

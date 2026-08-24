@@ -132,6 +132,32 @@ _Last updated: 2026-08-23_
 
 ## 🟢 In progress
 
+- **CUSTOMER-side skill store + prompts (2026-08-24, from customer_logs/
+  eCan.log, user wechat_94ef25fd457d171c19a8158a)**. Two distinct roots:
+  1. **Empty skill store (CLIENT, fixed)**: `get_public_skills` filtered the
+     caller's OWN queryAgentSkills list (owner-scoped server-side) — another
+     author's public skills could never appear, and `subscribe_to_skill`'s
+     target lookup had the same blindness ("Skill not found in cloud").
+     FIX: fetch the real public catalog — CN `queryAgentSkills(input:
+     {isPublic:true})` (TCB resolver already supported it, client never
+     called it) with `getPublicSkills` (AWS Lambda) and legacy-filter
+     fallbacks; subscribe lookup searches own list then catalog
+     (`_find_cloud_skill_for_subscribe`). Tests:
+     tests/unit/test_public_skill_store.py.
+  2. **Prompts unreachable for subscribers (BACKEND, changed in eCan_lambda,
+     NEEDS DEPLOY)**: TCB `authenticatedOwner` throws FORBIDDEN on any
+     cross-owner read, so a customer could never queryPrompts(id,
+     owner=author) — the free-skill runtime prompt fetch was dead on CN.
+     FIX in eCan_lambda cloudbase-graphql queryPrompts: narrow exception —
+     authenticated caller + specific prompt id + id referenced by an
+     isPublic=true skill of the requested owner; everything else stays
+     strictly same-owner. UNCOMMITTED in eCan_lambda; deploy via its
+     workflow, then verify with the customer flow: store shows skills →
+     subscribe → run → prompts resolve under author.
+  Still open (backend, non-fatal): TCB lacks `getSubscribedSkillIds` and the
+  agent_skill_rels subscription-sync mutation the client calls — local
+  subscription persistence works, cloud-side rel tracking silently fails.
+
 - **Cloud↔local skill sync: ownerless-row repair** (2026-08-23, uncommitted).
   Diagnosed the "skill_71209937ed7449bf / pr-330448 in cloud PG but not in
   GUI" report: cloud sync-down WORKS (queryAgentSkills returns them — the
