@@ -158,6 +158,7 @@ class CLIContext:
                     self.agent_service = ec_db_mgr.agent_service
                     self.skill_service = ec_db_mgr.skill_service
                     self.task_service = ec_db_mgr.task_service
+                    self.org_service = ec_db_mgr.org_service
                     self._vehicle_service = None
 
                 @property

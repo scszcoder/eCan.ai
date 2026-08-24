@@ -13,17 +13,14 @@ The config file is produced by the app's Fast Deploy panel and looks like:
       "config": { "store_urls": ["https://…"], "qa_agents": 6 }
     }
 
-STATUS: the per-scenario generation is STUBBED for now — the command
-validates the config, computes the resource PLAN it *would* create, logs
-each step, and reports success. Real creation plugs into each recipe
-below (it can call the existing `agents/skills/tasks add` service layer
-once the scenario recipes are finalized).
+STATUS: `douyin_cs` performs REAL generation (shared-skill model — see
+`_deploy_douyin_cs`); the remaining scenarios are stubbed plans that
+validate the config, compute the resources they *would* create, and log
+each step.
 """
 
 import json
 import os
-import uuid
-from urllib.parse import urlsplit
 
 import click
 
@@ -76,61 +73,110 @@ _RECIPES = {
 }
 
 
-# ── Real Douyin/抖店 customer-service deployment ─────────────────────────────
-# Instantiates the proven Feige templates as real DB records: a front-desk
-# skill+agent+task and N Q&A skill-sharing agents, each carrying a task whose
-# name contains 客户应答 (how the runtime front-desk auto-discovers Q&A agents).
-# Store URLs are baked into the front-desk browser-automation monitor's
-# page_url_patterns. See docs mapping in the Fast Deploy design notes.
+# ── Real Douyin/抖店 customer-service deployment (shared-skill model) ────────
+# SHARED_SKILL_MULTI_TASK_PLAN: the deployment REFERENCES the two published
+# Feige skills (public / rentable / ¥0) instead of cloning per-agent copies:
 #
-# The designated prompts and skill templates must already be present in the
-# SYSTEM lists the app populates at initialization (my_prompts / my_skills).
-# If any is missing the deployment aborts with a clear reason — nothing is
-# copied in from elsewhere.
+#   skill_4f24592c81894ae7  飞鸽客服问答00  ← N Q&A tasks 飞鸽客服应答00N
+#   skill_71209937ed7449bf  飞鸽客服前台00  ← 1 front-desk task 飞鸽客服前台001
+#
+# Their prompts (pr-287230 飞鸽客服应答0, pr-330448 飞鸽客服前台0) resolve
+# under the skills' author (skill_owner); visibility of both prompts and both
+# skills is verified up front — a miss aborts with a clear reason.
+#
+# The store URL is propagated as per-task variables (settings.task_vars:
+# store_url / store_urls) — apply_task_vars seeds them into every run's
+# prompt variables, so the prompts can reference {{store_url}}.
+#
+# Agents: N Q&A agents 客服小X (X drawn from a Chinese given-name pool) and
+# one front-desk agent 前台小张, all under the Sales organization, pinned to
+# this machine's vehicle so the affinity gate starts them here.
 
-# Prompt ids the Feige skills reference (must exist in the system prompts list).
-_FEIGE_PROMPT_IDS = ("pr-198938", "pr-278012", "pr-101789", "pr-701210")
-# Skill templates the deployment clones (must exist in the system skills list).
-_FEIGE_FD_SKILL = "飞鸽前台0"
-_FEIGE_QA_SKILL = "飞鸽客户应答"
-# Feige IM host the front-desk always monitors (in addition to store hosts).
-_FEIGE_IM_HOST = "im.jinritemai.com"
+_DDCS_QA_PROMPT_ID = "pr-287230"     # 飞鸽客服应答0
+_DDCS_FD_PROMPT_ID = "pr-330448"     # 飞鸽客服前台0
+_DDCS_QA_SKILL_ID = "skill_4f24592c81894ae7"   # 飞鸽客服问答00
+_DDCS_FD_SKILL_ID = "skill_71209937ed7449bf"   # 飞鸽客服前台00
+_DDCS_QA_SKILL_NAME = "飞鸽客服问答00"
+_DDCS_FD_SKILL_NAME = "飞鸽客服前台00"
+_DDCS_SALES_ORG_NAME = "Sales"
+
+# Chinese given names for the Q&A agents (客服小X).
+_DDCS_QA_NAME_POOL = [
+    "琳", "娜", "梅", "芳", "燕", "丽", "静", "敏", "慧", "娟",
+    "霞", "玲", "红", "艳", "雪", "婷", "蕾", "欣", "悦", "洁",
+    "璐", "薇", "晴", "岚", "楠", "萌", "彤", "菲", "露", "涵",
+]
 
 
-def _host_of(url: str) -> str:
-    try:
-        return urlsplit(url).hostname or url
-    except Exception:
-        return url
+def _draw_qa_names(n: int) -> list:
+    """n unique 名 from the pool; overflow gets a numeric suffix."""
+    import random
+    pool = list(_DDCS_QA_NAME_POOL)
+    random.shuffle(pool)
+    names = pool[:n]
+    i = 0
+    while len(names) < n:
+        i += 1
+        names.append(f"{pool[i % len(pool)]}{i}")
+    return names
 
 
-def _inject_store_urls(workflow: dict, store_urls: list) -> None:
-    """Set every browser-automation monitor's `page_url_patterns` (a JSON
-    string inside `cdpFilterExpr`) to the Feige IM host + the store hosts.
-    Walks the workflow so it's robust to node/block nesting changes."""
-    patterns, seen = [], set()
-    for h in [_FEIGE_IM_HOST, *(_host_of(u) for u in store_urls)]:
-        if h and h not in seen:
-            seen.add(h)
-            patterns.append(h)
+def _skill_author(row: dict) -> str:
+    """The skill's original author (prompt-resolution identity)."""
+    config = row.get("config") if isinstance(row.get("config"), dict) else {}
+    return str(config.get("skill_owner") or row.get("owner") or "").strip()
 
-    def walk(obj):
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                if k == "cdpFilterExpr" and isinstance(v, str) and "page_url_patterns" in v:
-                    try:
-                        parsed = json.loads(v)
-                        parsed["page_url_patterns"] = patterns
-                        obj[k] = json.dumps(parsed, ensure_ascii=False)
-                    except Exception:
-                        pass
-                else:
-                    walk(v)
-        elif isinstance(obj, list):
-            for it in obj:
-                walk(it)
 
-    walk(workflow)
+def _prompt_visible(prompt_id: str, skill_owner: str, log: list) -> bool:
+    """Whether *prompt_id* is visible to the runtime: present in the local
+    prompt stores, or fetchable from the cloud under the skill author's
+    partition (the same fallback the runtime prompt loader uses)."""
+    if not _missing_system_prompts([prompt_id]):
+        log.append(f"Prompt {prompt_id} found in local prompt store.")
+        return True
+    if skill_owner:
+        try:
+            from gui.ipc.w2p_handlers.prompt_cloud_sync import _get_cloud_context, _appsync_request
+            cloud_ctx = _get_cloud_context()
+            if cloud_ctx:
+                query = """
+                    query QueryPrompts($input: PromptQueryInput) {
+                        queryPrompts(input: $input) { id owner }
+                    }
+                """
+                resp = _appsync_request(query, cloud_ctx,
+                                        variables={"input": {"id": prompt_id, "owner": skill_owner}})
+                items = (resp.get("data") or {}).get("queryPrompts") or []
+                if items:
+                    log.append(f"Prompt {prompt_id} visible in cloud under skill owner {skill_owner}.")
+                    return True
+            else:
+                log.append(f"Prompt {prompt_id}: no cloud context in CLI — cloud check skipped.")
+        except Exception as e:
+            log.append(f"Prompt {prompt_id}: cloud visibility check unavailable ({e}).")
+    return False
+
+
+def _ensure_sales_org(ctx, owner: str, log: list) -> str:
+    """Return the Sales organization id, creating the org if absent."""
+    result = ctx.db.org_service.search_orgs(name=_DDCS_SALES_ORG_NAME)
+    rows = result.get("data") or [] if isinstance(result, dict) else []
+    exact = [r for r in rows
+             if str(r.get("name", "")).strip().lower() == _DDCS_SALES_ORG_NAME.lower()]
+    if exact:
+        org_id = exact[0].get("id")
+        log.append(f"Sales organization found: {org_id}")
+        return org_id
+    created = ctx.db.org_service.add_org({
+        "name": _DDCS_SALES_ORG_NAME,
+        "description": "Sales organization (created by Fast Deploy)",
+        "owner": owner,
+    })
+    if not created.get("success"):
+        raise RuntimeError(f"Could not find or create Sales organization: {created.get('error')}")
+    org_id = created.get("id")
+    log.append(f"Sales organization created: {org_id}")
+    return org_id
 
 
 def _missing_system_prompts(prompt_ids) -> list:
@@ -196,83 +242,89 @@ def _first_vehicle_id(ctx):
 
 
 def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
-    """Create the real Douyin/抖店 CS deployment. Returns (plan, log, created).
-    Raises on hard failure (missing templates / DB write failure)."""
+    """Create the real Douyin/抖店 CS deployment (shared-skill model).
+    Returns (plan, log, created). Raises on hard failure — the caller turns
+    that into the failure result the Fast Deploy panel pops."""
+    from utils.logger_helper import logger_helper as logger
+
     store_urls = [u.strip() for u in (cfg.get("store_urls") or []) if u and str(u).strip()]
-    qa = int(cfg.get("qa_agents") or 6)
+    qa_n = int(cfg.get("qa_agents") or 6)
     log = []
     created = {"skills": [], "tasks": [], "agents": []}
 
-    # 1) The designated prompts must already be in the system prompts list
-    #    (fetched/loaded by the app at initialization). Abort if any missing.
-    missing_prompts = _missing_system_prompts(_FEIGE_PROMPT_IDS)
-    if missing_prompts:
-        raise RuntimeError(
-            f"Prompts not found in system prompts list: {', '.join(missing_prompts)}"
-        )
-    log.append(f"System prompts verified: {', '.join(_FEIGE_PROMPT_IDS)}")
+    # ── 1+2) Visibility checks: the two published skills, then their prompts
+    #    (prompt visibility rides the skills' author identity).
+    skill_rows = {}
+    for sid, sname in ((_DDCS_QA_SKILL_ID, _DDCS_QA_SKILL_NAME),
+                       (_DDCS_FD_SKILL_ID, _DDCS_FD_SKILL_NAME)):
+        r = ctx.db.skill_service.get_skill_by_id(sid)
+        row = r.get("data") if isinstance(r, dict) and r.get("success") else None
+        if not row:
+            msg = (f"Skill {sname} ({sid}) is not visible — subscribe to it in the "
+                   f"skill store (public / rentable / ¥0) and retry.")
+            logger.error(f"[FastDeploy][douyin_cs] {msg}")
+            raise RuntimeError(msg)
+        skill_rows[sid] = row
+    log.append(f"Skills verified: {_DDCS_QA_SKILL_NAME} ({_DDCS_QA_SKILL_ID}), "
+               f"{_DDCS_FD_SKILL_NAME} ({_DDCS_FD_SKILL_ID})")
 
-    # 2) Load the designated skill templates from the system skills list.
-    #    Abort if either is missing.
-    fd_tpl = _load_system_skill(_FEIGE_FD_SKILL)
-    qa_tpl = _load_system_skill(_FEIGE_QA_SKILL)
-    missing_skills = [n for n, t in ((_FEIGE_FD_SKILL, fd_tpl), (_FEIGE_QA_SKILL, qa_tpl)) if t is None]
-    if missing_skills:
-        raise RuntimeError(
-            f"Skills not found in system skills list: {', '.join(missing_skills)}"
-        )
-    log.append(f"System skills verified: {_FEIGE_FD_SKILL}, {_FEIGE_QA_SKILL}")
+    for pid, pname, sid in ((_DDCS_QA_PROMPT_ID, "飞鸽客服应答0", _DDCS_QA_SKILL_ID),
+                            (_DDCS_FD_PROMPT_ID, "飞鸽客服前台0", _DDCS_FD_SKILL_ID)):
+        if not _prompt_visible(pid, _skill_author(skill_rows[sid]), log):
+            msg = (f"Prompt {pname} ({pid}) is not visible — it should come with "
+                   f"the subscribed skill {skill_rows[sid].get('name')}; re-subscribe "
+                   f"or sync prompts and retry.")
+            logger.error(f"[FastDeploy][douyin_cs] {msg}")
+            raise RuntimeError(msg)
+    log.append(f"Prompts verified: 飞鸽客服应答0 ({_DDCS_QA_PROMPT_ID}), "
+               f"飞鸽客服前台0 ({_DDCS_FD_PROMPT_ID})")
 
-    # 3) Bake the store URLs into the front-desk monitor.
-    _inject_store_urls(fd_tpl.get("workFlow") or {}, store_urls)
-    log.append(f"Front-desk page_url_patterns = {_FEIGE_IM_HOST} + {len(store_urls)} store host(s).")
+    # ── Store URL propagation: per-task variables. apply_task_vars seeds
+    #    these into every run's prompt variables, so the skills' prompts can
+    #    reference {{store_url}} / {{store_urls}}.
+    task_vars = {"store_url": store_urls[0], "store_urls": ",".join(store_urls)}
+    log.append(f"Task variables: store_url={store_urls[0]} (+{len(store_urls) - 1} more)"
+               if len(store_urls) > 1 else f"Task variables: store_url={store_urls[0]}")
 
-    dep = uuid.uuid4().hex[:8]
-
-    def _add_skill(sid, name, tpl, extra_config=None):
-        r = ctx.db.skill_service.add_skill({
-            "id": sid,
-            "name": name,
-            "owner": owner,
-            "version": "1.0.0",
-            "description": f"Douyin/抖店 CS ({dep}) — fast deploy.",
-            "diagram": tpl.get("workFlow"),
-            "config": {**(tpl.get("config") or {}), **(extra_config or {})},
-            "source": "fast_deploy",
-        })
-        if not r.get("success"):
-            raise RuntimeError(f"add_skill({name}) failed: {r.get('error')}")
-        got = r.get("id") or sid
-        created["skills"].append(got)
-        log.append(f"Created skill {got} ({name})")
-        return got
-
-    qa_skill_id = _add_skill(f"skill_ddqa_{dep}", f"抖店客户应答-{dep}", qa_tpl)
-    fd_skill_id = _add_skill(f"skill_ddfd_{dep}", f"抖店前台-{dep}", fd_tpl,
-                             extra_config={"store_urls": store_urls})
-
-    vehicle_id = _first_vehicle_id(ctx)
+    # ── Vehicle: pin the new agents to THIS machine (affinity gate).
+    vehicle_id = None
+    try:
+        from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id
+        vehicle_id = resolve_local_vehicle_id(
+            username=os.environ.get("ECAN_LOG_USER") or owner) or None
+    except Exception as e:
+        log.append(f"WARNING: local vehicle id resolution failed ({e}).")
     if not vehicle_id:
-        log.append("WARNING: no vehicle found — agent↔task links skipped; "
-                   "assign a vehicle so the front-desk can auto-discover Q&A agents.")
+        vehicle_id = _first_vehicle_id(ctx)
+    if not vehicle_id:
+        log.append("WARNING: no vehicle id — agent↔task execution links skipped.")
 
-    def _add_task(name, skill_id, trigger):
+    # ── Sales organization.
+    org_id = _ensure_sales_org(ctx, owner, log)
+
+    def _add_task(name: str, skill_id: str) -> str:
         tr = ctx.db.task_service.add_task({
             "name": name, "owner": owner, "source": "fast_deploy",
-            "task_type": "browser_automation", "trigger": trigger, "status": "pending",
+            "task_type": "browser_automation", "trigger": "auto", "status": "pending",
+            "settings": {"task_vars": dict(task_vars)},
         })
         if not tr.get("success"):
             raise RuntimeError(f"add_task({name}) failed: {tr.get('error')}")
         tid = tr.get("id")
         created["tasks"].append(tid)
-        try:
-            ctx.db.task_service.add_skill_to_task(tid, skill_id, role="primary")
-        except Exception as e:
-            log.append(f"WARNING: link task {tid}→skill {skill_id} failed: {e}")
+        link = ctx.db.task_service.add_skill_to_task(tid, skill_id, role="primary")
+        if not (isinstance(link, dict) and link.get("success")):
+            raise RuntimeError(
+                f"link task {name} → skill {skill_id} failed: {(link or {}).get('error')}")
         return tid
 
-    def _add_agent(name, skill_id, task_id):
-        adata = {"name": name, "description": f"Douyin/抖店 CS ({dep})", "skills": [skill_id]}
+    def _add_agent(name: str, skill_id: str, task_id: str) -> str:
+        adata = {
+            "name": name,
+            "description": "抖店客服 — Fast Deploy (shared skill)",
+            "skills": [skill_id],
+            "org_id": org_id,
+        }
         if vehicle_id and task_id:
             adata["tasks"] = [task_id]
             adata["vehicle_id"] = vehicle_id
@@ -283,22 +335,30 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
         created["agents"].append(aid)
         return aid
 
-    # 4) Front-desk task + agent.
-    fd_task_id = _add_task(f"抖店前台-{dep}", fd_skill_id, "auto")
-    _add_agent(f"抖店前台Agent-{dep}", fd_skill_id, fd_task_id)
-    log.append("Created front-desk agent + task.")
+    # ── 3A/3B) Tasks referencing the SHARED skills (no clones).
+    qa_task_ids = []
+    for i in range(1, qa_n + 1):
+        qa_task_ids.append(_add_task(f"飞鸽客服应答{i:03d}", _DDCS_QA_SKILL_ID))
+    fd_task_id = _add_task("飞鸽客服前台001", _DDCS_FD_SKILL_ID)
+    log.append(f"Created {qa_n} Q&A task(s) 飞鸽客服应答001..{qa_n:03d} → {_DDCS_QA_SKILL_NAME}")
+    log.append(f"Created task 飞鸽客服前台001 → {_DDCS_FD_SKILL_NAME}")
 
-    # 5) N Q&A agents — each carries a 客户应答 task linked to the shared Q&A skill.
-    for i in range(qa):
-        qa_task_id = _add_task(f"客户应答-{dep}-{i + 1}", qa_skill_id, "message")
-        _add_agent(f"抖店应答Agent-{dep}-{i + 1}", qa_skill_id, qa_task_id)
-    log.append(f"Created {qa} Q&A agent(s), each with a 客户应答 task → Q&A skill.")
+    # ── 4A/4B) Agents in the Sales organization.
+    for name, tid in zip(_draw_qa_names(qa_n), qa_task_ids):
+        _add_agent(f"客服小{name}", _DDCS_QA_SKILL_ID, tid)
+    _add_agent("前台小张", _DDCS_FD_SKILL_ID, fd_task_id)
+    log.append(f"Created {qa_n} Q&A agent(s) 客服小X + front-desk agent 前台小张 (org=Sales)")
 
     plan = {
         "agents": len(created["agents"]),
-        "skills": len(created["skills"]),
+        "skills": 0,  # shared skills referenced, none created
         "tasks": len(created["tasks"]),
     }
+    logger.info(
+        f"[FastDeploy][douyin_cs] SUCCESS: {plan['agents']} agent(s), {plan['tasks']} task(s) "
+        f"referencing shared skills {_DDCS_QA_SKILL_ID}/{_DDCS_FD_SKILL_ID}; "
+        f"store_url propagated via task_vars"
+    )
     return plan, log, created
 
 
@@ -404,8 +464,9 @@ def scenario(config, output):
             "created": created,
             "log": ["Config validated.", *log, "Deployment complete."],
             "message": (
-                f"Deployed {plan['agents']} agent(s), {plan['skills']} skill(s), "
-                f"{plan['tasks']} task(s) for {scenario_key}."
+                f"抖店客服 deployed: {plan['agents']} agent(s) and {plan['tasks']} task(s) "
+                f"referencing the shared Feige skills (no copies). "
+                f"Store URL propagated via task variables."
             ),
         }, ok=True)
         return

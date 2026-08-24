@@ -132,6 +132,32 @@ _Last updated: 2026-08-23_
 
 ## 🟢 In progress
 
+- **快速生成 → 抖店客服 (douyin_cs Fast Deploy) — REAL, shared-skill model**
+  (2026-08-23). `cli/deploy/commands.py::_deploy_douyin_cs` rewritten: verifies
+  visibility of skills skill_4f24592c81894ae7 (飞鸽客服问答00) +
+  skill_71209937ed7449bf (飞鸽客服前台00) and prompts pr-287230/pr-330448
+  (local store, then cloud under the skills' author); creates N tasks
+  飞鸽客服应答00N + 飞鸽客服前台001 (trigger auto) REFERENCING the shared
+  skills; agents 客服小X (name pool) + 前台小张 under Sales org, pinned to
+  the local vehicle. store_url/store_urls propagate as task_vars →
+  {{store_url}} in prompts. Panel pops the CLI result. 9 tests
+  (`tests/unit/test_deploy_douyin_cs.py`).
+  **TO VERIFY / REMAINING:**
+  1. Prompts pr-287230/pr-330448 must actually reference `{{store_url}}`
+     where the store link matters (prompt content edit, no code).
+  2. Front-desk skill's auto-dispatch `filter_by_tasks` must match the new
+     task names (contains "客服应答", NOT the old "客户应答" example) —
+     check skill_71209937ed7449bf's dispatch config.
+  3. GAP: browser-monitor `page_url_patterns` (cdpFilterExpr) is build-time
+     skill config — NOT per-task overridable, so a shared front-desk skill
+     can't carry per-deployment store hosts. Mitigation: the Feige IM host
+     im.jinritemai.com is shop-independent — ship it in the shared template.
+     If per-store page monitoring is ever needed: extend the Phase-3
+     state-override channel to event-monitor URL patterns.
+  4. Old QA trigger was "message"; per spec these use "auto" — queue
+     polling auto-enables on pending items, but validate in a live run.
+  5. Live end-to-end (subscribe → deploy → agents answer) untested.
+
 - **Shared skill / multi-task plan** (2026-08-23) — multiple tasks/agents
   (and hosts) reference ONE skill with per-task variables; concurrent runs
   from day one (no per-skill lock). Full phase list + blocker table in
