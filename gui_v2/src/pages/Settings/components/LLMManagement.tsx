@@ -137,7 +137,7 @@ const LLMManagement = React.forwardRef<
     setRyoaisLoading(true);
     try {
       // Pass username so backend can save to user-specific path
-      const response = await get_ipc_api().getRyoAISModels<{ models: Array<{ name: string; size: number }>; host: string }>(targetHost, username || undefined);
+      const response = await get_ipc_api().getRyoAISModels<{ models: Array<{ name: string; size: number }>; host: string }>(targetHost, username || undefined, false);
       if (response.success && response.data) {
         setRyoaisModels(response.data.models || []);
         // Return true to indicate success, caller can reload providers if needed
@@ -257,6 +257,23 @@ const LLMManagement = React.forwardRef<
           setRyoaisHost(loadedRyoaisHost);
         }
 
+        // Backfill RyoAIS API key from backend (security: only fill a masked
+        // marker so the input renders "••••" instead of disappearing). The real
+        // key is fetched on demand via getLLMProviderApiKey when user clicks "eye".
+        if (ryoaisProvider?.api_key_configured && !ryoaisApiKey) {
+          try {
+            const keyResp = await get_ipc_api().getLLMProviderApiKey<{
+              api_key?: string;
+              credentials?: any;
+            }>(ryoaisProvider.provider || ryoaisProvider.name, true);
+            if (keyResp.success && keyResp.data?.api_key) {
+              setRyoaisApiKey(keyResp.data.api_key);
+            }
+          } catch (e) {
+            console.warn('[LLMManagement] Failed to backfill RyoAIS API key:', e);
+          }
+        }
+
         // Debug: Check OpenAI provider name
         const openaiProvider = loadedProviders.find(p => 
           p.name === 'OpenAI' || p.name === 'ChatOpenAI' || p.display_name?.toLowerCase().includes('openai')
@@ -282,7 +299,7 @@ const LLMManagement = React.forwardRef<
     } finally {
       setLoading(false);
     }
-  }, [username, defaultLLM, t, message, editingOllamaHost, ollamaHost, editingRyoaisHost, ryoaisHost]);
+  }, [username, defaultLLM, t, message, editingOllamaHost, ollamaHost, editingRyoaisHost, ryoaisHost, ryoaisApiKey]);
 
   // Expose loadProviders method via ref
   useImperativeHandle(ref, () => ({

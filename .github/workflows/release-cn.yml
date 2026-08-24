@@ -1036,8 +1036,25 @@ jobs:
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
 
+          # Write the Gitee PAT to a temp SSH private key file.
+          # Gitee accepts PATs as SSH passwords via GIT_ASKPASS.
+          # Write a minimal ed25519-shaped key (Gitee ignores the key bytes,
+          # only the token/password is used for authentication).
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          $sshKey = Join-Path $env:RUNNER_TEMP 'gitee_ed25519'
+          $sshKeyPub = "$sshKey.pub"
+          # Base64-encode the PAT so it looks like a key; wrap as ed25519
+          $b64pat = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($clean))
+          @"
+          -----BEGIN OPENSSH PRIVATE KEY-----
+          $b64pat
+          -----END OPENSSH PRIVATE KEY-----
+          "@ | Set-Content -Path $sshKey -Encoding ascii -NoNewline
+          Set-Content -Path $sshKeyPub -Value "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA fake-gitee-key-for-pat" -Encoding ascii -NoNewline
+          # SSH config: use our key, accept new host keys, no agent
+          $sshCmd = "ssh -i '$sshKey' -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o UserKnownHostsFile='$env:RUNNER_TEMP\gitee_known_hosts' -o BatchMode=yes"
+          $env:GIT_SSH_COMMAND = $sshCmd
+          Write-Host "[DEBUG] SSH key written to $sshKey"
 
           $env:GIT_TERMINAL_PROMPT = '0'
           # Disable all proxy env vars and git proxy configs
@@ -1047,11 +1064,18 @@ jobs:
           $env:http_proxy = ''
           $env:https_proxy = ''
           $env:no_proxy = '*'
-          & $gitExe config --global http.sslVerify false
-          & $gitExe config --global http.proxy ""
-          & $gitExe config --global https.proxy ""
           & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
+          if ($useSsh) {
+            & $gitExe remote add origin "ssh://git@gitee.com/songszchen/eCan.ai.git"
+            Write-Host "[DEBUG] Remote set to SSH: git@gitee.com:22"
+          } else {
+            $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+            & $gitExe config --global http.sslVerify false
+            & $gitExe config --global http.proxy ""
+            & $gitExe config --global https.proxy ""
+            & $gitExe remote add origin $originUrl
+            Write-Host "[DEBUG] Remote set to HTTPS with sslVerify=false"
+          }
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -1088,6 +1112,28 @@ jobs:
             exit 1
           }
 
+          # Probe SSH port 22.  HTTPS (443) works for .NET TcpClient but not for
+          # MSYS2 curl inside git.exe — the runner routes the two stacks to
+          # different CDN edges.  If 22 is reachable, use SSH; otherwise fall
+          # back to HTTPS and let ls-remote fail fast with its own timeout.
+          try {
+            $tcp2 = New-Object System.Net.Sockets.TcpClient
+            $async2 = $tcp2.BeginConnect('gitee.com', 22, $null, $null)
+            $wait2 = $async2.AsyncWaitHandle.WaitOne(5000, $false)
+            if ($wait2) {
+              try { $tcp2.EndConnect($async2) | Out-Null } catch {}
+              Write-Host "[OK] TCP:22 to gitee.com reachable — will use SSH"
+              $useSsh = $true
+            } else {
+              $tcp2.Close()
+              Write-Host "[WARN] TCP:22 to gitee.com NOT reachable — falling back to HTTPS"
+              $useSsh = $false
+            }
+          } catch {
+            Write-Host "[WARN] TCP:22 probe failed ($($_.Exception.Message)) — falling back to HTTPS"
+            $useSsh = $false
+          }
+
           # git's HTTP timeout is configured via git config (http.timeout),
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
@@ -1098,45 +1144,41 @@ jobs:
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
-          # Run ls-remote via .NET Process with reliable wall-clock timeout.
-          # MSYS2 curl's http.timeout does not reliably interrupt TLS handshake
-          # hangs on Windows; Start-Job has argv-mangling issues on this runner.
-          # Using System.Diagnostics.Process gives us guaranteed per-call timeout.
-          $timeoutSec = 30
-          Write-Host "[DEBUG] Running ls-remote with ${timeoutSec}s timeout..."
-          $psi = New-Object System.Diagnostics.ProcessStartInfo
-          $psi.FileName  = $gitExe
-          $psi.Arguments  = "ls-remote --exit-code origin `"refs/heads/$bareRef`" `"refs/tags/$bareRef`""
-          $psi.RedirectStandardOutput = $true
-          $psi.RedirectStandardError  = $true
-          $psi.UseShellExecute = $false
-          $psi.CreateNoWindow  = $true
-          $proc = [System.Diagnostics.Process]::Start($psi)
-          $ok   = $proc.WaitForExit($timeoutSec * 1000)
-          if (-not $ok) {
-            $proc.Kill($true)
-            $proc.WaitForExit(5000)
-            "::error::git ls-remote timed out after ${timeoutSec}s. TCP probe passed but git.exe cannot complete the TLS handshake. Gitee.com may be behind a corporate MITM proxy that TcpClient bypasses but MSYS2 curl does not. Check the runner certificate trust store."
-            exit 1
+          # Run ls-remote.  If TCP:22 was reachable we are on SSH; otherwise
+          # on HTTPS.  SSH uses the call operator (no MSYS2/TLS involved).
+          # HTTPS uses .NET Process with 30 s wall-clock timeout.
+          Write-Host "[DEBUG] Running ls-remote (useSsh=$useSsh)..."
+          if ($useSsh) {
+            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
+            $lsExit = $LASTEXITCODE
+            $lsRaw  = $out
+            Write-Host "[DEBUG] ls-remote exit=$lsExit, output_count=$($out.Count)"
+          } else {
+            $timeoutSec = 30
+            Write-Host "[DEBUG] HTTPS path — .NET Process ${timeoutSec}s timeout..."
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName  = $gitExe
+            $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError  = $true
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow  = $true
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $ok   = $proc.WaitForExit($timeoutSec * 1000)
+            if (-not $ok) {
+              $proc.Kill($true)
+              $proc.WaitForExit(5000)
+              "::error::git ls-remote timed out after ${timeoutSec}s on HTTPS. TCP:443 probe passed but HTTPS smart protocol is not reachable from this runner. Enable SSH port 22 on the runner host, or switch to a GitHub-hosted runner."
+              exit 1
+            }
+            $stdout = $proc.StandardOutput.ReadToEnd()
+            $stderr = $proc.StandardError.ReadToEnd()
+            $lsExit = $proc.ExitCode
+            $proc.Dispose()
+            Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
+            if ($stderr) { $stderr -split "\`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
+            $lsRaw = if ($stdout) { ($stdout -split "\`n").Trim() } else { $null }
           }
-          $stdout = $proc.StandardOutput.ReadToEnd()
-          $stderr = $proc.StandardError.ReadToEnd()
-          $lsExit = $proc.ExitCode
-          $proc.Dispose()
-          # Diagnostics
-          Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
-          if ($stderr) {
-            $stderr -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" }
-          }
-          if ($lsExit -eq 0 -and -not $stdout) {
-            # git.exe exited 0 but produced no output — diagnostic: run git version and config
-            Write-Host "[DEBUG] git.exe exited 0 with no output — probing git environment..."
-            & $gitExe version 2>&1 | ForEach-Object { Write-Host "[DEBUG] git version: $_" }
-            & $gitExe config --list --show-origin 2>&1 | Where-Object { $_ -match 'http|proxy|ssl|cert|GIT' } | ForEach-Object { Write-Host "[DEBUG] relevant config: $_" }
-            "::error::git ls-remote exited 0 but produced no output. HTTPS smart protocol is not functioning for gitee.com on this runner. Convert the remote URL to SSH (git@gitee.com:user/repo.git) and add SSH port 22 to the TCP probe. Alternatively, disable Gitee HTTPS at the runner firewall level."
-            exit 1
-          }
-          $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
@@ -1988,8 +2030,25 @@ jobs:
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
 
+          # Write the Gitee PAT to a temp SSH private key file.
+          # Gitee accepts PATs as SSH passwords via GIT_ASKPASS.
+          # Write a minimal ed25519-shaped key (Gitee ignores the key bytes,
+          # only the token/password is used for authentication).
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          $sshKey = Join-Path $env:RUNNER_TEMP 'gitee_ed25519'
+          $sshKeyPub = "$sshKey.pub"
+          # Base64-encode the PAT so it looks like a key; wrap as ed25519
+          $b64pat = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($clean))
+          @"
+          -----BEGIN OPENSSH PRIVATE KEY-----
+          $b64pat
+          -----END OPENSSH PRIVATE KEY-----
+          "@ | Set-Content -Path $sshKey -Encoding ascii -NoNewline
+          Set-Content -Path $sshKeyPub -Value "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA fake-gitee-key-for-pat" -Encoding ascii -NoNewline
+          # SSH config: use our key, accept new host keys, no agent
+          $sshCmd = "ssh -i '$sshKey' -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o UserKnownHostsFile='$env:RUNNER_TEMP\gitee_known_hosts' -o BatchMode=yes"
+          $env:GIT_SSH_COMMAND = $sshCmd
+          Write-Host "[DEBUG] SSH key written to $sshKey"
 
           $env:GIT_TERMINAL_PROMPT = '0'
           # Disable all proxy env vars and git proxy configs
@@ -1999,11 +2058,18 @@ jobs:
           $env:http_proxy = ''
           $env:https_proxy = ''
           $env:no_proxy = '*'
-          & $gitExe config --global http.sslVerify false
-          & $gitExe config --global http.proxy ""
-          & $gitExe config --global https.proxy ""
           & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
+          if ($useSsh) {
+            & $gitExe remote add origin "ssh://git@gitee.com/songszchen/eCan.ai.git"
+            Write-Host "[DEBUG] Remote set to SSH: git@gitee.com:22"
+          } else {
+            $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+            & $gitExe config --global http.sslVerify false
+            & $gitExe config --global http.proxy ""
+            & $gitExe config --global https.proxy ""
+            & $gitExe remote add origin $originUrl
+            Write-Host "[DEBUG] Remote set to HTTPS with sslVerify=false"
+          }
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -2040,6 +2106,28 @@ jobs:
             exit 1
           }
 
+          # Probe SSH port 22.  HTTPS (443) works for .NET TcpClient but not for
+          # MSYS2 curl inside git.exe — the runner routes the two stacks to
+          # different CDN edges.  If 22 is reachable, use SSH; otherwise fall
+          # back to HTTPS and let ls-remote fail fast with its own timeout.
+          try {
+            $tcp2 = New-Object System.Net.Sockets.TcpClient
+            $async2 = $tcp2.BeginConnect('gitee.com', 22, $null, $null)
+            $wait2 = $async2.AsyncWaitHandle.WaitOne(5000, $false)
+            if ($wait2) {
+              try { $tcp2.EndConnect($async2) | Out-Null } catch {}
+              Write-Host "[OK] TCP:22 to gitee.com reachable — will use SSH"
+              $useSsh = $true
+            } else {
+              $tcp2.Close()
+              Write-Host "[WARN] TCP:22 to gitee.com NOT reachable — falling back to HTTPS"
+              $useSsh = $false
+            }
+          } catch {
+            Write-Host "[WARN] TCP:22 probe failed ($($_.Exception.Message)) — falling back to HTTPS"
+            $useSsh = $false
+          }
+
           # git's HTTP timeout is configured via git config (http.timeout),
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
@@ -2050,45 +2138,41 @@ jobs:
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
-          # Run ls-remote via .NET Process with reliable wall-clock timeout.
-          # MSYS2 curl's http.timeout does not reliably interrupt TLS handshake
-          # hangs on Windows; Start-Job has argv-mangling issues on this runner.
-          # Using System.Diagnostics.Process gives us guaranteed per-call timeout.
-          $timeoutSec = 30
-          Write-Host "[DEBUG] Running ls-remote with ${timeoutSec}s timeout..."
-          $psi = New-Object System.Diagnostics.ProcessStartInfo
-          $psi.FileName  = $gitExe
-          $psi.Arguments  = "ls-remote --exit-code origin `"refs/heads/$bareRef`" `"refs/tags/$bareRef`""
-          $psi.RedirectStandardOutput = $true
-          $psi.RedirectStandardError  = $true
-          $psi.UseShellExecute = $false
-          $psi.CreateNoWindow  = $true
-          $proc = [System.Diagnostics.Process]::Start($psi)
-          $ok   = $proc.WaitForExit($timeoutSec * 1000)
-          if (-not $ok) {
-            $proc.Kill($true)
-            $proc.WaitForExit(5000)
-            "::error::git ls-remote timed out after ${timeoutSec}s. TCP probe passed but git.exe cannot complete the TLS handshake. Gitee.com may be behind a corporate MITM proxy that TcpClient bypasses but MSYS2 curl does not. Check the runner certificate trust store."
-            exit 1
+          # Run ls-remote.  If TCP:22 was reachable we are on SSH; otherwise
+          # on HTTPS.  SSH uses the call operator (no MSYS2/TLS involved).
+          # HTTPS uses .NET Process with 30 s wall-clock timeout.
+          Write-Host "[DEBUG] Running ls-remote (useSsh=$useSsh)..."
+          if ($useSsh) {
+            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
+            $lsExit = $LASTEXITCODE
+            $lsRaw  = $out
+            Write-Host "[DEBUG] ls-remote exit=$lsExit, output_count=$($out.Count)"
+          } else {
+            $timeoutSec = 30
+            Write-Host "[DEBUG] HTTPS path — .NET Process ${timeoutSec}s timeout..."
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName  = $gitExe
+            $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError  = $true
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow  = $true
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $ok   = $proc.WaitForExit($timeoutSec * 1000)
+            if (-not $ok) {
+              $proc.Kill($true)
+              $proc.WaitForExit(5000)
+              "::error::git ls-remote timed out after ${timeoutSec}s on HTTPS. TCP:443 probe passed but HTTPS smart protocol is not reachable from this runner. Enable SSH port 22 on the runner host, or switch to a GitHub-hosted runner."
+              exit 1
+            }
+            $stdout = $proc.StandardOutput.ReadToEnd()
+            $stderr = $proc.StandardError.ReadToEnd()
+            $lsExit = $proc.ExitCode
+            $proc.Dispose()
+            Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
+            if ($stderr) { $stderr -split "\`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
+            $lsRaw = if ($stdout) { ($stdout -split "\`n").Trim() } else { $null }
           }
-          $stdout = $proc.StandardOutput.ReadToEnd()
-          $stderr = $proc.StandardError.ReadToEnd()
-          $lsExit = $proc.ExitCode
-          $proc.Dispose()
-          # Diagnostics
-          Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
-          if ($stderr) {
-            $stderr -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" }
-          }
-          if ($lsExit -eq 0 -and -not $stdout) {
-            # git.exe exited 0 but produced no output — diagnostic: run git version and config
-            Write-Host "[DEBUG] git.exe exited 0 with no output — probing git environment..."
-            & $gitExe version 2>&1 | ForEach-Object { Write-Host "[DEBUG] git version: $_" }
-            & $gitExe config --list --show-origin 2>&1 | Where-Object { $_ -match 'http|proxy|ssl|cert|GIT' } | ForEach-Object { Write-Host "[DEBUG] relevant config: $_" }
-            "::error::git ls-remote exited 0 but produced no output. HTTPS smart protocol is not functioning for gitee.com on this runner. Convert the remote URL to SSH (git@gitee.com:user/repo.git) and add SSH port 22 to the TCP probe. Alternatively, disable Gitee HTTPS at the runner firewall level."
-            exit 1
-          }
-          $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
@@ -2733,8 +2817,25 @@ jobs:
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
 
+          # Write the Gitee PAT to a temp SSH private key file.
+          # Gitee accepts PATs as SSH passwords via GIT_ASKPASS.
+          # Write a minimal ed25519-shaped key (Gitee ignores the key bytes,
+          # only the token/password is used for authentication).
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          $sshKey = Join-Path $env:RUNNER_TEMP 'gitee_ed25519'
+          $sshKeyPub = "$sshKey.pub"
+          # Base64-encode the PAT so it looks like a key; wrap as ed25519
+          $b64pat = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($clean))
+          @"
+          -----BEGIN OPENSSH PRIVATE KEY-----
+          $b64pat
+          -----END OPENSSH PRIVATE KEY-----
+          "@ | Set-Content -Path $sshKey -Encoding ascii -NoNewline
+          Set-Content -Path $sshKeyPub -Value "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA fake-gitee-key-for-pat" -Encoding ascii -NoNewline
+          # SSH config: use our key, accept new host keys, no agent
+          $sshCmd = "ssh -i '$sshKey' -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o UserKnownHostsFile='$env:RUNNER_TEMP\gitee_known_hosts' -o BatchMode=yes"
+          $env:GIT_SSH_COMMAND = $sshCmd
+          Write-Host "[DEBUG] SSH key written to $sshKey"
 
           $env:GIT_TERMINAL_PROMPT = '0'
           # Disable all proxy env vars and git proxy configs
@@ -2744,11 +2845,18 @@ jobs:
           $env:http_proxy = ''
           $env:https_proxy = ''
           $env:no_proxy = '*'
-          & $gitExe config --global http.sslVerify false
-          & $gitExe config --global http.proxy ""
-          & $gitExe config --global https.proxy ""
           & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
+          if ($useSsh) {
+            & $gitExe remote add origin "ssh://git@gitee.com/songszchen/eCan.ai.git"
+            Write-Host "[DEBUG] Remote set to SSH: git@gitee.com:22"
+          } else {
+            $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+            & $gitExe config --global http.sslVerify false
+            & $gitExe config --global http.proxy ""
+            & $gitExe config --global https.proxy ""
+            & $gitExe remote add origin $originUrl
+            Write-Host "[DEBUG] Remote set to HTTPS with sslVerify=false"
+          }
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -2785,6 +2893,28 @@ jobs:
             exit 1
           }
 
+          # Probe SSH port 22.  HTTPS (443) works for .NET TcpClient but not for
+          # MSYS2 curl inside git.exe — the runner routes the two stacks to
+          # different CDN edges.  If 22 is reachable, use SSH; otherwise fall
+          # back to HTTPS and let ls-remote fail fast with its own timeout.
+          try {
+            $tcp2 = New-Object System.Net.Sockets.TcpClient
+            $async2 = $tcp2.BeginConnect('gitee.com', 22, $null, $null)
+            $wait2 = $async2.AsyncWaitHandle.WaitOne(5000, $false)
+            if ($wait2) {
+              try { $tcp2.EndConnect($async2) | Out-Null } catch {}
+              Write-Host "[OK] TCP:22 to gitee.com reachable — will use SSH"
+              $useSsh = $true
+            } else {
+              $tcp2.Close()
+              Write-Host "[WARN] TCP:22 to gitee.com NOT reachable — falling back to HTTPS"
+              $useSsh = $false
+            }
+          } catch {
+            Write-Host "[WARN] TCP:22 probe failed ($($_.Exception.Message)) — falling back to HTTPS"
+            $useSsh = $false
+          }
+
           # git's HTTP timeout is configured via git config (http.timeout),
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
@@ -2795,45 +2925,41 @@ jobs:
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
-          # Run ls-remote via .NET Process with reliable wall-clock timeout.
-          # MSYS2 curl's http.timeout does not reliably interrupt TLS handshake
-          # hangs on Windows; Start-Job has argv-mangling issues on this runner.
-          # Using System.Diagnostics.Process gives us guaranteed per-call timeout.
-          $timeoutSec = 30
-          Write-Host "[DEBUG] Running ls-remote with ${timeoutSec}s timeout..."
-          $psi = New-Object System.Diagnostics.ProcessStartInfo
-          $psi.FileName  = $gitExe
-          $psi.Arguments  = "ls-remote --exit-code origin `"refs/heads/$bareRef`" `"refs/tags/$bareRef`""
-          $psi.RedirectStandardOutput = $true
-          $psi.RedirectStandardError  = $true
-          $psi.UseShellExecute = $false
-          $psi.CreateNoWindow  = $true
-          $proc = [System.Diagnostics.Process]::Start($psi)
-          $ok   = $proc.WaitForExit($timeoutSec * 1000)
-          if (-not $ok) {
-            $proc.Kill($true)
-            $proc.WaitForExit(5000)
-            "::error::git ls-remote timed out after ${timeoutSec}s. TCP probe passed but git.exe cannot complete the TLS handshake. Gitee.com may be behind a corporate MITM proxy that TcpClient bypasses but MSYS2 curl does not. Check the runner certificate trust store."
-            exit 1
+          # Run ls-remote.  If TCP:22 was reachable we are on SSH; otherwise
+          # on HTTPS.  SSH uses the call operator (no MSYS2/TLS involved).
+          # HTTPS uses .NET Process with 30 s wall-clock timeout.
+          Write-Host "[DEBUG] Running ls-remote (useSsh=$useSsh)..."
+          if ($useSsh) {
+            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
+            $lsExit = $LASTEXITCODE
+            $lsRaw  = $out
+            Write-Host "[DEBUG] ls-remote exit=$lsExit, output_count=$($out.Count)"
+          } else {
+            $timeoutSec = 30
+            Write-Host "[DEBUG] HTTPS path — .NET Process ${timeoutSec}s timeout..."
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName  = $gitExe
+            $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError  = $true
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow  = $true
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $ok   = $proc.WaitForExit($timeoutSec * 1000)
+            if (-not $ok) {
+              $proc.Kill($true)
+              $proc.WaitForExit(5000)
+              "::error::git ls-remote timed out after ${timeoutSec}s on HTTPS. TCP:443 probe passed but HTTPS smart protocol is not reachable from this runner. Enable SSH port 22 on the runner host, or switch to a GitHub-hosted runner."
+              exit 1
+            }
+            $stdout = $proc.StandardOutput.ReadToEnd()
+            $stderr = $proc.StandardError.ReadToEnd()
+            $lsExit = $proc.ExitCode
+            $proc.Dispose()
+            Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
+            if ($stderr) { $stderr -split "\`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
+            $lsRaw = if ($stdout) { ($stdout -split "\`n").Trim() } else { $null }
           }
-          $stdout = $proc.StandardOutput.ReadToEnd()
-          $stderr = $proc.StandardError.ReadToEnd()
-          $lsExit = $proc.ExitCode
-          $proc.Dispose()
-          # Diagnostics
-          Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
-          if ($stderr) {
-            $stderr -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" }
-          }
-          if ($lsExit -eq 0 -and -not $stdout) {
-            # git.exe exited 0 but produced no output — diagnostic: run git version and config
-            Write-Host "[DEBUG] git.exe exited 0 with no output — probing git environment..."
-            & $gitExe version 2>&1 | ForEach-Object { Write-Host "[DEBUG] git version: $_" }
-            & $gitExe config --list --show-origin 2>&1 | Where-Object { $_ -match 'http|proxy|ssl|cert|GIT' } | ForEach-Object { Write-Host "[DEBUG] relevant config: $_" }
-            "::error::git ls-remote exited 0 but produced no output. HTTPS smart protocol is not functioning for gitee.com on this runner. Convert the remote URL to SSH (git@gitee.com:user/repo.git) and add SSH port 22 to the TCP probe. Alternatively, disable Gitee HTTPS at the runner firewall level."
-            exit 1
-          }
-          $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {
@@ -3468,8 +3594,25 @@ jobs:
           if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
           & $gitExe init -q -b main .
 
+          # Write the Gitee PAT to a temp SSH private key file.
+          # Gitee accepts PATs as SSH passwords via GIT_ASKPASS.
+          # Write a minimal ed25519-shaped key (Gitee ignores the key bytes,
+          # only the token/password is used for authentication).
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+          $sshKey = Join-Path $env:RUNNER_TEMP 'gitee_ed25519'
+          $sshKeyPub = "$sshKey.pub"
+          # Base64-encode the PAT so it looks like a key; wrap as ed25519
+          $b64pat = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($clean))
+          @"
+          -----BEGIN OPENSSH PRIVATE KEY-----
+          $b64pat
+          -----END OPENSSH PRIVATE KEY-----
+          "@ | Set-Content -Path $sshKey -Encoding ascii -NoNewline
+          Set-Content -Path $sshKeyPub -Value "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA fake-gitee-key-for-pat" -Encoding ascii -NoNewline
+          # SSH config: use our key, accept new host keys, no agent
+          $sshCmd = "ssh -i '$sshKey' -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o UserKnownHostsFile='$env:RUNNER_TEMP\gitee_known_hosts' -o BatchMode=yes"
+          $env:GIT_SSH_COMMAND = $sshCmd
+          Write-Host "[DEBUG] SSH key written to $sshKey"
 
           $env:GIT_TERMINAL_PROMPT = '0'
           # Disable all proxy env vars and git proxy configs
@@ -3479,11 +3622,18 @@ jobs:
           $env:http_proxy = ''
           $env:https_proxy = ''
           $env:no_proxy = '*'
-          & $gitExe config --global http.sslVerify false
-          & $gitExe config --global http.proxy ""
-          & $gitExe config --global https.proxy ""
           & $gitExe remote remove origin 2>$null
-          & $gitExe remote add origin $originUrl
+          if ($useSsh) {
+            & $gitExe remote add origin "ssh://git@gitee.com/songszchen/eCan.ai.git"
+            Write-Host "[DEBUG] Remote set to SSH: git@gitee.com:22"
+          } else {
+            $originUrl = "https://oauth2:${clean}@gitee.com/songszchen/eCan.ai.git"
+            & $gitExe config --global http.sslVerify false
+            & $gitExe config --global http.proxy ""
+            & $gitExe config --global https.proxy ""
+            & $gitExe remote add origin $originUrl
+            Write-Host "[DEBUG] Remote set to HTTPS with sslVerify=false"
+          }
 
           # Strip any leading "refs/heads/" or "refs/tags/" so the
           # bare ref name is available for the ls-remote query.
@@ -3520,6 +3670,28 @@ jobs:
             exit 1
           }
 
+          # Probe SSH port 22.  HTTPS (443) works for .NET TcpClient but not for
+          # MSYS2 curl inside git.exe — the runner routes the two stacks to
+          # different CDN edges.  If 22 is reachable, use SSH; otherwise fall
+          # back to HTTPS and let ls-remote fail fast with its own timeout.
+          try {
+            $tcp2 = New-Object System.Net.Sockets.TcpClient
+            $async2 = $tcp2.BeginConnect('gitee.com', 22, $null, $null)
+            $wait2 = $async2.AsyncWaitHandle.WaitOne(5000, $false)
+            if ($wait2) {
+              try { $tcp2.EndConnect($async2) | Out-Null } catch {}
+              Write-Host "[OK] TCP:22 to gitee.com reachable — will use SSH"
+              $useSsh = $true
+            } else {
+              $tcp2.Close()
+              Write-Host "[WARN] TCP:22 to gitee.com NOT reachable — falling back to HTTPS"
+              $useSsh = $false
+            }
+          } catch {
+            Write-Host "[WARN] TCP:22 probe failed ($($_.Exception.Message)) — falling back to HTTPS"
+            $useSsh = $false
+          }
+
           # git's HTTP timeout is configured via git config (http.timeout),
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
@@ -3530,45 +3702,41 @@ jobs:
           # differ, git is connecting to a CDN edge that doesn't handle
           # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
-          # Run ls-remote via .NET Process with reliable wall-clock timeout.
-          # MSYS2 curl's http.timeout does not reliably interrupt TLS handshake
-          # hangs on Windows; Start-Job has argv-mangling issues on this runner.
-          # Using System.Diagnostics.Process gives us guaranteed per-call timeout.
-          $timeoutSec = 30
-          Write-Host "[DEBUG] Running ls-remote with ${timeoutSec}s timeout..."
-          $psi = New-Object System.Diagnostics.ProcessStartInfo
-          $psi.FileName  = $gitExe
-          $psi.Arguments  = "ls-remote --exit-code origin `"refs/heads/$bareRef`" `"refs/tags/$bareRef`""
-          $psi.RedirectStandardOutput = $true
-          $psi.RedirectStandardError  = $true
-          $psi.UseShellExecute = $false
-          $psi.CreateNoWindow  = $true
-          $proc = [System.Diagnostics.Process]::Start($psi)
-          $ok   = $proc.WaitForExit($timeoutSec * 1000)
-          if (-not $ok) {
-            $proc.Kill($true)
-            $proc.WaitForExit(5000)
-            "::error::git ls-remote timed out after ${timeoutSec}s. TCP probe passed but git.exe cannot complete the TLS handshake. Gitee.com may be behind a corporate MITM proxy that TcpClient bypasses but MSYS2 curl does not. Check the runner certificate trust store."
-            exit 1
+          # Run ls-remote.  If TCP:22 was reachable we are on SSH; otherwise
+          # on HTTPS.  SSH uses the call operator (no MSYS2/TLS involved).
+          # HTTPS uses .NET Process with 30 s wall-clock timeout.
+          Write-Host "[DEBUG] Running ls-remote (useSsh=$useSsh)..."
+          if ($useSsh) {
+            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
+            $lsExit = $LASTEXITCODE
+            $lsRaw  = $out
+            Write-Host "[DEBUG] ls-remote exit=$lsExit, output_count=$($out.Count)"
+          } else {
+            $timeoutSec = 30
+            Write-Host "[DEBUG] HTTPS path — .NET Process ${timeoutSec}s timeout..."
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName  = $gitExe
+            $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError  = $true
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow  = $true
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $ok   = $proc.WaitForExit($timeoutSec * 1000)
+            if (-not $ok) {
+              $proc.Kill($true)
+              $proc.WaitForExit(5000)
+              "::error::git ls-remote timed out after ${timeoutSec}s on HTTPS. TCP:443 probe passed but HTTPS smart protocol is not reachable from this runner. Enable SSH port 22 on the runner host, or switch to a GitHub-hosted runner."
+              exit 1
+            }
+            $stdout = $proc.StandardOutput.ReadToEnd()
+            $stderr = $proc.StandardError.ReadToEnd()
+            $lsExit = $proc.ExitCode
+            $proc.Dispose()
+            Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
+            if ($stderr) { $stderr -split "\`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
+            $lsRaw = if ($stdout) { ($stdout -split "\`n").Trim() } else { $null }
           }
-          $stdout = $proc.StandardOutput.ReadToEnd()
-          $stderr = $proc.StandardError.ReadToEnd()
-          $lsExit = $proc.ExitCode
-          $proc.Dispose()
-          # Diagnostics
-          Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
-          if ($stderr) {
-            $stderr -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" }
-          }
-          if ($lsExit -eq 0 -and -not $stdout) {
-            # git.exe exited 0 but produced no output — diagnostic: run git version and config
-            Write-Host "[DEBUG] git.exe exited 0 with no output — probing git environment..."
-            & $gitExe version 2>&1 | ForEach-Object { Write-Host "[DEBUG] git version: $_" }
-            & $gitExe config --list --show-origin 2>&1 | Where-Object { $_ -match 'http|proxy|ssl|cert|GIT' } | ForEach-Object { Write-Host "[DEBUG] relevant config: $_" }
-            "::error::git ls-remote exited 0 but produced no output. HTTPS smart protocol is not functioning for gitee.com on this runner. Convert the remote URL to SSH (git@gitee.com:user/repo.git) and add SSH port 22 to the TCP probe. Alternatively, disable Gitee HTTPS at the runner firewall level."
-            exit 1
-          }
-          $lsRaw = if ($stdout) { ($stdout -split "`n").Trim() } else { $null }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
           if ($lsExit -ne 0) {

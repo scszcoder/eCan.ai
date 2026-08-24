@@ -5,9 +5,13 @@ Provides a thread-safe mechanism to request and check stop status
 for document processing operations.
 
 This controller is used by:
-- document_routes_custom.py: Check before processing files
 - advanced_chunker.py: Check during chunking operations
-- operate_custom.py: Cancel extraction tasks
+- knowledge.lightrag_launcher: Re-exported for downstream callers
+
+Cancellation itself (POST /cancel_pipeline) is owned by upstream LightRAG ≥ 1.4.16
+natively; this controller only carries the "is a stop pending?" flag that
+eCan's chunker checks between chunks so we can break out of long-running
+extraction loops early.
 """
 
 import asyncio
@@ -71,25 +75,15 @@ class StopController:
                 logger.info("[StopController] ✅ Stop status reset")
     
     async def async_request_stop(self) -> None:
-        """
-        Async version of request_stop.
-        Also cancels all registered extraction tasks.
-        
-        Note: For LLM calls in progress, the cancellation will take effect at the next
-        await point. Long-running HTTP requests (like Ollama) may need to complete or
-        timeout before the cancellation is fully processed.
+        """Async version of request_stop.
+
+        Note: this method no longer cancels running LLM / HTTP tasks directly.
+        LightRAG ≥ 1.4.16 owns cancellation through ``POST /cancel_pipeline``,
+        which the GUI handler invokes before flipping this controller's flag.
+        This method now only flips the local flag; callers that need the LLM
+        to actually stop mid-flight must call ``cancel_pipeline`` first.
         """
         self.request_stop()
-        
-        # Cancel extraction tasks from operate_custom
-        try:
-            from operate_custom import cancel_all_extraction_tasks
-            cancelled_count = await cancel_all_extraction_tasks()
-            logger.info(f"[StopController] Cancelled {cancelled_count} extraction tasks")
-        except ImportError:
-            logger.debug("[StopController] operate_custom not available for task cancellation")
-        except Exception as e:
-            logger.warning(f"[StopController] Error cancelling extraction tasks: {e}")
     
     async def async_is_stop_requested(self) -> bool:
         """

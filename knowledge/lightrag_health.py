@@ -673,3 +673,55 @@ def create_health_router():
             return {"circuits": {}, "error": str(e)}
     
     return router
+
+
+# =============================================================================
+# FastAPI App Auto-Registration
+# =============================================================================
+
+_fastapi_health_patched = False
+
+
+def _register_health_routes(app):
+    """Register health check routes on a FastAPI app instance."""
+    try:
+        router = create_health_router()
+        if router is not None:
+            app.include_router(router)
+            logger.info("[HealthRouter] ✅ Registered /health/* routes on FastAPI app")
+        else:
+            logger.warning("[HealthRouter] Health router creation returned None, skipping registration")
+    except Exception as e:
+        logger.warning(f"[HealthRouter] Failed to register health routes: {e}")
+
+
+def patch_fastapi_for_health_routes():
+    """Patch FastAPI.__init__ to auto-register eCan health routes.
+
+    After the patch, every ``FastAPI()`` call automatically includes
+    ``/health/status``, ``/health/workers``, and ``/health/circuits``.
+    The registration runs inside ``__init__`` so it is ready before
+    uvicorn starts accepting connections.
+
+    Idempotent: only patches once regardless of how many times this
+    function is called.
+    """
+    global _fastapi_health_patched
+    if _fastapi_health_patched:
+        return
+
+    try:
+        from fastapi import FastAPI
+    except ImportError:
+        logger.warning("[HealthRouter] FastAPI not installed, health routes unavailable")
+        return
+
+    original_init = FastAPI.__init__
+
+    def patched_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        _register_health_routes(self)
+
+    FastAPI.__init__ = patched_init
+    _fastapi_health_patched = True
+    logger.info("[HealthRouter] ✅ FastAPI.__init__ patched for auto health route registration")

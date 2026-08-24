@@ -8,6 +8,7 @@ import threading
 import time
 import locale
 from pathlib import Path
+from typing import Optional
 from utils.logger_helper import logger_helper as logger
 from knowledge.lightrag_config_manager import get_config_manager
 
@@ -295,7 +296,25 @@ class LightragServer:
         env['PYTHONLEGACYWINDOWSSTDIO'] = '0'
         env['NO_COLOR'] = '1'
         env['ASCII_COLORS_DISABLE'] = '1'
-        
+
+        # 2.5 Derive LLM token limits from the selected model's deployment
+        # Override MAX_TOTAL_TOKENS / OPENAI_LLM_MAX_COMPLETION_TOKENS with the
+        # model's actual deployed context window. Source priority:
+        #   1. GET {LLM_BINDING_HOST}/models  -> response.data[*].max_model_len
+        #      (vLLM reports the deployment cap here; this is the only value
+        #       that matches what the server will actually accept.)
+        #   2. ryoais_models.json             -> models[].context_length
+        #      (cached API snapshot from gui/ryoais_utils.fetch_ryoais_models;
+        #       may overshoot the deployed cap.)
+        #   3. Static fallback (8192)
+        # extra_env (applied in step 4) still wins over this, so callers can
+        # force a value when needed.
+        self._apply_llm_token_limits(env)
+
+        # 2.6 Ensure retrieval token limits have sane minimums (chunk protection)
+        self._apply_retrieval_token_limits(env)
+
+
         # 3.1 CPU optimization for embedding and LLM inference
         import multiprocessing
         cpu_count = multiprocessing.cpu_count()
@@ -438,6 +457,225 @@ class LightragServer:
             self.restart_cooldown = int(env.get('RESTART_COOLDOWN', self.restart_cooldown))
         except (ValueError, TypeError):
             pass
+
+    # ---- LLM token limits ---------------------------------------------------
+    #
+    # These two env vars control how much of the model's context window
+    # lightrag is allowed to use:
+    #   MAX_TOTAL_TOKENS                 - total prompt + output cap
+    #   OPENAI_LLM_MAX_COMPLETION_TOKENS - output cap only
+    #
+    # Both must be <= the model's deployed context window (vLLM's
+    # `max_model_len`). If they exceed it the request is rejected with 400:
+    #   "max_completion_tokens=9000 cannot be greater than
+    #    max_model_len=max_total_tokens=4096"
+    #
+    # We resolve the value from the deployment itself rather than relying on
+    # the static value in lightrag.env, because the model registered in the
+    # provider config (e.g. Qwen3.6-27B-AWQ-INT4) can be redeployed with a
+    # smaller window than its native capability.
+
+    _LLM_TOKEN_FALLBACK = 8192  # safe static default when no source is reachable
+
+    @staticmethod
+    def _llm_models_endpoint(host: str) -> Optional[str]:
+        """Return the OpenAI-compatible /models URL for the given binding host,
+        or None if `host` doesn't look usable."""
+        if not host:
+            return None
+        host = host.rstrip('/')
+        # Host already includes /v1 (ryoais style) -> /v1/models
+        if host.endswith('/v1'):
+            return f'{host}/models'
+        # Bare host -> /v1/models
+        return f'{host}/v1/models'
+
+    def _resolve_llm_max_model_len(self, env: dict) -> Optional[int]:
+        """Best-effort lookup of the model's deployed context window.
+
+        Returns an integer context length, or None when neither source is
+        reachable. Never raises - all failures are logged at WARNING.
+        """
+        host = (env.get('LLM_BINDING_HOST') or '').strip()
+        model = (env.get('LLM_MODEL') or '').strip()
+        if not host or not model:
+            return None
+
+        # Only attempt the live query for OpenAI-compatible bindings (which is
+        # what ryoais / deepseek / dashscope / bytedance etc. all are after
+        # _map_binding runs upstream of us). Other bindings (ollama, lollms,
+        # gemini, bedrock) have their own context knobs and shouldn't be
+        # queried here.
+        binding = (env.get('LLM_BINDING') or '').lower()
+        if binding and binding not in ('openai', 'ryoais', 'anthropic', 'deepseek',
+                                       'dashscope', 'bytedance', 'baidu_qianfan',
+                                       'zhipuai', 'google'):
+            return None
+
+        api_key = (env.get('LLM_BINDING_API_KEY') or '').strip()
+
+        # ---- 1. Live /v1/models query (authoritative) ----
+        endpoint = self._llm_models_endpoint(host)
+        if endpoint:
+            try:
+                import requests
+                headers = {}
+                if api_key and api_key != 'your_api_key':
+                    headers['Authorization'] = f'Bearer {api_key}'
+                resp = requests.get(endpoint, headers=headers, timeout=3, verify=False)
+                if resp.status_code == 200:
+                    data = resp.json().get('data', []) or []
+                    for entry in data:
+                        if entry.get('id') != model:
+                            continue
+                        # vLLM returns the deployed cap as `max_model_len`.
+                        # Some proxies use `context_length` / `max_tokens`.
+                        for key in ('max_model_len', 'context_length', 'max_tokens', 'n_ctx'):
+                            val = entry.get(key)
+                            if val:
+                                length = int(val)
+                                if length > 0:
+                                    logger.info(
+                                        f"[LightragServer] LLM max_model_len from {endpoint}: "
+                                        f"model={model} len={length} (key={key})"
+                                    )
+                                    return length
+                    logger.debug(
+                        f"[LightragServer] /models OK but model '{model}' not found in response"
+                    )
+                else:
+                    logger.debug(
+                        f"[LightragServer] /models returned HTTP {resp.status_code}"
+                    )
+            except Exception as e:
+                logger.debug(f"[LightragServer] /models query failed: {e}")
+
+        # ---- 2. Fallback: ryoais_models.json (cached snapshot from earlier fetch) ----
+        try:
+            from gui.ryoais_utils import load_ryoais_models
+            snapshot = load_ryoais_models(model_type='llm') or {}
+            for entry in snapshot.get('models', []) or []:
+                if entry.get('id') == model or entry.get('name') == model:
+                    val = entry.get('context_length')
+                    if val and int(val) > 0:
+                        length = int(val)
+                        logger.warning(
+                            f"[LightragServer] LLM context_length from ryoais_models.json "
+                            f"(may exceed deployed cap): model={model} len={length}"
+                        )
+                        return length
+        except Exception as e:
+            logger.debug(f"[LightragServer] ryoais_models.json lookup failed: {e}")
+
+        return None
+
+    def _apply_llm_token_limits(self, env: dict) -> None:
+        """Set MAX_TOTAL_TOKENS and OPENAI_LLM_MAX_COMPLETION_TOKENS from the
+        model's deployed context window. Never raises."""
+        try:
+            max_model_len = self._resolve_llm_max_model_len(env)
+            if not max_model_len:
+                # Fall back to the .env value already in env (loaded in step 2),
+                # or the static default if absent. We derive both knobs from
+                # the same source so the pair stays consistent even when
+                # neither deployment nor JSON snapshot was reachable.
+                total = self._coerce_int(env.get('MAX_TOTAL_TOKENS')) or self._LLM_TOKEN_FALLBACK
+                env['MAX_TOTAL_TOKENS'] = str(total)
+                derived_output = max(512, total - 2000)
+                if not self._coerce_int(env.get('OPENAI_LLM_MAX_COMPLETION_TOKENS')):
+                    env['OPENAI_LLM_MAX_COMPLETION_TOKENS'] = str(derived_output)
+                if 'MAX_TOTAL_TOKENS' not in env or not str(env['MAX_TOTAL_TOKENS']).strip():
+                    logger.info(
+                        f"[LightragServer] LLM max_model_len unknown, "
+                        f"using fallback MAX_TOTAL_TOKENS={env['MAX_TOTAL_TOKENS']} "
+                        f"OPENAI_LLM_MAX_COMPLETION_TOKENS={env['OPENAI_LLM_MAX_COMPLETION_TOKENS']}"
+                    )
+                return
+
+            # Reserve 2000 tokens for the prompt / system message / retrieval
+            # context; the rest is budget for the model output. Floor at 512
+            # so small models (max_model_len <= 2500) still get usable output.
+            previous_total = env.get('MAX_TOTAL_TOKENS')
+            previous_output = env.get('OPENAI_LLM_MAX_COMPLETION_TOKENS')
+            env['MAX_TOTAL_TOKENS'] = str(max_model_len)
+            env['OPENAI_LLM_MAX_COMPLETION_TOKENS'] = str(max(512, max_model_len - 2000))
+            logger.info(
+                f"[LightragServer] LLM token limits derived from deployment: "
+                f"max_model_len={max_model_len} "
+                f"MAX_TOTAL_TOKENS={previous_total}->{env['MAX_TOTAL_TOKENS']} "
+                f"OPENAI_LLM_MAX_COMPLETION_TOKENS={previous_output}->{env['OPENAI_LLM_MAX_COMPLETION_TOKENS']}"
+            )
+        except Exception as e:
+            logger.warning(f"[LightragServer] _apply_llm_token_limits failed: {e}")
+
+    # Minimum token limits to ensure chunks are not completely discarded
+    # These are industry-standard minimums for RAG systems
+    _MIN_ENTITY_TOKENS = 1500   # Minimum for entity context (covers ~5-10 entities)
+    _MIN_RELATION_TOKENS = 2000 # Minimum for relation context (covers ~10-20 relations)
+    _MIN_CHUNK_BUDGET = 500     # Minimum tokens reserved for chunks
+
+    def _apply_retrieval_token_limits(self, env: dict) -> None:
+        """Ensure retrieval token limits (entity/relation) have sane minimums.
+
+        This prevents the common misconfiguration where entity/relation tokens
+        are set too high, causing chunks to be completely discarded.
+
+        Industry standard:
+        - MAX_ENTITY_TOKENS: typically 1500-4000 (covers 5-20 entities)
+        - MAX_RELATION_TOKENS: typically 2000-6000 (covers 10-30 relations)
+        - Chunk budget should be at least 500 tokens for meaningful context
+        """
+        try:
+            max_total = self._coerce_int(env.get('MAX_TOTAL_TOKENS')) or 8192
+
+            # Apply minimums only if user set them too low
+            entity_tokens = self._coerce_int(env.get('MAX_ENTITY_TOKENS'))
+            relation_tokens = self._coerce_int(env.get('MAX_RELATION_TOKENS'))
+
+            changes = []
+
+            if entity_tokens is not None and entity_tokens < self._MIN_ENTITY_TOKENS:
+                changes.append(f"MAX_ENTITY_TOKENS: {entity_tokens} -> {self._MIN_ENTITY_TOKENS}")
+                env['MAX_ENTITY_TOKENS'] = str(self._MIN_ENTITY_TOKENS)
+
+            if relation_tokens is not None and relation_tokens < self._MIN_RELATION_TOKENS:
+                changes.append(f"MAX_RELATION_TOKENS: {relation_tokens} -> {self._MIN_RELATION_TOKENS}")
+                env['MAX_RELATION_TOKENS'] = str(self._MIN_RELATION_TOKENS)
+
+            # Calculate chunk budget and warn if it's too small
+            entity_limit = self._coerce_int(env.get('MAX_ENTITY_TOKENS')) or self._MIN_ENTITY_TOKENS
+            relation_limit = self._coerce_int(env.get('MAX_RELATION_TOKENS')) or self._MIN_RELATION_TOKENS
+            chunk_budget = max_total - entity_limit - relation_limit
+
+            if chunk_budget < self._MIN_CHUNK_BUDGET:
+                changes.append(
+                    f"Chunk budget warning: only {chunk_budget} tokens "
+                    f"(MIN={self._MIN_CHUNK_BUDGET}). Consider increasing MAX_TOTAL_TOKENS "
+                    f"or reducing MAX_ENTITY_TOKENS/MAX_RELATION_TOKENS."
+                )
+                logger.warning(
+                    f"[LightragServer] Retrieval token limits may discard chunks: "
+                    f"MAX_TOTAL={max_total}, ENTITY={entity_limit}, "
+                    f"RELATION={relation_limit}, CHUNK_BUDGET={chunk_budget}"
+                )
+
+            if changes:
+                logger.warning(
+                    f"[LightragServer] Retrieval token limits adjusted: " + "; ".join(changes)
+                )
+        except Exception as e:
+            logger.debug(f"[LightragServer] _apply_retrieval_token_limits failed: {e}")
+
+    @staticmethod
+    def _coerce_int(value) -> Optional[int]:
+        """Return int(value) if value parses as a positive integer, else None."""
+        if value is None:
+            return None
+        try:
+            n = int(str(value).strip())
+            return n if n > 0 else None
+        except (ValueError, TypeError):
+            return None
 
     def _ensure_utf8_locale(self, env):
         target_locale = 'en_US.UTF-8'

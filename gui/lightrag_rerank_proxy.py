@@ -15,6 +15,7 @@ Architecture:
 
 import asyncio
 import json
+import os
 from typing import List, Dict, Any, Optional
 import httpx
 import numpy as np
@@ -54,7 +55,7 @@ class LightRAGRerankProxy:
                 self._rerank_manager = main_window.config_manager.rerank_manager
         return self._rerank_manager
     
-    async def _verify_model_exists(self, provider_type: str, base_url: str, model: str) -> bool:
+    async def _verify_model_exists(self, provider_type: str, base_url: str, model: str, api_key: str = '') -> bool:
         """
         Verify if model exists by calling provider's model list API.
         
@@ -62,14 +63,19 @@ class LightRAGRerankProxy:
             provider_type: Provider type (ollama, ryoais, etc.)
             base_url: Provider base URL
             model: Model name to verify
+            api_key: API key for the provider
             
         Returns:
             True if model exists or verification succeeded, False otherwise
         """
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            headers = {}
+            if api_key and api_key != 'your_api_key':
+                headers['Authorization'] = f'Bearer {api_key}'
+
+            async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
                 if provider_type == 'ollama':
-                    # Ollama: GET /api/tags
+                    # Ollama: GET /api/tags (no auth needed, localhost)
                     response = await client.get(f"{base_url}/api/tags")
                     if response.status_code == 200:
                         data = response.json()
@@ -91,7 +97,7 @@ class LightRAGRerankProxy:
                 elif provider_type == 'ryoais':
                     # RyoAIS: GET /v1/models (OpenAI-compatible)
                     # Add model_type parameter to filter rerank models
-                    response = await client.get(f"{base_url}/models", params={"model_type": "rerank"})
+                    response = await client.get(f"{base_url}/models", params={"model_type": "rerank"}, headers=headers)
                     if response.status_code == 200:
                         data = response.json()
                         models = data.get('data', [])
@@ -261,6 +267,21 @@ class LightRAGRerankProxy:
             base_url = provider_config.get('base_url', '')
             provider_type = provider_config.get('provider', '').lower()
 
+            # API key can come from two places (in priority order):
+            # 1. RERANK_BINDING_API_KEY env var — set by lightrag_config_manager at startup
+            #    (same source LightRAG uses, so it always has the current value)
+            # 2. secure_store fallback — read via api_key_env_vars if env var is absent
+            api_key = os.environ.get('RERANK_BINDING_API_KEY', '')
+            if not api_key:
+                for env_var in (provider_config.get('api_key_env_vars') or []):
+                    if env_var:
+                        key = rerank_manager.retrieve_api_key(env_var)
+                        if key and key.strip():
+                            api_key = key.strip()
+                            logger.debug(f"[Rerank Proxy] API key for {provider_type} loaded from secure_store ({env_var})")
+                            break
+            logger.debug(f"[Rerank Proxy] API key for {provider_type}: {'found' if api_key else 'NOT FOUND'}")
+
             if not base_url:
                 return JSONResponse({"error": f"Provider '{original_binding}' has no base_url configured"}, status_code=400)
 
@@ -323,7 +344,7 @@ class LightRAGRerankProxy:
             # Verify model exists by calling provider's model list API if needed
             # Note: Some providers' /models API may only return embedding models, not rerank models
             if provider_type in ['ryoais', 'ollama']:
-                model_verified = await self._verify_model_exists(provider_type, base_url, model)
+                model_verified = await self._verify_model_exists(provider_type, base_url, model, api_key)
                 if not model_verified:
                     logger.debug(f"[Rerank Proxy] Model '{model}' not found in provider's model list, but proceeding (may be rerank-specific)")
             
@@ -337,13 +358,37 @@ class LightRAGRerankProxy:
             if provider_type == 'ollama':
                 results = await self._rerank_ollama(base_url, model, query, documents)
             elif provider_type == 'ryoais':
-                results = await self._rerank_ryoais(base_url, model, query, documents)
+                results = await self._rerank_ryoais(base_url, model, query, documents, api_key)
             else:
                 # Default to OpenAI-compatible format for other providers
-                results = await self._rerank_openai_compatible(base_url, model, query, documents)
+                results = await self._rerank_openai_compatible(base_url, model, query, documents, api_key)
             
             # Sort by relevance score (descending)
             results.sort(key=lambda x: x["relevance_score"], reverse=True)
+            
+            # Apply minimum score threshold filter to remove irrelevant documents
+            # RERANK_MIN_SCORE threshold: below this score, document is considered irrelevant
+            from knowledge.lightrag_config_manager import get_config_manager
+            config = get_config_manager().get_effective_config()
+            rerank_min_score = float(config.get('RERANK_MIN_SCORE', 0.35))
+            
+            original_count = len(results)
+            results = [r for r in results if r.get("relevance_score", 0) >= rerank_min_score]
+            
+            if len(results) < original_count:
+                logger.info(f"[Rerank Proxy] Filtered {original_count - len(results)} results below RERANK_MIN_SCORE={rerank_min_score}")
+            
+            # Ensure at least 1 result if we have any documents (avoid empty results)
+            if not results and original_count > 0:
+                # Restore top result if all were filtered out
+                logger.warning(f"[Rerank Proxy] All results filtered out, restoring top 1 result")
+                # Re-sort and get top 1 (sort already done above, so first element is highest)
+                all_results_sorted = sorted(
+                    [{"index": idx, "relevance_score": 1.0, "document": doc} for idx, doc in enumerate(documents)],
+                    key=lambda x: x["relevance_score"],
+                    reverse=True
+                )
+                results = [all_results_sorted[0]] if all_results_sorted else []
             
             # Apply top_n filter
             if top_n is not None and top_n > 0:
@@ -385,7 +430,7 @@ class LightRAGRerankProxy:
         logger.info(f"[Rerank Proxy] 🎯 Target Service URL: {embed_url}")
         logger.info(f"[Rerank Proxy] 📦 Payload: model={model}, query_len={len(query)}, docs={len(documents)}")
         
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
             async def get_rerank_score(idx: int, doc: str) -> Optional[Dict[str, Any]]:
                 """
                 Get rerank score for a single document.
@@ -479,7 +524,8 @@ class LightRAGRerankProxy:
         base_url: str,
         model: str,
         query: str,
-        documents: List[str]
+        documents: List[str],
+        api_key: str = ''
     ) -> List[Dict[str, Any]]:
         """
         Rerank using RyoAIS OpenAI-compatible rerank API.
@@ -517,7 +563,7 @@ class LightRAGRerankProxy:
         logger.info(f"[Rerank Proxy] 🎯 Target Service URL: {rerank_url}")
         logger.info(f"[Rerank Proxy] 📦 Payload: model={model}, query_len={len(query)}, docs={len(documents)}")
         
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
             try:
                 # Smart document reduction to avoid context size limits
                 # Jina Reranker v3 has 1024 token limit (~4096 chars total)
@@ -563,8 +609,12 @@ class LightRAGRerankProxy:
                 }
                 
                 logger.debug(f"[Rerank Proxy] Sending {len(final_documents)} documents to rerank (query: {len(query)} chars)")
-                
-                response = await client.post(rerank_url, json=payload)
+
+                headers = {}
+                if api_key and api_key != 'your_api_key':
+                    headers['Authorization'] = f'Bearer {api_key}'
+
+                response = await client.post(rerank_url, json=payload, headers=headers)
                 
                 if response.status_code != 200:
                     error_text = response.text
@@ -673,7 +723,8 @@ class LightRAGRerankProxy:
         base_url: str,
         model: str,
         query: str,
-        documents: List[str]
+        documents: List[str],
+        api_key: str = ''
     ) -> List[Dict[str, Any]]:
         """
         Rerank using generic OpenAI-compatible rerank API.
@@ -690,7 +741,7 @@ class LightRAGRerankProxy:
         logger.info(f"[Rerank Proxy] 🎯 Target Service URL: {rerank_url}")
         logger.info(f"[Rerank Proxy] 📦 Payload: model={model}, query_len={len(query)}, docs={len(documents)}")
         
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
             try:
                 payload = {
                     "model": model,
@@ -698,8 +749,12 @@ class LightRAGRerankProxy:
                     "documents": documents,
                     "return_documents": True
                 }
-                
-                response = await client.post(rerank_url, json=payload)
+
+                headers = {}
+                if api_key and api_key != 'your_api_key':
+                    headers['Authorization'] = f'Bearer {api_key}'
+
+                response = await client.post(rerank_url, json=payload, headers=headers)
                 
                 if response.status_code != 200:
                     logger.error(f"[Rerank Proxy] OpenAI-compatible API error {response.status_code}: {response.text}")

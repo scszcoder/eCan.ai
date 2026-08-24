@@ -2622,8 +2622,9 @@
           "authAccounts": "基础认证账户 (user:pass,user:pass)",
           "apiKey": "LightRAG访问密钥",
           "enableLlmCache": "启用LLM响应缓存",
-          "topK": "返回的顶部结果数",
-          "chunkTopK": "使用的顶部块数",
+          "cosineThreshold": "向量相似度阈值（行业推荐：0.3-0.5）",
+          "topK": "知识图谱检索返回的顶部实体/关系数（行业推荐：10-20）",
+          "chunkTopK": "向量检索返回的顶部块数（行业推荐：20-50）",
           "maxEntityTokens": "实体的最大Token数",
           "maxRelationTokens": "关系的最大Token数",
           "maxTotalTokens": "响应的最大总Token数",
@@ -2640,7 +2641,7 @@
           "workspace": "工作空间名称",
           "rerankBinding": "重排序提供商",
           "rerankByDefault": "默认对所有查询启用重排序",
-          "minRerankScore": "重排序的最低分数",
+          "minRerankScore": "重排序的最低分数（行业推荐：0.3）",
           "llmBinding": "LLM提供商",
           "llmTimeout": "LLM请求超时（秒）",
           "geminiThinking": "Gemini思考过程配置",
@@ -3288,7 +3289,7 @@
     "tooltips": {
       "rerankBinding": "选择要使用的重排序提供商",
       "rerankByDefault": "是否默认对所有查询启用重排序",
-      "minRerankScore": "重排序结果的最低分数阈值 (0.0-1.0)"
+      "minRerankScore": "重排序结果的最低分数阈值（行业推荐：0.3）"
     }
   },
   "fields": {
