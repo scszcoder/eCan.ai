@@ -1,11 +1,31 @@
 """
-Custom utils patches for LightRAG
+Custom utils patches for LightRAG 1.5+
 
-This module provides patched versions of LightRAG utils functions
-to add score fields to references for confidence scoring.
+Two product behaviors that upstream LightRAG does not provide:
+
+1. Filename deduplication — fixes parser artifacts like
+   "产品产品说明书说明书.docx.docx" → "产品说明书.docx" before the
+   reference list collapses duplicates. Downstream consumer:
+   ``ConfidenceScorer._filter_references`` keys on ``seen_paths``
+   of the file_path string, so dirty names would survive as separate
+   sources and inflate ``ref_count``.
+
+2. Per-reference score aggregation — collects rerank / score /
+   similarity / (1 - distance) from every chunk and averages them
+   onto each ``ref_item["score"]``. Downstream consumer:
+   ``ConfidenceScorer._get_retrieval_signal`` Priority 2 fallback.
+   This is the only retrieval signal in deployments without a rerank
+   model, and feeds ``_make_decision``'s ``low_retrieval`` gate
+   (``retrieval_score < 0.18 → reject``).
+
+Patches both ``lightrag.utils.generate_reference_list_from_chunks``
+and ``lightrag.operate.generate_reference_list_from_chunks``: the
+latter is a separately-imported binding (see upstream
+``lightrag/operate.py:18`` ``from lightrag.utils import ...``)
+that does NOT pick up later reassignment on the source module.
 
 Author: eCan.ai Team
-Date: 2025-12-20
+Last reviewed against: LightRAG v1.5.6
 """
 
 from lightrag.utils import logger
@@ -117,11 +137,16 @@ def generate_reference_list_from_chunks_with_scores(chunks: list[dict]) -> tuple
     
     logger.info(f"[utils_custom] Processing {len(chunks)} chunks: {chunks_with_scores} have score data")
     
-    # Debug: Show first chunk structure to diagnose missing scores
+    # Debug: Show first chunk structure to diagnose missing scores.
+    # Demoted from warning to info: in pure-embedding deployments without
+    # a rerank model, ``chunks_with_scores == 0`` is the expected state.
+    # The full confidence gate handles it; this log is a one-shot breadcrumb
+    # so an operator can see what fields are present on a chunk in their
+    # deployment without having to instrument the codebase.
     if chunks and chunks_with_scores == 0:
         first_chunk_keys = list(chunks[0].keys()) if chunks[0] else []
-        logger.warning(f"[utils_custom] First chunk has keys: {first_chunk_keys}")
-        logger.warning(f"[utils_custom] First chunk sample: {str(chunks[0])[:200]}...")
+        logger.info(f"[utils_custom] No scores found in any chunk. First chunk has keys: {first_chunk_keys}")
+        logger.info(f"[utils_custom] First chunk sample: {str(chunks[0])[:200]}...")
 
     # 2. Sort file paths by frequency (descending), then by first appearance order
     file_path_with_indices = []
@@ -164,7 +189,12 @@ def generate_reference_list_from_chunks_with_scores(chunks: list[dict]) -> tuple
             refs_with_scores += 1
             logger.info(f"[utils_custom] Reference [{i+1}] '{file_path}' has score: {ref_item['score']:.4f} (from {len(scores)} chunks)")
         else:
-            logger.warning(f"[utils_custom] Reference [{i+1}] '{file_path}' has NO score data")
+            # Demoted from warning to debug: lack of score is the
+            # expected state in pure-embedding deployments without a
+            # rerank model. The confidence scorer handles `None`
+            # gracefully (Priority 2 simply yields no signal and
+            # scoring falls back to completeness + quality weights).
+            logger.debug(f"[utils_custom] Reference [{i+1}] '{file_path}' has no score data (expected when no rerank model)")
         reference_list.append(ref_item)
 
     logger.info(f"[utils_custom] Generated {len(reference_list)} references ({refs_with_scores} with scores) from {len(chunks)} chunks")
