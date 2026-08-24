@@ -1149,7 +1149,7 @@ jobs:
           # HTTPS uses .NET Process with 30 s wall-clock timeout.
           Write-Host "[DEBUG] Running ls-remote (useSsh=$useSsh)..."
           if ($useSsh) {
-            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
             $lsExit = $LASTEXITCODE
             $lsRaw  = $out
             Write-Host "[DEBUG] ls-remote exit=$lsExit, output_count=$($out.Count)"
@@ -2145,7 +2145,7 @@ jobs:
           # HTTPS uses .NET Process with 30 s wall-clock timeout.
           Write-Host "[DEBUG] Running ls-remote (useSsh=$useSsh)..."
           if ($useSsh) {
-            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
             $lsExit = $LASTEXITCODE
             $lsRaw  = $out
             Write-Host "[DEBUG] ls-remote exit=$lsExit, output_count=$($out.Count)"
@@ -2934,7 +2934,7 @@ jobs:
           # HTTPS uses .NET Process with 30 s wall-clock timeout.
           Write-Host "[DEBUG] Running ls-remote (useSsh=$useSsh)..."
           if ($useSsh) {
-            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
             $lsExit = $LASTEXITCODE
             $lsRaw  = $out
             Write-Host "[DEBUG] ls-remote exit=$lsExit, output_count=$($out.Count)"
@@ -3713,7 +3713,7 @@ jobs:
           # HTTPS uses .NET Process with 30 s wall-clock timeout.
           Write-Host "[DEBUG] Running ls-remote (useSsh=$useSsh)..."
           if ($useSsh) {
-            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef" 2>&1
+            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
             $lsExit = $LASTEXITCODE
             $lsRaw  = $out
             Write-Host "[DEBUG] ls-remote exit=$lsExit, output_count=$($out.Count)"
