@@ -420,7 +420,7 @@ class AuthManager:
                 # ``openid:AABE7F974D8D3866BD2923A07B62324A9D5CB06D9``.  We
                 # extract it into the profile so callers can use it as a
                 # *real* per-user identifier.  Without this every WeChat
-                # login collapses onto the fallback ``wechat_user@wechat.local``
+                # login collapses onto the fallback ``wechat_user@local``
                 # string, which causes the keyring entry for the previous
                 # WeChat user to be silently overwritten by the next login.
                 openid_claim = claims.get("openid") or ""
@@ -888,14 +888,14 @@ class AuthManager:
                         fetched_claim, cn_profile = None, {}
                     openid_claim = cn_profile.get("openid") if isinstance(cn_profile, dict) else None
                     if openid_claim:
-                        self.current_user = f"wechat_{openid_claim}@wechat.local"
+                        self.current_user = f"wechat_{openid_claim}@local"
                     elif fetched_claim:
                         self.current_user = fetched_claim
             elif self._is_cn:
                 self.user_profile, fetched = self._cn_fetch_user_profile(access_token)
                 openid_claim = (self.user_profile or {}).get("openid") or ""
                 if openid_claim:
-                    self.current_user = f"wechat_{openid_claim}@wechat.local"
+                    self.current_user = f"wechat_{openid_claim}@local"
                 elif fetched:
                     self.current_user = fetched
                 # else: keep user_identifier as a last-resort fallback
@@ -1321,7 +1321,7 @@ class AuthManager:
                 # the access_token JWT (``_cn_fetch_user_profile`` populates
                 # ``user_profile["openid"]``).  Without the openid fallback
                 # every WeChat login would collapse onto the synthetic
-                # ``wechat_user@wechat.local`` string, silently overwriting
+                # ``wechat_user@local`` string, silently overwriting
                 # the previous user's keyring / data-dir entries on the
                 # next login.  See runlog 2026-08-14 19:02 — that bug caused
                 # ``try_restore_cloudbase_session`` to lose refresh tokens
@@ -1331,8 +1331,8 @@ class AuthManager:
                     fetched
                     or (self.user_profile.get("email") if self.user_profile else "")
                     or (self.user_profile.get("phone") if self.user_profile else "")
-                    or (f"wechat_{openid}@wechat.local" if openid else "")
-                    or "wechat_user@wechat.local"
+                    or (f"wechat_{openid}@local" if openid else "")
+                    or "wechat_user@local"
                 )
                 self.current_user = ident
                 if self.current_user:
@@ -1341,7 +1341,7 @@ class AuthManager:
                     # ``get_saved_login_info`` returns ``login_type=None``
                     # and the frontend treats this as a password login,
                     # auto-filling the synthetic WeChat identifier
-                    # (``wechat_xxx@wechat.local``) into the email field
+                    # (``wechat_xxx@local``) into the email field
                     # on the login page. See CLAUDE.md §6 ("Backend-side
                     # fixes for backend-side errors") and the
                     # ``google_login()`` parallel below for the rationale.
@@ -1518,12 +1518,12 @@ class AuthManager:
         ``uli.json`` 的 ``user`` 字段对所有登录方式都填入了"标识符":
           * email 登录 → ``user@example.com`` (可作为 username 填充到表单)
           * 手机号登录 → ``13800138000`` (不是邮箱,绝对不能填到 email 字段)
-          * 微信登录 → ``wechat_xxx@wechat.local`` (不是邮箱)
+          * 微信登录 → ``wechat_xxx@local`` (不是邮箱)
           * Google 登录 → ``user@gmail.com`` (实际是 email,但因不带 password,
             也不应该自动填充)
 
         如果无脑把 ``user`` 字段回填到登录表单的 ``username`` 字段,会导致
-        邮箱输入框显示 "wechat_xxx@wechat.local" 或 "13800138000" —
+        邮箱输入框显示 "wechat_xxx@local" 或 "13800138000" —
         既不是用户预期的邮箱,也触发浏览器/React keyring 的 autofill
         干扰下次输入。
 
@@ -2612,7 +2612,7 @@ class AuthManager:
         2. ``self.current_user`` starts with ``wechat_`` (the convention
            set by ``complete_login_from_provider`` / ``wechat_login``
            after a WeChat OAuth callback). Both the canonical
-           ``wechat_<openid>@wechat.local`` form and the shorter caller-
+           ``wechat_<openid>@local`` form and the shorter caller-
            supplied ``wechat_<openid>`` form are accepted — safe because
            Intl usernames are email-shaped and never start with
            ``wechat_``.

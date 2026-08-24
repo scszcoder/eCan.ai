@@ -5,7 +5,7 @@ Bug: "微信/手机号登录成功后再次进入登录页，邮箱输入框被�
 wechat id / 手机号" — caused by:
 
 1. uli.json's "user" field stored a synthetic identifier (e.g.
-   "wechat_xxx@wechat.local" or "13800138000") for non-password logins,
+   "wechat_xxx@local" or "13800138000") for non-password logins,
    and get_saved_login_info blindly returned this as the "username"
    field in the IPC response.  The frontend rendered it in the email field.
 
@@ -99,7 +99,7 @@ class TestGetSavedLoginInfoGating:
 
         acct = tmp_path / "uli.json"
         am = _make_manager(
-            acct, {"user": "wechat_abc123@wechat.local", "machine_role": "Commander", "login_type": "wechat"}
+            acct, {"user": "wechat_abc123@local", "machine_role": "Commander", "login_type": "wechat"}
         )
 
         with patch.object(am, "_get_credentials") as mock_creds:
@@ -110,7 +110,7 @@ class TestGetSavedLoginInfoGating:
         assert result["username"] == ""
         assert result["password"] == ""
         assert result["login_type"] == "wechat"
-        assert result["last_identifier"] == "wechat_abc123@wechat.local"
+        assert result["last_identifier"] == "wechat_abc123@local"
 
     def test_phone_login_returns_empty_credentials(self, tmp_path: Path):
         """When login_type==phone, username/password are blank."""
@@ -178,14 +178,14 @@ class TestUpdateSavedLoginInfoPersistsLoginType:
 
         with patch.object(am, "_store_credentials", return_value=True):
             result = am._update_saved_login_info(
-                username="wechat_abc@wechat.local", password="", role="Commander", login_type="wechat"
+                username="wechat_abc@local", password="", role="Commander", login_type="wechat"
             )
 
         assert result is True
         with open(acct, encoding="utf-8") as f:
             data = json.load(f)
         assert data["login_type"] == "wechat"
-        assert data["user"] == "wechat_abc@wechat.local"
+        assert data["user"] == "wechat_abc@local"
 
     def test_saves_login_type_google(self, tmp_path: Path):
         from auth.auth_manager import AuthManager
@@ -250,19 +250,19 @@ class TestCompleteLoginFromProviderPassesLoginType:
         with patch.object(am, "_update_saved_login_info") as mock_save, patch.object(
             am,
             "_cn_fetch_user_profile",
-            return_value=({"openid": "abc123"}, "wechat_abc@wechat.local"),
+            return_value=({"openid": "abc123"}, "wechat_abc@local"),
         ):
             am.complete_login_from_provider(
                 access_token="fake_access_token",
                 refresh_token=None,
-                user_identifier="wechat_abc@wechat.local",
-                user_profile={"login_type": "wechat", "username": "wechat_abc@wechat.local"},
+                user_identifier="wechat_abc@local",
+                user_profile={"login_type": "wechat", "username": "wechat_abc@local"},
             )
 
         mock_save.assert_called_once()
         _, kwargs = mock_save.call_args
         assert kwargs["login_type"] == "wechat"
-        assert kwargs["username"] == "wechat_abc@wechat.local"
+        assert kwargs["username"] == "wechat_abc@local"
         assert kwargs["password"] == ""
 
     def test_phone_login_type_written_via_user_profile(self, tmp_path: Path):
@@ -321,10 +321,10 @@ class TestLoginTypeGatingWriteThrough:
         acct = tmp_path / "uli.json"
 
         # Step 1: write as complete_login_from_provider would
-        am1 = _make_manager(acct, {"user": "wechat_wx_abc@wechat.local", "machine_role": "Commander"})
+        am1 = _make_manager(acct, {"user": "wechat_wx_abc@local", "machine_role": "Commander"})
         with patch.object(am1, "_store_credentials", return_value=True):
             am1._update_saved_login_info(
-                username="wechat_wx_abc@wechat.local",
+                username="wechat_wx_abc@local",
                 password="",
                 role="Commander",
                 login_type="wechat",
@@ -333,11 +333,11 @@ class TestLoginTypeGatingWriteThrough:
         # Verify file on disk
         with open(acct, encoding="utf-8") as f:
             saved = json.load(f)
-        assert saved["user"] == "wechat_wx_abc@wechat.local"
+        assert saved["user"] == "wechat_wx_abc@local"
         assert saved["login_type"] == "wechat"
 
         # Step 2: read back as get_saved_login_info would on next launch
-        am2 = _make_manager(acct, {"user": "wechat_wx_abc@wechat.local", "machine_role": "Commander", "login_type": "wechat"})
+        am2 = _make_manager(acct, {"user": "wechat_wx_abc@local", "machine_role": "Commander", "login_type": "wechat"})
         with patch.object(am2, "_get_credentials") as mock_creds:
             result = am2.get_saved_login_info()
 
@@ -345,7 +345,7 @@ class TestLoginTypeGatingWriteThrough:
         assert result["username"] == ""
         assert result["password"] == ""
         assert result["login_type"] == "wechat"
-        assert result["last_identifier"] == "wechat_wx_abc@wechat.local"
+        assert result["last_identifier"] == "wechat_wx_abc@local"
         mock_creds.assert_not_called()
 
     def test_phone_write_then_read_hides_phone_number(self, tmp_path: Path):
