@@ -510,6 +510,12 @@ class WorkerMessage:
     sender_id: str
     skill_name: str
     prompt: str = ""
+    # SHARED_SKILL_MULTI_TASK_PLAN: per-task variables / browser identity for
+    # shared skills (same shapes as the local task.metadata keys). Optional —
+    # populated when the launch envelope or the fetched task record carries
+    # them; applied to the run state by _run_skill_once.
+    task_vars: Optional[Dict[str, Any]] = None
+    browser_identity: Optional[Dict[str, Any]] = None
 
 
 def _looks_like_auth_error(result: Any) -> bool:
@@ -549,7 +555,14 @@ def _parse_worker_message(raw: Any) -> WorkerMessage:
     if missing:
         raise ValueError(f"worker message missing required fields: {', '.join(missing)}")
 
-    return WorkerMessage(user_email=user_email, chat_id=chat_id, sender_id=sender_id, skill_name=skill_name, prompt=prompt)
+    task_vars = raw.get("task_vars") or raw.get("taskVars")
+    browser_identity = raw.get("browser_identity") or raw.get("browserIdentity")
+    return WorkerMessage(
+        user_email=user_email, chat_id=chat_id, sender_id=sender_id,
+        skill_name=skill_name, prompt=prompt,
+        task_vars=task_vars if isinstance(task_vars, dict) else None,
+        browser_identity=browser_identity if isinstance(browser_identity, dict) else None,
+    )
 
 
 async def _publish_event(
@@ -743,18 +756,30 @@ def _run_skill_once(*, msg: WorkerMessage, skill_root: Path) -> Dict[str, Any]:
         },
     }
 
-    # Create task with required a2a.types.Task fields
+    # Create task with required a2a.types.Task fields. task_vars /
+    # browser_identity from the worker message land in task.metadata so
+    # apply_task_vars can seed them into the run state (shared-skill
+    # per-task variables — SHARED_SKILL_MULTI_TASK_PLAN).
+    task_metadata: Dict[str, Any] = {}
+    if isinstance(msg.task_vars, dict) and msg.task_vars:
+        task_metadata["task_vars"] = dict(msg.task_vars)
+    if isinstance(msg.browser_identity, dict) and msg.browser_identity:
+        task_metadata["browser_identity"] = dict(msg.browser_identity)
+
     task = ManagedTask(
         run_id=msg.chat_id,
         name=skill.name or msg.skill_name,
         description="cloud_worker_run",
         skill=skill,
-        metadata={},
+        metadata=task_metadata,
         contextId=msg.chat_id,  # Required by a2a.types.Task
         status=TaskStatus(state=TaskState.submitted),  # Required by a2a.types.Task
     )
 
     state = prep_skills_run(skill, agent, task.id, in_msg, None)
+    if task_metadata:
+        from agent.ec_skills.prep_skills_run import apply_task_vars
+        apply_task_vars(task, state)
     if isinstance(state, dict):
         attrs = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
         attrs["chat_id"] = msg.chat_id

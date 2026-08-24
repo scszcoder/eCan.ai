@@ -8760,6 +8760,23 @@ class TaskRunner(Generic[Context]):
                 "client_id": client_id,
             }
 
+            # SHARED_SKILL_MULTI_TASK_PLAN: the companion inherits the parent
+            # task's carried variables and browser identity so the local
+            # helper's prompts/browser match the hybrid task's configuration
+            # (apply_task_vars reads these from task.metadata at run start).
+            companion_metadata: dict = {"state": companion_state}
+            try:
+                parent_md = parent_task.metadata if isinstance(parent_task.metadata, dict) else {}
+                for carried_key in ("task_vars", "browser_identity"):
+                    if isinstance(parent_md.get(carried_key), dict) and parent_md[carried_key]:
+                        companion_metadata[carried_key] = dict(parent_md[carried_key])
+                        logger.info(
+                            f"[HybridCloud] Companion task inherits {carried_key} "
+                            f"keys: {sorted(parent_md[carried_key].keys())}"
+                        )
+            except Exception as _inherit_err:
+                logger.warning(f"[HybridCloud] Failed to inherit task metadata: {_inherit_err}")
+
             from a2a.types import TaskState, TaskStatus as A2ATaskStatus
 
             new_task = ManagedTask(
@@ -8772,7 +8789,7 @@ class TaskRunner(Generic[Context]):
                 status=A2ATaskStatus(state=TaskState.submitted),
                 sessionId="",
                 skill=companion_skill,
-                metadata={"state": companion_state},
+                metadata=companion_metadata,
                 state=companion_state,
                 trigger=["message"],
                 agent_id=getattr(getattr(agent, "card", None), "id", "") or "",

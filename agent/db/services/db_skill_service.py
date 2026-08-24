@@ -114,13 +114,46 @@ class DBSkillService(BaseService):
     # ========== Public CRUD wrappers =================================
     # ---- Skills ----
 
+    @staticmethod
+    def _fold_skill_owner_into_config(data, require_config=False):
+        """Persist the original author (skill_owner) inside the config JSON.
+
+        SHARED_SKILL_MULTI_TASK_PLAN Phase 4 follow-up: DBAgentSkill has no
+        skill_owner column, and the column filter below silently dropped it —
+        so a subscribed/store skill lost its author identity on persist, and
+        prompt resolution fell back to the local row's owner. config IS a
+        column and round-trips, so the author survives there.
+
+        With ``require_config=True`` (partial updates) the fold only happens
+        when the payload already carries a config dict — synthesizing one
+        would overwrite the row's whole config JSON.
+        """
+        try:
+            skill_owner = str(data.get('skill_owner') or '').strip()
+            if not skill_owner:
+                return data
+            config = data.get('config')
+            if not isinstance(config, dict):
+                if require_config:
+                    return data
+                config = {}
+            if config.get('skill_owner') != skill_owner:
+                config = dict(config)
+                config['skill_owner'] = skill_owner
+                data = dict(data)
+                data['config'] = config
+        except Exception:
+            pass
+        return data
+
     def add_skill(self, data):
         """Add a new skill, or update if ID already exists (upsert by ID)
-        
+
         This prevents duplicate skills when the same skill is saved multiple times
         with the same ID (e.g., from cloud sync or multiple save operations).
         """
         try:
+            data = self._fold_skill_owner_into_config(data)
             skill_id = data.get('id')
 
             with self.session_scope() as s:
@@ -204,6 +237,7 @@ class DBSkillService(BaseService):
 
     def update_skill(self, skill_id, fields):
         """Update a skill"""
+        fields = self._fold_skill_owner_into_config(fields, require_config=True)
         return self._update(DBAgentSkill, skill_id, fields)
 
     def update_skill_askid(self, skill_id, askid):

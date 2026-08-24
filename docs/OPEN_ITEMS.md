@@ -165,11 +165,18 @@ _Last updated: 2026-08-23_
   author-prompt wiring gap — `_compile_skill_workflow_from_flow` now
   injects `skill_obj.skill_owner` as the flow owner so store/rented skill
   prompts resolve under the AUTHOR (was resolving under the runner);
-  9 tests (`tests/unit/test_skill_dedupe_phase4.py`). Store follow-ups:
-  download flow must persist skill_owner; live two-account e2e untested.
-  Phases 1-4 complete. Phase 5 (same-process multi-session live-chat:
-  typing lock, runner bridge, WS lane) is explicitly DEFERRED — supported
-  pattern is one process per shop.
+  9 tests (`tests/unit/test_skill_dedupe_phase4.py`).
+  **Follow-ups batch DONE 2026-08-23** (uncommitted): hybrid-cloud/
+  cloud-worker task_vars (companion inheritance + WorkerMessage fields +
+  CN worker extraction); skill_owner now persists via config JSON fold
+  (was silently dropped by add_skill's column filter); gui_v2 task-create
+  Task Variables form from skill need_inputs; vehicle dropdown merges DB
+  rows + gate accepts legacy same-host rows ("local-legacy-row");
+  **Phase 5a** done (typing_lock {session: holder} + session-scoped
+  dispatch-inflight keys, single-shop behavior identical). REMAINING:
+  Phase 5b per-session runner-bridge/WS/CDP plumbing (deferred — one
+  process per shop); live two-account store e2e; AWS-side envelope
+  senders passing task_vars (backend repo).
 
 - **Account top-up / payments** (2026-08-12) — region-detected top-up wired:
   - CN → in-app payment dialog (`gui/payments/payment_dialog.py`, embedded

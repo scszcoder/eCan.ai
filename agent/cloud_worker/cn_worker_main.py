@@ -232,12 +232,26 @@ async def run_single_cn(message_json: str) -> None:
             or msg.options.get("test_inputs")
             or msg.options
         )
+        # Shared-skill per-task variables: the fetched task record's
+        # metadata/settings JSON may carry task_vars / browser_identity —
+        # pass them through so _run_skill_once seeds them into the run
+        # state (SHARED_SKILL_MULTI_TASK_PLAN).
+        task_settings = task.get("metadata") or task.get("settings") or {}
+        if not isinstance(task_settings, dict):
+            task_settings = {}
+        _tv = task_settings.get("task_vars")
+        _bi = task_settings.get("browser_identity")
+        if isinstance(_tv, dict) and _tv:
+            logger.info(f"[cn_worker] run {run_id}: task_vars keys={sorted(_tv.keys())}")
+
         worker_msg = WorkerMessage(
             user_email=msg.owner_id,
             chat_id=run_id,
             sender_id=skill_id or msg.task_id,
             skill_name=skill_name,
             prompt=json.dumps(test_inputs, ensure_ascii=False),
+            task_vars=_tv if isinstance(_tv, dict) else None,
+            browser_identity=_bi if isinstance(_bi, dict) else None,
         )
         result = _run_skill_once(msg=worker_msg, skill_root=skill_root)
         logger.info(f"[cn_worker] run {run_id} completed: {str(result)[:500]}")

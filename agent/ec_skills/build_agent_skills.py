@@ -1020,8 +1020,16 @@ def _fill_skill_from_db_view(skill_obj: EC_Skill, v: DBAgentSkill) -> None:
     skill_obj.local_helper_skill_id = config.get('local_helper_skill_id', None)
     skill_obj.local_helper_machine = config.get('local_helper_machine', None)
 
-    # skill_owner tracks the original author (for prompt resolution on rented skills)
-    skill_obj.skill_owner = v.str('skill_owner', '') or v.str('owner', '')
+    # skill_owner tracks the original author (for prompt resolution on rented
+    # skills). Persisted inside config JSON (no dedicated DB column — see
+    # DBSkillService._fold_skill_owner_into_config); top-level key wins for
+    # file-loaded skills, then config, then the row owner.
+    _cfg_for_owner = skill_obj.config if isinstance(skill_obj.config, dict) else {}
+    skill_obj.skill_owner = (
+        v.str('skill_owner', '')
+        or str(_cfg_for_owner.get('skill_owner') or '')
+        or v.str('owner', '')
+    )
     skill_obj.cloud_id = v.str('cloud_id', '') or ''
 
     # run_mode: developing / released — stored in config or top-level

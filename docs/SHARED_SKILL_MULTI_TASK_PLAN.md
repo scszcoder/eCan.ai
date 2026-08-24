@@ -266,20 +266,65 @@ flow must persist the author into the local row's `skill_owner`
 (skill_handler already round-trips the field), and a live two-account
 end-to-end run of a purchased skill.
 
-### Phase 5 — DEFERRED: same-process multi-session live-chat (B8)
+### Phase 5 — same-process multi-session live-chat (B8)
 
-Only needed if N same-site browser sessions must share one app process.
-Until then the supported pattern is **one process (host) per shop**
-(Phase 1.5 makes this operational).
+**Phase 5a (state keying) ✅ 2026-08-23** — behavior-preserving groundwork;
+single-shop processes are bit-identical (all callers use the default
+session key):
 
-- `typing_lock` → `{session_key: holder}` (its docstring already
-  anticipates this migration).
-- `_dispatch_inflight` and dispatch identity keys gain a shop/session
-  component.
-- Runner-bridge capabilities (direct-delivery worker, typing semaphores,
-  dedicated CDP loop, WS reader) become per-session or pooled — this is
-  performance-sensitive territory (see FEIGE_COLDSTART_POSTMORTEM,
-  PLATFORM_FEIGE_DECOUPLING_2026_08); do not start casually.
+- `typing_lock` migrated to `{session_key: (holder, ts)}`
+  (`feige_chat/typing_lock.py`) — the `{session_id: holder}` migration its
+  original design note anticipated. `try_acquire`/`release`/`holder`/`reset`
+  gained an optional `session_key` (default `DEFAULT_SESSION=""` =
+  historical single-shop behavior). Locks on different sessions never
+  interact.
+- `_dispatch_inflight` keys gained an optional session component
+  (`build_node._dispatch_inflight_key`): `"{session}|{customer}"` when a
+  session is passed, bare customer key otherwise — so the same customer
+  nickname in two shops can't cross-lock.
+
+**Phase 5b (per-session plumbing) — STILL DEFERRED.** Actually running N
+same-site browser sessions in one process additionally needs: hook/bundle
+call sites resolving a session key from their browser session and passing
+it through; per-session (or pooled) runner-bridge capabilities —
+direct-delivery worker, typing semaphores, dedicated CDP loop, WS reader —
+and per-shop WS socket registries. This is performance-sensitive territory
+(see FEIGE_COLDSTART_POSTMORTEM, PLATFORM_FEIGE_DECOUPLING_2026_08); do
+not start casually. Until then the supported pattern remains **one process
+(host) per shop** (Phase 1.5 makes this operational).
+
+### Follow-ups batch ✅ 2026-08-23
+
+- **Hybrid-cloud / cloud-worker task_vars.** The hybrid companion local
+  task inherits the parent task's `task_vars` + `browser_identity`
+  (`runner._ensure_companion_local_task`). `WorkerMessage` gained optional
+  `task_vars`/`browser_identity`; `_run_skill_once` puts them on the task
+  and applies them to the run state; the AWS envelope parser accepts them
+  (`task_vars`/`taskVars`), and the CN worker extracts them from the
+  fetched task record's metadata — no CN backend change needed. AWS-side
+  senders (chatter lambda / runCloudTasks) that want to pass vars must add
+  them to the message envelope (backend repo — per Section 5 procedure).
+- **skill_owner persistence (store download).** `DBAgentSkill` has no
+  skill_owner column and `add_skill`'s column filter silently dropped it —
+  a subscribed skill lost its author on persist. Now folded into the
+  `config` JSON (`DBSkillService._fold_skill_owner_into_config`, applied
+  in add_skill and — only when the payload carries a config dict —
+  update_skill), and read back in `_fill_skill_from_db_view` (top-level →
+  config → owner fallback). Live two-account e2e still deferred.
+- **gui_v2 task-create variables form.** TaskDetail renders a "任务变量 /
+  Task Variables" section built from the selected skills' `need_inputs`
+  declarations (plus any existing `metadata.task_vars` keys); values merge
+  into `metadata.task_vars` on save (form fields win over raw-JSON
+  metadata; empty values dropped).
+- **gui_v2 vehicle assignment.** The AgentDetails vehicle Select already
+  existed but listed only legacy LAN-discovery vehicles (IP-octet ids)
+  that the affinity gate would never match. Two-sided fix: `get_vehicles`
+  now merges DBAgentVehicle rows (incl. the machine_id row Phase 1.5
+  registers) into the dropdown, and the gate accepts a legacy row as
+  local when its hostname/name matches this host
+  (`_vehicle_row_is_local`, reason "local-legacy-row"). An explicit
+  assignment that cannot be verified stays skipped — deliberate
+  assignments do not fail open.
 
 ---
 

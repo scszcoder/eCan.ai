@@ -9593,32 +9593,44 @@ def _cleanup_build_node_caches() -> dict[str, int]:
     return removed
 
 
-def _is_dispatch_inflight(customer_key: str) -> float:
+def _dispatch_inflight_key(customer_key: str, session_key: str = "") -> str:
+    """Compose the inflight-lock key.
+
+    SHARED_SKILL_MULTI_TASK_PLAN Phase 5 groundwork: with multiple live-chat
+    sessions (shops) in one process, the same customer nickname can exist in
+    two shops — the lock must not couple them. Single-session processes pass
+    no session_key and get the historical bare customer key.
+    """
+    return f"{session_key}|{customer_key}" if session_key else customer_key
+
+
+def _is_dispatch_inflight(customer_key: str, session_key: str = "") -> float:
     """Return age (s) of an active inflight lock, or 0.0 if none/expired."""
     if not customer_key:
         return 0.0
     import time as _cdi_time
-    ts = _dispatch_inflight.get(customer_key)
+    key = _dispatch_inflight_key(customer_key, session_key)
+    ts = _dispatch_inflight.get(key)
     if ts is None:
         return 0.0
     age = _cdi_time.time() - ts
     if age > _DISPATCH_INFLIGHT_TTL_S:
-        _dispatch_inflight.pop(customer_key, None)
+        _dispatch_inflight.pop(key, None)
         return 0.0
     return age if age > 0.0 else 0.000001
 
 
-def _mark_dispatch_inflight(customer_key: str) -> None:
+def _mark_dispatch_inflight(customer_key: str, session_key: str = "") -> None:
     if not customer_key:
         return
     import time as _cdi_time
-    _dispatch_inflight[customer_key] = _cdi_time.time()
+    _dispatch_inflight[_dispatch_inflight_key(customer_key, session_key)] = _cdi_time.time()
 
 
-def _clear_dispatch_inflight(customer_key: str) -> None:
+def _clear_dispatch_inflight(customer_key: str, session_key: str = "") -> None:
     if not customer_key:
         return
-    _dispatch_inflight.pop(customer_key, None)
+    _dispatch_inflight.pop(_dispatch_inflight_key(customer_key, session_key), None)
 
 
 # ── External lifecycle-hook bundle auto-discovery ───────────────────────────

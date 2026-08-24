@@ -57,6 +57,38 @@ class TestAgentLaunchAllowed:
         allowed, reason = va.agent_launch_allowed(_agent(vehicle_id="veh-2"))
         assert allowed and reason == "affinity-disabled"
 
+    def _mainwin_with_row(self, row):
+        service = MagicMock()
+        service.get_vehicle_by_id.return_value = {"success": True, "data": row}
+        return SimpleNamespace(ec_db_mgr=SimpleNamespace(vehicle_service=service))
+
+    def test_legacy_gui_row_for_this_host_allowed(self, monkeypatch):
+        """An assignment made via the GUI dropdown (legacy row with
+        name '<hostname>:<os>') still counts as local."""
+        va._local_vehicle_id = "machine-id-1"
+        monkeypatch.setattr(va.socket, "gethostname", lambda: "MyPC")
+        mainwin = self._mainwin_with_row({"id": "legacy-7", "name": "mypc:win", "hostname": ""})
+        allowed, reason = va.agent_launch_allowed(_agent(vehicle_id="legacy-7", mainwin=mainwin))
+        assert allowed and reason == "local-legacy-row"
+
+    def test_legacy_row_for_other_host_skipped(self, monkeypatch):
+        va._local_vehicle_id = "machine-id-1"
+        monkeypatch.setattr(va.socket, "gethostname", lambda: "MyPC")
+        mainwin = self._mainwin_with_row({"id": "legacy-9", "name": "otherpc:win", "hostname": "otherpc"})
+        allowed, _ = va.agent_launch_allowed(_agent(vehicle_id="legacy-9", mainwin=mainwin))
+        assert not allowed
+
+    def test_unverifiable_assignment_stays_skipped(self, monkeypatch):
+        """A mismatching id whose row can't be looked up must NOT fail open —
+        the user deliberately assigned somewhere."""
+        va._local_vehicle_id = "machine-id-1"
+        monkeypatch.setattr(va.socket, "gethostname", lambda: "MyPC")
+        service = MagicMock()
+        service.get_vehicle_by_id.side_effect = RuntimeError("db down")
+        mainwin = SimpleNamespace(ec_db_mgr=SimpleNamespace(vehicle_service=service))
+        allowed, _ = va.agent_launch_allowed(_agent(vehicle_id="veh-x", mainwin=mainwin))
+        assert not allowed
+
 
 class TestResolveLocalVehicleId:
     def test_resolves_and_persists_machine_id(self, tmp_path):

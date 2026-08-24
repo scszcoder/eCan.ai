@@ -535,6 +535,9 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         latest_version: t.latest_version || '1.0.0',
         priority: t.priority || 'none',
         trigger: taskTrigger,
+        // Shared-skill per-task variables (metadata.task_vars) — rendered as
+        // form fields from the selected skills' need_inputs declarations.
+        task_vars: metadata?.task_vars || {},
         schedule: {
           repeat_type: t.schedule?.repeat_type || 'none',
           repeat_number: t.schedule?.repeat_number || 1,
@@ -624,16 +627,27 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           time_out: (values as any).schedule?.time_out || 3600,
           timezone: (values as any).schedule?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
-        metadata: {
-          ...((values as any).metadata_text ? JSON.parse((values as any).metadata_text) : {}),
-          task_type: (values as any).task_type || 'local',
-          ...((values as any).task_type === 'hybrid_cloud' && (values as any).companion_local_task
-            ? { companion_local_task: (values as any).companion_local_task }
-            : {}),
-          ...((values as any).task_type === 'cloud'
-            ? { light_weight: !!(values as any).light_weight }
-            : {}),
-        },
+        metadata: (() => {
+          const baseMeta = (values as any).metadata_text ? JSON.parse((values as any).metadata_text) : {};
+          // Merge form-entered task variables over any task_vars already in
+          // the raw metadata JSON (form fields win; empty values dropped).
+          const formVars = (values as any).task_vars || {};
+          const cleanedVars = Object.fromEntries(
+            Object.entries(formVars).filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '')
+          );
+          const mergedVars = { ...(baseMeta.task_vars || {}), ...cleanedVars };
+          return {
+            ...baseMeta,
+            ...(Object.keys(mergedVars).length > 0 ? { task_vars: mergedVars } : {}),
+            task_type: (values as any).task_type || 'local',
+            ...((values as any).task_type === 'hybrid_cloud' && (values as any).companion_local_task
+              ? { companion_local_task: (values as any).companion_local_task }
+              : {}),
+            ...((values as any).task_type === 'cloud'
+              ? { light_weight: !!(values as any).light_weight }
+              : {}),
+          };
+        })(),
       };
 
       if (!payload || typeof payload !== 'object' || !payload.name) {
@@ -1135,6 +1149,69 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     </>
                   )}
                 </Form.List>
+              </Col>
+
+              {/* Task Variables Section — per-task values for shared skills.
+                  Fields come from the selected skills' need_inputs
+                  declarations; values persist to metadata.task_vars and are
+                  seeded into the run's prompt variables at start. */}
+              <Col span={24}>
+                <Form.Item noStyle shouldUpdate={(prev: any, cur: any) =>
+                  JSON.stringify(prev.skills || []) !== JSON.stringify(cur.skills || [])
+                }>
+                  {({ getFieldValue }) => {
+                    const selIds: string[] = (getFieldValue('skills') || []).map((s: any) => String(s || ''));
+                    const declared: any[] = [];
+                    const seen = new Set<string>();
+                    for (const sid of selIds) {
+                      const sk: any = (skills || []).find((s: any) => String(s.id) === sid || s.name === sid);
+                      for (const inp of (sk?.need_inputs || [])) {
+                        const nm = String(inp?.name || '').trim();
+                        if (nm && !seen.has(nm)) { seen.add(nm); declared.push(inp); }
+                      }
+                    }
+                    const existingVars: Record<string, any> = ((task as any)?.metadata?.task_vars) || {};
+                    const extraNames = Object.keys(existingVars).filter((k) => !seen.has(k));
+                    if (declared.length === 0 && extraNames.length === 0) return null;
+                    return (
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                          <span style={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.85)', fontSize: 14 }}>
+                            {t('pages.tasks.taskVars', '任务变量')}
+                          </span>
+                          <span style={{ marginLeft: 8, color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
+                            {t('pages.tasks.taskVarsHelp', '填充技能提示词中的 {{变量}} 占位符')}
+                          </span>
+                        </div>
+                        <Row gutter={16}>
+                          {declared.map((inp: any) => (
+                            <Col span={12} key={inp.name}>
+                              <StyledFormItem
+                                label={inp.name}
+                                name={['task_vars', inp.name]}
+                                tooltip={inp.description || undefined}
+                                rules={inp.required ? [{ required: true, message: `${inp.name} ${t('common.required', '为必填项')}` }] : []}
+                              >
+                                <Input
+                                  size="large"
+                                  disabled={!(editMode || isNew)}
+                                  placeholder={inp.default !== undefined && inp.default !== null ? String(inp.default) : ''}
+                                />
+                              </StyledFormItem>
+                            </Col>
+                          ))}
+                          {extraNames.map((nm) => (
+                            <Col span={12} key={nm}>
+                              <StyledFormItem label={nm} name={['task_vars', nm]}>
+                                <Input size="large" disabled={!(editMode || isNew)} />
+                              </StyledFormItem>
+                            </Col>
+                          ))}
+                        </Row>
+                      </div>
+                    );
+                  }}
+                </Form.Item>
               </Col>
             </Space>
           )}

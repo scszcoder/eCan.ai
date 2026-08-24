@@ -33,9 +33,42 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         else:
             logger.warning(f"[DEBUG] ctx.get_vehicles() is empty!")
 
+        vehicle_dicts = [v.to_dict() for v in vehicles]
+
+        # Merge DB vehicle rows (SHARED_SKILL_MULTI_TASK_PLAN Phase 1.5):
+        # the affinity gate keys on the DBAgentVehicle row registered with
+        # the discovery machine_id, which the legacy in-memory list doesn't
+        # contain. Include DB rows so the agent vehicle-assignment dropdown
+        # can select the canonical local vehicle.
+        try:
+            ec_db_mgr = ctx.get_ec_db_mgr() if hasattr(ctx, 'get_ec_db_mgr') else None
+            vehicle_service = getattr(ec_db_mgr, 'vehicle_service', None)
+            if vehicle_service is not None:
+                db_result = vehicle_service.query_vehicles()
+                db_rows = db_result.get('data', []) if isinstance(db_result, dict) and db_result.get('success') else []
+                seen_ids = {str(v.get('id')) for v in vehicle_dicts if isinstance(v, dict) and v.get('id')}
+                merged = 0
+                for row in db_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    rid = str(row.get('id') or '')
+                    if not rid or rid in seen_ids:
+                        continue
+                    seen_ids.add(rid)
+                    entry = dict(row)
+                    # Legacy VEHICLE dicts expose 'ip'; DB rows use 'ip_address'
+                    if 'ip' not in entry and entry.get('ip_address'):
+                        entry['ip'] = entry['ip_address']
+                    vehicle_dicts.append(entry)
+                    merged += 1
+                if merged:
+                    logger.info(f"[get_vehicles] merged {merged} DB vehicle row(s) into response")
+        except Exception as db_err:
+            logger.warning(f"[get_vehicles] DB vehicle merge failed (non-fatal): {db_err}")
+
         logger.info(f"get vehicles successful")
         resultJS = {
-            'vehicles': [v.to_dict() for v in vehicles],
+            'vehicles': vehicle_dicts,
             'message': 'Get all successful'
         }
         # logger.debug('get vehicles resultJS:' + str(resultJS))

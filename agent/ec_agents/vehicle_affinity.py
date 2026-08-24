@@ -146,12 +146,53 @@ def register_local_vehicle(mainwin) -> None:
         logger.warning(f"[VehicleAffinity] local vehicle registration failed (non-fatal): {e}")
 
 
+def _vehicle_row_is_local(mainwin, vehicle_id: str) -> bool:
+    """True when the DB vehicle row *vehicle_id* describes THIS machine.
+
+    The GUI's vehicle dropdown historically lists legacy LAN-discovery
+    vehicle rows (auto-generated ids, name '<hostname>:<os>'), while the
+    affinity gate keys on the discovery machine_id row — two id schemes for
+    the same physical machine. An assignment made through the GUI must
+    still count as local, so fall back to matching the row's hostname/name
+    against this host. A lookup failure returns False (an explicit
+    assignment that cannot be verified stays non-local — the user
+    deliberately assigned somewhere).
+    """
+    try:
+        service = getattr(getattr(mainwin, "ec_db_mgr", None), "vehicle_service", None)
+        if service is None:
+            return False
+        result = service.get_vehicle_by_id(vehicle_id)
+        row = result.get("data") if isinstance(result, dict) and result.get("success") else None
+        if not isinstance(row, dict):
+            return False
+        local_host = ""
+        try:
+            local_host = (socket.gethostname() or "").strip().lower()
+        except Exception:
+            return False
+        if not local_host:
+            return False
+        row_host = str(row.get("hostname") or "").strip().lower()
+        row_name = str(row.get("name") or "").strip().lower()
+        return bool(
+            (row_host and row_host == local_host)
+            or row_name == local_host
+            or row_name.startswith(f"{local_host}:")
+        )
+    except Exception as e:
+        logger.warning(f"[VehicleAffinity] legacy vehicle-row lookup failed for {vehicle_id[:12]}..: {e}")
+        return False
+
+
 def agent_launch_allowed(agent) -> "tuple[bool, str]":
     """Decide whether *agent* may start on this host.
 
     Returns (allowed, reason). Reasons: "affinity-disabled", "no-affinity"
     (empty vehicle_id — starts everywhere, back-compat), "local",
-    "local-vehicle-unresolved" (fail-open), or a skip explanation.
+    "local-legacy-row" (assigned to a legacy GUI vehicle row that describes
+    this machine), "local-vehicle-unresolved" (fail-open), or a skip
+    explanation.
     """
     try:
         if _affinity_disabled():
@@ -162,11 +203,14 @@ def agent_launch_allowed(agent) -> "tuple[bool, str]":
         if not vid:
             return True, "no-affinity"
 
-        local = resolve_local_vehicle_id(getattr(agent, "mainwin", None))
+        mainwin = getattr(agent, "mainwin", None)
+        local = resolve_local_vehicle_id(mainwin)
         if not local:
             return True, "local-vehicle-unresolved"
         if vid == local:
             return True, "local"
+        if _vehicle_row_is_local(mainwin, vid):
+            return True, "local-legacy-row"
         return False, f"assigned to vehicle {vid[:12]}.., local vehicle is {local[:12]}.."
     except Exception as e:
         logger.warning(f"[VehicleAffinity] gate check failed (fail-open): {e}")
