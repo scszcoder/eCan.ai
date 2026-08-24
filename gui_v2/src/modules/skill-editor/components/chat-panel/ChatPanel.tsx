@@ -696,6 +696,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const skipConfirmRef = useRef(false);  // mirror for reads inside callbacks
   const [pipelineState, setPipelineState] = useState<PipelineState>('idle');
   const [streamingStatus, setStreamingStatus] = useState<string>('');
+  const streamingContentRef = useRef<string>('');  // accumulate streamed content for final render
   const chatThreadRef = useRef<HTMLDivElement>(null);
   const hasLoadedSessionsRef = useRef(false);
   const lastFlowgramJsonRef = useRef<any>(null);  // cache last received flowgram for resending with edit approvals
@@ -966,6 +967,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         const chunk = payload.chunk;
         if (typeof chunk !== 'string' || !chunk.trim()) return;
         setStreamingStatus(chunk);
+        streamingContentRef.current += chunk;
       } catch {
         return;
       }
@@ -987,7 +989,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         // For Lambda-timeout responses the synchronous IPC result is a bare
         // "processing" placeholder — the real clarification / a2ui / plan
         // arrives here via the subscription relay's stream_end event.
-        const content = payload.fullContent;
         const clarification = payload.clarification;
         const plan = payload.plan;
         const a2uiData = payload.a2ui;
@@ -1028,6 +1029,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         //
         // IMPORTANT: We attach clarification/state in the SAME setMessages
         // call so that React batching doesn't lose the structured data.
+        //
+        // Fall back to accumulated streaming content when the backend stream_end
+        // arrives without fullContent (e.g. local LLM streaming that only emits
+        // stream_chunk events but not the final assembled content).
+        const streamedContent = streamingContentRef.current;
+        streamingContentRef.current = '';  // reset for next stream
+        const content = (typeof payload.fullContent === 'string' && payload.fullContent.trim())
+          ? payload.fullContent
+          : (typeof streamedContent === 'string' && streamedContent.trim() ? streamedContent : '');
         if (typeof content === 'string' && content.trim()) {
           const msgId = payload.messageId || `msg-stream-${Date.now()}`;
           setMessages(prev => {

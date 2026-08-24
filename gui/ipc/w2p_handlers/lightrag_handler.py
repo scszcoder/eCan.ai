@@ -1289,12 +1289,15 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
             if pipeline_data.get('busy') or processing > 0 or pending > 0:
                 logger.info(f"[lightrag_handler] Including pipeline data: busy={pipeline_data.get('busy')}, processing={processing}, pending={pending}")
                 
-                # Get chunk progress from pipeline_data (set by operate_custom.py)
+                # Chunk-level progress fields. LightRAG ≥ 1.5 no longer exposes
+                # them through /documents/pipeline_status (only batch-level via
+                # ``cur_batch`` / ``batchs``). We keep the keys in the GUI
+                # response as None so older GUI builds that read them do not
+                # crash; they will simply show no chunk progress.
                 total_chunks = pipeline_data.get('total_chunks', 0)
                 processed_chunks = pipeline_data.get('processed_chunks', 0)
-                # Get current processing file path for per-document progress display
                 current_chunk_file = pipeline_data.get('current_chunk_file', None)
-                
+
                 pipeline_info = {
                     'job_name': pipeline_data.get('job_name'),
                     'current_batch': pipeline_data.get('cur_batch', 0),
@@ -1302,7 +1305,7 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
                     'latest_message': pipeline_data.get('latest_message'),
                     'total_chunks': total_chunks if total_chunks > 0 else None,
                     'processed_chunks': processed_chunks if total_chunks > 0 else None,
-                    'current_chunk_file': current_chunk_file  # File path of current processing document
+                    'current_chunk_file': current_chunk_file,  # File path of current processing document (1.5: always None)
                 }
                 
                 logger.info(f"[lightrag_handler] Pipeline info: {pipeline_info}")
@@ -1698,16 +1701,24 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
     """
     try:
         from app_context import AppContext
-        from gui.ipc.context_bridge import get_handler_context
+        from gui.ipc.context_bridge import get_handler_context, get_username
         from gui.ollama_utils import merge_ollama_models_to_providers
-        from gui.ryoais_utils import merge_ryoais_models_to_providers
+        from gui.ryoais_utils import merge_ryoais_models_to_providers, load_ryoais_models
         
         # Get manager instances
         ctx = get_handler_context(request, params)
         llm_manager = ctx.get_config_manager().llm_manager if ctx else None
         embedding_manager = ctx.get_config_manager().embedding_manager if ctx else None
         rerank_manager = ctx.get_config_manager().rerank_manager if ctx else None
-        
+
+        # Get current username for user-specific file paths
+        username = get_username(request, params)
+
+        # Pre-load RyoAIS models with correct username so merge finds them
+        ryoais_llm = load_ryoais_models(username=username, model_type='llm')
+        ryoais_emb = load_ryoais_models(username=username, model_type='embedding')
+        ryoais_rerank = load_ryoais_models(username=username, model_type='rerank')
+
         # Get providers with Ollama and RyoAIS models merged (same as Settings page)
         llm_providers = merge_ollama_models_to_providers(
             llm_manager.get_all_providers() if llm_manager else [],
@@ -1715,6 +1726,7 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
         )
         llm_providers = merge_ryoais_models_to_providers(
             llm_providers,
+            ryoais_models=ryoais_llm,
             provider_type='llm'
         )
         
@@ -1724,6 +1736,7 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
         )
         embedding_providers = merge_ryoais_models_to_providers(
             embedding_providers,
+            ryoais_models=ryoais_emb,
             provider_type='embedding'
         )
         
@@ -1733,6 +1746,7 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
         )
         rerank_providers = merge_ryoais_models_to_providers(
             rerank_providers,
+            ryoais_models=ryoais_rerank,
             provider_type='rerank'
         )
         

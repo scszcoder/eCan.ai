@@ -1606,8 +1606,8 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'settings.getOllamaModels' }, { host, username });
     }
 
-    public async getRyoAISModels<T>(host: string, username?: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'settings.getRyoAISModels' }, { host, username });
+    public async getRyoAISModels<T>(host: string, username?: string, verifySsl: boolean = false): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'settings.getRyoAISModels' }, { host, username, verify_ssl: verifySsl });
     }
 
     public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {

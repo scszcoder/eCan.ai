@@ -330,6 +330,8 @@ const RetrievalTab: React.FC = () => {
         console.warn('[RetrievalTab] Received chunk for unknown stream:', streamId);
         return;
       }
+      
+      console.log('[RetrievalTab] 💬 handleChunk received:', { streamId, hasChunk: !!chunk, chunkType: typeof chunk });
 
       // Handle confidence data (can come with or without references)
       if (chunk?.confidence) {
@@ -373,29 +375,106 @@ const RetrievalTab: React.FC = () => {
         ));
       }
       
-      // If this chunk only contains confidence/references, don't process as text
-      if (chunk?.confidence || chunk?.references) {
+      // If this chunk only contains confidence/references (no response text), don't process as text
+      if (!chunk?.response && (chunk?.confidence || chunk?.references)) {
         return;
       }
 
       const textChunk = chunk?.response || '';
 
+      // Track the full text we should show for this message. The backend may send
+      // the whole response in a single chunk (no real streaming) or in many small
+      // chunks; either way we expose ``__retrievalTargetText`` as the authoritative
+      // source so the typewriter effect below can animate the reveal.
+      const targetTextMap: Record<string, string> = (window as any).__retrievalTargetText || {};
+      const prevTarget = targetTextMap[messageId] || '';
+      const nextTarget = !prevTarget || textChunk.startsWith(prevTarget)
+        ? textChunk
+        : (prevTarget + textChunk);
+      targetTextMap[messageId] = nextTarget;
+      (window as any).__retrievalTargetText = targetTextMap;
+
       setMessages(prev => prev.map(m => {
         if (m.id !== messageId) return m;
 
-        // Merge strategy:
-        // - If backend streams cumulative content, replace.
-        // - If backend streams incremental deltas, append.
+        // Track typewriter animation state per message. The backend may stream
+        // real incremental chunks or send the whole response in one shot; in
+        // either case we want to reveal text gradually for the user.
+        const animStateMap: Record<string, { finalText: string; intervalId: number | null; idx: number }> = (window as any).__retrievalAnimState || {};
+        const animState = animStateMap[messageId] || { finalText: '', intervalId: null, idx: 0 };
+
         const prevContent = m.content || '';
-        let mergedContent = '';
+        let mergedContent: string;
         if (!prevContent) {
-          mergedContent = textChunk;
-        } else if (textChunk.startsWith(prevContent)) {
-          mergedContent = textChunk;
-        } else if (prevContent.startsWith(textChunk)) {
+          mergedContent = nextTarget;
+        } else if (nextTarget.startsWith(prevContent)) {
+          mergedContent = nextTarget;
+        } else if (prevContent.startsWith(nextTarget)) {
           mergedContent = prevContent;
         } else {
-          mergedContent = prevContent + textChunk;
+          mergedContent = prevContent + nextTarget;
+        }
+
+        // Update the typewriter target; if it changed (more text arrived)
+        // and an animation is already running, reset the cursor so the new
+        // tail gets revealed too.
+        const finalTextChanged = animState.finalText !== mergedContent;
+        animState.finalText = mergedContent;
+        if (animState.intervalId !== null && finalTextChanged) {
+          // Don't reset if it's a tail-extension; just continue.
+        }
+
+        // Decide whether to start the animation now.
+        // Start when:
+        //  - the response text is at least 40 chars, and
+        //  - no animation is in progress
+        // Only start when this chunk actually contains response text; chunks
+        // that only carry references/confidence do not need animation.
+        const alreadyAnimated = animState.intervalId !== null;
+        const shouldAnimate =
+          !alreadyAnimated &&
+          typeof window !== 'undefined' &&
+          mergedContent.length > 40 &&
+          textChunk.length > 0;
+
+        console.log('[RetrievalTab] 🎬 typewriter check:', {
+          alreadyAnimated,
+          textChunkLen: textChunk.length,
+          mergedLen: mergedContent.length,
+          shouldAnimate,
+        });
+
+        if (shouldAnimate) {
+          animState.idx = 0;
+          animStateMap[messageId] = animState;
+          (window as any).__retrievalAnimState = animStateMap;
+
+          // Immediately reset displayed content to empty so the typewriter
+          // effect visibly fills it in. (The previous behaviour rendered the
+          // full text in one shot, which made the animation invisible.)
+          const next: any = { ...m, content: '', isThinking: false };
+
+          const intervalId = window.setInterval(() => {
+            const cur = animStateMap[messageId];
+            if (!cur) return;
+            cur.idx = Math.min(cur.idx + 4, cur.finalText.length);
+            const shown = cur.finalText.slice(0, cur.idx);
+            setMessages(prev2 => prev2.map(mm =>
+              mm.id === messageId ? { ...mm, content: shown } : mm
+            ));
+            if (cur.idx >= cur.finalText.length) {
+              window.clearInterval(cur.intervalId ?? 0);
+              cur.intervalId = null;
+              setMessages(prev3 => prev3.map(mm =>
+                mm.id === messageId ? { ...mm, content: cur.finalText } : mm
+              ));
+              scrollToEnd();
+            }
+          }, 20);
+          animState.intervalId = intervalId;
+          animStateMap[messageId] = animState;
+          (window as any).__retrievalAnimState = animStateMap;
+          return next;
         }
 
         // Thinking timing based on merged content (robust for cumulative streams)
@@ -422,87 +501,112 @@ const RetrievalTab: React.FC = () => {
     const handleDone = (data: any) => {
       const { id: streamId } = data;
       const messageId = streamMapRef.current.get(streamId);
+      console.log('[RetrievalTab] ✅ handleDone called:', { streamId, messageId, messagesCount: 'see below' });
       if (messageId) {
         console.log('[RetrievalTab] ✅ Stream done, processing references...');
-        // Append references to content when streaming is done
-        setMessages(prev => prev.map(m => {
-          if (m.id !== messageId) return m;
-          
-          console.log('[RetrievalTab] 📄 Final message content length:', m.content?.length);
-          console.log('[RetrievalTab] 📄 Final message content preview:', m.content?.substring(0, 200));
-          
-          const refs = (m as any).references;
-          if (!refs || !Array.isArray(refs) || refs.length === 0) {
-            console.log('[RetrievalTab] ⚠️ No references found in message');
-            return m;
-          }
-          
-          console.log('[RetrievalTab] 📚 Processing', refs.length, 'references');
-          
-          // Build reference list with download buttons
-          const refLines = refs.map((r: any, idx: number) => {
-            if (!r || typeof r !== 'object') {
-              return `- [${idx + 1}] ` + String(r);
+        // If a typewriter animation is still running for this message, let it
+        // finish before we splice in the reference list. The interval has
+        // already scheduled the final-text update; we just defer our reference
+        // append by waiting until idx reaches finalText.length.
+        const animStateMap: Record<string, { finalText: string; intervalId: number | null; idx: number }> = (window as any).__retrievalAnimState || {};
+        const anim = animStateMap[messageId];
+
+        const finalize = () => {
+          // Append references to content when streaming is done
+          setMessages(prev => prev.map(m => {
+            if (m.id !== messageId) return m;
+
+            console.log('[RetrievalTab] 📄 Final message content length:', m.content?.length);
+            console.log('[RetrievalTab] 📄 Final message content preview:', m.content?.substring(0, 200));
+
+            const refs = (m as any).references;
+            if (!refs || !Array.isArray(refs) || refs.length === 0) {
+              console.log('[RetrievalTab] ⚠️ No references found in message, keeping original content');
+              return m;
             }
 
-            const filePath = (r.file_path || r.filename || r.file_name) as string | undefined;
-            const title = (r.title || r.name || filePath) as string | undefined;
-            const source = (r.source || r.doc_id || r.document_id) as string | undefined;
-            const score = (r.score ?? r.similarity) as number | undefined;
-            
-            console.log(`[RetrievalTab] 📊 Reference ${idx + 1}:`, JSON.stringify({
-              filePath,
-              title,
-              source,
-              score,
-              rawKeys: Object.keys(r),
-              fullObject: r
-            }, null, 2));
+            console.log('[RetrievalTab] 📚 Processing', refs.length, 'references');
 
-            // Use file_path as the primary label, fallback to title or source
-            let label = filePath || title || source || JSON.stringify(r).slice(0, 80) + '...';
-            if (source && title && source !== title) {
-              label = `${title} (${source})`;
-            }
-            
-            // Format: filename [下载图标] (score: 0.xxx)
-            // Use hash URL format that won't be filtered by ReactMarkdown
-            let refText = `- [${idx + 1}] ${label}`;
-            if (filePath) {
-              refText += ` [⬇️](#download:${encodeURIComponent(filePath)})`;
-            }
-            
-            if (score !== undefined) {
-              refText += `  (score: ${score.toFixed ? score.toFixed(3) : score})`;
-            }
-            return refText;
-          });
+            // Build reference list with download buttons
+            const refLines = refs.map((r: any, idx: number) => {
+              if (!r || typeof r !== 'object') {
+                return `- [${idx + 1}] ` + String(r);
+              }
 
-          // Remove existing references section from LLM response and add our version with download links
-          // Match "References", "参考文献", etc. as a heading (with or without leading newlines)
-          // Match from the heading to the end of content
-          const referenceSectionRegex = /(\n+|^)(#{1,3}\s*)?(参考文献|参考文档|参考资料|References?)\s*([:：])?\s*\n[\s\S]*$/i;
-          
-          console.log('[RetrievalTab] 📝 Original content length:', m.content?.length);
-          console.log('[RetrievalTab] 📝 Content has </think>:', m.content?.includes('</think>'));
-          
-          // Remove LLM-generated duplicate words (e.g., "References References" → "References")
-          const deduplicateWords = (text: string): string => {
-            return text.replace(/\b(\w+)\s+\1\b/gi, '$1');
-          };
-          
-          let baseContent = deduplicateWords((m.content || '')).replace(referenceSectionRegex, '').trim();
-          
-          console.log('[RetrievalTab] 📝 After regex, content length:', baseContent.length);
-          console.log('[RetrievalTab] 📝 After regex, has </think>:', baseContent.includes('</think>'));
-          
-          const newContent = `${baseContent}\n\n${t('pages.knowledge.retrieval.referenceDocs')}\n${refLines.join('\n')}`;
-          return { ...m, content: newContent };
-        }));
-        
-        streamMapRef.current.delete(streamId);
-        setLoading(false);
-        thinkingStartTimeRef.current = null;
+              const filePath = (r.file_path || r.filename || r.file_name) as string | undefined;
+              const title = (r.title || r.name || filePath) as string | undefined;
+              const source = (r.source || r.doc_id || r.document_id) as string | undefined;
+              const score = (r.score ?? r.similarity) as number | undefined;
+
+              console.log(`[RetrievalTab] 📊 Reference ${idx + 1}:`, JSON.stringify({
+                filePath,
+                title,
+                source,
+                score,
+                rawKeys: Object.keys(r),
+                fullObject: r
+              }, null, 2));
+
+              // Use file_path as the primary label, fallback to title or source
+              let label = filePath || title || source || JSON.stringify(r).slice(0, 80) + '...';
+              if (source && title && source !== title) {
+                label = `${title} (${source})`;
+              }
+
+              // Format: filename [下载图标] (score: 0.xxx)
+              // Use hash URL format that won't be filtered by ReactMarkdown
+              let refText = `- [${idx + 1}] ${label}`;
+              if (filePath) {
+                refText += ` [⬇️](#download:${encodeURIComponent(filePath)})`;
+              }
+
+              if (score !== undefined) {
+                refText += `  (score: ${score.toFixed ? score.toFixed(3) : score})`;
+              }
+              return refText;
+            });
+
+            // Remove existing references section from LLM response and add our version with download links
+            // Match "References", "参考文献", etc. as a heading (with or without leading newlines)
+            // Match from the heading to the end of content
+            const referenceSectionRegex = /(\n+|^)(#{1,3}\s*)?(参考文献|参考文档|参考资料|References?)\s*([:：])?\s*\n[\s\S]*$/i;
+
+            console.log('[RetrievalTab] 📝 Original content length:', m.content?.length);
+            console.log('[RetrievalTab] 📝 Content has </think>:', m.content?.includes('</think>'));
+
+            // Remove LLM-generated duplicate words (e.g., "References References" → "References")
+            const deduplicateWords = (text: string): string => {
+              return text.replace(/\b(\w+)\s+\1\b/gi, '$1');
+            };
+
+            let baseContent = deduplicateWords((m.content || '')).replace(referenceSectionRegex, '').trim();
+
+            console.log('[RetrievalTab] 📝 After regex, content length:', baseContent.length);
+            console.log('[RetrievalTab] 📝 After regex, has </think>:', baseContent.includes('</think>'));
+
+            const newContent = `${baseContent}\n\n${t('pages.knowledge.retrieval.referenceDocs')}\n${refLines.join('\n')}`;
+            return { ...m, content: newContent };
+          }));
+
+          streamMapRef.current.delete(streamId);
+          setLoading(false);
+          thinkingStartTimeRef.current = null;
+        };
+
+        if (anim && anim.intervalId !== null) {
+          // Wait until the typewriter reaches the end of finalText, then
+          // finalize. Poll on a short timer (faster than the interval step so
+          // we don't add visible lag).
+          const wait = window.setInterval(() => {
+            const cur = animStateMap[messageId];
+            if (!cur || cur.intervalId === null || cur.idx >= cur.finalText.length) {
+              window.clearInterval(wait);
+              finalize();
+            }
+          }, 40);
+        } else {
+          finalize();
+        }
       }
     };
 

@@ -12,11 +12,18 @@ export type TabKey = 'documents' | 'knowledge-graph' | 'retrieval' | 'settings' 
 
 interface TabsProps {
   defaultActive?: TabKey;
+  /**
+   * Optional controlled active tab. When provided, the Tabs component becomes
+   * controlled and mirrors this value into its internal state on every render.
+   * Used by external flows (e.g. configuration warning modal) that need to
+   * programmatically switch tabs without going through user click events.
+   */
+  active?: TabKey;
   onChange?: (key: TabKey) => void;
   renderTab: (key: TabKey) => React.ReactNode;
 }
 
-const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, renderTab }) => {
+const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: controlledActive, onChange, renderTab }) => {
   const storagePrefix = 'lightrag-ported:tabs';
 
   const readActiveFromStorage = (): TabKey => {
@@ -42,7 +49,17 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, rend
     }
   };
 
-  const [active, setActive] = useState<TabKey>(() => readActiveFromStorage());
+  const [internalActive, setInternalActive] = useState<TabKey>(() => readActiveFromStorage());
+  // When controlledActive is provided, mirror it into internal state. This lets
+  // external flows (modal "前往设置" button, etc.) switch tabs programmatically
+  // without breaking the existing uncontrolled click handler.
+  const active = controlledActive !== undefined ? controlledActive : internalActive;
+  const setActive = (key: TabKey) => {
+    if (controlledActive === undefined) {
+      setInternalActive(key);
+    }
+    sessionStorage.setItem(`${storagePrefix}:active`, key);
+  };
   // Keep track of visited tabs to lazy-load them but keep them alive afterwards
   const [visited, setVisited] = useState<Set<TabKey>>(() => readVisitedFromStorage(readActiveFromStorage()));
   
@@ -125,6 +142,15 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, rend
   useEffect(() => {
     emitTabEvent('activate', active);
     requestAnimationFrame(() => restoreScrollWithRetry(active));
+    // Mark the tab as visited so it renders (covers programmatic switches,
+    // e.g. when the configuration warning modal "goToSettings" callback fires
+    // and the user hasn't clicked the Settings tab manually yet).
+    setVisited(prev => {
+      if (prev.has(active)) return prev;
+      const next = new Set(prev);
+      next.add(active);
+      return next;
+    });
     return () => {
       emitTabEvent('deactivate', active);
     };

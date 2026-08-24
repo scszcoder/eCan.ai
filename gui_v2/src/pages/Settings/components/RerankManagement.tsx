@@ -223,6 +223,22 @@ const RerankManagement = React.forwardRef<
         if (!editingRyoaisHost && loadedRyoaisHost && loadedRyoaisHost !== ryoaisHost) {
           setRyoaisHost(loadedRyoaisHost);
         }
+
+        // Backfill RyoAIS API key from backend so the input renders "••••••••"
+        // instead of being empty. Mirrors LLMManagement backfill behavior.
+        if (ryoaisProvider?.api_key_configured && !ryoaisApiKey) {
+          try {
+            const keyResp = await get_ipc_api().getRerankProviderApiKey<{
+              api_key?: string;
+              credentials?: any;
+            }>(ryoaisProvider.provider || ryoaisProvider.name, true);
+            if (keyResp.success && keyResp.data?.api_key) {
+              setRyoaisApiKey(keyResp.data.api_key);
+            }
+          } catch (e) {
+            console.warn('[RerankManagement] Failed to backfill RyoAIS API key:', e);
+          }
+        }
       } else {
         message.error(
           `${t("pages.settings.failed_to_load_providers")}: ${
@@ -236,7 +252,7 @@ const RerankManagement = React.forwardRef<
     } finally {
       setLoading(false);
     }
-  }, [username, t, message, editingOllamaHost, ollamaHost, editingRyoaisHost, ryoaisHost]);
+  }, [username, t, message, editingOllamaHost, ollamaHost, editingRyoaisHost, ryoaisHost, ryoaisApiKey]);
 
   // Expose loadProviders method via ref
   useImperativeHandle(ref, () => ({

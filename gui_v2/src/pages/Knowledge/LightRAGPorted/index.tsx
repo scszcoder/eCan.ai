@@ -24,13 +24,48 @@ const KnowledgePortedPage: React.FC = () => {
   // Validate LightRAG configuration on page activation
   const validateConfiguration = async () => {
     if (hasValidatedRef.current) return;
-    
+
     try {
       const ipcApi = get_ipc_api();
       const response = await ipcApi.lightragApi.getSettings();
-      
+
       if (response.success && response.data) {
-        const validation = validateLightRAGConfig(response.data);
+        const settings: Record<string, any> = { ...response.data };
+
+        // Global fallback: if the current workspace doesn't carry an LLM/Embedding
+        // API key but the user already configured the same provider globally, treat
+        // it as system-managed so the warning modal doesn't fire. This mirrors the
+        // expected behavior users have after configuring RyoAIS in global Settings.
+        try {
+          const [llmResp, embedResp] = await Promise.all([
+            ipcApi.getLLMProviders<{ providers: Array<{ name?: string; provider?: string; api_key_configured?: boolean }> }>(),
+            ipcApi.getEmbeddingProviders<{ providers: Array<{ name?: string; provider?: string; api_key_configured?: boolean }> }>(),
+          ]);
+
+          const llmProvider = settings.LLM_BINDING || settings.LLM_PROVIDER;
+          if (llmProvider && !settings.LLM_BINDING_API_KEY && !settings._SYSTEM_LLM_API_KEY_SOURCE) {
+            const globalLlm = (llmResp.success && llmResp.data?.providers || []).find(
+              (p) => (p.provider || p.name || '').toLowerCase() === llmProvider.toLowerCase()
+            );
+            if (globalLlm?.api_key_configured) {
+              settings._SYSTEM_LLM_API_KEY_SOURCE = true;
+            }
+          }
+
+          const embedProvider = settings.EMBEDDING_BINDING || settings.EMBEDDING_PROVIDER;
+          if (embedProvider && !settings.EMBEDDING_BINDING_API_KEY && !settings._SYSTEM_EMBEDDING_BINDING_API_KEY_SOURCE) {
+            const globalEmbed = (embedResp.success && embedResp.data?.providers || []).find(
+              (p) => (p.provider || p.name || '').toLowerCase() === embedProvider.toLowerCase()
+            );
+            if (globalEmbed?.api_key_configured) {
+              settings._SYSTEM_EMBEDDING_BINDING_API_KEY_SOURCE = true;
+            }
+          }
+        } catch (e) {
+          console.warn('[Knowledge] Failed to load global providers config for validation fallback:', e);
+        }
+
+        const validation = validateLightRAGConfig(settings);
         
         if (!validation.isValid) {
           // Show configuration warning modal
@@ -128,7 +163,7 @@ const KnowledgePortedPage: React.FC = () => {
       style={{ height: '100%', width: '100%', background: backgroundColor, overflow: 'auto' }}
     >
       <Tabs 
-        defaultActive={activeTab} 
+        active={activeTab}
         onChange={(key) => setActiveTab(key)}
         renderTab={renderTab} 
       />
