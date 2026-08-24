@@ -1158,7 +1158,7 @@ jobs:
             Write-Host "[DEBUG] HTTPS path — .NET Process ${timeoutSec}s timeout..."
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName  = $gitExe
-            $psi.Arguments  = "ls-remote --exit-code origin \"refs/heads/$bareRef\" \"refs/tags/$bareRef\""
+            $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError  = $true
             $psi.UseShellExecute = $false
@@ -2154,7 +2154,7 @@ jobs:
             Write-Host "[DEBUG] HTTPS path — .NET Process ${timeoutSec}s timeout..."
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName  = $gitExe
-            $psi.Arguments  = "ls-remote --exit-code origin \"refs/heads/$bareRef\" \"refs/tags/$bareRef\""
+            $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError  = $true
             $psi.UseShellExecute = $false
@@ -2943,7 +2943,7 @@ jobs:
             Write-Host "[DEBUG] HTTPS path — .NET Process ${timeoutSec}s timeout..."
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName  = $gitExe
-            $psi.Arguments  = "ls-remote --exit-code origin \"refs/heads/$bareRef\" \"refs/tags/$bareRef\""
+            $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError  = $true
             $psi.UseShellExecute = $false
@@ -3722,7 +3722,7 @@ jobs:
             Write-Host "[DEBUG] HTTPS path — .NET Process ${timeoutSec}s timeout..."
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName  = $gitExe
-            $psi.Arguments  = "ls-remote --exit-code origin \"refs/heads/$bareRef\" \"refs/tags/$bareRef\""
+            $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError  = $true
             $psi.UseShellExecute = $false
