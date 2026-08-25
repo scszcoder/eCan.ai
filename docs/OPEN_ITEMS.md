@@ -132,6 +132,23 @@ _Last updated: 2026-08-23_
 
 ## 🟢 In progress
 
+- **LLM proxy missing-key fallback (2026-08-27)**. Confirmed the
+  suspected behavior did NOT exist: proxy routing was purely
+  config-driven (ECAN_FORCE_LAMBDA_PROXY / node useProxy / global
+  use_lambda_proxy); a missing local API key raised "<provider> requires
+  an API key". NOW: all three LLM-construction paths fall back to the
+  cloud LLM proxy when the local key/config is missing AND
+  lambda_proxy_endpoint is configured — build_node._build_runtime_llm
+  (skill LLM nodes; _make_proxy_llm("no local API key") before the
+  raise), browser_node build_local_llm and _build_cloud_llm_impl
+  (browser-use agents; _proxy_fallback on node-LLM ValueError/
+  RuntimeError, global-default None/failure, and the explicit no-key
+  raise). Without an endpoint the original errors still raise. Tests:
+  tests/unit/test_llm_proxy_fallback.py (6). OPEN: CN builds ship NO
+  default lambda_proxy_endpoint (apps/{cn,intl}/config have none — it's
+  a user Setting); decide whether the CN app should default it to the
+  deployed CN llm_proxy URL so key-less customers work out of the box.
+
 - **CN zip-only save + zip-first download (2026-08-26/27)**. CN save now
   uploads ONLY one artifact per skill:
   `{safe_owner}/my_skills/<folder>/_package.zip` (writeSkillFile register

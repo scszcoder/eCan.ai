@@ -3487,34 +3487,41 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         # but Cognito ID tokens last ~1 h; if a cached token does expire mid-TTL
         # the LLM call returns 401 and the caller can retry, which will be
         # caught by the regular failure path.
-        if _should_use_proxy(inputs):
+        def _make_proxy_llm(reason: str):
+            """Build (or return cached) proxy LLM; None when no endpoint configured."""
             proxy_cfg = _get_proxy_config()
-            if proxy_cfg:
-                from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
-                _now_proxy = time.time()
-                _proxy_key = (
-                    f"lambda_proxy|{provider_name or 'openai'}|"
-                    f"{model_name_value or 'gpt-4o'}|"
-                    f"{(proxy_cfg.get('endpoint') or '').rstrip('/')}|"
-                    f"{proxy_cfg.get('user_id') or ''}|"
-                    f"{temperature_value}"
-                )
-                _cached_proxy = _LLM_INSTANCE_CACHE.get(_proxy_key)
-                if _cached_proxy is not None:
-                    _cached_at, _cached_llm = _cached_proxy
-                    if _now_proxy - _cached_at < _LLM_CACHE_TTL_SECONDS:
-                        return _cached_llm
-                logger.info(f"[LLM Node] Using Lambda proxy for {provider_name}/{model_name_value}")
-                _llm = create_lambda_proxy_langchain(
-                    provider=provider_name or 'openai',
-                    model=model_name_value or 'gpt-4o',
-                    user_id=proxy_cfg['user_id'],
-                    lambda_endpoint=proxy_cfg['endpoint'],
-                    auth_token=proxy_cfg['auth_token'],
-                    temperature=temperature_value,
-                )
-                _LLM_INSTANCE_CACHE[_proxy_key] = (_now_proxy, _llm)
-                return _llm
+            if not proxy_cfg:
+                return None
+            from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
+            _now_proxy = time.time()
+            _proxy_key = (
+                f"lambda_proxy|{provider_name or 'openai'}|"
+                f"{model_name_value or 'gpt-4o'}|"
+                f"{(proxy_cfg.get('endpoint') or '').rstrip('/')}|"
+                f"{proxy_cfg.get('user_id') or ''}|"
+                f"{temperature_value}"
+            )
+            _cached_proxy = _LLM_INSTANCE_CACHE.get(_proxy_key)
+            if _cached_proxy is not None:
+                _cached_at, _cached_llm = _cached_proxy
+                if _now_proxy - _cached_at < _LLM_CACHE_TTL_SECONDS:
+                    return _cached_llm
+            logger.info(f"[LLM Node] Using Lambda proxy for {provider_name}/{model_name_value} ({reason})")
+            _llm = create_lambda_proxy_langchain(
+                provider=provider_name or 'openai',
+                model=model_name_value or 'gpt-4o',
+                user_id=proxy_cfg['user_id'],
+                lambda_endpoint=proxy_cfg['endpoint'],
+                auth_token=proxy_cfg['auth_token'],
+                temperature=temperature_value,
+            )
+            _LLM_INSTANCE_CACHE[_proxy_key] = (_now_proxy, _llm)
+            return _llm
+
+        if _should_use_proxy(inputs):
+            _proxy_llm = _make_proxy_llm("proxy routing enabled")
+            if _proxy_llm is not None:
+                return _proxy_llm
 
         # ── LLM instance cache: skip re-construction for repeated invocations ──
         # Build a stable cache key from the parameters that define the LLM identity.
@@ -3569,6 +3576,12 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 raise ImportError(f"{import_name} is not available. Please install the required package.")
 
         if special_features.get("requires_api_key") and not api_key_value:
+            # Missing local API key → fall back to the cloud LLM proxy when an
+            # endpoint is configured (the proxy holds the provider keys
+            # server-side). Only raise when there is no proxy to fall back to.
+            _proxy_llm = _make_proxy_llm("no local API key")
+            if _proxy_llm is not None:
+                return _proxy_llm
             raise ValueError(f"{provider_name} requires an API key")
 
         if special_features.get("requires_model") and not model_name_value:

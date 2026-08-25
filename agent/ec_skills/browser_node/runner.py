@@ -3370,19 +3370,49 @@ def build_local_llm(
                 auth_token=proxy["auth_token"],
             )
 
-    # Node-specified provider+model (no fallback).
-    if llm_provider and llm_model_name:
-        return _build_local_llm_from_node_config_impl(
-            mainwin,
-            llm_provider=llm_provider,
-            llm_model_name=llm_model_name,
+    def _proxy_fallback(reason: str):
+        """Missing/broken local LLM config → cloud LLM proxy, when configured."""
+        proxy = _get_proxy_config()
+        if not proxy:
+            return None
+        from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
+
+        provider = llm_provider or "openai"
+        model = llm_model_name or "gpt-4o"
+        logger.info(
+            f"[BrowserAutomation] Falling back to Lambda proxy ({reason}): "
+            f"{provider}/{model}, endpoint={proxy['endpoint']}"
         )
+        return ChatLambdaProxy(
+            model=model,
+            provider_name=provider,
+            user_id=proxy["user_id"],
+            lambda_endpoint=proxy["endpoint"],
+            auth_token=proxy["auth_token"],
+        )
+
+    # Node-specified provider+model.
+    if llm_provider and llm_model_name:
+        try:
+            return _build_local_llm_from_node_config_impl(
+                mainwin,
+                llm_provider=llm_provider,
+                llm_model_name=llm_model_name,
+            )
+        except ValueError as exc:
+            llm = _proxy_fallback(f"node LLM unavailable: {exc}")
+            if llm is not None:
+                return llm
+            raise
 
     # Global default.
     logger.info("[BrowserAutomation] No node-specific LLM settings, using global default")
     try:
         llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
         if llm is None:
+            llm = _proxy_fallback("no global default LLM configured")
+            if llm is not None:
+                return llm
             raise ValueError(
                 "Failed to create LLM from global default settings.\n\n"
                 "Please configure a default LLM in Settings > LLM Management:\n"
@@ -3392,9 +3422,15 @@ def build_local_llm(
             )
         logger.info("[BrowserAutomation] ✅ Using global default LLM")
         return llm
-    except ValueError:
+    except ValueError as exc:
+        llm = _proxy_fallback(f"global default LLM failed: {exc}")
+        if llm is not None:
+            return llm
         raise
     except Exception as exc:
+        llm = _proxy_fallback(f"global default LLM failed: {exc}")
+        if llm is not None:
+            return llm
         raise ValueError(
             f"Failed to create LLM from global default settings:\n"
             f"  Error: {exc}\n\n"
@@ -3736,11 +3772,37 @@ def _build_cloud_llm_impl(
                 auth_token=proxy["auth_token"],
             )
 
+    def _proxy_fallback(reason: str):
+        """Missing/broken local LLM config → cloud LLM proxy, when configured."""
+        proxy = _get_proxy_config()
+        if not proxy:
+            return None
+        from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
+
+        provider = llm_provider or "openai"
+        model = llm_model_name or "gpt-4o"
+        logger.info(
+            f"[BrowserAutomation] Falling back to Lambda proxy ({reason}): {provider}/{model}"
+        )
+        return ChatLambdaProxy(
+            model=model,
+            provider_name=provider,
+            user_id=proxy["user_id"],
+            lambda_endpoint=proxy["endpoint"],
+            auth_token=proxy["auth_token"],
+        )
+
     # Node-specified provider.
     if llm_provider:
-        return _build_cloud_llm_from_node_config_impl(
-            llm_provider=llm_provider, llm_model_name=llm_model_name,
-        )
+        try:
+            return _build_cloud_llm_from_node_config_impl(
+                llm_provider=llm_provider, llm_model_name=llm_model_name,
+            )
+        except (ValueError, RuntimeError) as exc:
+            llm = _proxy_fallback(f"node LLM unavailable: {exc}")
+            if llm is not None:
+                return llm
+            raise
 
     # Default from Settings.
     from app_context import AppContext
@@ -3755,6 +3817,11 @@ def _build_cloud_llm_impl(
     provider_dict = llm_config["provider_dict"]
     provider_type, model_name_default, api_key, base_url = extract_provider_config(provider_dict)
     if not api_key and provider_type not in ("ollama",):
+        llm = _proxy_fallback(
+            f"no API key for default provider '{llm_config['provider_id']}'"
+        )
+        if llm is not None:
+            return llm
         raise RuntimeError(
             f"[BrowserAutomation] No API key configured for default LLM provider "
             f"'{llm_config['provider_id']}'"
