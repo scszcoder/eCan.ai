@@ -72,6 +72,17 @@ class LightragServer:
         self._unhealthy_count = 0
         self._max_unhealthy = 3  # Restart after 3 consecutive unhealthy checks
 
+        # ---- vLLM max_model_len cache (persistent across restarts) ----
+        # Source: vLLM 400 error responses carry the model's real cap in
+        # `upstream_body.max_model_len`.  We extract it once and cache it so
+        # that subsequent launches (including the very next one) apply the
+        # correct MAX_TOTAL_TOKENS / OPENAI_LLM_MAX_COMPLETION_TOKENS without
+        # waiting for another error.  The cache key is the LLM_MODEL name so
+        # multiple models get separate entries.
+        self._vllm_cache: dict = {}       # in-memory: model -> max_model_len
+        self._vllm_cache_file = None       # resolved lazily in build_env (needs LOG_DIR)
+        self._vllm_error_monitor_thread: Optional[threading.Thread] = None
+
         self._setup_signal_handlers()
         
         # Proxy callback registration
@@ -449,6 +460,9 @@ class LightragServer:
 
         self._sync_restart_settings(env)
 
+        # Load persistent vLLM max_model_len cache now that LOG_DIR is set in env
+        self._load_vllm_max_model_len_cache(env)
+
         return env
 
     def _sync_restart_settings(self, env):
@@ -475,8 +489,6 @@ class LightragServer:
     # provider config (e.g. Qwen3.6-27B-AWQ-INT4) can be redeployed with a
     # smaller window than its native capability.
 
-    _LLM_TOKEN_FALLBACK = 8192  # safe static default when no source is reachable
-
     @staticmethod
     def _llm_models_endpoint(host: str) -> Optional[str]:
         """Return the OpenAI-compatible /models URL for the given binding host,
@@ -495,11 +507,25 @@ class LightragServer:
 
         Returns an integer context length, or None when neither source is
         reachable. Never raises - all failures are logged at WARNING.
+
+        Lookup order (first hit wins):
+          1. Persistent vLLM error cache  – extracted from vLLM 400 responses
+          2. Live /v1/models query         – authoritative but may not expose max_model_len
+          3. ryoais_models.json snapshot   – cached API response; may overshoot deployed cap
         """
         host = (env.get('LLM_BINDING_HOST') or '').strip()
         model = (env.get('LLM_MODEL') or '').strip()
         if not host or not model:
             return None
+
+        # ---- 0. Persistent vLLM error cache (populated from vLLM 400 responses) ----
+        if model in self._vllm_cache:
+            cached_len = self._vllm_cache[model]
+            logger.info(
+                f"[LightragServer] LLM max_model_len from vLLM error cache: "
+                f"model={model} len={cached_len}"
+            )
+            return cached_len
 
         # Only attempt the live query for OpenAI-compatible bindings (which is
         # what ryoais / deepseek / dashscope / bytedance etc. all are after
@@ -570,35 +596,52 @@ class LightragServer:
         return None
 
     def _apply_llm_token_limits(self, env: dict) -> None:
-        """Set MAX_TOTAL_TOKENS and OPENAI_LLM_MAX_COMPLETION_TOKENS from the
-        model's deployed context window. Never raises."""
+        """Sync MAX_TOTAL_TOKENS / OPENAI_LLM_MAX_COMPLETION_TOKENS with the model's
+        deployed context window.
+
+        Two cases:
+        1. The deployment exposes `max_model_len` (vLLM /v1/models) or a
+           ryoais_models.json snapshot has `context_length` — use that value
+           as MAX_TOTAL_TOKENS, and derive OPENAI_LLM_MAX_COMPLETION_TOKENS
+           = max_model_len - 2000 so prompt + output fits the real cap.
+        2. Neither source is reachable — leave the env untouched. LightRAG's
+           own DEFAULT_MAX_TOTAL_TOKENS (30000 in 1.4.x) then applies, and
+           we do NOT inject a smaller eCan-side value that would override
+           the model's actual capability.
+
+        Never raises."""
         try:
             max_model_len = self._resolve_llm_max_model_len(env)
             if not max_model_len:
-                # Fall back to the .env value already in env (loaded in step 2),
-                # or the static default if absent. We derive both knobs from
-                # the same source so the pair stays consistent even when
-                # neither deployment nor JSON snapshot was reachable.
-                total = self._coerce_int(env.get('MAX_TOTAL_TOKENS')) or self._LLM_TOKEN_FALLBACK
-                env['MAX_TOTAL_TOKENS'] = str(total)
-                derived_output = max(512, total - 2000)
-                if not self._coerce_int(env.get('OPENAI_LLM_MAX_COMPLETION_TOKENS')):
-                    env['OPENAI_LLM_MAX_COMPLETION_TOKENS'] = str(derived_output)
-                if 'MAX_TOTAL_TOKENS' not in env or not str(env['MAX_TOTAL_TOKENS']).strip():
-                    logger.info(
-                        f"[LightragServer] LLM max_model_len unknown, "
-                        f"using fallback MAX_TOTAL_TOKENS={env['MAX_TOTAL_TOKENS']} "
-                        f"OPENAI_LLM_MAX_COMPLETION_TOKENS={env['OPENAI_LLM_MAX_COMPLETION_TOKENS']}"
-                    )
+                # No authoritative source. Respect what was already in the
+                # env (effective_config from .env + system API keys); if
+                # MAX_TOTAL_TOKENS wasn't set there either, leave it unset so
+                # LightRAG's DEFAULT_MAX_TOTAL_TOKENS (30000) applies. We do
+                # NOT inject the eCan-side _LLM_TOKEN_FALLBACK here because
+                # that's smaller than what most models actually support and
+                # was the root cause of the 8196-cap / 2005+6192 collisions.
+                logger.info(
+                    "[LightragServer] LLM max_model_len unknown; "
+                    "leaving MAX_TOTAL_TOKENS to LightRAG default "
+                    "(env value: %s)",
+                    env.get('MAX_TOTAL_TOKENS', '<unset>')
+                )
                 return
 
-            # Reserve 2000 tokens for the prompt / system message / retrieval
-            # context; the rest is budget for the model output. Floor at 512
-            # so small models (max_model_len <= 2500) still get usable output.
+            # Reserve tokens for the prompt / system message / retrieval context.
+            # MAX_TOTAL_TOKENS = max_model_len so the full context window is usable.
+            # OPENAI_LLM_MAX_COMPLETION_TOKENS reserves ~4000 tokens for the prompt side
+            # (system instructions ~1800 + entity/relation context ~1500 + chunks ~500
+            # + query ~10).  The remainder is output budget.  Floor at 512 so small
+            # models still get a usable output budget.
+            # Buffer = 200 tokens against the theoretical MAX_TOTAL_TOKENS to absorb
+            # minor tokenizer-counting discrepancies between our estimate and vLLM's.
             previous_total = env.get('MAX_TOTAL_TOKENS')
             previous_output = env.get('OPENAI_LLM_MAX_COMPLETION_TOKENS')
             env['MAX_TOTAL_TOKENS'] = str(max_model_len)
-            env['OPENAI_LLM_MAX_COMPLETION_TOKENS'] = str(max(512, max_model_len - 2000))
+            env['OPENAI_LLM_MAX_COMPLETION_TOKENS'] = str(
+                max(512, max_model_len - max(2000, int(max_model_len * 0.5)))
+            )
             logger.info(
                 f"[LightragServer] LLM token limits derived from deployment: "
                 f"max_model_len={max_model_len} "
@@ -608,6 +651,130 @@ class LightragServer:
         except Exception as e:
             logger.warning(f"[LightragServer] _apply_llm_token_limits failed: {e}")
 
+    # ---- vLLM max_model_len cache helpers -----------------------------------
+
+    def _get_vllm_cache_path(self, env: dict = None) -> str:
+        """Return the path to the persistent vLLM max_model_len cache file.
+
+        The file lives next to the PID / log files so it travels with the
+        workspace and is automatically workspace-scoped.
+        """
+        # Prefer the env dict (set by build_env at startup) over extra_env,
+        # because lightrag_config_utils.py sets LOG_DIR there.
+        _env = env or {}
+        log_dir = _env.get('LOG_DIR') or self.extra_env.get('LOG_DIR')
+        if not log_dir:
+            app_data = _env.get('APP_DATA_PATH') or self.extra_env.get('APP_DATA_PATH')
+            if app_data:
+                log_dir = os.path.join(app_data, 'runlogs')
+            else:
+                log_dir = os.path.join(str(Path.cwd()), 'lightrag_data', 'runlogs')
+        os.makedirs(log_dir, exist_ok=True)
+        return os.path.join(log_dir, 'vllm_max_model_len.json')
+
+    def _load_vllm_max_model_len_cache(self, env: dict = None) -> None:
+        """Load persisted vLLM max_model_len entries from disk."""
+        self._vllm_cache_file = self._get_vllm_cache_path(env)
+        try:
+            if os.path.exists(self._vllm_cache_file):
+                with open(self._vllm_cache_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    self._vllm_cache = data
+                    logger.info(
+                        f"[LightragServer] Loaded vLLM max_model_len cache "
+                        f"({len(data)} entries) from {self._vllm_cache_file}"
+                    )
+        except Exception as e:
+            logger.debug(f"[LightragServer] Failed to load vLLM cache: {e}")
+            self._vllm_cache = {}
+
+    def _save_vllm_max_model_len(self, model: str, max_model_len: int) -> None:
+        """Persist a discovered vLLM max_model_len to disk (workspace-scoped)."""
+        if not model or not max_model_len or max_model_len <= 0:
+            return
+        self._vllm_cache[model] = max_model_len
+        try:
+            with open(self._vllm_cache_file, 'w', encoding='utf-8') as f:
+                json.dump(self._vllm_cache, f, ensure_ascii=False, indent=2)
+            logger.warning(
+                f"[LightragServer] vLLM max_model_len discovered and cached: "
+                f"model={model} max_model_len={max_model_len}"
+            )
+        except Exception as e:
+            logger.debug(f"[LightragServer] Failed to save vLLM cache: {e}")
+
+    def _parse_vllm_error_for_max_model_len(self, line: str) -> tuple:
+        """Scan one stderr line for a vLLM 400 error that carries max_model_len.
+
+        Returns (model, max_model_len) when found, else (None, None).
+        The relevant error field looks like::
+
+            "upstream_body": "{\"error\":{...\"max_model_len\":8196,...}}"
+        """
+        # Match the pattern where vLLM reports the cap inside upstream_body
+        # e.g.: '"max_model_len":8196' or '"max_model_len": 8196'
+        import re as _re
+        m = _re.search(r'"max_model_len"\s*:\s*(\d+)', line)
+        if not m:
+            return None, None
+        val = int(m.group(1))
+        if val <= 0:
+            return None, None
+        # Also try to extract the model name from the error context
+        model_m = _re.search(r'"requested_model"\s*:\s*"([^"]+)"', line)
+        model = model_m.group(1) if model_m else None
+        return model, val
+
+    def _start_vllm_error_monitor(self) -> None:
+        """Spawn a background thread that watches stderr for vLLM max_model_len.
+
+        Once a value is found for a given model it is saved to the persistent
+        cache and the thread terminates.  This makes the cap available to the
+        very next LightRAG restart without needing another error.
+        """
+        def monitor():
+            while getattr(self, '_vllm_error_monitor_active', False):
+                # Re-open stderr pipe on every iteration so we catch new lines
+                # written by the child process (stderr_log is a rotating wrapper).
+                stderr_path = None
+                if self._last_log_paths and self._last_log_paths[1]:
+                    stderr_path = self._last_log_paths[1]
+                if not stderr_path or not os.path.exists(stderr_path):
+                    import time as _t
+                    _t.sleep(2)
+                    continue
+
+                current_pos = 0
+                # Track per-model so we stop after first discovery per model
+                discovered: dict = {}   # model -> max_model_len
+                while getattr(self, '_vllm_error_monitor_active', False):
+                    try:
+                        import time as _t
+                        _t.sleep(2)
+                        if not os.path.exists(stderr_path):
+                            break
+                        with open(stderr_path, 'r', encoding='utf-8', errors='replace') as f:
+                            f.seek(current_pos)
+                            for raw in f:
+                                model, val = self._parse_vllm_error_for_max_model_len(raw)
+                                if model and val:
+                                    discovered[model] = val
+                            current_pos = f.tell()
+                        # Once we have discoveries, save and signal stop
+                        if discovered:
+                            for m, v in discovered.items():
+                                self._save_vllm_max_model_len(m, v)
+                            break
+                    except Exception:
+                        pass
+
+        self._vllm_error_monitor_active = True
+        t = threading.Thread(target=monitor, name="LightragVLLMErrorMonitor", daemon=True)
+        t.start()
+        self._vllm_error_monitor_thread = t
+        logger.info("[LightragServer] vLLM error monitor thread started")
+
     # Minimum token limits to ensure chunks are not completely discarded
     # These are industry-standard minimums for RAG systems
     _MIN_ENTITY_TOKENS = 1500   # Minimum for entity context (covers ~5-10 entities)
@@ -615,54 +782,85 @@ class LightragServer:
     _MIN_CHUNK_BUDGET = 500     # Minimum tokens reserved for chunks
 
     def _apply_retrieval_token_limits(self, env: dict) -> None:
-        """Ensure retrieval token limits (entity/relation) have sane minimums.
+        """Ensure retrieval token limits (entity/relation) fit within MAX_TOTAL_TOKENS.
 
-        This prevents the common misconfiguration where entity/relation tokens
-        are set too high, causing chunks to be completely discarded.
+        LightRAG's DEFAULT_MAX_ENTITY_TOKENS (6000) + DEFAULT_MAX_RELATION_TOKENS (8000)
+        = 14000, which exceeds most deployments' MAX_TOTAL_TOKENS (8196). This causes
+        the entity/relation context to consume the entire budget and leaves zero for
+        chunks — or worse, exceeds the model's context window entirely.
 
-        Industry standard:
-        - MAX_ENTITY_TOKENS: typically 1500-4000 (covers 5-20 entities)
-        - MAX_RELATION_TOKENS: typically 2000-6000 (covers 10-30 relations)
-        - Chunk budget should be at least 500 tokens for meaningful context
+        This method enforces both a floor (MIN_*) and a ceiling (MAX_*):
+          - Floor: raise values that are set too low for any useful retrieval.
+          - Ceiling: cap values that together exceed MAX_TOTAL_TOKENS, keeping at
+            least _MIN_CHUNK_BUDGET tokens for the chunk context.
+
+        Industry-recommended ranges for 8k context models:
+          MAX_ENTITY_TOKENS:     1500-3000  (covers 10-20 entities with descriptions)
+          MAX_RELATION_TOKENS:   1500-3000  (covers 15-30 relations)
+          Chunk budget:           1000-2500  (actual chunks after system-prompt overhead)
         """
         try:
             max_total = self._coerce_int(env.get('MAX_TOTAL_TOKENS')) or 8192
-
-            # Apply minimums only if user set them too low
             entity_tokens = self._coerce_int(env.get('MAX_ENTITY_TOKENS'))
             relation_tokens = self._coerce_int(env.get('MAX_RELATION_TOKENS'))
 
+            # ---- Floor: raise values set too low ----
             changes = []
-
             if entity_tokens is not None and entity_tokens < self._MIN_ENTITY_TOKENS:
-                changes.append(f"MAX_ENTITY_TOKENS: {entity_tokens} -> {self._MIN_ENTITY_TOKENS}")
+                changes.append(f"MAX_ENTITY_TOKENS: {entity_tokens} -> {self._MIN_ENTITY_TOKENS} (floor)")
                 env['MAX_ENTITY_TOKENS'] = str(self._MIN_ENTITY_TOKENS)
 
             if relation_tokens is not None and relation_tokens < self._MIN_RELATION_TOKENS:
-                changes.append(f"MAX_RELATION_TOKENS: {relation_tokens} -> {self._MIN_RELATION_TOKENS}")
+                changes.append(f"MAX_RELATION_TOKENS: {relation_tokens} -> {self._MIN_RELATION_TOKENS} (floor)")
                 env['MAX_RELATION_TOKENS'] = str(self._MIN_RELATION_TOKENS)
 
-            # Calculate chunk budget and warn if it's too small
+            # ---- Ceiling: cap values that collectively exceed MAX_TOTAL_TOKENS ----
+            # Re-read after floor adjustments
+            # Cap entity and relation tokens to leave sufficient budget for chunks.
+            # For 8K context models: total budget 8196 must cover:
+            #   system prompt (~1800) + query (~10) + buffer (200) = ~2010 overhead
+            #   + chunks (~1500 for 1-2 full resumes) = ~3510
+            #   → 8196 - 3510 = 4686 for entities + relations combined
+            # We cap entity at 2000 and relation at 2500 (total 4500 < 4686 ✓).
+            # If the combined entity+relation exceeds safe_max, cap them proportionally.
             entity_limit = self._coerce_int(env.get('MAX_ENTITY_TOKENS')) or self._MIN_ENTITY_TOKENS
             relation_limit = self._coerce_int(env.get('MAX_RELATION_TOKENS')) or self._MIN_RELATION_TOKENS
+            safe_max = max_total - self._MIN_CHUNK_BUDGET  # 8196 - 500 = 7696
+
+            if entity_limit + relation_limit > safe_max:
+                # Proportionally cap to preserve entity:relation = 4:6 ratio
+                cap_entity = max(self._MIN_ENTITY_TOKENS, int(safe_max * 0.4))
+                cap_relation = max(self._MIN_RELATION_TOKENS, int(safe_max * 0.6))
+                changes.append(
+                    f"Retrieval budget exceeded: {entity_limit}+{relation_limit}={entity_limit+relation_limit} "
+                    f"> {safe_max} (MAX_TOTAL={max_total} - CHUNK_BUDGET={self._MIN_CHUNK_BUDGET}); "
+                    f"capping ENTITY→{cap_entity}, RELATION→{cap_relation}"
+                )
+                env['MAX_ENTITY_TOKENS'] = str(cap_entity)
+                env['MAX_RELATION_TOKENS'] = str(cap_relation)
+                entity_limit = cap_entity
+                relation_limit = cap_relation
+
             chunk_budget = max_total - entity_limit - relation_limit
 
             if chunk_budget < self._MIN_CHUNK_BUDGET:
                 changes.append(
-                    f"Chunk budget warning: only {chunk_budget} tokens "
-                    f"(MIN={self._MIN_CHUNK_BUDGET}). Consider increasing MAX_TOTAL_TOKENS "
-                    f"or reducing MAX_ENTITY_TOKENS/MAX_RELATION_TOKENS."
+                    f"Chunk budget critically low: {chunk_budget} tokens "
+                    f"(MIN={self._MIN_CHUNK_BUDGET}). MAX_TOTAL_TOKENS may be too small "
+                    f"for this model."
                 )
                 logger.warning(
-                    f"[LightragServer] Retrieval token limits may discard chunks: "
+                    f"[LightragServer] Chunk budget warning: "
                     f"MAX_TOTAL={max_total}, ENTITY={entity_limit}, "
                     f"RELATION={relation_limit}, CHUNK_BUDGET={chunk_budget}"
                 )
 
             if changes:
-                logger.warning(
-                    f"[LightragServer] Retrieval token limits adjusted: " + "; ".join(changes)
-                )
+                for msg in changes:
+                    if "capping" in msg.lower() or "critically" in msg.lower():
+                        logger.warning(f"[LightragServer] {msg}")
+                    else:
+                        logger.info(f"[LightragServer] {msg}")
         except Exception as e:
             logger.debug(f"[LightragServer] _apply_retrieval_token_limits failed: {e}")
 
@@ -1196,7 +1394,11 @@ class LightragServer:
             logger.info(f"[LightragServer] Started on port {env['PORT']}")
             if self.proc and self.proc.poll() is None:
                 self._write_pid_file(self.proc.pid, env)
-                
+
+                # Start vLLM error monitor so we catch max_model_len on the very
+                # first 400 error, making it available for the next restart.
+                self._start_vllm_error_monitor()
+
                 if wait_gating:
                     health_timeout = float(env.get('LIGHTRAG_HEALTH_TIMEOUT', 120.0))
                     if self._wait_for_server_ready(int(env['PORT']), timeout=health_timeout):
@@ -1443,6 +1645,12 @@ class LightragServer:
                    If False (default), use graceful termination.
         """
         self._monitor_running = False
+        # Stop vLLM error monitor thread
+        self._vllm_error_monitor_active = False
+        if hasattr(self, '_vllm_error_monitor_thread') and self._vllm_error_monitor_thread:
+            self._vllm_error_monitor_thread.join(timeout=2)
+            self._vllm_error_monitor_thread = None
+
         if hasattr(self, '_script_path') and self._script_path and os.path.exists(self._script_path):
             try: os.remove(self._script_path)
             except Exception as e: logger.debug(f"[LightragServer] Error removing script: {e}")

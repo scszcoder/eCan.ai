@@ -2480,7 +2480,21 @@
         "workspace_name_hint": "新 workspace 将使用 {{dimension}} 维的向量索引",
         "workspace_name_required": "Workspace 名称不能为空",
         "workspace_switched": "已切换到 workspace：{{name}}",
-        "workspace_switch_failed": "切换 workspace 失败"
+        "workspace_switch_failed": "切换 workspace 失败",
+        "workspacePicker": {
+          "tooltip": "留空则使用服务端默认工作空间。建议按类别使用不同名称（例如 customer_service、product_details）以隔离数据。",
+          "placeholder": "工作空间名称（留空 = 服务端默认）"
+        },
+        "headerStatus": {
+          "loading": "加载中...",
+          "idle": "空闲",
+          "processing": "处理中: {{processing}}",
+          "pending": "待处理: {{pending}}",
+          "processingAndPending": "处理中: {{processing}} / 待处理: {{pending}}",
+          "processed": "已处理: {{processed}}/{{total}}",
+          "failed": "失败: {{failed}}",
+          "tooltipRefreshing": "刷新中..."
+        }
       },
       "help": {
         "title": "知识库使用指南",

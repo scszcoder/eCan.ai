@@ -462,9 +462,24 @@ def handle_clear_login_info(request: IPCRequest, params: Optional[Any]) -> IPCRe
 @IPCHandlerRegistry.background_handler('logout')
 def handle_logout(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """Handles logout requests with internationalized responses.
-    
+
     Note: This is a background handler because logout triggers async cleanup.
-    We need to wait for the cleanup to complete before returning to the frontend.
+    The frontend kicks off cleanup, navigates back to /login, and re-arms
+    WebSocket reconnection when LoginCN mounts (see
+    gui_v2/src/pages/Login/LoginCN.tsx).  We return ``success`` immediately
+    after firing the cleanup coroutine — there is no value in blocking the
+    IPC response on cleanup completion:
+
+      - Cleanup runs in the qasync event loop; a long block here would also
+        block the GraphQL worker that processes ``get_initialization_progress``
+        / ``get_last_login`` queries LoginCN fires on mount.  That's the
+        exact race that was producing the perceived "logout hang" (terminals/
+        7.txt post-logout 30-60s IPC failures during uvicorn graceful
+        shutdown — see gui/LocalServer.py:1688 ``timeout_graceful_shutdown=1``).
+      - Logout is best-effort: if any single cleanup step times out, the
+        user should still be back at the login screen, not staring at a
+        dead UI.  Cleanup exceptions are caught and logged inside
+        ``MainWindow._async_cleanup_and_logout`` already.
     """
     lang = auth_messages.DEFAULT_LANG
     try:
@@ -478,35 +493,27 @@ def handle_logout(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
             return create_success_response(request, {
                 'message': auth_messages.get_message('logout_success')
             })
-        
-        # Call handleLogout which triggers async cleanup
-        logger.info("[user_handler] Starting logout process...")
-        result = login.handleLogout()
-        
-        # Wait for async cleanup to complete
-        # The cleanup task is created in logout() method, we need to give it time to finish
-        import asyncio
-        import time
-        
-        # Wait up to 3 seconds for cleanup to complete
-        max_wait = 3.0
-        start_time = time.time()
-        while time.time() - start_time < max_wait:
-            # Check if cleanup is done by looking for the completion log
-            # In practice, we just wait a reasonable amount of time
-            time.sleep(0.5)
-            if time.time() - start_time >= 1.5:
-                # Most cleanup should be done by now
-                break
-        
-        logger.info("[user_handler] Logout cleanup wait completed")
-        
+
+        # Fire-and-forget: ``handleLogout`` schedules ``MainWindow.logout``
+        # via ``asyncio.run_coroutine_threadsafe`` with an internal 5s
+        # timeout.  Cleanup runs on its own and we don't gate the IPC
+        # response on it (see docstring above for the rationale).
+        logger.info("[user_handler] Starting logout process (fire-and-forget)...")
+        try:
+            login.handleLogout()
+        except Exception as cleanup_exc:
+            # Cleanup exceptions must not surface to the IPC caller — the
+            # frontend will redirect to /login regardless.  Log and move on.
+            logger.warning(
+                f"[user_handler] handleLogout raised {cleanup_exc!r}; "
+                f"frontend will still proceed to /login"
+            )
+
         # Destroy web session if in web mode (no-op in desktop mode)
         session_id = params.get('session_id') if params else None
         _destroy_web_session(session_id=session_id)
 
         return create_success_response(request, {
-            "result": result,
             'message': auth_messages.get_message('logout_success')
         })
 

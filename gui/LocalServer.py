@@ -625,9 +625,31 @@ class RequestHandlers:
             elif error_code == "GRAPHQL_ERROR" and "SYSTEM_NOT_READY" in error_message:
                 error_code = "SYSTEM_NOT_READY"
             
-            # Log expected auth/system errors as warning without traceback
-            # Log unexpected errors as error with traceback
-            if error_code in ("INVALID_TOKEN", "TOKEN_REQUIRED", "SYSTEM_NOT_READY"):
+            # Log expected auth/system/login errors as warning without
+            # traceback.  Log unexpected errors as error with traceback.
+            #
+            # ``LOGIN_FAILED`` was previously logged with a full
+            # traceback (because the handler raised RuntimeError to
+            # surface the error code, then LocalServer caught it and
+            # unconditionally logged the traceback for any code not in
+            # the early-exit list).  That produced scary red noise in
+            # the user's console every time they typed the wrong
+            # password, even though the GraphQL response correctly
+            # surfaced ``code: LOGIN_FAILED`` to the frontend (see
+            # terminals/7.txt:51-65).  Adding ``LOGIN_FAILED``,
+            # ``CLOUDBASE_NOT_AVAILABLE``, ``INVALID_CREDENTIALS`` and
+            # ``SMS_SEND_FAILED`` to the warning list keeps the noise
+            # down without changing behaviour — the frontend still
+            # gets the structured error code in the GraphQL response.
+            if error_code in (
+                "INVALID_TOKEN",
+                "TOKEN_REQUIRED",
+                "SYSTEM_NOT_READY",
+                "LOGIN_FAILED",
+                "CLOUDBASE_NOT_AVAILABLE",
+                "INVALID_CREDENTIALS",
+                "SMS_SEND_FAILED",
+            ):
                 logger.warning(f"[GraphQL] {error_code} for {method}: {error_message}")
             else:
                 logger.error(f"[GraphQL] ❌ Error handling request: {e}")

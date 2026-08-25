@@ -345,6 +345,21 @@ class LightragClient:
                 "include_references": True,
                 "include_chunk_content": True,
             }
+
+            # Enforce token caps BEFORE sending to server.  LightRAG respects query-
+            # param values over env values, so a caller's max_total_tokens=32768 can
+            # exceed the model's deployed context window (8K) and cause vLLM 400 errors.
+            # Values are hardcoded here (not read from env) because the client runs in
+            # the main process whose env differs from the server subprocess env.
+            # These defaults must match the server's _apply_retrieval_token_limits caps.
+            # For 8K context models (Qwen3.8-27B-AWQ-INT4):
+            #   - MAX_ENTITY_TOKENS:     capped at 2000  (covers ~10 entities with descriptions)
+            #   - MAX_RELATION_TOKENS:  capped at 2500  (covers ~15 relations)
+            #   - MAX_TOTAL_TOKENS:     capped at 8192  (matches deployed context window)
+            _cap_entity = 2000
+            _cap_relation = 2500
+            _cap_total = 8192
+
             if options:
                 # Map all supported parameters as defined in QueryRequest schema
                 for key in [
@@ -369,6 +384,14 @@ class LightragClient:
                 ]:
                     if key in options:
                         payload[key] = options[key]
+
+                # Hard cap: client-side options must not exceed server-side limits
+                if payload.get('max_entity_tokens', 0) > _cap_entity:
+                    payload['max_entity_tokens'] = _cap_entity
+                if payload.get('max_relation_tokens', 0) > _cap_relation:
+                    payload['max_relation_tokens'] = _cap_relation
+                if payload.get('max_total_tokens', 0) > _cap_total:
+                    payload['max_total_tokens'] = _cap_total
             
             # Use JSON content type
             headers = _ws_headers(workspace, {'Content-Type': 'application/json'})
@@ -745,6 +768,12 @@ class LightragClient:
             "include_references": True,
             "include_chunk_content": True,
         }
+
+        # Enforce token caps (same as query method above)
+        _cap_entity = 2000
+        _cap_relation = 2500
+        _cap_total = 8192
+
         if options:
             # Map all supported parameters as defined in QueryRequest schema
             for key in [
@@ -767,7 +796,15 @@ class LightragClient:
             ]:
                 if key in options:
                     payload[key] = options[key]
-        
+
+            # Hard cap: client-side options must not exceed server-side limits
+            if payload.get('max_entity_tokens', 0) > _cap_entity:
+                payload['max_entity_tokens'] = _cap_entity
+            if payload.get('max_relation_tokens', 0) > _cap_relation:
+                payload['max_relation_tokens'] = _cap_relation
+            if payload.get('max_total_tokens', 0) > _cap_total:
+                payload['max_total_tokens'] = _cap_total
+
         # Log query parameters for debugging
         logger.info(f"[Stream Query] Payload: query='{text[:50]}...', mode={payload.get('mode')}, "
                    f"only_need_context={payload.get('only_need_context')}, "

@@ -1121,7 +1121,7 @@ export class IPCAPI {
     }
 
     // LLM Management APIs
-    public async getLLMProviders<T>(): Promise<APIResponse<T>> {
+    public async getLLMProviders<T>(username?: string): Promise<APIResponse<T>> {
         // Ensure settings are loaded (providers come from DynamoDB settings)
         await this._ensureSettingsLoaded();
         console.log('[IPCAPI] getLLMProviders: _settingsData keys=', this._settingsData ? Object.keys(this._settingsData) : 'NULL');
@@ -1136,7 +1136,11 @@ export class IPCAPI {
         if (this._settingsUsername) {
             console.debug('[IPCAPI] getLLMProviders: cache miss, using IPC for desktop mode');
         }
-        return apiRouter.execute({ method: 'get_llm_providers' });
+        // Pass username so the backend reads ryoais_models.json / ollama_models.json from the
+        // same path that fetchRyoAISModels / fetchOllamaModels wrote to.
+        const params: any = {};
+        if (username) params.username = username;
+        return apiRouter.execute({ method: 'get_llm_providers' }, params);
     }
 
     public async setDefaultLLM<T>(name: string, username: string, model?: string): Promise<APIResponse<T>> {
@@ -1335,7 +1339,7 @@ export class IPCAPI {
     }
 
     // Embedding Management APIs
-    public async getEmbeddingProviders<T>(): Promise<APIResponse<T>> {
+    public async getEmbeddingProviders<T>(username?: string): Promise<APIResponse<T>> {
         await this._ensureSettingsLoaded();
         const providers = this._extractProviders('embedding_providers');
         if (providers) {
@@ -1345,7 +1349,9 @@ export class IPCAPI {
         if (this._settingsUsername) {
             console.debug('[IPCAPI] getEmbeddingProviders: cache miss, using IPC for desktop mode');
         }
-        return apiRouter.execute({ method: 'get_embedding_providers' });
+        const params: any = {};
+        if (username) params.username = username;
+        return apiRouter.execute({ method: 'get_embedding_providers' }, params);
     }
 
     public async setDefaultEmbedding<T>(name: string, username: string, model?: string): Promise<APIResponse<T>> {
@@ -1470,7 +1476,7 @@ export class IPCAPI {
     }
 
     // Rerank Management APIs
-    public async getRerankProviders<T>(): Promise<APIResponse<T>> {
+    public async getRerankProviders<T>(username?: string): Promise<APIResponse<T>> {
         await this._ensureSettingsLoaded();
         const providers = this._extractProviders('rerank_providers');
         if (providers) {
@@ -1480,7 +1486,9 @@ export class IPCAPI {
         if (this._settingsUsername) {
             console.debug('[IPCAPI] getRerankProviders: cache miss, using IPC for desktop mode');
         }
-        return apiRouter.execute({ method: 'get_rerank_providers' });
+        const params: any = {};
+        if (username) params.username = username;
+        return apiRouter.execute({ method: 'get_rerank_providers' }, params);
     }
 
     public async setDefaultRerank<T>(name: string, username: string, model?: string): Promise<APIResponse<T>> {

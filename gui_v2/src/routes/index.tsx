@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Button, Spin } from 'antd';
 import MainLayout from '../components/Layout/MainLayout';
@@ -69,16 +69,86 @@ const ShippingLabel = lazyWithRetry(() => import('../pages/ShippingLabel/Shippin
 const RAGDocuments = lazyWithRetry(() => import('../pages/RAG/RAGDocuments'));
 const Plugins = lazyWithRetry(() => import('../pages/Plugins/Plugins'));
 
-// 根据 auth_type 动态选择登录组件（配置加载期间默认为 cognito/Intl）
+// 根据 auth_type 动态选择登录组件（配置加载期间必须等待，不允许默认
+// 渲染 LoginIntl — 否则用户刷新页面时，由于 config 仍是 null，路由会
+// 短暂渲染 LoginIntl，然后即使 config 加载成功也不会自动切换到
+// LoginCN，造成"后端明明是 CN 配置却显示 LoginIntl"的用户体验事故）。
+//
+// 复现路径：
+//   1. 用户按 F5 / Vite HMR reload LoginCN
+//   2. AppConfigProvider mount，useState(null) ⇒ config=null，loading=true
+//   3. LoginPageWrapper 立即渲染，useLoginComponent() 走到 fallback
+//      `config?.auth_type || 'cognito'` ⇒ 渲染 LoginIntl
+//   4. AppConfigProvider.loadConfig() 在 catch 里把 fallback 写成
+//      intl/cognito ⇒ 即使 backend 后来给出真实配置，React 也不会
+//      把 LoginIntl 切换回 LoginCN（useLoginComponent 在 fallback
+//      值下永远命中 LoginIntl 分支）
+//
+// 解决：useLoginComponent 在 config 尚未就绪时返回 null，强制
+// LoginPageWrapper 显示 loading spinner 而非错误的 LoginIntl。
+// 此外，如果后端 fetchConfig() 失败并已经写入了 intl/cognito fallback，
+// 我们用一个 watchdog 周期性地 refetch — 当 backend 复活后会自动切
+// 到正确的 LoginCN。
 function useLoginComponent() {
-  const { config } = useAppConfig();
-  const authType = config?.auth_type || 'cognito';
-  return authType === 'cloudbase' ? LoginCN : LoginIntl;
+  const { config, loading, error, refetch } = useAppConfig();
+
+  // 看门狗：一旦用户停留在登录页（可能是 fallback 状态），就周期性
+  // refetch AppConfig。backend 一旦 ready，下次 refetch 就会把 fallback
+  // 覆盖掉，useLoginComponent 切到 LoginCN。
+  useEffect(() => {
+    if (!config) return;
+    // Fallback 特征：auth_type=cognito + empty cloudbase_env_id + is_cn=false。
+    // 如果这三个条件都成立，说明我们处于 backend 不可达状态而不是真正的
+    // intl 配置。  True intl 配置会有 cognito_domain / cognito_client_id
+    // 非空。
+    const looksLikeFallback =
+      config.auth_type === 'cognito' &&
+      !config.is_cn &&
+      !config.auth.cloudbase_env_id &&
+      !config.auth.cognito_domain &&
+      !config.auth.cognito_client_id;
+    if (!looksLikeFallback) return;
+
+    const interval = setInterval(() => {
+      console.debug('[useLoginComponent] Watchdog refetching AppConfig');
+      refetch();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [config, refetch]);
+
+  // 配置加载中或 backend 不可达：保持 spinner，让 watchdog 在后台尝试恢复。
+  if (loading || !config) {
+    return null;
+  }
+  // 一旦 config 真正 ready（AppConfigProvider 已成功 fetchConfig 或
+  // 全部 retry 失败后写入了 fallback），auth_type 由 backend 决定。
+  // 这里绝对不要 `|| 'cognito'` fallback — 那会让 'cloudbase' 之外的
+  // 任何值（undefined / null / 拼写错误）都走 LoginIntl，造成刷新
+  // 页面后短暂渲染错组件的回归（见本文件注释）。
+  return config.auth_type === 'cloudbase' ? LoginCN : LoginIntl;
 }
 
 // 登录页面包装器
 function LoginPageWrapper() {
   const LoginComponent = useLoginComponent();
+  // 配置加载中或 backend 不可达：显示通用 spinner 而非错误的 LoginIntl。
+  // 这避免了刷新页面后短暂（甚至永远）显示 LoginIntl 的回归。
+  if (!LoginComponent) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          height: '100vh',
+          width: '100vw',
+          background: '#0f172a',
+        }}
+      >
+        <Spin size="large" />
+      </div>
+    );
+  }
   return (
     <LazyWrapper>
       <LoginComponent />

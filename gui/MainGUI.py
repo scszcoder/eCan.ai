@@ -4508,24 +4508,42 @@ class MainWindow:
             logger.warning(f"[MainWindow] âŒ Error stopping LightRAG server: {e}")
 
         # Stop local Starlette server (uvicorn) and join thread
+        #
+        # Regression fix (2026-08-24): this used to call ``stop_local_server()``
+        # which kills the uvicorn instance on 127.0.0.1:4668.  Once that
+        # happens, the frontend's post-logout flow is broken — the next
+        # IPC call (`cloudbase_check_config`, `get_last_login`,
+        # `getAppConfig` etc.) returns HTTP 500 because nothing is
+        # listening, and the LoginCN tab / email login / phone login all
+        # fail with "邮箱/电话流程不可用" because the AppConfig fallback
+        # hardcodes empty cloudbase_env_id (intl/cognito).
+        #
+        # The right place to shut down the local server is in
+        # ``gui/WebGUI.py`` ``on_quit / force-exit`` — i.e. when the whole
+        # app process is going down.  Logout is NOT a process exit, and
+        # the user may immediately re-login (or the same session may be
+        # reused after a token refresh).  Skip the stop here and leave the
+        # server alive.
+        #
+        # We still pre-clean the MCP session manager so that any per-session
+        # asyncio resources tied to the logged-out user are released.
         try:
-            from gui.LocalServer import stop_local_server, MCPHandler
-            
-            # First, clean up MCP session manager BEFORE stopping the server
-            # This prevents the TaskGroup context issues
+            from gui.LocalServer import MCPHandler
+
             try:
                 logger.info("[MainWindow] Cloud LLM¹ Pre-cleaning MCP session manager...")
                 await MCPHandler.cleanup()
                 logger.info("[MainWindow] Cloud LLM MCP session manager pre-cleaned")
             except Exception as e:
-                logger.warning(f"[MainWindow] âŒ Error pre-cleaning MCP session manager: {e}")
-            
-            # Then stop the server
-            stop_local_server()
-            logger.info("[MainWindow] Cloud LLM Local Starlette server stopped")
-            
+                logger.warning(f"[MainWindow] Error pre-cleaning MCP session manager: {e}")
+
+            logger.info(
+                "[MainWindow] Cloud LLM Local Starlette server kept alive "
+                "for post-logout IPC (cloudbase_check_config, get_last_login, "
+                "next-login flow). It will be stopped in gui/WebGUI.py on app exit."
+            )
         except Exception as e:
-            logger.warning(f"[MainWindow] âŒ Error stopping local server: {e}")
+            logger.warning(f"[MainWindow] Error during MCP pre-cleanup: {e}")
 
         # Stop communication channels
         try:

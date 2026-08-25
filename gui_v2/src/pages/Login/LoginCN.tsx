@@ -16,6 +16,7 @@ import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import { eventBus } from '../../utils/eventBus';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import { cloudbaseAuth } from '../../services/auth/cloudbaseAuth';
+import { localWebSocketClient } from '../../services/web/localWebSocketClient';
 import { isDesktopPlatform } from '../../config/platform';
 import { useAppConfig } from '../../contexts/AppConfigContext';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
@@ -69,6 +70,46 @@ const LoginCN: React.FC = () => {
   const [countdown, setCountdown] = useState(0);
   const [verificationId, setVerificationId] = useState<string | null>(null);
   const [wechatAvailable, setWechatAvailable] = useState(false);
+
+  // Regression: "登录后再次进入登录页看不到微信 tab / 邮箱/电话流程不可用".
+  //
+  // LogoutManager.clearLocalStorage() now also calls
+  // ``cloudbaseAuth.clearAuthState()`` (see LogoutManager.ts) so this state is
+  // normally already clean by the time LoginCN mounts.  We additionally
+  // defensively clear here so:
+  //   * any path that resets state without going through LogoutManager
+  //     (e.g. token expired mid-session that landed on /login) still wipes
+  //     the stale CloudBase token before the next login attempt;
+  //   * the in-memory `cloudbaseAuth.token === null` invariant holds
+  //     during the first render so the WeChat availability check below
+  //     doesn't race with a restore from localStorage.
+  useEffect(() => {
+    try {
+      cloudbaseAuth.clearAuthState();
+    } catch (e) {
+      console.warn('[LoginCN] Failed to clear CloudBase auth state on mount:', e);
+    }
+
+    // Re-arm the dev-mode LocalWebSocket reconnect loop.  LogoutManager
+    // called ``localWebSocketClient.disconnect()`` (which sets
+    // ``userInitiatedDisconnect = true``) so the auto-reconnect loop is
+    // stopped while we're on the login screen.  Re-enable it now so the
+    // link comes back automatically once the user logs in (and the
+    // backend `python3 main.py` is reachable again).
+    try {
+      localWebSocketClient.enableAutoReconnect();
+      // Kick off a connect attempt now; if the backend is back, we'll
+      // get a healthy WebSocket before the user finishes typing their
+      // email.  If it's still down, the backoff loop takes over quietly.
+      if (localWebSocketClient.shouldUseLocalWebSocket()) {
+        localWebSocketClient.connect().catch(() => {
+          /* errors are logged inside connect() — swallow here */
+        });
+      }
+    } catch (e) {
+      console.warn('[LoginCN] Failed to re-arm LocalWebSocketClient:', e);
+    }
+  }, []);
   const [pendingSignupCode, setPendingSignupCode] = useState<{ email: string; password: string; verificationId: string } | null>(null);
   // 记住密码状态，默认开启
   const [rememberMe, setRememberMe] = useState(true);
@@ -120,17 +161,56 @@ const LoginCN: React.FC = () => {
   }, [appConfig?.auth?.cloudbase_env_id]);
 
   // 检查微信登录是否可用
+  //
+  // Optimistic flow (regression: 2026-08-24 "退出后再进来,微信的 tab 不见了"):
+  //   1. If `appConfig.auth.wechat_app_id` is set, show the WeChat tab
+  //      immediately.  This handles the post-logout window where the LOCAL
+  //      GraphQL server is still restarting (terminals/7.txt:895-985 shows
+  //      `cloudbase_check_config` HTTP-failing for ~6s after logout while
+  //      uvicorn's graceful shutdown runs).
+  //   2. Kick off `cloudbaseAuth.checkConfig()` to learn the canonical
+  //      `wechat_configured` state.  Only OVERWRITE the optimistic default
+  //      when the IPC actually succeeded (`result.success === true` and a
+  //      real `wechatAvailable` boolean comes back).  If the IPC failed,
+  //      we treat the answer as "unknown" and keep the optimistic value
+  //      — a flickering WeChat tab is a worse UX than a slightly stale one.
   useEffect(() => {
+    const initialAvailable = Boolean(appConfig?.auth?.wechat_app_id);
+    if (initialAvailable) {
+      setWechatAvailable(true);
+    }
     const checkWechat = async () => {
+      let result;
       try {
-        const result = await cloudbaseAuth.checkConfig();
-        setWechatAvailable(result.wechatAvailable || false);
-      } catch {
-        setWechatAvailable(false);
+        result = await cloudbaseAuth.checkConfig();
+      } catch (e) {
+        // Synchronous throw — e.g. import failure.  Treat as unknown.
+        console.warn('[LoginCN] checkConfig() threw, keeping optimistic default:', e);
+        return;
       }
+
+      // result.success === false ⇒ backend IPC failed (server is restarting,
+      // or method not registered on this build).  Preserve the optimistic
+      // state so the tab doesn't flash away.
+      if (result?.success === false) {
+        console.warn(
+          '[LoginCN] checkConfig() IPC unreachable (reason=%s); keeping optimistic wechat tab',
+          result.reason || 'unknown',
+        );
+        return;
+      }
+
+      // result.wechatAvailable === null  ⇒ backend reachable but reported
+      // "unknown" (legacy handler, partial response).  Same policy.
+      if (result?.wechatAvailable === null || result?.wechatAvailable === undefined) {
+        return;
+      }
+
+      // Definite answer from the backend — trust it over the appConfig hint.
+      setWechatAvailable(Boolean(result.wechatAvailable));
     };
     checkWechat();
-  }, []);
+  }, [appConfig?.auth?.wechat_app_id]);
 
   // 监听 URL 参数（微信回调）
   useEffect(() => {

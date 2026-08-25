@@ -12,10 +12,12 @@
 
 CN 版本存在两套并存的登录认证机制，导致不同登录方式有不同的用户体验：
 
-| 登录方式 | Token 类型 | HTTP 请求是否需要预热 | 登录后首次 API 调用 |
-|---------|-----------|-------------------|------------------|
-| 微信登录 | 30-day Session Token | ❌ 无需预热 | ✅ 立即成功 |
-| 密码登录 | JWT Bearer Token | ✅ 需要 30-60s | ❌ 返回 401 |
+
+| 登录方式 | Token 类型             | HTTP 请求是否需要预热 | 登录后首次 API 调用 |
+| ---- | -------------------- | ------------- | ------------ |
+| 微信登录 | 30-day Session Token | ❌ 无需预热        | ✅ 立即成功       |
+| 密码登录 | JWT Bearer Token     | ✅ 需要 30-60s   | ❌ 返回 401     |
+
 
 ### 1.2 问题影响
 
@@ -38,23 +40,30 @@ SCF Gateway 401: "Bearer token required" (Auth Cache 未同步)
 ```
 
 **用户感知**：
+
 - 前 30-60 秒看不到 agent 列表
 - 看到 "account info unavailable" 警告
 - 影响 Phase 3 初始化时间
 
+
+
 ### 1.3 根因分析
 
 SCF Gateway 的 JWT 验证依赖腾讯云内部的分布式 Auth Cache：
+
 - 新登录的 JWT Token 需要传播到所有边缘节点
 - 传播过程需要 **30-60 秒**（实测数据）
 - 这是腾讯云 SCF 的内部行为，客户端无法干预
 
 微信登录通过提前签发 **Session Token** 解决了这个问题：
+
 - Session Token 由 eCan 后端签发
 - 不依赖腾讯云 Auth Cache
 - 验证逻辑完全在 eCan 后端 (`auth.js resolveIdentity`)
 
 ---
+
+
 
 ## 2. 目标
 
@@ -69,7 +78,11 @@ SCF Gateway 的 JWT 验证依赖腾讯云内部的分布式 Auth Cache：
 
 ---
 
+
+
 ## 3. 现有微信 Session Token 机制参考
+
+
 
 ### 3.1 微信登录流程
 
@@ -85,9 +98,11 @@ SCF Gateway 的 JWT 验证依赖腾讯云内部的分布式 Auth Cache：
          HTTP 请求使用 sessionToken 作为 Bearer Token
 ```
 
+
+
 ### 3.2 现有 GraphQL Mutation
 
-**`registerWeChatSession`**
+`registerWeChatSession`
 
 ```graphql
 input RegisterWeChatSessionInput {
@@ -100,7 +115,7 @@ type RegisterWeChatSessionResult {
 }
 ```
 
-**`refreshWeChatToken`**
+`refreshWeChatToken`
 
 ```graphql
 input RefreshWeChatTokenInput {
@@ -113,6 +128,8 @@ type RefreshWeChatTokenResult {
     sessionToken: String!   # 新的 session token (rotated)
 }
 ```
+
+
 
 ### 3.3 SCF Gateway 验证逻辑
 
@@ -138,6 +155,8 @@ async function resolveIdentity(headers) {
     throw new Error("Invalid or expired access token");
 }
 ```
+
+
 
 ### 3.4 客户端调用位置
 
@@ -168,7 +187,11 @@ def _http_auth_header(token: str) -> str:
 
 ---
 
+
+
 ## 4. 修改方案
+
+
 
 ### 4.1 方案概述
 
@@ -182,7 +205,11 @@ def _http_auth_header(token: str) -> str:
         HTTP 请求使用 sessionToken
 ```
 
+
+
 ### 4.2 GraphQL Schema 修改
+
+
 
 #### 4.2.1 新增 Input Type
 
@@ -208,6 +235,8 @@ input MintHttpSessionTokenInput {
 }
 ```
 
+
+
 #### 4.2.2 新增 Result Type
 
 ```graphql
@@ -231,6 +260,8 @@ type MintHttpSessionTokenResult {
     expiresIn: Int!
 }
 ```
+
+
 
 #### 4.2.3 新增 Mutation
 
@@ -259,6 +290,8 @@ type Mutation {
 }
 ```
 
+
+
 #### 4.2.4 Schema 授权
 
 ```graphql
@@ -268,6 +301,8 @@ mintHttpSessionToken(
 ): MintHttpSessionTokenResult
     @aws_cognito_user_pools
 ```
+
+
 
 ### 4.3 Resolver 实现
 
@@ -345,6 +380,8 @@ async function mintHttpSessionToken(event) {
 
 module.exports = mintHttpSessionToken;
 ```
+
+
 
 ### 4.4 SCF Gateway Auth 修改
 
@@ -433,6 +470,8 @@ async function verifyWeChatSessionToken(token) {
 }
 ```
 
+
+
 ### 4.5 Session Token 刷新机制
 
 与微信登录保持一致：
@@ -456,7 +495,11 @@ type RefreshHttpSessionTokenResult {
 
 ---
 
+
+
 ## 5. 客户端配套修改
+
+
 
 ### 5.1 Python 客户端
 
@@ -556,6 +599,8 @@ def _get_http_session_token(self) -> str:
     return ""
 ```
 
+
+
 ### 5.2 Token 优先级修改
 
 修改 `_http_auth_header` 以支持新 token：
@@ -583,6 +628,8 @@ def _http_auth_header(token: str) -> str:
     return token
 ```
 
+
+
 ### 5.3 调用时机
 
 在所有登录成功路径中调用 `_mint_http_session_token`：
@@ -609,7 +656,11 @@ def google_login(self, ...):
 
 ---
 
+
+
 ## 6. 安全考虑
+
+
 
 ### 6.1 Token 安全
 
@@ -618,12 +669,16 @@ def google_login(self, ...):
 - [x] Token 有效期 30 天，过期后需要重新登录
 - [x] Token 存储在 Keychain/文件系统中（与现有微信登录一致）
 
+
+
 ### 6.2 验证安全
 
 - [x] `verifySessionToken` 验证 token 签名
 - [x] `verifySessionToken` 验证 token 类型（`type === 'http_session'`）
 - [x] `verifySessionToken` 验证 token 有效期
 - [x] 验证失败时返回 null，尝试其他验证方式（不直接抛出异常）
+
+
 
 ### 6.3 权限控制
 
@@ -633,7 +688,11 @@ def google_login(self, ...):
 
 ---
 
+
+
 ## 7. 向后兼容
+
+
 
 ### 7.1 微信登录
 
@@ -641,10 +700,14 @@ def google_login(self, ...):
 - [x] 微信登录继续使用 `registerWeChatSession`
 - [x] HTTP 请求继续使用微信 session token
 
+
+
 ### 7.2 现有 JWT 验证
 
 - [x] 如果 session token 验证失败，fallback 到 JWT 验证
 - [x] 保持现有 JWT 验证逻辑不变
+
+
 
 ### 7.3 旧版本客户端
 
@@ -653,13 +716,19 @@ def google_login(self, ...):
 
 ---
 
+
+
 ## 8. 测试计划
+
+
 
 ### 8.1 单元测试
 
 - [ ] 测试 `mintHttpSessionToken` mutation 签名
 - [ ] 测试 `verifySessionToken` 验证逻辑
 - [ ] 测试 token 过期验证
+
+
 
 ### 8.2 集成测试
 
@@ -668,6 +737,8 @@ def google_login(self, ...):
 - [ ] Session token 过期 → 降级到 JWT 验证
 - [ ] 微信登录 → 不调用新 mutation → 继续使用现有机制
 
+
+
 ### 8.3 性能测试
 
 - [ ] 登录后立即调用 queryAgents（应 < 1s 成功）
@@ -675,7 +746,11 @@ def google_login(self, ...):
 
 ---
 
+
+
 ## 9. 部署计划
+
+
 
 ### 9.1 后端部署顺序
 
@@ -684,11 +759,15 @@ def google_login(self, ...):
 3. 部署 SCF Gateway Auth 修改
 4. 验证所有登录方式
 
+
+
 ### 9.2 客户端部署
 
 1. 先部署后端
 2. 后端验证通过后，部署客户端更新
 3. 客户端更新应向后兼容
+
+
 
 ### 9.3 回滚计划
 
@@ -697,7 +776,11 @@ def google_login(self, ...):
 
 ---
 
+
+
 ## 10. 附录
+
+
 
 ### 10.1 相关文档
 
@@ -705,45 +788,65 @@ def google_login(self, ...):
 - [ ] CloudBase Auth 文档
 - [ ] 现有 `registerWeChatSession` 实现
 
+
+
 ### 10.2 联系人
 
 - **前端负责人**: 待定
 - **后端负责人**: 待定
 - **测试负责人**: 待定
 
+
+
 ### 10.3 变更历史
 
-| 版本 | 日期 | 作者 | 描述 |
-|-----|------|-----|------|
-| v1.0 | 2026-08-21 | Claude | 初稿 |
+
+| 版本   | 日期         | 作者     | 描述  |
+| ---- | ---------- | ------ | --- |
+| v1.0 | 2026-08-21 | Claude | 初稿  |
+
 
 ---
 
+
+
 ## 11. 问题与解答
+
+
 
 ### Q1: 为什么不直接复用 `registerWeChatSession`？
 
 A: `registerWeChatSession` 是专门为微信登录设计的：
+
 - 输入参数 `wxAccessToken` 暗示专属性
 - 微信登录有特殊的 token 交换流程
 - 保持职责分离，便于审计和维护
 
+
+
 ### Q2: Session Token 存放在哪里？
 
 A: 与微信 session token 使用相同的存储机制：
+
 - Keychain（优先）
 - 文件系统 fallback
 - 使用相同的 keyring service 和 key
 
+
+
 ### Q3: 如果后端修改失败怎么办？
 
 A: 客户端需要处理两种情况：
+
 1. mutation 调用成功 → 使用 session token
 2. mutation 调用失败 → fallback 到 JWT（有缓存延迟，但功能正常）
+
+
 
 ### Q4: 为什么需要存储到数据库？
 
 A: 这取决于 `verifySessionToken` 的实现方式：
+
 - **仅 JWT 验证**：不需要存储，jwt.verify 可自行验证
 - **数据库查询**：需要存储，用于查询用户信息
 

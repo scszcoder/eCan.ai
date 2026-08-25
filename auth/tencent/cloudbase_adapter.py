@@ -221,8 +221,15 @@ class CloudBaseAuthAdapter:
             code = result.error_code or "REFRESH_FAILED"
             # Mirror Cognito's fatal-error strings so the refresh loop
             # in AuthManager._token_refresh_loop stops cleanly when the
-            # refresh token is revoked/invalid.
-            if code in ("INVALID_REFRESH_TOKEN", "INVALID_GRANT", "UNAUTHORIZED"):
+            # refresh token is revoked/invalid.  CloudBase's HTTP layer
+            # also surfaces generic 4xx codes (``HTTP_400``, ``HTTP_401``)
+            # when the server can't or won't honour a refresh — those are
+            # just as fatal (the server's call is the source of truth;
+            # there is no point hammering it again), so map them too.
+            if (
+                code in ("INVALID_REFRESH_TOKEN", "INVALID_GRANT", "UNAUTHORIZED")
+                or (isinstance(code, str) and code.startswith("HTTP_4"))
+            ):
                 code = "NotAuthorizedException"
             return _fail(result.error or code, code)
         return _ok(_normalize_tokens(result.data))

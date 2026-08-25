@@ -308,7 +308,17 @@ class AuthManager:
                 return False
 
             refreshed_tokens = result.get('data') or {}
-            refreshed_tokens['RefreshToken'] = refresh_token
+            # Cognito / CloudBase may rotate the refresh_token on every
+            # successful refresh. If the response carries a new one, prefer
+            # it over the token we just sent — using the rotated value keeps
+            # the session alive past the next refresh cycle (the previous
+            # token is single-use for CloudBase WeChat OAuth). Fall back to
+            # the input token when the server doesn't echo one back.
+            new_refresh_token = refreshed_tokens.get('RefreshToken') or refreshed_tokens.get('refresh_token')
+            if new_refresh_token:
+                refreshed_tokens['RefreshToken'] = new_refresh_token
+            else:
+                refreshed_tokens['RefreshToken'] = refresh_token
             self.tokens.update(refreshed_tokens)
             self.signed_in = True
             logger.info("AuthManager: Tokens refreshed successfully on demand")
@@ -2319,7 +2329,10 @@ class AuthManager:
                 self._delete_refresh_token(username)
                 return False
             tokens = result['data'] or {}
-            tokens['RefreshToken'] = rt
+            # Refresh-token rotation: prefer the server's response over the
+            # token we just consumed (see Bug A fix in ensure_valid_tokens).
+            rotated_rt = tokens.get('RefreshToken') or tokens.get('refresh_token')
+            tokens['RefreshToken'] = rotated_rt if rotated_rt else rt
             self.tokens = tokens
             self.signed_in = True
             # Determine current user from id token if possible
@@ -2333,6 +2346,19 @@ class AuthManager:
             else:
                 self.current_user = username
             logger.info(f"AuthManager: Session restored for {self.current_user}")
+            # Persist the rotated refresh_token so a future restart can
+            # still restore the session — without this, the in-memory
+            # rotation is lost and try_restore_session on the next launch
+            # uses the already-consumed token (CloudBase refresh-tokens
+            # are single-use).
+            if rotated_rt and rotated_rt != rt:
+                try:
+                    self._store_refresh_token(username, rotated_rt)
+                except Exception as _persist_exc:
+                    logger.warning(
+                        f"AuthManager: rotated refresh-token persistence "
+                        f"skipped: {_persist_exc}"
+                    )
             # Wire SessionSupervisor so OfflineSyncManager and WS reconnect loop
             # know a fresh token is installed (resets cache-lag grace window,
             # clears any stale expired/paused state).
@@ -2415,11 +2441,38 @@ class AuthManager:
 
             tokens = refresh_result.data
             self.tokens = tokens
-            self.tokens["RefreshToken"] = rt
+            # CloudBase may rotate the refresh_token.  If the response
+            # carries a new one, install it; otherwise keep the rt we sent
+            # (the server is allowed to echo the same value back).
+            rotated_rt = (tokens or {}).get("RefreshToken") or (tokens or {}).get("refresh_token")
+            self.tokens["RefreshToken"] = rotated_rt if rotated_rt else rt
             self.signed_in = True
             self.current_user = username
 
             logger.info(f"[try_restore_cloudbase_session] Session restored for {username}")
+
+            # Persist the rotated refresh_token so a future restart can
+            # still restore the session — CloudBase refresh-tokens are
+            # single-use (the old one dies the moment the server issues
+            # the new one), so without this the in-memory rotation is
+            # lost on every restart.
+            if rotated_rt and rotated_rt != rt:
+                try:
+                    keyring.set_password(
+                        "ecan_cloudbase_refresh", username, rotated_rt,
+                    )
+                except Exception as _kr_exc:
+                    logger.warning(
+                        f"[try_restore_cloudbase_session] keyring persist "
+                        f"failed, falling back to file: {_kr_exc}"
+                    )
+                    try:
+                        self._store_refresh_token_file(username, rotated_rt)
+                    except Exception as _file_exc:
+                        logger.warning(
+                            f"[try_restore_cloudbase_session] file persist "
+                            f"also failed: {_file_exc}"
+                        )
 
             # Wire SessionSupervisor — same intent as Intl restore above.
             try:
@@ -3031,6 +3084,50 @@ class AuthManager:
                     self.tokens.update(result['data'])
                     consecutive_failures = 0
                     logger.info("AuthManager: Tokens refreshed successfully.")
+                    # Persist the (possibly rotated) refresh_token so a
+                    # restart can still restore the session. Without this,
+                    # CloudBase refresh-token rotation silently drops the
+                    # next-restart ability to log in: the old token is
+                    # single-use, the new one is in memory only, and
+                    # try_restore_session would fall back to the
+                    # already-consumed value and 401 on first use.
+                    try:
+                        new_rt = (
+                            (result.get('data') or {}).get('RefreshToken')
+                            or (result.get('data') or {}).get('refresh_token')
+                        )
+                        # Only persist when the server actually returned one
+                        # (rotation case). If it didn't rotate, the in-memory
+                        # value is unchanged and the existing keyring entry
+                        # is still correct.
+                        if new_rt and new_rt != refresh_token and self.current_user:
+                            if self._is_cn:
+                                try:
+                                    keyring.set_password(
+                                        "ecan_cloudbase_refresh",
+                                        self.current_user,
+                                        new_rt,
+                                    )
+                                except Exception as _kr_exc:
+                                    logger.warning(
+                                        f"[AuthManager] keyring persist "
+                                        f"failed, falling back to file: "
+                                        f"{_kr_exc}"
+                                    )
+                                    self._store_refresh_token_file(
+                                        self.current_user, new_rt,
+                                    )
+                            else:
+                                self._store_refresh_token(
+                                    self.current_user, new_rt,
+                                )
+                    except Exception as _persist_exc:
+                        # Persistence is best-effort; never break the refresh
+                        # loop because of a keyring / file write error.
+                        logger.warning(
+                            f"[AuthManager] refresh-token persistence "
+                            f"skipped: {_persist_exc}"
+                        )
                     # Notify SessionSupervisor so subscribed components
                     # (offline sync, websocket) can resume work that was
                     # paused on the previous expiration window.

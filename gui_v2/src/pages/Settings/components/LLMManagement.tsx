@@ -219,7 +219,7 @@ const LLMManagement = React.forwardRef<
     try {
       const response = await get_ipc_api().getLLMProviders<{
         providers: LLMProvider[];
-      }>();
+      }>(username || undefined);
       if (response.success && response.data) {
         const loadedProviders = response.data.providers;
         

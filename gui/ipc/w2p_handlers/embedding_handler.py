@@ -39,8 +39,10 @@ def handle_get_embedding_providers(request: IPCRequest, params: Optional[Dict[st
         embedding_manager = get_embedding_manager(request, params)
         providers = embedding_manager.get_all_providers()
 
-        # Get current username for user-specific file paths
-        username = get_username(request, params)
+        # Get current username for user-specific file paths.
+        # Prefer params.username so the read path matches the write path used
+        # by fetchRyoAISModels / fetchOllamaModels on the frontend.
+        username = (params or {}).get('username') or get_username(request, params)
 
         # Pre-load RyoAIS models with correct username so merge finds them
         ryoais_models = load_ryoais_models(username=username, model_type='embedding')

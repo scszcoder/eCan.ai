@@ -219,11 +219,12 @@ const RetrievalTab: React.FC = () => {
         const cfg = (res.success && res.data) ? (res.data as any) : {};
         
         // Use backend values if present, otherwise use hardcoded defaults
-        // This ensures the UI always shows a valid value
-        setTopK(Number(cfg.TOP_K ?? 40));
-        setChunkTopK(Number(cfg.CHUNK_TOP_K ?? 20));
-        setMaxEntityTokens(Number(cfg.MAX_ENTITY_TOKENS ?? 6000));
-        setMaxRelationTokens(Number(cfg.MAX_RELATION_TOKENS ?? 8000));
+        // Updated for 8K context models (Qwen3.8-27B-AWQ-INT4): entity+relation
+        // tokens must be capped so chunks can load without exceeding the context window.
+        setTopK(Number(cfg.TOP_K ?? 10));
+        setChunkTopK(Number(cfg.CHUNK_TOP_K ?? 12));
+        setMaxEntityTokens(Number(cfg.MAX_ENTITY_TOKENS ?? 2000));
+        setMaxRelationTokens(Number(cfg.MAX_RELATION_TOKENS ?? 2500));
         setMaxTotalTokens(Number(cfg.MAX_TOTAL_TOKENS ?? 30000));
         
         // Also respect RERANK_BY_DEFAULT
@@ -232,11 +233,11 @@ const RetrievalTab: React.FC = () => {
         }
       } catch (e) {
         console.error('Failed to load default settings, applying fallbacks', e);
-        // Apply fallbacks on error
-        setTopK(40);
-        setChunkTopK(20);
-        setMaxEntityTokens(6000);
-        setMaxRelationTokens(8000);
+        // Apply fallbacks on error - adjusted for 8K context models
+        setTopK(10);
+        setChunkTopK(12);
+        setMaxEntityTokens(2000);
+        setMaxRelationTokens(2500);
         setMaxTotalTokens(30000);
       }
     };

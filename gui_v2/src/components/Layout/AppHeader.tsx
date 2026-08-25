@@ -261,13 +261,33 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                 break;
             case 'logout':
                 // Show confirmation modal before logout
+                //
+                // UX: do NOT return ``onLogout()`` from ``onOk`` — that
+                // would block the modal on the logout Promise and leave
+                // the user staring at a frozen page (terminals/5.txt
+                // user feedback 2026-08-25 "logout 卡顿一下界面才更新").
+                //
+                // Instead:
+                //   1. Close the modal immediately (return undefined).
+                //   2. Fire-and-forget onLogout() — cleanup runs in
+                //      parallel and the caller (``MainLayout.handleLogout``)
+                //      already calls ``navigate('/login')`` synchronously,
+                //      so the UI flips to the login page within one frame.
+                //   3. The user sees the modal close → page swap → done.
+                //      No "卡顿".
                 modal.confirm({
                     title: t('common.logout_confirm_title'),
                     content: t('common.logout_confirm_message'),
                     okText: t('common.confirm'),
                     cancelText: t('common.cancel'),
                     onOk: () => {
-                        onLogout();
+                        // Fire-and-forget: caller handles navigation.
+                        // Don't await — antd Modal.confirm would otherwise
+                        // keep the OK button spinning until onLogout
+                        // resolves, which after the previous fix is now
+                        // fast (~50-150ms) but still introduces a visible
+                        // delay between click and page swap.
+                        void onLogout();
                     },
                     centered: true,
                     zIndex: 1000,
