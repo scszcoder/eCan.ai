@@ -2483,6 +2483,19 @@ class AuthManager:
             except Exception as e:
                 logger.debug(f"[try_restore_cloudbase_session] supervisor notify skipped: {e}")
 
+            # CN HTTP session token on RESTORE (2026-08-25): the mint used to
+            # run only in the login-finalize path, so an app restart with a
+            # restored session never (re)acquired the eCan session token —
+            # every HTTP GraphQL call then failed "Bearer token required"
+            # (observed on a customer machine after the server deployed
+            # mintHttpSessionToken: the restarted client never re-attempted
+            # the exchange). Idempotent; failure is non-fatal (the lazy
+            # self-heal in cloud_api retries later).
+            try:
+                self._finalize_http_session_token()
+            except Exception as e:
+                logger.warning(f"[try_restore_cloudbase_session] HTTP session finalize skipped: {e}")
+
             self._setup_token_manager_from_tokens(tokens, username)
             return True
 

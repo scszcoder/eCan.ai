@@ -314,7 +314,7 @@ mcp==1.26.0  # Required by browser-use 0.12.5, compatible with langchain-mcp-ada
 # ============================================================================
 # LIGHTRAG CORE DEPENDENCIES
 # ============================================================================
-lightrag-hku==1.5.6
+lightrag-hku==1.5.4
 ascii_colors==0.11.4
 configparser==7.2.0
 future==1.0.0

@@ -803,6 +803,16 @@ def _fetch_cloud_skills(request=None, params=None, public_catalog: bool = False)
                             'public', 'rentable'):
                     if key not in local_sk and key in cloud_sk:
                         local_sk[key] = cloud_sk[key]
+                # Field-name drift guard (2026-08-25): depending on the
+                # deployed CN SDL revision, the store flag arrives as
+                # `public`, `isPublic`, or `is_public`. Normalize onto
+                # `public` — the spelling every downstream consumer
+                # (store filter, ownerless-row repair, frontend) reads.
+                if local_sk.get('public') is None:
+                    for alias in ('isPublic', 'is_public'):
+                        if cloud_sk.get(alias) is not None:
+                            local_sk['public'] = cloud_sk[alias]
+                            break
                 result.append(local_sk)
             except Exception as e:
                 logger.debug(f"[_fetch_cloud_skills] Schema conversion failed for skill: {e}")
@@ -1223,9 +1233,20 @@ def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any
                 continue
 
             owner = str(sk.get('owner') or '').strip().lower()
-            is_public = bool(sk.get('public', False))
+            # Tolerate SDL field-name drift: the deployed server may populate
+            # `public`, `isPublic`, or `is_public` (customer log 2026-08-25:
+            # catalog returned 4 rows but `public` resolved null → the old
+            # strict check filtered ALL of them → empty store tab).
+            _flag = sk.get('public')
+            if _flag is None:
+                _flag = sk.get('isPublic')
+            if _flag is None:
+                _flag = sk.get('is_public')
+            is_public = bool(_flag)
             if not is_public:
                 continue
+            if sk.get('public') is None:
+                sk['public'] = True  # normalize for the frontend store filter
             if owner and owner == username_norm:
                 continue
 
@@ -1240,6 +1261,20 @@ def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any
                 continue
             seen.add(key)
             skills.append(sk)
+
+        # Post-filter observability: "catalog returned N" alone hid a round
+        # of debugging where the filter dropped every row (null public flag).
+        logger.info(
+            f"[get_public_skills] store filter kept {len(skills)} of {len(rows)} "
+            f"fetched row(s) for user {username}"
+        )
+        if rows and not skills:
+            sample = rows[0] if isinstance(rows[0], dict) else {}
+            logger.warning(
+                f"[get_public_skills] ALL rows filtered out — sample row: "
+                f"owner={sample.get('owner')!r} public={sample.get('public')!r} "
+                f"isPublic={sample.get('isPublic')!r} is_public={sample.get('is_public')!r}"
+            )
 
         return create_success_response(request, {
             'skills': skills,

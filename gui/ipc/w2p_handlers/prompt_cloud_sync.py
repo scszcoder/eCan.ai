@@ -403,8 +403,18 @@ def sync_all_prompts_to_cloud(prompts: List[Dict[str, Any]]) -> None:
 
             owner = ctx["owner"]
 
-            # Only sync user-owned prompts (not sample/read-only, not system)
-            to_sync = [p for p in prompts if not p.get("readOnly") and p.get("id") and p.get("owner") != "system"]
+            # Only sync user-owned prompts (not sample/read-only, not system).
+            # sample_prompts ship with the app and are marked editable since
+            # 2026 — but their ids belong to the ORIGINAL author cloud-side,
+            # so uploading them from another account is guaranteed to fail
+            # "Prompt belongs to a different owner" (observed 7/7 errors on a
+            # customer machine, 2026-08-25). Skip them by source.
+            to_sync = [
+                p for p in prompts
+                if not p.get("readOnly") and p.get("id")
+                and p.get("owner") != "system"
+                and p.get("source") != "sample_prompts"
+            ]
             if not to_sync:
                 logger.debug("[prompt_sync] No user prompts to sync to cloud")
                 return

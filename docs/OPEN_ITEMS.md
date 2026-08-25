@@ -157,6 +157,39 @@ _Last updated: 2026-08-23_
   Still open (backend, non-fatal): TCB lacks `getSubscribedSkillIds` and the
   agent_skill_rels subscription-sync mutation the client calls — local
   subscription persistence works, cloud-side rel tracking silently fails.
+  **ROUND 4 (2026-08-24, v0.9.95f test, user 2263962934@qq.com — CN EMAIL/
+  CIAM login)**: sync dead for ALL cloud HTTP because the SCF gate rejects
+  the CIAM RS256 access token ("Bearer token required" on every call — the
+  gate only accepts TCB-context identity or the eCan HS256 session token).
+  The v0.9.95f client already calls `mintHttpSessionToken` at login to
+  exchange the CIAM token for a session token, but the mutation DOES NOT
+  EXIST server-side (`Unknown type "MintHttpSessionTokenInput"` in the
+  customer log). SERVER FIX (user applies directly): implement
+  mintHttpSessionToken in cloudbase-graphql — SDL input/payload + resolver
+  (validate CloudBase token via decode+exp like registerWeChatSession;
+  CRITICAL: mint HS256 sub = userIdentifier (the login email) ONLY after
+  verifying the accessToken belongs to that user, since identity.sub must
+  equal the owner string clients query with) + add 'mintHttpSessionToken'
+  to the isWeChatSessionOperation no-session bypass allowlist (auth.js:109).
+  Customer must RE-LOGIN after deploy (mint runs at login finalize).
+  Store/catalog client fixes verified working in the same log (clean
+  fallback, no crash).
+  **ROUND 5 (2026-08-25 log)**: server deployed mintHttpSessionToken →
+  after RE-LOGIN the mint SUCCEEDS (login_type=password, 30d) and the
+  catalog query works end-to-end ("public catalog returned 4 skill(s)").
+  Remaining client gaps fixed (uncommitted): (a) restore path never
+  minted — `try_restore_cloudbase_session` now calls
+  `_finalize_http_session_token`, plus a throttled lazy mint in
+  `cloud_api._get_wechat_http_session_token` so LIVE sessions self-heal
+  without re-login; (b) deployed SDL populates `isPublic` while `public`
+  resolves null → the strict store filter dropped ALL 4 catalog rows →
+  empty store tab; filter + fetch conversion now normalize
+  public/isPublic/is_public; (c) prompt bulk-push uploaded
+  sample_prompts (author-owned ids) from customer accounts → 7×
+  "Prompt belongs to a different owner" noise; now skipped by source.
+  NOTE: server AI's claims that the client "has no mint call" and "does
+  not issue the catalog query" were STALE — both proven working in the
+  02:2x log lines. Ship a new client build (v0.9.95g) for the customer.
 
 - **Cloud↔local skill sync: ownerless-row repair** (2026-08-23, uncommitted).
   Diagnosed the "skill_71209937ed7449bf / pr-330448 in cloud PG but not in
