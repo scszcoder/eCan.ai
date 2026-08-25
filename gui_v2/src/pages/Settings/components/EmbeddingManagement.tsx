@@ -207,7 +207,7 @@ const EmbeddingManagement = React.forwardRef<
     try {
       const response = await get_ipc_api().getEmbeddingProviders<{
         providers: LLMProvider[];
-      }>();
+      }>(username || undefined);
       if (response.success && response.data) {
         const loadedProviders = response.data.providers;
         

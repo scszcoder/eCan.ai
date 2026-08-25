@@ -44,6 +44,14 @@ class LocalWebSocketClient {
   private subscribedChannels: Set<string> = new Set();
   private isConnecting = false;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  // Consecutive-failure counter used to decide log level + backoff.
+  // Tracked separately from `reconnectAttempts` so we can grow the backoff
+  // even after the max-attempts "fast retry" phase ends.
+  private consecutiveFailures = 0;
+  // Set true when the user / logout explicitly tore down the link.
+  // In this state we MUST NOT auto-reconnect — the backend is gone on
+  // purpose.  Only `connect({ force: true })` should restart us.
+  private userInitiatedDisconnect = false;
 
   private constructor(options: LocalWebSocketClientOptions = {}) {
     this.options = {
@@ -108,6 +116,14 @@ class LocalWebSocketClient {
       return false;
     }
 
+    // A user-initiated disconnect (e.g. logout) must not be overridden by an
+    // unrelated reconnect timer.  Only an explicit `connect({ force: true })`
+    // can bring it back (used by `resetAndConnect()` after a clean restart).
+    if (this.userInitiatedDisconnect && !force) {
+      console.log('[LocalWS] Skipping connect: user-initiated disconnect is in effect');
+      return false;
+    }
+
     if (this.ws?.readyState === WebSocket.OPEN) {
       console.log('[LocalWS] Already connected');
       return true;
@@ -130,7 +146,8 @@ class LocalWebSocketClient {
           console.log('[LocalWS] ✅ Connected successfully to:', url);
           this.isConnecting = false;
           this.reconnectAttempts = 0;
-          
+          this.consecutiveFailures = 0;
+
           // Re-subscribe to previously subscribed channels
           this.subscribedChannels.forEach(channel => {
             this.subscribe(channel);
@@ -138,7 +155,7 @@ class LocalWebSocketClient {
 
           // Start keepalive ping to prevent idle disconnections
           this.startPing();
-          
+
           resolve(true);
         };
 
@@ -147,20 +164,54 @@ class LocalWebSocketClient {
         };
 
         this.ws.onerror = (error) => {
-          console.error('[LocalWS] WebSocket error:', error);
+          // Don't spam console.error: a closed backend (e.g. after user
+          // ran `python3 main.py` once and quit) is expected, not an
+          // application-level error.  First failure warns; subsequent
+          // failures are debug-level until the link comes back up.
+          this.consecutiveFailures++;
+          if (this.consecutiveFailures === 1) {
+            console.warn(
+              '[LocalWS] WebSocket error (will retry with backoff):',
+              error,
+            );
+          } else {
+            console.debug(
+              '[LocalWS] WebSocket error (attempt %d):',
+              this.consecutiveFailures,
+              error,
+            );
+          }
           this.isConnecting = false;
         };
 
         this.ws.onclose = (event) => {
-          console.log('[LocalWS] Connection closed:', event.code, event.reason);
+          // Code 1006 (abnormal closure) is what the browser reports when
+          // the OS refuses the TCP connection (backend not listening).
+          // Code 1005 is "no status received".  Anything else means the
+          // backend explicitly closed — likely a server restart.
+          const expectedClose = event.code === 1006 || event.code === 1005;
+          if (expectedClose && this.consecutiveFailures > 1) {
+            console.debug('[LocalWS] Connection closed:', event.code, event.reason);
+          } else {
+            console.log('[LocalWS] Connection closed:', event.code, event.reason);
+          }
           this.isConnecting = false;
           this.ws = null;
           this.stopPing();
-          
-          if (this.options.autoReconnect && this.reconnectAttempts < this.options.maxReconnectAttempts) {
+
+          if (
+            this.options.autoReconnect &&
+            this.reconnectAttempts < this.options.maxReconnectAttempts
+          ) {
             this.scheduleReconnect();
+          } else if (this.options.autoReconnect) {
+            // Past the "fast retry" window — schedule a slow keepalive
+            // reconnect (every 30s) so we still recover when the user
+            // restarts `python3 main.py`.  Use a distinct log line so
+            // it doesn't pile up in the same channel as the fast retries.
+            this.scheduleKeepaliveReconnect();
           }
-          
+
           resolve(false);
         };
 
@@ -174,21 +225,41 @@ class LocalWebSocketClient {
 
   /**
    * Disconnect from the WebSocket server
+   *
+   * Sets `userInitiatedDisconnect` so the auto-reconnect loop stops until
+   * the next explicit `connect({ force: true })` (e.g. after a logout /
+   * backend restart).  Pass `{ keepAutoReconnect: true }` to drop the
+   * current socket without blocking future auto-reconnect attempts.
    */
-  disconnect(): void {
+  disconnect(options: { keepAutoReconnect?: boolean } = {}): void {
     this.stopPing();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    
+
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
-    
+
     this.reconnectAttempts = 0;
-    console.log('[LocalWS] Disconnected');
+    this.consecutiveFailures = 0;
+    if (!options.keepAutoReconnect) {
+      this.userInitiatedDisconnect = true;
+    }
+    console.log('[LocalWS] Disconnected (userInitiated=%s)', this.userInitiatedDisconnect);
+  }
+
+  /**
+   * Re-arm auto-reconnect after a previous `disconnect()` call.  Used by
+   * LoginCN mount (after logout) and by LogoutManager-aware flows that want
+   * to silently come back once the backend is reachable again.
+   */
+  enableAutoReconnect(): void {
+    this.userInitiatedDisconnect = false;
+    this.consecutiveFailures = 0;
+    this.reconnectAttempts = 0;
   }
 
   /**
@@ -421,18 +492,57 @@ class LocalWebSocketClient {
   }
 
   /**
-   * Schedule a reconnection attempt
+   * Schedule a reconnection attempt with exponential backoff.
+   *
+   * The interval grows: 3s → 6s → 12s → capped at 30s.  This dramatically
+   * reduces the console-spam footprint when the backend is unreachable
+   * for a long time (e.g. user quit `python3 main.py` while leaving the
+   * Vite dev server running).  See terminals/7.txt for the original
+   * pre-fix behavior (every 3s for 60+ seconds).
    */
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
-    
+    if (this.userInitiatedDisconnect) return;
+
     this.reconnectAttempts++;
-    console.log(`[LocalWS] Scheduling reconnect attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts}`);
-    
+    const baseInterval = this.options.reconnectInterval;
+    // Exponential backoff: 3s, 6s, 12s, 24s, 30s (cap)
+    const backoff = Math.min(
+      baseInterval * Math.pow(2, this.reconnectAttempts - 1),
+      30_000,
+    );
+    console.log(
+      `[LocalWS] Scheduling reconnect attempt ${this.reconnectAttempts}/${this.options.maxReconnectAttempts} in ${(backoff / 1000).toFixed(1)}s`,
+    );
+
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, this.options.reconnectInterval);
+    }, backoff);
+  }
+
+  /**
+   * Slow keepalive reconnect (60s) used after the fast-retry window
+   * (``maxReconnectAttempts``) has been exhausted.  Keeps the client
+   * ready to silently recover if the user restarts the backend (e.g.
+   * `python3 main.py` again) without producing 1-retry-per-second noise.
+   * Logged at debug level only so the user isn't bombarded after a
+   * normal backend exit.
+   */
+  private scheduleKeepaliveReconnect(): void {
+    if (this.reconnectTimer) return;
+    if (this.userInitiatedDisconnect) return;
+
+    console.debug(
+      '[LocalWS] Fast retries exhausted — falling back to 60s keepalive reconnect',
+    );
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      // Force-reset the attempt counter so a single successful connect
+      // returns us to the "fast retry" cadence for the next outage.
+      this.reconnectAttempts = 0;
+      this.connect();
+    }, 60_000);
   }
 }
 
