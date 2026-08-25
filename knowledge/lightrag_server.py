@@ -613,31 +613,59 @@ class LightragServer:
 
         return None
 
+    def _compute_llm_budget(self, max_model_len: int) -> tuple:
+        """Return (output_tokens, retrieval_share) for the given deployed context window.
+
+        The retrieval context (entity + relation + chunks + system prompt) needs
+        the lion's share of every small model. This function maps a model's
+        max_model_len to a tier-appropriate output budget so 8K models stop
+        colliding with their own prompt.
+
+        Output budget: proportional, capped, with floor 512. Roughly 12.5% of the
+        window, never exceeding the window minus a 500-token minimum for
+        system prompt + at least one chunk.
+
+        Retrieval share: the remaining window after output and 500 tokens of
+        system-prompt overhead. Used by _apply_retrieval_token_limits to cap
+        entity+relation combined budget. For 8K this yields 8192-1024-500=6668.
+
+        Replaces the old formula `max_model_len - max(2000, 0.5*max_model_len)`
+        which produced output=4096 on 8K models and collided with the
+        ~4000-token system+entity+chunks prompt.
+        """
+        # Output budget: 12.5% of the window, floored at 512 so a tiny model
+        # still gets a usable answer, and capped so we always keep ≥500 tokens
+        # for system prompt + at least one chunk.
+        output = max(512, int(max_model_len * 0.125))
+        if output > max_model_len - 500:
+            # Window too small to fit 500 overhead AND 512 output: prefer
+            # the floor (drop the overhead floor) rather than returning
+            # negative tokens, which would later break token math.
+            output = max(512, max_model_len - 500)
+        # Retrieval share: everything that isn't output or system overhead.
+        retrieval_share = max(0, max_model_len - output - 500)
+        return output, retrieval_share
+
     def _apply_llm_token_limits(self, env: dict) -> None:
         """Sync MAX_TOTAL_TOKENS / OPENAI_LLM_MAX_COMPLETION_TOKENS with the model's
         deployed context window.
 
-        Two cases:
-        1. The deployment exposes `max_model_len` (vLLM /v1/models) or a
-           ryoais_models.json snapshot has `context_length` — use that value
-           as MAX_TOTAL_TOKENS, and derive OPENAI_LLM_MAX_COMPLETION_TOKENS
-           = max_model_len - 2000 so prompt + output fits the real cap.
-        2. Neither source is reachable — leave the env untouched. LightRAG's
-           own DEFAULT_MAX_TOTAL_TOKENS (30000 in 1.4.x) then applies, and
-           we do NOT inject a smaller eCan-side value that would override
-           the model's actual capability.
+        Resolution order:
+          1. If the deployment exposes max_model_len (vLLM /v1/models) or a
+             ryoais_models.json snapshot has context_length — use that value
+             as MAX_TOTAL_TOKENS, and derive OPENAI_LLM_MAX_COMPLETION_TOKENS
+             as 12.5% of the window (see _compute_llm_budget).  This is
+             universal across 8K/16K/32K/64K deployments and replaces the old
+             formula `max_model_len - max(2000, 0.5*max_model_len)` which was
+             too generous on small-context models (output=4096 on an 8K model
+             collided with a ~4100-token prompt, producing 400 errors).
+          2. Neither source is reachable — leave the env untouched. LightRAG's
+             own DEFAULT_MAX_TOTAL_TOKENS (30000 in 1.4.x) then applies.
 
         Never raises."""
         try:
             max_model_len = self._resolve_llm_max_model_len(env)
             if not max_model_len:
-                # No authoritative source. Respect what was already in the
-                # env (effective_config from .env + system API keys); if
-                # MAX_TOTAL_TOKENS wasn't set there either, leave it unset so
-                # LightRAG's DEFAULT_MAX_TOTAL_TOKENS (30000) applies. We do
-                # NOT inject the eCan-side _LLM_TOKEN_FALLBACK here because
-                # that's smaller than what most models actually support and
-                # was the root cause of the 8196-cap / 2005+6192 collisions.
                 logger.info(
                     "[LightragServer] LLM max_model_len unknown; "
                     "leaving MAX_TOTAL_TOKENS to LightRAG default "
@@ -646,25 +674,19 @@ class LightragServer:
                 )
                 return
 
-            # Reserve tokens for the prompt / system message / retrieval context.
-            # MAX_TOTAL_TOKENS = max_model_len so the full context window is usable.
-            # OPENAI_LLM_MAX_COMPLETION_TOKENS reserves ~4000 tokens for the prompt side
-            # (system instructions ~1800 + entity/relation context ~1500 + chunks ~500
-            # + query ~10).  The remainder is output budget.  Floor at 512 so small
-            # models still get a usable output budget.
-            # Buffer = 200 tokens against the theoretical MAX_TOTAL_TOKENS to absorb
-            # minor tokenizer-counting discrepancies between our estimate and vLLM's.
+            output_tokens, retrieval_share = self._compute_llm_budget(max_model_len)
+
             previous_total = env.get('MAX_TOTAL_TOKENS')
             previous_output = env.get('OPENAI_LLM_MAX_COMPLETION_TOKENS')
             env['MAX_TOTAL_TOKENS'] = str(max_model_len)
-            env['OPENAI_LLM_MAX_COMPLETION_TOKENS'] = str(
-                max(512, max_model_len - max(2000, int(max_model_len * 0.5)))
-            )
+            env['OPENAI_LLM_MAX_COMPLETION_TOKENS'] = str(output_tokens)
             logger.info(
                 f"[LightragServer] LLM token limits derived from deployment: "
                 f"max_model_len={max_model_len} "
                 f"MAX_TOTAL_TOKENS={previous_total}->{env['MAX_TOTAL_TOKENS']} "
-                f"OPENAI_LLM_MAX_COMPLETION_TOKENS={previous_output}->{env['OPENAI_LLM_MAX_COMPLETION_TOKENS']}"
+                f"OPENAI_LLM_MAX_COMPLETION_TOKENS={previous_output}->{env['OPENAI_LLM_MAX_COMPLETION_TOKENS']} "
+                f"(proportional budget; retrieval share ~ {retrieval_share} "
+                f"for downstream entity/relation cap)"
             )
         except Exception as e:
             logger.warning(f"[LightragServer] _apply_llm_token_limits failed: {e}")
@@ -799,6 +821,24 @@ class LightragServer:
     _MIN_RELATION_TOKENS = 2000 # Minimum for relation context (covers ~10-20 relations)
     _MIN_CHUNK_BUDGET = 500     # Minimum tokens reserved for chunks
 
+    def _compute_retrieval_budget(self, max_model_len: int) -> tuple:
+        """Return (entity_cap, relation_cap) for the given deployed context window.
+
+        Proportional allocation: entity gets 40% of the retrieval share,
+        relation gets 60%. For 8K the retrieval share is ~6668, giving
+        entity=2667, relation=4001; for 32K the share is ~27068, giving
+        entity=10827, relation=16241 (well over LightRAG's hardcoded
+        defaults of 6000/8000 — those defaults apply naturally for ≤32K).
+
+        The split (entity 40% / relation 60%) preserves the historical
+        4:6 ratio used by the legacy ceiling logic, so retrieval quality
+        on larger models doesn't regress.
+        """
+        retrieval_share = max(0, max_model_len - int(max_model_len * 0.125) - 500)
+        entity_cap = int(retrieval_share * 0.4)
+        relation_cap = retrieval_share - entity_cap
+        return entity_cap, relation_cap
+
     def _apply_retrieval_token_limits(self, env: dict) -> None:
         """Ensure retrieval token limits (entity/relation) fit within MAX_TOTAL_TOKENS.
 
@@ -807,75 +847,75 @@ class LightragServer:
         the entity/relation context to consume the entire budget and leaves zero for
         chunks — or worse, exceeds the model's context window entirely.
 
-        This method enforces both a floor (MIN_*) and a ceiling (MAX_*):
-          - Floor: raise values that are set too low for any useful retrieval.
-          - Ceiling: cap values that together exceed MAX_TOTAL_TOKENS, keeping at
-            least _MIN_CHUNK_BUDGET tokens for the chunk context.
-
-        Industry-recommended ranges for 8k context models:
-          MAX_ENTITY_TOKENS:     1500-3000  (covers 10-20 entities with descriptions)
-          MAX_RELATION_TOKENS:   1500-3000  (covers 15-30 relations)
-          Chunk budget:           1000-2500  (actual chunks after system-prompt overhead)
+        Behaviour (paired with _compute_llm_budget output budget):
+          - Cap entity and relation to the proportional 40:60 split of the
+            retrieval share (window minus output minus 500 system overhead).
+            For 8K this caps entity≈2668, relation≈4004.
+          - Floor at 500 entity / 800 relation so sub-2K windows still
+            surface useful context.
+          - If the resulting entity+relation+output+500 would push chunk
+            budget below 500, scale entity/relation down proportionally so
+            chunks are never completely discarded.
         """
+        # Tier-based caps. These default to safe values when MAX_TOTAL_TOKENS is
+        # not yet set (e.g. _apply_llm_token_limits failed to resolve max_model_len).
+        max_total = self._coerce_int(env.get('MAX_TOTAL_TOKENS')) or 8192
+        cap_entity, cap_relation = self._compute_retrieval_budget(max_total)
+
         try:
-            max_total = self._coerce_int(env.get('MAX_TOTAL_TOKENS')) or 8192
             entity_tokens = self._coerce_int(env.get('MAX_ENTITY_TOKENS'))
             relation_tokens = self._coerce_int(env.get('MAX_RELATION_TOKENS'))
 
-            # ---- Floor: raise values set too low ----
+            # ---- Ceiling: cap to the tier value ----
             changes = []
-            if entity_tokens is not None and entity_tokens < self._MIN_ENTITY_TOKENS:
-                changes.append(f"MAX_ENTITY_TOKENS: {entity_tokens} -> {self._MIN_ENTITY_TOKENS} (floor)")
-                env['MAX_ENTITY_TOKENS'] = str(self._MIN_ENTITY_TOKENS)
-
-            if relation_tokens is not None and relation_tokens < self._MIN_RELATION_TOKENS:
-                changes.append(f"MAX_RELATION_TOKENS: {relation_tokens} -> {self._MIN_RELATION_TOKENS} (floor)")
-                env['MAX_RELATION_TOKENS'] = str(self._MIN_RELATION_TOKENS)
-
-            # ---- Ceiling: cap values that collectively exceed MAX_TOTAL_TOKENS ----
-            # Re-read after floor adjustments
-            # Cap entity and relation tokens to leave sufficient budget for chunks.
-            # For 8K context models: total budget 8196 must cover:
-            #   system prompt (~1800) + query (~10) + buffer (200) = ~2010 overhead
-            #   + chunks (~1500 for 1-2 full resumes) = ~3510
-            #   → 8196 - 3510 = 4686 for entities + relations combined
-            # We cap entity at 2000 and relation at 2500 (total 4500 < 4686 ✓).
-            # If the combined entity+relation exceeds safe_max, cap them proportionally.
-            entity_limit = self._coerce_int(env.get('MAX_ENTITY_TOKENS')) or self._MIN_ENTITY_TOKENS
-            relation_limit = self._coerce_int(env.get('MAX_RELATION_TOKENS')) or self._MIN_RELATION_TOKENS
-            safe_max = max_total - self._MIN_CHUNK_BUDGET  # 8196 - 500 = 7696
-
-            if entity_limit + relation_limit > safe_max:
-                # Proportionally cap to preserve entity:relation = 4:6 ratio
-                cap_entity = max(self._MIN_ENTITY_TOKENS, int(safe_max * 0.4))
-                cap_relation = max(self._MIN_RELATION_TOKENS, int(safe_max * 0.6))
-                changes.append(
-                    f"Retrieval budget exceeded: {entity_limit}+{relation_limit}={entity_limit+relation_limit} "
-                    f"> {safe_max} (MAX_TOTAL={max_total} - CHUNK_BUDGET={self._MIN_CHUNK_BUDGET}); "
-                    f"capping ENTITY→{cap_entity}, RELATION→{cap_relation}"
-                )
+            if entity_tokens is not None and entity_tokens > cap_entity:
+                changes.append(f"MAX_ENTITY_TOKENS: {entity_tokens} -> {cap_entity} (tier cap for {max_total}-token window)")
                 env['MAX_ENTITY_TOKENS'] = str(cap_entity)
+                entity_tokens = cap_entity
+
+            if relation_tokens is not None and relation_tokens > cap_relation:
+                changes.append(f"MAX_RELATION_TOKENS: {relation_tokens} -> {cap_relation} (tier cap for {max_total}-token window)")
                 env['MAX_RELATION_TOKENS'] = str(cap_relation)
-                entity_limit = cap_entity
-                relation_limit = cap_relation
+                relation_tokens = cap_relation
 
+            # ---- Floor: raise values set too low (only when explicitly set) ----
+            # Sub-2K windows still get something useful.
+            floor_entity = 500
+            floor_relation = 800
+            if entity_tokens is not None and entity_tokens < floor_entity:
+                changes.append(f"MAX_ENTITY_TOKENS: {entity_tokens} -> {floor_entity} (floor)")
+                env['MAX_ENTITY_TOKENS'] = str(floor_entity)
+                entity_tokens = floor_entity
+
+            if relation_tokens is not None and relation_tokens < floor_relation:
+                changes.append(f"MAX_RELATION_TOKENS: {relation_tokens} -> {floor_relation} (floor)")
+                env['MAX_RELATION_TOKENS'] = str(floor_relation)
+                relation_tokens = floor_relation
+
+            # ---- Chunk budget sanity check ----
+            entity_limit = entity_tokens or cap_entity
+            relation_limit = relation_tokens or cap_relation
             chunk_budget = max_total - entity_limit - relation_limit
-
+            # Reserve at least _MIN_CHUNK_BUDGET for the chunk context; otherwise
+            # LightRAG truncates chunks to zero and the query returns "no results".
             if chunk_budget < self._MIN_CHUNK_BUDGET:
+                # If we'd starve chunks, scale entity/relation down proportionally
+                # (only the explicit-overridden values; the tier caps stay authoritative)
+                headroom = max_total - self._MIN_CHUNK_BUDGET
+                scaled_entity = max(floor_entity, int(headroom * 0.4))
+                scaled_relation = max(floor_relation, headroom - scaled_entity)
                 changes.append(
                     f"Chunk budget critically low: {chunk_budget} tokens "
-                    f"(MIN={self._MIN_CHUNK_BUDGET}). MAX_TOTAL_TOKENS may be too small "
-                    f"for this model."
+                    f"(MIN={self._MIN_CHUNK_BUDGET}). Scaling ENTITY->{scaled_entity}, "
+                    f"RELATION->{scaled_relation} to preserve chunk budget."
                 )
-                logger.warning(
-                    f"[LightragServer] Chunk budget warning: "
-                    f"MAX_TOTAL={max_total}, ENTITY={entity_limit}, "
-                    f"RELATION={relation_limit}, CHUNK_BUDGET={chunk_budget}"
-                )
+                env['MAX_ENTITY_TOKENS'] = str(scaled_entity)
+                env['MAX_RELATION_TOKENS'] = str(scaled_relation)
+                chunk_budget = max_total - scaled_entity - scaled_relation
 
             if changes:
                 for msg in changes:
-                    if "capping" in msg.lower() or "critically" in msg.lower():
+                    if "critically" in msg.lower() or "tier cap" in msg.lower():
                         logger.warning(f"[LightragServer] {msg}")
                     else:
                         logger.info(f"[LightragServer] {msg}")
