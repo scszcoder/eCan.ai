@@ -1831,6 +1831,9 @@
       "favorite": "Favorite",
       "favorites": "Favorites",
       "getAction": "Get",
+      "updateAction": "Update",
+      "updateAvailableHint": "A newer version was published — click to update",
+      "cloudNewerBadge": "Newer version in cloud",
       "heroSearchPlaceholder": "Search skills...",
       "heroStats": {
         "authors": "authors",

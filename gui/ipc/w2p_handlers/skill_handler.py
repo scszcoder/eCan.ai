@@ -11,6 +11,7 @@ from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from utils.logger_helper import logger_helper as logger
 from agent.cloud_api.constants import Operation
+from utils.skill_version import new_skill_version, compare_skill_versions, CLOUD_NEWER
 import json
 from pathlib import Path
 
@@ -374,6 +375,20 @@ def _repair_local_skill_from_cloud(local_sk: Dict[str, Any], cloud_sk: Dict[str,
     Persists to the DB and patches the in-memory pool + the response dict
     in place. Returns True when a repair was applied.
     """
+    # ── Version drift (display-only): a newer cloud copy means this skill
+    #    was saved on another device — surface an update indicator on the
+    #    response row; content is NOT auto-pulled (could clobber local work).
+    try:
+        if compare_skill_versions(local_sk.get('version'), cloud_sk.get('version')) == CLOUD_NEWER:
+            local_sk['cloud_version'] = cloud_sk.get('version')
+            local_sk['update_available'] = True
+            logger.info(
+                f"[skill_version] cloud copy of '{local_sk.get('name')}' ({local_sk.get('id')}) "
+                f"is newer: local={local_sk.get('version')!r} cloud={cloud_sk.get('version')!r}"
+            )
+    except Exception as vcmp_err:
+        logger.debug(f"[skill_version] compare skipped: {vcmp_err}")
+
     fields: Dict[str, Any] = {}
     for key in _CLOUD_REPAIRABLE_SKILL_FIELDS:
         local_val = local_sk.get(key)
@@ -1281,6 +1296,14 @@ def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any
                 f"isPublic={sample.get('isPublic')!r} is_public={sample.get('is_public')!r}"
             )
 
+        # ── Version comparison: annotate each store row with the local copy's
+        #    version so the frontend can show Update (cloud newer) instead of
+        #    已订阅 for stale subscribed skills. Display-only fields.
+        try:
+            _annotate_store_rows_with_local_versions(skills, request, params)
+        except Exception as ver_err:
+            logger.debug(f"[skill_version] store annotation skipped: {ver_err}")
+
         return create_success_response(request, {
             'skills': skills,
             'message': 'Get public skills successful',
@@ -1293,6 +1316,42 @@ def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any
             f"Error during get public skills: {str(e)}"
         )
     
+def _annotate_store_rows_with_local_versions(store_rows: list, request=None, params=None) -> None:
+    """Attach ``local_version`` / ``update_available`` to public-catalog rows
+    that have a local (subscribed) copy, using the save-timestamp version
+    scheme (utils/skill_version.py). Cloud newer → the store shows an
+    Update button; re-subscribing re-downloads diagram, prompts and files."""
+    if not store_rows:
+        return
+    skill_service = _get_skill_service(request, params)
+    if not skill_service:
+        return
+    query_result = skill_service.query_skills()
+    local_rows = query_result.get('data', []) if query_result.get('success') else []
+    local_by_id: Dict[str, Dict[str, Any]] = {}
+    for lr in local_rows:
+        if not isinstance(lr, dict):
+            continue
+        for key in ('id', 'askid'):
+            k = str(lr.get(key) or '').strip()
+            if k and k != '0':
+                local_by_id.setdefault(k, lr)
+    for row in store_rows:
+        if not isinstance(row, dict):
+            continue
+        local = local_by_id.get(str(row.get('id') or '').strip()) \
+            or local_by_id.get(str(row.get('askid') or '').strip())
+        if local is None:
+            continue
+        row['local_version'] = local.get('version')
+        if compare_skill_versions(local.get('version'), row.get('version')) == CLOUD_NEWER:
+            row['update_available'] = True
+            logger.info(
+                f"[skill_version] store skill '{row.get('name')}' ({row.get('id')}) has a newer "
+                f"cloud version: local={local.get('version')!r} cloud={row.get('version')!r}"
+            )
+
+
 def _extract_skill_prompt_ids(cloud_skill: Dict[str, Any]) -> list:
     """All prompt ids (pr-NNN) referenced anywhere in a skill's diagram or
     config JSON — prompt selections live in per-node inputsValues under
@@ -1745,6 +1804,27 @@ def handle_unsubscribe_from_skill(request: IPCRequest, params: Optional[Dict[str
         return create_error_response(request, 'UNSUBSCRIBE_SKILL_ERROR', f"Error during unsubscribe: {str(e)}")
 
 
+def _stamp_diagram_version(skill_info: dict, version: str) -> None:
+    """Write the save-timestamp version into the skill's diagram JSON (best
+    effort) so file twins and cloud copies carry it alongside the DB row."""
+    try:
+        diagram = skill_info.get('diagram')
+        if isinstance(diagram, dict):
+            diagram['version'] = version
+        elif isinstance(diagram, str) and diagram.strip():
+            parsed = json.loads(diagram)
+            if isinstance(parsed, str):  # double-encoded
+                inner = json.loads(parsed)
+                if isinstance(inner, dict):
+                    inner['version'] = version
+                    skill_info['diagram'] = json.dumps(json.dumps(inner, ensure_ascii=False), ensure_ascii=False)
+            elif isinstance(parsed, dict):
+                parsed['version'] = version
+                skill_info['diagram'] = json.dumps(parsed, ensure_ascii=False)
+    except Exception as e:
+        logger.debug(f"[skill_version] diagram version stamp skipped: {e}")
+
+
 @IPCHandlerRegistry.handler('save_agent_skill')
 def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handle saving agent skill workflow to local database
@@ -1870,6 +1950,36 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
                 }
         except Exception as mem_lookup_err:
             logger.debug(f"[skill_handler] Failed memory lookup for save_agent_skill: {mem_lookup_err}")
+
+        _existing_row = existing_skill.get('data') if existing_skill.get('success') else None
+
+        # ── Read-only gate: skills owned by another author (subscribed /
+        #    third-party) can never be saved locally — only the author edits,
+        #    subscribers re-download newer versions from the store.
+        _row_owner = str(((_existing_row or memory_skill_data or {}).get('owner')) or '').strip().lower()
+        if _row_owner and _row_owner != str(username).strip().lower():
+            logger.warning(
+                f"[skill_handler] SKILL_READ_ONLY: save of '{skill_info.get('name', skill_id)}' "
+                f"rejected — owner '{_row_owner}' != current user '{username}'"
+            )
+            return create_error_response(
+                request,
+                'SKILL_READ_ONLY',
+                'This skill is owned by another author and is read-only. '
+                'Subscribed skills receive updates from the store instead.'
+            )
+
+        # ── Version stamp: UTC save timestamp yymmddHHMMSSmmm (monotonic).
+        #    Written to the row AND the diagram JSON; rides the cloud push so
+        #    other devices / subscribers can detect a newer cloud copy.
+        _prev_version = str(((_existing_row or memory_skill_data or {}).get('version')) or '')
+        _new_version = new_skill_version(_prev_version)
+        skill_info['version'] = _new_version
+        _stamp_diagram_version(skill_info, _new_version)
+        logger.info(
+            f"[skill_version] '{skill_info.get('name', skill_id)}' stamped version "
+            f"{_new_version} (prev={_prev_version or 'none'})"
+        )
 
         # Standard logic: ID exists = update, ID not exists = create
         if existing_skill.get('success') and existing_skill.get('data'):
@@ -2036,6 +2146,10 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
         skill_service = _get_skill_service(request, params)
         if not skill_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+
+        # Version stamp: UTC save timestamp (see utils/skill_version.py)
+        skill_info['version'] = new_skill_version()
+        _stamp_diagram_version(skill_info, skill_info['version'])
 
         # Prepare skill data (without ID - let database generate it)
         skill_data = _prepare_skill_data(skill_info, username, skill_id=None)

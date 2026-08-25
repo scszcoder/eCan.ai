@@ -1201,6 +1201,17 @@ const SkillList: React.FC<SkillListProps> = ({
                                 {t('pages.skills.rentable', 'Rentable')}
                             </MetaTag>
                         )}
+                        {/* Version drift: this skill was saved more recently on
+                            another device / by the author (cloud copy is newer) */}
+                        {(skill as any).update_available && (
+                            <MetaTag
+                                style={{ background: 'rgba(245, 34, 45, 0.15)', color: '#f5222d' }}
+                                title={String((skill as any).cloud_version || '')}
+                            >
+                                <CloudOutlined />
+                                {t('pages.skills.cloudNewerBadge', 'Newer version in cloud')}
+                            </MetaTag>
+                        )}
                     </CardMeta>
 
                     {/* 统计信息 */}

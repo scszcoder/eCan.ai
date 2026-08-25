@@ -1889,6 +1889,9 @@
       "favorite": "收藏",
       "favorites": "收藏",
       "getAction": "获取",
+      "updateAction": "更新",
+      "updateAvailableHint": "作者发布了新版本 — 点击更新",
+      "cloudNewerBadge": "云端有新版本",
       "heroSearchPlaceholder": "搜索技能...",
       "heroStats": {
         "authors": "位作者",

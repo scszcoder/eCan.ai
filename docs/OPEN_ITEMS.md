@@ -132,6 +132,30 @@ _Last updated: 2026-08-23_
 
 ## 🟢 In progress
 
+- **Skill save-timestamp versioning + read-only (2026-08-26, uncommitted→
+  committing)**. `version` = UTC save timestamp yymmddHHMMSSmmm (15
+  digits, utils/skill_version.py; legacy "1.0.0" sorts older than any
+  timestamp → first re-save upgrades everyone). Stamped on
+  save_agent_skill/new_agent_skill (row + diagram JSON, monotonic guard),
+  rides the existing cloud push. get_public_skills annotates store rows
+  with local_version/update_available (cloud newer → store shows 更新
+  button = re-subscribe refresh); own-skill merge repair sets
+  update_available + cloud_version when the cloud copy is newer (My
+  Skills red badge 云端有新版本; display-only, NO auto-pull). READ-ONLY:
+  save_agent_skill rejects SKILL_READ_ONLY when row owner ≠ current user
+  (frontend already gates via canEdit/isThirdPartySkill). Tests:
+  tests/unit/test_skill_versioning.py (18).
+  v0.9.95j CUSTOMER LOG findings (user 1050588178@qq.com): popup "sync
+  to cloud failed" = TCB lacks subscribeToSkill mutation; forgotten
+  已订阅 = subscription state is device-local until the cloud rel exists;
+  file download logged "no files listed" = userId gate not deployed AND
+  COS bucket likely empty (SignatureDoesNotMatch upload bug). SERVER
+  список (user applies, exact wire shapes in this repo's cloud_api.py
+  send_subscribe_to_skill_request / _fetch_cloud_subscribed_skill_ids):
+  subscribeToSkill/unsubscribeFromSkill mutations + getSubscribedSkillIds
+  query; verify updateAgentSkills persists `version`; userId file gate;
+  COS signing fix.
+
 - **pend_event {{front_desk_agent_id}} placeholder (2026-08-25)**. The
   published 飞鸽客服问答00 diagram hard-codes agent_48bdd65f982a4cdb (a
   long-gone author-machine front-desk agent) in its pend_event node's

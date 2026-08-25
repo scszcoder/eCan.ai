@@ -433,6 +433,14 @@ const SkillMarketplaceList: React.FC<SkillMarketplaceListProps> = ({
                         >
                             <EditOutlined /> {t('pages.skills.edit', 'Edit')}
                         </PillButton>
+                    ) : subscribed && (skill as any)?.update_available ? (
+                        <PillButton
+                            $variant="subscribe"
+                            onClick={() => onSubscribe(skillIdStr)}
+                            title={t('pages.skills.updateAvailableHint', 'A newer version was published — click to update')}
+                        >
+                            <DownloadOutlined /> {t('pages.skills.updateAction', 'Update')}
+                        </PillButton>
                     ) : subscribed ? (
                         <PillButton
                             $variant="danger"

@@ -576,6 +576,17 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
                                 >
                                     <EditOutlined /> {t('pages.skills.edit', 'Edit')}
                                 </PrimaryAction>
+                            ) : subscribed && (skill as any)?.update_available ? (
+                                <PrimaryAction
+                                    $variant="subscribe"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onSubscribe(skillIdStr);
+                                    }}
+                                    title={t('pages.skills.updateAvailableHint', 'A newer version was published — click to update')}
+                                >
+                                    <DownloadOutlined /> {t('pages.skills.updateAction', 'Update')}
+                                </PrimaryAction>
                             ) : subscribed ? (
                                 <Dropdown
                                     menu={{
