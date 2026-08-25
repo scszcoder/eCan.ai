@@ -383,7 +383,10 @@ def patch_openai_client_for_lambda_proxy():
     the server starts without per-user token accounting.
     """
     proxy_host = os.environ.get('LLM_BINDING_HOST', '')
-    if not proxy_host or 'lambda-url' not in proxy_host and 'execute-api' not in proxy_host:
+    _proxy_markers = ('lambda-url', 'execute-api',
+                      # CN: TCB-hosted OpenAI-compatible llm-proxy service
+                      'tcloudbase.com', '/llm-proxy')
+    if not proxy_host or not any(m in proxy_host for m in _proxy_markers):
         logger.info('[Launcher] Lambda proxy not detected, skipping OpenAI header patch')
         return
 

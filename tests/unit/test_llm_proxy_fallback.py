@@ -84,6 +84,70 @@ class TestBuildCloudLlmFallback:
                 )
 
 
+class TestLightragMissingKeyFallback:
+    """RAG side: _compute_system_api_keys reroutes key-less LLM/EMBEDDING
+    bindings to the OpenAI-compatible proxy (endpoint + /v1)."""
+
+    def _compute(self, env_config, proxy_endpoint="https://tcb.example/api/llm-proxy"):
+        from knowledge.lightrag_config_manager import LightRAGConfigManager
+
+        main_window = MagicMock()
+        # No provider rows → sections 1-3 resolve no keys
+        main_window.config_manager.llm_manager.get_provider.return_value = None
+        main_window.config_manager.embedding_manager.get_provider.return_value = None
+        main_window.config_manager.rerank_manager.get_provider.return_value = None
+        main_window.config_manager.general_settings.lambda_proxy_endpoint = proxy_endpoint
+        main_window.get_auth_token.return_value = "session-token"
+
+        fake_self = MagicMock()
+        fake_self.read_config.return_value = dict(env_config)
+        with patch("app_context.AppContext.get_main_window", return_value=main_window):
+            return LightRAGConfigManager._compute_system_api_keys(fake_self)
+
+    def test_keyless_bindings_reroute_to_proxy(self):
+        keys = self._compute({"LLM_BINDING": "deepseek", "EMBEDDING_BINDING": "qwen"})
+        for kind in ("LLM", "EMBEDDING"):
+            assert keys[f"{kind}_BINDING"] == "openai"
+            assert keys[f"{kind}_BINDING_HOST"] == "https://tcb.example/api/llm-proxy/v1"
+            assert keys[f"{kind}_BINDING_API_KEY"] == "session-token"
+
+    def test_ollama_binding_left_alone(self):
+        keys = self._compute({"LLM_BINDING": "ollama", "EMBEDDING_BINDING": "ollama"})
+        assert "LLM_BINDING_HOST" not in keys and "EMBEDDING_BINDING_HOST" not in keys
+
+    def test_env_key_present_not_overridden(self):
+        keys = self._compute({"LLM_BINDING": "deepseek", "LLM_BINDING_API_KEY": "sk-x"})
+        assert keys.get("LLM_BINDING") != "openai"
+        assert "LLM_BINDING_HOST" not in keys
+
+    def test_no_proxy_endpoint_no_override(self):
+        keys = self._compute({"LLM_BINDING": "deepseek"}, proxy_endpoint="")
+        assert "LLM_BINDING_HOST" not in keys
+
+
+class TestCnDefaultProxyEndpoint:
+    def _gs(self, data):
+        from gui.config.general_settings import GeneralSettings
+        gs = object.__new__(GeneralSettings)
+        gs._data = data
+        return gs
+
+    def test_cn_default_when_unset(self):
+        with patch("utils.app_env.is_cn", return_value=True):
+            ep = self._gs({}).lambda_proxy_endpoint
+        assert ep == ("https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com"
+                      "/api/llm-proxy")
+
+    def test_intl_stays_empty(self):
+        with patch("utils.app_env.is_cn", return_value=False):
+            assert self._gs({}).lambda_proxy_endpoint == ""
+
+    def test_user_value_wins(self):
+        with patch("utils.app_env.is_cn", return_value=True):
+            ep = self._gs({"lambda_proxy_endpoint": "https://mine.example"}).lambda_proxy_endpoint
+        assert ep == "https://mine.example"
+
+
 class TestBuildNodeSourceContract:
     """build_node's _build_runtime_llm is a deep closure — assert the
     missing-key branch tries the proxy before raising, at source level."""

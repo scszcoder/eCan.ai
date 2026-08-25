@@ -549,10 +549,27 @@ class GeneralSettings:
     def use_lambda_proxy(self, value: bool):
         self._data["use_lambda_proxy"] = value
 
+    # CN builds ship a default proxy endpoint so key-less installs work out
+    # of the box (missing-local-API-key → proxy fallback). The TCB service
+    # is OpenAI-compatible at <endpoint>/v1/chat/completions. A user-set
+    # value always wins; intl has no default (endpoint stays user-configured).
+    _CN_DEFAULT_LLM_PROXY_ENDPOINT = (
+        "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy"
+    )
+
     @property
     def lambda_proxy_endpoint(self) -> str:
-        """Lambda Function URL for the cloud LLM proxy"""
-        return self._data.get("lambda_proxy_endpoint", "")
+        """Cloud LLM proxy URL (Lambda Function URL / TCB llm-proxy service)"""
+        value = str(self._data.get("lambda_proxy_endpoint", "") or "").strip()
+        if value:
+            return value
+        try:
+            from utils.app_env import is_cn
+            if is_cn():
+                return self._CN_DEFAULT_LLM_PROXY_ENDPOINT
+        except Exception:
+            pass
+        return ""
 
     @lambda_proxy_endpoint.setter
     def lambda_proxy_endpoint(self, value: str):

@@ -544,9 +544,44 @@ class LightRAGConfigManager:
                 import traceback
                 logger.warning(traceback.format_exc())
                 
+            # 4. Missing-key → cloud LLM proxy fallback (2026-08-27).
+            # Same semantics as the chat-path fallback in build_node: when a
+            # binding needs a key, none was resolved (provider store or .env),
+            # and a proxy endpoint is configured, route that binding through
+            # the OpenAI-compatible proxy (endpoint + /v1) with the eCan auth
+            # token as the bearer key. Key-less bindings (ollama) are left
+            # alone. This overlays get_effective_config, so it overrides the
+            # .env binding/host for the server process.
+            try:
+                gs = main_window.config_manager.general_settings
+                proxy_endpoint = (gs.lambda_proxy_endpoint or '').strip()
+                if proxy_endpoint:
+                    proxy_base = proxy_endpoint.rstrip('/') + '/v1'
+                    auth_token = ''
+                    if hasattr(main_window, 'get_auth_token'):
+                        auth_token = main_window.get_auth_token() or ''
+                    env_config = self.read_config()
+                    for kind in ('LLM', 'EMBEDDING'):
+                        binding = str(env_config.get(f'{kind}_BINDING') or '').strip().lower()
+                        if not binding or binding == 'ollama':
+                            continue
+                        has_key = bool(keys.get(f'{kind}_BINDING_API_KEY')
+                                       or env_config.get(f'{kind}_BINDING_API_KEY'))
+                        if has_key:
+                            continue
+                        keys[f'{kind}_BINDING'] = 'openai'
+                        keys[f'{kind}_BINDING_HOST'] = proxy_base
+                        keys[f'{kind}_BINDING_API_KEY'] = auth_token or 'proxy'
+                        logger.info(
+                            f"[LightRAG Config] No local {kind} API key for binding "
+                            f"'{binding}' — falling back to LLM proxy at {proxy_base}"
+                        )
+            except Exception as proxy_err:
+                logger.warning(f"[LightRAG Config] proxy fallback check failed: {proxy_err}")
+
         except Exception as e:
             logger.warning(f"Error in get_system_api_keys: {e}")
-        
+
         return keys
 
     def get_effective_config(self, force_refresh: bool = False) -> Dict[str, str]:
