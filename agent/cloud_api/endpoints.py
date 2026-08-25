@@ -43,12 +43,34 @@ from typing import Optional, Dict, Any, List, Callable
 from dataclasses import dataclass, field
 from utils.logger_helper import logger_helper as logger
 
-# Apply nest_asyncio for Python 3.11+ nested event loops
-try:
-    import nest_asyncio
-    nest_asyncio.apply()
-except ImportError:
-    pass
+# Apply nest_asyncio for Python 3.11 nested event loops.
+#
+# DO NOT apply this on Python 3.12+ — it has two known breakages on
+# Qt/qasync-based apps like ours (Python 3.12 + qasync + PyQt5):
+#
+#   1. ``nest_asyncio._run_once`` calls ``self._selector.select(timeout)``
+#      directly.  qasync's selector (``qasync._unix._Selector.select``)
+#      is a stub that raises NotImplementedError — actual dispatch is
+#      driven by Qt's QSocketNotifier through ``_process_events``.
+#      See terminals/5.txt:448-465 for the live stack trace.
+#
+#   2. ``asyncio.current_task()`` returns ``None`` for coroutines
+#      driven by ``run_until_complete``, breaking
+#      ``asyncio.wait_for`` / ``asyncio.timeout`` everywhere
+#      process-wide.  See agent/chats/wan_a2a_chat.py:23-31 for
+#      a comment that already documents this in another module.
+#
+# We import this module from main.py early in startup; a stray
+# ``nest_asyncio.apply()`` here patches the qasync QEventLoop class
+# before its first ``run_forever()``, causing a startup crash before
+# the splash even hides.
+import sys as _sys
+if _sys.version_info < (3, 12):
+    try:
+        import nest_asyncio
+        nest_asyncio.apply()
+    except ImportError:
+        pass
 
 
 # =============================================================================
