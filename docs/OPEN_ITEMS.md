@@ -144,10 +144,14 @@ _Last updated: 2026-08-23_
   (browser-use agents; _proxy_fallback on node-LLM ValueError/
   RuntimeError, global-default None/failure, and the explicit no-key
   raise). Without an endpoint the original errors still raise. Tests:
-  tests/unit/test_llm_proxy_fallback.py (6). OPEN: CN builds ship NO
-  default lambda_proxy_endpoint (apps/{cn,intl}/config have none — it's
-  a user Setting); decide whether the CN app should default it to the
-  deployed CN llm_proxy URL so key-less customers work out of the box.
+  tests/unit/test_llm_proxy_fallback.py (13). ✅ 2026-08-27 follow-up
+  (3e2f69949): RAG side reroutes key-less LLM/EMBEDDING bindings to the
+  proxy in lightrag _compute_system_api_keys (ollama + env-key rows
+  untouched); launcher header patch recognizes the CN TCB host; CN
+  builds default lambda_proxy_endpoint to
+  https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy
+  (OpenAI-compatible /v1/chat/completions; user-set value wins, intl no
+  default).
 
 - **CN zip-only save + zip-first download (2026-08-26/27)**. CN save now
   uploads ONLY one artifact per skill:
