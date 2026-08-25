@@ -12,8 +12,11 @@ from pathlib import Path
 
 # Process-level guard to prevent duplicate messages from parallel pend_event_node executions.
 # Key: (skill_name, node_name, chat_id) → True once sent.
-_PEND_GLOBAL_SENT = {}
-_PEND_GLOBAL_LOCK = threading.Lock()
+# mt101: added size limit and insertion order tracking to prevent unbounded growth.
+_MAX_PEND_GLOBAL_SENT_SIZE = 1000  # Cap to prevent memory leak
+_PEND_GLOBAL_SENT: dict[tuple, bool] = {}
+_PEND_GLOBAL_SENT_LOCK = threading.Lock()
+_PEND_GLOBAL_SENT_INSERTION_ORDER: list[tuple] = []  # Track insertion order for FIFO eviction
 from agent.mcp.local_client import mcp_call_tool
 # REMOVED: from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync  # Moved to lazy import to avoid circular dependency
 from agent.ec_skills.dev_defs import BreakpointManager
@@ -8419,7 +8422,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             _attrs_for_guard = state.get("attributes", {})
             _prompt_already_sent = bool(str(_attrs_for_guard.get("prompt_to_human", "")).strip())
             _flag_already_sent = _attrs_for_guard.get(_pend_sent_key, False)
-            with _PEND_GLOBAL_LOCK:
+            with _PEND_GLOBAL_SENT_LOCK:
                 _global_already_sent = _PEND_GLOBAL_SENT.get(_global_key, False)
             _already_sent = _global_already_sent or _prompt_already_sent or _flag_already_sent
             if not _already_sent:
@@ -8454,8 +8457,16 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                         logger.info(f"[pend_event] Failed to send prompt: {_send_err}")
 
                 # Mark as sent in all three places.
-                with _PEND_GLOBAL_LOCK:
+                # mt101: added FIFO eviction to prevent unbounded growth.
+                with _PEND_GLOBAL_SENT_LOCK:
+                    # Evict oldest entries if over limit
+                    while len(_PEND_GLOBAL_SENT) >= _MAX_PEND_GLOBAL_SENT_SIZE and _PEND_GLOBAL_SENT_INSERTION_ORDER:
+                        oldest_key = _PEND_GLOBAL_SENT_INSERTION_ORDER.pop(0)
+                        if oldest_key in _PEND_GLOBAL_SENT:
+                            _PEND_GLOBAL_SENT.pop(oldest_key)
                     _PEND_GLOBAL_SENT[_global_key] = True
+                    if _global_key not in _PEND_GLOBAL_SENT_INSERTION_ORDER:
+                        _PEND_GLOBAL_SENT_INSERTION_ORDER.append(_global_key)
                 if isinstance(state.get("attributes"), dict):
                     state["attributes"][_pend_sent_key] = True
             else:
@@ -9553,6 +9564,18 @@ def _cleanup_build_node_caches() -> dict[str, int]:
     import time as _cleanup_time
     
     removed = {}
+    
+    # Clean up _PEND_GLOBAL_SENT - mt101: evict oldest entries if over limit
+    global _PEND_GLOBAL_SENT, _PEND_GLOBAL_SENT_INSERTION_ORDER
+    if len(_PEND_GLOBAL_SENT) > _MAX_PEND_GLOBAL_SENT_SIZE:
+        old_size = len(_PEND_GLOBAL_SENT)
+        # Keep only the most recent entries (FIFO eviction)
+        items_to_keep = _PEND_GLOBAL_SENT_INSERTION_ORDER[-_MAX_PEND_GLOBAL_SENT_SIZE:] if _PEND_GLOBAL_SENT_INSERTION_ORDER else []
+        new_dict = {k: True for k in items_to_keep if k in _PEND_GLOBAL_SENT}
+        _PEND_GLOBAL_SENT.clear()
+        _PEND_GLOBAL_SENT.update(new_dict)
+        _PEND_GLOBAL_SENT_INSERTION_ORDER = items_to_keep
+        removed['_PEND_GLOBAL_SENT'] = old_size - len(_PEND_GLOBAL_SENT)
     
     # Clean up _first_invocation_done - keep only most recent entries
     global _first_invocation_done

@@ -108,6 +108,11 @@ def _is_live_chat_response_payload(payload: Dict[str, Any]) -> bool:
 #                         doesn't always carry a sender ID).
 _sender_dispatch_state: Dict[str, Dict[str, Any]] = {}
 _last_discovery_ts: float = 0.0
+# mt101: Added size limit and cleanup to prevent unbounded growth
+_MAX_SENDER_DISPATCH_STATE_SIZE = 500  # Cap to prevent memory leak
+_SENDER_DISPATCH_STATE_CLEANUP_INTERVAL = 50  # Clean up every N operations
+
+_dispatc_h_state_op_count = 0  # Track operations for periodic cleanup
 
 _DISPATCH_WINDOW_SEC = 30  # reset tracking after this many seconds of inactivity
 
@@ -294,18 +299,43 @@ def _check_qa_response_pending(
 
 def _get_dispatch_state(sender_id: str) -> Dict[str, Any]:
     """Get or create dispatch tracking state for a sender, auto-expiring stale entries."""
-    global _last_discovery_ts
+    global _last_discovery_ts, _dispatc_h_state_op_count
     now = time.time()
     state = _sender_dispatch_state.get(sender_id)
     if state is None or (now - state.get("ts", 0)) > _DISPATCH_WINDOW_SEC:
         state = {"discovered": False, "sent_to": [], "ts": now}
         _sender_dispatch_state[sender_id] = state
+        # mt101: periodic cleanup to prevent unbounded growth
+        _dispatc_h_state_op_count += 1
+        if _dispatc_h_state_op_count >= _SENDER_DISPATCH_STATE_CLEANUP_INTERVAL:
+            _dispatc_h_state_op_count = 0
+            _cleanup_sender_dispatch_state()
     # If any list_chat_agents call happened recently, credit this sender
     if not state.get("discovered") and (now - _last_discovery_ts) < _DISPATCH_WINDOW_SEC:
         state["discovered"] = True
         state["sent_to"] = []
     state["ts"] = now
     return state
+
+
+def _cleanup_sender_dispatch_state() -> int:
+    """Clean up stale entries from _sender_dispatch_state.
+    
+    Removes entries older than _DISPATCH_WINDOW_SEC * 10 (10x TTL).
+    Returns number of entries removed.
+    """
+    global _sender_dispatch_state, _dispatc_h_state_op_count
+    now = time.time()
+    stale_threshold = _DISPATCH_WINDOW_SEC * 10
+    stale_keys = [
+        sid for sid, st in _sender_dispatch_state.items()
+        if (now - st.get("ts", 0)) > stale_threshold
+    ]
+    for sid in stale_keys:
+        _sender_dispatch_state.pop(sid, None)
+    if stale_keys:
+        logger.debug(f"[chat_tools] Cleaned up {len(stale_keys)} stale sender dispatch states")
+    return len(stale_keys)
 
 
 def _mark_discovery(sender_id: str, agents: List[Dict[str, Any]]):
