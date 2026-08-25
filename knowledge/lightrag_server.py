@@ -322,6 +322,12 @@ class LightragServer:
         # force a value when needed.
         self._apply_llm_token_limits(env)
 
+        # 2.5.5 Scale TOP_K / CHUNK_TOP_K to the deployed model's context window.
+        # A 8K model can't afford the default (TOP_K=40 / CHUNK_TOP_K=20) without
+        # the prompt overflowing. This mirrors _apply_llm_token_limits above:
+        # resolve max_model_len, then cap oversized user values.
+        self._apply_top_k_for_window(env)
+
         # 2.6 Ensure retrieval token limits have sane minimums (chunk protection)
         self._apply_retrieval_token_limits(env)
 
@@ -690,6 +696,93 @@ class LightragServer:
             )
         except Exception as e:
             logger.warning(f"[LightragServer] _apply_llm_token_limits failed: {e}")
+
+    def _compute_top_k_budget(self, max_model_len: int) -> tuple:
+        """Return (top_k, chunk_top_k) for the given deployed context window.
+
+        TOP_K and CHUNK_TOP_K feed the LightRAG vector search. Each retrieved
+        entity/chunk costs roughly:
+          - entity:        ~200 tokens (description + name)
+          - chunk:         ~500 tokens (BGE-M3 chunk size of 1200 chars ≈ 500 tokens)
+          - relation:      ~150 tokens
+
+        So retrieved-token cost ≈ top_k * 200 + chunk_top_k * 500. For an 8K
+        window with output 1024 + system 1800, the retrieval share is ~5400
+        tokens — at the proportional split top_k=8 + chunk_top_k=12 fits
+        comfortably (~5200 tokens retrieved), while top_k=12 + chunk_top_k=18
+        saturates (~7200 tokens) and forces truncation.
+
+        Tiers are bucket-sized so the common 8K boundaries (8192 / 8196) and
+        16K (16384 / 16386) both land in the same tier regardless of the
+        exact deployed value:
+          <=  9K (9216)   -> top_k=8,  chunk_top_k=12  (8K resume/CRM)
+          <= 17K (17408)  -> top_k=12, chunk_top_k=18  (eCan default)
+          <= 33K (33792)  -> top_k=20, chunk_top_k=32  (LightRAG default)
+          <= 66K (67584)  -> top_k=30, chunk_top_k=40
+          >  66K          -> top_k=40, chunk_top_k=50
+        """
+        if max_model_len <= 9216:
+            return 8, 12
+        if max_model_len <= 17408:
+            return 12, 18
+        if max_model_len <= 33792:
+            return 20, 32
+        if max_model_len <= 67584:
+            return 30, 40
+        return 40, 50
+
+    def _apply_top_k_for_window(self, env: dict) -> None:
+        """Scale TOP_K / CHUNK_TOP_K to the deployed model's context window.
+
+        Resolution order:
+          1. Resolve max_model_len the same way _apply_llm_token_limits does
+             (vLLM /v1/models -> ryoais_models.json -> static 8192 fallback).
+          2. If the env already has a *smaller* TOP_K than the tier value,
+             respect the user's choice (they may have tuned it for cost).
+          3. If the env has a *larger* TOP_K than the tier value, cap it.
+             Oversized retrieval on a small model bloats the prompt past the
+             context window and slows generation 2-5x.
+          4. CHUNK_TOP_K follows the same pattern but with its own tier table.
+
+        Note: this is a *ceiling* policy, not a hard override. If the user's
+        value is below the tier cap we leave it alone, matching the existing
+        _apply_retrieval_token_limits behaviour.
+
+        Never raises."""
+        try:
+            max_model_len = self._resolve_llm_max_model_len(env)
+            if not max_model_len:
+                # Cannot resolve — don't touch the user's settings.
+                logger.debug(
+                    "[LightragServer] max_model_len unknown; leaving TOP_K/CHUNK_TOP_K as-is"
+                )
+                return
+
+            tier_top_k, tier_chunk_top_k = self._compute_top_k_budget(max_model_len)
+            changes = []
+
+            def _cap_if_oversized(key: str, tier_value: int, label: str) -> None:
+                raw = env.get(key)
+                if raw is None or str(raw).strip() == "":
+                    return
+                try:
+                    n = int(str(raw).strip())
+                except (ValueError, TypeError):
+                    return
+                if n > tier_value:
+                    changes.append(f"{key}: {n} -> {tier_value} ({label} cap for {max_model_len}-token window)")
+                    env[key] = str(tier_value)
+
+            _cap_if_oversized('TOP_K', tier_top_k, 'top_k')
+            _cap_if_oversized('CHUNK_TOP_K', tier_chunk_top_k, 'chunk_top_k')
+
+            if changes:
+                logger.warning(
+                    f"[LightragServer] TOP_K scaled for {max_model_len}-token window: "
+                    + "; ".join(changes)
+                )
+        except Exception as e:
+            logger.warning(f"[LightragServer] _apply_top_k_for_window failed: {e}")
 
     # ---- vLLM max_model_len cache helpers -----------------------------------
 
