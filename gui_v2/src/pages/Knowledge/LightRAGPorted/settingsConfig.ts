@@ -103,15 +103,18 @@ export const BASIC_FIELDS: FieldConfig[] = [
 
 // RAG Parameters (Query, Document Processing, Concurrency, Other)
 // 行业标准默认值 (2026-08-24)
+// 注意：对于 8K context 模型 (Qwen3.8-27B-AWQ-INT4)，MAX_ENTITY_TOKENS /
+// MAX_RELATION_TOKENS 必须 <= 2000 / 2500，否则 entity+relation context 会
+// 吃掉整个 context window，导致 chunks 完全无法加载或触发 vLLM 400 错误。
 export const RAG_FIELDS: FieldConfig[] = [
   // Query Configuration
   { key: 'ENABLE_LLM_CACHE', type: 'boolean', defaultValue: 'true', section: 'query', tooltip: 'tooltips.enableLlmCache' },
   { key: 'COSINE_THRESHOLD', type: 'number', placeholder: '0.35', section: 'query', tooltip: 'tooltips.cosineThreshold', min: 0, max: 1, step: 0.01 },
-  { key: 'TOP_K', type: 'number', placeholder: '12', section: 'query', tooltip: 'tooltips.topK', min: 1, max: 100 },
-  { key: 'CHUNK_TOP_K', type: 'number', placeholder: '32', section: 'query', tooltip: 'tooltips.chunkTopK', min: 1, max: 100 },
-  { key: 'MAX_ENTITY_TOKENS', type: 'number', placeholder: '8000', section: 'query', tooltip: 'tooltips.maxEntityTokens' },
-  { key: 'MAX_RELATION_TOKENS', type: 'number', placeholder: '10000', section: 'query', tooltip: 'tooltips.maxRelationTokens' },
-  { key: 'MAX_TOTAL_TOKENS', type: 'number', placeholder: '3800', section: 'query', tooltip: 'tooltips.maxTotalTokens' },
+  { key: 'TOP_K', type: 'number', placeholder: '10', section: 'query', tooltip: 'tooltips.topK', min: 1, max: 100 },
+  { key: 'CHUNK_TOP_K', type: 'number', placeholder: '12', section: 'query', tooltip: 'tooltips.chunkTopK', min: 1, max: 100 },
+  { key: 'MAX_ENTITY_TOKENS', type: 'number', placeholder: '2000', section: 'query', tooltip: 'tooltips.maxEntityTokens' },
+  { key: 'MAX_RELATION_TOKENS', type: 'number', placeholder: '2500', section: 'query', tooltip: 'tooltips.maxRelationTokens' },
+  { key: 'MAX_TOTAL_TOKENS', type: 'number', placeholder: '4000', section: 'query', tooltip: 'tooltips.maxTotalTokens' },
   { key: 'KG_CHUNK_PICK_METHOD', type: 'select', placeholder: 'VECTOR', section: 'query', options: [
     { value: 'VECTOR', label: 'VECTOR' },
     { value: 'WEIGHT', label: 'WEIGHT' }
