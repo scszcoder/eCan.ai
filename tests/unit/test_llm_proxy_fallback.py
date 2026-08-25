@@ -148,6 +148,57 @@ class TestCnDefaultProxyEndpoint:
         assert ep == "https://mine.example"
 
 
+class TestUserNotRegisteredMapping:
+    """The CN proxy's 403 user_not_registered maps to an actionable
+    bilingual message instead of raw proxy JSON (live-tested 2026-08-27)."""
+
+    PROXY_JSON = ('{"error":{"message":"user_not_registered",'
+                  '"type":"access_denied","code":"user_not_registered"}}')
+
+    def test_friendly_message_for_code(self):
+        from agent.ec_skills.llm_utils.proxy_errors import friendly_proxy_error_message
+        msg = friendly_proxy_error_message(self.PROXY_JSON)
+        assert msg and "注册" in msg and "Settings > LLM Management" in msg
+
+    def test_other_errors_untouched(self):
+        from agent.ec_skills.llm_utils.proxy_errors import (
+            friendly_proxy_error_message, translate_proxy_exception)
+        assert friendly_proxy_error_message('{"error":{"code":"rate_limited"}}') is None
+        assert translate_proxy_exception(RuntimeError("boom")) is None
+
+    def test_langchain_proxy_generate_raises_friendly(self, _fake_proxy_class):
+        from langchain_openai import ChatOpenAI
+        from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
+
+        llm = create_lambda_proxy_langchain(
+            provider="openai", model="gpt-4o", user_id="u@x",
+            lambda_endpoint="https://tcb.example/api/llm-proxy", auth_token="tok",
+        )
+        with patch.object(ChatOpenAI, "_generate",
+                          side_effect=RuntimeError(f"Error code: 403 - {self.PROXY_JSON}")):
+            with pytest.raises(PermissionError, match="注册"):
+                llm._generate([])
+
+    def test_langchain_proxy_other_error_passthrough(self, _fake_proxy_class):
+        from langchain_openai import ChatOpenAI
+        from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
+
+        llm = create_lambda_proxy_langchain(
+            provider="openai", model="gpt-4o", user_id="u@x",
+            lambda_endpoint="https://tcb.example/api/llm-proxy", auth_token="tok",
+        )
+        with patch.object(ChatOpenAI, "_generate", side_effect=RuntimeError("boom")):
+            with pytest.raises(RuntimeError, match="boom"):
+                llm._generate([])
+
+    def test_chat_lambda_proxy_body_error_friendly(self):
+        from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
+        data = {"error": {"message": "user_not_registered",
+                          "type": "access_denied", "code": "user_not_registered"}}
+        with pytest.raises(ValueError, match="注册"):
+            ChatLambdaProxy._extract_completion(data)
+
+
 class TestBuildNodeSourceContract:
     """build_node's _build_runtime_llm is a deep closure — assert the
     missing-key branch tries the proxy before raising, at source level."""

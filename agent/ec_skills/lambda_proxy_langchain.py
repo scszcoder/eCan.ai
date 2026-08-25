@@ -21,7 +21,51 @@ from typing import Optional, Callable
 
 from langchain_openai import ChatOpenAI
 
+from agent.ec_skills.llm_utils.proxy_errors import translate_proxy_exception
+
 logger = logging.getLogger(__name__)
+
+
+class LambdaProxyChatOpenAI(ChatOpenAI):
+    """ChatOpenAI routed through the LLM proxy, with friendly error mapping.
+
+    Known proxy error codes (e.g. ``user_not_registered`` from the CN
+    registration/balance gate) are re-raised as ``PermissionError`` with an
+    actionable bilingual message instead of the raw proxy JSON. Wrapping at
+    ``_generate``/``_agenerate``/stream level covers invoke, ainvoke,
+    streaming and ``with_structured_output`` consumers alike.
+    """
+
+    def _raise_friendly(self, exc: Exception):
+        friendly = translate_proxy_exception(exc)
+        if friendly is not None:
+            raise friendly from exc
+        raise
+
+    def _generate(self, *args, **kwargs):
+        try:
+            return super()._generate(*args, **kwargs)
+        except Exception as exc:
+            self._raise_friendly(exc)
+
+    async def _agenerate(self, *args, **kwargs):
+        try:
+            return await super()._agenerate(*args, **kwargs)
+        except Exception as exc:
+            self._raise_friendly(exc)
+
+    def _stream(self, *args, **kwargs):
+        try:
+            yield from super()._stream(*args, **kwargs)
+        except Exception as exc:
+            self._raise_friendly(exc)
+
+    async def _astream(self, *args, **kwargs):
+        try:
+            async for chunk in super()._astream(*args, **kwargs):
+                yield chunk
+        except Exception as exc:
+            self._raise_friendly(exc)
 
 
 def create_lambda_proxy_langchain(
@@ -77,7 +121,7 @@ def create_lambda_proxy_langchain(
     # Build base_url — Lambda Function URL serves /v1/chat/completions
     base_url = lambda_endpoint.rstrip('/') + '/v1'
 
-    llm = ChatOpenAI(
+    llm = LambdaProxyChatOpenAI(
         model=model,
         api_key=auth_token or 'lambda-proxy',  # OpenAI SDK requires non-empty api_key
         base_url=base_url,

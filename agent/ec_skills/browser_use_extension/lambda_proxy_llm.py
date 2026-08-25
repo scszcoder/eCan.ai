@@ -174,8 +174,11 @@ class ChatLambdaProxy(BaseChatModel):
                         f"{attempt}/{self.max_retries}, retrying..."
                     )
                 else:
+                    from agent.ec_skills.llm_utils.proxy_errors import friendly_proxy_error_message
+                    _friendly = friendly_proxy_error_message(e.response.text)
                     raise ModelProviderError(
-                        message=f"Lambda proxy error {e.response.status_code}: {e.response.text[:500]}",
+                        message=_friendly or
+                        f"Lambda proxy error {e.response.status_code}: {e.response.text[:500]}",
                         model=self.name,
                     ) from e
             except Exception as e:
@@ -248,7 +251,9 @@ class ChatLambdaProxy(BaseChatModel):
             else:
                 error_msg = str(error_detail)
             logger.error(f"[ChatLambdaProxy] Lambda proxy returned error: {error_msg}")
-            raise ValueError(f"Lambda proxy error: {error_msg}")
+            from agent.ec_skills.llm_utils.proxy_errors import friendly_proxy_error_message
+            _friendly = friendly_proxy_error_message(str(error_detail))
+            raise ValueError(_friendly or f"Lambda proxy error: {error_msg}")
         # OpenAI format
         choices = data.get('choices')
         if choices and isinstance(choices, list) and len(choices) > 0:
