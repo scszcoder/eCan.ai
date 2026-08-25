@@ -466,22 +466,14 @@ def _is_intl_app() -> bool:
 
 
 # ── CN (TCB/COS) upload path ────────────────────────────────────────────
-# CN has no S3 presigned-zip flow; instead each text file goes through the
-# writeSkillFile mutation, which registers metadata and returns a signed COS
-# PUT URL per file (the client uploads the bytes — see
-# agent.cloud_api.upload_skill_files_to_cloud). The server stores objects
-# under an authenticated owner-scoped prefix.
-
-_CN_TEXT_EXTS = {
-    '.json', '.py', '.md', '.txt', '.yml', '.yaml', '.js', '.ts',
-    '.csv', '.mmd', '.html', '.css',
-}
-_CN_MAX_FILE_BYTES = 512 * 1024
-_CN_BATCH_SIZE = 50
-# Publish-time zip artifact: the whole skill directory as one object at a
-# well-known path inside the skill folder. Subscribers download this single
-# file (zip-first) instead of N per-file round trips, and the server's
-# cross-owner gate only has to authorize this one path per public skill.
+# ZIP-ONLY SAVE (2026-08-27 convergence): the client uploads the whole
+# skill directory as ONE zip artifact per save — writeSkillFile registers
+# ``<folder>/_package.zip`` and returns a signed COS PUT URL; the client
+# PUTs the raw zip bytes. Same shape as the intl S3 flow. The server is
+# expected to EXPLODE the zip into per-file objects on receipt so
+# listSkillFiles/readSkillFile consumers (web-mode skill editor) keep
+# working — spec in docs/OPEN_ITEMS.md. Subscribers download zip-first;
+# the per-file download fallback remains for legacy publishes.
 _CN_PACKAGE_NAME = "_package.zip"
 _CN_MAX_PACKAGE_BYTES = 20 * 1024 * 1024
 # Per-process dedupe so panel-load bulk syncs don't re-upload unchanged
@@ -553,63 +545,12 @@ def _cn_upload_skill_package(skill_dir: Path, ctx: Dict[str, Any]) -> bool:
         return False
 
 
-def _cn_upload_skill_dir(skill_dir: Path, ctx: Dict[str, Any]) -> bool:
-    """Upload one skill directory's text files via writeSkillFile (CN)."""
-    from agent.cloud_api.cloud_api import (
-        upload_skill_files_to_cloud as write_skill_files,
-    )
-    owner = str(ctx.get("owner") or "")
-    safe_owner = owner.replace("@", "_").replace(".", "_") or "unknown"
-
-    items = []
-    skipped = 0
-    for root, _dirs, files in os.walk(skill_dir):
-        for fname in files:
-            p = Path(root) / fname
-            if p.suffix.lower() not in _CN_TEXT_EXTS:
-                skipped += 1
-                continue
-            try:
-                if p.stat().st_size > _CN_MAX_FILE_BYTES:
-                    skipped += 1
-                    continue
-                content = p.read_text(encoding="utf-8")
-            except Exception:
-                skipped += 1
-                continue
-            rel = p.relative_to(skill_dir).as_posix()
-            items.append({
-                "filePath": f"{safe_owner}/my_skills/{skill_dir.name}/{rel}",
-                "content": content,
-                "userId": owner,
-            })
-
-    if not items:
-        logger.debug(f"[skill_file_sync] CN: no text files to upload in {skill_dir.name}")
-        return False
-
-    ok_all = True
-    for i in range(0, len(items), _CN_BATCH_SIZE):
-        batch = items[i:i + _CN_BATCH_SIZE]
-        res = write_skill_files(ctx["session"], ctx["token"], batch, ctx.get("endpoint"))
-        if not res.get("success"):
-            ok_all = False
-            logger.warning(
-                f"[skill_file_sync] CN batch {i // _CN_BATCH_SIZE + 1} failed for "
-                f"{skill_dir.name}: {res.get('error') or res.get('errors')}"
-            )
-    logger.info(
-        f"[skill_file_sync] CN uploaded {len(items)} file(s) for {skill_dir.name} "
-        f"({skipped} skipped) -> {'ok' if ok_all else 'PARTIAL FAILURE'}"
-    )
-    return ok_all
-
-
 def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
     """Upload a single skill's files to cloud storage. Runs in background thread.
 
-    Intl: zip + S3 presigned-URL flow. CN: per-file writeSkillFile + signed
-    COS PUTs.
+    Intl: zip + S3 presigned-URL flow. CN: zip + writeSkillFile-signed COS
+    PUT (zip-only save; the server explodes the package into per-file
+    objects for listSkillFiles/readSkillFile consumers).
     """
     if not _is_intl_app():
         def _do_cn():
@@ -626,10 +567,8 @@ def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
                     return
                 if not _is_valid_skill_dir(skill_dir, skill_data.get('name', '')):
                     return
-                if _cn_upload_skill_dir(skill_dir, ctx):
+                if _cn_upload_skill_package(skill_dir, ctx):
                     _CN_SYNCED_SKILL_DIRS.add(str(skill_dir))
-                # Publish-time zip artifact (zip-first download path)
-                _cn_upload_skill_package(skill_dir, ctx)
             except Exception as exc:
                 logger.warning(
                     f"[skill_file_sync] CN upload failed for skill "
@@ -967,8 +906,8 @@ def sync_all_skill_files_to_cloud(skills: List[Dict[str, Any]]) -> None:
     """Bulk upload all local user skills to S3. Runs in background thread.
 
     Skips code-sourced skills (source='code') and skills without local dirs.
-    CN: uploads each owned skill's text files via writeSkillFile + signed COS
-    PUTs, once per process per skill dir (an explicit save re-uploads via
+    CN: uploads each owned skill dir as ONE zip package (zip-only save),
+    once per process per skill dir (an explicit save re-uploads via
     upload_skill_files_to_cloud).
     """
     if not _is_intl_app():
@@ -993,11 +932,9 @@ def sync_all_skill_files_to_cloud(skills: List[Dict[str, Any]]) -> None:
                         continue
                     if not _is_valid_skill_dir(skill_dir, sk.get('name', '')):
                         continue
-                    if _cn_upload_skill_dir(skill_dir, ctx):
+                    if _cn_upload_skill_package(skill_dir, ctx):
                         _CN_SYNCED_SKILL_DIRS.add(str(skill_dir))
                         done += 1
-                        # Publish-time zip artifact (zip-first download path)
-                        _cn_upload_skill_package(skill_dir, ctx)
                 if done:
                     logger.info(f"[skill_file_sync] CN bulk sync uploaded {done} skill dir(s)")
             except Exception as exc:

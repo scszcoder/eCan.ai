@@ -132,26 +132,35 @@ _Last updated: 2026-08-23_
 
 ## 🟢 In progress
 
-- **CN publish-time zip package (2026-08-26)**. Author save now also
-  uploads the whole skill dir as ONE artifact
+- **CN zip-only save + zip-first download (2026-08-26/27)**. CN save now
+  uploads ONLY one artifact per skill:
   `{safe_owner}/my_skills/<folder>/_package.zip` (writeSkillFile register
-  with content:"" + raw-bytes PUT to the signed URL; ≤20MB cap;
-  best-effort after the per-file upload). Subscriber download is
-  ZIP-FIRST: readSkillFile on `<folder>/_package.zip` (then the
-  owner-prefixed form), signed GET, unzip with zip-slip guard; falls
-  back to per-file listing when no package. Per-file fallback also
-  normalizes owner-prefixed filePaths and skips the zip artifact.
-  Tests: tests/unit/test_cn_skill_package.py (9).
+  with content:"" + raw-bytes PUT to the signed URL; ≤20MB cap). The
+  per-file upload leg was REMOVED (zip-only convergence — same shape as
+  the intl S3 flow). Subscriber download is ZIP-FIRST: readSkillFile on
+  `<folder>/_package.zip` (then the owner-prefixed form), signed GET,
+  unzip with zip-slip guard; per-file listing remains as DOWNLOAD-only
+  fallback for legacy publishes (normalizes owner-prefixed filePaths,
+  skips the zip artifact). Verified consumers: cn_worker loads diagrams
+  from GraphQL (no COS file reads); per-file COS objects matter only to
+  the WEB-mode skill editor → hence server explode requirement below.
+  Tests: tests/unit/test_cn_skill_package.py (10).
   **SERVER SPEC (user applies, cn-skill-editor.js)**:
   (1) writeSkillFile must accept `_package.zip` (binary; don't gate on
   text extensions) and return a signed PUT whose signature works for
   arbitrary bytes with no Content-Type (COS signing fix prerequisite).
-  (2) readSkillFile cross-owner gate can be NARROW: when userId ≠
+  (2) **EXPLODE on receipt**: after the package object lands (or on the
+  writeSkillFile call), unzip it server-side into per-file objects under
+  the same `<owner>/my_skills/<folder>/` prefix (replace-all semantics:
+  delete files no longer in the zip) so listSkillFiles/readSkillFile and
+  the web skill editor keep working with zero client per-file uploads.
+  Guard extraction against zip-slip + absolute paths; cap entry count
+  and total uncompressed size.
+  (3) readSkillFile cross-owner gate can be NARROW: when userId ≠
   identity.sub, allow ONLY filePath == `<folder>/_package.zip` (either
   path shape) where <folder> maps to an isPublic=true skill owned by
-  userId — no need to open arbitrary per-file reads (listSkillFiles gate
-  becomes optional fallback).
-  (3) readSkillFile should resolve BOTH path shapes
+  userId.
+  (4) readSkillFile should resolve BOTH path shapes
   (`<folder>/_package.zip` and `<owner>/my_skills/<folder>/_package.zip`)
   to the same object.
 

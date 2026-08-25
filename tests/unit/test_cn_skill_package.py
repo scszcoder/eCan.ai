@@ -130,6 +130,39 @@ class TestPackageDownload:
                          f"{AUTHOR}/my_skills/demo_skill/_package.zip"]
 
 
+class TestZipOnlySave:
+    """CN save uploads ONE zip package — no per-file writeSkillFile items
+    (the server explodes the package into per-file objects)."""
+
+    def test_save_registers_only_the_package(self, tmp_path):
+        skill_dir = tmp_path / "demo_skill"
+        (skill_dir / "diagram_dir").mkdir(parents=True)
+        (skill_dir / "diagram_dir" / "demo_skill.json").write_text("{}")
+        gql_calls = []
+
+        def fake_gql(query, ctx, variables=None):
+            gql_calls.append(variables)
+            return {"data": {"writeSkillFile": [
+                {"filePath": "x", "uploadUrl": "https://cos/put", "method": "PUT"}]}}
+
+        with patch.object(sfs, "_is_intl_app", return_value=False), \
+             patch.object(sfs, "_get_cloud_context", return_value=dict(CTX)), \
+             patch.object(sfs, "_resolve_skill_dir", return_value=skill_dir), \
+             patch.object(sfs, "_is_valid_skill_dir", return_value=True), \
+             patch.object(sfs, "_appsync_request", side_effect=fake_gql), \
+             patch.object(sfs.http_requests, "request",
+                          return_value=SimpleNamespace(status_code=200, text="")), \
+             patch.object(sfs.threading, "Thread", _InlineThread):
+            sfs._CN_SYNCED_SKILL_DIRS.discard(str(skill_dir))
+            sfs.upload_skill_files_to_cloud({"id": "skill_x", "name": "demo"})
+
+        # exactly one writeSkillFile call, registering only the package
+        assert len(gql_calls) == 1
+        items = gql_calls[0]["input"]
+        assert len(items) == 1
+        assert items[0]["filePath"].endswith("demo_skill/_package.zip")
+
+
 class TestDownloadFallbackFlow:
     """_download_skill_files_cn: package hit skips listing; miss falls back."""
 
