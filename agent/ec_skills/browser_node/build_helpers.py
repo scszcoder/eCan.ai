@@ -785,6 +785,10 @@ async def get_or_create_browser_session(
     """
     from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
 
+    # Auto-cleanup: Remove dead sessions before checking cache
+    # This prevents zombie sessions from being reused
+    cleanup_stale_browser_sessions()
+
     browser_scope_key = resolve_browser_scope_key(
         state,
         node_name=ctx.node_name,
