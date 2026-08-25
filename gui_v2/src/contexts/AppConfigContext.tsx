@@ -117,17 +117,67 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
+  // Tunables for the "backend not ready yet" retry.  When the user
+  // refreshes the page mid-startup, the very first ``getAppConfig`` call
+  // hits the LOCAL GraphQL server while uvicorn is still binding the
+  // port, so it fails.  Without retry we'd fall back to the
+  // intl/cognito empty config and the login route would render LoginIntl
+  // forever — even once the backend wakes up.  See terminals/1.txt
+  // (`ECONNREFUSED` from Vite proxy) for the failure mode.
+  //
+  // Total wait: 1.5s + 3s + 6s + 12s ≈ 22.5s, which covers the worst
+  // observed backend startup.  After that we give up and use the
+  // fallback so the user at least sees SOMETHING (better than a stuck
+  // spinner); the AppConfigProvider exposes ``refetch`` so the LoginCN
+  // mount can kick another fetch once backend is reachable.
+  const RETRY_DELAYS_MS = [1500, 3000, 6000, 12000];
+
   const loadConfig = async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchConfig();
-      setConfig(data);
-      _cachedConfig = data;
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+        try {
+          const data = await fetchConfig();
+          setConfig(data);
+          _cachedConfig = data;
+          setError(null);
+          return;
+        } catch (err) {
+          lastErr = err;
+          const isLastAttempt = attempt === RETRY_DELAYS_MS.length;
+          if (isLastAttempt) {
+            throw err;
+          }
+          const delay = RETRY_DELAYS_MS[attempt];
+          console.warn(
+            `[AppConfig] fetchConfig attempt ${attempt + 1} failed ` +
+              `(retrying in ${delay}ms):`,
+            err,
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+      // Unreachable — the loop either returns or throws on the last
+      // attempt.  Keep TS happy.
+      throw lastErr;
     } catch (err) {
       console.error('[AppConfig] Failed to load config:', err);
       setError(err instanceof Error ? err : new Error(String(err)));
       // 兜底：后端不可达时用 intl/cognito。后端真值源恢复后即被覆盖。
+      //
+      // IMPORTANT: this fallback is what previously caused
+      // "刷新页面显示 LoginIntl 但后端是 CN" — once we wrote the
+      // fallback, ``useLoginComponent`` saw ``auth_type === 'cognito'``
+      // and rendered LoginIntl forever, even after the backend woke up.
+      //
+      // The route fix in ``routes/index.tsx`` (``useLoginComponent``
+      // returns null while loading) means the spinner keeps showing
+      // during the retry loop above.  If we reach this catch block
+      // (all retries exhausted) the spinner finally gives way to the
+      // fallback config — and ``refetch`` is wired so the user can
+      // retry by reloading or by code paths that detect backend ready.
       const fallback: AppConfig = {
         app_id: 'intl',
         is_cn: false,

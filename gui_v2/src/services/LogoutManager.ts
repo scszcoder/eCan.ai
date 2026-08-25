@@ -4,6 +4,9 @@
  */
 import { logger } from '../utils/logger';
 import { get_ipc_api } from './ipc_api';
+import { cloudbaseAuth } from './auth/cloudbaseAuth';
+import { resetAuthAdapter } from './auth/AuthProvider';
+import { localWebSocketClient } from './web/localWebSocketClient';
 
 export interface CleanupFunction {
   name: string;
@@ -201,6 +204,41 @@ export class LogoutManager {
       // CleanupsessionStorage
       sessionStorage.clear();
       logger.debug('[LogoutManager] Cleared sessionStorage');
+
+      // Clear CloudBase (CN app) auth singleton state.
+      //
+      // Regression fix: prior to this, logging out left `cloudbase_token`,
+      // `cloudbase_refresh_token`, and `cloudbase_user_info` in localStorage
+      // and the in-memory `cloudbaseAuth.token / userInfo / _refreshToken`
+      // non-null. After logout the user is redirected back to /login where
+      // LoginCN re-mounts and re-checks cloudbase state — leftover tokens
+      // caused ``isLoggedIn()`` to return true and surfaced as
+      // "登录后看不到微信 tab，邮箱/电话流程不可用" on the CN build.
+      //
+      // Both backends stay healthy: cloudbaseAuth.clearAuthState() only
+      // touches browser-side state, and resetAuthAdapter() drops the
+      // cached AuthProvider singleton (currentSession is also cleared).
+      try {
+        cloudbaseAuth.clearAuthState();
+        resetAuthAdapter();
+        logger.info('[LogoutManager] Cleared CloudBase (CN) auth singleton');
+      } catch (e) {
+        logger.warn('[LogoutManager] Failed to clear CloudBase auth state:', e);
+      }
+
+      // Stop the dev-mode LocalWebSocket reconnect loop.  When the user
+      // logs out, the backend `python3 main.py` is also tearing down —
+      // continuing to retry ws://localhost:4668/ws/skill-editor every 3s
+      // produces ~10 ERR_CONNECTION_REFUSED errors in the browser console
+      // for no benefit.  We re-enable auto-reconnect on the next LoginCN
+      // mount (see LoginCN useEffect) so the link comes back automatically
+      // after the backend restarts.
+      try {
+        localWebSocketClient.disconnect();
+        logger.info('[LogoutManager] Stopped LocalWebSocketClient reconnect loop');
+      } catch (e) {
+        logger.warn('[LogoutManager] Failed to stop LocalWebSocketClient:', e);
+      }
 
       logger.info('[LogoutManager] Local storage cleanup completed');
     } catch (error) {

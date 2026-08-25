@@ -251,9 +251,16 @@ class CloudBaseAuthService {
     }
 
     try {
+      // Trim email and password before sending — values copied from
+      // password managers / browser autofill frequently have
+      // leading/trailing whitespace which CloudBase's SDK treats as a
+      // credential mismatch (INVALID_CREDENTIALS) even when the user
+      // typed them correctly.  See terminals/7.txt:41 where ``password``
+      // arrived at the backend as ``' Ecan249511118!'`` (note leading
+      // space) and CloudBase rejected it as INVALID_CREDENTIALS.
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_login' },
-        { email, password, role: 'Commander' },
+        { email: email.trim(), password: password.trim(), role: 'Commander' },
       );
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
@@ -295,9 +302,12 @@ class CloudBaseAuthService {
     }
 
     try {
+      // Trim phone and code before sending — autofill / paste
+      // frequently introduces whitespace.  Code in particular is
+      // easy to mistype with an accidental trailing space.
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_phone_login' },
-        { phone, code, verification_id: verificationId, role: 'Commander' },
+        { phone: phone.trim(), code: code.trim(), verification_id: verificationId, role: 'Commander' },
       );
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
@@ -339,9 +349,12 @@ class CloudBaseAuthService {
     }
 
     try {
+      // Trim phone before sending — autofill / paste frequently
+      // introduces spaces, dashes, or country-code prefixes that
+      // CloudBase's SMS provider rejects as INVALID_PARAMS.
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_send_code' },
-        { phone, purpose },
+        { phone: phone.trim(), purpose },
       );
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
@@ -463,9 +476,12 @@ class CloudBaseAuthService {
     }
 
     try {
+      // Trim email/password before sending — see the rationale in
+      // loginWithEmail.  Autofill / password managers frequently
+      // introduce leading/trailing whitespace.
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_signup' },
-        { email, password },
+        { email: email.trim(), password: password.trim() },
       );
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
@@ -495,9 +511,18 @@ class CloudBaseAuthService {
     }
 
     try {
+      // Trim email / code / password — see loginWithEmail for
+      // rationale.  The verification code is short and easy to
+      // mistype with trailing whitespace when copy-pasting from an
+      // SMS; trimming prevents INVALID_PARAMS.
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_signup_confirm' },
-        { email, code, verification_id: verificationId, password },
+        {
+          email: email.trim(),
+          code: code.trim(),
+          verification_id: verificationId,
+          password: password.trim(),
+        },
       );
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
@@ -609,9 +634,18 @@ class CloudBaseAuthService {
     }
 
     try {
+      // Trim phone / code / new_password before sending — autofill
+      // / paste / password-manager fields frequently carry leading
+      // or trailing whitespace.  Trim everything we send so a stray
+      // space can't cause a downstream INVALID_PARAMS / INVALID_CREDENTIALS.
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_reset_password' },
-        { phone, code, new_password: newPassword, verification_id: verificationId },
+        {
+          phone: phone.trim(),
+          code: code.trim(),
+          new_password: newPassword.trim(),
+          verification_id: verificationId,
+        },
       );
 
       if (resp?.success) {
@@ -744,11 +778,26 @@ class CloudBaseAuthService {
 
   /**
    * 检查 CloudBase 配置
+   *
+   * Returns ``null`` (instead of ``false``) for ``wechatAvailable`` when the
+   * IPC call fails (backend unreachable / handler error).  The caller can
+   * then distinguish:
+   *
+   *   - ``false`` → backend explicitly reports WeChat as not configured.
+   *     UI must hide the WeChat tab.
+   *   - ``null``  → backend is unreachable (e.g. just after logout, when the
+   *     LOCAL GraphQL server is in the middle of restarting).  UI should
+   *     keep whatever optimistic state it has and not flicker.
+   *
+   * ``available`` keeps boolean semantics because the only caller already
+   * treats it as a fallback (LoginCN's ``ensureCloudbase`` reads
+   * ``appConfig.auth.cloudbase_env_id`` directly, not this flag).
    */
   async checkConfig(): Promise<{
     available: boolean;
-    wechatAvailable: boolean;
+    wechatAvailable: boolean | null;
     reason?: string;
+    success: boolean;
     config?: {
       hasEnvId: boolean;
       hasCredentials: boolean;
@@ -764,10 +813,33 @@ class CloudBaseAuthService {
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
       const configData = data?.config || {};
+
+      // Treat {success: false} from apiRouter (e.g. HTTP 500 from a
+      // server that is mid-shutdown) as "unknown" instead of "off".
+      // Returning ``false`` here would let the LoginCN tab flicker off
+      // during the post-logout server restart window (regression reported
+      // 2026-08-24, see terminals/7.txt:895-985).
+      if (!resp || resp.success !== true || !data) {
+        return {
+          available: false,
+          wechatAvailable: null,
+          success: false,
+          reason: data?.reason || resp?.error?.message || 'IPC unreachable',
+          config: {
+            hasEnvId: false,
+            hasCredentials: false,
+            region: configData.region || 'ap-shanghai',
+            wechatEnabled: false,
+          },
+        };
+      }
+
       return {
-        available: data?.available || false,
-        wechatAvailable: data?.wechat_available || configData.wechat_configured || false,
-        reason: data?.reason,
+        available: data.available || false,
+        wechatAvailable:
+          data.wechat_available ?? configData.wechat_configured ?? false,
+        success: true,
+        reason: data.reason,
         config: {
           hasEnvId: configData.configured || false,
           hasCredentials: configData.configured || false,
@@ -777,7 +849,18 @@ class CloudBaseAuthService {
       };
     } catch (error) {
       logger.error('[CloudBaseAuth] Check config error:', error);
-      return { available: false, wechatAvailable: false, reason: String(error) };
+      return {
+        available: false,
+        wechatAvailable: null,
+        success: false,
+        reason: String(error),
+        config: {
+          hasEnvId: false,
+          hasCredentials: false,
+          region: 'ap-shanghai',
+          wechatEnabled: false,
+        },
+      };
     }
   }
 }
