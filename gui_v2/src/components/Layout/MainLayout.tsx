@@ -126,15 +126,23 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
     const handleLogout = async () => {
         try {
-            // 使用新的LogoutManager进行统一的logoutProcess
-            await logoutManager.logout();
-
-            // 跳转到LoginPage - 使用navigate而不是window.location.replace
-            // 这样可以避免在本地文件模式下尝试加载file:///login的问题
+            // Navigate to /login FIRST so the UI flip is instant.
+            // ``logoutManager.logout()`` is now fast (~50-150ms): it runs
+            // frontend cleanup in parallel and fires the backend IPC
+            // fire-and-forget.  This means the user sees the login page
+            // appear within one animation frame of clicking 确认 — no
+            // "卡顿" (freeze) while we wait for the backend.
             navigate('/login', { replace: true });
+
+            // Run the full cleanup after navigation so the current page's
+            // React tree unmounts cleanly and any async effects have a
+            // chance to settle.  Errors are swallowed — logout is
+            // best-effort; the user is already at /login.
+            await logoutManager.logout();
         } catch (error) {
             console.error('Logout error:', error);
-            // 即使logout过程中出现Error，也要跳转到LoginPage
+            // navigate('/login') is already called above, but in case
+            // an exception escapes the try block somehow, do it again.
             navigate('/login', { replace: true });
         }
     };
