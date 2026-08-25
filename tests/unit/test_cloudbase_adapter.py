@@ -128,6 +128,26 @@ class TestAdapterMethods:
         result = adapter.refresh_tokens("RT1")
         assert result["error"] == "NotAuthorizedException"
 
+    def test_refresh_tokens_http_4xx_mapped_to_fatal(self):
+        """HTTP_400 / HTTP_401 from CloudBase must be treated as fatal.
+
+        Bug: CloudBase surfaces generic 4xx codes when the server refuses
+        a refresh; without this mapping, AuthManager._token_refresh_loop
+        kept retrying forever (and the supervisor never called
+        ``notify_session_cleared``). Pin the mapping here.
+        """
+        adapter = self._make()
+        for fatal_code in ("HTTP_400", "HTTP_401", "HTTP_403"):
+            adapter._service.refresh_token.return_value = AuthResult(
+                success=False,
+                error="server said no",
+                error_code=fatal_code,
+            )
+            result = adapter.refresh_tokens("RT1")
+            assert result["error"] == "NotAuthorizedException", (
+                f"{fatal_code} must be treated as fatal; got {result['error']!r}"
+            )
+
     def test_verify_token_no_op(self):
         adapter = self._make()
         result = adapter.verify_token("anything")

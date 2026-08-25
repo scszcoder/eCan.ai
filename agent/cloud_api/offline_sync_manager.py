@@ -180,19 +180,27 @@ class OfflineSyncManager:
         )
 
     def _on_session_refreshed(self, info: Dict[str, Any]) -> None:
-        """New token installed. Resume background retries."""
+        """New token installed. Resume background retries.
+
+        Just wake any thread blocked in ``_wait_for_active_session`` — do
+        NOT call ``sync_pending_queue`` from here.  Doing so used to look
+        like a useful "kick" but turned into a 401 → nudge → refresh →
+        notify_token_installed → sync again infinite loop on the WeChat
+        session-token path.  The legitimate retry path is:
+
+          - ``sync_pending_queue`` is in progress: ``_wait_for_active_session``
+            returns and the SAME call resumes from the failed task. The
+            nudge + wait + continue pattern (see line ~810) handles that.
+          - background auto-retry: its 5-min tick picks it up next round.
+
+        Removing the inline ``self.sync_pending_queue()`` shuts down the
+        storm without changing user-visible behaviour (the queue drains on
+        the next tick either way).
+        """
         with self._pause_lock:
             self._session_state = "active"
             self._pause_lock.notify_all()
         logger.info("[OfflineSyncManager] Session refreshed; resuming retries")
-        # Kick a sync right now so anything queued during the renewal
-        # window goes out without waiting for the next 5-min tick.
-        try:
-            self.sync_pending_queue()
-        except Exception as exc:
-            logger.warning(
-                f"[OfflineSyncManager] sync after refresh failed: {exc}"
-            )
 
     def _on_session_expired(self) -> None:
         """Refresh failed; session is dead. Park pending work, wait for re-login."""
