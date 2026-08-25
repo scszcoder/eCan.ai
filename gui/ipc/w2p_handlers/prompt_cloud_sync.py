@@ -413,7 +413,7 @@ def sync_all_prompts_to_cloud(prompts: List[Dict[str, Any]]) -> None:
                 p for p in prompts
                 if not p.get("readOnly") and p.get("id")
                 and p.get("owner") != "system"
-                and p.get("source") != "sample_prompts"
+                and p.get("source") not in ("sample_prompts", "subscribed")
             ]
             if not to_sync:
                 logger.debug("[prompt_sync] No user prompts to sync to cloud")

@@ -649,9 +649,12 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                             )
                             continue
                         
-                        # Only auto-download files for current user's own cloud skills.
-                        # Public/third-party skills may not have downloadable archives for this user.
-                        if (sk.get('owner') or '').strip().lower() != (username or '').strip().lower():
+                        # Auto-download files for the user's own cloud skills,
+                        # and for SUBSCRIBED skills using the author's storage
+                        # namespace (file_owner). Other third-party rows skip.
+                        _owner_mismatch = (sk.get('owner') or '').strip().lower() != (username or '').strip().lower()
+                        _is_subscribed_row = str(sk.get('source') or '').strip().lower() == 'subscribed'
+                        if _owner_mismatch and not _is_subscribed_row:
                             skip_owner_mismatch += 1
                             logger.debug(
                                 f"[skill_handler][batch={download_batch_id}] Skip cloud file auto-download for skill '{sk.get('name', sk.get('id', '?'))}': "
@@ -664,9 +667,11 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                             download_triggered += 1
                             logger.info(
                                 f"[skill_handler][batch={download_batch_id}] Trigger cloud file download for skill '{sk.get('name', sk.get('id', '?'))}' "
-                                f"(owner={sk.get('owner')})"
+                                f"(owner={sk.get('owner')}, subscribed={_is_subscribed_row})"
                             )
-                            download_skill_files_from_cloud(sk, trace_id=download_batch_id)
+                            download_skill_files_from_cloud(
+                                sk, trace_id=download_batch_id,
+                                file_owner=(sk.get('owner') if _owner_mismatch else None))
                         else:
                             skip_local_exists += 1
                             logger.debug(
@@ -1288,6 +1293,154 @@ def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any
             f"Error during get public skills: {str(e)}"
         )
     
+def _extract_skill_prompt_ids(cloud_skill: Dict[str, Any]) -> list:
+    """All prompt ids (pr-NNN) referenced anywhere in a skill's diagram or
+    config JSON — prompt selections live in per-node inputsValues under
+    several keys (promptSelection / systemPromptId / promptId / ...), so a
+    structural walk is fragile; the id format is distinctive enough to
+    regex the serialized JSON."""
+    import re
+    blob = ""
+    for key in ('diagram', 'config'):
+        try:
+            value = cloud_skill.get(key)
+            if value:
+                blob += json.dumps(value, ensure_ascii=False) if not isinstance(value, str) else value
+        except Exception:
+            continue
+    return sorted(set(re.findall(r'pr-\d+', blob)))
+
+
+def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=None) -> None:
+    """Download a subscribed skill's referenced prompts into the local
+    subscribed_prompts store (SHARED_SKILL prompts leg, 2026-08-25).
+
+    Subscribing used to bring the SKILL but never its prompts: the runtime
+    cross-owner fetch works but persists nothing, so the customer's Prompts
+    page (and offline runs) never had the author's prompts. Fetches each
+    referenced prompt id under the skill's author via queryPrompts (the
+    server allows id-specific cross-owner reads for prompts referenced by
+    the author's public skills) and writes it to subscribed_prompts/ —
+    loaded with source='subscribed', which the bulk cloud push excludes.
+    Best-effort: failures are logged, never block the subscribe."""
+    try:
+        from gui.ipc.w2p_handlers import prompt_handler
+        from gui.ipc.w2p_handlers.prompt_cloud_sync import _get_cloud_context, _appsync_request
+
+        config = cloud_skill.get('config')
+        if isinstance(config, str):
+            try:
+                config = json.loads(config)
+            except Exception:
+                config = {}
+        author = str((config or {}).get('skill_owner') or cloud_skill.get('owner') or '').strip()
+        prompt_ids = _extract_skill_prompt_ids(cloud_skill)
+        if not author or not prompt_ids:
+            return
+
+        have = {p.get('id') for p in prompt_handler._load_all_prompts()}
+        missing = [pid for pid in prompt_ids if pid not in have]
+        if not missing:
+            logger.info(f"[subscribe_to_skill] all {len(prompt_ids)} referenced prompt(s) already local")
+            return
+
+        ctx = _get_cloud_context()
+        if not ctx:
+            logger.warning("[subscribe_to_skill] no cloud context — prompt download skipped")
+            return
+
+        target_dir = prompt_handler._get_subscribed_prompts_dir()
+        target_dir.mkdir(parents=True, exist_ok=True)
+        query = """
+            query QueryPrompts($input: PromptQueryInput) {
+                queryPrompts(input: $input) { id owner prompt version }
+            }
+        """
+        downloaded, failed = [], []
+        for pid in missing:
+            try:
+                resp = _appsync_request(query, ctx, variables={"input": {"id": pid, "owner": author}})
+                items = (resp.get("data") or {}).get("queryPrompts") or []
+                if not items:
+                    failed.append((pid, str(resp.get("errors") or "not found")))
+                    continue
+                raw = items[0].get("prompt") or "{}"
+                pdata = json.loads(raw) if isinstance(raw, str) else raw
+                if not isinstance(pdata, dict):
+                    failed.append((pid, "unparseable prompt payload"))
+                    continue
+                pdata['id'] = pid
+                out = target_dir / f"0_{pid}.json"
+                with out.open('w', encoding='utf-8') as f:
+                    json.dump(pdata, f, ensure_ascii=False, indent=2)
+                downloaded.append(pid)
+            except Exception as e:
+                failed.append((pid, str(e)))
+
+        if downloaded:
+            logger.info(f"[subscribe_to_skill] downloaded {len(downloaded)} prompt(s) "
+                        f"from author {author}: {downloaded}")
+        for pid, reason in failed:
+            logger.warning(f"[subscribe_to_skill] prompt download FAILED for {pid} "
+                           f"(author={author}): {reason}")
+    except Exception as e:
+        logger.warning(f"[subscribe_to_skill] prompt download step failed (non-fatal): {e}")
+
+
+def _account_fund(request=None, params=None):
+    """Best-effort current-user fund from the cached account info, or None
+    when unknown (missing/unfetched/unparseable — callers must not treat
+    unknown as zero)."""
+    try:
+        ctx = get_handler_context(request, params)
+        mainwin = getattr(ctx, 'main_window', None) if ctx else None
+        info = getattr(mainwin, '_account_info', None)
+        candidates = []
+        if isinstance(info, dict):
+            candidates.append(info)
+            for key in ('data', 'accounts', 'reqAccountInfo'):
+                v = info.get(key)
+                if isinstance(v, dict):
+                    candidates.append(v)
+                elif isinstance(v, list):
+                    candidates.extend(x for x in v if isinstance(x, dict))
+        elif isinstance(info, list):
+            candidates.extend(x for x in info if isinstance(x, dict))
+        for c in candidates:
+            for key in ('fund', 'balance'):
+                if c.get(key) is not None:
+                    try:
+                        return float(c[key])
+                    except (TypeError, ValueError):
+                        continue
+    except Exception:
+        pass
+    return None
+
+
+def _check_paid_subscription(target, request=None, params=None):
+    """Gate a PAID skill subscription on the user's fund.
+
+    Returns an error message when the fund is KNOWN and insufficient;
+    None otherwise. An unknown fund does not block — actual charging is
+    enforced server-side (billing integration tracked separately) and
+    blocking on missing client-side account data would break free flows.
+    """
+    try:
+        price = int(target.get('price') or 0)
+    except (TypeError, ValueError):
+        price = 0
+    if price <= 0:
+        return None
+    fund = _account_fund(request, params)
+    logger.info(f"[subscribe_to_skill] paid skill (price={price}/month): fund check → "
+                f"{'unknown' if fund is None else fund}")
+    if fund is not None and fund < price:
+        return (f"Insufficient funds: this skill costs ¥{price}/month but the "
+                f"account balance is ¥{fund:g}. Please top up and retry.")
+    return None
+
+
 def _find_cloud_skill_for_subscribe(request, params, skill_id: str):
     """Locate the full cloud record of a skill being subscribed to.
 
@@ -1374,6 +1527,13 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
                 skill_data['source'] = 'subscribed'
                 update_result = skill_service.update_skill(skill_data['id'], skill_data)
                 logger.info(f"[skill_handler] Updated existing subscribed skill {skill_id} with latest cloud data")
+                _download_skill_prompts(target, request, params)
+                try:
+                    download_skill_files_from_cloud(
+                        skill_data, trace_id=f"resubscribe-{str(skill_data.get('id',''))[:8]}",
+                        file_owner=str(target.get('owner') or ''))
+                except Exception as dl_err:
+                    logger.warning(f"[subscribe_to_skill] file re-download failed (non-fatal): {dl_err}")
 
             # Sync to cloud even for re-subscribe (idempotent — recreates agent_skill_rels if missing)
             try:
@@ -1397,6 +1557,11 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
         if not target:
             return create_error_response(request, 'SKILL_NOT_FOUND', f'Skill {skill_id} not found in cloud')
 
+        # Paid-skill gate: reject when the fund is known-insufficient
+        fund_error = _check_paid_subscription(target, request, params)
+        if fund_error:
+            return create_error_response(request, 'INSUFFICIENT_FUNDS', fund_error)
+
         # Save the cloud skill to local DB so it appears in the user's skill list
         skill_data = _prepare_skill_data(target, target.get('owner', username), skill_id)
         # Mark as subscribed skill
@@ -1407,6 +1572,17 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
             actual_skill_id = result.get('id', skill_id)
             # Update in-memory skills list
             _update_skill_in_memory(actual_skill_id, skill_data, request, params)
+            # Bring the skill's prompts along (subscribed_prompts store)
+            _download_skill_prompts(target, request, params)
+            # And its FILES (code_dir / data_mapping / assets) from the
+            # AUTHOR's cloud storage — without them the skill runs only from
+            # the DB diagram and code-file references break (2026-08-25).
+            try:
+                download_skill_files_from_cloud(
+                    skill_data, trace_id=f"subscribe-{actual_skill_id[:8]}",
+                    file_owner=str(target.get('owner') or ''))
+            except Exception as dl_err:
+                logger.warning(f"[subscribe_to_skill] file download failed (non-fatal): {dl_err}")
             try:
                 ctx = get_handler_context(request, params)
                 current = next((s for s in (ctx.get_agent_skills() or []) if str(getattr(s, 'id', '')) == str(actual_skill_id)), None) if ctx else None

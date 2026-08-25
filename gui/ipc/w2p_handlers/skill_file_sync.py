@@ -23,6 +23,7 @@ Cloud-side contract (to be implemented in Lambda + AppSync schema):
 from __future__ import annotations
 
 import io
+import json
 import os
 import threading
 import time
@@ -599,20 +600,105 @@ def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
     t.start()
 
 
+def _download_skill_files_cn(
+    skill_data: Dict[str, Any],
+    file_owner: Optional[str] = None,
+    trace_id: Optional[str] = None,
+) -> None:
+    """CN skill-file download: list + fetch a skill's files from COS via
+    listSkillFiles/readSkillFile and write them under the local user skills
+    root. Runs in a background thread; best-effort.
+
+    ``file_owner``: the COS namespace to read from. For a SUBSCRIBED skill
+    this is the AUTHOR — the server's cross-owner gate must allow reads of
+    public skills' files under an explicit userId (until that server change
+    is deployed, cross-owner downloads return the caller's own namespace
+    and typically find nothing — logged, non-fatal).
+    """
+    def _do():
+        trace_prefix = f"[trace={trace_id}] " if trace_id else ""
+        try:
+            ctx = _get_cloud_context()
+            if ctx is None:
+                return
+            skill_name = str(skill_data.get("name") or "").strip()
+            if not skill_name:
+                return
+            folder = skill_name if skill_name.endswith("_skill") else f"{skill_name}_skill"
+
+            list_query = """
+                query ListSkillFiles($prefix: String, $userId: String) {
+                    listSkillFiles(prefix: $prefix, userId: $userId)
+                }
+            """
+            variables = {"prefix": folder}
+            if file_owner:
+                variables["userId"] = file_owner
+            resp = _appsync_request(list_query, ctx, variables=variables)
+            raw = (resp.get("data") or {}).get("listSkillFiles")
+            files = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            if not isinstance(files, list) or not files:
+                logger.info(
+                    f"[skill_file_sync] {trace_prefix}CN download: no files listed for "
+                    f"'{folder}' (owner={file_owner or 'self'})"
+                )
+                return
+
+            read_query = """
+                query ReadSkillFile($filePath: String!, $userId: String) {
+                    readSkillFile(filePath: $filePath, userId: $userId)
+                }
+            """
+            root = _get_my_skills_dir()
+            saved, failed = 0, 0
+            for meta in files:
+                fpath = (meta or {}).get("filePath") or ""
+                if not fpath:
+                    continue
+                try:
+                    rvars = {"filePath": fpath}
+                    if file_owner:
+                        rvars["userId"] = file_owner
+                    rresp = _appsync_request(read_query, ctx, variables=rvars)
+                    rraw = (rresp.get("data") or {}).get("readSkillFile")
+                    items = json.loads(rraw) if isinstance(rraw, str) else (rraw or [])
+                    url = (items[0] or {}).get("downloadUrl") if items else None
+                    if not url:
+                        failed += 1
+                        continue
+                    content = http_requests.get(url, timeout=60).content
+                    dest = Path(root) / fpath
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(content)
+                    saved += 1
+                except Exception as fe:
+                    failed += 1
+                    logger.debug(f"[skill_file_sync] {trace_prefix}CN file fetch failed {fpath}: {fe}")
+
+            logger.info(
+                f"[skill_file_sync] {trace_prefix}CN download for '{folder}' "
+                f"(owner={file_owner or 'self'}): {saved} saved, {failed} failed"
+            )
+        except Exception as e:
+            logger.warning(f"[skill_file_sync] {trace_prefix}CN download error: {e}")
+
+    threading.Thread(target=_do, daemon=True, name="cn-skill-file-download").start()
+
+
 def download_skill_files_from_cloud(
     skill_data: Dict[str, Any],
     target_dir: Optional[Path] = None,
     trace_id: Optional[str] = None,
+    file_owner: Optional[str] = None,
 ) -> None:
-    """Download a skill's zip from S3 and extract locally. Runs in background thread.
+    """Download a skill's files from cloud storage. Runs in background thread.
 
-    No-op on CN (cloudbase-graphql) — see ``_is_intl_app`` for the rationale.
+    Intl: S3 presigned-zip flow. CN: per-file COS download via
+    listSkillFiles/readSkillFile (``file_owner`` selects the namespace —
+    pass the AUTHOR for subscribed skills).
     """
     if not _is_intl_app():
-        logger.debug(
-            f"[skill_file_sync] Download skipped on CN for skill "
-            f"'{skill_data.get('name', skill_data.get('id', '?'))}'"
-        )
+        _download_skill_files_cn(skill_data, file_owner=file_owner, trace_id=trace_id)
         return
 
     def _do():

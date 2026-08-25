@@ -132,6 +132,30 @@ _Last updated: 2026-08-23_
 
 ## 🟢 In progress
 
+- **Subscribed-skill FILES + paid subscribe flow (2026-08-25, uncommitted)**.
+  CONFIRMED user suspicion: subscribe never downloaded the skill's FILE
+  package — triply broken: (a) subscribe_to_skill never called the
+  downloader, (b) download_skill_files_from_cloud was a NO-OP on CN
+  (intl S3-presigned only), (c) CN readSkillFile/listSkillFiles are
+  hard-scoped to identity.sub's own COS namespace. Subscribed skills ran
+  only from the DB diagram (code-file refs / data_mapping broken).
+  CLIENT FIXES: CN per-file download implementation
+  (skill_file_sync._download_skill_files_cn via listSkillFiles/
+  readSkillFile with userId=author + downloadUrl GET), wired into both
+  subscribe branches and the list-time auto-download (subscribed rows now
+  download under the author namespace); paid-subscribe flow — frontend
+  Modal.confirm for price>0 (monthly charge notice, free = instant
+  已订阅) + backend INSUFFICIENT_FUNDS gate (rejects only when
+  mainwin._account_info fund is KNOWN and < price; unknown fund does not
+  block — real charging is a server-side billing item, still OPEN).
+  **SERVER FIX NEEDED (user applies)**: CN cn-skill-editor.js
+  listSkillFiles/readSkillFile currently `void userId` and force
+  owner=identity.sub — accept the existing `userId` arg for CROSS-OWNER
+  reads gated like queryPrompts: allow when the path's skill folder
+  (first segment, '<name>_skill') matches an isPublic=true skill owned by
+  userId; otherwise keep own-namespace. Until deployed, cross-owner
+  downloads list nothing (logged, non-fatal).
+
 - **CUSTOMER-side skill store + prompts (2026-08-24, from customer_logs/
   eCan.log, user wechat_94ef25fd457d171c19a8158a)**. Two distinct roots:
   1. **Empty skill store (CLIENT, fixed)**: `get_public_skills` filtered the

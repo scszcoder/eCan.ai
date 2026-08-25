@@ -1328,9 +1328,30 @@ def _convert_db_skill_to_object(db_skill):
                     if id_match or name_match:
                         # Preserve the canonical DB id
                         local_sk.id = skill_obj.id
+                        # DB row is AUTHORITATIVE for identity + store fields
+                        # (2026-08-25): the skill file never reliably carries
+                        # them — publish decisions (public/rentable/price) are
+                        # saved to the DB only, and file `owner` can be stale
+                        # (previous login identity) or absent. Returning the
+                        # bare file twin silently reverted them on every
+                        # rebuild: ownerless rows hidden from the GUI, and
+                        # public/rentable checkboxes unsetting right after a
+                        # successful save.
+                        if getattr(skill_obj, 'owner', ''):
+                            local_sk.owner = skill_obj.owner
+                        if getattr(skill_obj, 'skill_owner', ''):
+                            local_sk.skill_owner = skill_obj.skill_owner
+                        local_sk.public = skill_obj.public
+                        local_sk.rentable = skill_obj.rentable
+                        local_sk.price = skill_obj.price
+                        local_sk.price_model = skill_obj.price_model
+                        if getattr(skill_obj, 'cloud_id', ''):
+                            local_sk.cloud_id = skill_obj.cloud_id
                         logger.info(
                             f"[build_agent_skills] 📁 Loaded '{skill_obj.name}' from local file "
-                            f"(id_match={id_match}, name_match={name_match})"
+                            f"(id_match={id_match}, name_match={name_match}); DB-authoritative "
+                            f"fields applied (owner={local_sk.owner!r}, public={local_sk.public}, "
+                            f"rentable={local_sk.rentable})"
                         )
                         loaded_from_file = True
                         return local_sk

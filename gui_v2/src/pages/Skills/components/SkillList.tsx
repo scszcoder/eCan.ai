@@ -1188,6 +1188,19 @@ const SkillList: React.FC<SkillListProps> = ({
                                 {t('pages.skills.subscribed', 'Subscribed')}
                             </MetaTag>
                         )}
+                        {/* Publish status on the summary card: public / rentable */}
+                        {(skill as any).public && (
+                            <MetaTag style={{ background: 'rgba(24, 144, 255, 0.15)', color: '#1890ff' }}>
+                                <CloudOutlined />
+                                {t('pages.skills.public', 'Public')}
+                            </MetaTag>
+                        )}
+                        {(skill as any).rentable && (
+                            <MetaTag style={{ background: 'rgba(250, 173, 20, 0.15)', color: '#faad14' }}>
+                                <ThunderboltOutlined />
+                                {t('pages.skills.rentable', 'Rentable')}
+                            </MetaTag>
+                        )}
                     </CardMeta>
 
                     {/* 统计信息 */}

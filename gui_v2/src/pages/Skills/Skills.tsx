@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, message, Tooltip, Space, Tabs, Tag } from 'antd';
+import { Button, message, Modal, Tooltip, Space, Tabs, Tag } from 'antd';
 import {
     ReloadOutlined,
     AppstoreOutlined,
@@ -318,9 +318,40 @@ const Skills: React.FC = () => {
 
     const handleSubscribe = async (skillId: string) => {
         if (!username) return;
+
+        // Paid-skill confirmation: free skills subscribe instantly; paid
+        // skills confirm the recurring monthly charge first. The backend
+        // additionally rejects with INSUFFICIENT_FUNDS when the account
+        // balance is known to be below the price.
+        const target: any = (publicSkills || []).find(
+            (s: any) => String(s?.id) === String(skillId) || String(s?.askid) === String(skillId)
+        );
+        const price = Number(target?.price || 0);
+        if (price > 0) {
+            const confirmed = await new Promise<boolean>((resolve) => {
+                Modal.confirm({
+                    title: t('pages.skills.paidSubscribeTitle', '订阅付费技能'),
+                    content: t('pages.skills.paidSubscribeContent',
+                        `该技能为付费技能：订阅后将按月从您的账户扣费 ¥${price}/月。余额不足时订阅将被拒绝。确认订阅？`),
+                    okText: t('common.confirm', '确认'),
+                    cancelText: t('common.cancel', '取消'),
+                    onOk: () => resolve(true),
+                    onCancel: () => resolve(false),
+                });
+            });
+            if (!confirmed) return;
+        }
+
         const api = get_ipc_api();
         const resp = await api.subscribeToSkill(username, skillId);
-        if (!resp?.success) throw new Error((resp?.error as any)?.message || t('pages.skills.subscribeFailed', 'Subscribe failed'));
+        if (!resp?.success) {
+            const err: any = resp?.error;
+            if (err?.code === 'INSUFFICIENT_FUNDS') {
+                message.error(err?.message || t('pages.skills.insufficientFunds', '账户余额不足，请先充值后再订阅'));
+                return;
+            }
+            throw new Error(err?.message || t('pages.skills.subscribeFailed', 'Subscribe failed'));
+        }
         const result = resp.data as any;
         if (result && result.success === false) throw new Error(result.error || t('pages.skills.subscribeFailed', 'Subscribe failed'));
         setSubscribedSkillIds((prev) => {

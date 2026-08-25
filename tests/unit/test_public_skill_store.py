@@ -111,3 +111,45 @@ class TestPublicFlagNormalization:
     def test_own_skills_still_excluded(self):
         rows = [{"id": "s3", "name": "n", "owner": CUSTOMER, "isPublic": True}]
         assert self._run_handler(rows) == []
+
+
+class TestPaidSubscriptionGate:
+    """Paid-skill subscribe gate: free = instant; paid rejects only when the
+    fund is KNOWN and insufficient (unknown fund must not block — billing is
+    enforced server-side and blocking on missing client data breaks flows)."""
+
+    def _gate(self, target, fund):
+        with patch.object(sh, "_account_fund", return_value=fund):
+            return sh._check_paid_subscription(target)
+
+    def test_free_skill_never_gated(self):
+        assert self._gate({"price": 0}, fund=0) is None
+        assert self._gate({"price": None}, fund=None) is None
+
+    def test_paid_with_sufficient_fund_passes(self):
+        assert self._gate({"price": 10}, fund=50.0) is None
+
+    def test_paid_with_insufficient_fund_rejected(self):
+        msg = self._gate({"price": 10}, fund=3.0)
+        assert msg and "Insufficient funds" in msg and "¥10" in msg
+
+    def test_paid_with_unknown_fund_passes(self):
+        assert self._gate({"price": 10}, fund=None) is None
+
+
+class TestAccountFundParsing:
+    def _fund(self, info):
+        ctx = MagicMock()
+        ctx.main_window._account_info = info
+        with patch.object(sh, "get_handler_context", return_value=ctx):
+            return sh._account_fund()
+
+    def test_flat_dict(self):
+        assert self._fund({"fund": 25}) == 25.0
+
+    def test_nested_accounts_list(self):
+        assert self._fund({"accounts": [{"id": "a1", "fund": "12.5"}]}) == 12.5
+
+    def test_unknown_shapes_return_none(self):
+        assert self._fund(None) is None
+        assert self._fund({"data": "oops"}) is None

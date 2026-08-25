@@ -569,9 +569,14 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
             // 将 JSON 字符串FieldConvert回对象/数组
             const payload: Partial<Skill> = {
                 // BaseField
-                id: values.id,
-                askid: values.askid,
-                name: values.name,
+                // NOTE: id/askid are DISPLAYED on the panel but have no
+                // registered Form.Item, so antd's validateFields() omits
+                // them — values.id is always undefined and the save then
+                // fails "Skill ID is required for save operation". Source
+                // identity from the skill prop (authoritative) instead.
+                id: (values as any).id ?? (skill as any)?.id,
+                askid: (values as any).askid ?? (skill as any)?.askid,
+                name: (values as any).name ?? (skill as any)?.name,
                 owner: username,
                 description: values.description,
                 version: values.version,
@@ -1151,7 +1156,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         },
         {
             key: 'extended',
-            label: <span><AppstoreOutlined /> {t('pages.skills.tabs.extended', 'Extended')}</span>,
+            label: <span><AppstoreOutlined /> {t('pages.skills.tabs.extended', 'Publishing & Pricing')}</span>,
             children: (
                 <Row gutter={[24, 0]}>
                     <Col span={24}>

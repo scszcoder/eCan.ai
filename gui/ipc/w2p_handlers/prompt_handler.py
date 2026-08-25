@@ -52,6 +52,11 @@ def _get_my_prompts_dir() -> Path:
         MY_PROMPTS_DIR = Path(user_data_dir)
     return MY_PROMPTS_DIR
 
+
+def _get_subscribed_prompts_dir() -> Path:
+    """Prompts downloaded with subscribed store skills (other authors')."""
+    return Path(get_user_data_dir(subdir="subscribed_prompts"))
+
 SECTION_TYPES: Tuple[str, ...] = (
     "role",
     "tone",
@@ -79,6 +84,10 @@ def _ensure_prompt_dirs() -> None:
             logger.info(f"[prompts] Created my_prompts directory: {prompts_dir}")
         else:
             logger.debug(f"[prompts] my_prompts directory already exists: {prompts_dir}")
+        subscribed_dir = _get_subscribed_prompts_dir()
+        if not subscribed_dir.exists():
+            subscribed_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[prompts] Created subscribed_prompts directory: {subscribed_dir}")
     except PermissionError as exc:
         logger.error(f"[prompts] Permission denied creating my_prompts directory: {exc}")
         logger.error(f"[prompts] Directory path: {_get_my_prompts_dir()}")
@@ -451,6 +460,12 @@ def _load_all_prompts() -> List[Dict[str, Any]]:
     directories = [
         (SAMPLE_PROMPTS_DIR, "sample_prompts", False),  # Changed to editable
         (_get_my_prompts_dir(), "my_prompts", False),
+        # Prompts downloaded at skill-subscribe time (another author's
+        # prompts referenced by a subscribed store skill). Kept in their own
+        # store so bulk cloud push can exclude them by source — uploading
+        # them under the subscriber's identity is guaranteed to fail
+        # "Prompt belongs to a different owner".
+        (_get_subscribed_prompts_dir(), "subscribed", False),
     ]
 
     for dir_path, source, read_only in directories:
