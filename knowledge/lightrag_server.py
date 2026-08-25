@@ -325,6 +325,24 @@ class LightragServer:
         # 2.6 Ensure retrieval token limits have sane minimums (chunk protection)
         self._apply_retrieval_token_limits(env)
 
+        # 2.7 Limit storage backends to only what we use (mt101: reduce memory)
+        # LightRAG ships optional storage backends (neo4j, pymongo, redis, milvus)
+        # that are NOT used by eCan. They import heavyweight libs (~1-2GB each)
+        # and are loaded at startup even if unused. We hardcode the backends
+        # we actually use so LightRAG's conditional imports don't eagerly load them.
+        #
+        # What we use: JsonKVStorage + FaissVectorDBStorage + NetworkXStorage
+        # What we DON'T use: Neo4JStorage, MongoKVStorage, RedisKVStorage, MilvusVectorDBStorage
+        env.setdefault('LIGHTRAG_KV_STORAGE', 'JsonKVStorage')
+        env.setdefault('LIGHTRAG_DOC_STATUS_STORAGE', 'JsonDocStatusStorage')
+        env.setdefault('LIGHTRAG_VECTOR_STORAGE', 'FaissVectorDBStorage')
+        env.setdefault('LIGHTRAG_GRAPH_STORAGE', 'NetworkXStorage')
+        logger.info(
+            f"[LightragServer] Storage backends: KV={env['LIGHTRAG_KV_STORAGE']}, "
+            f"Vector={env['LIGHTRAG_VECTOR_STORAGE']}, Graph={env['LIGHTRAG_GRAPH_STORAGE']} "
+            f"(unneeded backends neo4j/mongo/redis/milvus are NOT loaded)"
+        )
+
 
         # 3.1 CPU optimization for embedding and LLM inference
         import multiprocessing
