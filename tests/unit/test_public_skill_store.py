@@ -113,6 +113,49 @@ class TestPublicFlagNormalization:
         assert self._run_handler(rows) == []
 
 
+class TestUnsubscribeRemovesLocalRow:
+    """v0.9.95l incident: unsubscribe showed success but 已订阅 came back
+    after relogin — the local third-party row (the very thing
+    get_subscribed_skill_ids derives 已订阅 from) was never deleted, and
+    the rel soft-delete crashed on a bogus ECDBManager import."""
+
+    def _unsubscribe(self, row_owner):
+        service = MagicMock()
+        service.get_skill_by_id.return_value = {
+            "success": True,
+            "data": {"id": "skill_x", "askid": "0", "name": "n", "owner": row_owner},
+        }
+        service.delete_skill.return_value = {"success": True}
+        with patch.object(sh, "resolve_username", return_value=CUSTOMER), \
+             patch.object(sh, "_get_skill_service", return_value=service), \
+             patch.object(sh, "_soft_delete_agent_skill_rel", return_value={"success": True}), \
+             patch.object(sh, "_remove_skill_from_memory"), \
+             patch.object(sh, "_sync_skill_subscription_to_cloud", return_value=None), \
+             patch.object(sh, "_SKILL_FILE_SYNC_AVAILABLE", False), \
+             patch.object(sh, "create_success_response",
+                          side_effect=lambda req, data: {"ok": True, **data}), \
+             patch.object(sh, "create_error_response",
+                          side_effect=lambda req, code, msg: {"error": code, "message": msg}):
+            resp = sh.handle_unsubscribe_from_skill(MagicMock(), {"skillId": "skill_x",
+                                                                 "username": CUSTOMER})
+        return resp, service
+
+    def test_third_party_row_deleted(self):
+        resp, service = self._unsubscribe(row_owner=AUTHOR)
+        assert resp.get("ok")
+        service.delete_skill.assert_called_once_with("skill_x")
+
+    def test_own_skill_rejected_and_not_deleted(self):
+        resp, service = self._unsubscribe(row_owner=CUSTOMER)
+        assert resp.get("error") == "UNSUBSCRIBE_OWN_SKILL"
+        service.delete_skill.assert_not_called()
+
+    def test_bogus_ecdbmanager_import_removed(self):
+        import inspect
+        src = inspect.getsource(sh._soft_delete_agent_skill_rel)
+        assert "ECDBManager" not in src  # crashed every soft-delete on 95l
+
+
 class TestPaidSubscriptionGate:
     """Paid-skill subscribe gate: free = instant; paid rejects only when the
     fund is KNOWN and insufficient (unknown fund must not block — billing is

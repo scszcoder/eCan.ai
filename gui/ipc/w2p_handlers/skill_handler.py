@@ -999,10 +999,6 @@ def _soft_delete_agent_skill_rel(skill_service, username: str, skill_id: str) ->
         dict with 'success' boolean and optional 'error' message
     """
     try:
-        from agent.db.models.association_models import DBAgentSkillRel
-        from agent.db.ec_db_mgr import ECDBManager
-        from sqlalchemy import and_
-
         # Get the database engine from skill_service
         if hasattr(skill_service, 'session'):
             session = skill_service.session
@@ -1765,6 +1761,42 @@ def handle_unsubscribe_from_skill(request: IPCRequest, params: Optional[Dict[str
 
         # Step 2: Remove from local memory so it doesn't appear in user's list
         _remove_skill_from_memory(target_id, target_askid, request, params)
+
+        # Step 2.5: DELETE the local third-party skill row + downloaded files.
+        # 已订阅 state is derived from local rows whose owner ≠ me
+        # (get_subscribed_skill_ids) — without this the row survives and the
+        # skill shows subscribed again after relogin (v0.9.95l customer
+        # incident). Only third-party rows are deleted (own-skill unsubscribe
+        # is rejected above); the AUTHOR's cloud copy is untouched.
+        if existing.get('success') and existing.get('data'):
+            try:
+                del_result = skill_service.delete_skill(target_id)
+                if isinstance(del_result, dict) and del_result.get('success'):
+                    logger.info(
+                        f"[skill_handler] Unsubscribe removed local skill row {target_id} "
+                        f"('{existing['data'].get('name')}', owner={existing['data'].get('owner')})"
+                    )
+                else:
+                    logger.warning(
+                        f"[skill_handler] Unsubscribe: local row delete failed for "
+                        f"{target_id}: {(del_result or {}).get('error')}"
+                    )
+            except Exception as del_err:
+                logger.warning(f"[skill_handler] Unsubscribe: local row delete failed: {del_err}")
+            # Downloaded skill files (my_skills/<name>_skill/) — best-effort
+            # cleanup so a file twin can't resurrect the skill in the pool.
+            try:
+                import shutil
+                skill_name = str(existing['data'].get('name') or '').strip()
+                if skill_name and _SKILL_FILE_SYNC_AVAILABLE:
+                    from gui.ipc.w2p_handlers.skill_file_sync import _get_my_skills_dir
+                    folder = skill_name if skill_name.endswith('_skill') else f"{skill_name}_skill"
+                    skill_dir = Path(_get_my_skills_dir()) / folder
+                    if skill_dir.is_dir():
+                        shutil.rmtree(skill_dir, ignore_errors=True)
+                        logger.info(f"[skill_handler] Unsubscribe removed local files: {skill_dir}")
+            except Exception as file_err:
+                logger.warning(f"[skill_handler] Unsubscribe: file cleanup skipped: {file_err}")
 
         # Step 3: Sync to cloud to remove the cloud-side agent_skill_rels record
         cloud_sync_success = True
