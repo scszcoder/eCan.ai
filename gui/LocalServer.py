@@ -1524,6 +1524,16 @@ class ServerManager:
         self.server_thread = None
         self.request_handlers = None
         self.server_ready = threading.Event()  # 服务器启动完成信号
+        # Auto-restart plumbing: detect server-thread death and respawn.
+        # The previous design had no liveness check, so once the uvicorn
+        # server exited "normally" (e.g. after the MCP cancel-scope
+        # RuntimeError swallowed by the legacy shutdown exception handler)
+        # every subsequent GraphQL request from the frontend failed silently
+        # and was logged as `[APIRouter] Local GraphQL error …` forever
+        # (terminals/5.txt:1005-1027).
+        self._health_monitor_thread: Optional[threading.Thread] = None
+        self._shutdown_requested: bool = False
+        self._restart_lock = threading.Lock()
 
     def get_server_url(self) -> str:
         """Get local server URL
@@ -1563,15 +1573,33 @@ class ServerManager:
         self.server_thread.daemon = False  # Allow proper cleanup instead of forced termination
         self.server_thread.start()
         logger.info(f"🚀 Optimized local server starting on port {self.port} in separate thread")
-        
+
         # 等待服务器就绪（最多 10 秒）
         if self.server_ready.wait(timeout=10):
             logger.info("[ServerManager] ✅ Server started successfully and event loop ready")
         else:
             logger.warning("[ServerManager] ⚠️ Server startup timeout after 10s")
 
+        # 启动健康监控：发现 server thread 死亡后自动重启，避免
+        # 前端 GraphQL 调用永远拿不到响应（terminals/5.txt:1005-1027）。
+        # 注意 stop() 会设置 _shutdown_requested=True 来优雅退出监控。
+        if self._health_monitor_thread is None or not self._health_monitor_thread.is_alive():
+            self._shutdown_requested = False
+            self._health_monitor_thread = threading.Thread(
+                target=self._health_monitor_loop,
+                name="LocalServerHealthMonitor",
+                daemon=True,
+            )
+            self._health_monitor_thread.start()
+            logger.debug("[ServerManager] Health monitor thread started")
+
     def stop(self):
         """Request Uvicorn server to shut down gracefully"""
+        # Tell the health monitor to stop watching before we tear the server
+        # down — otherwise it would treat this deliberate shutdown as an
+        # unexpected death and respawn the server immediately.
+        self._shutdown_requested = True
+
         if self.uvicorn_server:
             logger.info("Stopping local Starlette server...")
 
@@ -1625,6 +1653,77 @@ class ServerManager:
             logger.warning("Force terminating server thread...")
             # Note: Python doesn't have thread.terminate(), so we rely on daemon behavior
             self.server_thread.daemon = True  # Convert to daemon for force termination
+
+    # ------------------------------------------------------------------
+    # Health monitor: detect unexpected server-thread death and respawn.
+    # ------------------------------------------------------------------
+    def _health_monitor_loop(self):
+        """Watchdog thread: restart the Starlette server if its thread dies.
+
+        Polls ``self.server_thread`` once per second.  When the thread exits
+        without ``_shutdown_requested`` being set (i.e. an unexpected death —
+        not a deliberate ``stop()`` call), the server is restarted in place so
+        that the frontend's GraphQL calls keep working.
+        """
+        poll_interval = 1.0
+        # Backing-off after consecutive restarts avoids tight loops if the
+        # server crashes immediately on every start.  Caps at 30 seconds.
+        consecutive_restarts = 0
+        while not self._shutdown_requested:
+            thread = self.server_thread
+            if thread is None or not thread.is_alive():
+                if self._shutdown_requested:
+                    break
+                # The server thread is gone but we weren't told to stop →
+                # respawn it.  Guard against multiple health-monitor instances
+                # racing by serialising through ``_restart_lock``.
+                with self._restart_lock:
+                    if self.server_thread is thread and not (
+                        thread is not None and thread.is_alive()
+                    ):
+                        backoff = min(2 ** consecutive_restarts, 30)
+                        if consecutive_restarts > 0:
+                            logger.warning(
+                                f"[ServerManager] ⚠️ Server thread died "
+                                f"(restart #{consecutive_restarts}); "
+                                f"restarting in {backoff}s"
+                            )
+                            # Sleep under the lock so concurrent monitors
+                            # don't all sleep in parallel.
+                            for _ in range(int(backoff)):
+                                if self._shutdown_requested:
+                                    return
+                                time.sleep(1)
+                        logger.error(
+                            "[ServerManager] ❌ Local Starlette server died — "
+                            "auto-restarting (was: 127.0.0.1:%d)" % self.port
+                        )
+                        self._restart_server()
+                        consecutive_restarts += 1
+                        continue
+                    consecutive_restarts = 0
+            else:
+                consecutive_restarts = 0
+            time.sleep(poll_interval)
+
+    def _restart_server(self):
+        """Spin up a fresh server thread, preserving the bound port."""
+        # Clear the ready event so callers waiting on the next start block
+        # until the new server is actually accepting connections.
+        self.server_ready = threading.Event()
+        self.uvicorn_server = None
+        self.server_thread = threading.Thread(
+            target=self._run_starlette, args=(self.port,)
+        )
+        self.server_thread.daemon = False
+        self.server_thread.start()
+        if self.server_ready.wait(timeout=10):
+            logger.info(
+                "[ServerManager] ✅ Auto-restarted Starlette server on "
+                f"127.0.0.1:{self.port}"
+            )
+        else:
+            logger.warning("[ServerManager] ⚠️ Auto-restart timed out after 10s")
 
     def _run_starlette(self, port=4668):
         """Optimized Starlette server startup method"""
@@ -1713,20 +1812,63 @@ class ServerManager:
                     # This is needed when uvicorn runs in a thread and FileResponse uses anyio
                     sniffio.current_async_library_cvar.set("asyncio")
 
-                    # Suppress MCP StreamableHTTPSessionManager TaskGroup errors during shutdown.
-                    # These occur because the async generator's TaskGroup is torn down in a different
-                    # task context during event loop cleanup — harmless but noisy.
+                    # Suppress only the narrow set of harmless teardown signals
+                    # that surface when MCP's StreamableHTTPSessionManager TaskGroup
+                    # is unwound during event loop cleanup.
+                    #
+                    # Regression (2026-08-25): the previous version swallowed ANY
+                    # exception whose repr contained "cancel scope", "StreamableHTTP",
+                    # or "asyncgen".  The matching exception —
+                    # `RuntimeError: Attempted to exit cancel scope in a different task`
+                    # — actually tears down the entire asyncio task tree, which
+                    # terminates the uvicorn server "normally" while requests are
+                    # still in flight, and the eCan process never restarts it.  The
+                    # frontend then logs `[APIRouter] Local GraphQL error …`
+                    # forever (see terminals/5.txt:1005-1027).
+                    #
+                    # The safe swallow set is the trio of teardown signals that anyio
+                    # produces when an async generator / TaskGroup is closed in a
+                    # cooperating task — they are not actionable and re-raising them
+                    # only clutters logs.
                     original_handler = loop.get_exception_handler()
+
+                    _SAFE_TEARDOWN_TYPES = (
+                        asyncio.CancelledError,
+                        GeneratorExit,
+                    )
+
+                    def _is_safe_teardown(exc: BaseException, msg: str) -> bool:
+                        if isinstance(exc, _SAFE_TEARDOWN_TYPES):
+                            return True
+                        # anyio's task group emits a BaseExceptionGroup whose
+                        # children are CancelledError; treat those as safe.
+                        if isinstance(exc, BaseExceptionGroup):
+                            return all(
+                                isinstance(c, _SAFE_TEARDOWN_TYPES)
+                                or _is_safe_teardown(c, str(c))
+                                for c in exc.exceptions
+                            )
+                        return False
+
                     def _shutdown_exception_handler(loop, context):
                         exc = context.get("exception")
                         msg = context.get("message", "")
-                        if exc and ("cancel scope" in str(exc) or "StreamableHTTP" in msg or "asyncgen" in msg):
-                            logger.debug(f"[MCP] Suppressed expected shutdown error: {type(exc).__name__}")
+                        if exc is not None and _is_safe_teardown(exc, msg):
+                            logger.debug(
+                                f"[MCP] Suppressed expected teardown signal: "
+                                f"{type(exc).__name__}"
+                            )
                             return
-                        if original_handler:
+                        # Anything else — including the original
+                        # "Attempted to exit cancel scope in a different task"
+                        # RuntimeError — must propagate to the default handler so
+                        # it shows up as a real error rather than silently killing
+                        # the server.
+                        if original_handler is not None:
                             original_handler(loop, context)
                         else:
                             loop.default_exception_handler(context)
+
                     loop.set_exception_handler(_shutdown_exception_handler)
 
                     # 标记服务器就绪
