@@ -351,6 +351,16 @@ def handle_get_ollama_models(request: IPCRequest, params: Optional[Dict[str, Any
     success, model_list, error_msg = fetch_ollama_models(host, username)
     
     if success:
+        # CRITICAL: Reload dynamic models into memory after file is updated.
+        # Without this, LLMConfig._models still holds stale data and model validation
+        # (e.g. in set_llm_provider_model) will fail with "Model not supported".
+        try:
+            from gui.config.llm_config import llm_config
+            llm_config.reload_dynamic_models()
+            logger.debug(f"[SettingsHandler] ✅ Reloaded dynamic Ollama models after fetch")
+        except Exception as reload_err:
+            logger.warning(f"[SettingsHandler] ⚠️ Failed to reload Ollama models: {reload_err}")
+
         return create_success_response(request, {
             'models': model_list,
             'host': host
@@ -389,6 +399,16 @@ def handle_get_ryoais_models(request: IPCRequest, params: Optional[Dict[str, Any
     success, model_list, error_msg = fetch_ryoais_models(host, api_key, username, verify_ssl=verify_ssl)
     
     if success:
+        # CRITICAL: Reload dynamic models into memory after file is updated.
+        # Without this, LLMConfig._models still holds stale data and model validation
+        # (e.g. in set_llm_provider_model) will fail with "Model not supported".
+        try:
+            from gui.config.llm_config import llm_config
+            llm_config.reload_dynamic_models()
+            logger.debug(f"[SettingsHandler] ✅ Reloaded dynamic RyoAIS models after fetch")
+        except Exception as reload_err:
+            logger.warning(f"[SettingsHandler] ⚠️ Failed to reload RyoAIS models: {reload_err}")
+
         return create_success_response(request, {
             'models': model_list,
             'host': host

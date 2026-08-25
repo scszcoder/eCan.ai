@@ -2421,7 +2421,21 @@
         "workspace_name_hint": "New workspace will use {{dimension}}-dimensional vector index",
         "workspace_name_required": "Workspace name cannot be empty",
         "workspace_switched": "Switched to workspace: {{name}}",
-        "workspace_switch_failed": "Failed to switch workspace"
+        "workspace_switch_failed": "Failed to switch workspace",
+        "workspacePicker": {
+          "tooltip": "Leave empty to use the server's default workspace. Use distinct names per category (e.g. customer_service, product_details) for data isolation.",
+          "placeholder": "workspace name (empty = server default)"
+        },
+        "headerStatus": {
+          "loading": "Loading...",
+          "idle": "Idle",
+          "processing": "Processing: {{processing}}",
+          "pending": "Pending: {{pending}}",
+          "processingAndPending": "Processing: {{processing}} / Pending: {{pending}}",
+          "processed": "Processed: {{processed}}/{{total}}",
+          "failed": "Failed: {{failed}}",
+          "tooltipRefreshing": "Refreshing..."
+        }
       },
       "help": {
         "title": "Knowledge Base User Guide",

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Modal, Alert } from 'antd';
+import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Modal } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { 
@@ -1550,29 +1550,6 @@ const SettingsTab: React.FC = () => {
         padding: '20px 24px 0 24px',
         background: token.colorBgLayout
       }}>
-        {/* Server Status Indicator - Always visible */}
-        {startupStatus && (
-          <Alert
-            type={startupStatus.running && startupStatus.ok !== false ? "success" : "warning"}
-            showIcon
-            style={{ marginBottom: 12 }}
-            message={
-              startupStatus.running && startupStatus.ok !== false 
-                ? "LightRAG 服务运行中" 
-                : t('pages.knowledge.settings.lightragUnavailableTitle')
-            }
-            description={
-              !startupStatus.running || startupStatus.ok === false ? (
-                <div>
-                  <div>{startupStatus.message || t('pages.knowledge.settings.lightragUnavailableDesc')}</div>
-                  <div style={{ marginTop: 6, color: token.colorTextSecondary }}>
-                    {t('pages.knowledge.settings.lightragUnavailableAction')}
-                  </div>
-                </div>
-              ) : undefined
-            }
-          />
-        )}
         <div style={{
           display: 'flex',
           alignItems: 'center',

@@ -194,7 +194,7 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
 
   return (
     <div data-ec-scope="lightrag-ported" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Header />
+      <Header activeTab={active} />
       <div style={{
         padding: '0 32px',
         background: tabBarBg,

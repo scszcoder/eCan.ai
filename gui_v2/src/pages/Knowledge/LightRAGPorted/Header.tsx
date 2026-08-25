@@ -1,7 +1,12 @@
-import React from 'react';
-import { theme } from 'antd';
+import React, { useEffect, useState, useRef } from 'react';
+import { theme, Tooltip } from 'antd';
+import { SyncOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import WorkspacePicker from './WorkspacePicker';
 import { useWorkspace } from './useWorkspace';
+import { get_ipc_api } from '@/services/ipc_api';
+import type { ProcessingProgress } from '@/services/ipc/lightragApi';
+import type { TabKey } from './Tabs';
 
 // Minimal header without branding, login/version/lang, github, etc.
 // Scoped styles via inline classes to avoid leaking globals.
@@ -11,12 +16,105 @@ import { useWorkspace } from './useWorkspace';
 // shared with the per-tab pickers in DocumentsTab / RetrievalTab — so all
 // three stay in sync regardless of which one the user touched last.
 
-const Header: React.FC = () => {
+interface HeaderProps {
+  activeTab?: TabKey;
+}
+
+const Header: React.FC<HeaderProps> = ({ activeTab }) => {
   const { token } = theme.useToken();
+  const { t } = useTranslation();
   const [workspace, setWorkspace] = useWorkspace();
+  const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(false);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 获取处理状态
+  const fetchProcessingStatus = async () => {
+    try {
+      setLoadingStatus(true);
+      const response = await get_ipc_api().lightragApi.getProcessingProgress(undefined, workspace || undefined);
+      if (response.success && response.data) {
+        setProcessingProgress(response.data);
+      }
+    } catch (e) {
+      // 静默失败，不影响 UI
+    } finally {
+      setLoadingStatus(false);
+    }
+  };
+
+  // 启动/停止轮询
+  useEffect(() => {
+    // 立即获取一次
+    fetchProcessingStatus();
+
+    // 每 5 秒轮询一次
+    pollIntervalRef.current = setInterval(fetchProcessingStatus, 5000);
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [workspace]);
+
+  // 计算是否有活动状态
+  const hasActivity = processingProgress && (
+    (processingProgress.processing_count || 0) > 0 ||
+    (processingProgress.pending_count || 0) > 0
+  );
+
+  // 获取状态颜色
+  const getStatusColor = () => {
+    if (!processingProgress) return token.colorTextTertiary;
+    const failed = processingProgress.failed_count || 0;
+    if (failed > 0) return token.colorError;
+    if (hasActivity) return token.colorWarning;
+    return token.colorSuccess;
+  };
+
+  // 获取状态图标
+  const StatusIcon = () => {
+    if (!processingProgress) return <ClockCircleOutlined style={{ color: token.colorTextTertiary }} />;
+    const failed = processingProgress.failed_count || 0;
+    if (failed > 0) return <ExclamationCircleOutlined style={{ color: token.colorError }} />;
+    if (hasActivity) return <SyncOutlined spin style={{ color: token.colorWarning }} />;
+    return <CheckCircleOutlined style={{ color: token.colorSuccess }} />;
+  };
+
+  // 获取状态文字
+  const getStatusText = () => {
+    if (!processingProgress) return t('pages.knowledge.lightrag.headerStatus.loading');
+    const processing = processingProgress.processing_count || 0;
+    const pending = processingProgress.pending_count || 0;
+    const failed = processingProgress.failed_count || 0;
+    const processed = processingProgress.processed_count || 0;
+    const total = processingProgress.total_count || 0;
+
+    if (failed > 0) {
+      return t('pages.knowledge.lightrag.headerStatus.failed', { failed });
+    }
+    if (processing > 0 && pending > 0) {
+      return t('pages.knowledge.lightrag.headerStatus.processingAndPending', { processing, pending });
+    }
+    if (processing > 0) {
+      return t('pages.knowledge.lightrag.headerStatus.processing', { processing });
+    }
+    if (pending > 0) {
+      return t('pages.knowledge.lightrag.headerStatus.pending', { pending });
+    }
+    if (total > 0) {
+      return t('pages.knowledge.lightrag.headerStatus.processed', { processed, total });
+    }
+    return t('pages.knowledge.lightrag.headerStatus.idle');
+  };
 
   // 使用主题 token 的背景色
   const headerBg = token.colorBgContainer;
+
+  // 在 settings tab 隐藏状态
+  const showStatus = activeTab !== 'settings';
 
   return (
     <header
@@ -29,8 +127,32 @@ const Header: React.FC = () => {
       }}
       data-ec-scope="lightrag-ported"
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {/* Intentionally no logo/name per requirements */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        {showStatus && (
+          <Tooltip
+            title={loadingStatus ? t('pages.knowledge.lightrag.headerStatus.tooltipRefreshing') : getStatusText()}
+            placement="bottom"
+          >
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 12,
+              color: getStatusColor(),
+              cursor: 'default',
+              whiteSpace: 'nowrap'
+            }}>
+              {loadingStatus ? (
+                <SyncOutlined spin style={{ fontSize: 14 }} />
+              ) : (
+                <StatusIcon />
+              )}
+              <span style={{ fontWeight: 500 }}>
+                {getStatusText()}
+              </span>
+            </div>
+          </Tooltip>
+        )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center' }}>
         {/* Tabs are rendered by parent; keep center clean */}
