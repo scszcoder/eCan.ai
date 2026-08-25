@@ -2633,12 +2633,21 @@ class TaskRunner(Generic[Context]):
         """Reload global event routing config from disk."""
         self._global_event_routing = self._load_global_event_routing()
     
-    def _extract_event_types_from_skill(self, skill) -> List[Dict[str, Any]]:
+    def _extract_event_types_from_skill(self, skill, task=None) -> List[Dict[str, Any]]:
         """Extract all event types and their match_fields from a skill's pend_event nodes.
-        
+
         Inspects the skill's diagram (flowgram) for pend_event_node type nodes
         and collects their eventType, pendingSources, matchFields, timerName, and browserEventLabel.
-        
+
+        SHARED_SKILL_MULTI_TASK_PLAN: shared skills stay agent-agnostic, so the
+        pend_event agentIds / matchFields values may carry ``{{var}}``
+        placeholders (e.g. ``{{front_desk_agent_id}}``) instead of concrete
+        agent ids. When ``task`` is given, placeholders are resolved here —
+        at task-launch time, after deployment has created the agents — from
+        ``task.metadata["task_vars"]``. A placeholder that can't be resolved
+        DROPS that filter (catch-all + WARNING) rather than installing a
+        literal ``{{...}}`` string that would silently blackhole every event.
+
         Returns:
             List of dicts, each with:
               - event_type (str): The event type string
@@ -2647,6 +2656,40 @@ class TaskRunner(Generic[Context]):
               - browser_event_label (str|None): Label if event_type is 'browser_event'
         """
         results: List[Dict[str, Any]] = []
+        task_vars: Dict[str, Any] = {}
+        _md = getattr(task, "metadata", None) if task is not None else None
+        if isinstance(_md, dict) and isinstance(_md.get("task_vars"), dict):
+            task_vars = _md["task_vars"]
+        _task_label = (getattr(task, "name", "") or getattr(task, "id", "") or "?") if task is not None else "?"
+
+        def _resolve_task_var_tokens(value, field_label: str):
+            """Substitute {{var}} tokens from task_vars; returns "" when any token is unresolvable."""
+            if not isinstance(value, str) or "{{" not in value:
+                return value
+            unresolved: List[str] = []
+
+            def _sub(m):
+                name = m.group(1)
+                v = task_vars.get(name)
+                if v is not None and str(v).strip():
+                    return str(v).strip()
+                unresolved.append(name)
+                return m.group(0)
+
+            resolved = re.sub(r"\{\{\s*([A-Za-z0-9_.]+)\s*\}\}", _sub, value)
+            if unresolved:
+                logger.warning(
+                    f"[EventRouting][task_vars] task '{_task_label}': pend_event {field_label} "
+                    f"placeholder(s) {unresolved} not found in task_vars "
+                    f"(available: {sorted(task_vars.keys())}) — dropping this sender filter "
+                    f"(catch-all) so events are not blackholed"
+                )
+                return ""
+            logger.info(
+                f"[EventRouting][task_vars] task '{_task_label}': pend_event {field_label} "
+                f"'{value}' -> '{resolved}'"
+            )
+            return resolved
         try:
             diagram = getattr(skill, "diagram", None)
             if not isinstance(diagram, dict):
@@ -2690,6 +2733,27 @@ class TaskRunner(Generic[Context]):
                             ep = (mf.get("event_path") or "").strip()
                             tp = (mf.get("task_path") or "").strip()
                             literal = mf.get("literal")
+                            # Resolve {{var}} placeholders in literals (the skill
+                            # editor materializes the agentIds field into a
+                            # context.senderId literal here). Unresolvable →
+                            # drop just this filter entry.
+                            if isinstance(literal, str) and "{{" in literal:
+                                literal = _resolve_task_var_tokens(literal, f"matchFields[{ep}].literal")
+                                if not literal:
+                                    continue
+                                # A var may hold a comma-separated id list; the
+                                # matcher treats list literals as membership.
+                                if "," in literal:
+                                    literal = [seg.strip() for seg in literal.split(",") if seg.strip()]
+                            elif isinstance(literal, list):
+                                _resolved_items = [
+                                    _resolve_task_var_tokens(x, f"matchFields[{ep}].literal")
+                                    if isinstance(x, str) else x
+                                    for x in literal
+                                ]
+                                if any(isinstance(x, str) and not x for x in _resolved_items):
+                                    continue
+                                literal = _resolved_items
                             if ep:  # event_path is required; task_path can be blank
                                 entry = {"event_path": ep, "task_path": tp}
                                 if literal not in (None, ""):
@@ -2713,6 +2777,7 @@ class TaskRunner(Generic[Context]):
                     return augmented
 
                 main_agent_ids = ((inputs.get("agentIds") or {}).get("content") or "").strip()
+                main_agent_ids = _resolve_task_var_tokens(main_agent_ids, "agentIds")
                 
                 # Extract timerName from main event config
                 main_timer_name = ((inputs.get("timerName") or {}).get("content") or "").strip()
@@ -2742,6 +2807,7 @@ class TaskRunner(Generic[Context]):
                             st = (src.get("type") or "").strip()
                             if st:
                                 src_agent_ids = (src.get("agentIds") or "").strip()
+                                src_agent_ids = _resolve_task_var_tokens(src_agent_ids, "pendingSources.agentIds")
                                 entry = {"event_type": st, "match_fields": _augment_match_fields(st, match_fields, src_agent_ids)}
                                 # Extract timerName from pending source item
                                 src_timer = (src.get("timerName") or "").strip()
@@ -2787,7 +2853,7 @@ class TaskRunner(Generic[Context]):
             return
         
         try:
-            event_entries = self._extract_event_types_from_skill(skill)
+            event_entries = self._extract_event_types_from_skill(skill, task)
             if not event_entries:
                 logger.debug(f"[EventRouting] No pend_event nodes found in skill for task '{task.name}'")
                 return
@@ -3470,7 +3536,7 @@ class TaskRunner(Generic[Context]):
             aliases = self._event_aliases_for_routing(event_type)
             if not aliases:
                 return False
-            entries = self._extract_event_types_from_skill(skill)
+            entries = self._extract_event_types_from_skill(skill, task)
             if not entries:
                 return False
             event_data = None

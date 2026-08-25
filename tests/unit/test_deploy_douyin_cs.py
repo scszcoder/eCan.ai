@@ -76,22 +76,39 @@ class TestDeployDouyinCs:
         assert plan == {"agents": 4, "skills": 0, "tasks": 4}
         assert created["skills"] == []
 
+        # Front-desk task is created FIRST — the Q&A tasks carry its agent id.
         task_names = [c.args[0]["name"] for c in ctx.db.task_service.add_task.call_args_list]
-        assert task_names == ["飞鸽客服应答001", "飞鸽客服应答002", "飞鸽客服应答003", "飞鸽客服前台001"]
+        assert task_names == ["飞鸽客服前台001", "飞鸽客服应答001", "飞鸽客服应答002", "飞鸽客服应答003"]
         for c in ctx.db.task_service.add_task.call_args_list:
             assert c.args[0]["trigger"] == "auto"
             assert c.args[0]["settings"]["task_vars"]["store_url"] == "https://shopA.example.com"
 
         # task→skill links reference the SHARED skill ids
         link_skills = [c.args[1] for c in ctx.db.task_service.add_skill_to_task.call_args_list]
-        assert link_skills == [QA_SKILL, QA_SKILL, QA_SKILL, FD_SKILL]
+        assert link_skills == [FD_SKILL, QA_SKILL, QA_SKILL, QA_SKILL]
+
+    def test_qa_tasks_carry_front_desk_agent_id(self):
+        """The shared Q&A skill's pend_event filters on {{front_desk_agent_id}};
+        each Q&A task must carry the freshly created front-desk agent's id in
+        task_vars (the FD agent is created before any Q&A task exists)."""
+        ctx = _make_ctx()
+        dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+
+        calls = ctx.db.task_service.add_task.call_args_list
+        fd_call, qa_calls = calls[0], calls[1:]
+        # First created agent (agent_1) is 前台小张
+        first_agent = ctx.db.agent_service.create_agent_from_data.call_args_list[0]
+        assert first_agent.args[0]["name"] == "前台小张"
+        assert "front_desk_agent_id" not in fd_call.args[0]["settings"]["task_vars"]
+        for c in qa_calls:
+            assert c.args[0]["settings"]["task_vars"]["front_desk_agent_id"] == "agent_1"
 
     def test_agents_names_org_and_vehicle(self):
         ctx = _make_ctx()
         dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
 
         agent_payloads = [c.args[0] for c in ctx.db.agent_service.create_agent_from_data.call_args_list]
-        qa_agents, fd_agent = agent_payloads[:-1], agent_payloads[-1]
+        fd_agent, qa_agents = agent_payloads[0], agent_payloads[1:]
 
         assert fd_agent["name"] == "前台小张"
         assert all(a["name"].startswith("客服小") for a in qa_agents)
@@ -108,6 +125,16 @@ class TestDeployDouyinCs:
         with pytest.raises(RuntimeError, match="not visible.*subscribe"):
             dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
         ctx.db.task_service.add_task.assert_not_called()
+
+    def test_all_four_prompts_verified(self):
+        """The recipe verifies 应答0 + 社交应答0 + RAG路由分类0 (QA skill)
+        and 前台0 (FD skill)."""
+        ctx = _make_ctx()
+        with patch.object(dc, "_prompt_visible", return_value=True) as pv:
+            dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+        checked = [c.args[0] for c in pv.call_args_list]
+        assert checked == [dc._DDCS_QA_PROMPT_ID, dc._DDCS_QA_SOCIAL_PROMPT_ID,
+                           dc._DDCS_QA_RAG_PROMPT_ID, dc._DDCS_FD_PROMPT_ID]
 
     def test_missing_prompt_aborts(self):
         ctx = _make_ctx()

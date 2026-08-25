@@ -132,6 +132,24 @@ _Last updated: 2026-08-23_
 
 ## 🟢 In progress
 
+- **pend_event {{front_desk_agent_id}} placeholder (2026-08-25)**. The
+  published 飞鸽客服问答00 diagram hard-codes agent_48bdd65f982a4cdb (a
+  long-gone author-machine front-desk agent) in its pend_event node's
+  agentIds AND matchFields senderId literal — on every other machine the
+  Q&A skill filters out all real front-desk dispatches. FIX: runner
+  `_extract_event_types_from_skill(skill, task)` now resolves `{{var}}`
+  tokens in agentIds / matchFields literals / pendingSources.agentIds
+  from `task.metadata["task_vars"]` at task-launch time (unresolvable →
+  drop filter, catch-all + WARNING `[EventRouting][task_vars]`; comma
+  values become membership lists). douyin_cs fast-deploy now creates
+  前台小张 FIRST and stamps `front_desk_agent_id` into every Q&A task's
+  task_vars; also verifies 2 more prompts: 飞鸽社交应答0 (pr-543744) +
+  飞鸽RAG路由分类0 (pr-56931). Tests:
+  tests/unit/test_pend_event_task_vars.py (11) + test_deploy_douyin_cs.
+  **USER ACTION**: in the skill editor set 问答00's pend_event agent
+  field to `{{front_desk_agent_id}}` (replacing the stale concrete id)
+  and REPUBLISH — until then subscribed copies still carry the dead id.
+
 - **Subscribed-skill FILES + paid subscribe flow (2026-08-25, uncommitted)**.
   CONFIRMED user suspicion: subscribe never downloaded the skill's FILE
   package — triply broken: (a) subscribe_to_skill never called the

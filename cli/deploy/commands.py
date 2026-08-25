@@ -94,6 +94,8 @@ _RECIPES = {
 
 _DDCS_QA_PROMPT_ID = "pr-287230"     # 飞鸽客服应答0
 _DDCS_FD_PROMPT_ID = "pr-330448"     # 飞鸽客服前台0
+_DDCS_QA_SOCIAL_PROMPT_ID = "pr-543744"  # 飞鸽社交应答0
+_DDCS_QA_RAG_PROMPT_ID = "pr-56931"      # 飞鸽RAG路由分类0
 _DDCS_QA_SKILL_ID = "skill_4f24592c81894ae7"   # 飞鸽客服问答00
 _DDCS_FD_SKILL_ID = "skill_71209937ed7449bf"   # 飞鸽客服前台00
 _DDCS_QA_SKILL_NAME = "飞鸽客服问答00"
@@ -269,6 +271,8 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
                f"{_DDCS_FD_SKILL_NAME} ({_DDCS_FD_SKILL_ID})")
 
     for pid, pname, sid in ((_DDCS_QA_PROMPT_ID, "飞鸽客服应答0", _DDCS_QA_SKILL_ID),
+                            (_DDCS_QA_SOCIAL_PROMPT_ID, "飞鸽社交应答0", _DDCS_QA_SKILL_ID),
+                            (_DDCS_QA_RAG_PROMPT_ID, "飞鸽RAG路由分类0", _DDCS_QA_SKILL_ID),
                             (_DDCS_FD_PROMPT_ID, "飞鸽客服前台0", _DDCS_FD_SKILL_ID)):
         if not _prompt_visible(pid, _skill_author(skill_rows[sid]), log):
             msg = (f"Prompt {pname} ({pid}) is not visible — it should come with "
@@ -277,6 +281,8 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
             logger.error(f"[FastDeploy][douyin_cs] {msg}")
             raise RuntimeError(msg)
     log.append(f"Prompts verified: 飞鸽客服应答0 ({_DDCS_QA_PROMPT_ID}), "
+               f"飞鸽社交应答0 ({_DDCS_QA_SOCIAL_PROMPT_ID}), "
+               f"飞鸽RAG路由分类0 ({_DDCS_QA_RAG_PROMPT_ID}), "
                f"飞鸽客服前台0 ({_DDCS_FD_PROMPT_ID})")
 
     # ── Store URL propagation: per-task variables. apply_task_vars seeds
@@ -302,11 +308,14 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     # ── Sales organization.
     org_id = _ensure_sales_org(ctx, owner, log)
 
-    def _add_task(name: str, skill_id: str) -> str:
+    def _add_task(name: str, skill_id: str, extra_vars: dict | None = None) -> str:
+        tvars = dict(task_vars)
+        if extra_vars:
+            tvars.update(extra_vars)
         tr = ctx.db.task_service.add_task({
             "name": name, "owner": owner, "source": "fast_deploy",
             "task_type": "browser_automation", "trigger": "auto", "status": "pending",
-            "settings": {"task_vars": dict(task_vars)},
+            "settings": {"task_vars": tvars},
         })
         if not tr.get("success"):
             raise RuntimeError(f"add_task({name}) failed: {tr.get('error')}")
@@ -335,19 +344,25 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
         created["agents"].append(aid)
         return aid
 
-    # ── 3A/3B) Tasks referencing the SHARED skills (no clones).
+    # ── 3A/4A) Front-desk task + agent FIRST: the Q&A tasks must carry the
+    #    front-desk agent's id in task_vars, because the shared Q&A skill's
+    #    pend_event node filters on {{front_desk_agent_id}} — resolved from
+    #    task_vars at task-launch time (runner._extract_event_types_from_skill).
+    fd_task_id = _add_task("飞鸽客服前台001", _DDCS_FD_SKILL_ID)
+    fd_agent_id = _add_agent("前台小张", _DDCS_FD_SKILL_ID, fd_task_id)
+    log.append(f"Created task 飞鸽客服前台001 → {_DDCS_FD_SKILL_NAME}")
+    log.append(f"Created front-desk agent 前台小张 ({fd_agent_id}, org=Sales)")
+
+    # ── 3B/4B) Q&A tasks (carrying front_desk_agent_id) + agents.
     qa_task_ids = []
     for i in range(1, qa_n + 1):
-        qa_task_ids.append(_add_task(f"飞鸽客服应答{i:03d}", _DDCS_QA_SKILL_ID))
-    fd_task_id = _add_task("飞鸽客服前台001", _DDCS_FD_SKILL_ID)
-    log.append(f"Created {qa_n} Q&A task(s) 飞鸽客服应答001..{qa_n:03d} → {_DDCS_QA_SKILL_NAME}")
-    log.append(f"Created task 飞鸽客服前台001 → {_DDCS_FD_SKILL_NAME}")
-
-    # ── 4A/4B) Agents in the Sales organization.
+        qa_task_ids.append(_add_task(f"飞鸽客服应答{i:03d}", _DDCS_QA_SKILL_ID,
+                                     extra_vars={"front_desk_agent_id": fd_agent_id}))
     for name, tid in zip(_draw_qa_names(qa_n), qa_task_ids):
         _add_agent(f"客服小{name}", _DDCS_QA_SKILL_ID, tid)
-    _add_agent("前台小张", _DDCS_FD_SKILL_ID, fd_task_id)
-    log.append(f"Created {qa_n} Q&A agent(s) 客服小X + front-desk agent 前台小张 (org=Sales)")
+    log.append(f"Created {qa_n} Q&A task(s) 飞鸽客服应答001..{qa_n:03d} → {_DDCS_QA_SKILL_NAME} "
+               f"(task_vars.front_desk_agent_id={fd_agent_id})")
+    log.append(f"Created {qa_n} Q&A agent(s) 客服小X (org=Sales)")
 
     plan = {
         "agents": len(created["agents"]),
@@ -357,7 +372,7 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     logger.info(
         f"[FastDeploy][douyin_cs] SUCCESS: {plan['agents']} agent(s), {plan['tasks']} task(s) "
         f"referencing shared skills {_DDCS_QA_SKILL_ID}/{_DDCS_FD_SKILL_ID}; "
-        f"store_url propagated via task_vars"
+        f"store_url + front_desk_agent_id propagated via task_vars"
     )
     return plan, log, created
 
