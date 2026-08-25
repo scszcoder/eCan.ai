@@ -39,6 +39,10 @@ class LambdaProxyChatOpenAI(ChatOpenAI):
     def _raise_friendly(self, exc: Exception):
         friendly = translate_proxy_exception(exc)
         if friendly is not None:
+            logger.warning(
+                f"[LambdaProxyLangChain] Proxy rejected the call "
+                f"({type(exc).__name__}: {str(exc)[:200]}) — surfacing friendly message"
+            )
             raise friendly from exc
         raise
 

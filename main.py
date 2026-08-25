@@ -68,6 +68,22 @@ if 'ECAN_APP_ID' not in os.environ:
         print(f"[BOOT] Detected app variant from bundle: ECAN_APP_ID={detected}")
 
 # ============================================================================
+# Load the persisted runtime env file (<appdata>/run.env), written by
+# deployment recipes (e.g. 快速生成→抖店客服 seeds the Feige run flags) so
+# customers get the validated runtime configuration without setting dozens
+# of OS env vars by hand. override=False: a real OS env var always wins.
+# Must come AFTER ECAN_APP_ID detection (the appdata path is per-variant).
+# ============================================================================
+try:
+    from config.envi import getECBotDataHome
+    _run_env_path = os.path.join(getECBotDataHome(), 'run.env')
+    if os.path.exists(_run_env_path):
+        load_dotenv(_run_env_path, override=False)
+        print(f"[BOOT] Loaded runtime env file: {_run_env_path}")
+except Exception as _run_env_err:
+    print(f"[BOOT] run.env load skipped: {_run_env_err}")
+
+# ============================================================================
 # Suppress known third-party deprecation/compatibility warnings
 # These are library issues (langchain, pydantic) not fixable in our code
 # ============================================================================

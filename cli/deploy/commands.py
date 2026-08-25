@@ -103,6 +103,123 @@ _DDCS_FD_SKILL_NAME = "飞鸽客服前台00"
 _DDCS_SALES_ORG_NAME = "Sales"
 
 # Chinese given names for the Q&A agents (客服小X).
+# ── Feige runtime env flags (the validated 抖店客服 run configuration).
+# Written to <appdata>/run.env at deploy time; main.py loads that file at
+# startup with override=False (a real OS env var always wins). Names are the
+# canonical code spellings — several author-machine names were normalized
+# (e.g. ECAN_LIVE_CHAT_* knobs are satisfied by their ECAN_FEIGE_* aliases
+# via live_chat_env's site-alias fallback).
+_DDCS_FEIGE_ENV = {
+    "ECAN_FEIGE_WS": "1",
+    "ECAN_FEIGE_WS_READER": "1",
+    "ECAN_FEIGE_WS_SEND": "1",
+    "ECAN_FEIGE_WS_SEND_RAW": "1",
+    "ECAN_FEIGE_WS_SCRAPE": "1",
+    "ECAN_FEIGE_WS_CAPTURE": "1",
+    "ECAN_FEIGE_WS_CAPTURE_MAX_FRAMES": "5000",
+    "ECAN_FEIGE_WS_COVERAGE": "1",
+    "ECAN_FEIGE_WS_TRUST_EVENT": "1",
+    "ECAN_FEIGE_WS_DIRECT_QA": "1",
+    "ECAN_FEIGE_WS_STICKY_IDENTITY": "1",
+    "ECAN_FEIGE_WS_PRIME_API": "1",
+    "ECAN_FEIGE_WS_PAUSE_DOM_MONITOR": "1",
+    "ECAN_FEIGE_WS_SKIP_TYPING_LOCK": "1",
+    "ECAN_FEIGE_WS_NOROUTE_DIAG": "1",
+    "ECAN_FEIGE_WS_RAW_DIAG": "1",
+    "ECAN_FEIGE_WS_RAW_KEEPALIVE": "1",
+    "ECAN_FEIGE_WS_RAW_KEEPALIVE_S": "20",
+    "ECAN_FEIGE_WS_RAW_TOKEN_MAX_AGE": "300",
+    "ECAN_FEIGE_WS_RECONNECT_FOLLOW": "1",
+    "ECAN_FEIGE_WS_READ_ACK": "1",
+    "ECAN_FEIGE_WS_READ_ACK_RAW": "1",
+    "ECAN_FEIGE_WS_READ_ACK_DET_TAB": "1",
+    "ECAN_FEIGE_WS_SEND_DET_TAB": "0",
+    "ECAN_FEIGE_WS_SEND_DET_TAB_TRUST": "0",
+    "ECAN_FEIGE_WS_SEND_INJECT_TIMEOUT_S": "6",
+    "ECAN_FEIGE_WS_PLACEHOLDER_DET_TAB": "1",
+    "ECAN_FEIGE_WS_CARD_PARSE": "1",
+    "ECAN_FEIGE_WS_CARD_TRUST": "1",
+    "ECAN_FEIGE_WS_CARD_DOM_DETAIL": "1",
+    "ECAN_FEIGE_WS_CARD_FIRST_CONTACT": "0",
+    "ECAN_FEIGE_WS_FIRST_CONTACT": "0",
+    "ECAN_FEIGE_WS_FC_PRESUME": "0",
+    "ECAN_FEIGE_WS_CAN_SEND_WIDE": "0",
+    "ECAN_FEIGE_DEDICATED_CDP_LOOP": "1",
+    "ECAN_FEIGE_DEDICATED_DETECTION_TAB": "1",
+    "ECAN_FEIGE_LEAN_BASELINE": "0",
+    "ECAN_FEIGE_TYPING_TAB_COUNT": "0",
+    "ECAN_FEIGE_QA_MAX_CONCURRENCY": "3",
+    "ECAN_FEIGE_HUMAN_MODE": "1",
+    "ECAN_FEIGE_BOT_SUPPRESS": "1",
+    "ECAN_FEIGE_BOT_TOGGLE_CAPTURE": "1",
+    "ECAN_FEIGE_MT030_HANDOVER_OVERRIDE": "1",
+    "ECAN_FEIGE_MT030_CARD_ACK_NOMASK": "1",
+    "ECAN_FEIGE_SEND_RETRY_ON_EMPTY": "1",
+    "ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S": "10",
+    "ECAN_FEIGE_TIMEOUT_PRESUME_DELIVERED": "1",
+    "ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S": "6",
+    "ECAN_FEIGE_DUMP_ON_MARSHAL_FAIL": "1",
+    "ECAN_FEIGE_FC_FRAME_DUMP": "0",
+    "ECAN_FEIGE_CARD_RESOLVE_WAIT": "1",
+    "ECAN_FEIGE_CARD_SNF_FAILFAST": "1",
+    "ECAN_FEIGE_PRODUCT_DETAIL_CAPTURE": "1",
+    "ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE": "1",
+    "ECAN_FEIGE_COLDSTART_RECOVERY_WINDOW_S": "45",
+    "ECAN_FEIGE_STUCK_RECOVERY": "1",
+    "ECAN_FEIGE_REOPEN_RECOVERY": "1",
+    "ECAN_FEIGE_DORMANT_POLL": "1",
+    "ECAN_FEIGE_UID_NAME_BRIDGE": "1",
+    "ECAN_FEIGE_OPEN_CLAIM_CAPTURE": "1",
+    "ECAN_FEIGE_OPEN_CLAIM_CAP_MAX": "5000",
+    "ECAN_FEIGE_UNIFIED_BLOCKER_CLEAR": "1",
+    "ECAN_FEIGE_FRONTDESK_PER_CUSTOMER_LOCK": "0",
+    "ECAN_FEIGE_COOLDOWN_RENDERER_SLOW_SKIP": "1",
+    "ECAN_FEIGE_BACKSTOP_INTERVAL_S": "5",
+    "ECAN_FEIGE_BACKSTOP_STALE_S": "15",
+    "ECAN_FEIGE_BACKSTOP_CONNECT_STALE_S": "4",
+    "DIRECT_FEIGE_JOB_TIMEOUT_S": "15",
+}
+
+
+def _write_run_env(env_map: dict, log: list) -> None:
+    """Merge *env_map* into <appdata>/run.env (loaded by main.py at startup).
+
+    Keys already present in the file keep their existing values (a customer's
+    hand-tuned override survives redeploys); only missing keys are appended.
+    Best-effort: failures are logged, never abort the deploy.
+    """
+    import re as _re
+    try:
+        from config.envi import getECBotDataHome
+        path = os.path.join(getECBotDataHome(), "run.env")
+        existing_keys = set()
+        lines = []
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.read().splitlines()
+            for line in lines:
+                m = _re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
+                if m:
+                    existing_keys.add(m.group(1))
+        added = [k for k in env_map if k not in existing_keys]
+        if added:
+            with open(path, "a", encoding="utf-8") as f:
+                if not lines:
+                    f.write("# eCan runtime env — loaded by main.py at startup (OS env wins).\n")
+                f.write(f"# 抖店客服 Fast Deploy ({len(added)} flag(s))\n")
+                for k in added:
+                    f.write(f"{k}={env_map[k]}\n")
+        # Current process too (harmless; CLI subprocess only)
+        for k, v in env_map.items():
+            os.environ.setdefault(k, v)
+        log.append(
+            f"Runtime env: {len(added)} new flag(s) written to {path} "
+            f"({len(env_map) - len(added)} already present) — restart the app to apply."
+        )
+    except Exception as e:
+        log.append(f"WARNING: run.env write failed ({e}) — set the Feige env flags manually.")
+
+
 _DDCS_QA_NAME_POOL = [
     "琳", "娜", "梅", "芳", "燕", "丽", "静", "敏", "慧", "娟",
     "霞", "玲", "红", "艳", "雪", "婷", "蕾", "欣", "悦", "洁",
@@ -343,6 +460,9 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
         aid = ar.get("id")
         created["agents"].append(aid)
         return aid
+
+    # ── Feige runtime env flags → <appdata>/run.env (applied on next app start).
+    _write_run_env(_DDCS_FEIGE_ENV, log)
 
     # ── 3A/4A) Front-desk task + agent FIRST: the Q&A tasks must carry the
     #    front-desk agent's id in task_vars, because the shared Q&A skill's

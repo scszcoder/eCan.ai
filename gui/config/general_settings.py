@@ -566,6 +566,18 @@ class GeneralSettings:
         try:
             from utils.app_env import is_cn
             if is_cn():
+                # One-time breadcrumb so a proxy call in the logs can be traced
+                # to the built-in default rather than a user-configured value.
+                if not getattr(GeneralSettings, "_cn_proxy_default_logged", False):
+                    GeneralSettings._cn_proxy_default_logged = True
+                    try:
+                        from utils.logger_helper import logger_helper as _log
+                        _log.info(
+                            "[GeneralSettings] lambda_proxy_endpoint unset — using "
+                            f"CN default {self._CN_DEFAULT_LLM_PROXY_ENDPOINT}"
+                        )
+                    except Exception:
+                        pass
                 return self._CN_DEFAULT_LLM_PROXY_ENDPOINT
         except Exception:
             pass

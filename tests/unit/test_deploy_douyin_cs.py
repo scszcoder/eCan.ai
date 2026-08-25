@@ -58,10 +58,12 @@ def _make_ctx(*, missing_skill=None, org_rows=None):
 
 
 @pytest.fixture(autouse=True)
-def _patch_environment():
+def _patch_environment(tmp_path):
+    # getECBotDataHome patched so _write_run_env never touches real appdata.
     with patch.object(dc, "_missing_system_prompts", return_value=[]), \
          patch("agent.ec_agents.vehicle_affinity.resolve_local_vehicle_id",
-               return_value="veh-local"):
+               return_value="veh-local"), \
+         patch("config.envi.getECBotDataHome", return_value=str(tmp_path)):
         yield
 
 
@@ -156,6 +158,39 @@ class TestDeployDouyinCs:
         ctx.db.task_service.add_skill_to_task.return_value = {"success": False, "error": "boom"}
         with pytest.raises(RuntimeError, match="link task"):
             dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+
+
+class TestFeigeRunEnv:
+    """The recipe persists the validated Feige runtime flags to
+    <appdata>/run.env (loaded by main.py at startup; OS env wins)."""
+
+    def test_writes_all_flags_to_new_file(self, tmp_path):
+        log = []
+        with patch("config.envi.getECBotDataHome", return_value=str(tmp_path)):
+            dc._write_run_env(dc._DDCS_FEIGE_ENV, log)
+        content = (tmp_path / "run.env").read_text(encoding="utf-8")
+        assert "ECAN_FEIGE_WS=1" in content
+        assert "ECAN_FEIGE_QA_MAX_CONCURRENCY=3" in content
+        assert "DIRECT_FEIGE_JOB_TIMEOUT_S=15" in content
+        assert f"{len(dc._DDCS_FEIGE_ENV)} new flag(s)" in log[0]
+
+    def test_existing_values_survive_redeploy(self, tmp_path):
+        (tmp_path / "run.env").write_text(
+            "ECAN_FEIGE_QA_MAX_CONCURRENCY=9\n", encoding="utf-8")
+        log = []
+        with patch("config.envi.getECBotDataHome", return_value=str(tmp_path)):
+            dc._write_run_env(dc._DDCS_FEIGE_ENV, log)
+        content = (tmp_path / "run.env").read_text(encoding="utf-8")
+        assert "ECAN_FEIGE_QA_MAX_CONCURRENCY=9" in content   # hand-tune kept
+        assert "ECAN_FEIGE_QA_MAX_CONCURRENCY=3" not in content
+        assert "ECAN_FEIGE_WS=1" in content                    # missing keys added
+
+    def test_deploy_writes_run_env(self, tmp_path):
+        ctx = _make_ctx()
+        with patch("config.envi.getECBotDataHome", return_value=str(tmp_path)):
+            _, log, _ = dc._deploy_douyin_cs(TestDeployDouyinCs.CFG, ctx, "buyer@x")
+        assert (tmp_path / "run.env").exists()
+        assert any("Runtime env" in line for line in log)
 
 
 class TestDrawQaNames:

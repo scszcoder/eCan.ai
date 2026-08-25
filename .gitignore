@@ -75,6 +75,7 @@ skill-editor-cache/
 .env
 .env.local
 .env.*.local
+run.env
 !.env.example
 gui_v2/.env.example
 /config/build_data.py
