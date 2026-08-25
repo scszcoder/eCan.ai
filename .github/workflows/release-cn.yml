@@ -637,7 +637,7 @@ jobs:
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
       (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
-      contains(fromJSON('["github-hosted","ecan-windows-amd64"]'), github.event.inputs.runner_group)
+      (github.event.inputs.runner_group == 'github-hosted' || github.event.inputs.runner_group == 'ecan-windows-amd64')
     runs-on: ${{ github.event.inputs.runner_group == 'ecan-windows-amd64' && fromJSON('["self-hosted","windows","x64","ecan-build"]') || 'windows-latest' }}
     env:
       ECAN_APP_ID: cn
@@ -1081,103 +1081,63 @@ jobs:
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          # Probe TCP:443 to gitee.com before attempting git ls-remote.
-          # If the runner can't reach gitee.com (corporate firewall / DNS
-          # poisoning), fail fast instead of hanging git ls-remote for the
-          # full step timeout (6h). TCP probe uses .NET's TcpClient which
-          # has its own connect timeout independent of git timeouts.
-          # NOTE: We deliberately do NOT set GIT_EXTERNAL_IP here. The
-          # earlier "DNS override" path forced git to connect to the IP
-          # resolved via 8.8.8.8, but gitee.com's CDN returns different
-          # IPs from public vs. system DNS, and the GIT_EXTERNAL_IP
-          # override skips git's own DNS resolution -- which means SNI
-          # host (gitee.com) is sent to whatever IP 8.8.8.8 returns,
-          # often a CDN edge that doesn't speak Smart-HTTP, leaving
-          # ls-remote hanging. The TCP probe below validates system DNS
-          # + connectivity; if it passes, we trust git's own resolver.
+          # TCP:443 probe is advisory only.  Some gitee.com CDN edge IPs may
+          # be reachable while others are not; git.exe resolves its own DNS
+          # and may hit a different edge than our .NET TcpClient probe.
+          # We always try HTTPS first and let ls-remote's own timeout handle
+          # the case where the runner cannot reach gitee.com at all.
           try {
             $tcp = New-Object System.Net.Sockets.TcpClient
             $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
             $wait = $async.AsyncWaitHandle.WaitOne(5000, $false)
             if ($wait) {
               try { $tcp.EndConnect($async) | Out-Null } catch {}
-              Write-Host "[OK] TCP:443 to gitee.com reachable"
+              Write-Host "[DEBUG] TCP:443 to gitee.com reachable"
             } else {
               $tcp.Close()
-              "::error::Cannot reach TCP:443 on gitee.com from this runner. Corporate firewall blocking outbound HTTPS, or DNS poisoning redirecting gitee.com. Fix the runner host or re-run on a GitHub-hosted runner."
-              exit 1
+              Write-Host "[WARN] TCP:443 to gitee.com NOT reachable — will still attempt HTTPS"
             }
           } catch {
-            "::error::TCP probe to gitee.com:443 failed: $($_.Exception.Message)"
-            exit 1
-          }
-
-          # Probe SSH port 22.  HTTPS (443) works for .NET TcpClient but not for
-          # MSYS2 curl inside git.exe — the runner routes the two stacks to
-          # different CDN edges.  If 22 is reachable, use SSH; otherwise fall
-          # back to HTTPS and let ls-remote fail fast with its own timeout.
-          try {
-            $tcp2 = New-Object System.Net.Sockets.TcpClient
-            $async2 = $tcp2.BeginConnect('gitee.com', 22, $null, $null)
-            $wait2 = $async2.AsyncWaitHandle.WaitOne(5000, $false)
-            if ($wait2) {
-              try { $tcp2.EndConnect($async2) | Out-Null } catch {}
-              Write-Host "[OK] TCP:22 to gitee.com reachable — will use SSH"
-              $useSsh = $true
-            } else {
-              $tcp2.Close()
-              Write-Host "[WARN] TCP:22 to gitee.com NOT reachable — falling back to HTTPS"
-              $useSsh = $false
-            }
-          } catch {
-            Write-Host "[WARN] TCP:22 probe failed ($($_.Exception.Message)) — falling back to HTTPS"
-            $useSsh = $false
+            Write-Host "[WARN] TCP:443 probe failed: $($_.Exception.Message) — will still attempt HTTPS"
           }
 
           # git's HTTP timeout is configured via git config (http.timeout),
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
           & $gitExe config --global http.timeout 60
-          # Resolve gitee.com using git's own URL resolver to see which IP
-          # git.exe will actually connect to. This is the single most useful
-          # diagnostic when TCP probe passes but ls-remote hangs: if the IPs
-          # differ, git is connecting to a CDN edge that doesn't handle
-          # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
-          # Run ls-remote.  If TCP:22 was reachable we are on SSH; otherwise
-          # on HTTPS.  SSH uses the call operator (no MSYS2/TLS involved).
-          # HTTPS uses .NET Process with 30 s wall-clock timeout.
-          Write-Host "[DEBUG] Running ls-remote (useSsh=$useSsh)..."
-          if ($useSsh) {
-            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
-            $lsExit = $LASTEXITCODE
-            $lsRaw  = $out
-            Write-Host "[DEBUG] ls-remote exit=$lsExit, output_count=$($out.Count)"
-          } else {
-            $timeoutSec = 30
-            Write-Host "[DEBUG] HTTPS path — .NET Process ${timeoutSec}s timeout..."
-            $psi = New-Object System.Diagnostics.ProcessStartInfo
-            $psi.FileName  = $gitExe
-            $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
-            $psi.RedirectStandardOutput = $true
-            $psi.RedirectStandardError  = $true
-            $psi.UseShellExecute = $false
-            $psi.CreateNoWindow  = $true
-            $proc = [System.Diagnostics.Process]::Start($psi)
-            $ok   = $proc.WaitForExit($timeoutSec * 1000)
-            if (-not $ok) {
-              $proc.Kill($true)
-              $proc.WaitForExit(5000)
-              "::error::git ls-remote timed out after ${timeoutSec}s on HTTPS. TCP:443 probe passed but HTTPS smart protocol is not reachable from this runner. Enable SSH port 22 on the runner host, or switch to a GitHub-hosted runner."
-              exit 1
-            }
+
+          # Try HTTPS first.  If it times out, fall back to SSH (if available).
+          # This avoids the TCP:22 probe false-positive: TCP handshake on 22
+          # succeeds even when gitee.com's SSH gateway is overloaded or hanging.
+          $timeoutSec = 30
+          Write-Host "[DEBUG] ls-remote via HTTPS (${timeoutSec}s timeout)..."
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName  = $gitExe
+          $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError  = $true
+          $psi.UseShellExecute = $false
+          $psi.CreateNoWindow  = $true
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          $ok   = $proc.WaitForExit($timeoutSec * 1000)
+          if ($ok) {
             $stdout = $proc.StandardOutput.ReadToEnd()
             $stderr = $proc.StandardError.ReadToEnd()
             $lsExit = $proc.ExitCode
             $proc.Dispose()
-            Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
+            Write-Host "[DEBUG] HTTPS ls-remote exit=$lsExit, stdout_len=$($stdout.Length)"
             if ($stderr) { $stderr -split "\`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
             $lsRaw = if ($stdout) { ($stdout -split "\`n").Trim() } else { $null }
+          } else {
+            $proc.Kill($true)
+            $proc.WaitForExit(5000)
+            $proc.Dispose()
+            Write-Host "[WARN] HTTPS ls-remote timed out after ${timeoutSec}s — falling back to SSH..."
+            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
+            $lsExit = $LASTEXITCODE
+            $lsRaw  = $out
+            Write-Host "[DEBUG] SSH ls-remote exit=$lsExit, output_count=$($lsRaw.Count)"
           }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
@@ -1624,7 +1584,7 @@ jobs:
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') &&
       (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
-      contains(fromJSON('["github-hosted","ecan-macos-amd64"]'), github.event.inputs.runner_group)
+      (github.event.inputs.runner_group == 'github-hosted' || github.event.inputs.runner_group == 'ecan-macos-amd64')
     # Architectures must match across the build axis:
     #   self-hosted  →  macos,x64,ecan-build  (Intel)
     #   github-hosted → macos-15-intel       (x86_64 Intel)
@@ -2075,103 +2035,63 @@ jobs:
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          # Probe TCP:443 to gitee.com before attempting git ls-remote.
-          # If the runner can't reach gitee.com (corporate firewall / DNS
-          # poisoning), fail fast instead of hanging git ls-remote for the
-          # full step timeout (6h). TCP probe uses .NET's TcpClient which
-          # has its own connect timeout independent of git timeouts.
-          # NOTE: We deliberately do NOT set GIT_EXTERNAL_IP here. The
-          # earlier "DNS override" path forced git to connect to the IP
-          # resolved via 8.8.8.8, but gitee.com's CDN returns different
-          # IPs from public vs. system DNS, and the GIT_EXTERNAL_IP
-          # override skips git's own DNS resolution -- which means SNI
-          # host (gitee.com) is sent to whatever IP 8.8.8.8 returns,
-          # often a CDN edge that doesn't speak Smart-HTTP, leaving
-          # ls-remote hanging. The TCP probe below validates system DNS
-          # + connectivity; if it passes, we trust git's own resolver.
+          # TCP:443 probe is advisory only.  Some gitee.com CDN edge IPs may
+          # be reachable while others are not; git.exe resolves its own DNS
+          # and may hit a different edge than our .NET TcpClient probe.
+          # We always try HTTPS first and let ls-remote's own timeout handle
+          # the case where the runner cannot reach gitee.com at all.
           try {
             $tcp = New-Object System.Net.Sockets.TcpClient
             $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
             $wait = $async.AsyncWaitHandle.WaitOne(5000, $false)
             if ($wait) {
               try { $tcp.EndConnect($async) | Out-Null } catch {}
-              Write-Host "[OK] TCP:443 to gitee.com reachable"
+              Write-Host "[DEBUG] TCP:443 to gitee.com reachable"
             } else {
               $tcp.Close()
-              "::error::Cannot reach TCP:443 on gitee.com from this runner. Corporate firewall blocking outbound HTTPS, or DNS poisoning redirecting gitee.com. Fix the runner host or re-run on a GitHub-hosted runner."
-              exit 1
+              Write-Host "[WARN] TCP:443 to gitee.com NOT reachable — will still attempt HTTPS"
             }
           } catch {
-            "::error::TCP probe to gitee.com:443 failed: $($_.Exception.Message)"
-            exit 1
-          }
-
-          # Probe SSH port 22.  HTTPS (443) works for .NET TcpClient but not for
-          # MSYS2 curl inside git.exe — the runner routes the two stacks to
-          # different CDN edges.  If 22 is reachable, use SSH; otherwise fall
-          # back to HTTPS and let ls-remote fail fast with its own timeout.
-          try {
-            $tcp2 = New-Object System.Net.Sockets.TcpClient
-            $async2 = $tcp2.BeginConnect('gitee.com', 22, $null, $null)
-            $wait2 = $async2.AsyncWaitHandle.WaitOne(5000, $false)
-            if ($wait2) {
-              try { $tcp2.EndConnect($async2) | Out-Null } catch {}
-              Write-Host "[OK] TCP:22 to gitee.com reachable — will use SSH"
-              $useSsh = $true
-            } else {
-              $tcp2.Close()
-              Write-Host "[WARN] TCP:22 to gitee.com NOT reachable — falling back to HTTPS"
-              $useSsh = $false
-            }
-          } catch {
-            Write-Host "[WARN] TCP:22 probe failed ($($_.Exception.Message)) — falling back to HTTPS"
-            $useSsh = $false
+            Write-Host "[WARN] TCP:443 probe failed: $($_.Exception.Message) — will still attempt HTTPS"
           }
 
           # git's HTTP timeout is configured via git config (http.timeout),
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
           & $gitExe config --global http.timeout 60
-          # Resolve gitee.com using git's own URL resolver to see which IP
-          # git.exe will actually connect to. This is the single most useful
-          # diagnostic when TCP probe passes but ls-remote hangs: if the IPs
-          # differ, git is connecting to a CDN edge that doesn't handle
-          # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
-          # Run ls-remote.  If TCP:22 was reachable we are on SSH; otherwise
-          # on HTTPS.  SSH uses the call operator (no MSYS2/TLS involved).
-          # HTTPS uses .NET Process with 30 s wall-clock timeout.
-          Write-Host "[DEBUG] Running ls-remote (useSsh=$useSsh)..."
-          if ($useSsh) {
-            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
-            $lsExit = $LASTEXITCODE
-            $lsRaw  = $out
-            Write-Host "[DEBUG] ls-remote exit=$lsExit, output_count=$($out.Count)"
-          } else {
-            $timeoutSec = 30
-            Write-Host "[DEBUG] HTTPS path — .NET Process ${timeoutSec}s timeout..."
-            $psi = New-Object System.Diagnostics.ProcessStartInfo
-            $psi.FileName  = $gitExe
-            $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
-            $psi.RedirectStandardOutput = $true
-            $psi.RedirectStandardError  = $true
-            $psi.UseShellExecute = $false
-            $psi.CreateNoWindow  = $true
-            $proc = [System.Diagnostics.Process]::Start($psi)
-            $ok   = $proc.WaitForExit($timeoutSec * 1000)
-            if (-not $ok) {
-              $proc.Kill($true)
-              $proc.WaitForExit(5000)
-              "::error::git ls-remote timed out after ${timeoutSec}s on HTTPS. TCP:443 probe passed but HTTPS smart protocol is not reachable from this runner. Enable SSH port 22 on the runner host, or switch to a GitHub-hosted runner."
-              exit 1
-            }
+
+          # Try HTTPS first.  If it times out, fall back to SSH (if available).
+          # This avoids the TCP:22 probe false-positive: TCP handshake on 22
+          # succeeds even when gitee.com's SSH gateway is overloaded or hanging.
+          $timeoutSec = 30
+          Write-Host "[DEBUG] ls-remote via HTTPS (${timeoutSec}s timeout)..."
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName  = $gitExe
+          $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError  = $true
+          $psi.UseShellExecute = $false
+          $psi.CreateNoWindow  = $true
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          $ok   = $proc.WaitForExit($timeoutSec * 1000)
+          if ($ok) {
             $stdout = $proc.StandardOutput.ReadToEnd()
             $stderr = $proc.StandardError.ReadToEnd()
             $lsExit = $proc.ExitCode
             $proc.Dispose()
-            Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
+            Write-Host "[DEBUG] HTTPS ls-remote exit=$lsExit, stdout_len=$($stdout.Length)"
             if ($stderr) { $stderr -split "\`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
             $lsRaw = if ($stdout) { ($stdout -split "\`n").Trim() } else { $null }
+          } else {
+            $proc.Kill($true)
+            $proc.WaitForExit(5000)
+            $proc.Dispose()
+            Write-Host "[WARN] HTTPS ls-remote timed out after ${timeoutSec}s — falling back to SSH..."
+            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
+            $lsExit = $LASTEXITCODE
+            $lsRaw  = $out
+            Write-Host "[DEBUG] SSH ls-remote exit=$lsExit, output_count=$($lsRaw.Count)"
           }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
@@ -2421,7 +2341,7 @@ jobs:
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') &&
       (github.event.inputs.arch == 'aarch64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
-      contains(fromJSON('["github-hosted","ecan-macos-aarch64"]'), github.event.inputs.runner_group)
+      (github.event.inputs.runner_group == 'github-hosted' || github.event.inputs.runner_group == 'ecan-macos-aarch64')
     runs-on: ${{ github.event.inputs.runner_group == 'ecan-macos-aarch64' && fromJSON('["self-hosted","macos","aarch64","ecan-build"]') || 'macos-latest' }}
     env:
       MAC_CERT_P12:              ${{ secrets.MAC_CERT_P12              || 'NOT_SET' }}
@@ -2862,103 +2782,63 @@ jobs:
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          # Probe TCP:443 to gitee.com before attempting git ls-remote.
-          # If the runner can't reach gitee.com (corporate firewall / DNS
-          # poisoning), fail fast instead of hanging git ls-remote for the
-          # full step timeout (6h). TCP probe uses .NET's TcpClient which
-          # has its own connect timeout independent of git timeouts.
-          # NOTE: We deliberately do NOT set GIT_EXTERNAL_IP here. The
-          # earlier "DNS override" path forced git to connect to the IP
-          # resolved via 8.8.8.8, but gitee.com's CDN returns different
-          # IPs from public vs. system DNS, and the GIT_EXTERNAL_IP
-          # override skips git's own DNS resolution -- which means SNI
-          # host (gitee.com) is sent to whatever IP 8.8.8.8 returns,
-          # often a CDN edge that doesn't speak Smart-HTTP, leaving
-          # ls-remote hanging. The TCP probe below validates system DNS
-          # + connectivity; if it passes, we trust git's own resolver.
+          # TCP:443 probe is advisory only.  Some gitee.com CDN edge IPs may
+          # be reachable while others are not; git.exe resolves its own DNS
+          # and may hit a different edge than our .NET TcpClient probe.
+          # We always try HTTPS first and let ls-remote's own timeout handle
+          # the case where the runner cannot reach gitee.com at all.
           try {
             $tcp = New-Object System.Net.Sockets.TcpClient
             $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
             $wait = $async.AsyncWaitHandle.WaitOne(5000, $false)
             if ($wait) {
               try { $tcp.EndConnect($async) | Out-Null } catch {}
-              Write-Host "[OK] TCP:443 to gitee.com reachable"
+              Write-Host "[DEBUG] TCP:443 to gitee.com reachable"
             } else {
               $tcp.Close()
-              "::error::Cannot reach TCP:443 on gitee.com from this runner. Corporate firewall blocking outbound HTTPS, or DNS poisoning redirecting gitee.com. Fix the runner host or re-run on a GitHub-hosted runner."
-              exit 1
+              Write-Host "[WARN] TCP:443 to gitee.com NOT reachable — will still attempt HTTPS"
             }
           } catch {
-            "::error::TCP probe to gitee.com:443 failed: $($_.Exception.Message)"
-            exit 1
-          }
-
-          # Probe SSH port 22.  HTTPS (443) works for .NET TcpClient but not for
-          # MSYS2 curl inside git.exe — the runner routes the two stacks to
-          # different CDN edges.  If 22 is reachable, use SSH; otherwise fall
-          # back to HTTPS and let ls-remote fail fast with its own timeout.
-          try {
-            $tcp2 = New-Object System.Net.Sockets.TcpClient
-            $async2 = $tcp2.BeginConnect('gitee.com', 22, $null, $null)
-            $wait2 = $async2.AsyncWaitHandle.WaitOne(5000, $false)
-            if ($wait2) {
-              try { $tcp2.EndConnect($async2) | Out-Null } catch {}
-              Write-Host "[OK] TCP:22 to gitee.com reachable — will use SSH"
-              $useSsh = $true
-            } else {
-              $tcp2.Close()
-              Write-Host "[WARN] TCP:22 to gitee.com NOT reachable — falling back to HTTPS"
-              $useSsh = $false
-            }
-          } catch {
-            Write-Host "[WARN] TCP:22 probe failed ($($_.Exception.Message)) — falling back to HTTPS"
-            $useSsh = $false
+            Write-Host "[WARN] TCP:443 probe failed: $($_.Exception.Message) — will still attempt HTTPS"
           }
 
           # git's HTTP timeout is configured via git config (http.timeout),
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
           & $gitExe config --global http.timeout 60
-          # Resolve gitee.com using git's own URL resolver to see which IP
-          # git.exe will actually connect to. This is the single most useful
-          # diagnostic when TCP probe passes but ls-remote hangs: if the IPs
-          # differ, git is connecting to a CDN edge that doesn't handle
-          # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
-          # Run ls-remote.  If TCP:22 was reachable we are on SSH; otherwise
-          # on HTTPS.  SSH uses the call operator (no MSYS2/TLS involved).
-          # HTTPS uses .NET Process with 30 s wall-clock timeout.
-          Write-Host "[DEBUG] Running ls-remote (useSsh=$useSsh)..."
-          if ($useSsh) {
-            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
-            $lsExit = $LASTEXITCODE
-            $lsRaw  = $out
-            Write-Host "[DEBUG] ls-remote exit=$lsExit, output_count=$($out.Count)"
-          } else {
-            $timeoutSec = 30
-            Write-Host "[DEBUG] HTTPS path — .NET Process ${timeoutSec}s timeout..."
-            $psi = New-Object System.Diagnostics.ProcessStartInfo
-            $psi.FileName  = $gitExe
-            $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
-            $psi.RedirectStandardOutput = $true
-            $psi.RedirectStandardError  = $true
-            $psi.UseShellExecute = $false
-            $psi.CreateNoWindow  = $true
-            $proc = [System.Diagnostics.Process]::Start($psi)
-            $ok   = $proc.WaitForExit($timeoutSec * 1000)
-            if (-not $ok) {
-              $proc.Kill($true)
-              $proc.WaitForExit(5000)
-              "::error::git ls-remote timed out after ${timeoutSec}s on HTTPS. TCP:443 probe passed but HTTPS smart protocol is not reachable from this runner. Enable SSH port 22 on the runner host, or switch to a GitHub-hosted runner."
-              exit 1
-            }
+
+          # Try HTTPS first.  If it times out, fall back to SSH (if available).
+          # This avoids the TCP:22 probe false-positive: TCP handshake on 22
+          # succeeds even when gitee.com's SSH gateway is overloaded or hanging.
+          $timeoutSec = 30
+          Write-Host "[DEBUG] ls-remote via HTTPS (${timeoutSec}s timeout)..."
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName  = $gitExe
+          $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError  = $true
+          $psi.UseShellExecute = $false
+          $psi.CreateNoWindow  = $true
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          $ok   = $proc.WaitForExit($timeoutSec * 1000)
+          if ($ok) {
             $stdout = $proc.StandardOutput.ReadToEnd()
             $stderr = $proc.StandardError.ReadToEnd()
             $lsExit = $proc.ExitCode
             $proc.Dispose()
-            Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
+            Write-Host "[DEBUG] HTTPS ls-remote exit=$lsExit, stdout_len=$($stdout.Length)"
             if ($stderr) { $stderr -split "\`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
             $lsRaw = if ($stdout) { ($stdout -split "\`n").Trim() } else { $null }
+          } else {
+            $proc.Kill($true)
+            $proc.WaitForExit(5000)
+            $proc.Dispose()
+            Write-Host "[WARN] HTTPS ls-remote timed out after ${timeoutSec}s — falling back to SSH..."
+            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
+            $lsExit = $LASTEXITCODE
+            $lsRaw  = $out
+            Write-Host "[DEBUG] SSH ls-remote exit=$lsExit, output_count=$($lsRaw.Count)"
           }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"
@@ -3205,7 +3085,7 @@ jobs:
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (github.event.inputs.platform == 'linux' || github.event.inputs.platform == 'all') &&
       (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all' || github.event.inputs.arch == '') &&
-      contains(fromJSON('["github-hosted","ecan-linux-amd64"]'), github.event.inputs.runner_group)
+      (github.event.inputs.runner_group == 'github-hosted' || github.event.inputs.runner_group == 'ecan-linux-amd64')
     runs-on: ${{ github.event.inputs.runner_group == 'ecan-linux-amd64' && fromJSON('["self-hosted","linux","x64","ecan-build"]') || 'ubuntu-latest' }}
     env:
       BUILD_ARCH: amd64
@@ -3639,103 +3519,63 @@ jobs:
           # bare ref name is available for the ls-remote query.
           if ($ref -match '^refs/(heads|tags)/(.*)$') { $bareRef = $Matches[2] } else { $bareRef = $ref }
 
-          # Probe TCP:443 to gitee.com before attempting git ls-remote.
-          # If the runner can't reach gitee.com (corporate firewall / DNS
-          # poisoning), fail fast instead of hanging git ls-remote for the
-          # full step timeout (6h). TCP probe uses .NET's TcpClient which
-          # has its own connect timeout independent of git timeouts.
-          # NOTE: We deliberately do NOT set GIT_EXTERNAL_IP here. The
-          # earlier "DNS override" path forced git to connect to the IP
-          # resolved via 8.8.8.8, but gitee.com's CDN returns different
-          # IPs from public vs. system DNS, and the GIT_EXTERNAL_IP
-          # override skips git's own DNS resolution -- which means SNI
-          # host (gitee.com) is sent to whatever IP 8.8.8.8 returns,
-          # often a CDN edge that doesn't speak Smart-HTTP, leaving
-          # ls-remote hanging. The TCP probe below validates system DNS
-          # + connectivity; if it passes, we trust git's own resolver.
+          # TCP:443 probe is advisory only.  Some gitee.com CDN edge IPs may
+          # be reachable while others are not; git.exe resolves its own DNS
+          # and may hit a different edge than our .NET TcpClient probe.
+          # We always try HTTPS first and let ls-remote's own timeout handle
+          # the case where the runner cannot reach gitee.com at all.
           try {
             $tcp = New-Object System.Net.Sockets.TcpClient
             $async = $tcp.BeginConnect('gitee.com', 443, $null, $null)
             $wait = $async.AsyncWaitHandle.WaitOne(5000, $false)
             if ($wait) {
               try { $tcp.EndConnect($async) | Out-Null } catch {}
-              Write-Host "[OK] TCP:443 to gitee.com reachable"
+              Write-Host "[DEBUG] TCP:443 to gitee.com reachable"
             } else {
               $tcp.Close()
-              "::error::Cannot reach TCP:443 on gitee.com from this runner. Corporate firewall blocking outbound HTTPS, or DNS poisoning redirecting gitee.com. Fix the runner host or re-run on a GitHub-hosted runner."
-              exit 1
+              Write-Host "[WARN] TCP:443 to gitee.com NOT reachable — will still attempt HTTPS"
             }
           } catch {
-            "::error::TCP probe to gitee.com:443 failed: $($_.Exception.Message)"
-            exit 1
-          }
-
-          # Probe SSH port 22.  HTTPS (443) works for .NET TcpClient but not for
-          # MSYS2 curl inside git.exe — the runner routes the two stacks to
-          # different CDN edges.  If 22 is reachable, use SSH; otherwise fall
-          # back to HTTPS and let ls-remote fail fast with its own timeout.
-          try {
-            $tcp2 = New-Object System.Net.Sockets.TcpClient
-            $async2 = $tcp2.BeginConnect('gitee.com', 22, $null, $null)
-            $wait2 = $async2.AsyncWaitHandle.WaitOne(5000, $false)
-            if ($wait2) {
-              try { $tcp2.EndConnect($async2) | Out-Null } catch {}
-              Write-Host "[OK] TCP:22 to gitee.com reachable — will use SSH"
-              $useSsh = $true
-            } else {
-              $tcp2.Close()
-              Write-Host "[WARN] TCP:22 to gitee.com NOT reachable — falling back to HTTPS"
-              $useSsh = $false
-            }
-          } catch {
-            Write-Host "[WARN] TCP:22 probe failed ($($_.Exception.Message)) — falling back to HTTPS"
-            $useSsh = $false
+            Write-Host "[WARN] TCP:443 probe failed: $($_.Exception.Message) — will still attempt HTTPS"
           }
 
           # git's HTTP timeout is configured via git config (http.timeout),
           # NOT via the GIT_HTTP_TIMEOUT environment variable (which git
           # does not read). Set it before ls-remote and again before fetch.
           & $gitExe config --global http.timeout 60
-          # Resolve gitee.com using git's own URL resolver to see which IP
-          # git.exe will actually connect to. This is the single most useful
-          # diagnostic when TCP probe passes but ls-remote hangs: if the IPs
-          # differ, git is connecting to a CDN edge that doesn't handle
-          # Smart-HTTP, while the .NET TcpClient hit a different edge.
           & $gitExe remote get-url origin 2>&1 | ForEach-Object { Write-Host "[DEBUG] git origin URL: $_" }
-          # Run ls-remote.  If TCP:22 was reachable we are on SSH; otherwise
-          # on HTTPS.  SSH uses the call operator (no MSYS2/TLS involved).
-          # HTTPS uses .NET Process with 30 s wall-clock timeout.
-          Write-Host "[DEBUG] Running ls-remote (useSsh=$useSsh)..."
-          if ($useSsh) {
-            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
-            $lsExit = $LASTEXITCODE
-            $lsRaw  = $out
-            Write-Host "[DEBUG] ls-remote exit=$lsExit, output_count=$($out.Count)"
-          } else {
-            $timeoutSec = 30
-            Write-Host "[DEBUG] HTTPS path — .NET Process ${timeoutSec}s timeout..."
-            $psi = New-Object System.Diagnostics.ProcessStartInfo
-            $psi.FileName  = $gitExe
-            $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
-            $psi.RedirectStandardOutput = $true
-            $psi.RedirectStandardError  = $true
-            $psi.UseShellExecute = $false
-            $psi.CreateNoWindow  = $true
-            $proc = [System.Diagnostics.Process]::Start($psi)
-            $ok   = $proc.WaitForExit($timeoutSec * 1000)
-            if (-not $ok) {
-              $proc.Kill($true)
-              $proc.WaitForExit(5000)
-              "::error::git ls-remote timed out after ${timeoutSec}s on HTTPS. TCP:443 probe passed but HTTPS smart protocol is not reachable from this runner. Enable SSH port 22 on the runner host, or switch to a GitHub-hosted runner."
-              exit 1
-            }
+
+          # Try HTTPS first.  If it times out, fall back to SSH (if available).
+          # This avoids the TCP:22 probe false-positive: TCP handshake on 22
+          # succeeds even when gitee.com's SSH gateway is overloaded or hanging.
+          $timeoutSec = 30
+          Write-Host "[DEBUG] ls-remote via HTTPS (${timeoutSec}s timeout)..."
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName  = $gitExe
+          $psi.Arguments  = 'ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"'
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError  = $true
+          $psi.UseShellExecute = $false
+          $psi.CreateNoWindow  = $true
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          $ok   = $proc.WaitForExit($timeoutSec * 1000)
+          if ($ok) {
             $stdout = $proc.StandardOutput.ReadToEnd()
             $stderr = $proc.StandardError.ReadToEnd()
             $lsExit = $proc.ExitCode
             $proc.Dispose()
-            Write-Host "[DEBUG] ls-remote exit=$lsExit, stdout_len=$($stdout.Length), stderr_len=$($stderr.Length)"
+            Write-Host "[DEBUG] HTTPS ls-remote exit=$lsExit, stdout_len=$($stdout.Length)"
             if ($stderr) { $stderr -split "\`n" | Where-Object { $_.Trim() } | ForEach-Object { Write-Host "[DEBUG] stderr: $_" } }
             $lsRaw = if ($stdout) { ($stdout -split "\`n").Trim() } else { $null }
+          } else {
+            $proc.Kill($true)
+            $proc.WaitForExit(5000)
+            $proc.Dispose()
+            Write-Host "[WARN] HTTPS ls-remote timed out after ${timeoutSec}s — falling back to SSH..."
+            $out = & $gitExe ls-remote --exit-code origin "refs/heads/$bareRef" "refs/tags/$bareRef"
+            $lsExit = $LASTEXITCODE
+            $lsRaw  = $out
+            Write-Host "[DEBUG] SSH ls-remote exit=$lsExit, output_count=$($lsRaw.Count)"
           }
 
           Write-Host "[DEBUG] ls-remote finished with exit=$lsExit, output_length=$(if ($lsRaw) { $lsRaw.Count } else { 0 })"

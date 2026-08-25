@@ -23,7 +23,11 @@ import traceback
 import uuid
 from pathlib import Path
 from queue import Queue, Empty
-from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar, TYPE_CHECKING
+from typing import Any, Dict, Generic, List, Optional, Set, Tuple, TypeVar, TYPE_CHECKING
+
+# Module-level task tracking to prevent "Task was destroyed" warnings
+# when event loop closes with orphaned fire-and-forget tasks.
+_tracked_cleanup_tasks: Set[asyncio.Task] = set()
 
 from a2a.types import TaskState, Message, TextPart, MessageSendParams, TaskStatus as A2ATaskStatus
 from agent.ec_skills.llm_utils.llm_utils import send_response_back
@@ -2273,8 +2277,10 @@ class TaskRunner(Generic[Context]):
                 # Run async cleanup in a new event loop if needed
                 try:
                     loop = asyncio.get_running_loop()
-                    # If we're in an async context, create a task
-                    asyncio.create_task(cleanup_all_monitors())
+                    # If we're in an async context, create a task with tracking
+                    cleanup_task = asyncio.create_task(cleanup_all_monitors())
+                    _tracked_cleanup_tasks.add(cleanup_task)
+                    cleanup_task.add_done_callback(_tracked_cleanup_tasks.discard)
                 except RuntimeError:
                     # No running loop, use run_until_complete
                     loop = asyncio.new_event_loop()

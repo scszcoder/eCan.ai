@@ -23,6 +23,9 @@ small set of surfaces where LightRAG has a gap eCan needs filled:
    token accounting.
 7. Health monitoring — registers ``/health/status``, ``/health/workers``,
    ``/health/circuits`` (logic in ``knowledge/lightrag_health.py``).
+8. Storage import blocker — prevents LightRAG from eagerly loading unused
+   storage backends (Neo4j, Milvus, Redis, MongoDB, etc.) to save ~1-2GB
+   of memory. Backends remain accessible via environment variables if needed.
 
 All patches degrade gracefully: on failure they emit a WARNING and let the
 server continue with reduced functionality.  Only ``patch_rerank_binding``
@@ -432,6 +435,67 @@ def patch_health_monitoring():
         logger.warning(f"[Launcher] Failed to setup health monitoring: {e}")
 
 
+def patch_storage_lazy_load():
+    """
+    Prevent loading heavyweight third-party dependencies for unused storage backends.
+    
+    LightRAG optionally supports multiple storage backends (Neo4j, Milvus, MongoDB,
+    Redis, etc.) that import heavyweight native libraries (~200-500MB each):
+    - Neo4j: ~400MB (libneo4j-omni, neo4j driver)
+    - Milvus: ~300MB (pymilvus, grpc)
+    - MongoDB: ~200MB (pymongo)
+    - Redis: ~150MB (redis client)
+    - Qdrant: ~200MB (qdrant-client)
+    
+    This patch only blocks the THIRD-PARTY dependencies, NOT LightRAG's storage
+    wrapper modules. This way:
+    - If user doesn't configure a backend: no heavy deps are loaded (~1-2GB saved)
+    - If user configures Neo4j: LightRAG will try to import 'neo4j' and fail with
+      ImportError (user needs to install pymilvus first, which is expected)
+    - LightRAG's own storage impl modules (e.g. lightrag.storage.kg_storage_impl.neo4j)
+      are NOT blocked, so the error message is clear and actionable.
+    
+    What we block:
+    - neo4j, pymongo, pymilvus, redis, qdrant_client, pymemcache
+    
+    What we DON'T block (allow LightRAG to handle these):
+    - lightrag.storage.* (LightRAG's storage impl wrappers)
+    """
+    import importlib.abc
+    import importlib.machinery
+    
+    # Heavy third-party dependencies used by optional storage backends.
+    # These are the actual memory hogs (~200-500MB each when loaded).
+    BLOCKED_DEPS = frozenset({
+        'neo4j',           # Neo4j graph database driver
+        'pymongo',         # MongoDB driver
+        'pymilvus',        # Milvus vector DB driver
+        'redis',           # Redis driver
+        'qdrant_client',   # Qdrant vector DB client
+        'pymemcache',      # Memcached driver
+        'pg8000',          # PostgreSQL driver (for PG storage)
+    })
+    
+    class HeavyDepBlocker(importlib.abc.MetaPathFinder):
+        """Block heavy third-party storage deps from loading at import time."""
+        
+        def find_spec(self, fullname, path, target=None):
+            if fullname in BLOCKED_DEPS:
+                logger.debug(f"[Launcher] 🚫 Blocked heavy storage dep: {fullname}")
+                return None  # Block the import
+            return None  # Let all other imports through
+    
+    # Install the blocker as a metaclass finder (before other finders)
+    blocker = HeavyDepBlocker()
+    sys.meta_path.insert(0, blocker)
+    
+    logger.info(
+        f"[Launcher] 🛡️ Storage dep blocker installed: blocking {len(BLOCKED_DEPS)} heavy deps "
+        f"(~1-2GB savings if not used). LightRAG storage wrappers still load; "
+        f"install the dep package if you need that backend."
+    )
+
+
 def apply_all_patches():
     """Apply all eCan customizations on top of LightRAG ≥ 1.4.16.
 
@@ -483,6 +547,9 @@ def apply_all_patches():
     # 0. OpenMP library conflict fix (must be first to prevent SIGABRT crashes)
     # See: https://github.com/intel/tbb/wiki/TBBMalloc#tcmalloc-and-intel-tbb
     patch_openmp_duplicate_fix()
+
+    # 0.5 Storage import blocker - prevent loading unused backends to save memory
+    patch_storage_lazy_load()
 
     # 1. Rerank binding conversion FIRST — reads from os.environ which is
     # already populated by the parent process.

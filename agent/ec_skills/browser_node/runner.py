@@ -2830,9 +2830,9 @@ async def acquire_or_reuse_local_agent(
             f"cached_hooks={cached_has_hooks}, want_hooks={want_hooks}, "
             f"scope={bu_scope_key})"
         )
-        cached_bu_agents.pop(bu_scope_key, None)
-        if bu_scope_key in _cached_bu_agents_insertion_order:
-            _cached_bu_agents_insertion_order.remove(bu_scope_key)
+        _bh.cached_bu_agents.pop(bu_scope_key, None)
+        if bu_scope_key in _bh._cached_bu_agents_insertion_order:
+            _bh._cached_bu_agents_insertion_order.remove(bu_scope_key)
         cached = None
 
     if cached is not None:
@@ -2863,17 +2863,17 @@ async def acquire_or_reuse_local_agent(
     
     # CRITICAL: Evict old agents BEFORE adding new one to prevent memory leak
     # Each cached_bu_agents entry consumes ~860 MB
-    _evict_bu_agent_if_needed()
+    _bh._evict_bu_agent_if_needed()
     
     # Track insertion order for FIFO eviction
-    if bu_scope_key not in _cached_bu_agents_insertion_order:
-        _cached_bu_agents_insertion_order.append(bu_scope_key)
+    if bu_scope_key not in _bh._cached_bu_agents_insertion_order:
+        _bh._cached_bu_agents_insertion_order.append(bu_scope_key)
     
-    cached_bu_agents[bu_scope_key] = agent
+    _bh.cached_bu_agents[bu_scope_key] = agent
     logger.info(
         f"[BrowserAutomation] Created new browser-use agent and cached "
         f"(scope={bu_scope_key}, loop_history_mode={loop_history_mode}, "
-        f"cache_size={len(cached_bu_agents)}/{_MAX_BU_AGENTS_CACHE_SIZE})"
+        f"cache_size={len(_bh.cached_bu_agents)}/{_bh._MAX_BU_AGENTS_CACHE_SIZE})"
     )
 
     # Stealth JS injection only for new-chromium mode.  In CDP mode the

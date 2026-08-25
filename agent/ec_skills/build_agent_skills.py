@@ -5,9 +5,13 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple, Any
+from typing import Callable, List, Optional, Set, Tuple, Any
 import inspect
 import json
+
+# Module-level task tracking to prevent "Task was destroyed" warnings
+# when event loop closes with orphaned fire-and-forget tasks.
+_tracked_background_tasks: Set[asyncio.Task] = set()
 from agent.cloud_api.constants import SkillSource
 from agent.ec_agents.agent_utils import load_agent_skills_from_cloud
 # from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import create_rpa_helper_chatter_skill
@@ -572,8 +576,19 @@ async def build_agent_skills(mainwin, skill_path=""):
 
             # Cloud data updates local database asynchronously (non-blocking), but in-memory build
             # must preserve existing local DB-only skills for this session.
-            asyncio.create_task(_update_database_with_cloud_skills(cloud_skills, mainwin))
-            logger.info(f"[build_agent_skills] 🔄 Database update started in background (non-blocking)")
+            async def _update_database_safe():
+                """Wrapper with error handling for fire-and-forget task."""
+                try:
+                    await _update_database_with_cloud_skills(cloud_skills, mainwin)
+                    logger.debug("[build_agent_skills] ✅ Database background update completed")
+                except Exception as e:
+                    logger.error(f"[build_agent_skills] ❌ Database background update failed: {e}")
+
+            background_task = asyncio.create_task(_update_database_safe())
+            # Track the task to prevent "Task was destroyed" warnings on abrupt shutdown
+            _tracked_background_tasks.add(background_task)
+            background_task.add_done_callback(_tracked_background_tasks.discard)
+            logger.info(f"[build_agent_skills] 🔄 Database update started in background (tracked)")
 
             merged_rows = []
             seen_ids = set()

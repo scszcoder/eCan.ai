@@ -20,6 +20,44 @@ interface TokenInfo {
   is_expiring_soon: boolean;
 }
 
+// Error codes that mean the token is truly invalid/expired at the backend.
+// When the backend explicitly returns one of these, we should logout — there
+// is no point in retrying because the token will not magically come back.
+const TOKEN_INVALID_ERROR_CODES = new Set([
+  'INVALID_TOKEN',
+  'TOKEN_REQUIRED',
+  'MISSING_TOKEN',
+  'TOKEN_INFO_ERROR',
+  'UNAUTHENTICATED',
+  'SESSION_EXPIRED',
+]);
+
+// Error codes that mean the failure was NOT about token validity — typically
+// the backend is down, the network is unreachable, or some transient infra
+// problem. We must not interpret these as "token expired" and must not logout.
+const INFRA_ERROR_CODES = new Set([
+  'LOCAL_GRAPHQL_ERROR',
+  'EXECUTION_ERROR',
+  'NETWORK_OFFLINE',
+  'TIMEOUT',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ETIMEDOUT',
+  'HTTP_500',
+  'HTTP_502',
+  'HTTP_503',
+  'HTTP_504',
+]);
+
+function classifyErrorCode(code: string | undefined): 'invalid_token' | 'infra' | 'unknown' {
+  if (!code) return 'unknown';
+  if (TOKEN_INVALID_ERROR_CODES.has(code)) return 'invalid_token';
+  if (INFRA_ERROR_CODES.has(code)) return 'infra';
+  return 'unknown';
+}
+
 class TokenRefreshService {
   private refreshTimer: NodeJS.Timeout | null = null;
   private checkInterval = 30 * 60 * 1000; // Check every 30 minutes
@@ -28,7 +66,10 @@ class TokenRefreshService {
   private onTokenRefreshed: ((newToken: string) => void) | null = null;
   private onTokenExpired: (() => void) | null = null;
   private consecutiveFailures = 0;
-  private maxConsecutiveFailures = 3; // Allow 3 consecutive failures before triggering logout
+  // Ambiguous/unknown-error threshold. Infra failures don't count.
+  // Auth failures (backend confirms token invalid) logout immediately on the first hit —
+  // no need to count; if the backend really says INVALID_TOKEN, no amount of retries help.
+  private maxConsecutiveFailures = 3;
 
   /**
    * Start automatic token refresh service
@@ -105,17 +146,42 @@ class TokenRefreshService {
 
     try {
       // Get current token info
-      const tokenInfo = await this.getTokenInfo(this.currentToken);
+      const result = await this.getTokenInfo(this.currentToken);
 
-      if (!tokenInfo) {
+      if (!result.ok) {
+        // INFRA failures must NEVER escalate to logout. The backend is down,
+        // the user's token is still good — losing the session because the
+        // server briefly went away is a real UX bug we hit on Aug 25 2026.
+        if (result.reason === 'infra') {
+          logger.warn('[TokenRefresh] Backend unreachable, keeping session', {
+            errorCode: result.errorCode,
+            checkTime,
+            note: 'Not treating as token expiration'
+          });
+          // Do not increment consecutiveFailures — the token is fine.
+          return;
+        }
+
+        if (result.reason === 'invalid_token') {
+          logger.error('[TokenRefresh] Backend reported token invalid, triggering logout', {
+            errorCode: result.errorCode,
+            checkTime
+          });
+          this.handleTokenExpired();
+          return;
+        }
+
+        // Unknown / unrecognized error code — fall back to legacy behavior
+        // of counting toward a higher threshold. This preserves safety for
+        // future backend error codes we haven't classified yet.
         this.consecutiveFailures++;
-        logger.error('[TokenRefresh] Failed to get token info', {
+        logger.error('[TokenRefresh] Unknown error getting token info', {
           consecutiveFailures: this.consecutiveFailures,
           maxAllowed: this.maxConsecutiveFailures,
+          errorCode: result.errorCode,
           checkTime
         });
-        
-        // Only trigger logout after multiple consecutive failures
+
         if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
           logger.error('[TokenRefresh] Max consecutive failures reached, triggering logout', {
             totalFailures: this.consecutiveFailures,
@@ -125,8 +191,19 @@ class TokenRefreshService {
         }
         return;
       }
-      
-      // Reset failure counter on success
+
+      const tokenInfo = result.info;
+      // result.info is non-null when result.ok is true (we just checked above),
+      // but TS can't narrow it across the closure of getTokenInfo. Use a local
+      // assertion here that is sound given the contract.
+      if (!tokenInfo) {
+        // Defensive — should never happen because result.ok implies result.info.
+        this.consecutiveFailures++;
+        return;
+      }
+      // Reset failure counter on any success — including after a successful
+      // response that followed infra failures. This means a single infra blip
+      // does not poison the counter for legitimate token-expired errors later.
       this.consecutiveFailures = 0;
 
       logger.info('[TokenRefresh] Token check successful', {
@@ -203,44 +280,63 @@ class TokenRefreshService {
   }
 
   /**
-   * Get current token information
+   * Get current token information.
+   *
+   * Returns a `TokenCheckResult` that distinguishes between:
+   *   - `ok: true` — backend returned token info, all good
+   *   - `ok: false, reason: 'invalid_token'` — backend explicitly said token is invalid/expired
+   *   - `ok: false, reason: 'infra'` — network/server problem, NOT a token issue
+   *   - `ok: false, reason: 'unknown'` — unrecognized error code; treat as ambiguous
+   *
+   * Callers MUST NOT interpret `reason === 'infra'` as a token problem.
    */
-  async getTokenInfo(token: string): Promise<TokenInfo | null> {
+  async getTokenInfo(token: string): Promise<{
+    ok: boolean;
+    reason?: 'invalid_token' | 'infra' | 'unknown';
+    errorCode?: string;
+    info?: TokenInfo;
+  }> {
     try {
       logger.debug('[TokenRefresh] Requesting token info from backend', {
         tokenPrefix: token.substring(0, 8)
       });
-      
+
       const api = IPCAPI.getInstance();
       const response = await api.getTokenInfo(token);
-      
+
       logger.debug('[TokenRefresh] Received response from backend', {
         success: response.success,
         hasData: !!response.data,
-        hasError: !!response.error
+        hasError: !!response.error,
+        errorCode: response.error?.code
       });
-      
+
       if (response.success) {
         logger.debug('[TokenRefresh] Token info retrieved successfully', {
           username: response.data?.username,
           timeRemaining: response.data?.time_remaining_hours
         });
-        return response.data as TokenInfo;
-      } else {
-        logger.error('[TokenRefresh] Backend returned error response', {
-          error: response.error,
-          errorCode: response.error?.code,
-          fullResponse: JSON.stringify(response)
-        });
-        return null;
+        return { ok: true, info: response.data as TokenInfo };
       }
+
+      const errorCode = response.error?.code;
+      const reason = classifyErrorCode(errorCode);
+      logger.error('[TokenRefresh] Backend returned error response', {
+        errorCode,
+        reason,
+        message: response.error?.message,
+        fullResponse: JSON.stringify(response)
+      });
+      return { ok: false, reason, errorCode };
     } catch (error) {
+      // Network/transport exceptions (fetch failures, AbortError, etc.) reach here.
+      // These are infra errors — never treat as token invalid.
       logger.error('[TokenRefresh] Exception while getting token info', {
-        error: error,
+        error,
         errorMessage: error instanceof Error ? error.message : String(error),
         errorStack: error instanceof Error ? error.stack : undefined
       });
-      return null;
+      return { ok: false, reason: 'infra', errorCode: 'EXCEPTION' };
     }
   }
 
@@ -260,17 +356,18 @@ class TokenRefreshService {
     try {
       const api = IPCAPI.getInstance();
       const response = await api.refreshToken(this.currentToken);
-      
+
       logger.debug('[TokenRefresh] Refresh response received', {
         success: response.success,
-        hasData: !!response.data
+        hasData: !!response.data,
+        errorCode: response.error?.code
       });
-      
+
       if (response.success && response.data?.token) {
         const newToken = response.data.token;
         const oldTokenPrefix = this.currentToken.substring(0, 8);
         this.currentToken = newToken;
-        
+
         logger.info('[TokenRefresh] Token refreshed successfully', {
           username: (response.data as any).username,
           oldTokenPrefix,
@@ -285,21 +382,34 @@ class TokenRefreshService {
         }
 
         return newToken;
-      } else {
-        logger.error('[TokenRefresh] Failed to refresh token', {
-          error: response.error,
-          fullResponse: JSON.stringify(response)
+      }
+
+      // Refresh failed — distinguish infra from invalid_token.
+      const refreshErrorCode = response.error?.code;
+      const reason = classifyErrorCode(refreshErrorCode);
+
+      if (reason === 'infra') {
+        // Backend was unreachable / had a transient error. Do NOT logout.
+        // The existing token is still good; we'll retry on the next interval.
+        logger.warn('[TokenRefresh] Refresh failed due to infra, keeping current token', {
+          errorCode: refreshErrorCode,
+          message: response.error?.message
         });
-        this.handleTokenExpired();
         return null;
       }
-    } catch (error) {
-      logger.error('[TokenRefresh] Exception while refreshing token', {
-        error: error,
-        errorMessage: error instanceof Error ? error.message : String(error),
-        errorStack: error instanceof Error ? error.stack : undefined
+
+      logger.error('[TokenRefresh] Failed to refresh token', {
+        errorCode: refreshErrorCode,
+        reason,
+        fullResponse: JSON.stringify(response)
       });
       this.handleTokenExpired();
+      return null;
+    } catch (error) {
+      // Network/transport exception during refresh — also infra, not auth.
+      logger.warn('[TokenRefresh] Refresh exception (infra), keeping current token', {
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
       return null;
     }
   }
