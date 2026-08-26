@@ -789,10 +789,6 @@ try:
 except ImportError:
     ChatGoogleGenerativeAI = None
 try:
-    from langchain_qwq import ChatQwQ
-except ImportError:
-    ChatQwQ = None
-try:
     from langchain_community.chat_models import ChatZhipuAI
 except ImportError:
     ChatZhipuAI = None
@@ -3350,7 +3346,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             "anthropic": ChatAnthropic,
             "google_genai": ChatGoogleGenerativeAI,
             "deepseek": ChatDeepSeek,
-            "qwq_compatible": ChatQwQ,
+            "qwq_compatible": None,  # Uses ChatOpenAI with DashScope base_url
             "ollama_native": ChatOllama,
             "zhipuai": ChatZhipuAI,
             "bedrock_converse": ChatBedrockConverse,

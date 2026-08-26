@@ -36,7 +36,6 @@ auto-retry patches are needed.
 import sys
 import os
 import ssl
-import runpy
 import aiohttp
 
 # Handle __file__ not defined in PyInstaller frozen environment (worker process)
@@ -520,14 +519,64 @@ def apply_all_patches():
 
 
 def main():
-    """Main entry point"""
+    """Main entry point — starts LightRAG FastAPI app via uvicorn.
+
+    Uses ``create_app()`` + ``uvicorn.run()`` instead of ``runpy.run_module()``.
+    The latter replaces the current process, which breaks ``subprocess.Popen``
+    management in ``LightragServer.start()`` (the parent process loses its child
+    handle).  ``uvicorn.run()`` keeps the child subprocess alive and controllable.
+    """
+    import uvicorn
+
     apply_all_patches()
-    sys.argv = [sys.executable] + sys.argv[1:]
-    logger.info('[Launcher] Starting lightrag.api.lightrag_server...')
+
+    logger.info(f'[Launcher] Building FastAPI app...')
     try:
-        runpy.run_module('lightrag.api.lightrag_server', run_name='__main__', alter_sys=True)
+        from lightrag.api.lightrag_server import create_app
+        # Map non-native LLM/embedding bindings to LightRAG-supported values
+        # so the validator inside create_app() accepts them.
+        _LIGHTRAG_LLM_SUPPORTED = {'lollms', 'ollama', 'openai', 'azure_openai', 'aws_bedrock', 'gemini'}
+        _LIGHTRAG_EMBED_SUPPORTED = _LIGHTRAG_LLM_SUPPORTED | {'jina'}
+        _PROVIDER_MAPPING = {
+            'ryoais': 'openai', 'anthropic': 'openai', 'deepseek': 'openai',
+            'dashscope': 'openai', 'bytedance': 'openai', 'baidu_qianfan': 'openai',
+            'zhipuai': 'openai', 'google': 'openai', 'bedrock': 'aws_bedrock',
+        }
+        for env_key, supported in [('LLM_BINDING', _LIGHTRAG_LLM_SUPPORTED),
+                                    ('EMBEDDING_BINDING', _LIGHTRAG_EMBED_SUPPORTED)]:
+            val = os.environ.get(env_key, '').lower()
+            if val and val not in supported:
+                mapped = _PROVIDER_MAPPING.get(val, 'openai')
+                logger.info(f"[Launcher] Mapping {env_key} '{val}' -> '{mapped}'")
+                os.environ[env_key] = mapped
+
+        from lightrag.api.config import initialize_config
+        # force=True: re-parse args after binding mapping has been applied to os.environ.
+        # Without force, initialize_config() returns the cached result from first import
+        # (before env vars were set in main()).
+        args = initialize_config(force=True)
+        app = create_app(args)
     except Exception as e:
-        logger.error(f'[Launcher] Error: {e}')
+        logger.error(f'[Launcher] Failed to create FastAPI app: {e}')
+        import traceback
+        logger.error(traceback.format_exc())
+        sys.exit(1)
+
+    # Suppress uvicorn access log (we already log at debug level via our own logger)
+    logger.info(f'[Launcher] Starting uvicorn on {args.host}:{args.port}...')
+    try:
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=args.port,
+            log_level=args.log_level.lower(),  # uvicorn accepts lowercase
+            access_log=False,
+            timeout_keep_alive=30,
+        )
+    except Exception as e:
+        logger.error(f'[Launcher] uvicorn.run() failed: {e}')
+        import traceback
+        logger.error(traceback.format_exc())
         sys.exit(1)
 
 
