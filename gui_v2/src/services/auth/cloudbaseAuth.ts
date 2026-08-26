@@ -385,31 +385,73 @@ class CloudBaseAuthService {
    * 2. 用户扫码授权后 CloudBase 处理回调
    * 3. 通过 URL 参数把 token 返回到前端
    */
-  async loginWithCloudBaseWechat(): Promise<CloudBaseAuthResult> {
+  async loginWithCloudBaseWechat(wechatAppId?: string): Promise<CloudBaseAuthResult> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
 
+    const appId = (wechatAppId || import.meta.env.VITE_WECHAT_APP_ID || '').trim();
+    if (!appId) {
+      return { success: false, error: 'WeChat login is not configured' };
+    }
+
     try {
-      // 用 CSRF token 作为 state
       const state = Math.random().toString(36).slice(2);
       sessionStorage.setItem('wx_state', state);
+      const redirectUri = `${window.location.origin}${window.location.pathname}#/login`;
+      const providerUrl = new URL('https://open.weixin.qq.com/connect/qrconnect');
+      providerUrl.search = new URLSearchParams({
+        appid: appId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: 'snsapi_login',
+        state,
+      }).toString();
 
-      // 调用后端获取 CloudBase 托管登录页 URL（不传 redirect_uri）
-      const resp = await apiRouter.execute<any>(
-        { method: 'cloudbase_wechat_h5_login' },
-        { state },
-      );
-
-      if (resp?.success && resp?.data?.url) {
-        logger.info('[CloudBaseAuth] Redirecting to CloudBase hosted WeChat login page');
-        window.location.href = resp.data.url;
-        return { success: true };
-      }
-
-      return { success: false, error: _formatError(resp, 'Failed to get login URL') };
+      logger.info('[CloudBaseAuth] Redirecting to WeChat Open Platform login');
+      window.location.assign(providerUrl.toString());
+      return { success: true };
     } catch (error) {
       logger.error('[CloudBaseAuth] CloudBase WeChat login error:', error);
+      return { success: false, error: String(error) };
+    }
+  }
+
+  async registerWechatSession(accessToken: string): Promise<{
+    success: boolean;
+    sessionToken?: string;
+    expiresIn?: number;
+    error?: string;
+  }> {
+    try {
+      const resp = await apiRouter.execute<any>(
+        {
+          method: 'registerWeChatSession',
+          graphql: {
+            mutation: `
+              mutation RegisterWeChatSession($input: RegisterWeChatSessionInput!) {
+                registerWeChatSession(input: $input) {
+                  sessionToken
+                  expiresIn
+                }
+              }
+            `,
+            resultPath: 'registerWeChatSession',
+          },
+        },
+        { input: { wxAccessToken: accessToken } },
+      );
+      const data = (resp as any)?.data;
+      if (resp?.success && data?.sessionToken) {
+        return {
+          success: true,
+          sessionToken: data.sessionToken,
+          expiresIn: data.expiresIn,
+        };
+      }
+      return { success: false, error: _formatError(resp, 'Failed to create WeChat session') };
+    } catch (error) {
+      logger.error('[CloudBaseAuth] WeChat session registration error:', error);
       return { success: false, error: String(error) };
     }
   }

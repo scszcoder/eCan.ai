@@ -2803,6 +2803,15 @@ class MainWindow:
         """
         try:
             if hasattr(self, 'auth_manager') and self.auth_manager:
+                if (
+                    getattr(self.auth_manager, '_is_cn', False)
+                    and hasattr(self.auth_manager, '_get_wechat_session_token')
+                ):
+                    has_session_token, session_token = (
+                        self.auth_manager._get_wechat_session_token()
+                    )
+                    if has_session_token and session_token:
+                        return session_token
                 if not self.auth_manager.ensure_valid_tokens():
                     return None
             tokens = self.auth_manager.get_tokens()

@@ -254,8 +254,8 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
             # On CN we prefer the 30-day WeChat session token over the
             # 10-minute access_token so the WS connection survives the
             # access_token's natural expiry. The server-side
-            # ``ecan-graphql-ws`` translates the session token into a
-            # fresh access_token on every reconnect.
+            # ``ecan-graphql-ws`` verifies this eCan-signed session token
+            # directly on every reconnect.
             id_token = _resolve_ws_token(mainwin, auth_token)
             if not id_token:
                 # No fresh token — auth_manager cleared credentials because the
