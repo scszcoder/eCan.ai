@@ -257,6 +257,15 @@ def _prompt_visible(prompt_id: str, skill_owner: str, log: list) -> bool:
         try:
             from gui.ipc.w2p_handlers.prompt_cloud_sync import _get_cloud_context, _appsync_request
             cloud_ctx = _get_cloud_context()
+            if cloud_ctx is None:
+                # CLI subprocess: no MainWindow — the app's Fast Deploy
+                # handler passes its auth token via env so the cloud
+                # visibility check still works here.
+                _cli_token = os.environ.get("ECAN_CLI_AUTH_TOKEN") or ""
+                if _cli_token:
+                    import requests as _rq
+                    cloud_ctx = {"session": _rq.Session(), "token": _cli_token,
+                                 "endpoint": None, "owner": ""}
             if cloud_ctx:
                 query = """
                     query QueryPrompts($input: PromptQueryInput) {
@@ -301,16 +310,20 @@ def _ensure_sales_org(ctx, owner: str, log: list) -> str:
 def _missing_system_prompts(prompt_ids) -> list:
     """Ids among ``prompt_ids`` NOT present in the system prompts list —
     the same dirs the runtime prompt_loader searches: the per-user my_prompts
-    store (populated at app initialization; scoped by ECAN_LOG_USER when this
-    CLI runs as an app subprocess) plus the built-in sample_prompts."""
+    store, the per-user subscribed_prompts store (where subscribe-time
+    downloads of an AUTHOR's prompts land — a customer machine has the
+    抖店客服 prompts ONLY here; v0.9.95q incident), plus the built-in
+    sample_prompts. Scoped by ECAN_LOG_USER when this CLI runs as an app
+    subprocess."""
     from pathlib import Path
     from utils.user_path_helper import get_user_data_dir
     from agent.ec_skills.prompt_loader import SAMPLE_PROMPTS_DIR
 
-    user_dir = Path(get_user_data_dir(
-        os.environ.get("ECAN_LOG_USER") or None, subdir="my_prompts"))
+    log_user = os.environ.get("ECAN_LOG_USER") or None
+    user_dir = Path(get_user_data_dir(log_user, subdir="my_prompts"))
+    subscribed_dir = Path(get_user_data_dir(log_user, subdir="subscribed_prompts"))
     have = set()
-    for directory in (user_dir, Path(SAMPLE_PROMPTS_DIR)):
+    for directory in (user_dir, subscribed_dir, Path(SAMPLE_PROMPTS_DIR)):
         if not directory.exists():
             continue
         for fp in directory.glob("*.json"):
