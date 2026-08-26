@@ -81,6 +81,7 @@
         "config",
         "auth",
         "bot",
+        "cli",
         "gui",
         "common",
         "utils",
@@ -319,7 +320,8 @@
         "pyscreenshot",
         "pynput",
         "pyperclip",
-        "colorlog"
+        "colorlog",
+        "click"
       ],
       "excludes": [
         "MySQLdb",
