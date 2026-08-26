@@ -75,6 +75,34 @@ const getFileName = (filePath: string | null | undefined): string => {
   return filename || filePath;
 };
 
+// 从 LightRAG 1.5.6 pipeline_status.latest_message 解析 chunk-level 进度。
+// 最新消息格式（去前缀空白后）:
+//   "Chunk 5 of 60 extracted 24 Ent + 28 Rel doc-<id>-chunk-004"
+//   "Chunk10 of 60 extracted 18 Ent + 22 Rel doc-<id>-chunk-009"
+// 返回 null 表示消息不可解析（解析前/解析后/跨 workspace 等情况），调用方应回退到估算。
+interface ChunkProgress {
+  current: number;
+  total: number;
+  docId: string;
+}
+
+const CHUNK_PROGRESS_REGEX =
+  /Chunk\s+(\d+)\s+of\s+(\d+)\s+extracted\s+(\d+)\s+Ent\s*\+\s*(\d+)\s+Rel\s+(doc-[0-9a-f]+)-chunk-\d+/i;
+
+const parseLatestChunkProgress = (message: string | null | undefined): ChunkProgress | null => {
+  if (!message) return null;
+  const match = CHUNK_PROGRESS_REGEX.exec(message);
+  if (!match) return null;
+  const [, currentRaw, totalRaw, , , docId] = match;
+  const current = Number(currentRaw);
+  const total = Number(totalRaw);
+  if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0) return null;
+  return { current, total, docId };
+};
+
+const chunkProgressToPercent = (progress: ChunkProgress): number =>
+  Math.max(0, Math.min(100, Math.round((progress.current / progress.total) * 100)));
+
 const DocumentsTab: React.FC = () => {
   const { message } = App.useApp();
   const [modal, contextHolder] = Modal.useModal();
@@ -512,24 +540,26 @@ const DocumentsTab: React.FC = () => {
         // This ensures the UI shows updated document statuses during processing
         loadDocuments(true);
         
-        // Calculate individual document progress
-        // Since we don't have per-document progress from backend,
-        // we estimate based on status and overall progress
+        // Calculate individual document progress. LightRAG 1.5.6 publishes
+        // a real per-document counter in pipeline.latest_message; for any
+        // document the latest_message does not name, fall back to a low
+        // indeterminate hint so the bar still moves.
         const newProgress = new Map<string, number>();
-        const overallProgress = progressData.progress_percentage || 0;
-        
+        const latestMessage = progressData.pipeline?.latest_message;
+        const chunkProgress = parseLatestChunkProgress(latestMessage);
+        const chunkDocPercent = chunkProgress ? chunkProgressToPercent(chunkProgress) : 0;
+
         documents.forEach(doc => {
           const status = doc.status?.toUpperCase();
-          if (status === 'PROCESSING') {
-            // For processing documents, use a value between 20-80%
-            // based on overall progress
-            newProgress.set(doc.id, Math.max(20, Math.min(80, overallProgress)));
+          if (chunkProgress && doc.id === chunkProgress.docId) {
+            newProgress.set(doc.id, chunkDocPercent);
+          } else if (status === 'PROCESSING') {
+            newProgress.set(doc.id, 25);
           } else if (status === 'PENDING') {
-            // Pending documents show 10%
-            newProgress.set(doc.id, 10);
+            newProgress.set(doc.id, 5);
           }
         });
-        
+
         setDocumentProgress(newProgress);
       }
     } catch (e) {
@@ -1810,26 +1840,20 @@ const DocumentsTab: React.FC = () => {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
                         <span style={{ fontSize: 11 }}>{getStatusText(doc.status)}</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          {/* Only show chunk progress for the document currently being processed */}
                           {(() => {
-                            const pipeline = processingProgress?.pipeline;
-                            const currentFile = pipeline?.current_chunk_file;
-                            const isCurrentDoc = doc.status?.toUpperCase() === 'PROCESSING' && 
-                              currentFile && 
-                              (currentFile === doc.file_path ||
-                               currentFile.endsWith(doc.file_path || '') ||
-                               (doc.file_path?.endsWith(currentFile) ?? false));
-                            const totalChunks = pipeline?.total_chunks ?? 0;
-                            const processedChunks = pipeline?.processed_chunks ?? 0;
-                            const hasChunkProgress = isCurrentDoc && totalChunks > 0;
-                            
+                            const chunkProgress = parseLatestChunkProgress(processingProgress?.pipeline?.latest_message);
+                            const isCurrentDoc = chunkProgress != null && doc.id === chunkProgress.docId;
+                            const hasChunkProgress = isCurrentDoc;
+                            const totalChunks = chunkProgress?.total ?? 0;
+                            const processedChunks = chunkProgress?.current ?? 0;
+
                             return (
                               <>
-                                <Progress 
+                                <Progress
                                   percent={
                                     hasChunkProgress
                                       ? Math.round(processedChunks / totalChunks * 100)
-                                      : (documentProgress.get(doc.id) || (doc.status?.toUpperCase() === 'PROCESSING' ? 20 : 10))
+                                      : (documentProgress.get(doc.id) ?? (doc.status?.toUpperCase() === 'PROCESSING' ? 25 : 5))
                                   }
                                   size="small"
                                   status="active"

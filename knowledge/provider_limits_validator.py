@@ -121,35 +121,58 @@ class ProviderLimitsValidator:
     
     def validate_and_adjust_config(self, provider_name: str, config: Dict[str, Any]) -> Tuple[Dict[str, Any], list]:
         """
-        验证并调整配置，确保所有值符合 provider 限制
-        
+        验证并调整配置，确保所有值符合 provider 限制。
+
         Args:
             provider_name: Provider 名称
             config: 配置字典（包含 EMBEDDING_BATCH_NUM 等）
-        
+
         Returns:
             (adjusted_config, warnings)
-            - adjusted_config: 调整后的配置字典
+            - adjusted_config: 调整后的配置字典（缺失字段会自动填入安全默认值）
             - warnings: 警告信息列表
         """
         adjusted_config = config.copy()
         warnings = []
-        
-        # 验证 EMBEDDING_BATCH_NUM
-        if 'EMBEDDING_BATCH_NUM' in config:
+
+        limits = self.get_provider_limits(provider_name)
+        max_batch_size = limits.get('max_batch_size', 128)
+
+        # --- EMBEDDING_BATCH_NUM: 用户未配置时自动填入安全默认值 ---
+        if 'EMBEDDING_BATCH_NUM' not in config:
+            safe_batch = min(max_batch_size, 64)
+            adjusted_config['EMBEDDING_BATCH_NUM'] = safe_batch
+            warnings.append(
+                f"EMBEDDING_BATCH_NUM not set; auto-configured to {safe_batch} for {provider_name}."
+            )
+        else:
             try:
                 batch_size = int(config['EMBEDDING_BATCH_NUM'])
                 is_valid, adjusted_value, warning = self.validate_batch_size(provider_name, batch_size)
-                
                 if not is_valid:
                     adjusted_config['EMBEDDING_BATCH_NUM'] = adjusted_value
                     warnings.append(warning)
-                    
             except (ValueError, TypeError) as e:
                 logger.error(f"[ProviderLimitsValidator] Invalid EMBEDDING_BATCH_NUM value: {config['EMBEDDING_BATCH_NUM']}")
-        
-        # 可以在这里添加其他配置项的验证（如并发数等）
-        
+
+        # --- EMBEDDING_FUNC_MAX_ASYNC: 用户未配置时自动填入安全默认值 ---
+        if 'EMBEDDING_FUNC_MAX_ASYNC' not in config:
+            is_local = self._is_local_provider(provider_name)
+            safe_async = 8 if is_local else 16
+            adjusted_config['EMBEDDING_FUNC_MAX_ASYNC'] = safe_async
+            warnings.append(
+                f"EMBEDDING_FUNC_MAX_ASYNC not set; auto-configured to {safe_async} for {provider_name}."
+            )
+
+        # --- MAX_PARALLEL_INSERT: 用户未配置时自动填入安全默认值 ---
+        if 'MAX_PARALLEL_INSERT' not in config:
+            is_local = self._is_local_provider(provider_name)
+            safe_insert = 4 if is_local else 8
+            adjusted_config['MAX_PARALLEL_INSERT'] = safe_insert
+            warnings.append(
+                f"MAX_PARALLEL_INSERT not set; auto-configured to {safe_insert}."
+            )
+
         return adjusted_config, warnings
     
     def get_recommended_config(self, provider_name: str) -> Dict[str, Any]:
