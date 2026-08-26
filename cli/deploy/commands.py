@@ -451,8 +451,12 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
             "skills": [skill_id],
             "org_id": org_id,
         }
-        if vehicle_id and task_id:
+        # Task links must not depend on vehicle resolution: without them the
+        # agents exist but never run their tasks (deep-trace finding — a CLI
+        # subprocess can fail vehicle resolution where the GUI would not).
+        if task_id:
             adata["tasks"] = [task_id]
+        if vehicle_id:
             adata["vehicle_id"] = vehicle_id
         ar = ctx.db.agent_service.create_agent_from_data(adata, owner)
         if not ar.get("success"):

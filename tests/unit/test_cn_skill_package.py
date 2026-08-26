@@ -1,15 +1,16 @@
-"""CN publish-time zip package: upload, zip-first download, safe extraction.
+"""CN skill-file sync via the presigned zip flow + per-file fallback.
 
-The author's save uploads the whole skill dir as ONE artifact
-(``<folder>/_package.zip``) via writeSkillFile + signed COS PUT; the
-subscriber's download tries that single object first (readSkillFile +
-signed GET + unzip) and falls back to the per-file listing flow when no
-package exists. Extraction guards against zip-slip (author-controlled
-input).
+Live-verified against the deployed TCB backend (2026-08-27): CN
+implements the intl-style presigned flow — requestSkillFileUploadUrl →
+signed COS PUT of the zip; requestSkillFileDownloadUrl → signed GET →
+unzip. The old writeSkillFile-package and scalar-shaped
+listSkillFiles/readSkillFile queries did NOT match the deployed SDL
+(typed results needing selection sets; readSkillFile returns file
+content INLINE, no downloadUrl) — validation errors were silently
+swallowed as "no files listed" (the v0.9.95n empty-my_skills incident).
 """
 
 import io
-import json
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -58,153 +59,118 @@ class TestUnzipSafety:
         assert not (tmp_path / "evil.txt").exists()
 
 
-class TestPackageUpload:
-    def _run(self, tmp_path, appsync_resp):
+class TestCnPackageUpload:
+    """CN save = zip + requestSkillFileUploadUrl + signed PUT (real skill id)."""
+
+    def _run(self, tmp_path, url_info):
         skill_dir = tmp_path / "demo_skill"
         (skill_dir / "code_dir").mkdir(parents=True)
         (skill_dir / "code_dir" / "a.py").write_text("pass")
-        put_calls = []
+        put_bytes = []
+        with patch.object(sfs, "_request_upload_url", return_value=url_info) as req, \
+             patch.object(sfs, "_upload_to_s3",
+                          side_effect=lambda url, b: put_bytes.append((url, b)) or True):
+            ok = sfs._cn_upload_skill_package(skill_dir, dict(CTX), "skill_4f24592c81894ae7")
+        return ok, req, put_bytes
 
-        def fake_request(method, url, data=None, timeout=None):
-            put_calls.append((method, url, data))
-            return SimpleNamespace(status_code=200, text="")
-
-        with patch.object(sfs, "_appsync_request", return_value=appsync_resp) as gql, \
-             patch.object(sfs.http_requests, "request", side_effect=fake_request):
-            ok = sfs._cn_upload_skill_package(skill_dir, dict(CTX))
-        return ok, gql, put_calls
-
-    def test_registers_and_puts_zip_bytes(self, tmp_path):
-        resp = {"data": {"writeSkillFile": [
-            {"filePath": "x", "uploadUrl": "https://cos/put", "method": "PUT"}]}}
-        ok, gql, puts = self._run(tmp_path, resp)
+    def test_uploads_zip_via_presigned_url(self, tmp_path):
+        ok, req, puts = self._run(tmp_path, {"uploadUrl": "https://cos/put", "s3Key": "k"})
         assert ok
-        # writeSkillFile registered the well-known package path
-        sent = gql.call_args.kwargs["variables"]["input"][0]
-        assert sent["filePath"].endswith("demo_skill/_package.zip")
-        assert sent["userId"] == AUTHOR
-        # and the PUT body is a real zip containing the skill files
-        method, url, body = puts[0]
-        assert method == "PUT" and url == "https://cos/put"
+        # requested with the REAL skill id + canonical zip file name
+        args = req.call_args.args
+        assert args[0] == "skill_4f24592c81894ae7"
+        assert args[1] == AUTHOR
+        assert args[2] == "demo_skill.zip"
+        url, body = puts[0]
+        assert url == "https://cos/put"
         names = zipfile.ZipFile(io.BytesIO(body)).namelist()
         assert any(n.replace("\\", "/") == "code_dir/a.py" for n in names)
 
     def test_no_upload_url_returns_false(self, tmp_path):
-        ok, _, puts = self._run(tmp_path, {"data": {"writeSkillFile": [{"filePath": "x"}]}})
+        ok, _, puts = self._run(tmp_path, None)
         assert not ok and puts == []
 
-
-class TestPackageDownload:
-    def _read_resp(self, url):
-        return {"data": {"readSkillFile": json.dumps([{"downloadUrl": url}])}}
-
-    def test_zip_first_success(self, tmp_path):
-        zb = _make_zip({"diagram_dir/demo_skill.json": "{}"})
-        with patch.object(sfs, "_appsync_request", return_value=self._read_resp("https://cos/get")), \
-             patch.object(sfs.http_requests, "get",
-                          return_value=SimpleNamespace(content=zb)):
-            ok = sfs._cn_try_package_download("demo_skill", AUTHOR, dict(CTX), tmp_path / "demo_skill")
-        assert ok
-        assert (tmp_path / "demo_skill" / "diagram_dir" / "demo_skill.json").exists()
-
-    def test_missing_package_returns_false(self, tmp_path):
-        with patch.object(sfs, "_appsync_request", return_value={"data": {"readSkillFile": "[]"}}):
-            ok = sfs._cn_try_package_download("demo_skill", AUTHOR, dict(CTX), tmp_path / "demo_skill")
-        assert not ok
-
-    def test_tries_owner_prefixed_fallback_path(self, tmp_path):
-        zb = _make_zip({"a.txt": "x"})
-        calls = []
-
-        def fake_gql(query, ctx, variables=None):
-            calls.append(variables["filePath"])
-            if variables["filePath"].startswith("wechat_"):
-                return self._read_resp("https://cos/get")
-            return {"data": {"readSkillFile": "[]"}}
-
-        with patch.object(sfs, "_appsync_request", side_effect=fake_gql), \
-             patch.object(sfs.http_requests, "get", return_value=SimpleNamespace(content=zb)):
-            ok = sfs._cn_try_package_download("demo_skill", AUTHOR, dict(CTX), tmp_path / "d")
-        assert ok
-        assert calls == ["demo_skill/_package.zip",
-                         f"{AUTHOR}/my_skills/demo_skill/_package.zip"]
-
-
-class TestZipOnlySave:
-    """CN save uploads ONE zip package — no per-file writeSkillFile items
-    (the server explodes the package into per-file objects)."""
-
-    def test_save_registers_only_the_package(self, tmp_path):
+    def test_missing_skill_id_skips(self, tmp_path):
         skill_dir = tmp_path / "demo_skill"
-        (skill_dir / "diagram_dir").mkdir(parents=True)
-        (skill_dir / "diagram_dir" / "demo_skill.json").write_text("{}")
-        gql_calls = []
-
-        def fake_gql(query, ctx, variables=None):
-            gql_calls.append(variables)
-            return {"data": {"writeSkillFile": [
-                {"filePath": "x", "uploadUrl": "https://cos/put", "method": "PUT"}]}}
-
-        with patch.object(sfs, "_is_intl_app", return_value=False), \
-             patch.object(sfs, "_get_cloud_context", return_value=dict(CTX)), \
-             patch.object(sfs, "_resolve_skill_dir", return_value=skill_dir), \
-             patch.object(sfs, "_is_valid_skill_dir", return_value=True), \
-             patch.object(sfs, "_appsync_request", side_effect=fake_gql), \
-             patch.object(sfs.http_requests, "request",
-                          return_value=SimpleNamespace(status_code=200, text="")), \
-             patch.object(sfs.threading, "Thread", _InlineThread):
-            sfs._CN_SYNCED_SKILL_DIRS.discard(str(skill_dir))
-            sfs.upload_skill_files_to_cloud({"id": "skill_x", "name": "demo"})
-
-        # exactly one writeSkillFile call, registering only the package
-        assert len(gql_calls) == 1
-        items = gql_calls[0]["input"]
-        assert len(items) == 1
-        assert items[0]["filePath"].endswith("demo_skill/_package.zip")
+        skill_dir.mkdir()
+        with patch.object(sfs, "_request_upload_url") as req:
+            assert not sfs._cn_upload_skill_package(skill_dir, dict(CTX), "")
+        req.assert_not_called()
 
 
-class TestDownloadFallbackFlow:
-    """_download_skill_files_cn: package hit skips listing; miss falls back."""
+class TestCnZipFirstDownload:
+    """CN download: presigned zip primary; typed per-file queries fallback."""
 
-    def _run(self, tmp_path, package_ok, listing):
+    def _run(self, tmp_path, url_info, listing=None, contents=None):
         gql_queries = []
 
         def fake_gql(query, ctx, variables=None):
             gql_queries.append((query, variables))
             if "listSkillFiles" in query:
-                return {"data": {"listSkillFiles": json.dumps(listing)}}
-            # readSkillFile: package vs regular file
-            fp = variables["filePath"]
-            if fp.endswith("_package.zip"):
-                if package_ok:
-                    return {"data": {"readSkillFile": json.dumps([{"downloadUrl": "https://cos/pkg"}])}}
-                return {"data": {"readSkillFile": "[]"}}
-            return {"data": {"readSkillFile": json.dumps([{"downloadUrl": f"https://cos/{fp}"}])}}
+                return {"data": {"listSkillFiles": listing or []}}
+            if "readSkillFile" in query:
+                fp = variables["filePath"]
+                body = (contents or {}).get(fp)
+                return {"data": {"readSkillFile": [{"filePath": fp, "content": body}]
+                                 if body is not None else []}}
+            return {}
 
-        zb = _make_zip({"from_pkg.txt": "pkg"})
-
-        def fake_get(url, timeout=None):
-            return SimpleNamespace(content=zb if url == "https://cos/pkg" else b"filebytes")
-
+        zb = _make_zip({"from_zip.txt": "zipped"})
         with patch.object(sfs, "_get_cloud_context", return_value=dict(CTX)), \
              patch.object(sfs, "_get_my_skills_dir", return_value=tmp_path), \
+             patch.object(sfs, "_request_download_url", return_value=url_info) as req, \
+             patch.object(sfs, "_download_from_s3", return_value=zb), \
              patch.object(sfs, "_appsync_request", side_effect=fake_gql), \
-             patch.object(sfs.http_requests, "get", side_effect=fake_get), \
              patch.object(sfs.threading, "Thread", _InlineThread):
-            sfs._download_skill_files_cn({"name": "demo"}, file_owner=AUTHOR)
-        return gql_queries
+            sfs._download_skill_files_cn({"id": "skill_x", "name": "demo"}, file_owner=AUTHOR)
+        return req, gql_queries
 
-    def test_package_hit_skips_listing(self, tmp_path):
-        queries = self._run(tmp_path, package_ok=True, listing=[])
-        assert not any("listSkillFiles" in q for q, _ in queries)
-        assert (tmp_path / "demo_skill" / "from_pkg.txt").read_text() == "pkg"
+    def test_presigned_zip_primary(self, tmp_path):
+        req, queries = self._run(tmp_path, {"downloadUrl": "https://cos/get"})
+        # requested with real skill id + AUTHOR namespace
+        assert req.call_args.args[0] == "skill_x"
+        assert req.call_args.args[1] == AUTHOR
+        assert (tmp_path / "demo_skill" / "from_zip.txt").read_text() == "zipped"
+        assert not any("listSkillFiles" in q for q, _ in queries)  # no fallback needed
 
-    def test_package_miss_falls_back_to_per_file(self, tmp_path):
-        listing = [{"filePath": f"{AUTHOR}/my_skills/demo_skill/code_dir/a.py"},
-                   {"filePath": f"{AUTHOR}/my_skills/demo_skill/_package.zip"}]
-        queries = self._run(tmp_path, package_ok=False, listing=listing)
-        assert any("listSkillFiles" in q for q, _ in queries)
-        # owner-prefixed path normalized under the local skills root
-        assert (tmp_path / "demo_skill" / "code_dir" / "a.py").read_bytes() == b"filebytes"
-        # the zip artifact itself is not downloaded as a source file
-        assert not (tmp_path / "demo_skill" / "_package.zip").exists()
+    def test_fallback_uses_typed_queries_and_inline_content(self, tmp_path):
+        listing = [{"filePath": "demo_skill/code_dir/a.py"},
+                   {"filePath": "demo_skill/demo_skill.zip"}]
+        contents = {"demo_skill/code_dir/a.py": "print('hi')"}
+        _, queries = self._run(tmp_path, None, listing=listing, contents=contents)
+        # typed selection sets (the old scalar shape failed SDL validation)
+        list_q = next(q for q, _ in queries if "listSkillFiles" in q)
+        assert "{ filePath }" in list_q
+        read_q = next(q for q, _ in queries if "readSkillFile" in q)
+        assert "content" in read_q
+        # inline content written; zip artifact skipped
+        assert (tmp_path / "demo_skill" / "code_dir" / "a.py").read_text() == "print('hi')"
+        assert not (tmp_path / "demo_skill" / "demo_skill.zip").exists()
+
+    def test_owner_prefixed_paths_normalized(self, tmp_path):
+        listing = [{"filePath": f"{AUTHOR}/my_skills/demo_skill/b.py"}]
+        contents = {f"{AUTHOR}/my_skills/demo_skill/b.py": "x = 1"}
+        self._run(tmp_path, None, listing=listing, contents=contents)
+        assert (tmp_path / "demo_skill" / "b.py").read_text() == "x = 1"
+
+
+class TestZipOnlySave:
+    """CN save uploads ONE zip via the presigned flow — nothing else."""
+
+    def test_save_uses_presigned_flow(self, tmp_path):
+        skill_dir = tmp_path / "demo_skill"
+        (skill_dir / "diagram_dir").mkdir(parents=True)
+        (skill_dir / "diagram_dir" / "demo_skill.json").write_text("{}")
+        with patch.object(sfs, "_is_intl_app", return_value=False), \
+             patch.object(sfs, "_get_cloud_context", return_value=dict(CTX)), \
+             patch.object(sfs, "_resolve_skill_dir", return_value=skill_dir), \
+             patch.object(sfs, "_is_valid_skill_dir", return_value=True), \
+             patch.object(sfs, "_request_upload_url",
+                          return_value={"uploadUrl": "https://cos/put", "s3Key": "k"}) as req, \
+             patch.object(sfs, "_upload_to_s3", return_value=True) as put, \
+             patch.object(sfs.threading, "Thread", _InlineThread):
+            sfs._CN_SYNCED_SKILL_DIRS.discard(str(skill_dir))
+            sfs.upload_skill_files_to_cloud({"id": "skill_x", "name": "demo"})
+        req.assert_called_once()
+        assert req.call_args.args[0] == "skill_x"
+        put.assert_called_once()

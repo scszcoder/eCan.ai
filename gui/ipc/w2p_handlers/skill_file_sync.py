@@ -466,15 +466,14 @@ def _is_intl_app() -> bool:
 
 
 # ── CN (TCB/COS) upload path ────────────────────────────────────────────
-# ZIP-ONLY SAVE (2026-08-27 convergence): the client uploads the whole
-# skill directory as ONE zip artifact per save — writeSkillFile registers
-# ``<folder>/_package.zip`` and returns a signed COS PUT URL; the client
-# PUTs the raw zip bytes. Same shape as the intl S3 flow. The server is
-# expected to EXPLODE the zip into per-file objects on receipt so
-# listSkillFiles/readSkillFile consumers (web-mode skill editor) keep
-# working — spec in docs/OPEN_ITEMS.md. Subscribers download zip-first;
-# the per-file download fallback remains for legacy publishes.
-_CN_PACKAGE_NAME = "_package.zip"
+# ZIP-ONLY SAVE via the presigned flow (live-verified against the deployed
+# TCB backend 2026-08-27): requestSkillFileUploadUrl(skillId, owner,
+# fileName) returns a signed COS PUT (the resolver canonicalizes the
+# object key to ``users/<owner>/skills/<name>_skill.zip``); the client
+# PUTs the raw zip bytes. Same flow as intl minus processSkillZipUpload
+# (mutation absent on the CN SDL — server-side explode is specced in
+# docs/OPEN_ITEMS.md). Subscribers download the same object via
+# requestSkillFileDownloadUrl.
 _CN_MAX_PACKAGE_BYTES = 20 * 1024 * 1024
 # Per-process dedupe so panel-load bulk syncs don't re-upload unchanged
 # skills on every request; a skill re-uploads after an explicit save
@@ -482,17 +481,12 @@ _CN_MAX_PACKAGE_BYTES = 20 * 1024 * 1024
 _CN_SYNCED_SKILL_DIRS: set = set()
 
 
-def _cn_upload_skill_package(skill_dir: Path, ctx: Dict[str, Any]) -> bool:
-    """Upload the skill directory as ONE zip artifact (CN, publish-time zip).
-
-    writeSkillFile registers ``<folder>/_package.zip`` (content is metadata-
-    only on CN — the object bytes go through the signed COS PUT the mutation
-    returns), then the raw zip bytes are PUT to that URL. Best-effort:
-    per-file upload remains the fallback for subscribers when the package
-    is missing.
-    """
+def _cn_upload_skill_package(skill_dir: Path, ctx: Dict[str, Any], skill_id: str) -> bool:
+    """Upload the skill directory as ONE zip via the presigned flow (CN)."""
     owner = str(ctx.get("owner") or "")
-    safe_owner = owner.replace("@", "_").replace(".", "_") or "unknown"
+    if not skill_id or not owner:
+        logger.debug(f"[skill_file_sync] CN package upload skipped for {skill_dir.name}: no skill id/owner")
+        return False
     zip_bytes = _zip_skill_dir(skill_dir)
     if not zip_bytes:
         return False
@@ -502,44 +496,17 @@ def _cn_upload_skill_package(skill_dir: Path, ctx: Dict[str, Any]) -> bool:
             f"({len(zip_bytes)} bytes > {_CN_MAX_PACKAGE_BYTES}) — skipping zip artifact"
         )
         return False
-
-    file_path = f"{safe_owner}/my_skills/{skill_dir.name}/{_CN_PACKAGE_NAME}"
-    mutation = """
-        mutation WriteSkillFile($input: [SkillFileInput!]!) {
-          writeSkillFile(input: $input) {
-            filePath
-            uploadUrl
-            method
-          }
-        }
-    """
     try:
-        resp = _appsync_request(mutation, ctx, variables={"input": [{
-            "filePath": file_path,
-            "content": "",  # CN: object bytes go through the signed PUT below
-            "userId": owner,
-        }]})
-        rows = (resp.get("data") or {}).get("writeSkillFile") or []
-        url = (rows[0] or {}).get("uploadUrl") if rows else None
-        if not url:
-            logger.warning(
-                f"[skill_file_sync] CN package register returned no uploadUrl for "
-                f"{skill_dir.name}: {resp.get('errors') or resp}"
-            )
+        url_info = _request_upload_url(skill_id, owner, f"{skill_dir.name}.zip", ctx)
+        if not url_info:
             return False
-        method = str((rows[0] or {}).get("method") or "PUT").upper()
-        put = http_requests.request(method=method, url=url, data=zip_bytes, timeout=120)
-        if put.status_code not in (200, 204):
-            logger.warning(
-                f"[skill_file_sync] CN package PUT failed ({put.status_code}) for "
-                f"{skill_dir.name}: {put.text[:200]}"
+        if _upload_to_s3(url_info["uploadUrl"], zip_bytes):
+            logger.info(
+                f"[skill_file_sync] CN package uploaded for {skill_dir.name}: "
+                f"{len(zip_bytes)} bytes -> {url_info.get('s3Key')}"
             )
-            return False
-        logger.info(
-            f"[skill_file_sync] CN package uploaded for {skill_dir.name}: "
-            f"{len(zip_bytes)} bytes -> {file_path}"
-        )
-        return True
+            return True
+        return False
     except Exception as exc:
         logger.warning(f"[skill_file_sync] CN package upload failed for {skill_dir.name}: {exc}")
         return False
@@ -567,7 +534,7 @@ def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
                     return
                 if not _is_valid_skill_dir(skill_dir, skill_data.get('name', '')):
                     return
-                if _cn_upload_skill_package(skill_dir, ctx):
+                if _cn_upload_skill_package(skill_dir, ctx, str(skill_data.get('id') or '')):
                     _CN_SYNCED_SKILL_DIRS.add(str(skill_dir))
             except Exception as exc:
                 logger.warning(
@@ -629,72 +596,27 @@ def upload_skill_files_to_cloud(skill_data: Dict[str, Any]) -> None:
     t.start()
 
 
-def _cn_try_package_download(
-    folder: str,
-    file_owner: Optional[str],
-    ctx: Dict[str, Any],
-    dest_dir: Path,
-    trace_prefix: str = "",
-) -> bool:
-    """Try the zip-first download: readSkillFile on the skill's publish-time
-    ``_package.zip`` artifact, GET the signed URL, unzip into *dest_dir*.
-
-    Tries the namespace-relative path first, then the owner-prefixed form
-    the upload registers (the server may return either shape from its
-    metadata). Returns True only when the package was fetched AND unzipped.
-    """
-    read_query = """
-        query ReadSkillFile($filePath: String!, $userId: String) {
-            readSkillFile(filePath: $filePath, userId: $userId)
-        }
-    """
-    candidates = [f"{folder}/{_CN_PACKAGE_NAME}"]
-    if file_owner:
-        safe_owner = str(file_owner).replace("@", "_").replace(".", "_")
-        candidates.append(f"{safe_owner}/my_skills/{folder}/{_CN_PACKAGE_NAME}")
-    for fpath in candidates:
-        try:
-            rvars: Dict[str, Any] = {"filePath": fpath}
-            if file_owner:
-                rvars["userId"] = file_owner
-            resp = _appsync_request(read_query, ctx, variables=rvars)
-            raw = (resp.get("data") or {}).get("readSkillFile")
-            items = json.loads(raw) if isinstance(raw, str) else (raw or [])
-            url = (items[0] or {}).get("downloadUrl") if items else None
-            if not url:
-                continue
-            zip_bytes = http_requests.get(url, timeout=120).content
-            if not zip_bytes:
-                continue
-            if _unzip_to_skill_dir(zip_bytes, dest_dir):
-                logger.info(
-                    f"[skill_file_sync] {trace_prefix}CN package download for '{folder}' "
-                    f"(owner={file_owner or 'self'}): {len(zip_bytes)} bytes via {fpath}"
-                )
-                return True
-        except Exception as pe:
-            logger.debug(f"[skill_file_sync] {trace_prefix}CN package try {fpath} failed: {pe}")
-    logger.info(
-        f"[skill_file_sync] {trace_prefix}CN package not available for '{folder}' "
-        f"(owner={file_owner or 'self'}) — falling back to per-file download"
-    )
-    return False
-
-
 def _download_skill_files_cn(
     skill_data: Dict[str, Any],
     file_owner: Optional[str] = None,
     trace_id: Optional[str] = None,
 ) -> None:
-    """CN skill-file download: list + fetch a skill's files from COS via
-    listSkillFiles/readSkillFile and write them under the local user skills
-    root. Runs in a background thread; best-effort.
+    """CN skill-file download. Runs in a background thread; best-effort.
 
-    ``file_owner``: the COS namespace to read from. For a SUBSCRIBED skill
-    this is the AUTHOR — the server's cross-owner gate must allow reads of
-    public skills' files under an explicit userId (until that server change
-    is deployed, cross-owner downloads return the caller's own namespace
-    and typically find nothing — logged, non-fatal).
+    PRIMARY (live-verified against the deployed TCB backend 2026-08-27):
+    the same presigned-zip flow as intl — ``requestSkillFileDownloadUrl``
+    (with the REAL skill id; the CN resolver canonicalizes the object key
+    to ``users/<owner>/skills/<name>_skill.zip``) → signed GET → unzip.
+
+    FALLBACK: per-file ``listSkillFiles``/``readSkillFile``. NOTE the
+    deployed SDL returns TYPED results needing a selection set, and
+    ``readSkillFile`` returns the file ``content`` INLINE (there is no
+    downloadUrl field) — the old scalar-shaped queries failed validation
+    and were silently swallowed as "no files listed" (v0.9.95n incident).
+
+    ``file_owner``: the namespace owner — the AUTHOR for subscribed
+    skills. Cross-owner reads require the server to authorize public
+    skills' files for a non-owner caller.
     """
     def _do():
         trace_prefix = f"[trace={trace_id}] " if trace_id else ""
@@ -707,24 +629,41 @@ def _download_skill_files_cn(
                 return
             folder = skill_name if skill_name.endswith("_skill") else f"{skill_name}_skill"
             root = _get_my_skills_dir()
+            dest_dir = Path(root) / folder
+            owner = str(file_owner or ctx.get("owner") or "")
+            skill_id = str(skill_data.get("id") or "")
 
-            # ── Zip-first: one signed GET for the publish-time package.
-            #    Falls through to the per-file listing when no package exists
-            #    (older publishes, or authors on builds without the artifact).
-            if _cn_try_package_download(folder, file_owner, ctx, Path(root) / folder, trace_prefix):
-                return
+            # ── PRIMARY: presigned zip ─────────────────────────────────
+            if skill_id and owner:
+                url_info = _request_download_url(skill_id, owner, ctx)
+                if url_info:
+                    zip_bytes = _download_from_s3(url_info["downloadUrl"])
+                    if zip_bytes and _unzip_to_skill_dir(zip_bytes, dest_dir):
+                        logger.info(
+                            f"[skill_file_sync] {trace_prefix}CN zip download for '{folder}' "
+                            f"(owner={owner}): {len(zip_bytes)} bytes -> {dest_dir}"
+                        )
+                        return
+                logger.info(
+                    f"[skill_file_sync] {trace_prefix}CN zip not available for '{folder}' "
+                    f"(owner={owner}) — falling back to per-file download"
+                )
 
+            # ── FALLBACK: per-file (typed selection sets, inline content) ──
             list_query = """
                 query ListSkillFiles($prefix: String, $userId: String) {
-                    listSkillFiles(prefix: $prefix, userId: $userId)
+                    listSkillFiles(prefix: $prefix, userId: $userId) { filePath }
                 }
             """
-            variables = {"prefix": folder}
+            variables: Dict[str, Any] = {"prefix": folder}
             if file_owner:
                 variables["userId"] = file_owner
             resp = _appsync_request(list_query, ctx, variables=variables)
-            raw = (resp.get("data") or {}).get("listSkillFiles")
-            files = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            if resp.get("errors"):
+                logger.warning(
+                    f"[skill_file_sync] {trace_prefix}CN listSkillFiles error: {resp['errors']}"
+                )
+            files = (resp.get("data") or {}).get("listSkillFiles") or []
             if not isinstance(files, list) or not files:
                 logger.info(
                     f"[skill_file_sync] {trace_prefix}CN download: no files listed for "
@@ -734,40 +673,37 @@ def _download_skill_files_cn(
 
             read_query = """
                 query ReadSkillFile($filePath: String!, $userId: String) {
-                    readSkillFile(filePath: $filePath, userId: $userId)
+                    readSkillFile(filePath: $filePath, userId: $userId) { filePath content }
                 }
             """
-            root = _get_my_skills_dir()
             saved, failed = 0, 0
             for meta in files:
                 fpath = (meta or {}).get("filePath") or ""
                 if not fpath:
                     continue
-                if fpath.endswith(_CN_PACKAGE_NAME):
-                    continue  # the zip artifact is not a skill source file
+                if fpath.endswith(".zip"):
+                    continue  # zip artifacts are not skill source files
                 try:
-                    rvars = {"filePath": fpath}
+                    rvars: Dict[str, Any] = {"filePath": fpath}
                     if file_owner:
                         rvars["userId"] = file_owner
                     rresp = _appsync_request(read_query, ctx, variables=rvars)
-                    rraw = (rresp.get("data") or {}).get("readSkillFile")
-                    items = json.loads(rraw) if isinstance(rraw, str) else (rraw or [])
-                    url = (items[0] or {}).get("downloadUrl") if items else None
-                    if not url:
+                    items = (rresp.get("data") or {}).get("readSkillFile") or []
+                    content = (items[0] or {}).get("content") if items else None
+                    if content is None:
                         failed += 1
                         continue
-                    content = http_requests.get(url, timeout=60).content
                     # The server may return namespace-relative paths
                     # ("<folder>/x.py") or owner-prefixed ones
-                    # ("<owner>/my_skills/<folder>/x.py" — the shape uploads
-                    # register); normalize both to the local skills root.
+                    # ("<owner>/my_skills/<folder>/x.py"); normalize both to
+                    # the local skills root.
                     rel = fpath
                     idx = rel.find("my_skills/")
                     if idx != -1:
                         rel = rel[idx + len("my_skills/"):]
                     dest = Path(root) / rel
                     dest.parent.mkdir(parents=True, exist_ok=True)
-                    dest.write_bytes(content)
+                    dest.write_text(content, encoding="utf-8")
                     saved += 1
                 except Exception as fe:
                     failed += 1
@@ -932,7 +868,7 @@ def sync_all_skill_files_to_cloud(skills: List[Dict[str, Any]]) -> None:
                         continue
                     if not _is_valid_skill_dir(skill_dir, sk.get('name', '')):
                         continue
-                    if _cn_upload_skill_package(skill_dir, ctx):
+                    if _cn_upload_skill_package(skill_dir, ctx, str(sk.get('id') or '')):
                         _CN_SYNCED_SKILL_DIRS.add(str(skill_dir))
                         done += 1
                 if done:

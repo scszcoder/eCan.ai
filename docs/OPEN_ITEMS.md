@@ -132,6 +132,25 @@ _Last updated: 2026-08-23_
 
 ## 🟢 In progress
 
+- **CN presigned-flow convergence (2026-08-27, LIVE-VERIFIED)**. 95n
+  retest "no diff" root cause: the client's CN file APIs didn't match
+  the DEPLOYED SDL — listSkillFiles/readSkillFile return TYPED results
+  needing selection sets (client sent scalar shape → validation error
+  silently swallowed as "no files listed"), and readSkillFile returns
+  content INLINE (no downloadUrl). Meanwhile the CN backend implements
+  the FULL intl presigned flow (requestSkillFileUploadUrl/DownloadUrl →
+  users/<owner>/skills/<name>_skill.zip) AND the COS signing bug is
+  FIXED (live PUT+GET roundtrip 200 from author machine). CLIENT now
+  uses presigned zip as primary on CN (upload via real skillId; download
+  primary + typed per-file fallback with inline content). GENUINE
+  packages for 问答00/前台00/问答0 uploaded to COS and roundtrip-verified.
+  REMAINING SERVER ITEM (user): requestSkillFileDownloadUrl must allow
+  CROSS-OWNER calls (customer token, owner=author) when the skill is
+  isPublic — untestable from the author account; if the resolver
+  already skips the owner check, customer downloads work with the next
+  build. processSkillZipUpload (explode) still absent on CN SDL —
+  needed only for web-editor per-file views.
+
 - **LLM proxy missing-key fallback (2026-08-27)**. Confirmed the
   suspected behavior did NOT exist: proxy routing was purely
   config-driven (ECAN_FORCE_LAMBDA_PROXY / node useProxy / global
