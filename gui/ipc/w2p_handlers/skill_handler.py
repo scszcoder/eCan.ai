@@ -888,16 +888,12 @@ def _sync_cloud_tool_knowledge_rels(skill_id: str, cloud_skill: dict, request=No
         send_query_skill_knowledge_relations_to_cloud,
         get_appsync_endpoint,
     )
-    from agent.db.services.db_skill_service import DBSkillService
-    from agent.db.database_manager import DatabaseManager
 
     endpoint = get_appsync_endpoint()
     session = _get_cloud_session()
 
-    try:
-        db_mgr = DatabaseManager.get_instance()
-        skill_svc = db_mgr.skill_service
-    except Exception:
+    skill_svc = _get_skill_service(request, params)
+    if not skill_svc:
         logger.warning("[_sync_cloud_tool_knowledge_rels] Could not get DB service — skipping tool/knowledge sync")
         return
 
@@ -1674,8 +1670,14 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
 
             logger.info(f"[skill_handler] Subscribed to skill {skill_id} (saved to local DB as {actual_skill_id})")
 
-            # Sync tool and knowledge associations for the subscribed skill
-            _sync_cloud_tool_knowledge_rels(actual_skill_id, target, request, params)
+            # Sync tool and knowledge associations for the subscribed skill.
+            # Best-effort: a rel-sync failure must never fail the subscribe
+            # itself (v0.9.95m: a broken import here errored the whole
+            # handler AFTER the local row was already saved).
+            try:
+                _sync_cloud_tool_knowledge_rels(actual_skill_id, target, request, params)
+            except Exception as rel_err:
+                logger.warning(f"[subscribe_to_skill] tool/knowledge rel sync failed (non-fatal): {rel_err}")
 
             return create_success_response(request, {
                 'id': actual_skill_id,
