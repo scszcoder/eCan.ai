@@ -70,7 +70,10 @@ def _convert_dict_to_skill(skill_dict: Dict[str, Any]) -> EC_Skill:
         return EC_Skill(
             id=skill_dict.get('id'),
             name=skill_dict.get('name', 'Unnamed Skill'),
-            description=skill_dict.get('description', ''),
+            # `or ''`: a DB NULL arrives as an EXISTING None key — .get's
+            # default doesn't apply, and description=None fails pydantic's
+            # str validation (v0.9.95r ghost-stub incident).
+            description=skill_dict.get('description') or '',
             source=skill_dict.get('source', 'ui'),
             owner=skill_dict.get('owner', ''),
             version=skill_dict.get('version', '0.0.0'),
@@ -232,7 +235,7 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
             id=task_id,
             context_id=task_id,  # Required by a2a-sdk Task
             name=task_dict.get('name', 'Unnamed Task'),
-            description=task_dict.get('description', ''),
+            description=task_dict.get('description') or '',  # DB NULL → '' (see skill twin above)
             source=task_dict.get('source', 'ui'),
             status=status,
             priority=task_dict.get('priority'),  # Validator will handle 'none' -> None
