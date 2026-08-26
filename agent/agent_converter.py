@@ -18,6 +18,25 @@ from agent.a2a.langgraph_agent.utils import AgentCard, SUPPORTED_CONTENT_TYPES, 
 from utils.logger_helper import logger_helper as logger
 from agent.db.services.db_avatar_service import DBAvatarService
 
+# Short-TTL cache for the browser_use LLM client used during DB→EC_Agent
+# conversion: within a batch every agent gets the identical default-config
+# client, and each construction costs ~1s+ (settings parse + adapter setup).
+_BROWSER_LLM_CACHE: Dict[str, Any] = {"at": 0.0, "llm": None}
+_BROWSER_LLM_CACHE_TTL_S = 60.0
+
+
+def _get_cached_browser_use_llm(main_window):
+    import time
+    now = time.time()
+    if _BROWSER_LLM_CACHE["llm"] is not None and (now - _BROWSER_LLM_CACHE["at"]) < _BROWSER_LLM_CACHE_TTL_S:
+        return _BROWSER_LLM_CACHE["llm"]
+    from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm
+    llm = create_browser_use_llm(mainwin=main_window, skip_playwright_check=True)
+    if llm:
+        _BROWSER_LLM_CACHE["at"] = now
+        _BROWSER_LLM_CACHE["llm"] = llm
+    return llm
+
 if TYPE_CHECKING:
     from gui.MainGUI import MainWindow
 
@@ -667,9 +686,12 @@ def convert_agent_dict_to_ec_agent(
         elif not isinstance(extra_data, dict):
             extra_data = {}
         
-        # Create browser_use compatible LLM from main_window configuration (no fallback)
-        from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm
-        browser_use_llm = create_browser_use_llm(mainwin=main_window, skip_playwright_check=True)
+        # Create browser_use compatible LLM from main_window configuration (no
+        # fallback). Cached with a short TTL: constructing this client costs
+        # ~1s+ and every agent in a batch uses the identical default config —
+        # a 9-agent get_all_org_agents took 13s per the v0.9.95r customer log
+        # (the user closed the app 1s after the response finally arrived).
+        browser_use_llm = _get_cached_browser_use_llm(main_window)
         if not browser_use_llm:
             raise ValueError("Failed to create browser_use LLM from main_window. Please configure LLM provider API key in Settings.")
         
