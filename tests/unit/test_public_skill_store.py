@@ -155,6 +155,20 @@ class TestUnsubscribeRemovesLocalRow:
         src = inspect.getsource(sh._soft_delete_agent_skill_rel)
         assert "ECDBManager" not in src  # crashed every soft-delete on 95l
 
+    def test_bogus_database_manager_import_removed(self):
+        """v0.9.95m: _sync_cloud_tool_knowledge_rels imported the nonexistent
+        agent.db.database_manager — dormant until the TCB subscribeToSkill
+        mutation deployed, then it errored EVERY first subscribe (after the
+        local row was already saved). The subscribe call site is also
+        wrapped so rel-sync failures stay non-fatal."""
+        import inspect
+        src = inspect.getsource(sh._sync_cloud_tool_knowledge_rels)
+        assert "database_manager" not in src and "DatabaseManager" not in src
+        handler_src = inspect.getsource(sh.handle_subscribe_to_skill)
+        idx = handler_src.find("_sync_cloud_tool_knowledge_rels(")
+        assert idx != -1
+        assert "try:" in handler_src[max(0, idx - 300):idx]  # wrapped non-fatal
+
 
 class TestPaidSubscriptionGate:
     """Paid-skill subscribe gate: free = instant; paid rejects only when the
