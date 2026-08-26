@@ -60,11 +60,12 @@ def _make_ctx(*, missing_skill=None, org_rows=None):
 @pytest.fixture(autouse=True)
 def _patch_environment(tmp_path):
     # getECBotDataHome patched so _write_run_env never touches real appdata.
+    real_missing = dc._missing_system_prompts  # for tests of the real scan
     with patch.object(dc, "_missing_system_prompts", return_value=[]), \
          patch("agent.ec_agents.vehicle_affinity.resolve_local_vehicle_id",
                return_value="veh-local"), \
          patch("config.envi.getECBotDataHome", return_value=str(tmp_path)):
-        yield
+        yield real_missing
 
 
 class TestDeployDouyinCs:
@@ -158,6 +159,29 @@ class TestDeployDouyinCs:
         ctx.db.task_service.add_skill_to_task.return_value = {"success": False, "error": "boom"}
         with pytest.raises(RuntimeError, match="link task"):
             dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+
+
+class TestPromptStoresScanned:
+    """v0.9.95q incident: a CUSTOMER machine has the 抖店客服 prompts only in
+    subscribed_prompts/ (populated by subscribe-time download) — the
+    visibility scan must include that store, not just my_prompts."""
+
+    def test_subscribed_prompts_dir_counts(self, tmp_path, _patch_environment):
+        import json as _json
+        real_missing = _patch_environment  # the unpatched scanner
+        (tmp_path / "my_prompts").mkdir()
+        sub = tmp_path / "subscribed_prompts"
+        sub.mkdir()
+        (sub / "0_pr-287230.json").write_text(
+            _json.dumps({"id": "pr-287230", "title": "x"}), encoding="utf-8")
+
+        def fake_user_dir(user_email=None, subdir=None):
+            return str(tmp_path / (subdir or ""))
+
+        with patch("utils.user_path_helper.get_user_data_dir", side_effect=fake_user_dir), \
+             patch("agent.ec_skills.prompt_loader.SAMPLE_PROMPTS_DIR", str(tmp_path / "none")):
+            missing = real_missing(["pr-287230", "pr-999999"])
+        assert missing == ["pr-999999"]
 
 
 class TestFeigeRunEnv:

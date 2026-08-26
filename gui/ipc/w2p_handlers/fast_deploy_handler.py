@@ -115,6 +115,15 @@ def handle_fast_deploy_generate(request: IPCRequest,
                 env["ECAN_LOG_USER"] = str(log_user)
         except Exception:
             pass
+        # Auth token for the CLI's cloud fallbacks (e.g. prompt-visibility
+        # check for prompts not yet in the local stores).
+        try:
+            from app_context import AppContext
+            token = AppContext.get_main_window().get_auth_token()
+            if token:
+                env["ECAN_CLI_AUTH_TOKEN"] = str(token)
+        except Exception:
+            pass
         if runner_path is not None:
             env["ECAN_RUN_SCRIPT"] = str(runner_path)
         proc = subprocess.run(
