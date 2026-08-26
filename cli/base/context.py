@@ -51,15 +51,21 @@ class CLIContext:
     def username(self) -> Optional[str]:
         """Get current username.
 
-        Falls back to the ``ECAN_CLI_USER`` env var when there's no session,
-        so a trusted caller (e.g. the app's Fast Deploy handler, which runs
-        the CLI as a subprocess without a session file) can scope identity —
-        owner field + per-user DB path — to a specific user. This does NOT
+        ``ECAN_CLI_USER`` (set by a trusted caller — e.g. the app's Fast
+        Deploy handler, which runs the CLI as a subprocess scoped to the
+        CURRENTLY logged-in user) takes precedence over any
+        ``.ecan_session.json``: a stale session file from an earlier
+        ``ecan auth login`` must not silently redirect identity — and the
+        per-user DB path — to a different user (deep-trace finding
+        2026-08-27: deploys landed in an old login's DB). This does NOT
         grant auth (``is_authenticated`` still requires a real session).
         """
+        env_user = os.environ.get('ECAN_CLI_USER')
+        if env_user:
+            return env_user
         if self.session:
             return self.session.get('username')
-        return os.environ.get('ECAN_CLI_USER') or None
+        return None
 
     def _load_session(self) -> Optional[Dict[str, Any]]:
         """Load session from file."""

@@ -49,6 +49,28 @@ def _run_handler(tmp_path, frozen, write_result=None):
     return resp_holder, captured
 
 
+class TestCliUserPrecedence:
+    """ECAN_CLI_USER (set by the app for its subprocess) must beat a stale
+    .ecan_session.json — deep-trace 2026-08-27: an old `ecan auth login`
+    session silently redirected the deploy into a different user's DB."""
+
+    def test_env_beats_stale_session(self, tmp_path, monkeypatch):
+        from cli.base.context import CLIContext
+        (tmp_path / ".ecan_session.json").write_text(
+            '{"username": "old-login@stale"}', encoding="utf-8")
+        monkeypatch.setenv("ECAN_CLI_USER", "current@app")
+        ctx = CLIContext(project_root=tmp_path)
+        assert ctx.username == "current@app"
+
+    def test_session_used_when_no_env(self, tmp_path, monkeypatch):
+        from cli.base.context import CLIContext
+        (tmp_path / ".ecan_session.json").write_text(
+            '{"username": "logged-in@cli"}', encoding="utf-8")
+        monkeypatch.delenv("ECAN_CLI_USER", raising=False)
+        ctx = CLIContext(project_root=tmp_path)
+        assert ctx.username == "logged-in@cli"
+
+
 class TestFrozenLaunch:
     def test_frozen_uses_run_script_mechanism(self, tmp_path):
         resp, cap = _run_handler(tmp_path, frozen=True,
