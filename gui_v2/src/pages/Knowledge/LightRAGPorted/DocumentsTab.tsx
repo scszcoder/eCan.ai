@@ -735,7 +735,13 @@ const DocumentsTab: React.FC = () => {
   };
 
   const loadDocuments = async (silentRefresh: boolean = false, retryCount: number = 0) => {
-    const MAX_RETRIES = 3;
+    // LightRAG cold-start takes 6-10s on first launch (transformers/torch/
+    // langchain_core imported eagerly inside LightRAG 1.5.6's chunker
+    // chain). Default retries (3 × 2s = 6s) fall short on slow machines,
+    // so the user sees an empty grid + red toast. Bump to 10 × 2s = 20s
+    // so even 8s startups finish before we give up. Each retry only
+    // sleeps on cold start — once the server is up, retries are no-ops.
+    const MAX_RETRIES = 10;
     const RETRY_DELAY = 2000; // 2 seconds
     const isConnectionErrorMessage = (msg: string) => {
       const m = (msg || '').toLowerCase();
@@ -1020,11 +1026,18 @@ const DocumentsTab: React.FC = () => {
           if (response.success) {
               appendLog('已停止后续批次提交，并已发送停止当前处理请求');
               message.success('已停止后续批次提交，并已发送停止当前处理请求');
-              
+
               // Stop normal polling, start custom polling for this specific document
               console.log('[DocumentsTab] Pipeline cancelled, polling until document becomes deletable...');
               stopProgressPolling();
-              
+
+              // Force an immediate non-silent refresh so the UI flips out of
+              // 'processing' right away instead of waiting for the polling loop
+              // (silentRefresh=true skips setDocuments when JSON.stringify
+              // matches the cached array, which can hold the row stale for
+              // many seconds after the server already flipped it to FAILED).
+              await loadDocuments(false);
+
               let pollCount = 0;
               const maxPolls = 20; // Max 20 polls (60 seconds with 3s interval)
               const pollInterval = 3000;
