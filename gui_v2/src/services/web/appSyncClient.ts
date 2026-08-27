@@ -14,6 +14,17 @@ interface GraphQLResponse<T> {
   errors?: GraphQLError[];
 }
 
+const requestFailureMessage = (response: Response, payload: GraphQLResponse<unknown>): string => {
+  const graphQLError = payload.errors?.[0];
+  const code = typeof graphQLError?.extensions?.code === 'string'
+    ? ` [${graphQLError.extensions.code}]`
+    : '';
+  const message = graphQLError?.message
+    ? `: ${sanitizeGraphQLErrorMessage(graphQLError.message)}`
+    : '';
+  return `GraphQL request failed (HTTP ${response.status})${code}${message}`;
+};
+
 const sanitizeGraphQLErrorMessage = (message: string): string => {
   if (/wxAccessToken|access[_ ]?token|refresh[_ ]?token|provider[_ ]?token/i.test(message)) {
     return 'The sign-in request was rejected. Please sign in again.';
@@ -372,10 +383,25 @@ export const appSyncRequest = async <T>(
     }
 
     if (payload.errors && payload.errors.length > 0) {
-      throw new Error(sanitizeGraphQLErrorMessage(payload.errors[0]?.message || message));
+      console.warn('[AppSyncClient] GraphQL request failed', {
+        method: method || normalizedOperationName || 'anonymous',
+        endpoint: new URL(endpoint).origin,
+        httpStatus: response.status,
+        hasAuthorization: Boolean(initialHeaders.Authorization),
+        graphQLErrorCode: payload.errors[0]?.extensions?.code || null,
+      });
+      throw new Error(requestFailureMessage(response, payload));
     }
   }
 
-  if (!payload.data) throw new Error('AppSync response missing data');
+  if (!payload.data) {
+    console.warn('[AppSyncClient] GraphQL response missing data', {
+      method: method || normalizedOperationName || 'anonymous',
+      endpoint: new URL(endpoint).origin,
+      httpStatus: response.status,
+      hasAuthorization: Boolean(initialHeaders.Authorization),
+    });
+    throw new Error(`GraphQL response missing data (HTTP ${response.status})`);
+  }
   return payload.data;
 };

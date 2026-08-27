@@ -80,6 +80,19 @@ user-managed display name alongside it; never infer a `wxid_*` value.
 - Fresh web QR login redirected through the server callback.
 - The callback returned the raw OpenID account key.
 - Desktop login showed the same canonical `wechat_<openid>` identity.
+- The CloudBase custom-login ticket subject is the raw WeChat OpenID while the
+  legacy hashed eCan account key remains intact for backwards compatibility.
+- The browser exchanges the ticket with CloudBase and registers the resulting
+  CloudBase token with GraphQL to obtain its durable eCan bearer session.
+- GraphQL function version 11 was published with regenerated Prisma metadata
+  that includes `Org.owner` mapped to `agent_orgs.owner`.
+- Raw SCF alias verification confirms version 11 receives `[0,100)` production
+  traffic and version 10 receives the empty `[100,100)` range. The CloudBase
+  `fn get-route` formatter is not reliable for this rule order.
+- A fresh authenticated web session loaded owner-scoped organizations without
+  GraphQL fetch errors.
+- An unauthenticated GraphQL health probe returned the expected
+  `UNAUTHENTICATED` response, confirming the public endpoint is available.
 - CN production frontend build completed with:
 
   ```bash

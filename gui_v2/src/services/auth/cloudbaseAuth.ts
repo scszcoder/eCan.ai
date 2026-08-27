@@ -395,7 +395,7 @@ class CloudBaseAuthService {
 
     try {
       logger.info('[CloudBaseAuth] Redirecting to the server-owned WeChat OAuth flow');
-      window.location.assign('/cn/login_callback/wechat_login.php');
+      window.location.assign('/cn/login_callback/wechat_login.php?web=1');
       return { success: true };
     } catch (error) {
       logger.error('[CloudBaseAuth] CloudBase WeChat login error:', error);

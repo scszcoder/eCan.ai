@@ -252,9 +252,75 @@ const LoginCN: React.FC = () => {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, '').split('?')[1] || '');
+    const customTicket = urlParams.get('ticket') || hashParams.get('ticket');
+    const ticketOpenid = urlParams.get('openid') || hashParams.get('openid');
     const code = urlParams.get('code') || hashParams.get('code');
     const state = urlParams.get('state') || hashParams.get('state');
     const savedState = sessionStorage.getItem('wx_state');
+
+    if (customTicket && ticketOpenid) {
+      window.history.replaceState({}, '', `${window.location.pathname}#/login`);
+
+      (async () => {
+        try {
+          setLoginProgress('authenticating');
+          const cloudbase = (await import('@cloudbase/js-sdk')).default;
+          const app = cloudbase.init({
+            env: appConfig?.auth?.cloudbase_env_id || '',
+            region: 'ap-shanghai',
+          });
+          const auth = app.auth();
+          const ticketLogin = await auth.signInWithCustomTicket(
+            () => Promise.resolve(customTicket),
+          );
+          if (ticketLogin?.error) {
+            throw new Error(ticketLogin.error.message || 'CloudBase ticket sign-in failed');
+          }
+
+          const accessTokenResult = await auth.getAccessToken();
+          const accessToken = typeof accessTokenResult === 'string'
+            ? accessTokenResult
+            : accessTokenResult?.accessToken || '';
+          if (!accessToken) {
+            throw new Error('CloudBase did not return an access token');
+          }
+
+          const webSession = await cloudbaseAuth.registerWechatSession(accessToken);
+          if (!webSession.success || !webSession.sessionToken) {
+            throw new Error(webSession.error || 'Failed to create WeChat session');
+          }
+
+          const userIdentifier = `wechat_${ticketOpenid}`;
+          const userInfo = {
+            username: userIdentifier,
+            email: '',
+            name: '',
+            given_name: '',
+            family_name: '',
+            picture: '',
+            email_verified: false,
+            login_type: 'wechat' as const,
+          };
+          webAuthSession.setSession({
+            accessToken: webSession.sessionToken,
+            tokenType: 'Bearer',
+            expiresAt: webSession.expiresIn
+              ? Date.now() + webSession.expiresIn * 1000
+              : undefined,
+            userInfo: { ...userInfo, sub: ticketOpenid },
+          });
+          saveLoginSession(webSession.sessionToken, userInfo, 'Commander', 'wechat');
+          setLoginProgress('success');
+          setLoginSuccessful(true);
+          setLoginProgress('redirecting');
+        } catch (err: any) {
+          console.error('[WeChat Ticket Callback] Error:', err);
+          setLoginProgress('idle');
+          messageApi.error(err?.message || t('login.wechat_login_failed'));
+        }
+      })();
+      return;
+    }
 
     if (code && state && savedState && state === savedState) {
       const traceId = sessionStorage.getItem('wechat_auth_trace_id') || 'unknown';
