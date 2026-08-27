@@ -178,13 +178,12 @@ export const GRAPHQL_QUERIES = {
   GET_AGENT_SKILLS: `
     query GetAgentSkills($input: SkillQueryInput) {
       queryAgentSkills(input: $input) {
-        id askid cloud_id name owner description version level path status category source skillOwner
-        public rentable price price_model
+        id askid name owner description version level path status category source
+        public isPublic rentable price priceModel
         tags examples inputModes outputModes
-        config run_environment run_mode mapping_rules diagram
-        ui_info objectives need_inputs apps limitations
-        rating reviewCount rating_distribution usage_count
-        createdAt updatedAt extra_data
+        config capabilities diagram apps limitations
+        rating ratingCount installCount publishedAt
+        createdAt updatedAt
       }
     }
   `,
