@@ -175,6 +175,20 @@ export const GRAPHQL_QUERIES = {
     }
   `,
 
+  GET_AGENT_SKILLS: `
+    query GetAgentSkills($input: SkillQueryInput) {
+      queryAgentSkills(input: $input) {
+        id askid cloud_id name owner description version level path status category source skillOwner
+        public rentable price price_model
+        tags examples inputModes outputModes
+        config run_environment run_mode mapping_rules diagram
+        ui_info objectives need_inputs apps limitations
+        rating reviewCount rating_distribution usage_count
+        createdAt updatedAt extra_data
+      }
+    }
+  `,
+
   GET_SUBSCRIBED_SKILL_IDS: `
     query GetSubscribedSkillIds($owner: String) {
       getSubscribedSkillIds(owner: $owner)

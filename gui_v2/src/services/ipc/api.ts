@@ -558,13 +558,13 @@ export class IPCAPI {
       {
         method: 'get_agent_skills',
         graphql: {
-          query: GRAPHQL_QUERIES.GET_ALL_MINE,
-          resultPath: 'getAllMine.skills'
+          query: GRAPHQL_QUERIES.GET_AGENT_SKILLS,
+          resultPath: 'queryAgentSkills'
         }
       },
-      // IMPORTANT: GRAPHQL_QUERIES.GET_ALL_MINE only declares $owner and $userId.
-      // Do not pass extra variables like skill_ids, otherwise AppSync will reject the request.
-      { owner: username, userId: username }
+      // CloudBase derives ownership from the authenticated bearer. `skill_ids`
+      // is retained for the desktop IPC signature but is not a GraphQL filter.
+      { input: {} }
     );
     }
 
