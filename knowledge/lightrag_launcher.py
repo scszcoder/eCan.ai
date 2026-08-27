@@ -21,6 +21,11 @@ small set of surfaces where LightRAG has a gap eCan needs filled:
 6. Lambda proxy headers — when the LLM host is a Lambda Function URL,
    inject ``X-User-Id`` / ``X-Provider`` so the proxy can do per-user
    token accounting.
+6.5. LLM retry wrapper — ``AsyncOpenAI.chat.completions.create`` is wrapped
+   with exponential backoff for ``RateLimitError`` / ``APIConnectionError`` /
+   ``APITimeoutError`` / ``httpx`` network errors. LightRAG 1.5.6 has no
+   retry, so without this a transient 429 aborts the whole document.
+   Disabled via ``LIGHTRAG_LLM_RETRY=0``.
 7. Health monitoring — registers ``/health/status``, ``/health/workers``,
    ``/health/circuits`` (logic in ``knowledge/lightrag_health.py``).
 
@@ -99,6 +104,7 @@ from knowledge.lightrag_compat import (
 
 
 # ==================== Module Replacement ====================
+
 
 def patch_lightrag_init():
     """Inject custom chunker into LightRAG initialization
@@ -414,6 +420,107 @@ def patch_openai_client_for_lambda_proxy():
         logger.warning(f'[Launcher] Failed to patch OpenAI client for proxy: {e}')
 
 
+def patch_openai_client_for_retry_on_429():
+    """Wrap each OpenAI client's chat.completions.create with exponential backoff.
+
+    LightRAG 1.5.6's ``operate.py`` uses a blanket ``except Exception`` (line 4065)
+    around per-chunk LLM calls; any 429 / connection error / timeout aborts the
+    whole chunk and propagates up as a doc-level failure. There is no built-in
+    retry.
+
+    Wrapping the OpenAI client's ``chat.completions.create`` per-instance (via
+    ``__init__``) is the minimal surface to add retry: it catches the failure
+    at the network layer and re-issues the same request, leaving LightRAG's
+    call sites untouched.
+
+    Why per-instance instead of class-level: ``AsyncOpenAI.chat`` is a
+    ``cached_property`` in openai-sdk ≥ 1.x, so the class attribute cannot be
+    ``setattr``-replaced. Wrapping in ``__init__`` works for any SDK shape.
+
+    Only triggered on retriable conditions:
+    - openai.RateLimitError (HTTP 429)
+    - openai.APIConnectionError (network blip)
+    - openai.APITimeoutError (slow provider)
+    - httpx.ConnectError / httpx.ReadTimeout / httpx.TimeoutException (transports)
+
+    Non-retriable errors (400 bad request, 401 unauth, 422 content-length)
+    pass through unchanged so the user still sees a clear failure.
+
+    Degrades gracefully: if the OpenAI client shape changes upstream, the
+    wrapper falls back to no-op and emits a WARNING.
+    """
+    if os.environ.get('LIGHTRAG_LLM_RETRY', '1') != '1':
+        logger.info('[Launcher] LLM retry wrapper disabled via LIGHTRAG_LLM_RETRY=0')
+        return
+
+    max_retries = int(os.environ.get('LIGHTRAG_LLM_MAX_RETRIES', '3'))
+    initial_backoff = float(os.environ.get('LIGHTRAG_LLM_RETRY_BACKOFF_SEC', '1.0'))
+
+    try:
+        import asyncio as _asyncio
+        import openai
+        from openai import (
+            RateLimitError,
+            APIConnectionError,
+            APITimeoutError,
+        )
+
+        try:
+            import httpx
+            httpx_retriable = (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException)
+        except ImportError:
+            httpx_retriable = ()
+
+        retriable = (RateLimitError, APIConnectionError, APITimeoutError) + httpx_retriable
+    except ImportError as e:
+        logger.warning(f'[Launcher] Cannot import openai for retry wrapper: {e}')
+        return
+
+    try:
+        _original_init = openai.AsyncOpenAI.__init__
+
+        async def _create_with_retry(self, *args, **kwargs):
+            backoff = initial_backoff
+            last_exc = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return await self._llm_original_create(*args, **kwargs)
+                except retriable as e:
+                    last_exc = e
+                    if attempt == max_retries:
+                        logger.warning(
+                            f'[Launcher] LLM call exhausted retries '
+                            f'(attempt={attempt + 1}/{max_retries + 1}): {e}'
+                        )
+                        raise
+                    logger.info(
+                        f'[Launcher] LLM retriable error (attempt={attempt + 1}/'
+                        f'{max_retries + 1}), backing off {backoff:.1f}s: {e}'
+                    )
+                    await _asyncio.sleep(backoff)
+                    backoff *= 2
+            # Unreachable, but mypy/typing wants an explicit raise path
+            if last_exc is not None:
+                raise last_exc
+
+        def _patched_init(self, *args, **kwargs):
+            _original_init(self, *args, **kwargs)
+            # Cache and wrap the per-instance chat.completions.create.
+            # After this, every call from LightRAG goes through _create_with_retry.
+            self._llm_original_create = self.chat.completions.create
+            self.chat.completions.create = _create_with_retry.__get__(
+                self, type(self.chat.completions)
+            )
+
+        openai.AsyncOpenAI.__init__ = _patched_init
+        logger.info(
+            f'[Launcher] Wrapped AsyncOpenAI chat.completions.create with retry '
+            f'(max_retries={max_retries}, initial_backoff={initial_backoff}s)'
+        )
+    except Exception as e:
+        logger.warning(f'[Launcher] Failed to install LLM retry wrapper: {e}')
+
+
 def patch_health_monitoring():
     """
     Register health check routes and start health monitoring.
@@ -510,6 +617,11 @@ def apply_all_patches():
 
     # 6. Lambda proxy header injection (X-User-Id for per-user accounting).
     patch_openai_client_for_lambda_proxy()
+
+    # 6.5. LLM retry wrapper (exponential backoff on 429 / timeout / connection).
+    # LightRAG 1.5.6 has no retry; without this, transient cloud API failures
+    # abort the whole document. Disabled via LIGHTRAG_LLM_RETRY=0.
+    patch_openai_client_for_retry_on_429()
 
     # 7. Health monitoring (registers /health/* routes — actual logic lives in
     # knowledge/lightrag_health.py).
