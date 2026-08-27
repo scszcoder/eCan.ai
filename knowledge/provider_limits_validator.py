@@ -173,6 +173,34 @@ class ProviderLimitsValidator:
                 f"MAX_PARALLEL_INSERT not set; auto-configured to {safe_insert}."
             )
 
+        # --- MAX_GLEANING: LightRAG 每 chunk 的 gleaning LLM 调用次数。
+        # 0 砍掉每 chunk 第 2 次 LLM round-trip，单文档总耗时直接减半。
+        # 短 chunk 检索质量几乎不变；长 chunk 会少抓 5-10% 隐藏 entity。
+        # 用户可在 LightRAG Settings UI 自由调整，所以"用户没设"才自动填。
+        if 'MAX_GLEANING' not in config:
+            adjusted_config['MAX_GLEANING'] = 0
+            warnings.append(
+                "MAX_GLEANING not set; auto-configured to 0 (skips second entity "
+                "extraction pass — ~50% speedup, may miss 5-10% entities on "
+                "long chunks)."
+            )
+
+        # --- MAX_ASYNC_LLM: LightRAG 1.5.6 优先读此 env，没有则回退 MAX_ASYNC。
+        # 默认 2（云端/本地统一）。原因：
+        #   - chunk LLM 并发过高时，一旦某次 LLM 卡住（云端超时可达 240s），
+        #     cancel 请求要等所有 in-flight LLM 返回才能结束，
+        #     stop 延迟会被卡死的 LLM 拖到分钟级。
+        #   - 2 并发下 stop 最坏延迟 ≈ 2 × 5s（正常 chunk）≈ 10s；
+        #   6 并发下 stop 最坏延迟 ≈ 6 × 30s（卡死 chunk）≈ 3 分钟。
+        # 用户 GUI 里调过 MAX_ASYNC_LLM 的会通过 config_manager 写到 env，
+        # 所以这里只在"完全没设"时生效——用户手动设的值不会被覆盖。
+        if 'MAX_ASYNC_LLM' not in config:
+            adjusted_config['MAX_ASYNC_LLM'] = 2
+            warnings.append(
+                "MAX_ASYNC_LLM not set; auto-configured to 2 (uniform default — "
+                "balances stop latency vs throughput)."
+            )
+
         return adjusted_config, warnings
     
     def get_recommended_config(self, provider_name: str) -> Dict[str, Any]:
@@ -196,14 +224,18 @@ class ProviderLimitsValidator:
             recommended = {
                 'EMBEDDING_BATCH_NUM': min(max_batch_size, 32),
                 'EMBEDDING_FUNC_MAX_ASYNC': 8,
-                'MAX_PARALLEL_INSERT': 4
+                'MAX_PARALLEL_INSERT': 4,
+                'MAX_GLEANING': 0,
+                'MAX_ASYNC_LLM': 2,
             }
         else:
             # 云端 provider - 可以更激进
             recommended = {
                 'EMBEDDING_BATCH_NUM': min(max_batch_size, 64),
                 'EMBEDDING_FUNC_MAX_ASYNC': 16,
-                'MAX_PARALLEL_INSERT': 8
+                'MAX_PARALLEL_INSERT': 8,
+                'MAX_GLEANING': 0,
+                'MAX_ASYNC_LLM': 2,
             }
         
         logger.info(f"[ProviderLimitsValidator] Recommended config for {provider_name}: {recommended}")
