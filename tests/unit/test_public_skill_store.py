@@ -119,7 +119,7 @@ class TestUnsubscribeRemovesLocalRow:
     get_subscribed_skill_ids derives 已订阅 from) was never deleted, and
     the rel soft-delete crashed on a bogus ECDBManager import."""
 
-    def _unsubscribe(self, row_owner):
+    def _unsubscribe(self, row_owner, refs=(0, 0)):
         service = MagicMock()
         service.get_skill_by_id.return_value = {
             "success": True,
@@ -128,6 +128,7 @@ class TestUnsubscribeRemovesLocalRow:
         service.delete_skill.return_value = {"success": True}
         with patch.object(sh, "resolve_username", return_value=CUSTOMER), \
              patch.object(sh, "_get_skill_service", return_value=service), \
+             patch.object(sh, "_count_skill_references", return_value=refs), \
              patch.object(sh, "_soft_delete_agent_skill_rel", return_value={"success": True}), \
              patch.object(sh, "_remove_skill_from_memory"), \
              patch.object(sh, "_sync_skill_subscription_to_cloud", return_value=None), \
@@ -139,6 +140,14 @@ class TestUnsubscribeRemovesLocalRow:
             resp = sh.handle_unsubscribe_from_skill(MagicMock(), {"skillId": "skill_x",
                                                                  "username": CUSTOMER})
         return resp, service
+
+    def test_in_use_skill_blocks_unsubscribe(self):
+        """v0.9.95t incident: unsub/resub silently cascade-deleted the
+        agent↔skill / task↔skill rels of all 9 deployed agents."""
+        resp, service = self._unsubscribe(row_owner=AUTHOR, refs=(9, 8))
+        assert resp.get("error") == "SKILL_IN_USE"
+        assert "9" in resp["message"] and "8" in resp["message"]
+        service.delete_skill.assert_not_called()
 
     def test_third_party_row_deleted(self):
         resp, service = self._unsubscribe(row_owner=AUTHOR)

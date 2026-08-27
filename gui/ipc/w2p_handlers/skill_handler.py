@@ -980,6 +980,23 @@ def _sync_skill_subscription_to_cloud(request, params, skill_id: str, action: st
         return None
 
 
+def _count_skill_references(skill_service, skill_id: str) -> tuple:
+    """(agent_count, task_count) of active references to *skill_id* in the
+    local DB — used by the unsubscribe in-use guard."""
+    from agent.db.models.association_models import DBAgentSkillRel, DBAgentTaskSkillRel
+    from sqlalchemy.orm import Session
+
+    engine = getattr(skill_service, 'engine', None)
+    if engine is None:
+        return (0, 0)
+    with Session(engine) as session:
+        n_agents = session.query(DBAgentSkillRel).filter(
+            DBAgentSkillRel.skill_id == skill_id).count()
+        n_tasks = session.query(DBAgentTaskSkillRel).filter(
+            DBAgentTaskSkillRel.skill_id == skill_id).count()
+    return (n_agents, n_tasks)
+
+
 def _soft_delete_agent_skill_rel(skill_service, username: str, skill_id: str) -> dict:
     """Soft delete the agent_skill_rels record by setting status='inactive'.
 
@@ -1746,6 +1763,31 @@ def handle_unsubscribe_from_skill(request: IPCRequest, params: Optional[Dict[str
                     request, 'UNSUBSCRIBE_OWN_SKILL',
                     'Cannot unsubscribe from your own skill. Use delete instead.'
                 )
+
+        # In-use guard: unsubscribing deletes the local skill row, and
+        # delete_skill CASCADES the agent↔skill / task↔skill relation rows —
+        # re-subscribing later restores the skill but NOT the links, leaving
+        # agents with skill=None tasks that never run (v0.9.95t customer
+        # incident: an unsub/resub cycle silently unwired all 9 deployed
+        # agents). Block while referenced; the user must delete/reassign the
+        # dependents first.
+        if existing.get('success') and existing.get('data'):
+            try:
+                n_agents, n_tasks = _count_skill_references(skill_service, existing['data'].get('id', skill_id))
+                if n_agents or n_tasks:
+                    logger.warning(
+                        f"[skill_handler] Unsubscribe blocked for {skill_id}: in use by "
+                        f"{n_agents} agent(s) and {n_tasks} task(s)"
+                    )
+                    return create_error_response(
+                        request, 'SKILL_IN_USE',
+                        f'该技能正在被 {n_agents} 个智能体和 {n_tasks} 个任务使用，退订会使它们无法运行。'
+                        f'请先删除或改配这些智能体/任务后再退订。 '
+                        f'(Skill is in use by {n_agents} agent(s) and {n_tasks} task(s); '
+                        f'unsubscribing would break them. Delete or reassign them first.)'
+                    )
+            except Exception as ref_err:
+                logger.warning(f"[skill_handler] Unsubscribe in-use check failed (continuing): {ref_err}")
 
         # Get the local skill ID
         target_id = skill_id
