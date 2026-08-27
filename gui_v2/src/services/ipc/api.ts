@@ -577,7 +577,7 @@ export class IPCAPI {
           resultPath: 'getPublicSkills'
         }
       },
-      { owner: username }
+      { input: { isPublic: true } }
     );
     }
 

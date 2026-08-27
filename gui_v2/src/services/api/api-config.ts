@@ -167,8 +167,8 @@ export const GRAPHQL_QUERIES = {
 
   // ==================== Skills Store ====================
   GET_PUBLIC_SKILLS: `
-    query GetPublicSkills($owner: String) {
-      getPublicSkills(owner: $owner) {
+    query GetPublicSkills($input: AgentSkillQueryInput) {
+      queryAgentSkills(input: $input) {
         id name owner description level path public rentable source tags version
         rating reviewCount rating_distribution usage_count category
       }
