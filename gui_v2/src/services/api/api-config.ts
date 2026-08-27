@@ -167,7 +167,7 @@ export const GRAPHQL_QUERIES = {
 
   // ==================== Skills Store ====================
   GET_PUBLIC_SKILLS: `
-    query GetPublicSkills($input: AgentSkillQueryInput) {
+    query GetPublicSkills($input: SkillQueryInput) {
       queryAgentSkills(input: $input) {
         id name owner description level path public rentable source tags version
         rating reviewCount rating_distribution usage_count category
@@ -335,23 +335,11 @@ export const GRAPHQL_QUERIES = {
       getA2AMessages(channelId: $channelId, limit: $limit, nextToken: $nextToken) {
         items {
           id
-          channelId
-          sessionId
-          senderId
-          recipientId
+          toAgentId
+          fromAgentId
+          org
           timestamp
-          message {
-            role
-            parts {
-              type
-              text
-              metadata
-            }
-            metadata
-          }
-          metadata
-          historyLength
-          acceptedOutputModes
+          payload
         }
         nextToken
       }
@@ -436,19 +424,11 @@ export const GRAPHQL_MUTATIONS = {
     mutation SendCloudA2AMessage($input: A2AMessageInput!) {
       sendCloudA2AMessage(input: $input) {
         id
-        channelId
-        sessionId
-        senderId
-        recipientId
+        toAgentId
+        fromAgentId
+        org
         timestamp
-        message {
-          role
-          parts {
-            type
-            text
-            metadata
-          }
-        }
+        payload
       }
     }
   `,
@@ -457,19 +437,11 @@ export const GRAPHQL_MUTATIONS = {
     mutation SendA2AMessage($input: A2AMessageInput!) {
       sendA2AMessage(input: $input) {
         id
-        channelId
-        sessionId
-        senderId
-        recipientId
+        toAgentId
+        fromAgentId
+        org
         timestamp
-        message {
-          role
-          parts {
-            type
-            text
-            metadata
-          }
-        }
+        payload
       }
     }
   `,

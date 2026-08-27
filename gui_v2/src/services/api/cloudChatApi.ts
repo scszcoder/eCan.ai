@@ -44,6 +44,15 @@ export interface A2AMessageConnection {
   nextToken?: string;
 }
 
+interface CloudA2AMessage {
+  id: string;
+  toAgentId: string;
+  fromAgentId: string;
+  org: string;
+  payload: unknown;
+  timestamp?: string;
+}
+
 export interface SendA2AMessageInput {
   channelId: string;
   sessionId: string;
@@ -58,6 +67,40 @@ export interface SendA2AMessageInput {
   };
   metadata?: Record<string, any>;
   acceptedOutputModes?: string[];
+}
+
+function parsePayload(payload: unknown): Record<string, any> {
+  if (typeof payload === 'string') {
+    try {
+      return JSON.parse(payload);
+    } catch {
+      return {};
+    }
+  }
+  return payload && typeof payload === 'object' ? payload as Record<string, any> : {};
+}
+
+function toClientA2AMessage(row: CloudA2AMessage): A2AMessage {
+  const payload = parsePayload(row.payload);
+  const body = payload.message && typeof payload.message === 'object' ? payload.message : {};
+  const text = typeof body.content === 'string'
+    ? body.content
+    : typeof body.text === 'string' ? body.text : '';
+  return {
+    id: row.id,
+    channelId: String(payload.channelId || row.toAgentId),
+    sessionId: String(payload.sessionId || ''),
+    senderId: String(payload.senderId || row.fromAgentId),
+    recipientId: payload.recipientId || undefined,
+    timestamp: row.timestamp,
+    message: {
+      role: body.role || 'user',
+      parts: Array.isArray(body.parts) ? body.parts : [{ type: body.type || 'text', text }],
+    },
+    metadata: parsePayload(payload.metadata),
+    historyLength: payload.historyLength,
+    acceptedOutputModes: payload.acceptedOutputModes,
+  };
 }
 
 export interface ChatThread {
@@ -94,14 +137,17 @@ export const cloudChatApi = {
     try {
       logger.info('[CloudChatApi] Getting A2A messages for channel:', channelId);
       
-      const result = await appSyncRequest<{ getA2AMessages: A2AMessageConnection }>(
+      const result = await appSyncRequest<{ getA2AMessages: { items: CloudA2AMessage[]; nextToken?: string } }>(
         GRAPHQL_QUERIES.GET_A2A_MESSAGES,
         { channelId, limit, nextToken },
         undefined,
         'get_a2a_messages'
       );
       
-      const connection = result.getA2AMessages;
+      const connection = {
+        items: (result.getA2AMessages.items || []).map(toClientA2AMessage),
+        nextToken: result.getA2AMessages.nextToken,
+      };
       logger.info('[CloudChatApi] Got', connection.items?.length || 0, 'messages');
       
       return connection;
@@ -126,25 +172,21 @@ export const cloudChatApi = {
         senderId: input.senderId,
         recipientId: input.recipientId,
         message: {
-          role: input.message.role,
-          parts: input.message.parts.map(part => ({
-            type: part.type,
-            text: part.text,
-          })),
+          type: input.message.parts[0]?.type || 'text',
+          content: input.message.parts.map(part => part.text || '').join(''),
         },
-        // AWSJSON fields must be stringified
-        metadata: input.metadata ? JSON.stringify(input.metadata) : undefined,
+        metadata: input.metadata,
         acceptedOutputModes: input.acceptedOutputModes,
       };
       
-      const result = await appSyncRequest<{ sendCloudA2AMessage: A2AMessage }>(
+      const result = await appSyncRequest<{ sendCloudA2AMessage: CloudA2AMessage }>(
         GRAPHQL_MUTATIONS.SEND_CLOUD_A2A_MESSAGE,
         { input: graphqlInput },
         undefined,
         'send_cloud_a2a_message'
       );
       
-      const message = result.sendCloudA2AMessage;
+      const message = toClientA2AMessage(result.sendCloudA2AMessage);
       logger.info('[CloudChatApi] Message sent successfully:', message.id);
       
       return message;

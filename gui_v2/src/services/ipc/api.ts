@@ -574,7 +574,7 @@ export class IPCAPI {
         method: 'get_public_skills',
         graphql: {
           query: GRAPHQL_QUERIES.GET_PUBLIC_SKILLS,
-          resultPath: 'getPublicSkills'
+          resultPath: 'queryAgentSkills'
         }
       },
       { input: { isPublic: true } }
