@@ -370,6 +370,13 @@ const Tasks: React.FC = () => {
               }
             }
             message.success(t('pages.tasks.batchActions.deleteSuccess', { count: selectedTasks.length, defaultValue: `${selectedTasks.length} 个任务已删除` }));
+            // Close the grid detail modal BEFORE clearing the selection:
+            // it renders <TaskDetail task={selectedTask} isNew={false}> gated
+            // only on isGridDetailOpen, so a cleared selection with the modal
+            // still open crashed TaskDetail (task=null) → route-level
+            // 渲染失败 boundary until a manual page refresh.
+            setIsGridDetailOpen(false);
+            setIsAddingNew(false);
             selectItem(null as any);
             await handleRefresh();
           },
@@ -612,7 +619,7 @@ const Tasks: React.FC = () => {
           </ModalTitleRow>
         }
       >
-        {isGridDetailOpen ? (
+        {isGridDetailOpen && (selectedTask || isAddingNew) ? (
           <>
             <TaskDetail
               task={isAddingNew ? null : selectedTask}

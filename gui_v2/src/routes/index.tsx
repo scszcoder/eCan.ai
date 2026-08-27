@@ -175,8 +175,20 @@ class LazyErrorBoundary extends React.Component<{ children: React.ReactNode }, L
         };
     }
 
-    componentDidCatch(error: unknown) {
-        console.error('[LazyErrorBoundary] Route lazy load failed:', error);
+    private lastAutoRetryAt = 0;
+
+    componentDidCatch(error: Error, info: React.ErrorInfo) {
+        console.error('[LazyErrorBoundary] Render failed:', error, info?.componentStack || '');
+        // Self-heal: transient post-mutation crashes (e.g. a modal briefly
+        // rendering with cleared state) recover on a plain re-render — the
+        // manual 重试加载 button already proved that. Auto-retry ONCE; if the
+        // same crash recurs within 5s, keep the error UI so a real bug is
+        // still visible instead of looping.
+        const now = Date.now();
+        if (now - this.lastAutoRetryAt > 5000) {
+            this.lastAutoRetryAt = now;
+            setTimeout(() => this.setState({ hasError: false, errorMessage: '' }), 50);
+        }
     }
 
     handleRetry = () => {
