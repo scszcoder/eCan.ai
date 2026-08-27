@@ -95,9 +95,10 @@ def test_get_app_config_is_pre_auth_whitelisted():
 # ---------------------------------------------------------------------------
 # Test 2: payload shape is stable and matches AppConfigContext.normalize()
 # ---------------------------------------------------------------------------
-EXPECTED_KEYS = {"app_id", "is_cn", "auth_type", "auth"}
+EXPECTED_KEYS = {"app_id", "is_cn", "auth_type", "auth", "cloud"}
 EXPECTED_AUTH_KEYS = {"cloudbase_env_id", "wechat_app_id",
                       "cognito_domain", "cognito_client_id"}
+EXPECTED_CLOUD_KEYS = {"graphql_endpoint"}
 
 
 @pytest.mark.parametrize("app_id_value,expected_is_cn,expected_auth_type", [
@@ -132,6 +133,10 @@ def test_ipc_get_app_config_payload_shape(app_id_value, expected_is_cn,
     )
     for k in EXPECTED_AUTH_KEYS:
         assert isinstance(auth[k], str), f"auth.{k} must be string"
+
+    cloud = payload["cloud"]
+    assert set(cloud.keys()) == EXPECTED_CLOUD_KEYS
+    assert isinstance(cloud["graphql_endpoint"], str)
 
 
 # ---------------------------------------------------------------------------

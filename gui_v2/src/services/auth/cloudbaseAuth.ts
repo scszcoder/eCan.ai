@@ -1,9 +1,5 @@
 /**
  * CloudBase Authentication Service
- * 腾讯云 CloudBase 认证服务前端 SDK
- *
- * 支持的登录方式：
- * 1. 邮箱密码登录
  * 2. 手机号 + 验证码登录
  * 3. 微信登录
  * 4. 自定义登录 Ticket
@@ -91,6 +87,10 @@ const STORAGE_KEYS = {
   CLOUDBASE_REFRESH_TOKEN: 'cloudbase_refresh_token',
   CLOUDBASE_USER_INFO: 'cloudbase_user_info',
 } as const;
+
+export function getWechatOAuthRedirectUri(): string {
+  return `${window.location.origin}${window.location.pathname}#/login`;
+}
 
 /**
  * Extract a user-facing error message from a GraphQL response, logging the raw
@@ -378,38 +378,24 @@ class CloudBaseAuthService {
 
 
   /**
-   * 使用 CloudBase 托管登录页进行微信登录（推荐，无需备案域名）
+   * Start the server-owned WeChat OAuth flow.
    *
-   * 流程：
-   * 1. 调用 CloudBase 提供的链接（CloudBase 已自动管理回调域名）
-   * 2. 用户扫码授权后 CloudBase 处理回调
-   * 3. 通过 URL 参数把 token 返回到前端
+   * The callback exchanges the authorization code with WeChat and receives
+   * the provider's raw OpenID. Keeping this exchange server-side protects
+   * the app secret and gives web and desktop the same account identity.
    */
   async loginWithCloudBaseWechat(wechatAppId?: string): Promise<CloudBaseAuthResult> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
 
-    const appId = (wechatAppId || import.meta.env.VITE_WECHAT_APP_ID || '').trim();
-    if (!appId) {
+    if (!(wechatAppId || import.meta.env.VITE_WECHAT_APP_ID || '').trim()) {
       return { success: false, error: 'WeChat login is not configured' };
     }
 
     try {
-      const state = Math.random().toString(36).slice(2);
-      sessionStorage.setItem('wx_state', state);
-      const redirectUri = `${window.location.origin}${window.location.pathname}#/login`;
-      const providerUrl = new URL('https://open.weixin.qq.com/connect/qrconnect');
-      providerUrl.search = new URLSearchParams({
-        appid: appId,
-        redirect_uri: redirectUri,
-        response_type: 'code',
-        scope: 'snsapi_login',
-        state,
-      }).toString();
-
-      logger.info('[CloudBaseAuth] Redirecting to WeChat Open Platform login');
-      window.location.assign(providerUrl.toString());
+      logger.info('[CloudBaseAuth] Redirecting to the server-owned WeChat OAuth flow');
+      window.location.assign('/cn/login_callback/wechat_login.php');
       return { success: true };
     } catch (error) {
       logger.error('[CloudBaseAuth] CloudBase WeChat login error:', error);

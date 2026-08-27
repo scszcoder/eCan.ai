@@ -26,6 +26,10 @@ export interface AuthConfig {
   cognito_client_id: string;
 }
 
+export interface CloudConfig {
+  graphql_endpoint: string;
+}
+
 export interface AppConfig {
   // Identity
   app_id: string;
@@ -34,6 +38,9 @@ export interface AppConfig {
 
   // Auth
   auth: AuthConfig;
+
+  // Public cloud API endpoints
+  cloud: CloudConfig;
 }
 
 interface AppConfigContextValue {
@@ -65,6 +72,7 @@ export function getCachedAppConfig(): AppConfig | null {
  */
 function normalize(raw: any): AppConfig {
   const auth = (raw && raw.auth) || {};
+  const cloud = (raw && raw.cloud) || {};
   return {
     app_id: raw?.app_id ?? 'intl',
     is_cn: !!raw?.is_cn,
@@ -74,6 +82,9 @@ function normalize(raw: any): AppConfig {
       wechat_app_id: auth.wechat_app_id || '',
       cognito_domain: auth.cognito_domain || '',
       cognito_client_id: auth.cognito_client_id || '',
+    },
+    cloud: {
+      graphql_endpoint: cloud.graphql_endpoint || '',
     },
   };
 }
@@ -178,15 +189,19 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
       // (all retries exhausted) the spinner finally gives way to the
       // fallback config — and ``refetch`` is wired so the user can
       // retry by reloading or by code paths that detect backend ready.
+      const isCnBuild = import.meta.env.VITE_APP_ID === 'cn';
       const fallback: AppConfig = {
-        app_id: 'intl',
-        is_cn: false,
-        auth_type: 'cognito',
+        app_id: isCnBuild ? 'cn' : 'intl',
+        is_cn: isCnBuild,
+        auth_type: isCnBuild ? 'cloudbase' : 'cognito',
         auth: {
-          cloudbase_env_id: '',
-          wechat_app_id: '',
+          cloudbase_env_id: isCnBuild ? (import.meta.env.VITE_CLOUDBASE_ENV_ID || '') : '',
+          wechat_app_id: isCnBuild ? (import.meta.env.VITE_WECHAT_APP_ID || '') : '',
           cognito_domain: '',
           cognito_client_id: '',
+        },
+        cloud: {
+          graphql_endpoint: import.meta.env.VITE_APPSYNC_ENDPOINT || '',
         },
       };
       setConfig(fallback);

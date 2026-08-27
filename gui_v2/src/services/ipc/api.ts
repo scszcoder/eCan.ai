@@ -11,6 +11,7 @@ import { apiRouter } from '../api/api-router';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../api/api-config';
 import { useUserStore } from '../../stores/userStore';
 import { detectPlatform } from '../../config/platform';
+import { getCachedAppConfig } from '../../contexts/AppConfigContext';
 
 const getLoginRedirectUrl = (): string => {
     if (window.location.protocol === 'file:') {
@@ -510,22 +511,28 @@ export class IPCAPI {
             }
         }
 
-        const params = company ? { username, company } : { username };
+        const isCloudBase = getCachedAppConfig()?.auth_type === 'cloudbase';
+        const params = isCloudBase
+            ? {}
+            : company ? { username, company } : { username };
         const response = await apiRouter.execute<any>(
       {
         method: 'get_all_org_agents',
         graphql: {
-          query: GRAPHQL_QUERIES.GET_ORG_AGENT_TREE,
+          query: isCloudBase
+              ? GRAPHQL_QUERIES.GET_ORG_AGENT_TREE_CLOUDBASE
+              : GRAPHQL_QUERIES.GET_ORG_AGENT_TREE,
           resultPath: 'getOrgAgentTree'
         }
       },
       params
     );
         
-        // Wrap the tree response in {orgs: ...} format expected by the store
-        if (response.success && response.data) {
-            // If data is already wrapped with orgs, use as-is; otherwise wrap it
-            const wrappedData = response.data.orgs ? response.data : { orgs: response.data };
+        // Wrap the tree response in {orgs: ...} format expected by the store.
+        // CloudBase returns null when a new account has not created an organization yet.
+        if (response.success) {
+          // If data is already wrapped with orgs, use as-is; otherwise wrap it.
+          const wrappedData = response.data?.orgs ? response.data : { orgs: response.data ?? null };
             return { ...response, data: wrappedData as T };
         }
         return response as APIResponse<T>;

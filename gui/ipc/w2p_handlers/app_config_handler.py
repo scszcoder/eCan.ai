@@ -29,6 +29,7 @@ def _build_app_config() -> Dict[str, Any]:
     wechat_app_id = ""
     cognito_domain = ""
     cognito_client_id = ""
+    graphql_endpoint = ""
     try:
         from auth.auth_config import AuthConfig
         if is_cn_flag:
@@ -36,6 +37,8 @@ def _build_app_config() -> Dict[str, Any]:
             cloudbase_env_id = getattr(cb, "ENV_ID", "") or ""
             wx = AuthConfig.WECHAT
             wechat_app_id = getattr(wx, "APP_ID", "") or ""
+            app_sync = AuthConfig.APPSYNC
+            graphql_endpoint = getattr(app_sync, "GRAPHQL_ENDPOINT", "") or ""
         else:
             cog = AuthConfig.COGNITO
             cognito_domain = getattr(cog, "DOMAIN", "") or ""
@@ -52,6 +55,9 @@ def _build_app_config() -> Dict[str, Any]:
             "wechat_app_id": wechat_app_id,
             "cognito_domain": cognito_domain,
             "cognito_client_id": cognito_client_id,
+        },
+        "cloud": {
+            "graphql_endpoint": graphql_endpoint,
         },
     }
 

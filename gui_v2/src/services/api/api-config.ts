@@ -84,6 +84,25 @@ export const GRAPHQL_QUERIES = {
     }
   `,
 
+  GET_ORG_AGENT_TREE_CLOUDBASE: `
+    fragment OrgTreeNodeFields on OrgTree {
+      id name description org_type level sort_order status parent_id
+      agents { id name description status created_at updated_at owner avatar_resource_id org_id org_ids skills tasks }
+    }
+    query GetOrgAgentTree($rootId: ID) {
+      getOrgAgentTree(rootId: $rootId) {
+        ...OrgTreeNodeFields
+        children {
+          ...OrgTreeNodeFields
+          children {
+            ...OrgTreeNodeFields
+            children { ...OrgTreeNodeFields }
+          }
+        }
+      }
+    }
+  `,
+
   QUERY_ORGS: `
     query QueryOrgs($input: OrgQueryInput) {
       queryOrgs(input: $input) { id name description org_type }
