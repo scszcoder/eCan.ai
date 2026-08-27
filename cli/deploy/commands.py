@@ -352,27 +352,6 @@ def _load_system_skill(name: str):
     return None
 
 
-def _first_vehicle_id(ctx):
-    """Best-effort local vehicle id (needed for agent↔task execution links)."""
-    try:
-        svc = ctx.db.vehicle_service
-    except Exception:
-        return None
-    for method in ("query_vehicles", "get_all_vehicles", "list_vehicles", "get_vehicles"):
-        fn = getattr(svc, method, None)
-        if not callable(fn):
-            continue
-        try:
-            res = fn()
-        except Exception:
-            continue
-        data = res.get("data") if isinstance(res, dict) else res
-        if data:
-            first = data[0]
-            return first.get("id") if isinstance(first, dict) else getattr(first, "id", None)
-    return None
-
-
 def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     """Create the real Douyin/抖店 CS deployment (shared-skill model).
     Returns (plan, log, created). Raises on hard failure — the caller turns
@@ -423,6 +402,11 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
                if len(store_urls) > 1 else f"Task variables: store_url={store_urls[0]}")
 
     # ── Vehicle: pin the new agents to THIS machine (affinity gate).
+    # ONLY the verified local machine id may be pinned. Never fall back to an
+    # arbitrary DB row: on the v0.9.95t customer machine the first row was a
+    # stale vehicle, every agent got pinned to it, and the affinity gate then
+    # skipped ALL of them at launch ("assigned to vehicle cccdef54.., local
+    # vehicle is 3bee2c61.."). Unpinned agents fail OPEN — they run anywhere.
     vehicle_id = None
     try:
         from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id
@@ -431,9 +415,7 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     except Exception as e:
         log.append(f"WARNING: local vehicle id resolution failed ({e}).")
     if not vehicle_id:
-        vehicle_id = _first_vehicle_id(ctx)
-    if not vehicle_id:
-        log.append("WARNING: no vehicle id — agent↔task execution links skipped.")
+        log.append("WARNING: no local vehicle id — agents created UNPINNED (they will run on any host).")
 
     # ── Sales organization.
     org_id = _ensure_sales_org(ctx, owner, log)
