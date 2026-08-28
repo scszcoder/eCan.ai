@@ -99,3 +99,45 @@ user-managed display name alongside it; never infer a `wxid_*` value.
   NODE_OPTIONS=--max-old-space-size=4096 npm run build -- --mode cn.web.production
   ```
 - PHP callback syntax validation passed.
+
+## Web Recovery Follow-Up
+
+**Date:** 2026-08-28
+**Status:** Verified in production
+
+The post-login CN web application now loads its organization, personal skill,
+public marketplace, and shared prompt data without GraphQL fetch failures.
+
+### CloudBase API Contracts Corrected
+
+- Web skills use `queryAgentSkills(input: {})` for caller-accessible skills and
+  `queryAgentSkills(input: { isPublic: true })` for the public catalog. Both
+  requests now select only fields declared by the CloudBase `AgentSkill` type.
+- The public catalog selection includes `isPublic`; the UI normalizes the
+  public flag before applying marketplace filters.
+- Web prompts use `getPrompts(owner)`, which returns the caller's prompts,
+  global public prompts, and prompts referenced by accessible public skills.
+  Non-owned prompt records remain read-only in the UI.
+- The web-only initialization badge is suppressed because its status endpoint
+  exists only in the desktop IPC runtime.
+
+### Skill Editor Chat Recovery
+
+The Skill Editor failed with `requestBody is not defined`. The CloudBase
+`llm_proxy` function destructured `requestBody` inside `fetchUpstream()` but
+referenced it from `main()`. The request-body extraction now occurs in `main()`,
+before the upstream invocation.
+
+The web API router also no longer injects the legacy `owner` property into
+typed `skill_editor.*` mutation inputs. Those GraphQL inputs derive ownership
+from the verified bearer and do not declare an `owner` field.
+
+### Validation Completed
+
+- Fresh authenticated web use confirmed Skills, shared Prompts, and Skill
+  Editor chat all work.
+- `node cn/tencent/llm_proxy/test.js` and `node --check` passed before proxy
+  deployment.
+- The CN production web build passed after each client contract correction.
+- Production schema probes for the final Skills and Prompts queries reached
+  the expected bearer gate with no GraphQL field/type validation error.
