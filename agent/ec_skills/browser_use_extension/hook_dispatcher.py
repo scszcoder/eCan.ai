@@ -62,7 +62,7 @@ from .hook_api import (
 
 # Route INFO/WARN/ERROR into the shared eCan log stream so per-stage
 # hook decisions are visible alongside BrowserAutomation lines.
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 # Package prefix whose callers are allowed to register Tier-0 hooks.  Keep
 # this list narrow; it's the structural (not conventional) guard.

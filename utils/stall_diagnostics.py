@@ -40,7 +40,7 @@ import threading
 import traceback
 import logging
 
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 _CANARY_INTERVAL_S = 0.1
 _STALL_LAG_S = float(os.environ.get("ECAN_STALL_DIAG_LAG_S", "1.5") or "1.5")

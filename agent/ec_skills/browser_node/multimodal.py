@@ -46,7 +46,7 @@ import json
 import logging
 from typing import Any
 
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 
 # Mime media-type allowlist for browser-use's ``ImageURL.media_type``.

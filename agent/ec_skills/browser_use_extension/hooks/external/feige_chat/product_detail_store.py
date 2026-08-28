@@ -28,7 +28,11 @@ import re
 import threading
 import time
 
-logger = logging.getLogger("eCan")
+# CN builds name the app logger "eCan.cn" (propagate=False) — a bare
+# getLogger("eCan") record never reaches its handlers, silencing this
+# module's entire log output in packaged CN apps (v0.9.95u incident:
+# the WS reader looked dead because none of its lines could land).
+from utils.logger_helper import logger_helper as logger
 
 _lock = threading.Lock()
 _by_goods: dict[str, tuple[float, str]] = {}    # product_id -> (ts, detail)

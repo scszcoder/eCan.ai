@@ -79,7 +79,7 @@ if not _DURABILITY_STARTUP_SCAN_DONE:
             _dur_abort()
     except Exception as _dur_err:
         import logging as _dur_logging
-        _dur_logging.getLogger("eCan").warning(
+        __import__("utils.logger_helper", fromlist=["logger_helper"]).logger_helper.warning(
             f"[FEIGE-DURABILITY] startup abort scan failed: {_dur_err}"
         )
 

@@ -42,7 +42,7 @@ from pydantic import BaseModel, Field
 
 from .hook_loader import list_available_bundles
 
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 InstallSource = Literal["builtin", "local", "catalog"]
 SignatureStatus = Literal["trusted", "verified", "unsigned", "untrusted", "n/a"]

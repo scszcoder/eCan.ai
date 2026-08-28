@@ -28,7 +28,11 @@ from typing import Any
 
 from . import human_mode, ws_coverage, ws_reader, ws_session
 
-logger = logging.getLogger("eCan")
+# CN builds name the app logger "eCan.cn" (propagate=False) — a bare
+# getLogger("eCan") record never reaches its handlers, silencing this
+# module's entire log output in packaged CN apps (v0.9.95u incident:
+# the WS reader looked dead because none of its lines could land).
+from utils.logger_helper import logger_helper as logger
 
 # ws029: the observer owns the only CDP handle to the dedicated DETECTION tab's
 # authed page socket — an IDLE renderer (sidebar poll only). Register an injector

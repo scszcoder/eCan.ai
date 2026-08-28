@@ -46,7 +46,11 @@ from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.system_mess
     first_system_row_match,
 )
 
-logger = logging.getLogger("eCan")
+# CN builds name the app logger "eCan.cn" (propagate=False) — a bare
+# getLogger("eCan") record never reaches its handlers, silencing this
+# module's entire log output in packaged CN apps (v0.9.95u incident:
+# the WS reader looked dead because none of its lines could land).
+from utils.logger_helper import logger_helper as logger
 
 __all__ = ["before_prompt_build_hook", "register"]
 

@@ -66,7 +66,11 @@ from agent.ec_skills.node_runtime.frontdesk_dispatch import (
 from . import dispatch_state as _ds
 from . import typing_lock as _typing_lock
 
-logger = logging.getLogger("eCan")
+# CN builds name the app logger "eCan.cn" (propagate=False) — a bare
+# getLogger("eCan") record never reaches its handlers, silencing this
+# module's entire log output in packaged CN apps (v0.9.95u incident:
+# the WS reader looked dead because none of its lines could land).
+from utils.logger_helper import logger_helper as logger
 
 __all__ = ["before_run_hook", "before_session_setup_hook", "register", "route_inbound_customer_ws"]
 

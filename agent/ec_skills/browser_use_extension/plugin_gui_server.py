@@ -44,7 +44,7 @@ from typing import Optional
 from . import plugin_registry
 from .hook_loader import _read_manifest_file  # type: ignore[attr-defined]
 
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 
 _ALLOWED_EXTS = {
