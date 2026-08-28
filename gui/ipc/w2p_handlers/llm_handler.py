@@ -346,6 +346,16 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                     'default_llm_model': ctx.get_config_manager().general_settings.default_llm_model
                 }
         
+        # Broadcast providersUpdated so LightRAG UI can refresh immediately
+        try:
+            from gui.LocalServer import app_ws_manager
+            app_ws_manager.broadcast_sync('lightrag.providersUpdated', {
+                'provider_type': 'llm',
+                'provider': provider_identifier,
+            })
+        except Exception as broadcast_err:
+            logger.debug(f"[LLM] Could not broadcast providersUpdated: {broadcast_err}")
+
         return create_success_response(request, response_data)
 
     except Exception as e:

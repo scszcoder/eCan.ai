@@ -110,6 +110,16 @@ const Header: React.FC<HeaderProps> = ({ activeTab }) => {
     return t('pages.knowledge.lightrag.headerStatus.idle');
   };
 
+  // 从 LightRAG 1.5.6 latest_message 解析 "Chunk N of M ..." 的实时摘要。
+  // 文档级加工完成阶段消息也可能命中（无 chunk 前缀），需要保守返回 null。
+  const latestMessage = processingProgress?.pipeline?.latest_message;
+  const CHUNK_SUMMARY_REGEX =
+    /Chunk\s+(\d+)\s+of\s+(\d+)\s+extracted\s+(\d+)\s+Ent\s*\+\s*(\d+)\s+Rel/i;
+  const chunkSummaryMatch = latestMessage ? CHUNK_SUMMARY_REGEX.exec(latestMessage) : null;
+  const chunkSummary = chunkSummaryMatch
+    ? `Chunk ${chunkSummaryMatch[1]}/${chunkSummaryMatch[2]} · ${chunkSummaryMatch[3]} Ent + ${chunkSummaryMatch[4]} Rel`
+    : null;
+
   // 使用主题 token 的背景色
   const headerBg = token.colorBgContainer;
 
@@ -150,6 +160,23 @@ const Header: React.FC<HeaderProps> = ({ activeTab }) => {
               <span style={{ fontWeight: 500 }}>
                 {getStatusText()}
               </span>
+              {chunkSummary && (
+                <Tooltip title={latestMessage} placement="bottom">
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: token.colorTextSecondary,
+                      fontWeight: 400,
+                      whiteSpace: 'nowrap',
+                      maxWidth: 320,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }}
+                  >
+                    · {chunkSummary}
+                  </span>
+                </Tooltip>
+              )}
             </div>
           </Tooltip>
         )}

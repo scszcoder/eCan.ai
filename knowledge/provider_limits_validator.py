@@ -121,35 +121,86 @@ class ProviderLimitsValidator:
     
     def validate_and_adjust_config(self, provider_name: str, config: Dict[str, Any]) -> Tuple[Dict[str, Any], list]:
         """
-        验证并调整配置，确保所有值符合 provider 限制
-        
+        验证并调整配置，确保所有值符合 provider 限制。
+
         Args:
             provider_name: Provider 名称
             config: 配置字典（包含 EMBEDDING_BATCH_NUM 等）
-        
+
         Returns:
             (adjusted_config, warnings)
-            - adjusted_config: 调整后的配置字典
+            - adjusted_config: 调整后的配置字典（缺失字段会自动填入安全默认值）
             - warnings: 警告信息列表
         """
         adjusted_config = config.copy()
         warnings = []
-        
-        # 验证 EMBEDDING_BATCH_NUM
-        if 'EMBEDDING_BATCH_NUM' in config:
+
+        limits = self.get_provider_limits(provider_name)
+        max_batch_size = limits.get('max_batch_size', 128)
+
+        # --- EMBEDDING_BATCH_NUM: 用户未配置时自动填入安全默认值 ---
+        if 'EMBEDDING_BATCH_NUM' not in config:
+            safe_batch = min(max_batch_size, 64)
+            adjusted_config['EMBEDDING_BATCH_NUM'] = safe_batch
+            warnings.append(
+                f"EMBEDDING_BATCH_NUM not set; auto-configured to {safe_batch} for {provider_name}."
+            )
+        else:
             try:
                 batch_size = int(config['EMBEDDING_BATCH_NUM'])
                 is_valid, adjusted_value, warning = self.validate_batch_size(provider_name, batch_size)
-                
                 if not is_valid:
                     adjusted_config['EMBEDDING_BATCH_NUM'] = adjusted_value
                     warnings.append(warning)
-                    
             except (ValueError, TypeError) as e:
                 logger.error(f"[ProviderLimitsValidator] Invalid EMBEDDING_BATCH_NUM value: {config['EMBEDDING_BATCH_NUM']}")
-        
-        # 可以在这里添加其他配置项的验证（如并发数等）
-        
+
+        # --- EMBEDDING_FUNC_MAX_ASYNC: 用户未配置时自动填入安全默认值 ---
+        if 'EMBEDDING_FUNC_MAX_ASYNC' not in config:
+            is_local = self._is_local_provider(provider_name)
+            safe_async = 8 if is_local else 16
+            adjusted_config['EMBEDDING_FUNC_MAX_ASYNC'] = safe_async
+            warnings.append(
+                f"EMBEDDING_FUNC_MAX_ASYNC not set; auto-configured to {safe_async} for {provider_name}."
+            )
+
+        # --- MAX_PARALLEL_INSERT: 用户未配置时自动填入安全默认值 ---
+        if 'MAX_PARALLEL_INSERT' not in config:
+            is_local = self._is_local_provider(provider_name)
+            safe_insert = 4 if is_local else 8
+            adjusted_config['MAX_PARALLEL_INSERT'] = safe_insert
+            warnings.append(
+                f"MAX_PARALLEL_INSERT not set; auto-configured to {safe_insert}."
+            )
+
+        # --- MAX_GLEANING: LightRAG 每 chunk 的 gleaning LLM 调用次数。
+        # 0 砍掉每 chunk 第 2 次 LLM round-trip，单文档总耗时直接减半。
+        # 短 chunk 检索质量几乎不变；长 chunk 会少抓 5-10% 隐藏 entity。
+        # 用户可在 LightRAG Settings UI 自由调整，所以"用户没设"才自动填。
+        if 'MAX_GLEANING' not in config:
+            adjusted_config['MAX_GLEANING'] = 0
+            warnings.append(
+                "MAX_GLEANING not set; auto-configured to 0 (skips second entity "
+                "extraction pass — ~50% speedup, may miss 5-10% entities on "
+                "long chunks)."
+            )
+
+        # --- MAX_ASYNC_LLM: LightRAG 1.5.6 优先读此 env，没有则回退 MAX_ASYNC。
+        # 默认 2（云端/本地统一）。原因：
+        #   - chunk LLM 并发过高时，一旦某次 LLM 卡住（云端超时可达 240s），
+        #     cancel 请求要等所有 in-flight LLM 返回才能结束，
+        #     stop 延迟会被卡死的 LLM 拖到分钟级。
+        #   - 2 并发下 stop 最坏延迟 ≈ 2 × 5s（正常 chunk）≈ 10s；
+        #   6 并发下 stop 最坏延迟 ≈ 6 × 30s（卡死 chunk）≈ 3 分钟。
+        # 用户 GUI 里调过 MAX_ASYNC_LLM 的会通过 config_manager 写到 env，
+        # 所以这里只在"完全没设"时生效——用户手动设的值不会被覆盖。
+        if 'MAX_ASYNC_LLM' not in config:
+            adjusted_config['MAX_ASYNC_LLM'] = 2
+            warnings.append(
+                "MAX_ASYNC_LLM not set; auto-configured to 2 (uniform default — "
+                "balances stop latency vs throughput)."
+            )
+
         return adjusted_config, warnings
     
     def get_recommended_config(self, provider_name: str) -> Dict[str, Any]:
@@ -173,14 +224,18 @@ class ProviderLimitsValidator:
             recommended = {
                 'EMBEDDING_BATCH_NUM': min(max_batch_size, 32),
                 'EMBEDDING_FUNC_MAX_ASYNC': 8,
-                'MAX_PARALLEL_INSERT': 4
+                'MAX_PARALLEL_INSERT': 4,
+                'MAX_GLEANING': 0,
+                'MAX_ASYNC_LLM': 2,
             }
         else:
             # 云端 provider - 可以更激进
             recommended = {
                 'EMBEDDING_BATCH_NUM': min(max_batch_size, 64),
                 'EMBEDDING_FUNC_MAX_ASYNC': 16,
-                'MAX_PARALLEL_INSERT': 8
+                'MAX_PARALLEL_INSERT': 8,
+                'MAX_GLEANING': 0,
+                'MAX_ASYNC_LLM': 2,
             }
         
         logger.info(f"[ProviderLimitsValidator] Recommended config for {provider_name}: {recommended}")

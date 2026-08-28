@@ -70,6 +70,7 @@ class LightragServer:
         self._self_health_check_thread = None
         self._last_health_check_time = 0
         self._unhealthy_count = 0
+        self._unhealthy_count_lock = threading.Lock()  # guards _unhealthy_count
         self._max_unhealthy = 3  # Restart after 3 consecutive unhealthy checks
 
         # ---- vLLM max_model_len cache (persistent across restarts) ----
@@ -80,8 +81,10 @@ class LightragServer:
         # waiting for another error.  The cache key is the LLM_MODEL name so
         # multiple models get separate entries.
         self._vllm_cache: dict = {}       # in-memory: model -> max_model_len
+        self._vllm_cache_lock = threading.Lock()  # guards _vllm_cache read/write
         self._vllm_cache_file = None       # resolved lazily in build_env (needs LOG_DIR)
         self._vllm_error_monitor_thread: Optional[threading.Thread] = None
+        self._vllm_monitor_event: Optional[threading.Event] = None  # replaced _vllm_error_monitor_active
 
         self._setup_signal_handlers()
         
@@ -536,20 +539,25 @@ class LightragServer:
           1. Persistent vLLM error cache  – extracted from vLLM 400 responses
           2. Live /v1/models query         – authoritative but may not expose max_model_len
           3. ryoais_models.json snapshot   – cached API response; may overshoot deployed cap
+          4. Known model registry          – hard-coded map for common aihub deployments
         """
         host = (env.get('LLM_BINDING_HOST') or '').strip()
         model = (env.get('LLM_MODEL') or '').strip()
         if not host or not model:
             return None
 
+        # Case-insensitive model name for matching against registry / API responses
+        model_lower = model.lower()
+
         # ---- 0. Persistent vLLM error cache (populated from vLLM 400 responses) ----
-        if model in self._vllm_cache:
-            cached_len = self._vllm_cache[model]
-            logger.info(
-                f"[LightragServer] LLM max_model_len from vLLM error cache: "
-                f"model={model} len={cached_len}"
-            )
-            return cached_len
+        with self._vllm_cache_lock:
+            if model in self._vllm_cache:
+                cached_len = self._vllm_cache[model]
+                logger.info(
+                    f"[LightragServer] LLM max_model_len from vLLM error cache: "
+                    f"model={model} len={cached_len}"
+                )
+                return cached_len
 
         # Only attempt the live query for OpenAI-compatible bindings (which is
         # what ryoais / deepseek / dashscope / bytedance etc. all are after
@@ -572,11 +580,14 @@ class LightragServer:
                 headers = {}
                 if api_key and api_key != 'your_api_key':
                     headers['Authorization'] = f'Bearer {api_key}'
-                resp = requests.get(endpoint, headers=headers, timeout=3, verify=False)
+                resp = requests.get(endpoint, headers=headers, timeout=5, verify=False)
                 if resp.status_code == 200:
                     data = resp.json().get('data', []) or []
                     for entry in data:
-                        if entry.get('id') != model:
+                        # Match by id, model_id, or name (case-insensitive)
+                        entry_id = (entry.get('id') or '').lower()
+                        entry_model_id = (entry.get('model_id') or '').lower()
+                        if entry_id != model_lower and entry_model_id != model_lower:
                             continue
                         # vLLM returns the deployed cap as `max_model_len`.
                         # Some proxies use `context_length` / `max_tokens`.
@@ -594,30 +605,75 @@ class LightragServer:
                         f"[LightragServer] /models OK but model '{model}' not found in response"
                     )
                 else:
-                    logger.debug(
-                        f"[LightragServer] /models returned HTTP {resp.status_code}"
+                    logger.info(
+                        f"[LightragServer] /models returned HTTP {resp.status_code} "
+                        f"(endpoint={endpoint})"
                     )
             except Exception as e:
-                logger.debug(f"[LightragServer] /models query failed: {e}")
+                logger.info(f"[LightragServer] /models query failed: {e}")
 
         # ---- 2. Fallback: ryoais_models.json (cached snapshot from earlier fetch) ----
         try:
             from gui.ryoais_utils import load_ryoais_models
             snapshot = load_ryoais_models(model_type='llm') or {}
             for entry in snapshot.get('models', []) or []:
-                if entry.get('id') == model or entry.get('name') == model:
-                    val = entry.get('context_length')
-                    if val and int(val) > 0:
-                        length = int(val)
-                        logger.warning(
-                            f"[LightragServer] LLM context_length from ryoais_models.json "
-                            f"(may exceed deployed cap): model={model} len={length}"
-                        )
-                        return length
+                entry_name = (entry.get('id') or entry.get('name') or '').lower()
+                entry_model_id = (entry.get('model_id') or '').lower()
+                if entry_name != model_lower and entry_model_id != model_lower:
+                    continue
+                val = entry.get('context_length')
+                if val and int(val) > 0:
+                    length = int(val)
+                    logger.warning(
+                        f"[LightragServer] LLM context_length from ryoais_models.json "
+                        f"(may exceed deployed cap): model={model} len={length}"
+                    )
+                    return length
         except Exception as e:
             logger.debug(f"[LightragServer] ryoais_models.json lookup failed: {e}")
 
-        return None
+        # ---- 3. Known model registry for common aihub deployments ----
+        # aihub vLLM nodes often don't expose max_model_len in /v1/models.
+        # Map the model ID (case-insensitive) directly to its context window.
+        _KNOWN_AIHUB_MODELS: dict[str, int] = {
+            # Qwen3 8K context window models
+            'qwen3.8-27b-awq-int4': 8192,
+            'qwen3.8-27b-awq': 8192,
+            'qwen3.6-27b-awq-int4': 8192,
+            'qwen3.6-27b-awq': 8192,
+            'qwen3.8-2.4t-a95b': 8192,
+            'qwen3.7-max': 8192,
+            'qwen3.6-max': 8192,
+            # Qwen3 32K context window models
+            'qwen3.8-max': 32768,
+            'qwen3.7-plus': 32768,
+            'qwen3.6-flash': 32768,
+            # OpenAI compatible models with known context
+            'gpt-4': 8192,
+            'gpt-4-turbo': 128000,
+            'gpt-4o': 128000,
+            'claude-3-opus': 200000,
+            'claude-3-sonnet': 200000,
+        }
+        if model_lower in _KNOWN_AIHUB_MODELS:
+            length = _KNOWN_AIHUB_MODELS[model_lower]
+            logger.warning(
+                f"[LightragServer] LLM max_model_len from known model registry "
+                f"(check this value periodically): model={model} len={length}"
+            )
+            return length
+
+        # ---- 4. Static fallback (last resort) ----
+        # Default to 8K context, which is the most common deployment size.
+        # The ratio-based budget in _compute_llm_budget then distributes it
+        # between output and retrieval share.  A wrong 8K is recoverable;
+        # returning None and falling through to the old env value is not.
+        logger.warning(
+            f"[LightragServer] LLM max_model_len unresolved for '{model}' "
+            f"(all lookups failed); using static fallback 8192. "
+            f"Consider adding '{model}' to the known model registry above."
+        )
+        return 8192
 
     def _compute_llm_budget(self, max_model_len: int) -> tuple:
         """Return (output_tokens, retrieval_share) for the given deployed context window.
@@ -627,22 +683,27 @@ class LightragServer:
         max_model_len to a tier-appropriate output budget so 8K models stop
         colliding with their own prompt.
 
-        Output budget: proportional, capped, with floor 512. Roughly 12.5% of the
-        window, never exceeding the window minus a 500-token minimum for
-        system prompt + at least one chunk.
+        Output budget: 25% of the window, floored at 512 so a tiny model
+        still gets a usable answer, and capped so we always keep ≥500 tokens
+        for system prompt + at least one chunk.
 
         Retrieval share: the remaining window after output and 500 tokens of
         system-prompt overhead. Used by _apply_retrieval_token_limits to cap
-        entity+relation combined budget. For 8K this yields 8192-1024-500=6668.
+        entity+relation combined budget. For 8K this yields 8192-2048-500=5644.
 
         Replaces the old formula `max_model_len - max(2000, 0.5*max_model_len)`
         which produced output=4096 on 8K models and collided with the
         ~4000-token system+entity+chunks prompt.
         """
-        # Output budget: 12.5% of the window, floored at 512 so a tiny model
+        # Output budget: 25% of the window, floored at 512 so a tiny model
         # still gets a usable answer, and capped so we always keep ≥500 tokens
         # for system prompt + at least one chunk.
-        output = max(512, int(max_model_len * 0.125))
+        #
+        # Rationale: 12.5% (1024 on 8K) is too small for entity extraction
+        # which produces structured JSON. 25% (2048 on 8K) accommodates most
+        # single-chunk extractions without truncation while leaving the majority
+        # of the context window for the retrieval share (entity+relation+cold_chunks).
+        output = max(512, int(max_model_len * 0.25))
         if output > max_model_len - 500:
             # Window too small to fit 500 overhead AND 512 output: prefer
             # the floor (drop the overhead floor) rather than returning
@@ -660,7 +721,7 @@ class LightragServer:
           1. If the deployment exposes max_model_len (vLLM /v1/models) or a
              ryoais_models.json snapshot has context_length — use that value
              as MAX_TOTAL_TOKENS, and derive OPENAI_LLM_MAX_COMPLETION_TOKENS
-             as 12.5% of the window (see _compute_llm_budget).  This is
+             as 25% of the window (see _compute_llm_budget).  This is
              universal across 8K/16K/32K/64K deployments and replaces the old
              formula `max_model_len - max(2000, 0.5*max_model_len)` which was
              too generous on small-context models (output=4096 on an 8K model
@@ -808,28 +869,31 @@ class LightragServer:
     def _load_vllm_max_model_len_cache(self, env: dict = None) -> None:
         """Load persisted vLLM max_model_len entries from disk."""
         self._vllm_cache_file = self._get_vllm_cache_path(env)
-        try:
-            if os.path.exists(self._vllm_cache_file):
-                with open(self._vllm_cache_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    self._vllm_cache = data
-                    logger.info(
-                        f"[LightragServer] Loaded vLLM max_model_len cache "
-                        f"({len(data)} entries) from {self._vllm_cache_file}"
-                    )
-        except Exception as e:
-            logger.debug(f"[LightragServer] Failed to load vLLM cache: {e}")
-            self._vllm_cache = {}
+        with self._vllm_cache_lock:
+            try:
+                if os.path.exists(self._vllm_cache_file):
+                    with open(self._vllm_cache_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    if isinstance(data, dict):
+                        self._vllm_cache = data
+                        logger.info(
+                            f"[LightragServer] Loaded vLLM max_model_len cache "
+                            f"({len(data)} entries) from {self._vllm_cache_file}"
+                        )
+            except Exception as e:
+                logger.debug(f"[LightragServer] Failed to load vLLM cache: {e}")
+                self._vllm_cache = {}
 
     def _save_vllm_max_model_len(self, model: str, max_model_len: int) -> None:
         """Persist a discovered vLLM max_model_len to disk (workspace-scoped)."""
         if not model or not max_model_len or max_model_len <= 0:
             return
-        self._vllm_cache[model] = max_model_len
+        with self._vllm_cache_lock:
+            self._vllm_cache[model] = max_model_len
+            cache_snapshot = dict(self._vllm_cache)
         try:
             with open(self._vllm_cache_file, 'w', encoding='utf-8') as f:
-                json.dump(self._vllm_cache, f, ensure_ascii=False, indent=2)
+                json.dump(cache_snapshot, f, ensure_ascii=False, indent=2)
             logger.warning(
                 f"[LightragServer] vLLM max_model_len discovered and cached: "
                 f"model={model} max_model_len={max_model_len}"
@@ -867,7 +931,7 @@ class LightragServer:
         very next LightRAG restart without needing another error.
         """
         def monitor():
-            while getattr(self, '_vllm_error_monitor_active', False):
+            while True:
                 # Re-open stderr pipe on every iteration so we catch new lines
                 # written by the child process (stderr_log is a rotating wrapper).
                 stderr_path = None
@@ -876,17 +940,21 @@ class LightragServer:
                 if not stderr_path or not os.path.exists(stderr_path):
                     import time as _t
                     _t.sleep(2)
+                    if not self._vllm_monitor_event.wait(timeout=0):
+                        break
                     continue
 
                 current_pos = 0
                 # Track per-model so we stop after first discovery per model
                 discovered: dict = {}   # model -> max_model_len
-                while getattr(self, '_vllm_error_monitor_active', False):
+                while True:
+                    import time as _t
+                    _t.sleep(2)
+                    if not self._vllm_monitor_event.is_set():
+                        break
+                    if not os.path.exists(stderr_path):
+                        break
                     try:
-                        import time as _t
-                        _t.sleep(2)
-                        if not os.path.exists(stderr_path):
-                            break
                         with open(stderr_path, 'r', encoding='utf-8', errors='replace') as f:
                             f.seek(current_pos)
                             for raw in f:
@@ -901,8 +969,11 @@ class LightragServer:
                             break
                     except Exception:
                         pass
+                if not self._vllm_monitor_event.is_set():
+                    break
 
-        self._vllm_error_monitor_active = True
+        self._vllm_monitor_event = threading.Event()
+        self._vllm_monitor_event.set()
         t = threading.Thread(target=monitor, name="LightragVLLMErrorMonitor", daemon=True)
         t.start()
         self._vllm_error_monitor_thread = t
@@ -1796,8 +1867,9 @@ class LightragServer:
                    If False (default), use graceful termination.
         """
         self._monitor_running = False
-        # Stop vLLM error monitor thread
-        self._vllm_error_monitor_active = False
+        # Stop vLLM error monitor thread via Event (replaces _vllm_error_monitor_active)
+        if hasattr(self, '_vllm_monitor_event') and self._vllm_monitor_event:
+            self._vllm_monitor_event.clear()
         if hasattr(self, '_vllm_error_monitor_thread') and self._vllm_error_monitor_thread:
             self._vllm_error_monitor_thread.join(timeout=2)
             self._vllm_error_monitor_thread = None
@@ -1990,29 +2062,37 @@ class LightragServer:
                     timeout=10
                 )
                 if response.status_code == 200:
-                    if self._unhealthy_count > 0:
-                        logger.info(
-                            f"[LightragServer] Self-health check recovered "
-                            f"(was unhealthy {self._unhealthy_count} times)"
-                        )
-                    self._unhealthy_count = 0
+                    with self._unhealthy_count_lock:
+                        if self._unhealthy_count > 0:
+                            prev = self._unhealthy_count
+                            self._unhealthy_count = 0
+                            logger.info(
+                                f"[LightragServer] Self-health check recovered "
+                                f"(was unhealthy {prev} times)"
+                            )
+                        else:
+                            self._unhealthy_count = 0
                     self._last_health_check_time = time.time()
                     logger.debug(
                         f"[LightragServer] Self-health check OK "
-                        f"(check #{check_count}, unhealthy resets: {self._unhealthy_count})"
+                        f"(check #{check_count})"
                     )
                 else:
-                    self._unhealthy_count += 1
+                    with self._unhealthy_count_lock:
+                        self._unhealthy_count += 1
+                        current = self._unhealthy_count
                     logger.warning(
                         f"[LightragServer] Self-health check returned {response.status_code} "
-                        f"(unhealthy count: {self._unhealthy_count}/{self._max_unhealthy})"
+                        f"(unhealthy count: {current}/{self._max_unhealthy})"
                     )
                     self._maybe_self_restart()
             except requests.exceptions.ConnectionError:
-                self._unhealthy_count += 1
+                with self._unhealthy_count_lock:
+                    self._unhealthy_count += 1
+                    current = self._unhealthy_count
                 logger.warning(
                     f"[LightragServer] Self-health check connection refused "
-                    f"(unhealthy count: {self._unhealthy_count}/{self._max_unhealthy})"
+                    f"(unhealthy count: {current}/{self._max_unhealthy})"
                 )
                 self._maybe_self_restart()
             except Exception as e:
@@ -2020,13 +2100,16 @@ class LightragServer:
 
     def _maybe_self_restart(self):
         """Restart server if unhealthy for too long"""
-        if self._unhealthy_count >= self._max_unhealthy:
+        with self._unhealthy_count_lock:
+            count = self._unhealthy_count
+        if count >= self._max_unhealthy:
             elapsed = time.time() - self._last_health_check_time
             logger.warning(
-                f"[LightragServer] Server unhealthy for {self._unhealthy_count} checks, "
+                f"[LightragServer] Server unhealthy for {count} checks, "
                 f"last success {elapsed:.0f}s ago. Initiating self-restart..."
             )
-            self._unhealthy_count = 0
+            with self._unhealthy_count_lock:
+                self._unhealthy_count = 0
             try:
                 self.stop(force=True)
                 time.sleep(2)

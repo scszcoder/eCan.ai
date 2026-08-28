@@ -458,8 +458,7 @@
         "requires_http_client": true,
         "thinking_toggle_mode": "extra_body.enable_thinking",
         "requires_api_key": true,
-        "requires_model": false,
-        "check_import": "ChatQwQ"
+        "requires_model": false
       },
       "api_key_env_vars": [
         "DASHSCOPE_API_KEY"

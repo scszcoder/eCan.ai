@@ -147,10 +147,24 @@ _FEIGE_UNREAD = '[class*="badge-count"], .rxAvaVFJHvpEGMc1ejm1'
 
 _FEIGE_LIST_SESSIONS_JS = r"""
 (function(includeRead, maxSessions) {
+  var __rebuiltFrame = null;
   function rowIsCurrent(row) {
     var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
     if (btm.endsWith('.current')) return true;
-    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (btm.endsWith('.systemConv')) return false;
+    if (btm.endsWith('.recent')) {
+      // ws193 (live-probed 2026-08-28): the REBUILT Feige frame (abtest
+      // hitWebFrameRebuild) stamps EVERY sidebar row '.recent' — even unread
+      // conversations awaiting a reply — and the old 待回复/最近 split is gone.
+      // On that frame '.recent' rows ARE the working set, so admit them; on the
+      // old frame ('.current' rows or the 待回复 container present) keep
+      // excluding them as before. Computed once per evaluate.
+      if (__rebuiltFrame === null) {
+        __rebuiltFrame = !document.querySelector('[data-btm-id$=".current"]') &&
+                         !document.querySelector('.pigeonChatNotScrollBox');
+      }
+      return __rebuiltFrame;
+    }
     if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
     if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
     return true;
@@ -258,10 +272,24 @@ _FEIGE_OPEN_SESSION_JS = r"""
   // PreDispatch re-dispatch on the next loop.  Slower than a JS-level
   // retry would be in isolation, but reliably bounded — doesn't stack
   // sleeps that get amplified by renderer slowdown.
+  var __rebuiltFrame = null;
   function rowIsCurrent(row) {
     var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
     if (btm.endsWith('.current')) return true;
-    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (btm.endsWith('.systemConv')) return false;
+    if (btm.endsWith('.recent')) {
+      // ws193 (live-probed 2026-08-28): the REBUILT Feige frame (abtest
+      // hitWebFrameRebuild) stamps EVERY sidebar row '.recent' — even unread
+      // conversations awaiting a reply — and the old 待回复/最近 split is gone.
+      // On that frame '.recent' rows ARE the working set, so admit them; on the
+      // old frame ('.current' rows or the 待回复 container present) keep
+      // excluding them as before. Computed once per evaluate.
+      if (__rebuiltFrame === null) {
+        __rebuiltFrame = !document.querySelector('[data-btm-id$=".current"]') &&
+                         !document.querySelector('.pigeonChatNotScrollBox');
+      }
+      return __rebuiltFrame;
+    }
     if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
     if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
     return true;
@@ -278,6 +306,20 @@ _FEIGE_OPEN_SESSION_JS = r"""
         name = nameEl2 ? nameEl2.textContent.trim() : '';
       }
       if (name === customerName) { target = items[i]; break; }
+    }
+  }
+  // ws193: rebuilt-frame fallback — see feige_send_message JS. All rows are
+  // '.recent' on the redesigned sidebar, so the current-filter empties `items`;
+  // exact-name search of the full list, only when the filtered view is empty.
+  if (!target && customerName && items.length === 0 && allItems.length > 0) {
+    for (var fb = 0; fb < allItems.length; fb++) {
+      var fbEl = allItems[fb].querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
+      var fbName = (fbEl && (fbEl.getAttribute('title') || fbEl.textContent || '')).trim();
+      if (!fbName) {
+        var fbEl2 = allItems[fb].querySelector('[class*="NameContent"], .Jv6FtqUv5VoYARd2pp4y');
+        fbName = fbEl2 ? fbEl2.textContent.trim() : '';
+      }
+      if (fbName === customerName) { target = allItems[fb]; break; }
     }
   }
   if (!target && sessionIndex >= 0 && sessionIndex < items.length) {
@@ -794,10 +836,24 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     if (!t) return false;
     return /亲亲，?在哒|很高兴为您服务，请问有什么可以帮您|现在是人工客服为您服务|为了更高效地帮您解决问题|当前会话已长时间未回复|转人工客服|转人工$|^已读$/.test(t);
   }
+  var __rebuiltFrame = null;
   function rowIsCurrent(row) {
     var btm = row && row.getAttribute ? String(row.getAttribute('data-btm-id') || '') : '';
     if (btm.endsWith('.current')) return true;
-    if (btm.endsWith('.recent') || btm.endsWith('.systemConv')) return false;
+    if (btm.endsWith('.systemConv')) return false;
+    if (btm.endsWith('.recent')) {
+      // ws193 (live-probed 2026-08-28): the REBUILT Feige frame (abtest
+      // hitWebFrameRebuild) stamps EVERY sidebar row '.recent' — even unread
+      // conversations awaiting a reply — and the old 待回复/最近 split is gone.
+      // On that frame '.recent' rows ARE the working set, so admit them; on the
+      // old frame ('.current' rows or the 待回复 container present) keep
+      // excluding them as before. Computed once per evaluate.
+      if (__rebuiltFrame === null) {
+        __rebuiltFrame = !document.querySelector('[data-btm-id$=".current"]') &&
+                         !document.querySelector('.pigeonChatNotScrollBox');
+      }
+      return __rebuiltFrame;
+    }
     if (row && row.closest && row.closest('.pigeonChatNotScrollBox')) return true;
     if (row && row.closest && row.closest('.pigeonChatScrollBox')) return false;
     return true;
@@ -905,6 +961,24 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     // here (named customers + text matched by name above), so normal delivery is
     // untouched. On a hit we rebind expectedCustomer to the row's REAL name so
     // every crosstalk/active-session guard below verifies the actual conversation.
+    // ws193: REBUILT-frame fallback (abtest hitWebFrameRebuild, live-probed
+    // 2026-08-28). The redesigned sidebar stamps EVERY row's data-btm-id
+    // '.recent' — including conversations with an unread dot awaiting a reply —
+    // so rowIsCurrent rejects all 16 rows and current_visible is 0 forever.
+    // When the current-filter yields NOTHING but rows exist, fall back to an
+    // exact-name search of the full list. Mis-delivery-safe: exact name match
+    // only, and the Python-side post-open verify still checks the opened
+    // conversation header. Old-frame behavior unchanged (its 待回复 box keeps
+    // rows passing rowIsCurrent, so the fallback never triggers there).
+    if (!target && items.length === 0 && allConvRows.length > 0) {
+      for (var rf = 0; rf < allConvRows.length; rf++) {
+        if (readRowName(allConvRows[rf]) === expectedCustomer) {
+          target = allConvRows[rf];
+          markPhase('recent_row_fallback');
+          break;
+        }
+      }
+    }
     if (!target && expectedCustomer.indexOf('card:') === 0) {
       // ws091: a COLD-START product card may render in the RECENT/scrollable box
       // (not the 待回复 'current' box) — rowIsCurrent filters those out, so the

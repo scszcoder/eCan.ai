@@ -937,3 +937,120 @@ def sync_all_skill_files_to_cloud(skills: List[Dict[str, Any]]) -> None:
 
     t = threading.Thread(target=_do, daemon=True, name="skill-file-bulk-upload")
     t.start()
+
+
+# ---------------------------------------------------------------------------
+# Startup auto-refresh for subscribed skills
+# ---------------------------------------------------------------------------
+
+def refresh_subscribed_skills_from_cloud(mainwin) -> int:
+    """Auto-update SUBSCRIBED (non-owned, read-only) skills from the cloud.
+
+    Called synchronously at startup BEFORE the skill compile: for every local
+    DB skill row whose owner differs from the logged-in user (subscribed rows
+    keep the AUTHOR as owner), compare versions with the author's cloud copy.
+    When the cloud copy is newer, download the presigned zip into my_skills
+    (the compiler is local-file-first, so refreshing the files is what makes
+    the update take effect) and then sync the DB row's diagram + version.
+
+    Rationale (v0.9.95x incident): a republished rented skill only reached
+    subscribers via a manual skills-page update click; two consecutive live
+    tests missed that step and ran a stale dispatch config. Rented skills are
+    read-only for the subscriber, so tracking the author's published version
+    automatically is safe by definition — there is no local work to clobber.
+
+    Best-effort: any cloud failure logs a WARNING and leaves the local copy
+    untouched (graceful offline fallback). The DB row is only bumped when the
+    files actually refreshed (or none existed), so a failed download keeps the
+    GUI's update indicator honest. Returns the number of skills refreshed.
+    """
+    refreshed = 0
+    try:
+        from utils.skill_version import compare_skill_versions, CLOUD_NEWER
+
+        ctx = _get_cloud_context()
+        if ctx is None:
+            return 0
+        me = str(ctx.get("owner") or "").strip()
+        db_mgr = getattr(mainwin, "ec_db_mgr", None)
+        svc = getattr(db_mgr, "skill_service", None)
+        if not me or svc is None:
+            return 0
+
+        rows_result = svc.query_skills()
+        rows = rows_result.get("data", []) if rows_result.get("success") else []
+        subscribed = [
+            r for r in rows
+            if isinstance(r, dict) and str(r.get("owner") or "").strip()
+            and str(r.get("owner")).strip() != me
+        ]
+        if not subscribed:
+            return 0
+
+        for row in subscribed:
+            sid = str(row.get("id") or "").strip()
+            author = str(row.get("owner") or "").strip()
+            name = str(row.get("name") or "").strip()
+            if not sid or not author or not name:
+                continue
+            try:
+                resp = _appsync_request(
+                    "query($i: SkillQueryInput!) { getAgentSkills(input: $i) "
+                    "{ id version diagram } }",
+                    ctx, {"i": {"id": sid, "owner": author}},
+                )
+                data = (resp.get("data") or {}).get("getAgentSkills") or []
+                if isinstance(data, dict):
+                    data = [data]
+                cloud = next(
+                    (c for c in data if isinstance(c, dict) and str(c.get("id")) == sid),
+                    None,
+                )
+                if not cloud:
+                    continue
+                if compare_skill_versions(row.get("version"), cloud.get("version")) != CLOUD_NEWER:
+                    continue
+
+                folder = name if name.endswith("_skill") else f"{name}_skill"
+                dest_dir = Path(_get_my_skills_dir()) / folder
+                got_files = False
+                url_info = _request_download_url(sid, author, ctx)
+                if url_info and url_info.get("downloadUrl"):
+                    zip_bytes = _download_from_s3(url_info["downloadUrl"])
+                    if zip_bytes and _unzip_to_skill_dir(zip_bytes, dest_dir):
+                        got_files = True
+                if not got_files and dest_dir.is_dir():
+                    # Files exist locally but couldn't refresh — the stale files
+                    # would win over any DB update (local-file-first compile), so
+                    # leave the row untouched and keep the update indicator up.
+                    logger.warning(
+                        f"[skill_file_sync] subscribed skill '{name}' ({sid}) has a newer "
+                        f"cloud version {cloud.get('version')!r} but the file download "
+                        f"failed — keeping local copy {row.get('version')!r}"
+                    )
+                    continue
+
+                fields = {"version": cloud.get("version")}
+                diagram = cloud.get("diagram")
+                if isinstance(diagram, str) and diagram.strip():
+                    try:
+                        fields["diagram"] = json.loads(diagram)
+                    except Exception:
+                        pass
+                elif isinstance(diagram, dict):
+                    fields["diagram"] = diagram
+                svc.update_skill(sid, fields)
+                refreshed += 1
+                logger.info(
+                    f"[skill_file_sync] auto-refreshed subscribed skill '{name}' ({sid}) "
+                    f"from author {author}: {row.get('version')!r} -> "
+                    f"{cloud.get('version')!r} (files={'zip' if got_files else 'db-only'})"
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"[skill_file_sync] subscribed-skill refresh failed for "
+                    f"'{name}' ({sid}): {exc}"
+                )
+    except Exception as exc:
+        logger.warning(f"[skill_file_sync] subscribed-skill refresh aborted: {exc}")
+    return refreshed

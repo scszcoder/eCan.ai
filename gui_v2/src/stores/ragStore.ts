@@ -368,3 +368,21 @@ export const useRAGStore = create<RAGStoreState>((set, get) => ({
   clearQuery: () => set({ queryResult: null }),
   clearChat: () => set({ chatHistory: [], queryResult: null }),
 }));
+
+// ── LightRAG Provider Settings Sync ───────────────────────────────────
+// Subscribes to backend push events and bumps a version counter so
+// SettingsTab useEffects know to reload settings + providers without
+// requiring a manual page refresh.
+
+export interface LightRAGSettingsStore {
+  /** Bumped whenever a provider (LLM/Embedding/Rerank) is saved in Settings. */
+  providerVersion: number;
+  /** Call this when the backend broadcasts 'lightrag.providersUpdated'. */
+  bumpProviderVersion: () => void;
+}
+
+export const useLightRAGSettingsStore = create<LightRAGSettingsStore>((set) => ({
+  providerVersion: 0,
+  bumpProviderVersion: () =>
+    set((s) => ({ providerVersion: s.providerVersion + 1 })),
+}));
