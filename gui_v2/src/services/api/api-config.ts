@@ -169,8 +169,10 @@ export const GRAPHQL_QUERIES = {
   GET_PUBLIC_SKILLS: `
     query GetPublicSkills($input: SkillQueryInput) {
       queryAgentSkills(input: $input) {
-        id name owner description level path public rentable source tags version
-        rating reviewCount rating_distribution usage_count category
+        id askid name owner description level path status category source version
+        public isPublic rentable price priceModel tags examples inputModes outputModes
+        config capabilities diagram apps limitations
+        rating ratingCount installCount publishedAt createdAt updatedAt
       }
     }
   `,
