@@ -444,6 +444,7 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
             tvars.update(extra_vars)
         tr = ctx.db.task_service.add_task({
             "name": name, "owner": owner, "source": "fast_deploy",
+            "description": "抖店客服 — Fast Deploy (shared skill)",
             "task_type": "browser_automation", "trigger": "auto", "status": "pending",
             "settings": {"task_vars": tvars},
         })
