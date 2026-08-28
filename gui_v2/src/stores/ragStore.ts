@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { apiRouter } from '../services/api/api-router';
 import type { APIResponse } from '../services/ipc/api';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../services/api/api-config';
+import { getPresignedUpload, uploadWithPresignedUrl } from '../services/web/presignedFileOps';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -45,19 +46,6 @@ export interface RAGIndexStatus {
   lastIndexedAt?: string;
   docCount?: number;
   chunkCount?: number;
-}
-
-interface RAGUploadRequest {
-  fileName: string;
-  fileType: string;
-  fileSize: number;
-  pid?: string;
-}
-
-interface RAGUploadURL {
-  uploadUrl: string;
-  docKey: string;
-  expiresIn: number;
 }
 
 // ── Store ──────────────────────────────────────────────────────────────
@@ -147,66 +135,59 @@ export const useRAGStore = create<RAGStoreState>((set, get) => ({
     const effectivePid = pid || 'default';
 
     try {
-      // 1. Request presigned upload URLs
-      const uploadRequests: RAGUploadRequest[] = files.map(f => ({
-        fileName: f.name,
-        fileType: f.type || 'application/octet-stream',
-        fileSize: f.size,
-        pid: effectivePid,
-      }));
-
-      const urlRes: APIResponse<RAGUploadURL[]> = await apiRouter.execute(
-        {
-          method: 'rag_request_upload_urls',
-          graphql: {
-            query: GRAPHQL_MUTATIONS.RAG_REQUEST_UPLOAD_URLS,
-            resultPath: 'ragRequestUploadURLs',
-          },
-        },
-        { input: uploadRequests },
-      );
-
-      if (!urlRes.success || !Array.isArray(urlRes.data)) {
-        throw new Error('Failed to get upload URLs');
-      }
-
-      const urls = urlRes.data;
-
-      // 2. Upload each file via presigned PUT
-      const docKeys: string[] = [];
+      const uploadedDocuments: RAGDocument[] = [];
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const urlInfo = urls[i];
-        if (!urlInfo?.uploadUrl) {
-          console.error(`No upload URL for ${file.name}`);
-          continue;
+        const fileType = file.type || 'application/octet-stream';
+        const fid = `rag-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`;
+        const upload = await getPresignedUpload([{
+          op: 'upload',
+          names: file.name,
+          options: `rag/${effectivePid}`,
+        }]);
+        await uploadWithPresignedUrl(file, upload, fileType);
+
+        const registerRes = await apiRouter.execute(
+          {
+            method: 'rag_register_documents',
+            graphql: {
+              mutation: GRAPHQL_MUTATIONS.RAG_REGISTER_DOCUMENTS,
+              resultPath: 'reqRAGStore',
+            },
+          },
+          {
+            input: [{
+              fid,
+              pid: effectivePid,
+              file: file.name,
+              type: fileType,
+              format: file.name.split('.').pop()?.toLowerCase() || 'bin',
+              options: { size: file.size, objectKey: upload.raw?.key || '' },
+              version: '1',
+            }],
+          },
+        );
+        if (!registerRes.success) {
+          throw new Error((registerRes as any).error?.message || `Failed to register ${file.name}`);
         }
-        await fetch(urlInfo.uploadUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': file.type || 'application/octet-stream' },
-          body: file,
+
+        uploadedDocuments.push({
+          docKey: String(upload.raw?.key || fid),
+          fileName: file.name,
+          fileType,
+          fileSize: file.size,
+          uploadedAt: new Date().toISOString(),
+          status: 'uploaded',
+          pid: effectivePid,
         });
-        docKeys.push(urlInfo.docKey);
         set({ uploadProgress: Math.round(((i + 1) / files.length) * 100) });
       }
 
-      // 3. Confirm uploads
-      if (docKeys.length > 0) {
-        await apiRouter.execute(
-          {
-            method: 'rag_confirm_uploads',
-            graphql: {
-              query: GRAPHQL_MUTATIONS.RAG_CONFIRM_UPLOADS,
-              resultPath: 'ragConfirmUploads',
-            },
-          },
-          { docKeys, pid: effectivePid },
-        );
-      }
-
-      set({ uploading: false, uploadProgress: 100 });
-      // Refresh doc list
-      await get().fetchDocs(effectivePid);
+      set((state) => ({
+        documents: [...uploadedDocuments, ...state.documents.filter((doc) => doc.pid !== effectivePid)],
+        uploading: false,
+        uploadProgress: 100,
+      }));
       return true;
     } catch (e: any) {
       set({ uploading: false, error: e?.message || 'Upload failed' });
