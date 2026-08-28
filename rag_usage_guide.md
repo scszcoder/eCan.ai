@@ -1,5 +1,50 @@
 # RAG Usage Guide (AppSync)
 
+## CN CloudBase RAG (production, 2026-08-29)
+
+The China web application uses a dedicated Tencent COS bucket and independent
+CloudBase Event functions. It does not use the AppSync/GraphQL API described in
+the remainder of this legacy AWS guide.
+
+### Verified flow
+
+1. The browser calls `rag_upload_signer_event`, which derives the authenticated
+  owner server-side and returns a short-lived COS upload URL.
+2. The same-origin PHP relay uploads to:
+  `ecan-rags-1251680599/<encoded-owner>/<pid>/docs/<file-name>`.
+3. `rag_upload_signer_event` lists that owner/pid prefix, so documents persist
+  in the UI after refresh.
+4. The browser calls `rag_index_event` to index or query; no CN RAG operation
+  is routed through `ecan-graphql-api`.
+
+`rag_index_event` currently supports PDF, TXT, Markdown, CSV, and JSON. It
+extracts text with `pdf-parse` for PDFs, chunks it, creates DashScope Qwen
+`text-embedding-v3` embeddings, and persists:
+
+```text
+<encoded-owner>/<pid>/index_status.json
+<encoded-owner>/<pid>/index/chunks.json
+<encoded-owner>/<pid>/index/vectors.jsonl
+<encoded-owner>/<pid>/index/manifest.json
+```
+
+For a query, the function embeds the question with the same Qwen model, ranks
+stored vectors by cosine similarity, then uses Qwen `qwen-plus` to synthesize a
+grounded answer from the top chunks. The `QWEN_API_KEY` belongs only in the
+protected `rag_index_event` environment, not in the browser or upload signer.
+
+### Current scope and follow-up
+
+This verified CN implementation is a lightweight COS-backed vector store. It
+loads `vectors.jsonl` in the Event function and is appropriate for the current
+small document corpus, but is not a separate vector database.
+
+Future work: port the AWS `rag_worker/` container to Tencent Cloud Run or TKE
+with RAG-Anything, LightRAG, MinerU, and FAISS. That migration should retain
+the COS object layout above, use a protected Qwen OpenAI-compatible embedding
+configuration, support rich PDF/image/table/equation parsing, and move
+large-corpus vector indexing/querying out of the Event function.
+
 This guide explains how to use the AppSync APIs:
 
 - `reqRAGStore(input: [RAGIN]!): AWSJSON!`

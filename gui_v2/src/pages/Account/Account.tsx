@@ -5,7 +5,8 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAccountStore } from '../../stores/accountStore';
 import { ipcApi } from '../../services/ipc/api';
-import { useIsCN } from '../../contexts/AppConfigContext';
+import { getCachedAppConfig, useIsCN } from '../../contexts/AppConfigContext';
+import { isWebPlatform } from '../../config/platform';
 import TokenUsageSection from './TokenUsageSection';
 
 const { Title, Text } = Typography;
@@ -89,6 +90,18 @@ const Account: React.FC = () => {
     const handleGetApiKey = async () => {
         setRequestingKey(true);
         try {
+            if (isCN && isWebPlatform()) {
+                const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
+                if (!envId) throw new Error('CloudBase API key service is not configured');
+                const cloudbase = (await import('@cloudbase/js-sdk')).default;
+                const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
+                const result = await app.callFunction({ name: 'myAPIKeygen', data: { action: 'createApiKey', customer: 'guest' } });
+                const resp = (result as any)?.result || result;
+                if (!resp?.apiKey) throw new Error(resp?.message || resp?.error || 'Failed to get API key: empty response');
+                setApiKey(resp.apiKey);
+                message.success(resp.message || t('account.apiKeySuccess', 'API key generated successfully'));
+                return;
+            }
             const response = await ipcApi.executeRequest('req_api_key', { customer: 'guest' });
             if (response?.success && response.data) {
                 const resp = response.data as any;
@@ -115,6 +128,18 @@ const Account: React.FC = () => {
         setRemovingKey(true);
         try {
             const maskedKey = maskApiKey(apiKey);
+            if (isCN && isWebPlatform()) {
+                const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
+                if (!envId) throw new Error('CloudBase API key service is not configured');
+                const cloudbase = (await import('@cloudbase/js-sdk')).default;
+                const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
+                const result = await app.callFunction({ name: 'myAPIKeygen', data: { action: 'removeApiKeys', keys: [maskedKey] } });
+                const resp = (result as any)?.result || result;
+                if (!resp?.success) throw new Error(resp?.message || resp?.error || 'Failed to remove API key');
+                setApiKey('');
+                message.success(t('account.apiKeyRemoved', 'API key removed'));
+                return;
+            }
             const response = await ipcApi.executeRequest('remove_api_key', { masked_keys: [maskedKey] });
             if (response?.success) {
                 setApiKey('');

@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import { apiRouter } from '../services/api/api-router';
 import type { APIResponse } from '../services/ipc/api';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../services/api/api-config';
-import { getPresignedUpload, uploadWithPresignedUrl } from '../services/web/presignedFileOps';
+import { getRagIndexStatus, listRagRelayDocuments, queryRagIndex, startRagIndex, uploadWithRagRelay } from '../services/web/presignedFileOps';
+import { isWebPlatform } from '../config/platform';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -65,7 +66,7 @@ interface RAGStoreState {
   fetchDocs: (pid?: string) => Promise<void>;
   fetchIndexStatus: (pid?: string) => Promise<void>;
   uploadFiles: (files: File[], pid?: string) => Promise<boolean>;
-  triggerIndex: (pid?: string) => Promise<void>;
+  triggerIndex: (pid?: string) => Promise<boolean>;
   deleteDocs: (docKeys: string[], pid?: string) => Promise<void>;
   query: (queryText: string, pid?: string, mode?: string, topK?: number) => Promise<void>;
   clearQuery: () => void;
@@ -86,20 +87,60 @@ export const useRAGStore = create<RAGStoreState>((set, get) => ({
 
   // ── List documents ───────────────────────────────────────────────────
   fetchDocs: async (pid?: string) => {
+    if (isWebPlatform()) {
+      set({ loading: true, error: null });
+      try {
+        const documents = await listRagRelayDocuments(pid || 'default');
+        set({
+          documents: documents.map((document) => ({
+            docKey: document.key,
+            fileName: document.fileName,
+            fileType: 'application/octet-stream',
+            fileSize: document.fileSize,
+            uploadedAt: document.uploadedAt || '',
+            status: document.status,
+            pid: document.pid,
+          })),
+          loading: false,
+        });
+      } catch (error: any) {
+        set({ loading: false, error: error?.message || 'Failed to fetch RAG documents' });
+      }
+      return;
+    }
     set({ loading: true, error: null });
     try {
-      const res: APIResponse<RAGDocument[]> = await apiRouter.execute(
+      const res: APIResponse<Array<{
+        fid: string;
+        pid: string;
+        file: string;
+        type: string;
+        options: unknown;
+        objectKey: string;
+        createdAt: string;
+      }>> = await apiRouter.execute(
         {
           method: 'rag_list_docs',
           graphql: {
             query: GRAPHQL_QUERIES.RAG_LIST_DOCS,
-            resultPath: 'ragListDocs',
+            resultPath: 'getRagDocuments',
           },
         },
         { pid: pid || 'default' },
       );
       if (res.success && Array.isArray(res.data)) {
-        set({ documents: res.data, loading: false });
+        set({
+          documents: res.data.map((document) => ({
+            docKey: document.objectKey,
+            fileName: document.file,
+            fileType: document.type,
+            fileSize: Number((document.options as { size?: number } | null)?.size || 0),
+            uploadedAt: document.createdAt,
+            status: 'uploaded',
+            pid: document.pid,
+          })),
+          loading: false,
+        });
       } else {
         throw new Error((res as any).error?.message || 'Failed to fetch RAG docs');
       }
@@ -110,6 +151,14 @@ export const useRAGStore = create<RAGStoreState>((set, get) => ({
 
   // ── Index status ─────────────────────────────────────────────────────
   fetchIndexStatus: async (pid?: string) => {
+    if (isWebPlatform()) {
+      try {
+        set({ indexStatus: await getRagIndexStatus(pid || 'default') });
+      } catch {
+        // silent for status polling
+      }
+      return;
+    }
     try {
       const res: APIResponse<RAGIndexStatus> = await apiRouter.execute(
         {
@@ -133,6 +182,7 @@ export const useRAGStore = create<RAGStoreState>((set, get) => ({
   uploadFiles: async (files: File[], pid?: string) => {
     set({ uploading: true, uploadProgress: 0, error: null });
     const effectivePid = pid || 'default';
+    let stage = 'preparing upload';
 
     try {
       const uploadedDocuments: RAGDocument[] = [];
@@ -140,13 +190,10 @@ export const useRAGStore = create<RAGStoreState>((set, get) => ({
         const file = files[i];
         const fileType = file.type || 'application/octet-stream';
         const fid = `rag-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`;
-        const upload = await getPresignedUpload([{
-          op: 'upload',
-          names: file.name,
-          options: `rag/${effectivePid}`,
-        }]);
-        await uploadWithPresignedUrl(file, upload, fileType);
+        stage = `uploading ${file.name}`;
+        await uploadWithRagRelay(file, fileType, effectivePid);
 
+        stage = `registering ${file.name}`;
         const registerRes = await apiRouter.execute(
           {
             method: 'rag_register_documents',
@@ -162,7 +209,7 @@ export const useRAGStore = create<RAGStoreState>((set, get) => ({
               file: file.name,
               type: fileType,
               format: file.name.split('.').pop()?.toLowerCase() || 'bin',
-              options: { size: file.size, objectKey: upload.raw?.key || '' },
+              options: { size: file.size },
               version: '1',
             }],
           },
@@ -172,7 +219,7 @@ export const useRAGStore = create<RAGStoreState>((set, get) => ({
         }
 
         uploadedDocuments.push({
-          docKey: String(upload.raw?.key || fid),
+          docKey: `${effectivePid}/docs/${file.name}`,
           fileName: file.name,
           fileType,
           fileSize: file.size,
@@ -190,13 +237,29 @@ export const useRAGStore = create<RAGStoreState>((set, get) => ({
       }));
       return true;
     } catch (e: any) {
-      set({ uploading: false, error: e?.message || 'Upload failed' });
+      const message = e?.message || 'Unknown upload error';
+      set({ uploading: false, error: `RAG upload failed while ${stage}: ${message}` });
       return false;
     }
   },
 
   // ── Trigger indexing ─────────────────────────────────────────────────
   triggerIndex: async (pid?: string) => {
+    if (isWebPlatform()) {
+      set({
+        indexing: true,
+        error: null,
+        indexStatus: { status: 'indexing', message: 'Starting indexer', progress: 0 },
+      });
+      try {
+        const indexStatus = await startRagIndex(pid || 'default');
+        set({ indexStatus, indexing: false });
+        return true;
+      } catch (error: any) {
+        set({ indexing: false, error: error?.message || 'Failed to trigger indexing' });
+        return false;
+      }
+    }
     set({ indexing: true, error: null });
     try {
       const res: APIResponse<RAGIndexStatus> = await apiRouter.execute(
@@ -211,11 +274,13 @@ export const useRAGStore = create<RAGStoreState>((set, get) => ({
       );
       if (res.success && res.data) {
         set({ indexStatus: res.data, indexing: false });
+        return true;
       } else {
         throw new Error((res as any).error?.message || 'Failed to trigger indexing');
       }
     } catch (e: any) {
       set({ indexing: false, error: e?.message || 'Unknown error' });
+      return false;
     }
   },
 
@@ -255,6 +320,18 @@ export const useRAGStore = create<RAGStoreState>((set, get) => ({
     };
     set(s => ({ querying: true, error: null, chatHistory: [...s.chatHistory, userMsg] }));
     try {
+      if (isWebPlatform()) {
+        const result = await queryRagIndex(queryText, pid || 'default', topK || 5);
+        const asstMsg: RAGChatMessage = {
+          id: `a-${Date.now()}`,
+          role: 'assistant',
+          content: result.answer || 'No grounded answer was returned.',
+          chunks: result.chunks,
+          timestamp: Date.now(),
+        };
+        set(s => ({ queryResult: result, querying: false, chatHistory: [...s.chatHistory, asstMsg] }));
+        return;
+      }
       const res: APIResponse<RAGQueryResult> = await apiRouter.execute(
         {
           method: 'rag_query',

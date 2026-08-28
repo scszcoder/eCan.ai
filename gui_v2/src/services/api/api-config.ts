@@ -405,9 +405,9 @@ export const GRAPHQL_QUERIES = {
   `,
 
   RAG_LIST_DOCS: `
-    query RAGListDocs($pid: String) {
-      ragListDocs(pid: $pid) {
-        docKey fileName fileType fileSize uploadedAt status pid
+    query GetRagDocuments($pid: String) {
+      getRagDocuments(pid: $pid) {
+        id fid pid file type format options version objectKey createdAt updatedAt
       }
     }
   `,

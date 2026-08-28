@@ -267,9 +267,9 @@ const RAGDocuments: React.FC = () => {
       message.success(`Uploaded ${files.length} file(s)`);
       setFileList([]);
     } else {
-      message.error(error || 'Upload failed');
+      message.error(useRAGStore.getState().error || 'Upload failed');
     }
-  }, [fileList, pid, uploadFiles, error]);
+  }, [fileList, pid, uploadFiles]);
 
   // ── Delete handler ────────────────────────────────────────────────
   const handleDelete = useCallback((docKeys: string[]) => {
@@ -288,8 +288,9 @@ const RAGDocuments: React.FC = () => {
 
   // ── Index handler ──────────────────────────────────────────────────
   const handleIndex = useCallback(async () => {
-    await triggerIndex(pid);
-    message.info('Indexing started — this may take a few minutes');
+    const started = await triggerIndex(pid);
+    if (started) message.info('Indexing started — this may take a few minutes');
+    else message.error(useRAGStore.getState().error || 'Unable to start indexing');
   }, [triggerIndex, pid]);
 
   // ── Chat send handler ─────────────────────────────────────────────
@@ -419,14 +420,20 @@ const RAGDocuments: React.FC = () => {
         </Col>
       </Row>
 
-      {/* Index progress bar */}
-      {indexStatus?.status === 'indexing' && (
+      {/* Index status */}
+      {indexStatus && indexStatus.status !== 'none' && (
         <Card size="small" style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <SyncOutlined spin style={{ color: token.colorPrimary, fontSize: 18 }} />
+            {indexStatus.status === 'indexing'
+              ? <SyncOutlined spin style={{ color: token.colorPrimary, fontSize: 18 }} />
+              : indexStatus.status === 'ready'
+                ? <CheckCircleOutlined style={{ color: token.colorSuccess, fontSize: 18 }} />
+                : <ExclamationCircleOutlined style={{ color: token.colorError, fontSize: 18 }} />}
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text strong style={{ fontSize: 13 }}>Building Index…</Text>
+                <Text strong style={{ fontSize: 13 }}>
+                  {indexStatus.status === 'indexing' ? 'Building Index...' : indexStatus.status === 'ready' ? 'Index Ready' : 'Index Error'}
+                </Text>
                 <Text type="secondary" style={{ fontSize: 12 }}>{indexStatus.progress ?? 0}%</Text>
               </div>
               <Progress
@@ -434,11 +441,17 @@ const RAGDocuments: React.FC = () => {
                 showInfo={false}
                 strokeColor={{ from: token.colorPrimary, to: token.colorSuccess }}
                 size="small"
-                status="active"
+                status={indexStatus.status === 'indexing' ? 'active' : indexStatus.status === 'ready' ? 'success' : 'exception'}
               />
               {indexStatus.message && (
                 <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
                   {indexStatus.message}
+                </Text>
+              )}
+              {indexStatus.status === 'ready' && (
+                <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+                  {indexStatus.docCount || 0} document(s), {indexStatus.chunkCount || 0} chunks
+                  {indexStatus.lastIndexedAt ? ` - ${new Date(indexStatus.lastIndexedAt).toLocaleString()}` : ''}
                 </Text>
               )}
             </div>

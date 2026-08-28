@@ -1,4 +1,5 @@
 import { appSyncRequest } from './appSyncClient';
+import { getCachedAppConfig } from '../../contexts/AppConfigContext';
 
 export interface FileOp {
   op: string;
@@ -128,6 +129,100 @@ export const uploadWithPresignedUrl = async (
   }
 
   return response;
+};
+
+export const uploadWithRagRelay = async (
+  file: File,
+  contentType?: string,
+  pid = 'default',
+): Promise<void> => {
+  const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
+  if (!envId) throw new Error('CloudBase RAG signer is not configured');
+  const cloudbase = (await import('@cloudbase/js-sdk')).default;
+  const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
+  const result = await app.callFunction({
+    name: 'rag_upload_signer_event',
+    data: { pid, fileName: file.name },
+  });
+  const payload = (result as any)?.result || result;
+  if (!payload?.success || !payload?.uploadUrl) {
+    throw new Error(payload?.error || 'Unable to obtain RAG upload URL');
+  }
+
+  const formData = new FormData();
+  formData.append('uploadUrl', payload.uploadUrl);
+  formData.append('contentType', contentType || file.type || 'application/octet-stream');
+  formData.append('file', file, file.name);
+
+  const response = await fetch('/api/rag-upload.php', { method: 'POST', body: formData });
+  const relayPayload = await response.json().catch(() => ({}));
+  if (!response.ok || !relayPayload.success) {
+    throw new Error(relayPayload.error || `RAG upload relay failed (HTTP ${response.status})`);
+  }
+};
+
+export interface RagRelayDocument {
+  key: string;
+  fileName: string;
+  fileSize: number;
+  uploadedAt: string | null;
+  status: string;
+  pid: string;
+}
+
+export const listRagRelayDocuments = async (pid = 'default'): Promise<RagRelayDocument[]> => {
+  const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
+  if (!envId) throw new Error('CloudBase RAG signer is not configured');
+  const cloudbase = (await import('@cloudbase/js-sdk')).default;
+  const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
+  const result = await app.callFunction({ name: 'rag_upload_signer_event', data: { action: 'listDocuments', pid } });
+  const payload = (result as any)?.result || result;
+  if (!payload?.success || !Array.isArray(payload.documents)) {
+    throw new Error(payload?.error || 'Unable to list RAG documents');
+  }
+  return payload.documents;
+};
+
+export interface RagIndexResponse {
+  status: string;
+  message?: string;
+  progress?: number;
+  lastIndexedAt?: string;
+  docCount?: number;
+  chunkCount?: number;
+}
+
+const ragIndexRequest = async (action: 'startIndex' | 'getIndexStatus', pid = 'default'): Promise<RagIndexResponse> => {
+  const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
+  if (!envId) throw new Error('CloudBase RAG indexer is not configured');
+  const cloudbase = (await import('@cloudbase/js-sdk')).default;
+  const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
+  const result = await app.callFunction({ name: 'rag_index_event', data: { action, pid } });
+  const payload = (result as any)?.result || result;
+  if (!payload?.success) throw new Error(payload?.message || payload?.error || 'RAG indexing request failed');
+  return payload;
+};
+
+export const startRagIndex = (pid = 'default') => ragIndexRequest('startIndex', pid);
+
+export const getRagIndexStatus = (pid = 'default') => ragIndexRequest('getIndexStatus', pid);
+
+export interface RagQueryResponse {
+  answer?: string;
+  chunks: Array<{ text: string; score: number; source: string; metadata?: Record<string, unknown> }>;
+  query: string;
+  mode?: string;
+}
+
+export const queryRagIndex = async (query: string, pid = 'default', topK = 5): Promise<RagQueryResponse> => {
+  const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
+  if (!envId) throw new Error('CloudBase RAG indexer is not configured');
+  const cloudbase = (await import('@cloudbase/js-sdk')).default;
+  const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
+  const result = await app.callFunction({ name: 'rag_index_event', data: { action: 'queryIndex', query, pid, topK } });
+  const payload = (result as any)?.result || result;
+  if (!payload?.success || !Array.isArray(payload.chunks)) throw new Error(payload?.message || payload?.error || 'RAG query failed');
+  return payload;
 };
 
 export const downloadWithPresignedUrl = async (
