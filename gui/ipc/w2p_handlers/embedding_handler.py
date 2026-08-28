@@ -251,6 +251,16 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
                 except Exception as e:
                     logger.error(f"[Embedding] ❌ Error updating agent embeddings: {e}")
         
+        # Broadcast providersUpdated so LightRAG UI can refresh immediately
+        try:
+            from gui.LocalServer import app_ws_manager
+            app_ws_manager.broadcast_sync('lightrag.providersUpdated', {
+                'provider_type': 'embedding',
+                'provider': provider_identifier,
+            })
+        except Exception as broadcast_err:
+            logger.debug(f"[Embedding] Could not broadcast providersUpdated: {broadcast_err}")
+
         return create_success_response(request, response_data)
 
     except Exception as e:

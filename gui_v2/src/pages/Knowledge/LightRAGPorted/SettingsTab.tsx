@@ -31,6 +31,7 @@ import { buildProviderConfig, type RawProvider } from './buildProviderFields';
 import { useIsCN } from '@/contexts/AppConfigContext';
 import { Card } from 'antd';
 import HelpDialog from './HelpDialog';
+import { useLightRAGSettingsStore } from '@/stores/ragStore';
 
 // Helper to build ProviderConfig from raw backend data
 // (defined in buildProviderFields.ts)
@@ -485,6 +486,22 @@ const SettingsTab: React.FC = () => {
   const { theme: currentTheme } = useTheme();
   const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const { message, modal } = App.useApp();
+
+  // ── Provider sync ────────────────────────────────────────────────────────
+  // Bump signal from Settings page (via WebSocket push → eventBus → Zustand).
+  // When a provider is saved in Settings, KnowledgePortedPage bumps the store
+  // version and this useEffect re-loads settings + provider list automatically.
+  const { providerVersion } = useLightRAGSettingsStore();
+
+  // Reload on provider version change (skip on initial mount — the other useEffect handles it)
+  useEffect(() => {
+    if (providerVersion === 0) return; // skip initial mount
+    const reload = async () => {
+      await Promise.all([loadSettings(), loadProviders()]);
+    };
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providerVersion]); // intentionally omitting loadSettings/loadProviders to avoid stale closure
 
   useEffect(() => {
     const initializeSettings = async () => {
