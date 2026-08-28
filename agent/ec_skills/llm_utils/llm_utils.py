@@ -20,7 +20,6 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_deepseek import ChatDeepSeek
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
-from langchain_qwq import ChatQwQ
 from langgraph.types import Interrupt
 
 # Optional third-party imports
@@ -1429,7 +1428,7 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
             # 
             # Solution: Create custom httpx clients (sync + async) that don't use proxy.
             # This is THREAD-SAFE and doesn't affect other concurrent LLM creations (unlike modifying env vars).
-            logger.debug(f"[DashScope] Creating ChatQwQ with base_url={base_url}")
+            logger.debug(f"[DashScope] Creating ChatOpenAI with base_url={base_url}")
             
             # Create no-proxy httpx clients (thread-safe, doesn't modify global env vars)
             # Optimization: Only creates if proxy is configured
@@ -1438,21 +1437,20 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
             if sync_client or async_client:
                 logger.debug(f"[DashScope] Using no-proxy httpx clients (Alibaba Cloud security policy)")
                 
-                # ChatQwQ inherits from ChatOpenAI, which supports both http_client and http_async_client
-                llm_instance = ChatQwQ(
+                llm_instance = ChatOpenAI(
                     model=model_name,
                     api_key=dashscope_api_key,
                     base_url=base_url,
                     temperature=0,
-                    http_client=sync_client,  # Use custom SYNC client that bypasses proxy (for llm.invoke())
-                    http_async_client=async_client  # Use custom ASYNC client that bypasses proxy (for llm.ainvoke())
+                    http_client=sync_client,
+                    http_async_client=async_client
                 )
                 
                 return llm_instance
             else:
                 # No proxy configured - use default clients (more efficient)
                 logger.debug(f"[DashScope] Using default httpx clients (no proxy configured)")
-                return ChatQwQ(
+                return ChatOpenAI(
                     model=model_name,
                     api_key=dashscope_api_key,
                     base_url=base_url,

@@ -139,9 +139,13 @@ export const RAG_FIELDS: FieldConfig[] = [
   ]},
   { key: 'MAX_FILE_PATHS', type: 'number', placeholder: '100', section: 'document' },
   { key: 'RELATED_CHUNK_NUMBER', type: 'number', placeholder: '5', section: 'document', tooltip: 'tooltips.relatedChunkNumber' },
-  { key: 'MAX_GLEANING', type: 'number', defaultValue: '1', section: 'document', tooltip: 'tooltips.maxGleaning' },
+  { key: 'MAX_GLEANING', type: 'number', defaultValue: '0', section: 'document', tooltip: 'tooltips.maxGleaning' },
   
   // Concurrency
+  // NOTE: LightRAG 1.5.6 reads MAX_ASYNC_LLM first and falls back to MAX_ASYNC
+  // (see lightrag/lightrag.py:716). The UI key is kept as MAX_ASYNC for
+  // backward compatibility with existing lightrag.env files; new deployments
+  // should set MAX_ASYNC_LLM directly in lightrag_template.env.
   { key: 'MAX_ASYNC', type: 'number', defaultValue: '6', section: 'concurrency', tooltip: 'tooltips.maxAsync' },
   { key: 'MAX_PARALLEL_INSERT', type: 'number', defaultValue: '2', section: 'concurrency', tooltip: 'tooltips.maxParallelInsert' },
   { key: 'EMBEDDING_FUNC_MAX_ASYNC', type: 'number', placeholder: '4', section: 'concurrency' },

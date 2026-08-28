@@ -21,11 +21,13 @@ small set of surfaces where LightRAG has a gap eCan needs filled:
 6. Lambda proxy headers — when the LLM host is a Lambda Function URL,
    inject ``X-User-Id`` / ``X-Provider`` so the proxy can do per-user
    token accounting.
+6.5. LLM retry wrapper — ``AsyncOpenAI.chat.completions.create`` is wrapped
+   with exponential backoff for ``RateLimitError`` / ``APIConnectionError`` /
+   ``APITimeoutError`` / ``httpx`` network errors. LightRAG 1.5.6 has no
+   retry, so without this a transient 429 aborts the whole document.
+   Disabled via ``LIGHTRAG_LLM_RETRY=0``.
 7. Health monitoring — registers ``/health/status``, ``/health/workers``,
    ``/health/circuits`` (logic in ``knowledge/lightrag_health.py``).
-8. Storage import blocker — prevents LightRAG from eagerly loading unused
-   storage backends (Neo4j, Milvus, Redis, MongoDB, etc.) to save ~1-2GB
-   of memory. Backends remain accessible via environment variables if needed.
 
 All patches degrade gracefully: on failure they emit a WARNING and let the
 server continue with reduced functionality.  Only ``patch_rerank_binding``
@@ -39,7 +41,6 @@ auto-retry patches are needed.
 import sys
 import os
 import ssl
-import runpy
 import aiohttp
 
 # Handle __file__ not defined in PyInstaller frozen environment (worker process)
@@ -103,6 +104,7 @@ from knowledge.lightrag_compat import (
 
 
 # ==================== Module Replacement ====================
+
 
 def patch_lightrag_init():
     """Inject custom chunker into LightRAG initialization
@@ -418,6 +420,107 @@ def patch_openai_client_for_lambda_proxy():
         logger.warning(f'[Launcher] Failed to patch OpenAI client for proxy: {e}')
 
 
+def patch_openai_client_for_retry_on_429():
+    """Wrap each OpenAI client's chat.completions.create with exponential backoff.
+
+    LightRAG 1.5.6's ``operate.py`` uses a blanket ``except Exception`` (line 4065)
+    around per-chunk LLM calls; any 429 / connection error / timeout aborts the
+    whole chunk and propagates up as a doc-level failure. There is no built-in
+    retry.
+
+    Wrapping the OpenAI client's ``chat.completions.create`` per-instance (via
+    ``__init__``) is the minimal surface to add retry: it catches the failure
+    at the network layer and re-issues the same request, leaving LightRAG's
+    call sites untouched.
+
+    Why per-instance instead of class-level: ``AsyncOpenAI.chat`` is a
+    ``cached_property`` in openai-sdk ≥ 1.x, so the class attribute cannot be
+    ``setattr``-replaced. Wrapping in ``__init__`` works for any SDK shape.
+
+    Only triggered on retriable conditions:
+    - openai.RateLimitError (HTTP 429)
+    - openai.APIConnectionError (network blip)
+    - openai.APITimeoutError (slow provider)
+    - httpx.ConnectError / httpx.ReadTimeout / httpx.TimeoutException (transports)
+
+    Non-retriable errors (400 bad request, 401 unauth, 422 content-length)
+    pass through unchanged so the user still sees a clear failure.
+
+    Degrades gracefully: if the OpenAI client shape changes upstream, the
+    wrapper falls back to no-op and emits a WARNING.
+    """
+    if os.environ.get('LIGHTRAG_LLM_RETRY', '1') != '1':
+        logger.info('[Launcher] LLM retry wrapper disabled via LIGHTRAG_LLM_RETRY=0')
+        return
+
+    max_retries = int(os.environ.get('LIGHTRAG_LLM_MAX_RETRIES', '3'))
+    initial_backoff = float(os.environ.get('LIGHTRAG_LLM_RETRY_BACKOFF_SEC', '1.0'))
+
+    try:
+        import asyncio as _asyncio
+        import openai
+        from openai import (
+            RateLimitError,
+            APIConnectionError,
+            APITimeoutError,
+        )
+
+        try:
+            import httpx
+            httpx_retriable = (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException)
+        except ImportError:
+            httpx_retriable = ()
+
+        retriable = (RateLimitError, APIConnectionError, APITimeoutError) + httpx_retriable
+    except ImportError as e:
+        logger.warning(f'[Launcher] Cannot import openai for retry wrapper: {e}')
+        return
+
+    try:
+        _original_init = openai.AsyncOpenAI.__init__
+
+        async def _create_with_retry(self, *args, **kwargs):
+            backoff = initial_backoff
+            last_exc = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return await self._llm_original_create(*args, **kwargs)
+                except retriable as e:
+                    last_exc = e
+                    if attempt == max_retries:
+                        logger.warning(
+                            f'[Launcher] LLM call exhausted retries '
+                            f'(attempt={attempt + 1}/{max_retries + 1}): {e}'
+                        )
+                        raise
+                    logger.info(
+                        f'[Launcher] LLM retriable error (attempt={attempt + 1}/'
+                        f'{max_retries + 1}), backing off {backoff:.1f}s: {e}'
+                    )
+                    await _asyncio.sleep(backoff)
+                    backoff *= 2
+            # Unreachable, but mypy/typing wants an explicit raise path
+            if last_exc is not None:
+                raise last_exc
+
+        def _patched_init(self, *args, **kwargs):
+            _original_init(self, *args, **kwargs)
+            # Cache and wrap the per-instance chat.completions.create.
+            # After this, every call from LightRAG goes through _create_with_retry.
+            self._llm_original_create = self.chat.completions.create
+            self.chat.completions.create = _create_with_retry.__get__(
+                self, type(self.chat.completions)
+            )
+
+        openai.AsyncOpenAI.__init__ = _patched_init
+        logger.info(
+            f'[Launcher] Wrapped AsyncOpenAI chat.completions.create with retry '
+            f'(max_retries={max_retries}, initial_backoff={initial_backoff}s)'
+        )
+    except Exception as e:
+        logger.warning(f'[Launcher] Failed to install LLM retry wrapper: {e}')
+
+
 def patch_health_monitoring():
     """
     Register health check routes and start health monitoring.
@@ -436,67 +539,6 @@ def patch_health_monitoring():
         logger.warning("[Launcher] lightrag_health module not available, health routes disabled")
     except Exception as e:
         logger.warning(f"[Launcher] Failed to setup health monitoring: {e}")
-
-
-def patch_storage_lazy_load():
-    """
-    Prevent loading heavyweight third-party dependencies for unused storage backends.
-    
-    LightRAG optionally supports multiple storage backends (Neo4j, Milvus, MongoDB,
-    Redis, etc.) that import heavyweight native libraries (~200-500MB each):
-    - Neo4j: ~400MB (libneo4j-omni, neo4j driver)
-    - Milvus: ~300MB (pymilvus, grpc)
-    - MongoDB: ~200MB (pymongo)
-    - Redis: ~150MB (redis client)
-    - Qdrant: ~200MB (qdrant-client)
-    
-    This patch only blocks the THIRD-PARTY dependencies, NOT LightRAG's storage
-    wrapper modules. This way:
-    - If user doesn't configure a backend: no heavy deps are loaded (~1-2GB saved)
-    - If user configures Neo4j: LightRAG will try to import 'neo4j' and fail with
-      ImportError (user needs to install pymilvus first, which is expected)
-    - LightRAG's own storage impl modules (e.g. lightrag.storage.kg_storage_impl.neo4j)
-      are NOT blocked, so the error message is clear and actionable.
-    
-    What we block:
-    - neo4j, pymongo, pymilvus, redis, qdrant_client, pymemcache
-    
-    What we DON'T block (allow LightRAG to handle these):
-    - lightrag.storage.* (LightRAG's storage impl wrappers)
-    """
-    import importlib.abc
-    import importlib.machinery
-    
-    # Heavy third-party dependencies used by optional storage backends.
-    # These are the actual memory hogs (~200-500MB each when loaded).
-    BLOCKED_DEPS = frozenset({
-        'neo4j',           # Neo4j graph database driver
-        'pymongo',         # MongoDB driver
-        'pymilvus',        # Milvus vector DB driver
-        'redis',           # Redis driver
-        'qdrant_client',   # Qdrant vector DB client
-        'pymemcache',      # Memcached driver
-        'pg8000',          # PostgreSQL driver (for PG storage)
-    })
-    
-    class HeavyDepBlocker(importlib.abc.MetaPathFinder):
-        """Block heavy third-party storage deps from loading at import time."""
-        
-        def find_spec(self, fullname, path, target=None):
-            if fullname in BLOCKED_DEPS:
-                logger.debug(f"[Launcher] 🚫 Blocked heavy storage dep: {fullname}")
-                return None  # Block the import
-            return None  # Let all other imports through
-    
-    # Install the blocker as a metaclass finder (before other finders)
-    blocker = HeavyDepBlocker()
-    sys.meta_path.insert(0, blocker)
-    
-    logger.info(
-        f"[Launcher] 🛡️ Storage dep blocker installed: blocking {len(BLOCKED_DEPS)} heavy deps "
-        f"(~1-2GB savings if not used). LightRAG storage wrappers still load; "
-        f"install the dep package if you need that backend."
-    )
 
 
 def apply_all_patches():
@@ -551,8 +593,10 @@ def apply_all_patches():
     # See: https://github.com/intel/tbb/wiki/TBBMalloc#tcmalloc-and-intel-tbb
     patch_openmp_duplicate_fix()
 
-    # 0.5 Storage import blocker - prevent loading unused backends to save memory
-    patch_storage_lazy_load()
+    # 0.5 (mt101 storage dep blocker — removed; lightrag-hku 1.5.6 already
+    # lazy-imports storage backends via factory.get_storage_class(), so the
+    # blocker never fires. Keep the comment as a tombstone in case upstream
+    # switches to eager loading.)
 
     # 1. Rerank binding conversion FIRST — reads from os.environ which is
     # already populated by the parent process.
@@ -574,6 +618,11 @@ def apply_all_patches():
     # 6. Lambda proxy header injection (X-User-Id for per-user accounting).
     patch_openai_client_for_lambda_proxy()
 
+    # 6.5. LLM retry wrapper (exponential backoff on 429 / timeout / connection).
+    # LightRAG 1.5.6 has no retry; without this, transient cloud API failures
+    # abort the whole document. Disabled via LIGHTRAG_LLM_RETRY=0.
+    patch_openai_client_for_retry_on_429()
+
     # 7. Health monitoring (registers /health/* routes — actual logic lives in
     # knowledge/lightrag_health.py).
     patch_health_monitoring()
@@ -582,14 +631,64 @@ def apply_all_patches():
 
 
 def main():
-    """Main entry point"""
+    """Main entry point — starts LightRAG FastAPI app via uvicorn.
+
+    Uses ``create_app()`` + ``uvicorn.run()`` instead of ``runpy.run_module()``.
+    The latter replaces the current process, which breaks ``subprocess.Popen``
+    management in ``LightragServer.start()`` (the parent process loses its child
+    handle).  ``uvicorn.run()`` keeps the child subprocess alive and controllable.
+    """
+    import uvicorn
+
     apply_all_patches()
-    sys.argv = [sys.executable] + sys.argv[1:]
-    logger.info('[Launcher] Starting lightrag.api.lightrag_server...')
+
+    logger.info(f'[Launcher] Building FastAPI app...')
     try:
-        runpy.run_module('lightrag.api.lightrag_server', run_name='__main__', alter_sys=True)
+        from lightrag.api.lightrag_server import create_app
+        # Map non-native LLM/embedding bindings to LightRAG-supported values
+        # so the validator inside create_app() accepts them.
+        _LIGHTRAG_LLM_SUPPORTED = {'lollms', 'ollama', 'openai', 'azure_openai', 'aws_bedrock', 'gemini'}
+        _LIGHTRAG_EMBED_SUPPORTED = _LIGHTRAG_LLM_SUPPORTED | {'jina'}
+        _PROVIDER_MAPPING = {
+            'ryoais': 'openai', 'anthropic': 'openai', 'deepseek': 'openai',
+            'dashscope': 'openai', 'bytedance': 'openai', 'baidu_qianfan': 'openai',
+            'zhipuai': 'openai', 'google': 'openai', 'bedrock': 'aws_bedrock',
+        }
+        for env_key, supported in [('LLM_BINDING', _LIGHTRAG_LLM_SUPPORTED),
+                                    ('EMBEDDING_BINDING', _LIGHTRAG_EMBED_SUPPORTED)]:
+            val = os.environ.get(env_key, '').lower()
+            if val and val not in supported:
+                mapped = _PROVIDER_MAPPING.get(val, 'openai')
+                logger.info(f"[Launcher] Mapping {env_key} '{val}' -> '{mapped}'")
+                os.environ[env_key] = mapped
+
+        from lightrag.api.config import initialize_config
+        # force=True: re-parse args after binding mapping has been applied to os.environ.
+        # Without force, initialize_config() returns the cached result from first import
+        # (before env vars were set in main()).
+        args = initialize_config(force=True)
+        app = create_app(args)
     except Exception as e:
-        logger.error(f'[Launcher] Error: {e}')
+        logger.error(f'[Launcher] Failed to create FastAPI app: {e}')
+        import traceback
+        logger.error(traceback.format_exc())
+        sys.exit(1)
+
+    # Suppress uvicorn access log (we already log at debug level via our own logger)
+    logger.info(f'[Launcher] Starting uvicorn on {args.host}:{args.port}...')
+    try:
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=args.port,
+            log_level=args.log_level.lower(),  # uvicorn accepts lowercase
+            access_log=False,
+            timeout_keep_alive=30,
+        )
+    except Exception as e:
+        logger.error(f'[Launcher] uvicorn.run() failed: {e}')
+        import traceback
+        logger.error(traceback.format_exc())
         sys.exit(1)
 
 

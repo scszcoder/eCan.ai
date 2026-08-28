@@ -58,13 +58,66 @@ def update_ollama_base_url(
             logger.error(f"[ProviderUtils] {error_msg}")
             return False, error_msg
         
+        # Sync to lightrag.env if this provider is the currently active binding.
+        # Without this, Settings saves to settings.json but LightRAG server reads
+        # lightrag.env on next start, so the new address would be ignored until
+        # the user also opens LightRAG Settings and saves there.
+        _sync_base_url_to_lightrag_env(provider_lower, provider_type, base_url)
+
         logger.info(f"[ProviderUtils] Updated {provider_identifier} {provider_type} base_url: {base_url}")
         return True, None
-        
+
     except Exception as e:
         error_msg = f"Failed to update base_url: {e}"
         logger.error(f"[ProviderUtils] {error_msg}")
         return False, error_msg
+
+
+def _sync_base_url_to_lightrag_env(provider_identifier: str, provider_type: str, base_url: str):
+    """
+    If the given provider is the currently active LLM/Embedding/Rerank binding,
+    write the new base_url into the workspace's lightrag.env so the next
+    LightRAG server start picks it up without requiring a second save from the
+    LightRAG Settings UI.
+
+    Falls back gracefully if lightrag.env is unavailable.
+    """
+    try:
+        binding_key_map = {
+            'llm': 'LLM_BINDING',
+            'embedding': 'EMBEDDING_BINDING',
+            'rerank': 'RERANK_BINDING',
+        }
+        host_key_map = {
+            'llm': 'LLM_BINDING_HOST',
+            'embedding': 'EMBEDDING_BINDING_HOST',
+            'rerank': 'RERANK_BINDING_HOST',
+        }
+        binding_key = binding_key_map.get(provider_type)
+        host_key = host_key_map.get(provider_type)
+        if not binding_key or not host_key:
+            return
+
+        from knowledge.lightrag_config_manager import get_config_manager as get_lr_config
+        lr_config = get_lr_config()
+
+        # Check if this provider is the active binding
+        current_binding = lr_config.get_value(binding_key, '')
+        if current_binding.lower() != provider_identifier.lower():
+            logger.debug(
+                f"[ProviderUtils] {provider_identifier} is not the active {binding_key} "
+                f"(active={current_binding}), skipping lightrag.env sync"
+            )
+            return
+
+        # Write directly into lightrag.env
+        lr_config.update_config({host_key: base_url})
+        logger.info(
+            f"[ProviderUtils] Synced {provider_identifier} → lightrag.env "
+            f"{host_key}={base_url}"
+        )
+    except Exception as e:
+        logger.debug(f"[ProviderUtils] Could not sync base_url to lightrag.env: {e}")
 
 
 def get_ollama_base_url(provider_type: str, provider_config = None, provider_identifier: str = 'ollama') -> str:

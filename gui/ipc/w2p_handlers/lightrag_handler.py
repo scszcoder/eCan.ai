@@ -5,6 +5,7 @@ Handles knowledge base operations for the LightRAG system.
 import os
 import json
 import traceback
+import requests
 from typing import Any, Optional, Dict, List
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
@@ -704,15 +705,20 @@ def handle_get_status_counts(request: IPCRequest, params: Optional[Dict[str, Any
         
         # Call get_status_counts method
         result = client.get_status_counts(workspace=workspace)
-        
+
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Get status counts failed')
             logger.error(f"Get status counts failed: {error_msg}")
             return create_error_response(request, 'GET_STATUS_COUNTS_ERROR', error_msg)
-        
+
         data = result.get('data', result)
         return create_success_response(request, data)
-        
+
+    except requests.exceptions.ConnectionError:
+        # LightRAG server not yet started — return empty data instead of error.
+        logger.debug(f"[lightrag_handler] Server not ready for get_status_counts, returning empty data")
+        return create_success_response(request, {'status_counts': {}})
+
     except Exception as e:
         logger.error(f"Error in get_status_counts handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'GET_STATUS_COUNTS_ERROR', str(e))
@@ -1147,6 +1153,12 @@ def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[st
             logger.info(f"[lightrag_handler] Returning {len(docs)} documents")
         
         return create_success_response(request, response_data)
+
+    except requests.exceptions.ConnectionError:
+        # LightRAG server not yet started — return empty data instead of error.
+        logger.debug(f"[lightrag_handler] Server not ready for get_documents_paginated, returning empty data")
+        return create_success_response(request, {'documents': [], 'total': 0, 'page': 1, 'page_size': 20})
+
     except Exception as e:
         logger.error(f"[lightrag_handler] Error in get_documents_paginated handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'GET_DOCUMENTS_ERROR', str(e))
@@ -1312,7 +1324,20 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
                 response_data['pipeline'] = pipeline_info
             
             return create_success_response(request, response_data)
-        
+
+    except requests.exceptions.ConnectionError:
+        # LightRAG server not yet started — return idle progress instead of error.
+        logger.debug(f"[lightrag_handler] Server not ready for get_processing_progress, returning idle data")
+        return create_success_response(request, {
+            'status': 'idle',
+            'processing_count': 0,
+            'pending_count': 0,
+            'processed_count': 0,
+            'failed_count': 0,
+            'total_count': 0,
+            'progress_percentage': 0
+        })
+
     except Exception as e:
         logger.error(f"Error in get_processing_progress handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'GET_PROGRESS_ERROR', str(e))

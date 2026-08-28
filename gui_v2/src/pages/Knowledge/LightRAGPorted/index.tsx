@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { theme, Modal } from 'antd';
 import { ExclamationCircleOutlined } from '@ant-design/icons';
 import { useEffectOnActive } from 'keepalive-for-react';
@@ -10,6 +10,8 @@ import RetrievalTab from './RetrievalTab';
 import GraphTab from './GraphTab';
 import { validateLightRAGConfig } from './configValidator';
 import { get_ipc_api } from '@/services/ipc_api';
+import { useLightRAGSettingsStore } from '@/stores/ragStore';
+import { eventBus } from '@/utils/eventBus';
 
 const KnowledgePortedPage: React.FC = () => {
   const { t } = useTranslation();
@@ -19,6 +21,15 @@ const KnowledgePortedPage: React.FC = () => {
   const savedScrollPositionRef = useRef<number>(0);
   const [activeTab, setActiveTab] = useState<TabKey>('documents');
   const hasValidatedRef = useRef<boolean>(false);
+  const { bumpProviderVersion } = useLightRAGSettingsStore();
+
+  // Listen for backend provider-update push and bump store version
+  // so SettingsTab's useEffect re-loads settings + providers automatically.
+  useEffect(() => {
+    const handler = () => bumpProviderVersion();
+    eventBus.on('localws:lightrag.providersUpdated', handler);
+    return () => { eventBus.off('localws:lightrag.providersUpdated', handler); };
+  }, [bumpProviderVersion]);
 
   
   // Validate LightRAG configuration on page activation

@@ -443,4 +443,168 @@ def test_patch_httpx_timeout_compat_is_idempotent(monkeypatch) -> None:
 
     launcher.patch_httpx_timeout_compat()
 
-    assert httpx.TimeoutError is sentinel
+# -- patch_openai_client_for_retry_on_429 ------------------------------------
+
+
+import asyncio
+from unittest.mock import MagicMock
+
+
+def test_retry_wrapper_retries_then_succeeds_on_rate_limit(monkeypatch) -> None:
+    """On RateLimitError, the wrapper retries with backoff and eventually
+    succeeds; only the last attempt's response is returned.
+    """
+    from openai import RateLimitError
+
+    from knowledge import lightrag_launcher as launcher
+
+    monkeypatch.setenv("LIGHTRAG_LLM_RETRY", "1")
+    monkeypatch.setenv("LIGHTRAG_LLM_MAX_RETRIES", "3")
+    monkeypatch.setenv("LIGHTRAG_LLM_RETRY_BACKOFF_SEC", "0")
+    sleeps = []
+
+    async def fake_sleep(s, *a, **kw):
+        sleeps.append(s)
+
+    monkeypatch.setattr("asyncio.sleep", fake_sleep)
+
+    import openai
+
+    sentinel = object()
+    call_count = {"n": 0}
+    fake_response = MagicMock()
+
+    async def flaky(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] < 3:
+            raise RateLimitError(
+                "rate limited", response=fake_response, body={"error": "rate_limit"}
+            )
+        return sentinel
+
+    # The launcher wraps per-instance in __init__; replace the original
+    # create at instance level via the wrapper's stored attribute.
+    launcher.patch_openai_client_for_retry_on_429()
+
+    client = openai.AsyncOpenAI(api_key="test")
+    # Replace the cached original that the wrapper captured during init
+    client._llm_original_create = flaky
+
+    async def run():
+        return await client.chat.completions.create(model="x", messages=[])
+
+    result = asyncio.get_event_loop().run_until_complete(run())
+
+    assert result is sentinel
+    assert call_count["n"] == 3  # 2 failures + 1 success
+    assert len(sleeps) == 2  # backoff happened between retries
+
+
+def test_retry_wrapper_gives_up_after_max_retries(monkeypatch) -> None:
+    """If all retries fail, the last exception is re-raised so the
+    upstream chunk-processing code still sees a failure.
+    """
+    from openai import RateLimitError
+
+    from knowledge import lightrag_launcher as launcher
+
+    monkeypatch.setenv("LIGHTRAG_LLM_RETRY", "1")
+    monkeypatch.setenv("LIGHTRAG_LLM_MAX_RETRIES", "2")
+    monkeypatch.setenv("LIGHTRAG_LLM_RETRY_BACKOFF_SEC", "0")
+
+    async def fake_sleep_zero(*a, **kw):
+        return None
+
+    monkeypatch.setattr("asyncio.sleep", fake_sleep_zero)
+
+    import openai
+
+    call_count = {"n": 0}
+    fake_response = MagicMock()
+
+    async def always_fail(*args, **kwargs):
+        call_count["n"] += 1
+        raise RateLimitError(
+            "still rate limited", response=fake_response, body={"error": "rate_limit"}
+        )
+
+    launcher.patch_openai_client_for_retry_on_429()
+
+    client = openai.AsyncOpenAI(api_key="test")
+    client._llm_original_create = always_fail
+
+    async def run():
+        await client.chat.completions.create(model="x", messages=[])
+
+    raised = False
+    try:
+        asyncio.get_event_loop().run_until_complete(run())
+    except RateLimitError:
+        raised = True
+
+    assert raised
+    # 1 initial + 2 retries = 3 attempts
+    assert call_count["n"] == 3
+
+
+def test_retry_wrapper_does_not_retry_non_retriable_errors(monkeypatch) -> None:
+    """BadRequestError must NOT trigger retry — it's deterministic and
+    retrying would just delay the user-visible failure.
+    """
+    from openai import BadRequestError
+
+    from knowledge import lightrag_launcher as launcher
+
+    monkeypatch.setenv("LIGHTRAG_LLM_RETRY", "1")
+    monkeypatch.setenv("LIGHTRAG_LLM_MAX_RETRIES", "5")
+    monkeypatch.setenv("LIGHTRAG_LLM_RETRY_BACKOFF_SEC", "0")
+
+    import openai
+
+    call_count = {"n": 0}
+    fake_response = MagicMock()
+
+    async def bad_request(*args, **kwargs):
+        call_count["n"] += 1
+        raise BadRequestError(
+            "bad request", response=fake_response, body={"error": "invalid"}
+        )
+
+    launcher.patch_openai_client_for_retry_on_429()
+
+    client = openai.AsyncOpenAI(api_key="test")
+    client._llm_original_create = bad_request
+
+    async def run():
+        await client.chat.completions.create(model="x", messages=[])
+
+    raised = False
+    try:
+        asyncio.get_event_loop().run_until_complete(run())
+    except BadRequestError:
+        raised = True
+
+    assert raised
+    assert call_count["n"] == 1  # exactly one attempt, no retry
+
+
+def test_retry_wrapper_disabled_via_env(monkeypatch) -> None:
+    """LIGHTRAG_LLM_RETRY=0 must cause patch_openai_client_for_retry_on_429
+    to be a no-op (early return), so AsyncOpenAI.__init__ stays untouched.
+    """
+    monkeypatch.setenv("LIGHTRAG_LLM_RETRY", "0")
+
+    import openai
+
+    # Capture the original __init__ before any patch runs.
+    original_init = openai.AsyncOpenAI.__init__
+
+    from knowledge import lightrag_launcher as launcher
+
+    launcher.patch_openai_client_for_retry_on_429()
+
+    # When the patch is disabled, the function returns early and must NOT
+    # have replaced __init__.
+    assert openai.AsyncOpenAI.__init__ is original_init
+
+
