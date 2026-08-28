@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button, Card, Col, Divider, Input, InputNumber, Row, Space, Tooltip, Typography, message, Popconfirm } from 'antd';
-import { ReloadOutlined, DollarOutlined, ArrowRightOutlined, KeyOutlined, CopyOutlined, EyeOutlined, EyeInvisibleOutlined, DeleteOutlined } from '@ant-design/icons';
+import { ReloadOutlined, DollarOutlined, ArrowRightOutlined, KeyOutlined, CopyOutlined, EyeOutlined, EyeInvisibleOutlined, DeleteOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAccountStore } from '../../stores/accountStore';
@@ -25,6 +25,7 @@ const Account: React.FC = () => {
     const [apiKey, setApiKey] = useState<string>('');
     const [apiKeyVisible, setApiKeyVisible] = useState(false);
     const [requestingKey, setRequestingKey] = useState(false);
+    const [testingKey, setTestingKey] = useState(false);
     const [removingKey, setRemovingKey] = useState(false);
     const navigate = useNavigate();
     const accountData = useAccountStore((state) => state.accountData);
@@ -37,6 +38,7 @@ const Account: React.FC = () => {
             if (response?.success && response.data) {
                 const data = response.data as any;
                 setAccountData(data.accountInfo || data);
+                await loadApiKey();
                 message.success(t('account.refreshSuccess', 'Account info refreshed'));
             } else {
                 message.error(response?.error?.message || t('account.fetchFailed', 'Failed to fetch account info'));
@@ -123,6 +125,21 @@ const Account: React.FC = () => {
         }
     };
 
+    const loadApiKey = async () => {
+        if (!isCN || !isWebPlatform()) return;
+        try {
+            const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
+            if (!envId) return;
+            const cloudbase = (await import('@cloudbase/js-sdk')).default;
+            const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
+            const result = await app.callFunction({ name: 'myAPIKeygen', data: { action: 'getApiKey' } });
+            const response = (result as any)?.result || result;
+            setApiKey(response?.apiKey || '');
+        } catch (error) {
+            console.error('Error loading API key:', error);
+        }
+    };
+
     const handleRemoveApiKey = async () => {
         if (!apiKey) return;
         setRemovingKey(true);
@@ -162,6 +179,47 @@ const Account: React.FC = () => {
         }).catch(() => {
             message.error(t('account.copyFailed', 'Failed to copy API key'));
         });
+    };
+
+    useEffect(() => {
+        void loadApiKey();
+    }, []);
+
+    const handleTestApiKey = async () => {
+        if (!apiKey) return;
+        setTestingKey(true);
+        try {
+            if (isCN && isWebPlatform()) {
+                const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
+                if (!envId) throw new Error('CloudBase API key service is not configured');
+                const cloudbase = (await import('@cloudbase/js-sdk')).default;
+                const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
+                const result = await app.callFunction({ name: 'myAPIKeygen', data: { action: 'queryApiKey', apiKey } });
+                const response = (result as any)?.result || result;
+                if (response?.status === 'active') {
+                    message.success(t('account.apiKeyTestSuccess', 'API key is active and valid'));
+                } else {
+                    message.error(response?.status
+                        ? t('account.apiKeyTestInactive', 'API key is not active')
+                        : t('account.apiKeyTestFailed', 'Unable to validate API key'));
+                }
+                return;
+            }
+            const response = await ipcApi.executeRequest('query_api_keys', { apiKey });
+            const data = response?.data as any;
+            if (response?.success && data?.status === 'active') {
+                message.success(t('account.apiKeyTestSuccess', 'API key is active and valid'));
+            } else {
+                message.error(data?.status
+                    ? t('account.apiKeyTestInactive', 'API key is not active')
+                    : response?.error?.message || t('account.apiKeyTestFailed', 'Unable to validate API key'));
+            }
+        } catch (error) {
+            console.error('Error validating API key:', error);
+            message.error(t('account.apiKeyTestError', 'Error validating API key'));
+        } finally {
+            setTestingKey(false);
+        }
     };
 
     return (
@@ -265,6 +323,14 @@ const Account: React.FC = () => {
                                                 type="text"
                                                 icon={<CopyOutlined />}
                                                 onClick={handleCopyApiKey}
+                                            />
+                                        </Tooltip>
+                                        <Tooltip title={t('account.testApiKey', 'Test API key')}>
+                                            <Button
+                                                type="text"
+                                                icon={<CheckCircleOutlined />}
+                                                onClick={handleTestApiKey}
+                                                loading={testingKey}
                                             />
                                         </Tooltip>
                                         <Popconfirm
