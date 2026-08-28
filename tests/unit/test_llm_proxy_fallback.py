@@ -50,15 +50,41 @@ class TestBuildLocalLlmFallback:
         with pytest.raises(ValueError, match="requires an API key"):
             self._call({})
 
-    def test_healthy_node_llm_untouched(self):
+    def test_healthy_node_llm_untouched_intl(self):
+        # Intl builds: a healthy local node LLM is used directly. (On CN builds
+        # the 2026-08-28 default-routing policy sends it to the proxy instead —
+        # see test_cn_default_routes_healthy_node_llm_to_proxy.)
         sentinel = object()
-        with patch.object(br, "_should_use_proxy", return_value=False), \
+        with patch("utils.app_env.is_cn", return_value=False), \
+             patch.object(br, "_should_use_proxy", return_value=False), \
              patch.object(br, "_get_proxy_config", return_value=PROXY_CFG), \
              patch.object(br, "_build_local_llm_from_node_config_impl", return_value=sentinel):
             llm = br.build_local_llm(
                 MagicMock(), llm_provider="openai", llm_model_name="gpt-4o", raw_inputs={},
             )
         assert llm is sentinel  # proxy NOT used when local config works
+
+    def test_cn_default_routes_healthy_node_llm_to_proxy(self, _fake_proxy_class):
+        sentinel = object()
+        with patch("utils.app_env.is_cn", return_value=True), \
+             patch.object(br, "_should_use_proxy", return_value=False), \
+             patch.object(br, "_get_proxy_config", return_value=PROXY_CFG), \
+             patch.object(br, "_build_local_llm_from_node_config_impl", return_value=sentinel):
+            llm = br.build_local_llm(
+                MagicMock(), llm_provider="openai", llm_model_name="gpt-4o", raw_inputs={},
+            )
+        assert isinstance(llm, _FakeProxyLLM)
+
+    def test_cn_default_leaves_ollama_direct(self):
+        sentinel = object()
+        with patch("utils.app_env.is_cn", return_value=True), \
+             patch.object(br, "_should_use_proxy", return_value=False), \
+             patch.object(br, "_get_proxy_config", return_value=PROXY_CFG), \
+             patch.object(br, "_build_local_llm_from_node_config_impl", return_value=sentinel):
+            llm = br.build_local_llm(
+                MagicMock(), llm_provider="ollama", llm_model_name="qwen3:14b", raw_inputs={},
+            )
+        assert llm is sentinel
 
 
 class TestBuildCloudLlmFallback:

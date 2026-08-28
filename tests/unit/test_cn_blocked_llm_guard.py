@@ -1,12 +1,10 @@
-"""CN network guard for direct LLM calls (build_node).
+"""CN default LLM routing policy (build_node._cn_llm_proxy_by_default).
 
-95z live incident (2026-08-28): the QA skill's LLM node was configured
-openai/gpt-4o-mini; the customer machine resolved a key, so the missing-key
-proxy fallback did not engage, and the direct call to api.openai.com timed out
-after 45s (unreachable from mainland China) — the customer turn died.
-
-_cn_blocked_direct_llm decides when a CN build must route through the
-llm-proxy instead of calling the provider's default endpoint directly.
+2026-08-28 user decision after the 95z run (openai/gpt-4o-mini direct call from
+the customer machine timed out on api.openai.com after 45s): on CN builds ALL
+model providers route through the llm-proxy by default; the exceptions that
+stay direct are ollama / private-server hosts and explicit node-level useProxy
+values. Intl builds are unchanged.
 """
 
 from unittest.mock import patch
@@ -18,33 +16,42 @@ def _cn(value):
     return patch("utils.app_env.is_cn", return_value=value)
 
 
-def test_blocked_default_provider_on_cn():
+def test_all_cloud_providers_default_to_proxy_on_cn():
     with _cn(True):
-        assert bn._cn_blocked_direct_llm("openai", "")
-        assert bn._cn_blocked_direct_llm("anthropic", None)
-        assert bn._cn_blocked_direct_llm("gemini", "")
+        assert bn._cn_llm_proxy_by_default("openai", "")
+        assert bn._cn_llm_proxy_by_default("anthropic", None)
+        assert bn._cn_llm_proxy_by_default("gemini", "")
+        assert bn._cn_llm_proxy_by_default("deepseek", "https://api.deepseek.com")
+        assert bn._cn_llm_proxy_by_default("qwen", "")
 
 
-def test_blocked_explicit_host_on_cn():
+def test_ollama_stays_direct_on_cn():
     with _cn(True):
-        assert bn._cn_blocked_direct_llm("openai", "https://api.openai.com/v1")
-        assert bn._cn_blocked_direct_llm("custom", "https://api.anthropic.com")
+        assert not bn._cn_llm_proxy_by_default("ollama", "")
+        assert not bn._cn_llm_proxy_by_default("Ollama", "http://localhost:11434")
 
 
-def test_reachable_providers_stay_direct_on_cn():
+def test_private_server_hosts_stay_direct_on_cn():
     with _cn(True):
-        assert not bn._cn_blocked_direct_llm("deepseek", "https://api.deepseek.com")
-        assert not bn._cn_blocked_direct_llm("qwen", "")
-        assert not bn._cn_blocked_direct_llm("ollama", "http://localhost:11434")
+        assert not bn._cn_llm_proxy_by_default("openai", "http://localhost:8000/v1")
+        assert not bn._cn_llm_proxy_by_default("openai", "http://127.0.0.1:1234/v1")
+        assert not bn._cn_llm_proxy_by_default("openai", "http://192.168.1.20:8000/v1")
+        assert not bn._cn_llm_proxy_by_default("openai", "http://10.0.0.5:8000")
 
 
-def test_custom_relay_base_url_stays_direct_on_cn():
-    # A user-configured relay for an openai-compatible provider is respected.
+def test_explicit_node_useproxy_value_respected():
+    # useProxy=true is honored upstream by _should_use_proxy; =false is an
+    # explicit opt-out. Either way, the default policy stands down.
     with _cn(True):
-        assert not bn._cn_blocked_direct_llm("openai", "https://my-relay.example.cn/v1")
+        off = {"useProxy": {"content": "false"}}
+        on = {"useProxy": {"content": "true"}}
+        assert not bn._cn_llm_proxy_by_default("openai", "", off)
+        assert not bn._cn_llm_proxy_by_default("openai", "", on)
+        assert bn._cn_llm_proxy_by_default("openai", "", {"useProxy": {"content": None}})
 
 
-def test_intl_builds_never_blocked():
+def test_intl_builds_unchanged():
     with _cn(False):
-        assert not bn._cn_blocked_direct_llm("openai", "")
-        assert not bn._cn_blocked_direct_llm("openai", "https://api.openai.com/v1")
+        assert not bn._cn_llm_proxy_by_default("openai", "")
+        assert not bn._cn_llm_proxy_by_default("deepseek", "")
+        assert not bn._cn_llm_proxy_by_default("openai", "https://api.openai.com/v1")
