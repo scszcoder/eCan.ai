@@ -119,9 +119,7 @@ def register_local_vehicle(mainwin) -> None:
 
         existing = None
         try:
-            result = service.get_vehicle_by_id(vehicle_id)
-            if isinstance(result, dict) and result.get("success"):
-                existing = result.get("data")
+            existing = _get_vehicle_row(service, vehicle_id)
         except Exception:
             existing = None
 
@@ -146,6 +144,22 @@ def register_local_vehicle(mainwin) -> None:
         logger.warning(f"[VehicleAffinity] local vehicle registration failed (non-fatal): {e}")
 
 
+def _get_vehicle_row(service, vehicle_id: str):
+    """Fetch one vehicle row dict via DBVehicleService.query_vehicles.
+
+    (There is no ``get_vehicle_by_id`` on the service — calling it raised
+    AttributeError, which broke BOTH the registration existence-check and
+    the legacy-row hostname fallback: v0.9.95t customer log
+    "'DBVehicleService' object has no attribute 'get_vehicle_by_id'".)
+    """
+    result = service.query_vehicles(id=vehicle_id)
+    rows = result.get("data") if isinstance(result, dict) and result.get("success") else None
+    if isinstance(rows, list) and rows:
+        row = rows[0]
+        return row if isinstance(row, dict) else None
+    return None
+
+
 def _vehicle_row_is_local(mainwin, vehicle_id: str) -> bool:
     """True when the DB vehicle row *vehicle_id* describes THIS machine.
 
@@ -162,8 +176,7 @@ def _vehicle_row_is_local(mainwin, vehicle_id: str) -> bool:
         service = getattr(getattr(mainwin, "ec_db_mgr", None), "vehicle_service", None)
         if service is None:
             return False
-        result = service.get_vehicle_by_id(vehicle_id)
-        row = result.get("data") if isinstance(result, dict) and result.get("success") else None
+        row = _get_vehicle_row(service, vehicle_id)
         if not isinstance(row, dict):
             return False
         local_host = ""

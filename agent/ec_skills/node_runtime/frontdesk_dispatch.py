@@ -40,7 +40,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 # ws050: system_message_filter reasons that signal a 转人工 handover (customer
 # transferred to human + the site's auto-greeting/接入) and so should trigger our

@@ -59,7 +59,7 @@ class TestAgentLaunchAllowed:
 
     def _mainwin_with_row(self, row):
         service = MagicMock()
-        service.get_vehicle_by_id.return_value = {"success": True, "data": row}
+        service.query_vehicles.return_value = {"success": True, "data": [row]}
         return SimpleNamespace(ec_db_mgr=SimpleNamespace(vehicle_service=service))
 
     def test_legacy_gui_row_for_this_host_allowed(self, monkeypatch):
@@ -84,7 +84,7 @@ class TestAgentLaunchAllowed:
         va._local_vehicle_id = "machine-id-1"
         monkeypatch.setattr(va.socket, "gethostname", lambda: "MyPC")
         service = MagicMock()
-        service.get_vehicle_by_id.side_effect = RuntimeError("db down")
+        service.query_vehicles.side_effect = RuntimeError("db down")
         mainwin = SimpleNamespace(ec_db_mgr=SimpleNamespace(vehicle_service=service))
         allowed, _ = va.agent_launch_allowed(_agent(vehicle_id="veh-x", mainwin=mainwin))
         assert not allowed
@@ -119,7 +119,7 @@ class TestRegisterLocalVehicle:
 
     def test_registers_new_vehicle_row(self, tmp_path):
         service = MagicMock()
-        service.get_vehicle_by_id.return_value = {"success": False, "data": None}
+        service.query_vehicles.return_value = {"success": False, "data": None}
         mainwin = self._mainwin(tmp_path, service)
 
         va.register_local_vehicle(mainwin)
@@ -130,7 +130,7 @@ class TestRegisterLocalVehicle:
 
     def test_updates_existing_row(self, tmp_path):
         service = MagicMock()
-        service.get_vehicle_by_id.return_value = {"success": True, "data": {"id": "x"}}
+        service.query_vehicles.return_value = {"success": True, "data": [{"id": "x"}]}
         mainwin = self._mainwin(tmp_path, service)
 
         va.register_local_vehicle(mainwin)
@@ -140,7 +140,7 @@ class TestRegisterLocalVehicle:
 
     def test_idempotent_per_process(self, tmp_path):
         service = MagicMock()
-        service.get_vehicle_by_id.return_value = {"success": False, "data": None}
+        service.query_vehicles.return_value = {"success": False, "data": None}
         mainwin = self._mainwin(tmp_path, service)
 
         va.register_local_vehicle(mainwin)

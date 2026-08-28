@@ -43,7 +43,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 
 DEFAULT_CATALOG_URL = ""  # placeholder — set ECAN_PLUGIN_CATALOG_URL when ready

@@ -50,7 +50,7 @@ from .hook_loader import (
 )
 from .hook_api import HOOK_API_VERSION
 
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 
 # Bundle names map to directory names; keep them strict.

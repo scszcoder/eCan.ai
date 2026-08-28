@@ -97,7 +97,7 @@ except Exception:  # pragma: no cover
 
 # Route INFO/WARN/ERROR into the shared eCan log stream so bundle
 # load/unload activity is visible alongside BrowserAutomation lines.
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 # Default root where in-tree bundles live.  Relative spec paths are resolved
 # against this directory.

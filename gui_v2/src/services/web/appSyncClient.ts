@@ -1,4 +1,5 @@
 import { getSettings } from '../../stores/settingsStore';
+import { getCachedAppConfig } from '../../contexts/AppConfigContext';
 import { userStorageManager } from '../storage/UserStorageManager';
 import { detectPlatform } from '../../config/platform';
 import { webAuthSession } from '../auth/webAuthSession';
@@ -12,6 +13,24 @@ interface GraphQLResponse<T> {
   data?: T;
   errors?: GraphQLError[];
 }
+
+const requestFailureMessage = (response: Response, payload: GraphQLResponse<unknown>): string => {
+  const graphQLError = payload.errors?.[0];
+  const code = typeof graphQLError?.extensions?.code === 'string'
+    ? ` [${graphQLError.extensions.code}]`
+    : '';
+  const message = graphQLError?.message
+    ? `: ${sanitizeGraphQLErrorMessage(graphQLError.message)}`
+    : '';
+  return `GraphQL request failed (HTTP ${response.status})${code}${message}`;
+};
+
+const sanitizeGraphQLErrorMessage = (message: string): string => {
+  if (/wxAccessToken|access[_ ]?token|refresh[_ ]?token|provider[_ ]?token/i.test(message)) {
+    return 'The sign-in request was rejected. Please sign in again.';
+  }
+  return message.replace(/(["'])(?:eyJ[A-Za-z0-9_-]{20,}|[A-Za-z0-9._-]{80,})\1/g, '$1[redacted]$1');
+};
 
 export type AppSyncAuthMode = 'auto' | 'bearer' | 'apiKey' | 'lambda' | 'none';
 
@@ -64,6 +83,7 @@ const isLocalhost = (): boolean => {
 const getGraphQLEndpoint = (): string => {
   const env = getEnv();
   const settings = getSettings();
+  const runtimeConfig = getCachedAppConfig();
 
   const runtimePlatform = (() => {
     try {
@@ -90,15 +110,19 @@ const getGraphQLEndpoint = (): string => {
     return `http://localhost:${port}/graphql`;
   }
   
-  // Web mode: use AWS AppSync endpoint
-  const appSyncEndpoint = (env.VITE_APPSYNC_ENDPOINT as string) || settings?.wan_api_endpoint || '';
+  // Web mode: runtime configuration is the source of truth for static deployments.
+  const appSyncEndpoint =
+    (env.VITE_APPSYNC_ENDPOINT as string) ||
+    runtimeConfig?.cloud.graphql_endpoint ||
+    settings?.wan_api_endpoint ||
+    '';
   if (appSyncEndpoint.trim()) {
     console.log(`[AppSyncClient] Using AppSync endpoint: ${appSyncEndpoint.trim()}`);
     return appSyncEndpoint.trim();
   }
   
   // Fallback for web mode without AppSync configured
-  throw new Error('Web mode requires VITE_APPSYNC_ENDPOINT or wan_api_endpoint in settings.');
+  throw new Error('Web mode requires a runtime cloud GraphQL endpoint, VITE_APPSYNC_ENDPOINT, or wan_api_endpoint in settings.');
 };
 
 const getAppSyncApiKey = (overrideKey?: string): string => {
@@ -108,6 +132,10 @@ const getAppSyncApiKey = (overrideKey?: string): string => {
   const fromSettings = settings?.wan_api_key;
   return (fromSettings || (env as any).VITE_APPSYNC_API_KEY || '').trim();
 };
+
+const isCloudBaseEndpoint = (endpoint: string): boolean =>
+  endpoint.includes('.service.tcloudbase.com/') ||
+  endpoint.includes('.api.tcloudbasegateway.com/');
 
 const stripBearerPrefix = (token: string): string => {
   const t = (token || '').trim();
@@ -153,6 +181,7 @@ export const appSyncRequest = async <T>(
 
   // Determine if using local server or AWS AppSync
   const isLocalServer = endpoint.includes('localhost') || endpoint.startsWith('/graphql');
+  const isCloudBaseApi = isCloudBaseEndpoint(endpoint);
 
   // Authentication sources
   const accessToken = userStorageManager.getToken();
@@ -185,7 +214,7 @@ export const appSyncRequest = async <T>(
 
     if (mode === 'bearer') {
       if (!accessToken) throw new Error('Missing access token for AppSync request.');
-      headers.Authorization = isLocalServer
+      headers.Authorization = isLocalServer || isCloudBaseApi
         ? ensureBearerPrefix(accessToken)
         : getUserPoolsJwt(accessToken);
       return headers;
@@ -193,6 +222,11 @@ export const appSyncRequest = async <T>(
 
     // auto
     if (isLocalServer) {
+      if (accessToken) headers.Authorization = ensureBearerPrefix(accessToken);
+      return headers;
+    }
+
+    if (isCloudBaseApi) {
       if (accessToken) headers.Authorization = ensureBearerPrefix(accessToken);
       return headers;
     }
@@ -349,10 +383,25 @@ export const appSyncRequest = async <T>(
     }
 
     if (payload.errors && payload.errors.length > 0) {
-      throw new Error(payload.errors[0]?.message || message);
+      console.warn('[AppSyncClient] GraphQL request failed', {
+        method: method || normalizedOperationName || 'anonymous',
+        endpoint: new URL(endpoint).origin,
+        httpStatus: response.status,
+        hasAuthorization: Boolean(initialHeaders.Authorization),
+        graphQLErrorCode: payload.errors[0]?.extensions?.code || null,
+      });
+      throw new Error(requestFailureMessage(response, payload));
     }
   }
 
-  if (!payload.data) throw new Error('AppSync response missing data');
+  if (!payload.data) {
+    console.warn('[AppSyncClient] GraphQL response missing data', {
+      method: method || normalizedOperationName || 'anonymous',
+      endpoint: new URL(endpoint).origin,
+      httpStatus: response.status,
+      hasAuthorization: Boolean(initialHeaders.Authorization),
+    });
+    throw new Error(`GraphQL response missing data (HTTP ${response.status})`);
+  }
   return payload.data;
 };

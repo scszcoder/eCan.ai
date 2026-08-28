@@ -15,7 +15,8 @@ import { userStorageManager, type LoginSession } from '../../services/storage/Us
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import { eventBus } from '../../utils/eventBus';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
-import { cloudbaseAuth } from '../../services/auth/cloudbaseAuth';
+import { webAuthSession } from '../../services/auth/webAuthSession';
+import { cloudbaseAuth, getWechatOAuthRedirectUri } from '../../services/auth/cloudbaseAuth';
 import { localWebSocketClient } from '../../services/web/localWebSocketClient';
 import { isDesktopPlatform } from '../../config/platform';
 import { useAppConfig } from '../../contexts/AppConfigContext';
@@ -43,6 +44,41 @@ export const normalizeSavedCnPhone = (identifier?: string): string => {
   const digits = (identifier || '').replace(/\D/g, '');
   return digits.length === 13 && digits.startsWith('86') ? digits.slice(2) : digits;
 };
+
+const WECHAT_DIAGNOSTIC_KEY = 'wechat_auth_diagnostic';
+
+function summarizeWechatError(error: unknown): Record<string, string> {
+  const source = error as { name?: unknown; code?: unknown; error?: unknown; message?: unknown };
+  const redact = (value: unknown): string => String(value || '')
+    .replace(/\b(code|token|openid|access_token|refresh_token|provider_token)\s*[:=]\s*[^,\s]+/gi, '$1=[redacted]')
+    .replace(/\beyJ[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+){1,2}\b/g, '[redacted-jwt]')
+    .slice(0, 240);
+
+  return {
+    name: redact(source?.name),
+    code: redact(source?.code || source?.error),
+    message: redact(source?.message),
+  };
+}
+
+function recordWechatDiagnostic(
+  traceId: string,
+  stage: string,
+  details: Record<string, unknown> = {},
+): void {
+  const record = {
+    traceId,
+    stage,
+    updatedAt: new Date().toISOString(),
+    ...details,
+  };
+  try {
+    sessionStorage.setItem(WECHAT_DIAGNOSTIC_KEY, JSON.stringify(record));
+  } catch {
+    // Diagnostics must never interfere with authentication.
+  }
+  console.info('[WeChat OAuth]', record);
+}
 
 const LoginCN: React.FC = () => {
   const navigate = useNavigate();
@@ -216,17 +252,89 @@ const LoginCN: React.FC = () => {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, '').split('?')[1] || '');
+    const customTicket = urlParams.get('ticket') || hashParams.get('ticket');
+    const ticketOpenid = urlParams.get('openid') || hashParams.get('openid');
     const code = urlParams.get('code') || hashParams.get('code');
     const state = urlParams.get('state') || hashParams.get('state');
     const savedState = sessionStorage.getItem('wx_state');
 
+    if (customTicket && ticketOpenid) {
+      window.history.replaceState({}, '', `${window.location.pathname}#/login`);
+
+      (async () => {
+        try {
+          setLoginProgress('authenticating');
+          const cloudbase = (await import('@cloudbase/js-sdk')).default;
+          const app = cloudbase.init({
+            env: appConfig?.auth?.cloudbase_env_id || '',
+            region: 'ap-shanghai',
+          });
+          const auth = app.auth();
+          const ticketLogin = await auth.signInWithCustomTicket(
+            () => Promise.resolve(customTicket),
+          );
+          if (ticketLogin?.error) {
+            throw new Error(ticketLogin.error.message || 'CloudBase ticket sign-in failed');
+          }
+
+          const accessTokenResult = await auth.getAccessToken();
+          const accessToken = typeof accessTokenResult === 'string'
+            ? accessTokenResult
+            : accessTokenResult?.accessToken || '';
+          if (!accessToken) {
+            throw new Error('CloudBase did not return an access token');
+          }
+
+          const webSession = await cloudbaseAuth.registerWechatSession(accessToken);
+          if (!webSession.success || !webSession.sessionToken) {
+            throw new Error(webSession.error || 'Failed to create WeChat session');
+          }
+
+          const userIdentifier = `wechat_${ticketOpenid}`;
+          const userInfo = {
+            username: userIdentifier,
+            email: '',
+            name: '',
+            given_name: '',
+            family_name: '',
+            picture: '',
+            email_verified: false,
+            login_type: 'wechat' as const,
+          };
+          webAuthSession.setSession({
+            accessToken: webSession.sessionToken,
+            tokenType: 'Bearer',
+            expiresAt: webSession.expiresIn
+              ? Date.now() + webSession.expiresIn * 1000
+              : undefined,
+            userInfo: { ...userInfo, sub: ticketOpenid },
+          });
+          saveLoginSession(webSession.sessionToken, userInfo, 'Commander', 'wechat');
+          setLoginProgress('success');
+          setLoginSuccessful(true);
+          setLoginProgress('redirecting');
+        } catch (err: any) {
+          console.error('[WeChat Ticket Callback] Error:', err);
+          setLoginProgress('idle');
+          messageApi.error(err?.message || t('login.wechat_login_failed'));
+        }
+      })();
+      return;
+    }
+
     if (code && state && savedState && state === savedState) {
+      const traceId = sessionStorage.getItem('wechat_auth_trace_id') || 'unknown';
+      const providerRedirectUri = getWechatOAuthRedirectUri();
+      recordWechatDiagnostic(traceId, 'callback-received', {
+        callbackLocation: urlParams.has('code') ? 'query' : 'hash',
+      });
       window.history.replaceState({}, '', window.location.pathname);
       sessionStorage.removeItem('wx_state');
 
       (async () => {
         try {
           setLoginProgress('authenticating');
+          recordWechatDiagnostic(traceId, 'initializing-cloudbase');
 
           const cloudbase = (await import('@cloudbase/js-sdk')).default;
           const app = cloudbase.init({
@@ -236,25 +344,35 @@ const LoginCN: React.FC = () => {
           });
           const auth = app.auth();
 
+          recordWechatDiagnostic(traceId, 'granting-provider-token');
           const { provider_token } = await auth.grantProviderToken({
             provider_id: 'wx_open',
-            provider_redirect_uri: window.location.origin,
+            provider_redirect_uri: providerRedirectUri,
             provider_code: code,
           });
 
           let loginResult;
           try {
+            recordWechatDiagnostic(traceId, 'signing-in-with-provider');
             loginResult = await auth.signInWithProvider({ provider_token });
           } catch (e: any) {
             if (e?.error === 'not_found') {
-              messageApi.warning(t('login.pleaseRegisterFirst'));
-              setLoginProgress('idle');
-              return;
+              recordWechatDiagnostic(traceId, 'creating-provider-account');
+              loginResult = await auth.signUp({ provider_token });
             }
-            throw e;
+            else {
+              throw e;
+            }
           }
 
-          const accessToken = await auth.getAccessToken();
+          const accessTokenResult = await auth.getAccessToken();
+          const accessToken =
+            typeof accessTokenResult === 'string'
+              ? accessTokenResult
+              : accessTokenResult?.accessToken || '';
+          if (!accessToken) {
+            throw new Error('CloudBase did not return an access token');
+          }
           const cbUserInfo: any = loginResult?.user || {};
           // WeChat identity contract: always use openid as the stable identifier
           // (same WeChat account → same openid forever). uuid/email come from
@@ -269,7 +387,7 @@ const LoginCN: React.FC = () => {
           //      parity with what the server stores in weChatSession.openid.
           //   3. Fall back to uuid/email/sub only as a last resort.
           let openid =
-            cbUserInfo.openId || cbUserInfo.openid || '';
+            cbUserInfo.wxOpenId || cbUserInfo.wx_openid || cbUserInfo.openId || cbUserInfo.openid || '';
           if (!openid && accessToken && accessToken.split('.').length >= 2) {
             try {
               const payloadB64 = accessToken.split('.')[1];
@@ -306,25 +424,62 @@ const LoginCN: React.FC = () => {
             uuid: cbUserInfo.uuid || '',
           };
 
-          const finalizeResult = await cloudbaseAuth.finalizeSession({
-            access_token: accessToken || '',
-            refresh_token: accessToken || '',
-            expires_in: 7200,
-            user_identifier: userIdentifier,
-            user_info: userInfo,
-            role: 'Commander',
-            lang: i18n.language,
-          });
+          let sessionToken: string;
+          let backendUserInfo: typeof userInfo;
+          if (isDesktopPlatform()) {
+            recordWechatDiagnostic(traceId, 'finalizing-ecan-session');
+            const finalizeResult = await cloudbaseAuth.finalizeSession({
+              access_token: accessToken,
+              refresh_token: accessToken,
+              expires_in: 7200,
+              user_identifier: userIdentifier,
+              user_info: userInfo,
+              role: 'Commander',
+              lang: i18n.language,
+            });
 
-          if (!finalizeResult.success) {
-            throw new Error(finalizeResult.error || 'Finalize session failed');
+            if (!finalizeResult.success) {
+              recordWechatDiagnostic(traceId, 'ecan-session-finalization-failed', {
+                error: summarizeWechatError({ message: finalizeResult.error }),
+              });
+              throw new Error(finalizeResult.error || 'Finalize session failed');
+            }
+
+            sessionToken = finalizeResult.ipc_token || accessToken;
+            backendUserInfo = finalizeResult.data?.userInfo || userInfo;
+          } else {
+            recordWechatDiagnostic(traceId, 'registering-web-session');
+            const webSession = await cloudbaseAuth.registerWechatSession(accessToken);
+            if (!webSession.success || !webSession.sessionToken) {
+              recordWechatDiagnostic(traceId, 'web-session-registration-failed', {
+                error: summarizeWechatError({ message: webSession.error }),
+              });
+              throw new Error(webSession.error || 'Failed to create WeChat session');
+            }
+
+            sessionToken = webSession.sessionToken;
+            backendUserInfo = userInfo;
+            webAuthSession.setSession({
+              accessToken: sessionToken,
+              tokenType: 'Bearer',
+              expiresAt: webSession.expiresIn
+                ? Date.now() + webSession.expiresIn * 1000
+                : undefined,
+              userInfo: {
+                username: userIdentifier,
+                email: userInfo.email,
+                name: userInfo.name,
+                given_name: userInfo.given_name,
+                family_name: userInfo.family_name,
+                picture: userInfo.picture,
+                email_verified: userInfo.email_verified,
+                sub: cbUserInfo.sub || openid || undefined,
+              },
+            });
           }
 
-          const ipcToken = finalizeResult.ipc_token || accessToken || '';
-          const backendUserInfo = finalizeResult.data?.userInfo || userInfo;
-
           saveLoginSession(
-            ipcToken,
+            sessionToken,
             {
               username: userIdentifier,
               email: backendUserInfo.email || '',
@@ -340,11 +495,15 @@ const LoginCN: React.FC = () => {
           );
 
           setLoginProgress('success');
+          recordWechatDiagnostic(traceId, 'completed');
           messageApi.success(t('login.wechat_login_success') || '微信登录成功');
           setLoginSuccessful(true);
           setLoginProgress('redirecting');
         } catch (err: any) {
           console.error('[WeChat Callback] Error:', err);
+          recordWechatDiagnostic(traceId, 'failed', {
+            error: summarizeWechatError(err),
+          });
           setLoginProgress('idle');
           messageApi.error(err?.message || t('login.wechat_login_failed'));
         }
@@ -974,6 +1133,10 @@ const LoginCN: React.FC = () => {
   const handleWechatLogin = useCallback(async () => {
     if (!ensureCloudbase()) return;
 
+    const traceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    sessionStorage.setItem('wechat_auth_trace_id', traceId);
+    recordWechatDiagnostic(traceId, 'redirecting-to-wechat');
+
     // 桌面 App：内嵌浏览器弹窗扫码，后端 finalize 后返回会话；
     // Web：走 CloudBase/PHP 托管页重定向（保持原行为）。
     if (isDesktopPlatform()) {
@@ -1014,7 +1177,9 @@ const LoginCN: React.FC = () => {
     }
 
     try {
-      const resp = await cloudbaseAuth.loginWithCloudBaseWechat();
+      const resp = await cloudbaseAuth.loginWithCloudBaseWechat(
+        appConfig?.auth?.wechat_app_id,
+      );
       console.log('[WeChat H5] Response:', resp);
 
       if (!resp.success) {
@@ -1024,7 +1189,14 @@ const LoginCN: React.FC = () => {
       console.error('[WeChat H5] Error:', error);
       messageApi.error(String(error));
     }
-  }, [ensureCloudbase, messageApi, t, i18n.language, saveLoginSession]);
+  }, [
+    appConfig?.auth?.wechat_app_id,
+    ensureCloudbase,
+    messageApi,
+    t,
+    i18n.language,
+    saveLoginSession,
+  ]);
 
   // 提交处理
   const handleSubmit = useCallback(async (values: LoginFormValues) => {

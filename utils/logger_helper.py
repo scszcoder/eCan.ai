@@ -412,6 +412,14 @@ class LoggerHelper:
             msg = self._join_message_args(message, *args)
             self.logger.critical(msg, **kwargs)
 
+    def exception(self, message, *args, **kwargs):
+        """Log an error with the current exception's traceback (stdlib parity —
+        modules that used a raw logging.Logger call this)."""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.ERROR):
+            msg = self._join_message_args(message, *args)
+            kwargs.setdefault('exc_info', True)
+            self.logger.error(msg, **kwargs)
+
     def isEnabledFor(self, level):
         """Check if the underlying logger is enabled for the specified level.
         

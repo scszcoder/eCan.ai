@@ -802,10 +802,24 @@ async def _load_skills_from_database_async(mainwin):
         logger.info(f"[build_agent_skills] Querying skills for user: {username}")
         skill_service = _get_skill_service(mainwin)
 
-        skills_result = skill_service.get_skills_by_owner(username)
+        # Load ALL rows from the per-user DB, not just owner==username.
+        # SUBSCRIBED skills keep the AUTHOR as owner, so the old owner-scoped
+        # query silently dropped them from the startup pool: agents/tasks
+        # convert at startup against that pool, leaving every subscribed
+        # skill runnable=False ("WILL FAIL") until the Skills page happened
+        # to backfill it (v0.9.95s customer incident — 8 Q&A tasks dead).
+        # The DB is already per-user (its own sqlite file), so every row in
+        # it belongs in this user's pool.
+        skills_result = skill_service.query_skills()
         if skills_result.get('success'):
             db_skills = skills_result.get('data', [])
-            logger.info(f"[build_agent_skills] Found {len(db_skills)} skills in database for user: {username}")
+            own = sum(1 for s in db_skills
+                      if str((s.get('owner') if isinstance(s, dict) else getattr(s, 'owner', '')) or '').lower()
+                      == str(username).lower())
+            logger.info(
+                f"[build_agent_skills] Found {len(db_skills)} skills in database for user: {username} "
+                f"({own} own, {len(db_skills) - own} subscribed/third-party)"
+            )
             return db_skills
         else:
             logger.warning(f"[build_agent_skills] Failed to get skills from database: {skills_result.get('error')}")

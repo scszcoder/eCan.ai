@@ -2626,6 +2626,12 @@ async def _start_dom_mutation_monitor(
                 session, mutation_state.get("target_id", ""), cfg.label,
                 dispatch_fn=_ws_dispatch_fn,
             )
+            if _ws_shadow is None:
+                logger.warning(
+                    "[LIVE-CHAT-WS-SHADOW] observer NOT started (env gate off or "
+                    "startup failure — see lines above); detection rides the DOM "
+                    "monitor + backstop scans only"
+                )
             if _ws_shadow is not None:
                 mutation_state["_ws_shadow_client"] = _ws_shadow
                 # ws048: start the inbound-watchdog sweeper (gated; no-op unless
@@ -2649,7 +2655,7 @@ async def _start_dom_mutation_monitor(
                 except Exception as _sd_err:
                     logger.debug(f"[STALL-DIAG] start error (non-fatal): {_sd_err}")
         except Exception as _wsshadow_err:
-            logger.debug(f"[LIVE-CHAT-WS-SHADOW] launch error (non-fatal): {_wsshadow_err}")
+            logger.warning(f"[LIVE-CHAT-WS-SHADOW] launch error (non-fatal): {_wsshadow_err}")
 
         logger.info(
             f"[EventMonitor] DOM mutation monitor started: "

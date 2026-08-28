@@ -22,7 +22,7 @@ from typing import Any
 PREFIX = "[FEIGE-LEDGER]"
 
 _LOGGER = logging.getLogger("ecan.feige.ledger")
-_APP_LOGGER = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as _APP_LOGGER  # CN app logger is "eCan.cn"
 _MAX_TEXT = 180
 
 
@@ -200,7 +200,7 @@ def log_event(stage: str, *, level: int = logging.INFO, **fields: Any) -> None:
         message = json.dumps(record, ensure_ascii=False, sort_keys=True)
         _LOGGER.log(level, "%s %s", PREFIX, message)
         if _APP_LOGGER is not _LOGGER:
-            _APP_LOGGER.log(level, "%s %s", PREFIX, message)
+            _APP_LOGGER.logger.log(level, "%s %s", PREFIX, message)
     except Exception:
         return
 

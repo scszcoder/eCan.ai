@@ -84,6 +84,25 @@ export const GRAPHQL_QUERIES = {
     }
   `,
 
+  GET_ORG_AGENT_TREE_CLOUDBASE: `
+    fragment OrgTreeNodeFields on OrgTree {
+      id name description org_type level sort_order status parent_id
+      agents { id name description status created_at updated_at owner avatar_resource_id org_id org_ids skills tasks }
+    }
+    query GetOrgAgentTree($rootId: ID) {
+      getOrgAgentTree(rootId: $rootId) {
+        ...OrgTreeNodeFields
+        children {
+          ...OrgTreeNodeFields
+          children {
+            ...OrgTreeNodeFields
+            children { ...OrgTreeNodeFields }
+          }
+        }
+      }
+    }
+  `,
+
   QUERY_ORGS: `
     query QueryOrgs($input: OrgQueryInput) {
       queryOrgs(input: $input) { id name description org_type }
@@ -148,10 +167,33 @@ export const GRAPHQL_QUERIES = {
 
   // ==================== Skills Store ====================
   GET_PUBLIC_SKILLS: `
-    query GetPublicSkills($owner: String) {
-      getPublicSkills(owner: $owner) {
-        id name owner description level path public rentable source tags version
-        rating reviewCount rating_distribution usage_count category
+    query GetPublicSkills($input: SkillQueryInput) {
+      queryAgentSkills(input: $input) {
+        id askid name owner description level path status category source version
+        public isPublic rentable price priceModel tags examples inputModes outputModes
+        config capabilities diagram apps limitations
+        rating ratingCount installCount publishedAt createdAt updatedAt
+      }
+    }
+  `,
+
+  GET_AGENT_SKILLS: `
+    query GetAgentSkills($input: SkillQueryInput) {
+      queryAgentSkills(input: $input) {
+        id askid name owner description version level path status category source
+        public isPublic rentable price priceModel
+        tags examples inputModes outputModes
+        config capabilities diagram apps limitations
+        rating ratingCount installCount publishedAt
+        createdAt updatedAt
+      }
+    }
+  `,
+
+  GET_PROMPTS: `
+    query GetPrompts($owner: String) {
+      getPrompts(owner: $owner) {
+        id owner prompt version createdAt updatedAt
       }
     }
   `,
@@ -316,23 +358,11 @@ export const GRAPHQL_QUERIES = {
       getA2AMessages(channelId: $channelId, limit: $limit, nextToken: $nextToken) {
         items {
           id
-          channelId
-          sessionId
-          senderId
-          recipientId
+          toAgentId
+          fromAgentId
+          org
           timestamp
-          message {
-            role
-            parts {
-              type
-              text
-              metadata
-            }
-            metadata
-          }
-          metadata
-          historyLength
-          acceptedOutputModes
+          payload
         }
         nextToken
       }
@@ -417,19 +447,11 @@ export const GRAPHQL_MUTATIONS = {
     mutation SendCloudA2AMessage($input: A2AMessageInput!) {
       sendCloudA2AMessage(input: $input) {
         id
-        channelId
-        sessionId
-        senderId
-        recipientId
+        toAgentId
+        fromAgentId
+        org
         timestamp
-        message {
-          role
-          parts {
-            type
-            text
-            metadata
-          }
-        }
+        payload
       }
     }
   `,
@@ -438,19 +460,11 @@ export const GRAPHQL_MUTATIONS = {
     mutation SendA2AMessage($input: A2AMessageInput!) {
       sendA2AMessage(input: $input) {
         id
-        channelId
-        sessionId
-        senderId
-        recipientId
+        toAgentId
+        fromAgentId
+        org
         timestamp
-        message {
-          role
-          parts {
-            type
-            text
-            metadata
-          }
-        }
+        payload
       }
     }
   `,

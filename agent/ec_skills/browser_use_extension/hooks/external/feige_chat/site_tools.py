@@ -886,8 +886,8 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   var sourceText = String(expectedSourceText || '').trim();
   var cardRowResolved = false;   // ws040b: set when we matched a card-only conv by its row
   markPhase('params_ready');
-  var items = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'))
-    .filter(rowIsCurrent);
+  var allConvRows = Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  var items = allConvRows.filter(rowIsCurrent);
   markPhase('initial_sidebar_scanned');
   if (expectedCustomer) {
     var target = null;
@@ -933,13 +933,38 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     }
     if (!target) {
       markPhase('target_not_found');
+      // ws192: page fingerprint for the current_visible=0 mystery on the rebuilt
+      // Feige frame (abtest hitWebFrameRebuild). Distinguishes (a) selector dead /
+      // list moved (total_rows=0 — dump the page's data-qa-id inventory + iframes),
+      // (b) rows exist but rowIsCurrent filters them all (total_rows>0, dump them),
+      // (c) plain render race (rows appear on a later retry, as before).
+      var probe = {};
+      try {
+        probe.total_rows = allConvRows.length;
+        probe.page_url = String(location.href || '').slice(0, 160);
+        var ifr = Array.from(document.querySelectorAll('iframe'));
+        probe.iframe_count = ifr.length;
+        probe.iframe_srcs = ifr.slice(0, 3).map(function(f){ return String(f.src || '').slice(0, 120); });
+        if (allConvRows.length === 0) {
+          var qaSeen = {};
+          var qaAll = document.querySelectorAll('[data-qa-id]');
+          for (var qi = 0; qi < qaAll.length && Object.keys(qaSeen).length < 40; qi++) {
+            qaSeen[String(qaAll[qi].getAttribute('data-qa-id'))] = 1;
+          }
+          probe.qa_id_inventory = Object.keys(qaSeen);
+          probe.qa_id_total = qaAll.length;
+        } else {
+          probe.unfiltered_rows = allConvRows.slice(0, 10).map(dumpRowIds);
+        }
+      } catch (pe) { probe.probe_error = String(pe).slice(0, 120); }
       return finish({
         sent: false,
         error: 'Session not found in current conversations',
         expected_customer: expectedCustomer,
         current_visible: items.length,
         seen_names: items.slice(0, 20).map(readRowName),
-        seen_rows: items.slice(0, 20).map(dumpRowIds)
+        seen_rows: items.slice(0, 20).map(dumpRowIds),
+        page_probe: probe
       });
     }
     var rowMsgId = readRowMsgId(target);
@@ -2342,6 +2367,18 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 f"card={_is_card_target}) for {expected_customer!r} — waiting "
                 f"{_empty_wait:.1f}s for the list, retry send {_empty_retries}/{_empty_max}"
             )
+            # ws192: dump the page fingerprint on the FIRST empty retry — an outer
+            # caller timeout (placeholder_timer's 8s CDP-invoke cap) can cancel this
+            # coroutine mid-loop, so the post-loop [FEIGE-SIDEBAR-PROBE] never ran
+            # in the 95v run. Logging here guarantees one probe per failed send.
+            if _empty_retries == 1 and isinstance(data.get("page_probe"), dict):
+                try:
+                    logger.warning(
+                        f"[FEIGE-SIDEBAR-PROBE] cust={expected_customer!r} "
+                        f"probe={json.dumps(data.get('page_probe'), ensure_ascii=False)}"
+                    )
+                except Exception:
+                    pass
             await asyncio.sleep(_empty_wait)
             data = await _evaluate_js(
                 browser_session,
@@ -2373,7 +2410,8 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 logger.warning(
                     f"[FEIGE-SIDEBAR-PROBE] expected_cust={expected_customer!r} "
                     f"source_msg_id={source_msg_id!r} "
-                    f"rows={json.dumps(data.get('seen_rows') or [], ensure_ascii=False)}"
+                    f"rows={json.dumps(data.get('seen_rows') or [], ensure_ascii=False)} "
+                    f"probe={json.dumps(data.get('page_probe') or {}, ensure_ascii=False)}"
                 )
             except Exception:
                 pass

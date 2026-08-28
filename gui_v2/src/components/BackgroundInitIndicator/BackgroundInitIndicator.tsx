@@ -2,6 +2,7 @@ import React from 'react';
 import { Tooltip } from 'antd';
 import { LoadingOutlined } from '@ant-design/icons';
 import { useSystemStatus } from '../../hooks/useInitializationProgress';
+import { isWebPlatform } from '../../config/platform';
 import './BackgroundInitIndicator.css';
 
 interface BackgroundInitIndicatorProps {
@@ -9,10 +10,11 @@ interface BackgroundInitIndicatorProps {
 }
 
 const BackgroundInitIndicator: React.FC<BackgroundInitIndicatorProps> = ({ className }) => {
-  const { message, isReady } = useSystemStatus(true);
+  const isWeb = isWebPlatform();
+  const { message, isReady } = useSystemStatus(!isWeb);
 
-  // Don't show when ready
-  if (isReady) {
+  // Initialization progress is provided by the desktop IPC backend only.
+  if (isWeb || isReady) {
     return null;
   }
 
