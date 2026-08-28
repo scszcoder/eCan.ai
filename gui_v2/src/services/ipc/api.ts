@@ -774,11 +774,11 @@ export class IPCAPI {
       {
         method: 'get_prompts',
         graphql: {
-          query: GRAPHQL_QUERIES.GET_ALL_MINE,
-          resultPath: 'getAllMine.prompts'
+          query: GRAPHQL_QUERIES.GET_PROMPTS,
+          resultPath: 'getPrompts'
         }
       },
-      { owner: username, userId: username }
+      { owner: username }
     );
     }
 

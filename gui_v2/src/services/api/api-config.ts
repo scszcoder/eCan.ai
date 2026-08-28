@@ -190,6 +190,14 @@ export const GRAPHQL_QUERIES = {
     }
   `,
 
+  GET_PROMPTS: `
+    query GetPrompts($owner: String) {
+      getPrompts(owner: $owner) {
+        id owner prompt version createdAt updatedAt
+      }
+    }
+  `,
+
   GET_SUBSCRIBED_SKILL_IDS: `
     query GetSubscribedSkillIds($owner: String) {
       getSubscribedSkillIds(owner: $owner)
