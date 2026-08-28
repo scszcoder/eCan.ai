@@ -409,6 +409,33 @@ def _should_use_proxy(node_inputs: dict | None = None) -> bool:
     return False
 
 
+# Provider default endpoints that are unreachable from mainland China. Used by
+# the CN network guard in _build_runtime_llm: a direct call to one of these can
+# only time out on a CN deployment, key or no key.
+_CN_BLOCKED_LLM_HOSTS = (
+    "api.openai.com",
+    "api.anthropic.com",
+    "generativelanguage.googleapis.com",
+)
+# Providers whose EMPTY host resolves to a blocked default above.
+_CN_BLOCKED_DEFAULT_PROVIDERS = {"openai", "anthropic", "google", "gemini", "google_genai"}
+
+
+def _cn_blocked_direct_llm(provider_name: str, host_value: str | None) -> bool:
+    """True when a CN build is about to call an LLM endpoint the mainland
+    network cannot reach (see _CN_BLOCKED_LLM_HOSTS). Non-CN builds: False."""
+    try:
+        from utils.app_env import is_cn
+        if not is_cn():
+            return False
+    except Exception:
+        return False
+    host = str(host_value or "").strip().lower()
+    if host:
+        return any(blocked in host for blocked in _CN_BLOCKED_LLM_HOSTS)
+    return str(provider_name or "").strip().lower() in _CN_BLOCKED_DEFAULT_PROVIDERS
+
+
 def _get_proxy_config() -> dict:
     """Get Lambda proxy configuration from settings.
 
@@ -3520,6 +3547,22 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
         if _should_use_proxy(inputs):
             _proxy_llm = _make_proxy_llm("proxy routing enabled")
+            if _proxy_llm is not None:
+                return _proxy_llm
+
+        # ── CN network guard (2026-08-28) ──
+        # api.openai.com / api.anthropic.com / generativelanguage.googleapis.com
+        # are unreachable from mainland China, so on CN builds a DIRECT call to
+        # one of those default endpoints can only ever time out — a resolved API
+        # key doesn't help (95z live: QA node openai/gpt-4o-mini, 45s connect
+        # timeout, customer turn died). Route such calls through the llm-proxy
+        # (OpenAI-compatible, ships as the CN default endpoint). A user-set
+        # custom base_url (relay/Azure/self-hosted) is respected and stays
+        # direct, as do CN-reachable providers (deepseek, qwen, ollama, ...).
+        if _cn_blocked_direct_llm(provider_name, host_value):
+            _proxy_llm = _make_proxy_llm(
+                "CN network guard: provider default endpoint unreachable from mainland"
+            )
             if _proxy_llm is not None:
                 return _proxy_llm
 
