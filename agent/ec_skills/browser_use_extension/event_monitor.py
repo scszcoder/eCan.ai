@@ -2621,11 +2621,27 @@ async def _start_dom_mutation_monitor(
                 logger.debug(f"[LIVE-CHAT-WS-SHADOW] dispatch build error: {_wdf_err}")
 
         try:
+            # One INFO line of gate state — the reader declines SILENTLY when
+            # its env gate is off, which cost a debugging round on the
+            # v0.9.95u customer machine (WS master flag absent from the
+            # process env; only the DOM-scan backstop detected messages).
+            logger.info(
+                "[LIVE-CHAT-WS-SHADOW] reader gate: "
+                f"ECAN_FEIGE_WS={os.environ.get('ECAN_FEIGE_WS', '')!r} "
+                f"ECAN_FEIGE_WS_READER={os.environ.get('ECAN_FEIGE_WS_READER', '')!r} "
+                f"ECAN_LIVE_CHAT_WS={os.environ.get('ECAN_LIVE_CHAT_WS', '')!r}"
+            )
             _start_ws_shadow = _live_chat_bridge().ws_observer.start_ws_shadow_observer
             _ws_shadow = await _start_ws_shadow(
                 session, mutation_state.get("target_id", ""), cfg.label,
                 dispatch_fn=_ws_dispatch_fn,
             )
+            if _ws_shadow is None:
+                logger.warning(
+                    "[LIVE-CHAT-WS-SHADOW] observer NOT started (env gate off or "
+                    "startup failure — see lines above); detection rides the DOM "
+                    "monitor + backstop scans only"
+                )
             if _ws_shadow is not None:
                 mutation_state["_ws_shadow_client"] = _ws_shadow
                 # ws048: start the inbound-watchdog sweeper (gated; no-op unless
@@ -2649,7 +2665,7 @@ async def _start_dom_mutation_monitor(
                 except Exception as _sd_err:
                     logger.debug(f"[STALL-DIAG] start error (non-fatal): {_sd_err}")
         except Exception as _wsshadow_err:
-            logger.debug(f"[LIVE-CHAT-WS-SHADOW] launch error (non-fatal): {_wsshadow_err}")
+            logger.warning(f"[LIVE-CHAT-WS-SHADOW] launch error (non-fatal): {_wsshadow_err}")
 
         logger.info(
             f"[EventMonitor] DOM mutation monitor started: "
