@@ -1042,6 +1042,12 @@ export const GRAPHQL_MUTATIONS = {
     }
   `,
 
+  RAG_REGISTER_DOCUMENTS: `
+    mutation RegisterRagDocuments($input: [RAGIN]!) {
+      reqRAGStore(input: $input)
+    }
+  `,
+
   RAG_CONFIRM_UPLOADS: `
     mutation RAGConfirmUploads($docKeys: [String!]!, $pid: String) {
       ragConfirmUploads(docKeys: $docKeys, pid: $pid)

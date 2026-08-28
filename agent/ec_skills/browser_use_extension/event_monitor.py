@@ -254,9 +254,31 @@ async def _open_detection_tab(session: Any, monitor_url: str) -> str:
 
         client = _DetCDPClient(url=cdp_url)
         await client.start()
+        # Close stale detection tabs left over from previous app sessions (the
+        # browser can outlive the app). Recognized by _DETECTION_TAB_MARKER;
+        # without this they accumulate one per restart AND a reattaching
+        # browser session can adopt one as its main tab (rows=0 blindness).
+        try:
+            stale = await client.send_raw("Target.getTargets", {})
+            for info in (stale or {}).get("targetInfos", []) if isinstance(stale, dict) else []:
+                if str(info.get("type") or "") != "page":
+                    continue
+                if _is_detection_tab_url(info.get("url")):
+                    tid_stale = str(info.get("targetId") or "")
+                    if tid_stale:
+                        await client.send_raw("Target.closeTarget", {"targetId": tid_stale})
+                        logger.info(
+                            f"[EventMonitor] closed stale detection tab ...{tid_stale[-6:]} "
+                            f"from a previous session"
+                        )
+        except Exception as _stale_err:
+            logger.debug(f"[EventMonitor] stale detection-tab sweep skipped: {_stale_err}")
+        # Stamp the new tab with the marker fragment (path routing on the
+        # monitored sites; the fragment does not affect page load).
+        marked_url = monitor_url.split("#", 1)[0] + _DETECTION_TAB_MARKER
         res = await client.send_raw(
             "Target.createTarget",
-            {"url": monitor_url, "newWindow": False, "background": True},
+            {"url": marked_url, "newWindow": False, "background": True},
         )
         tid = str((res or {}).get("targetId") or "") if isinstance(res, dict) else ""
         return tid
@@ -993,6 +1015,21 @@ def _normalize_url_for_monitor(value: str) -> str:
     return normalized.rstrip("/")
 
 
+# Dedicated detection tabs are stamped with this URL fragment at creation so a
+# LATER app session (reusing the same browser) can recognize them: without the
+# marker, browser-use reattaching to a surviving browser can adopt a leftover
+# detection tab as the agent's MAIN tab (2026-08-28 customer incident: focus
+# landed on the prior session's detection tab, whose workspace instance never
+# renders the conversation list -> every DOM path saw rows=0 for the whole
+# session while the real logged-in tab sat unused). Marked tabs are excluded
+# from monitor-target resolution and stale ones are closed at setup.
+_DETECTION_TAB_MARKER = "#ecan_det"
+
+
+def _is_detection_tab_url(url: Any) -> bool:
+    return str(url or "").endswith(_DETECTION_TAB_MARKER)
+
+
 def _monitor_url_matches(actual_url: str, pattern: str) -> bool:
     actual = _normalize_url_for_monitor(actual_url)
     wanted = _normalize_url_for_monitor(pattern)
@@ -1012,6 +1049,10 @@ def _target_info_matches_patterns(target_info: Any, patterns: List[str]) -> bool
     if target_type not in ("page", "tab"):
         return False
     target_url = str(_target_info_get(target_info, "url") or "")
+    if _is_detection_tab_url(target_url):
+        # Never re-target a monitor onto a dedicated detection tab (its own
+        # binding is by explicit target id, not by URL match).
+        return False
     if not patterns:
         return True
     return any(_monitor_url_matches(target_url, pat) for pat in patterns)
@@ -1197,6 +1238,11 @@ def _resolve_monitor_target_id(session: Any, cfg: EventMonitorConfig, extractor_
 
         def _matches_target_url(target: Any) -> bool:
             target_url = str(getattr(target, "url", "") or "")
+            # A leftover dedicated detection tab must never be adopted as the
+            # monitor/scrape tab — its workspace instance doesn't render the
+            # conversation list (2026-08-28 rows=0 incident).
+            if _is_detection_tab_url(target_url):
+                return False
             if not patterns:
                 return True
             return any(_monitor_url_matches(target_url, pat) for pat in patterns)
@@ -1208,8 +1254,11 @@ def _resolve_monitor_target_id(session: Any, cfg: EventMonitorConfig, extractor_
             focus_target = sm.get_target(focus_target_id) if sm else None
             if focus_target and getattr(focus_target, "target_type", "") in ("page", "tab"):
                 target_url = str(getattr(focus_target, "url", "") or "")
-                # Sanity: make sure it's a chat page, not the control page
-                if "/chat" in target_url or not target_url or "/control" not in target_url:
+                # Sanity: make sure it's a chat page, not the control page —
+                # and never a leftover dedicated detection tab.
+                if not _is_detection_tab_url(target_url) and (
+                    "/chat" in target_url or not target_url or "/control" not in target_url
+                ):
                     return focus_target_id
 
         if focus_target_id:

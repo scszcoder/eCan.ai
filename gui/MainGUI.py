@@ -3204,6 +3204,23 @@ class MainWindow:
         logger.info("[MainWindow] ðŸ”§ Building agent skills in parallel...")
 
         try:
+            # Subscribed (read-only) skills track the author's published version:
+            # refresh files + DB rows BEFORE the compile so a republished rented
+            # skill takes effect this run, not after a manual update click.
+            # Best-effort with a hard timeout — offline/slow cloud skips it.
+            try:
+                from gui.ipc.w2p_handlers.skill_file_sync import refresh_subscribed_skills_from_cloud
+                refreshed = await asyncio.wait_for(
+                    asyncio.to_thread(refresh_subscribed_skills_from_cloud, self),
+                    timeout=20.0,
+                )
+                if refreshed:
+                    logger.info(f"[MainWindow] Auto-refreshed {refreshed} subscribed skill(s) from cloud")
+            except asyncio.TimeoutError:
+                logger.warning("[MainWindow] Subscribed-skill refresh timed out — building with local copies")
+            except Exception as _refresh_err:
+                logger.warning(f"[MainWindow] Subscribed-skill refresh skipped: {_refresh_err}")
+
             # Use the async build_agent_skills function directly
             from agent.ec_skills.build_agent_skills import build_agent_skills
             skills = await build_agent_skills(self)

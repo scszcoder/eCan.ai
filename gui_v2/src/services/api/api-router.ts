@@ -479,7 +479,12 @@ export class APIRouter {
         // For mutations with input objects: inject owner into each input item
         // so the Lambda can resolve user identity even when JWT expires and
         // AppSync falls back to API-key auth (no identity claims available).
-        if (mutation && 'input' in params && !definition.method.startsWith('skill_editor.')) {
+        if (
+          mutation
+          && 'input' in params
+          && !definition.method.startsWith('skill_editor.')
+          && definition.method !== 'rag_register_documents'
+        ) {
           const username = (params as any).username
             || userStorageManager.getUsername()
             || userStorageManager.getUserInfo()?.email
