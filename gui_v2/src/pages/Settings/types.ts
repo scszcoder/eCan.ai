@@ -13,6 +13,7 @@ export interface LLMProvider {
   default_model: string | null;
   api_key_env_vars: string[];
   supported_models: any[];
+  regions?: string[];  // 可用区域，如 ['cn', 'intl']
 
   // User preferences
   is_preferred: boolean;

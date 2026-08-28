@@ -259,8 +259,26 @@ class CloudAPIService:
                         'response': result
                     }
 
-                logger.error(f"[CloudAPIService] ❌ Cloud API failure: {error_msg}")
-                logger.error(f"[CloudAPIService] Full failure response: {result}")
+                # Token-expired failures also surface here as success=False
+                # dicts (some AWSJSON-shaped handlers wrap the GraphQL errors
+                # this way). Without this branch they'd still go to ERROR.
+                _is_token_err = agent.cloud_api.cloud_api._is_token_expired_error_message(error_msg)
+                if _is_token_err:
+                    logger.warning(
+                        f"[CloudAPIService] Token-expired during sync {self.data_type}(s): {error_msg}"
+                    )
+                    try:
+                        from auth.session_supervisor import get_session_supervisor
+                        sup = get_session_supervisor()
+                        if sup is not None:
+                            sup.notify_token_rejected(
+                                source=f"cloud_api_service.failure.{self.data_type}.{operation}"
+                            )
+                    except Exception:
+                        pass
+                else:
+                    logger.error(f"[CloudAPIService] ❌ Cloud API failure: {error_msg}")
+                    logger.error(f"[CloudAPIService] Full failure response: {result}")
                 return {
                     'success': False,
                     'synced': 0,
@@ -302,6 +320,41 @@ class CloudAPIService:
                         f"[CloudAPIService] ℹ️ Ignoring {len(duplicate_errors)} duplicate TASK_SKILL relation error(s) as idempotent ({operation_str})"
                     )
 
+                # Upsert fallback: an UPDATE for a row the cloud never received
+                # fails with "Not found" forever (the original ADD may have
+                # failed during a server schema outage, orphaning the queued
+                # updates). The AWS-era contract (DynamoDB put_item) was an
+                # upsert, so re-send those items as ADD.
+                if item_errors and operation_str == 'update':
+                    not_found_ids = {
+                        str(it.get('id')) for it in result
+                        if isinstance(it, dict) and it.get('id')
+                        and it.get('success') is False
+                        and 'not found' in str(it.get('error') or '').lower()
+                    }
+                    add_locals = [li for li in local_items if str(li.get('id') or '') in not_found_ids]
+                    if add_locals:
+                        logger.warning(
+                            f"[CloudAPIService] {len(add_locals)} {self.data_type} update(s) hit "
+                            f"'Not found' (row never inserted — orphaned update); retrying as ADD"
+                        )
+                        retry = self.sync_to_cloud(add_locals, operation=Operation.ADD, timeout=timeout)
+                        if retry.get('success'):
+                            item_errors = [e for e in item_errors if 'not found' not in str(e).lower()]
+                            if not item_errors:
+                                logger.info(
+                                    f"[CloudAPIService] ✅ Upsert fallback inserted {len(add_locals)} "
+                                    f"{self.data_type}(s) that were missing in cloud"
+                                )
+                                return {
+                                    'success': True,
+                                    'synced': len(local_items),
+                                    'failed': 0,
+                                    'errors': [],
+                                    'response': result,
+                                    'upserted': len(add_locals),
+                                }
+
                 if item_errors:
                     logger.error(
                         f"[CloudAPIService] ❌ Cloud API returned {len(item_errors)} failed item(s) out of {len(result)}"
@@ -332,12 +385,38 @@ class CloudAPIService:
             
         except Exception as e:
             error_msg = str(e)
-            
-            # This is a real exception, log with traceback
-            import traceback
-            logger.warning(f"[CloudAPIService] Exception during sync {self.data_type}(s): {error_msg}")
-            logger.debug(f"[CloudAPIService] Traceback: {traceback.format_exc()}")
-            
+
+            # Token-expired failures are a transient, handled by the
+            # SessionSupervisor / OfflineSyncManager retry path. Logging them
+            # at WARNING + DEBUG (no Traceback) keeps dashboards clean and
+            # avoids the 200× "Traceback" spam the old code generated when
+            # many batched cloud-sync tasks fail the same minute.
+            #
+            # safe_parse_response now tags the exception with
+            # ``is_token_expired_error=True`` so we don't have to re-parse
+            # the message string here.
+            is_token_error = bool(getattr(e, 'is_token_expired_error', False))
+            if is_token_error:
+                logger.warning(
+                    f"[CloudAPIService] Exception during sync {self.data_type}(s): {error_msg} "
+                    f"(token-expired; supervisor will refresh and retry)"
+                )
+                # Nudge the supervisor once per failed sync so refresh kicks
+                # in before the next batch tick — same rationale as the WS
+                # path. Wrapped in try/except because supervisor wiring is
+                # optional (tests don't always install it).
+                try:
+                    from auth.session_supervisor import get_session_supervisor
+                    sup = get_session_supervisor()
+                    if sup is not None:
+                        sup.notify_token_rejected(source=f"cloud_api_service.{self.data_type}.{operation}")
+                except Exception:
+                    pass
+            else:
+                import traceback
+                logger.warning(f"[CloudAPIService] Exception during sync {self.data_type}(s): {error_msg}")
+                logger.debug(f"[CloudAPIService] Traceback: {traceback.format_exc()}")
+
             return {
                 'success': False,
                 'synced': 0,

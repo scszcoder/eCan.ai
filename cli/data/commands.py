@@ -42,7 +42,9 @@ def export():
               help='Output file path (default: stdout)')
 @click.option('--pretty', '-p', is_flag=True,
               help='Pretty print JSON output')
-def all(format, output, pretty):
+@click.option('--force', is_flag=True,
+              help='Overwrite the output file if it already exists')
+def all(format, output, pretty, force):
     """
     Export all data.
 
@@ -73,19 +75,23 @@ def all(format, output, pretty):
         result = ctx.db.vehicle_service.query_vehicles()
         data['vehicles'] = result.get('data', [])
 
-        data['exported_at'] = str(Path())
+        from datetime import datetime
+        data['exported_at'] = datetime.now().isoformat()
 
         if output:
+            if Path(output).exists() and not force:
+                out.error(f"Output file already exists: {output} (use --force to overwrite)")
+                raise SystemExit(1)
             if format == 'json':
-                with open(output, 'w') as f:
+                with open(output, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2 if pretty else None, default=str)
             elif format == 'csv':
                 out.warning("CSV export not fully implemented, using JSON")
-                with open(output, 'w') as f:
+                with open(output, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, default=str)
             else:
                 import yaml
-                with open(output, 'w') as f:
+                with open(output, 'w', encoding='utf-8') as f:
                     yaml.dump(data, f, default_flow_style=False)
 
             out.success(f"Data exported to {output}")
@@ -111,7 +117,9 @@ def all(format, output, pretty):
               help='Export format (default: json)')
 @click.option('--output', '-o', type=click.Path(),
               help='Output file path (default: stdout)')
-def entity(entity, format, output):
+@click.option('--force', is_flag=True,
+              help='Overwrite the output file if it already exists')
+def entity(entity, format, output, force):
     """
     Export a specific entity type.
 
@@ -145,16 +153,19 @@ def entity(entity, format, output):
         data = result.get('data', [])
 
         if output:
+            if Path(output).exists() and not force:
+                out.error(f"Output file already exists: {output} (use --force to overwrite)")
+                raise SystemExit(1)
             if format == 'json':
-                with open(output, 'w') as f:
+                with open(output, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, default=str)
             elif format == 'csv':
                 out.warning("CSV export not fully implemented, using JSON")
-                with open(output, 'w') as f:
+                with open(output, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, default=str)
             else:
                 import yaml
-                with open(output, 'w') as f:
+                with open(output, 'w', encoding='utf-8') as f:
                     yaml.dump(data, f, default_flow_style=False)
 
             out.success(f"{entity} exported to {output}")
@@ -212,16 +223,13 @@ def all(file, entity, replace, merge):
         raise SystemExit(1)
 
     entities = [entity] if entity else ['agents', 'skills', 'tasks', 'vehicles']
-    imported = {}
 
     for ent in entities:
         if ent in data:
-            count = len(data[ent])
-            out.info(f"Importing {count} {ent}...")
-            imported[ent] = count
+            out.info(f"Found {len(data[ent])} {ent} in file")
 
-    out.success("Import completed")
-    out.key_value({f"{k}: {v}" for k, v in imported.items()})
+    out.warning("Import is not implemented: no data was written to the database")
+    raise SystemExit(1)
 
 
 @data.group()
@@ -233,7 +241,9 @@ def backup():
 @backup.command()
 @click.option('--output', '-o', type=click.Path(),
               help='Backup file path (default: backups/backup_TIMESTAMP.json)')
-def create(output):
+@click.option('--force', is_flag=True,
+              help='Overwrite the output file if it already exists')
+def create(output, force):
     """
     Create a backup.
 
@@ -255,6 +265,10 @@ def create(output):
 
     out.info("Creating backup...")
 
+    if output.exists() and not force:
+        out.error(f"Backup file already exists: {output} (use --force to overwrite)")
+        raise SystemExit(1)
+
     output.parent.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -271,7 +285,7 @@ def create(output):
         from datetime import datetime
         data['backup_at'] = datetime.now().isoformat()
 
-        with open(output, 'w') as f:
+        with open(output, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, default=str)
 
         out.success(f"Backup created: {output}")
@@ -312,12 +326,13 @@ def restore(backup_file, restore):
 
     try:
         file_path = Path(backup_file)
-        data = json.loads(file_path.read_text())
-
-        out.success("Restore completed")
+        json.loads(file_path.read_text(encoding='utf-8'))
     except Exception as e:
         out.error(f"Restore failed: {e}")
         raise SystemExit(1)
+
+    out.warning("Restore is not implemented: existing data was not modified")
+    raise SystemExit(1)
 
 
 @backup.command()

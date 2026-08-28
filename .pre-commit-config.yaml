@@ -1,0 +1,14 @@
+# Optional team-wide secret scanning via the pre-commit framework + gitleaks.
+# This is a SECOND layer; the dependency-free git hook in scripts/git-hooks/
+# (installed via scripts/git-hooks/install.sh) is the primary guard.
+#
+# To adopt on a machine:
+#   pip install pre-commit
+#   pre-commit install
+# gitleaks then runs automatically on every commit (downloads its own binary).
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+        name: gitleaks (detect hardcoded secrets)

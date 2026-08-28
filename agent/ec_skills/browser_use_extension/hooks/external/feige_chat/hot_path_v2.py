@@ -58,7 +58,11 @@ from agent.ec_skills.browser_node.contexts import (
     TypingLock,
 )
 
-logger = logging.getLogger("eCan")
+# CN builds name the app logger "eCan.cn" (propagate=False) — a bare
+# getLogger("eCan") record never reaches its handlers, silencing this
+# module's entire log output in packaged CN apps (v0.9.95u incident:
+# the WS reader looked dead because none of its lines could land).
+from utils.logger_helper import logger_helper as logger
 
 __all__ = [
     "ToolInvoker",
@@ -140,7 +144,7 @@ except Exception:  # pragma: no cover — bundle import side-effects
 def _live_chat_cdp_health_cooldown_remaining() -> float:
     try:
         from agent.ec_skills.browser_use_extension import extension_tools_service as _ets
-        remaining_fn = getattr(_ets, "feige_cdp_health_cooldown_remaining", None)
+        remaining_fn = getattr(_ets, "live_chat_cdp_health_cooldown_remaining", None)
         if callable(remaining_fn):
             return max(0.0, float(remaining_fn()))
     except Exception:
@@ -725,13 +729,51 @@ async def execute_v2(
             f"{cooldown_remaining:.1f}s; deferring guarded send, node={node_name}"
         )
         return outcome
-    outcome.typing_acquired = await _acquire_typing_lock(
-        typing_lock, customer_key, node_name,
-    )
-    if customer_key and not outcome.typing_acquired:
-        outcome.ok = False
-        outcome.reason = "typing_lock_busy"
-        return outcome
+    # ws092: a reply that will go off-DOM via WS first-contact does NOT need the DOM typing
+    # lock. The cold-start card-identity split (2026-06-18) leaves card:<conv> contending with
+    # its OWN conversation's real-name job on the typing lock (holder=肽斯特, the same talk) — the
+    # card starves the full 12s → typing_lock_busy → undelivered, even though feige_send_message
+    # would have sent it off-DOM. When the off-DOM route is available for a card identity, skip
+    # the lock; feige_send_message tries WS first and re-acquires its own lock only if it must
+    # fall back to DOM. SCOPED to card: names + gated (ECAN_FEIGE_WS_CARD_FIRST_CONTACT=1).
+    _ws092_skip_lock = False
+    if customer_key and str(customer_key).startswith("card:"):
+        try:
+            from . import ws_session as _ws092_sess
+            if (
+                os.environ.get("ECAN_FEIGE_WS_CARD_FIRST_CONTACT", "") == "1"
+                and _ws092_sess.can_send(customer_key)
+            ):
+                _ws092_skip_lock = True
+            # ws176: the ws092 skip was gated behind the first-contact env (off —
+            # ws137 proved fc unreliable), so a card send with a WARM per-talk
+            # template (raw route guaranteed, echo-confirms <1s, open_session is
+            # a no-op for a synthetic name) still took the GLOBAL typing lock and
+            # held it for the whole action sequence. Live 2026-07-13: two such
+            # sends held the lock ~25s and pushed a cold-start text customer to a
+            # 42s first reply. Skip the lock for warm-template card sends —
+            # narrow (no first-contact / no WIDE), so the ws071/ws137 concerns
+            # don't apply. Reversible: ECAN_FEIGE_WS_CARD_SKIP_LOCK=0.
+            elif (
+                os.environ.get("ECAN_FEIGE_WS_CARD_SKIP_LOCK", "1") != "0"
+                and _ws092_sess.can_send_warm_card(customer_key)
+            ):
+                _ws092_skip_lock = True
+            if _ws092_skip_lock:
+                logger.info(
+                    f"[hot_path_v2] ws092: off-DOM WS route available for card "
+                    f"cust={customer_key!r} — skipping DOM typing-lock acquire, node={node_name}"
+                )
+        except Exception:
+            pass
+    if not _ws092_skip_lock:
+        outcome.typing_acquired = await _acquire_typing_lock(
+            typing_lock, customer_key, node_name,
+        )
+        if customer_key and not outcome.typing_acquired:
+            outcome.ok = False
+            outcome.reason = "typing_lock_busy"
+            return outcome
 
     try:
         for act in action_seq:

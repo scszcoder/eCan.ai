@@ -29,7 +29,7 @@ from typing import Any, Optional
 
 from . import plugin_registry
 
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 MAX_STORAGE_BYTES = 1_000_000  # 1 MB per bundle
 

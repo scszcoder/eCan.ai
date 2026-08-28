@@ -144,7 +144,8 @@ class Mt029PreRegistrationWiringTests(unittest.TestCase):
         idx = src.find("Pre-recorded last_agent_reply")
         self.assertGreater(idx, 0)
         body = src[idx : idx + 2000]
-        self.assertIn("record_typed_text(_customer_name, _response_text)", body)
+        self.assertIn("record_typed_text(", body)
+        self.assertIn("_customer_name, _response_text", body)
 
     def test_pre_dispatch_enrich_mt017_consults_typed_text(self) -> None:
         from pathlib import Path
@@ -191,7 +192,7 @@ class SourceWiringTests(unittest.TestCase):
 
     def test_extension_tools_records_typed_text(self) -> None:
         from pathlib import Path
-        src = Path("agent/ec_skills/browser_use_extension/extension_tools_service.py").read_text(encoding="utf-8")
+        src = Path("agent/ec_skills/browser_use_extension/hooks/external/feige_chat/site_tools.py").read_text(encoding="utf-8")
         self.assertIn("record_typed_text(", src)
         self.assertIn("_verified_text", src)
 

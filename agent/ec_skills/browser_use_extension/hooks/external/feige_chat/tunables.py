@@ -47,7 +47,11 @@ import logging
 import os
 from typing import Any
 
-logger = logging.getLogger("eCan")
+# CN builds name the app logger "eCan.cn" (propagate=False) — a bare
+# getLogger("eCan") record never reaches its handlers, silencing this
+# module's entire log output in packaged CN apps (v0.9.95u incident:
+# the WS reader looked dead because none of its lines could land).
+from utils.logger_helper import logger_helper as logger
 
 
 def _node_override(name: str, state: dict | None) -> Any | None:
@@ -309,7 +313,12 @@ DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S: float = 0.0  # 0 = disabled
 # placeholders ("您好，稍等一下哦~" then "再稍等一下，马上回复") refresh
 # Feige's 30s red-flag clock TWICE before going quiet again.
 # Tune via ECAN_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT.
-DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT: int = 2
+# ws004b (2026-06-05): ONE-SHOT. Customer clarified Feige only flags the first 40s of
+# silence and never re-flags once any response shows — so the 过渡句 needs to appear
+# exactly ONCE per question (within ~30s), not refresh repeatedly. The old default 2 +
+# 15s rearm produced "up to 6 过渡句 for one question". One placeholder per in-flight
+# turn now; spacing across turns is handled by the per-customer min-interval below.
+DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT: int = 1
 # Legacy alias — kept for backward compat with code that still imports
 # DEFAULT_FEIGE_PLACEHOLDER_MAX.  New code should reference
 # DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT.  The env var
@@ -347,6 +356,16 @@ DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S: float = 1.0
 # down with ECAN_FEIGE_PLACEHOLDER_CAP_PER_WINDOW if spam recurs, or
 # disable entirely with 0 (= no per-customer-window ceiling).
 DEFAULT_FEIGE_PLACEHOLDER_CAP_PER_WINDOW: int = 12
+
+# ws004b (2026-06-05): minimum spacing between consecutive placeholders shown to the
+# SAME customer. With one-shot per turn, a customer who fires several questions in quick
+# succession (or re-asks because a reply is slow) would otherwise get one 过渡句 per
+# turn, stacking up. This DEFERS (does not drop) a placeholder whose customer already
+# saw one within the interval — once the interval passes and the turn is still
+# unanswered, it fires. Time-based, so it self-heals (unlike a hard per-window count
+# cap, which silently starved slow turns — the 2026-05-28 29/39 bug). Tune via
+# ECAN_FEIGE_PLACEHOLDER_MIN_INTERVAL_S; 0 disables.
+DEFAULT_FEIGE_PLACEHOLDER_MIN_INTERVAL_S: float = 25.0
 
 
 # ── 2026-05-25 mt044 — tab-focus contention tunables ────────────────
@@ -427,6 +446,7 @@ __all__ = [
     "DEFAULT_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT",
     "DEFAULT_FEIGE_PLACEHOLDER_MAX",
     "DEFAULT_FEIGE_PLACEHOLDER_CAP_PER_WINDOW",
+    "DEFAULT_FEIGE_PLACEHOLDER_MIN_INTERVAL_S",
     "DEFAULT_FEIGE_PLACEHOLDER_REARM_S",
     "DEFAULT_FEIGE_PLACEHOLDER_SWEEP_INTERVAL_S",
     # mt044

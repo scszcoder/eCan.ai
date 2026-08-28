@@ -579,6 +579,90 @@ def _resolve_start_mapping(skill) -> Dict[str, Any]:
     return DEFAULT_MAPPINGS.get("released", {}) if getattr(skill, "run_mode", None) is None else DEFAULT_MAPPINGS.get(skill.run_mode, DEFAULT_MAPPINGS.get("released", {}))
 
 
+def apply_task_vars(task, state) -> None:
+    """Merge the task's carried variables into a freshly prepared run state.
+
+    SHARED_SKILL_MULTI_TASK_PLAN Phase 2: a task referencing a shared skill
+    carries its per-task variable data in ``task.metadata["task_vars"]``
+    (persisted in the DB task's settings/metadata JSON). At run start those
+    variables are seeded into ``state["prompt_refs"]`` — the FIRST stop of
+    the prompt-variable resolution cascade (see
+    ``prompt_variable_providers.resolve_prompt_variables``) — so ``{{var}}``
+    slots in the shared skill's prompts resolve per task.
+
+    Semantics:
+    - Applied for EVERY trigger type (schedule/auto/message/dev), unlike the
+      message-only full-state merge.
+    - Overwrites same-named ``prompt_refs`` keys at run START (task intent
+      wins over stale values carried from a previous run); upstream nodes
+      may still overwrite during the run (their output is more current).
+    - The raw dict is also kept at ``state["attributes"]["task_vars"]`` for
+      diagnostics and non-prompt consumers.
+    - Phase 3: a ``task.metadata["browser_identity"]`` dict (keys:
+      ``browser_profile``/``profile``, ``cdp_port``, ``browser_slot_id``/
+      ``slot``, ``user_data_dir``, ``headless``) is seeded into state
+      attributes under the keys the browser-node runtime already honors
+      (``build_helpers.resolve_state_browser_identity``), so tasks sharing
+      one skill can each run their own browser identity.
+    - No-op when the task carries neither; never raises.
+    """
+    _BROWSER_IDENTITY_KEYS = {
+        "browser_profile": "browser_profile",
+        "profile": "browser_profile",
+        "cdp_port": "cdp_port",
+        "browser_slot_id": "browser_slot_id",
+        "slot": "browser_slot_id",
+        "user_data_dir": "user_data_dir",
+        "headless": "headless",
+    }
+    try:
+        if not isinstance(state, dict):
+            return
+        metadata = getattr(task, "metadata", None)
+        if not isinstance(metadata, dict):
+            return
+        task_vars = metadata.get("task_vars")
+        browser_identity = metadata.get("browser_identity")
+        has_vars = isinstance(task_vars, dict) and task_vars
+        has_identity = isinstance(browser_identity, dict) and browser_identity
+        if not has_vars and not has_identity:
+            return
+
+        attrs = state.get("attributes")
+        if not isinstance(attrs, dict):
+            attrs = {}
+            state["attributes"] = attrs
+
+        if has_vars:
+            prompt_refs = state.get("prompt_refs")
+            if not isinstance(prompt_refs, dict):
+                prompt_refs = {}
+                state["prompt_refs"] = prompt_refs
+            prompt_refs.update(task_vars)
+            attrs["task_vars"] = dict(task_vars)
+            # INFO: "my task vars didn't reach the prompt" is the first thing
+            # to check when a shared-skill run misbehaves — names only, values
+            # may be sensitive.
+            logger.info(
+                f"[apply_task_vars] task '{getattr(task, 'name', '?')}' seeded "
+                f"{len(task_vars)} var(s) into prompt_refs: {sorted(task_vars.keys())}"
+            )
+
+        if has_identity:
+            seeded = []
+            for raw_key, state_key in _BROWSER_IDENTITY_KEYS.items():
+                if raw_key in browser_identity and browser_identity[raw_key] not in (None, ""):
+                    attrs[state_key] = browser_identity[raw_key]
+                    seeded.append(state_key)
+            if seeded:
+                logger.info(
+                    f"[apply_task_vars] task '{getattr(task, 'name', '?')}' seeded "
+                    f"browser identity keys: {seeded}"
+                )
+    except Exception as e:
+        logger.warning(f"[apply_task_vars] failed (non-fatal): {e}")
+
+
 # possible message types:
 # 1. IPCRequest - from GUI front-end
 # 2. SendTaskRequest

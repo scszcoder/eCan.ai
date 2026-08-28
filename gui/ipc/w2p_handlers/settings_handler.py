@@ -351,6 +351,16 @@ def handle_get_ollama_models(request: IPCRequest, params: Optional[Dict[str, Any
     success, model_list, error_msg = fetch_ollama_models(host, username)
     
     if success:
+        # CRITICAL: Reload dynamic models into memory after file is updated.
+        # Without this, LLMConfig._models still holds stale data and model validation
+        # (e.g. in set_llm_provider_model) will fail with "Model not supported".
+        try:
+            from gui.config.llm_config import llm_config
+            llm_config.reload_dynamic_models()
+            logger.debug(f"[SettingsHandler] ✅ Reloaded dynamic Ollama models after fetch")
+        except Exception as reload_err:
+            logger.warning(f"[SettingsHandler] ⚠️ Failed to reload Ollama models: {reload_err}")
+
         return create_success_response(request, {
             'models': model_list,
             'host': host
@@ -373,20 +383,32 @@ def handle_get_ollama_models(request: IPCRequest, params: Optional[Dict[str, Any
 def handle_get_ryoais_models(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
     Fetch available models from RyoAIS OpenAI-compatible API and save to local file.
-    
+
     Expected params:
     - host: str - RyoAIS API host (e.g., 'http://localhost/v1')
     - api_key: str - Optional API key for authentication
     - username: str - Optional username for saving to user-specific path
+    - verify_ssl: bool - Optional, default False (self-signed certs are common)
     """
     host = params.get('host', 'http://localhost/v1') if params else 'http://localhost/v1'
     api_key = params.get('api_key') if params else None
     username = params.get('username') if params else None
-    
+    verify_ssl = params.get('verify_ssl', False) if params else False
+
     # Use the common fetch_ryoais_models function
-    success, model_list, error_msg = fetch_ryoais_models(host, api_key, username)
+    success, model_list, error_msg = fetch_ryoais_models(host, api_key, username, verify_ssl=verify_ssl)
     
     if success:
+        # CRITICAL: Reload dynamic models into memory after file is updated.
+        # Without this, LLMConfig._models still holds stale data and model validation
+        # (e.g. in set_llm_provider_model) will fail with "Model not supported".
+        try:
+            from gui.config.llm_config import llm_config
+            llm_config.reload_dynamic_models()
+            logger.debug(f"[SettingsHandler] ✅ Reloaded dynamic RyoAIS models after fetch")
+        except Exception as reload_err:
+            logger.warning(f"[SettingsHandler] ⚠️ Failed to reload RyoAIS models: {reload_err}")
+
         return create_success_response(request, {
             'models': model_list,
             'host': host

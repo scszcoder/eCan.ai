@@ -101,7 +101,8 @@ def _restore_full_agent_output(agent: Any) -> None:
     Browser-use replaces ``AgentOutput`` with ``DoneAgentOutput`` (a
     done-only subclass) when ``max_steps`` / ``max_failures`` is hit.
     Since we cache and reuse the agent, the next round would only see
-    the ``done`` action and lose all custom actions (feige_*, etc.).
+    the ``done`` action and lose all custom actions (site-registered
+    send/open tools, etc.).
     """
     full_output = getattr(agent, "_ecan_full_AgentOutput", None)
     if full_output is None or not hasattr(agent, "AgentOutput"):

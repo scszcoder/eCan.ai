@@ -49,7 +49,20 @@ class CLIContext:
 
     @property
     def username(self) -> Optional[str]:
-        """Get current username."""
+        """Get current username.
+
+        ``ECAN_CLI_USER`` (set by a trusted caller — e.g. the app's Fast
+        Deploy handler, which runs the CLI as a subprocess scoped to the
+        CURRENTLY logged-in user) takes precedence over any
+        ``.ecan_session.json``: a stale session file from an earlier
+        ``ecan auth login`` must not silently redirect identity — and the
+        per-user DB path — to a different user (deep-trace finding
+        2026-08-27: deploys landed in an old login's DB). This does NOT
+        grant auth (``is_authenticated`` still requires a real session).
+        """
+        env_user = os.environ.get('ECAN_CLI_USER')
+        if env_user:
+            return env_user
         if self.session:
             return self.session.get('username')
         return None
@@ -66,10 +79,26 @@ class CLIContext:
         return None
 
     def save_session(self, data: Dict[str, Any]):
-        """Save session to file."""
+        """Save session to file (atomically, with 0600 permissions).
+
+        The session may carry an auth token, so: write to a temp file then
+        ``os.replace`` (an interrupted write can't truncate the real file),
+        and restrict the file to the owner (best-effort; a no-op on
+        filesystems that don't support POSIX modes).
+        """
         session_file = self.project_root / ".ecan_session.json"
-        with open(session_file, 'w') as f:
+        tmp = session_file.with_suffix(".json.tmp")
+        with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+        os.replace(tmp, session_file)
+        try:
+            os.chmod(session_file, 0o600)
+        except OSError:
+            pass
         self._session = data
         self._session_loaded = True
 
@@ -115,7 +144,19 @@ class CLIContext:
             from agent.db.ec_db_mgr import ECDBMgr
             from agent.db.services.db_vehicle_service import DBVehicleService
 
-            ec_db = ECDBMgr()
+            # Open the SAME per-user database the app uses
+            # ({appdata}/{log_user}/ecan_base.db) instead of a stray ecan_base.db
+            # in the current working directory. Without this, CLI writes land in a
+            # different (often empty) DB than the running app reads.
+            db_dir = None
+            try:
+                if self.username:
+                    from utils.user_path_helper import get_user_data_dir
+                    db_dir = get_user_data_dir(user_email=self.username)
+            except Exception:
+                db_dir = None
+
+            ec_db = ECDBMgr(db_dir)
 
             # Create wrapper with all services
             class DBServices:
@@ -123,6 +164,7 @@ class CLIContext:
                     self.agent_service = ec_db_mgr.agent_service
                     self.skill_service = ec_db_mgr.skill_service
                     self.task_service = ec_db_mgr.task_service
+                    self.org_service = ec_db_mgr.org_service
                     self._vehicle_service = None
 
                 @property
@@ -133,8 +175,10 @@ class CLIContext:
 
             return DBServices(ec_db)
         except ImportError as e:
-            print(f"\033[91mError importing database manager: {e}\033[0m", file=sys.stderr)
-            sys.exit(1)
+            # Raise (don't sys.exit): SystemExit is a BaseException and would
+            # escape callers' `except Exception` (e.g. `status`), aborting the
+            # whole command instead of letting them report a friendly error.
+            raise RuntimeError(f"Error importing database manager: {e}") from e
 
     @property
     def config(self) -> Dict[str, Any]:

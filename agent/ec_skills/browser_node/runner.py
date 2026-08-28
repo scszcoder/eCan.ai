@@ -305,15 +305,15 @@ def _front_desk_has_pending_replies() -> bool:
         # imports browser_node.runner indirectly via the build chain).
         from agent.ec_tasks.runner import (
             TaskRunnerRegistry as _TRR,
-            _has_queued_feige_response_payload as _has_replies,
+            _has_queued_live_chat_response_payload as _has_replies,
         )
     except Exception:
         return False
     try:
         # ``TaskRunnerRegistry`` doesn't expose an iter; we walk its
-        # internal weakref dict defensively.  Any task with Feige
-        # response payloads in queue triggers — typically only
-        # ``feige_customer_reception`` accumulates these but checking
+        # internal weakref dict defensively.  Any task with live-chat
+        # response payloads in queue triggers — typically only the
+        # live-chat reception task accumulates these but checking
         # all tasks is cheaper than name-matching and robust to renames.
         registry_obj = getattr(_TRR, "_runners", None) or getattr(_TRR, "_registry", None)
         if registry_obj is None:
@@ -980,6 +980,41 @@ def resolve_event_actionable_items(
     evt_items: list | None = None
     evt_items_src = ""
 
+    # ws020: when WS reader owns detection, TRUST the WS-detected event over the
+    # live_monitor DOM snapshot. Normally Path 0 (live_monitor) is preferred
+    # because a stored event can be stale by the time this node runs. Under WS
+    # detection the opposite holds: the WS observer just detected THIS exact
+    # message and pend_event resumed with it (so it's fresh), while the DOM poll
+    # may be bound to a dedicated detection tab whose sidebar is stale — on
+    # 2026-06-07 live_monitor returned a prior session's `童趣科普|转人工` instead
+    # of the live `sc|有蓝色格子衫吗`, which the system-message filter then dropped
+    # → dead silence on every message. So when the browser_event is ws_frontier-
+    # sourced, take its items FIRST. Kill-switch: ECAN_LIVE_CHAT_WS_TRUST_EVENT=0.
+    from agent.ec_skills.live_chat_dispatch import live_chat_env as _lc_env
+    if (_lc_env("ECAN_LIVE_CHAT_WS_TRUST_EVENT") or "1") != "0" and isinstance(state, dict):
+        _be = (
+            state.get("browser_event")
+            or (state.get("attributes") or {}).get("browser_event")
+        )
+        if isinstance(_be, dict):
+            _be_body = _be.get("body", {})
+            _be_items = _be_body.get("items", []) if isinstance(_be_body, dict) else []
+            # resume.py stores the WS marker as the per-item `source` and on the
+            # preserved `normalized_event.source_type` (top-level event_method/domain
+            # are NOT copied into the payload). Key on those.
+            _norm_ev = _be.get("normalized_event") if isinstance(_be.get("normalized_event"), dict) else {}
+            _ws_sourced = (
+                str(_be.get("source") or "") == "ws_frontier"
+                or str(_norm_ev.get("source_type") or "") == "ws_frontier"
+                or any(
+                    isinstance(_it, dict) and str(_it.get("source") or "") == "ws_frontier"
+                    for _it in (_be_items or [])
+                )
+            )
+            if _be_items and _ws_sourced:
+                evt_items = _be_items
+                evt_items_src = "ws_frontier:browser_event"
+
     # Path 0: live EventMonitor snapshot.
     try:
         from agent.ec_skills.browser_use_extension.event_monitor import (
@@ -1012,7 +1047,7 @@ def resolve_event_actionable_items(
         if not live_items and fallback_items:
             live_items = fallback_items
             live_src_label = fallback_label or "(no-label)"
-        if live_items:
+        if live_items and not evt_items:   # ws020: don't override a ws_frontier item
             evt_items = live_items
             evt_items_src = f"live_monitor[{live_src_label}]"
     except Exception as exc:
@@ -2198,8 +2233,6 @@ def extract_preferred_start_url(task_text: str, workflow_state: dict | None) -> 
         if match:
             return match.group(0)
     return None
-
-
 async def run_pre_run_navigation(
     browser_session: Any,
     *,
@@ -2348,11 +2381,11 @@ async def run_pre_run_navigation(
     return tab_already_at_correct_url, new_last_known
 
 
-# mt053K (2026-05-31): Feige URL substrings that identify a tab as a
-# Feige seller-workspace target.  Used by the CDP-direct rediscovery
+# mt053K (2026-05-31): URL substrings that identify a tab as the
+# live-chat seller-workspace target.  Used by the CDP-direct rediscovery
 # helper below; conservative match (substring, not regex) so it survives
-# Feige's query-string variants.
-_MT053K_FEIGE_URL_HINTS = (
+# the site's query-string variants.
+_MT053K_LIVE_CHAT_URL_HINTS = (
     "im.jinritemai.com",
     "/pc_seller_v2/main/workspace",
 )
@@ -2373,13 +2406,13 @@ async def _mt053k_try_cdp_rediscover_and_attach(
     can drop our attachment.  EventMonitor keeps working because it
     holds its own independent CDP attachment to a specific target_id;
     session_manager goes blank.  Customer 1-to-7 trace 2026-05-31
-    12:11→12:13 froze on exactly this — Chrome had ≥1 Feige tab open
+    12:11→12:13 froze on exactly this — Chrome had ≥1 live-chat tab open
     the entire time but session_manager couldn't see it.
 
     Strategy: open an independent CDPClient to the browser's debug
     websocket (same pattern EventMonitor uses), call Target.getTargets
     to enumerate REAL Chrome tabs, log what we find for operator
-    visibility, attempt Target.attachToTarget on the first Feige-matching
+    visibility, attempt Target.attachToTarget on the first workspace-matching
     target.  Return True iff the attach succeeded so the caller can
     re-read session_manager's view.
     """
@@ -2409,31 +2442,31 @@ async def _mt053k_try_cdp_rediscover_and_attach(
             ti for ti in all_target_infos
             if str(ti.get("type", "")) in ("page", "tab")
         ]
-        feige_targets = [
+        live_chat_targets = [
             ti for ti in page_targets
-            if any(hint in str(ti.get("url", "")) for hint in _MT053K_FEIGE_URL_HINTS)
+            if any(hint in str(ti.get("url", "")) for hint in _MT053K_LIVE_CHAT_URL_HINTS)
         ]
         logger.warning(
             f"[BrowserAutomation] mt053K CDP-direct rediscovery: "
             f"chrome_targets_total={len(all_target_infos)}, "
             f"page_targets={len(page_targets)}, "
-            f"feige_targets={len(feige_targets)} "
+            f"live_chat_targets={len(live_chat_targets)} "
             f"(session_manager saw 0 — proves the lost-binding hypothesis) "
             f"skill={skill_name}, node={node_name}"
         )
-        if not feige_targets:
-            # Chrome itself has no Feige tab — operator action needed.
+        if not live_chat_targets:
+            # Chrome itself has no live-chat tab — operator action needed.
             if page_targets:
                 _sample_urls = [str(ti.get("url", ""))[:80] for ti in page_targets[:3]]
                 logger.warning(
                     f"[BrowserAutomation] mt053K: Chrome has {len(page_targets)} "
-                    f"non-Feige page target(s); sample URLs: {_sample_urls}"
+                    f"non-live-chat page target(s); sample URLs: {_sample_urls}"
                 )
             return False
-        # Attempt to attach to the first Feige target.  flatten=True puts
+        # Attempt to attach to the first live-chat target.  flatten=True puts
         # us into the unified session so subsequent session_manager polls
         # discover it.
-        chosen = feige_targets[0]
+        chosen = live_chat_targets[0]
         chosen_tid = str(chosen.get("targetId") or "")
         chosen_url = str(chosen.get("url", ""))[:80]
         if not chosen_tid:
@@ -2460,7 +2493,7 @@ async def _mt053k_try_cdp_rediscover_and_attach(
             )
             return False
         logger.info(
-            f"[BrowserAutomation] mt053K: attached to recovered Feige target "
+            f"[BrowserAutomation] mt053K: attached to recovered live-chat target "
             f"...{chosen_tid[-8:]} session=...{sid[-6:]} url={chosen_url!r}; "
             f"caller will re-read session_manager view"
         )
@@ -2578,10 +2611,10 @@ async def run_cdp_focus_preflight(
         # bindings, OR our cached session object went stale relative to
         # Chrome.  Customer 1-to-7 trace 2026-05-31 12:11→12:13: the
         # session went empty at 12:11:17 while EventMonitor (which uses
-        # its OWN direct-CDP target binding) kept reading Feige tabs fine
+        # its OWN direct-CDP target binding) kept reading live-chat tabs fine
         # the entire time — proving Chrome had tabs we just couldn't see.
         # Before raising, try a CDP-direct rediscovery: call Target.getTargets
-        # via a fresh CDP client, find any Feige tab, and try to attach
+        # via a fresh CDP client, find any live-chat tab, and try to attach
         # so session_manager picks it up on the next call.
         mt053k_recovered = await _mt053k_try_cdp_rediscover_and_attach(
             browser_session, skill_name=skill_name, node_name=node_name,
@@ -2603,8 +2636,8 @@ async def run_cdp_focus_preflight(
             error_msg = (
                 "[BrowserAutomation] Focus preflight failed: no browser tabs "
                 "available in session_manager AND CDP-direct rediscovery did "
-                "not recover a Feige target.  Chrome may have crashed, the "
-                "user may have closed the Feige tab, or the browser_session "
+                "not recover a live-chat target.  Chrome may have crashed, the "
+                "user may have closed the live-chat tab, or the browser_session "
                 "object may be irrecoverably stale (consider restarting eCan)."
             )
             logger.error(error_msg)
@@ -2797,7 +2830,9 @@ async def acquire_or_reuse_local_agent(
             f"cached_hooks={cached_has_hooks}, want_hooks={want_hooks}, "
             f"scope={bu_scope_key})"
         )
-        cached_bu_agents.pop(bu_scope_key, None)
+        _bh.cached_bu_agents.pop(bu_scope_key, None)
+        if bu_scope_key in _bh._cached_bu_agents_insertion_order:
+            _bh._cached_bu_agents_insertion_order.remove(bu_scope_key)
         cached = None
 
     if cached is not None:
@@ -2825,10 +2860,20 @@ async def acquire_or_reuse_local_agent(
         # Snapshot the full schema so reset_bu_agent_for_next_round can
         # restore it after browser-use clobbers it to DoneAgentOutput.
         agent._ecan_full_AgentOutput = agent.AgentOutput
-    cached_bu_agents[bu_scope_key] = agent
+    
+    # CRITICAL: Evict old agents BEFORE adding new one to prevent memory leak
+    # Each cached_bu_agents entry consumes ~860 MB
+    _bh._evict_bu_agent_if_needed()
+    
+    # Track insertion order for FIFO eviction
+    if bu_scope_key not in _bh._cached_bu_agents_insertion_order:
+        _bh._cached_bu_agents_insertion_order.append(bu_scope_key)
+    
+    _bh.cached_bu_agents[bu_scope_key] = agent
     logger.info(
         f"[BrowserAutomation] Created new browser-use agent and cached "
-        f"(scope={bu_scope_key}, loop_history_mode={loop_history_mode})"
+        f"(scope={bu_scope_key}, loop_history_mode={loop_history_mode}, "
+        f"cache_size={len(_bh.cached_bu_agents)}/{_bh._MAX_BU_AGENTS_CACHE_SIZE})"
     )
 
     # Stealth JS injection only for new-chromium mode.  In CDP mode the
@@ -3325,19 +3370,49 @@ def build_local_llm(
                 auth_token=proxy["auth_token"],
             )
 
-    # Node-specified provider+model (no fallback).
-    if llm_provider and llm_model_name:
-        return _build_local_llm_from_node_config_impl(
-            mainwin,
-            llm_provider=llm_provider,
-            llm_model_name=llm_model_name,
+    def _proxy_fallback(reason: str):
+        """Missing/broken local LLM config → cloud LLM proxy, when configured."""
+        proxy = _get_proxy_config()
+        if not proxy:
+            return None
+        from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
+
+        provider = llm_provider or "openai"
+        model = llm_model_name or "gpt-4o"
+        logger.info(
+            f"[BrowserAutomation] Falling back to Lambda proxy ({reason}): "
+            f"{provider}/{model}, endpoint={proxy['endpoint']}"
         )
+        return ChatLambdaProxy(
+            model=model,
+            provider_name=provider,
+            user_id=proxy["user_id"],
+            lambda_endpoint=proxy["endpoint"],
+            auth_token=proxy["auth_token"],
+        )
+
+    # Node-specified provider+model.
+    if llm_provider and llm_model_name:
+        try:
+            return _build_local_llm_from_node_config_impl(
+                mainwin,
+                llm_provider=llm_provider,
+                llm_model_name=llm_model_name,
+            )
+        except ValueError as exc:
+            llm = _proxy_fallback(f"node LLM unavailable: {exc}")
+            if llm is not None:
+                return llm
+            raise
 
     # Global default.
     logger.info("[BrowserAutomation] No node-specific LLM settings, using global default")
     try:
         llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
         if llm is None:
+            llm = _proxy_fallback("no global default LLM configured")
+            if llm is not None:
+                return llm
             raise ValueError(
                 "Failed to create LLM from global default settings.\n\n"
                 "Please configure a default LLM in Settings > LLM Management:\n"
@@ -3347,9 +3422,15 @@ def build_local_llm(
             )
         logger.info("[BrowserAutomation] ✅ Using global default LLM")
         return llm
-    except ValueError:
+    except ValueError as exc:
+        llm = _proxy_fallback(f"global default LLM failed: {exc}")
+        if llm is not None:
+            return llm
         raise
     except Exception as exc:
+        llm = _proxy_fallback(f"global default LLM failed: {exc}")
+        if llm is not None:
+            return llm
         raise ValueError(
             f"Failed to create LLM from global default settings:\n"
             f"  Error: {exc}\n\n"
@@ -3691,11 +3772,37 @@ def _build_cloud_llm_impl(
                 auth_token=proxy["auth_token"],
             )
 
+    def _proxy_fallback(reason: str):
+        """Missing/broken local LLM config → cloud LLM proxy, when configured."""
+        proxy = _get_proxy_config()
+        if not proxy:
+            return None
+        from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
+
+        provider = llm_provider or "openai"
+        model = llm_model_name or "gpt-4o"
+        logger.info(
+            f"[BrowserAutomation] Falling back to Lambda proxy ({reason}): {provider}/{model}"
+        )
+        return ChatLambdaProxy(
+            model=model,
+            provider_name=provider,
+            user_id=proxy["user_id"],
+            lambda_endpoint=proxy["endpoint"],
+            auth_token=proxy["auth_token"],
+        )
+
     # Node-specified provider.
     if llm_provider:
-        return _build_cloud_llm_from_node_config_impl(
-            llm_provider=llm_provider, llm_model_name=llm_model_name,
-        )
+        try:
+            return _build_cloud_llm_from_node_config_impl(
+                llm_provider=llm_provider, llm_model_name=llm_model_name,
+            )
+        except (ValueError, RuntimeError) as exc:
+            llm = _proxy_fallback(f"node LLM unavailable: {exc}")
+            if llm is not None:
+                return llm
+            raise
 
     # Default from Settings.
     from app_context import AppContext
@@ -3710,6 +3817,11 @@ def _build_cloud_llm_impl(
     provider_dict = llm_config["provider_dict"]
     provider_type, model_name_default, api_key, base_url = extract_provider_config(provider_dict)
     if not api_key and provider_type not in ("ollama",):
+        llm = _proxy_fallback(
+            f"no API key for default provider '{llm_config['provider_id']}'"
+        )
+        if llm is not None:
+            return llm
         raise RuntimeError(
             f"[BrowserAutomation] No API key configured for default LLM provider "
             f"'{llm_config['provider_id']}'"
@@ -4119,9 +4231,10 @@ class BrowserRunSession:
                                 # the node author didn't opt into the actionable-items pattern.
                                 #
                                 # 2026-05-25 mt042A: when actionable_field is
-                                # ``pending_timer`` (the Feige convention), also
-                                # accept rows whose pending_timer is empty BUT
-                                # unread_badge >= 1.  Real Feige populates
+                                # ``pending_timer`` (the live-chat sidebar
+                                # convention), also accept rows whose
+                                # pending_timer is empty BUT
+                                # unread_badge >= 1.  The real site populates
                                 # pending_timer lazily — seconds to minutes
                                 # after the new row appears in the sidebar —
                                 # so the FIRST dom_observed for a card / image
@@ -4158,9 +4271,10 @@ class BrowserRunSession:
                                     if self.ctx.actionable_field else []
                                 )
                                 try:
-                                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                                        log_event as _feige_ledger,
-                                    )
+                                    from agent.ec_skills import live_chat_dispatch as _lcd
+                                    # Bridge None -> AttributeError -> same
+                                    # silent fallback as the old failed import.
+                                    _lc_ledger = _lcd.runner_bridge().trace_ledger.log_event
 
                                     for _it in _actionable_raw:
                                         if not isinstance(_it, dict):
@@ -4173,7 +4287,7 @@ class BrowserRunSession:
                                         )
                                         if not _cust:
                                             continue
-                                        _feige_ledger(
+                                        _lc_ledger(
                                             "actionable_resolved",
                                             customer=str(_cust),
                                             customer_id=str(_it.get("customer_id") or ""),
@@ -4268,9 +4382,9 @@ class BrowserRunSession:
         """Invoke registered before-browser-session-setup hooks.
 
         Early hooks run BEFORE the (expensive) browser-use agent
-        is constructed, so a Feige-style fast-path (HOT-PATH-B:
+        is constructed, so a live-chat-style fast-path (HOT-PATH-B:
         chat_message arrives with a pre-computed reply, type it
-        into Feige directly, short-circuit the LLM) doesn't pay
+        into the site directly, short-circuit the LLM) doesn't pay
         for agent setup it will throw away.  Hooks acquire a
         browser session via ``hook_ctx.get_or_create_browser_session``.
 
@@ -4806,17 +4920,41 @@ class BrowserRunSession:
             maybe_apply_extract_patch as _maybe_extract_patch,
         )
 
-        profile_settings = _bh.get_browser_profile_settings(self.ctx.node_profile)
-        
+        # Per-run browser identity (SHARED_SKILL Phase 3/B2): state-carried
+        # overrides (task browser_identity / scheduler slot) win over the
+        # node's build-time config so tasks sharing one skill can each run
+        # their own browser profile / user_data_dir / headless mode.
+        _run_identity = _bh.resolve_state_browser_identity(self.state)
+        _effective_profile = _run_identity.get("browser_profile") or self.ctx.node_profile
+        _effective_user_data_dir = (
+            _run_identity.get("user_data_dir") or self.ctx.user_data_dir_setting
+        )
+        _effective_headless = _run_identity.get("headless")
+        if _effective_headless is None:
+            _effective_headless = self.ctx.node_headless
+        if _run_identity:
+            logger.info(
+                f"[BrowserAutomation] Per-run browser identity overrides for "
+                f"node={self.ctx.node_name}: {sorted(_run_identity.keys())} → "
+                f"effective profile={_effective_profile!r} "
+                f"user_data_dir={_effective_user_data_dir!r} "
+                f"headless={_effective_headless} "
+                f"(node config: profile={self.ctx.node_profile!r} "
+                f"user_data_dir={self.ctx.user_data_dir_setting!r} "
+                f"headless={self.ctx.node_headless})"
+            )
+
+        profile_settings = _bh.get_browser_profile_settings(_effective_profile)
+
         # Merge node-level stealth settings into profile_settings
         if self.ctx.enable_stealth_setting:
             profile_settings = profile_settings or {}
             profile_settings["enableStealth"] = True
-        
-        # Merge node-level user_data_dir if specified (overrides platform profile)
-        if self.ctx.user_data_dir_setting:
+
+        # Merge per-run/node-level user_data_dir if specified (overrides platform profile)
+        if _effective_user_data_dir:
             profile_settings = profile_settings or {}
-            profile_settings["user_data_dir"] = self.ctx.user_data_dir_setting
+            profile_settings["user_data_dir"] = _effective_user_data_dir
         
         # Pass platform profile settings to build_browser_profile
         if self.ctx.enable_platform_profile_setting:
@@ -4848,9 +4986,9 @@ class BrowserRunSession:
         _bp_t0 = time.perf_counter()
         browser_profile = _build_browser_profile(
             profile_settings=profile_settings,
-            node_profile=self.ctx.node_profile,
+            node_profile=_effective_profile,
             keep_alive=keep_browser_alive,
-            headless=self.ctx.node_headless,
+            headless=_effective_headless,
             target_url=target_url,
         )
         _bp_dt_ms = (time.perf_counter() - _bp_t0) * 1000.0
@@ -4920,7 +5058,7 @@ class BrowserRunSession:
         # via the per-session CDP operation lock" patch was REMOVED — it was
         # the prime suspect for the hard process hang at 18:58 (deadlock in the
         # agent step loop), and the data never showed browser-use's own
-        # state-build was actually contending with the Feige send/scrape path.
+        # state-build was actually contending with the live-chat send/scrape path.
         # If we revisit this, do it as an explicit reentrant-by-asyncio-task
         # lock with a much shorter acquire timeout, and validate it under flood.
 
@@ -5415,7 +5553,7 @@ class BrowserRunSession:
         # extract_runtime_invocation_input) + module-level state
         # dicts.  The first hook to return a non-None state dict
         # short-circuits the LLM.  Site-specific patterns (e.g.
-        # feige_chat.front_desk's PreDispatch fan-out) register
+        # the live-chat bundle front_desk's PreDispatch fan-out) register
         # themselves via ``register_before_browser_use_run_hook``
         # at module-import time; build_node itself has no knowledge
         # of what any registered hook does.

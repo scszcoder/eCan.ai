@@ -31,7 +31,23 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, date
 from agent.cloud_api.constants import DataType, Operation
 from agent.cloud_api.schema_registry import get_schema_registry
+from utils.app_env import is_cn
 from utils.logger_helper import logger_helper as logger
+
+
+def _is_cn_app() -> bool:
+    """Mirror cloud_api.is_cn_app() for backend-aware mutation shaping.
+
+    The two backends have different SkillMutationResult shapes:
+      - Intl (AWS AppSync): { id, success, error, upload_urls }
+      - CN   (TCB cloudbase-graphql): { id, success, error }
+    `upload_urls` is an S3 presigned-URL concept that the CN schema does
+    not expose, so the client must NOT select it on CN.
+    """
+    try:
+        return is_cn()
+    except Exception:
+        return False
 
 
 class GraphQLBuilder:
@@ -115,12 +131,18 @@ class GraphQLBuilder:
     
     # Return field selection for mutations that return result types
     # Format: mutation_name -> "{ field1 field2 ... }"
+    #
+    # Skill mutations request `upload_urls` only on the Intl backend.
+    # On CN (cloudbase-graphql) SkillMutationResult does not declare that
+    # field, so requesting it triggers GRAPHQL_VALIDATION_FAILED at the
+    # cloud function. Selection is rebuilt per-call inside build_mutation().
     MUTATION_RETURN_FIELDS = {
         # Agent mutations -> AgentMutationResult
         "addAgents": "{ id success error }",
         "updateAgents": "{ id success error }",
         "removeAgents": "{ id success error }",
-        # Skill mutations -> SkillMutationResult (includes upload_urls for presigned S3 URLs)
+        # Skill mutations -> SkillMutationResult (Intl includes upload_urls;
+        # CN rebuilds this to "{ id success error }" at call time)
         "addAgentSkills": "{ id success error upload_urls }",
         "updateAgentSkills": "{ id success error upload_urls }",
         "removeAgentSkills": "{ id success error }",
@@ -213,41 +235,47 @@ class GraphQLBuilder:
         """Build ADD/UPDATE mutation"""
         # Start mutation
         mutation_str = f"mutation MyMutation {{ {mutation_name}(input: ["
-        
+
         # Build each item
         item_strings = []
         for item in items:
             # Transform to cloud format using schema
             operation_str = operation.value if hasattr(operation, 'value') else str(operation)
             cloud_item = schema.to_cloud(item, operation=operation_str)
-            
+
             # Build GraphQL object string
             item_str = self._build_graphql_object(cloud_item)
             item_strings.append(item_str)
-        
+
         # Join items
         mutation_str += ", ".join(item_strings)
         mutation_str += "]"
-        
+
         # Add settings if provided
         if settings:
             settings_str = json.dumps(settings).replace('"', '\\"')
             mutation_str += f', settings: "{settings_str}"'
-        
-        # Close mutation with return field selection if needed
+
+        # Close mutation with return field selection if needed.
+        # Strip backend-incompatible fields at call time: CN (TCB) does
+        # not declare `upload_urls` on SkillMutationResult, so requesting
+        # it triggers GRAPHQL_VALIDATION_FAILED at the cloud function.
         return_fields = self.MUTATION_RETURN_FIELDS.get(mutation_name, "")
+        if mutation_name in ("addAgentSkills", "updateAgentSkills") and _is_cn_app():
+            return_fields = "{ id success error }"
         mutation_str += f") {return_fields} }}"
-        
+
         logger.debug(f"[GraphQLBuilder] Built mutation: {mutation_str[:200]}...")
         return mutation_str
-    
+
     def _build_remove_mutation(
         self,
         mutation_name: str,
         items: List[Dict[str, Any]]
     ) -> str:
-        """Build REMOVE mutation
-        
+        """
+        Build REMOVE mutation.
+
         Entity remove mutations take [ID!]! - just an array of ID strings.
         Relationship remove mutations take [RelationIdInput!]! - array of {id: String!} objects.
         """
@@ -256,9 +284,9 @@ class GraphQLBuilder:
             is_relation_remove or
             mutation_name in self.ENTITY_REMOVE_OBJECT_INPUT_MUTATIONS
         )
-        
+
         mutation_str = f"mutation MyMutation {{ {mutation_name}(input: ["
-        
+
         if uses_object_input:
             # Relationship removes use object input.
             obj_strings = []
@@ -293,13 +321,13 @@ class GraphQLBuilder:
                     continue
                 id_strings.append(f'"{oid}"')
             mutation_str += ", ".join(id_strings)
-        
+
         mutation_str += "]"
-        
+
         # Close mutation with return field selection if needed
         return_fields = self.MUTATION_RETURN_FIELDS.get(mutation_name, "")
         mutation_str += f") {return_fields} }}"
-        
+
         logger.debug(f"[GraphQLBuilder] Built remove mutation: {mutation_str[:200]}...")
         return mutation_str
     

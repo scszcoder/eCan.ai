@@ -167,16 +167,37 @@ deploy_frontend() {
     fi
 
     export NODE_OPTIONS="--max-old-space-size=3072"
-    # Web deployment: set VITE_TARGET=web so vite.config.ts uses '/app/gui-v2/' as base
-    # Desktop/PyInstaller builds omit this (defaults to VITE_TARGET=desktop → './')
-    export VITE_TARGET="web"
+
+    # Build modes:
+    # - cn.desktop.production: CN desktop app (PyInstaller)
+    # - intl.desktop.production: Intl desktop app (PyInstaller)
+    # - cn.web.production: CN web deployment (base: /app/gui-v2/)
+    # - intl.web.production: Intl web deployment (base: /app/gui-v2/)
+    #
+    # For desktop builds, omit VITE_BASE (defaults to './')
+    # For web builds, set VITE_BASE to the deployment path
+    #
+    # The PRODUCT variable controls which .env file is loaded:
+    # - PRODUCT=cn: .env.cn.* files (CloudBase auth)
+    # - PRODUCT=intl: .env.intl.* files (Cognito auth)
+    PRODUCT="${PRODUCT:-cn}"
+    PLATFORM="${PLATFORM:-web}"
+    ENVIRONMENT="${ENVIRONMENT:-production}"
+
+    VITE_MODE="${PRODUCT}.${PLATFORM}.${ENVIRONMENT}"
+
+    if [ "$PLATFORM" = "web" ]; then
+        export VITE_BASE="${VITE_BASE:-/app/gui-v2/}"
+    fi
+
+    log_info "Building frontend: mode=$VITE_MODE, base=$VITE_BASE"
 
     if command -v pnpm &> /dev/null; then
-        pnpm run build
+        pnpm run build -- --mode "$VITE_MODE"
     elif [ -f "$HOME/.local/share/pnpm/pnpm" ]; then
-        "$HOME/.local/share/pnpm/pnpm" run build
+        "$HOME/.local/share/pnpm/pnpm" run build -- --mode "$VITE_MODE"
     else
-        npx pnpm run build
+        npx pnpm run build -- --mode "$VITE_MODE"
     fi
     
     # Deploy to web server

@@ -4,11 +4,11 @@ The front-desk hot path scrapes customer-attached images from the chat
 thread, eagerly fetches them as data URIs, and forwards them in the
 ``send_chat`` payload as ``latest_message_attachments``.  See the chain:
 
-    feige_chat.dom_assets.FEIGE_LATEST_CUSTOMER_BUBBLE_JS
+    live-chat bundle dom_assets latest-customer-bubble JS
         →  scrape_latest_customer_bubble  (DOM image extraction)
-    feige_chat.image_fetch.fetch_attachments
+    live-chat bundle image_fetch.fetch_attachments
         →  data: URI base64-encoding (timeout-bounded)
-    feige_chat.pre_dispatch_v2 / pre_dispatch_enrich
+    live-chat bundle pre_dispatch_v2 / pre_dispatch_enrich
         →  item["last_message_attachments"]
     node_runtime.frontdesk_dispatch._build_assignment_payload
         →  payload["latest_message_attachments"]   (Q&A worker contract)
@@ -46,7 +46,7 @@ import json
 import logging
 from typing import Any
 
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 
 # Mime media-type allowlist for browser-use's ``ImageURL.media_type``.
@@ -101,10 +101,10 @@ def _resolve_attachment_data_uri(entry: dict) -> str:
     image_ref = entry.get("image_ref")
     if image_ref:
         try:
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.image_store import (
-                get_data_uri,
-            )
-            resolved = get_data_uri(str(image_ref))
+            from agent.ec_skills import live_chat_dispatch as _lcd
+            # Bridge None -> AttributeError -> same fallback as the old
+            # failed lazy import (no image this turn).
+            resolved = _lcd.runner_bridge().image_store.get_data_uri(str(image_ref))
             if isinstance(resolved, str) and resolved.startswith("data:image/"):
                 return resolved
         except Exception:

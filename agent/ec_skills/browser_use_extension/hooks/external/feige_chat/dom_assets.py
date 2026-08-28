@@ -52,7 +52,11 @@ import threading
 import time as _time
 from typing import Any, Callable
 
-logger = logging.getLogger("eCan")
+# CN builds name the app logger "eCan.cn" (propagate=False) — a bare
+# getLogger("eCan") record never reaches its handlers, silencing this
+# module's entire log output in packaged CN apps (v0.9.95u incident:
+# the WS reader looked dead because none of its lines could land).
+from utils.logger_helper import logger_helper as logger
 
 # ---------------------------------------------------------------------------
 # Focus-target tuning constants.
@@ -926,10 +930,25 @@ async def resolve_feige_tab_target_id(
             return cached_tid
         clear_feige_tab_focus_cache(browser_session, "cached target stale")
 
+    # 2026-06-03: exclude the EventMonitor's dedicated detection tab (if any)
+    # so per-customer bubble/thread scrapes NEVER land on the renderer that the
+    # 新消息 sidebar poll runs on — that co-location is what blinded detection
+    # under load (a 5-28s bubble scrape blocks the poll's Runtime.evaluate).
+    _detection_tid = ""
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            tab_pool as _tp_for_excl,
+        )
+        _detection_tid = _tp_for_excl.get_pool().get_detection_tab()
+    except Exception:
+        _detection_tid = ""
+
     candidates: list[tuple[str, str]] = []
     for tid, tgt in (all_targets or {}).items():
         if getattr(tgt, "target_type", "") not in ("page", "tab"):
             continue
+        if _detection_tid and str(tid) == _detection_tid:
+            continue  # reserved for the detection monitor — not for scraping
         url = str(getattr(tgt, "url", "") or "")
         if "im.jinritemai.com" in url:
             candidates.append((str(tid), url))
@@ -1132,18 +1151,25 @@ FEIGE_ACTIVE_CUSTOMER_JS: str = r"""
   result.diagnostics.item_count = items.length;
 
   function readName(row) {
+    // mt062: Feige rotates hashed class names on each redesign (2026-06-02
+    // shipped nameLine-*/newNameContent-* in place of .MP1bk.../.Jv6Ft...).
+    // Try stable data-qa-id + semantic class-prefix selectors first, then the
+    // legacy hashed ones, so name extraction survives future DOM churn.
+    var nick = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
+    if (nick) { var nv = (nick.textContent || '').trim(); if (nv) return nv; }
+    var line = row.querySelector('[class*="nameLine"]');
+    if (line) {
+      var lt = (line.getAttribute('title') || '').trim();
+      if (lt) return lt;
+      var nc = line.querySelector('[class*="NameContent"]');
+      if (nc) { var ncv = (nc.textContent || '').trim(); if (ncv) return ncv; }
+    }
+    var nc2 = row.querySelector('[class*="NameContent"]');
+    if (nc2) { var nc2v = (nc2.textContent || '').trim(); if (nc2v) return nc2v; }
     var wrap = row.querySelector('.MP1bk3ccfHC9V2SnPCGD');
-    if (wrap) {
-      var t = wrap.getAttribute('title');
-      if (t && t.trim()) return t.trim();
-    }
+    if (wrap) { var wt = (wrap.getAttribute('title') || '').trim(); if (wt) return wt; }
     var span = row.querySelector('.Jv6FtqUv5VoYARd2pp4y');
-    if (span) {
-      var s = (span.textContent || '').trim();
-      if (s) return s;
-    }
-    var legacy = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
-    if (legacy) return (legacy.textContent || '').trim();
+    if (span) { var s = (span.textContent || '').trim(); if (s) return s; }
     return '';
   }
 
@@ -1225,7 +1251,7 @@ FEIGE_ACTIVE_CUSTOMER_JS: str = r"""
 # Returns JSON with ``{text, msg_id, timestamp, index}`` — all empty /
 # ``-1`` when no customer bubble exists in the currently-focused pane.
 # The selectors mirror those in
-# ``agent.ec_skills.browser_use_extension.extension_tools_service._FEIGE_GET_THREAD_JS``
+# ``agent.ec_skills.browser_use_extension.hooks.external.feige_chat.site_tools._FEIGE_GET_THREAD_JS``
 # (keep in sync if selectors change).
 # ---------------------------------------------------------------------------
 FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
@@ -1250,14 +1276,17 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
   // alt-attribute filter as the primary signal so future class-name
   // churn doesn't silently drop content images.
   function _customerBubble(wrap) {
-    // Customer-side row direction is "row" (agent-side is row-reverse).
-    // We rely on the inner row container's flex-direction style — the
-    // Feige DOM sets it inline so reading style.flexDirection is
-    // reliable across both real Feige and the emulation.
+    // mt064: side detection prefers the SEMANTIC messageIsMe/messageNotMe
+    // markers on the bubble — these survive Feige hash-class redesigns,
+    // unlike the inner row's hashed class.  The legacy inline flex-direction
+    // on the hashed .Ie29C7... row is the fallback.  Returns the .Ie29C7 row
+    // (used for attachment collection) when it still exists, else the wrap.
+    if (wrap.querySelector('[class*="messageIsMe"]')) return null;  // agent-side
     var row = wrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+    if (wrap.querySelector('[class*="messageNotMe"]')) return row || wrap;  // customer-side
     if (!row) return null;
     if ((row.style.flexDirection || '').indexOf('reverse') !== -1) {
-      return null;  // agent-side bubble
+      return null;  // agent-side bubble (legacy flex-direction signal)
     }
     return row;
   }
@@ -1287,7 +1316,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     return atts;
   }
   function _bubbleText(wrap) {
-    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    var bubble = wrap.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
     if (!bubble) return '';
     if (bubble.classList.contains('messageIsMe')) return '';
     return (bubble.querySelector('pre') || bubble).textContent.trim();
@@ -1337,14 +1366,22 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       var pdT = pd ? (pd.textContent || '').trim() : '';
       price = curT + piT + pdT;
     }
-    // Coupon pills — spans matching common formats
-    // ("满N减N", "N元券", "立减N", "减N元").
+    // Coupon pills — spans matching the formats Feige actually renders.
+    // ws098 follow-up: the old regex was anchored to ("满N减N"|"N元券"|"立减N"|
+    // "减N元") only, so it MISSED the real badges the customer reported —
+    // "券立减10元" (券 prefix + 元 suffix) and "券后价￥79.90" — leaving the
+    // bot unable to answer 优惠/折扣 questions. Broadened to cover the 券-prefixed
+    // and 元-suffixed variants, opt-元 suffix, and 券后价, with de-dup.
     var coupons = [];
+    var seenC = {};
     var spans = card.querySelectorAll('span');
     for (var cs = 0; cs < spans.length; cs++) {
       var ct = (spans[cs].textContent || '').trim();
-      if (/^(满\d+减\d+|\d+元券|立减\d+|减\d+元)$/.test(ct)) {
-        coupons.push(ct);
+      if (!ct || ct.length > 16) continue;
+      //   满100减10 / 满100减10元 / 10元券 / 10元优惠券 / 立减5 / 立减10元 /
+      //   券立减10元 / 减10元 / 券后价￥79.90
+      if (/^(满\d+减\d+元?|\d+元(优惠)?券|券?立减\d+元?|减\d+元|券后价\s*[￥¥]?\d+(\.\d+)?)$/.test(ct)) {
+        if (!seenC[ct]) { seenC[ct] = 1; coupons.push(ct); }
       }
     }
     // Shipping — look for "现在付款，明天发货" style text, with a weak
@@ -1358,6 +1395,19 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
         shipping = st;  // fallback; keep scanning for the stronger match
       }
     }
+    // ws106: 保障/service tags shown on the card ("7天无理由退货", "运费险",
+    // "极速退款", "包邮" …). The customer asks about exactly these (七天无理由 /
+    // 运费险 / 包邮) and they ARE on the card, but we never extracted them — so the
+    // bot answered "暂未查到…信息" for facts visible on the widget.
+    var services = [];
+    var seenS = {};
+    var _svc = /^(7天无理由(退货|退换)?|七天无理由(退货|退换)?|运费险|极速退款|未发货极速退款|已发货.{0,3}退款|包邮|免运费|假一赔[十百千万\d]+|正品保障|当日发货|次日发货|闪电发货)$/;
+    for (var sv = 0; sv < spans.length; sv++) {
+      var sx = (spans[sv].textContent || '').trim();
+      if (sx && sx.length <= 12 && _svc.test(sx) && !seenS[sx]) {
+        seenS[sx] = 1; services.push(sx);
+      }
+    }
     return {
       header_label: headerLabel,
       title: title,
@@ -1365,6 +1415,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       image_url: imageUrl,
       coupons: coupons,
       shipping: shipping,
+      services: services,
       // ── product_url ──
       // The Feige card replaces the customer-typed URL with this rendered
       // widget; the bare DOM does not expose the original product URL or a
@@ -1390,6 +1441,9 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       parts.push('(券:' + card.coupons.join(',') + ')');
     }
     if (card.shipping) parts.push(card.shipping);
+    if (card.services && card.services.length) {
+      parts.push('(服务:' + card.services.join(',') + ')');  // ws106
+    }
     return parts.join(' ');
   }
   function _isTransferMarker(text) {
@@ -1411,20 +1465,59 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
   // behaviour is unchanged.
   var __SCAN_CAP__ = 30;
   var scanStart = Math.max(0, wrappers.length - __SCAN_CAP__);
+  // ── ws149: post-"以上为历史消息"-divider floor ──────────────────────────────
+  // On a manual-close / timeout REOPEN, Feige renders the prior session's messages ABOVE a
+  // "以上为历史消息" divider and the customer's NEW messages BELOW it. Without a floor, the
+  // newest-first walks below can settle on a stale PRE-divider customer bubble whose following
+  // (also pre-divider) agent reply then trips mt030 "already answered" downstream — masking the
+  // reopen's real new message. Detect the divider and refuse to walk at/above it. The existence
+  // probe uses .textContent (no forced layout) scoped to the thread container, and the (bounded,
+  // ≤SCAN_CAP) position search only runs when a divider is actually present — so normal chats
+  // (no divider) pay one cheap string search and behaviour is unchanged. Kill: __ECAN_POST_DIVIDER__='0'.
+  var __dividerFloor__ = 0;
+  var __threadScope__ = wrappers.length ? (wrappers[0].parentNode || document.body) : document.body;
+  // ws151: floor after the LATEST cold-start boundary — the "以上为历史消息" divider OR a
+  // session-close notice ("系统关闭会话" / "手动关闭会话", both contain "关闭会话"). A CLOSE is the
+  // cleanest reopen boundary: everything above it belongs to a CLOSED prior session, so its Q&A
+  // pairs must not (a) be picked as the "latest customer bubble" nor (b) let mt030 mask a
+  // RE-ASKED question with a PRE-CLOSE answer (live 2026-07-07 23:13:07: the pre-close reply
+  // '这款目前没查到包邮…' from 22:46 masked the reopened '有包邮吗' → never dispatched → closed).
+  // ws149 only handled the "以上为历史消息" divider, which isn't always present on a manual close.
+  var __BND__ = /以上为历史消息|关闭会话/;
+  if ((typeof window === 'undefined' || window.__ECAN_POST_DIVIDER__ !== '0')
+      && __threadScope__ && __BND__.test(__threadScope__.textContent || '')) {
+    var __div__ = null;
+    var __cands__ = Array.from(__threadScope__.querySelectorAll('div,span,p'));
+    for (var __dc = __cands__.length - 1; __dc >= 0; __dc--) {
+      var __tc = (__cands__[__dc].textContent || '').trim();
+      if (__tc.length < 40 && __BND__.test(__tc)) { __div__ = __cands__[__dc]; break; }
+    }
+    if (__div__) {
+      for (var __wf = scanStart; __wf < wrappers.length; __wf++) {
+        if (__div__.compareDocumentPosition(wrappers[__wf]) & Node.DOCUMENT_POSITION_FOLLOWING) {
+          __dividerFloor__ = __wf; break;
+        }
+      }
+    }
+  }
+  var __floor__ = Math.max(scanStart, __dividerFloor__);
   // ── mt017 human-intervention detection support ──
   // Walk newest-first to find the LATEST AGENT bubble.  Returned to
   // Python alongside the customer-bubble data; pre_dispatch_enrich
   // compares against the recent-agent-reply ledger to detect human
   // intervention (an agent bubble we did NOT type ourselves).
   var latestAgentBubble = { text: '', msg_id: '', found: false };
-  for (var ai = wrappers.length - 1; ai >= scanStart; ai--) {
+  for (var ai = wrappers.length - 1; ai >= __floor__; ai--) {
     var aw = wrappers[ai];
-    var arow = aw.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-    if (!arow) continue;
-    if ((arow.style.flexDirection || '').indexOf('reverse') === -1) continue;  // not agent-side
-    var abubble = aw.querySelector('.iD7SHBvMhm4OhfCsBGr1');
+    // mt064: agent-side = semantic messageIsMe marker (redesign-proof) OR the
+    // legacy flex-direction-reverse on the hashed .Ie29C7... row.  No longer
+    // hard-skips when the hashed row class is gone.
+    var abubble = aw.querySelector('.iD7SHBvMhm4OhfCsBGr1, [class*="messageNotMe"], [class*="messageIsMe"]');
     if (!abubble) continue;
-    if (!abubble.classList.contains('messageIsMe')) continue;
+    var arow = aw.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+    var aIsAgent = abubble.classList.contains('messageIsMe') ||
+                   (arow && (arow.style.flexDirection || '').indexOf('reverse') !== -1);
+    if (!aIsAgent) continue;
     var atext = (abubble.querySelector('pre') || abubble).textContent.trim();
     if (!atext) continue;
     var aIdEl = aw.querySelector('[data-id]');
@@ -1436,7 +1529,10 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     };
     break;
   }
-  for (var i = wrappers.length - 1; i >= scanStart; i--) {
+  // ws159: capture a standalone 转人工 handover bubble (the NEWEST) so Python can arm the [微笑]
+  // ack even though we still skip it as a QA "message". `var` is function-scoped → persists below.
+  var _ho_text = '', _ho_msg = '', _ho_idx = -1;
+  for (var i = wrappers.length - 1; i >= __floor__; i--) {
     var wrap = wrappers[i];
     var row = _customerBubble(wrap);
     if (!row) continue;                                  // agent-side or system
@@ -1455,7 +1551,19 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     // a content image.  Image-only bubbles (text === '') were silently
     // dropped before this change.
     if (!text && attachments.length === 0) continue;
-    if (text && _isTransferMarker(text)) continue;
+    if (text && _isTransferMarker(text)) {
+      // ws159: a customer-side 转人工 is a real handover REQUEST (already filtered to
+      // _customerBubble — NOT the UI button). Capture the newest so Python arms the [微笑] ack,
+      // then keep skipping it as a QA message (the ack IS the answer). Prior: silent skip →
+      // index=-1 → dead silence (live 2026-07-10 sc 16:10:54: 转人工 rendered but never handled).
+      if (_ho_idx === -1) {
+        var _hoIdEl = wrap.querySelector('[data-id]');
+        _ho_text = text;
+        _ho_msg = _hoIdEl ? (_hoIdEl.getAttribute('data-id') || '') : '';
+        _ho_idx = i;
+      }
+      continue;
+    }
     // ── Rebuild adjacent customer multimodal burst ──
     // Real-world multimodal chats fire as adjacent bubbles: (text, image),
     // (image, text), (text, image, text), or (text-URL, card).  Treat the
@@ -1473,12 +1581,14 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
     // NB: lookback intentionally NOT bounded by scanStart — it is already
     // hard-capped at 3 iterations, and a multimodal burst whose tail sits at
     // scanStart may legitimately reach a bubble or two just before the cap.
-    while (j >= 0 && lookback < 3) {
+    while (j >= __floor__ && lookback < 3) {  // ws149: don't merge pre-divider (history) bubbles
       var prevWrap = wrappers[j];
-      // Detect agent-side row (row-reverse flexDirection).
+      // mt064: agent-side detection prefers the semantic messageIsMe marker
+      // (redesign-proof); legacy flex-direction-reverse on .Ie29C7 is fallback.
+      var prevBubble = prevWrap.querySelector('[class*="messageIsMe"], [class*="messageNotMe"]');
       var prevRowAny = prevWrap.querySelector('.Ie29C7uLyEjZzd8JeS8A');
-      if (prevRowAny &&
-          (prevRowAny.style.flexDirection || '').indexOf('reverse') !== -1) {
+      if ((prevBubble && prevBubble.classList.contains('messageIsMe')) ||
+          (prevRowAny && (prevRowAny.style.flexDirection || '').indexOf('reverse') !== -1)) {
         break;  // agent reply already happened — don't reach across
       }
       // 2026-05-25 mt041B: if this older bubble's msg_id was already
@@ -1541,11 +1651,14 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
       latest_agent_bubble: latestAgentBubble  // mt017
     };
     if (productCards.length) out.product_cards = productCards;
+    // ws159: if a 转人工 handover bubble is NEWER than this text bubble, surface it too.
+    if (_ho_idx !== -1 && _ho_idx > i) { out.is_handover = true; out.handover_text = _ho_text; out.handover_msg_id = _ho_msg; }
     return JSON.stringify(out);
   }
   return JSON.stringify({
     text: '', msg_id: '', timestamp: '', index: -1, attachments: [],
-    latest_agent_bubble: latestAgentBubble
+    latest_agent_bubble: latestAgentBubble,
+    is_handover: (_ho_idx !== -1), handover_text: _ho_text, handover_msg_id: _ho_msg
   });
 })()
 """
@@ -1579,23 +1692,24 @@ FEIGE_CLICK_SIDEBAR_ROW_JS: str = r"""
   // of the precise name nodes and leave an explicit diagnostic when no
   // node matches, to make future selector drift obvious in logs.
   function readName(row) {
+    // mt062: redesign-resilient name extraction — see the matching readName
+    // above.  Stable data-qa-id + semantic class-prefix selectors first, then
+    // legacy hashed classes as fallback.
+    var nick = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
+    if (nick) { var nv = (nick.textContent || '').trim(); if (nv) return nv; }
+    var line = row.querySelector('[class*="nameLine"]');
+    if (line) {
+      var lt = (line.getAttribute('title') || '').trim();
+      if (lt) return lt;
+      var nc = line.querySelector('[class*="NameContent"]');
+      if (nc) { var ncv = (nc.textContent || '').trim(); if (ncv) return ncv; }
+    }
+    var nc2 = row.querySelector('[class*="NameContent"]');
+    if (nc2) { var nc2v = (nc2.textContent || '').trim(); if (nc2v) return nc2v; }
     var wrap = row.querySelector('.MP1bk3ccfHC9V2SnPCGD');
-    if (wrap) {
-      var t = wrap.getAttribute('title');
-      if (t && t.trim()) return t.trim();
-    }
+    if (wrap) { var wt = (wrap.getAttribute('title') || '').trim(); if (wt) return wt; }
     var span = row.querySelector('.Jv6FtqUv5VoYARd2pp4y');
-    if (span) {
-      var s = (span.textContent || '').trim();
-      if (s) return s;
-    }
-    // Legacy selector kept as a last resort in case real Feige ever
-    // ships it; the emulation and current production DOM do not.
-    var legacy = row.querySelector('[data-qa-id="qa-conversation-nickname"]');
-    if (legacy) {
-      var l = (legacy.textContent || '').trim();
-      if (l) return l;
-    }
+    if (span) { var s = (span.textContent || '').trim(); if (s) return s; }
     return '';
   }
   function rowIsCurrent(row) {
@@ -2481,6 +2595,41 @@ async def scrape_latest_customer_bubble(
     if not browser_session or not customer_name:
         return empty
 
+    # ws126 (2): a synthetic ``card:<talk_id>`` identity (a name-less product card)
+    # has NO sidebar row named "card:..." — FEIGE_CLICK_SIDEBAR_ROW_JS is GUARANTEED
+    # to miss it, wasting a main-tab CDP eval EVERY dispatch cycle (ws124 logged
+    # "sidebar row not found" x24) and disturbing chat-pane focus (the card-identity
+    # self-block that deferred 陆地飞鱼's real-name row). Resolve the card back to the
+    # conversation's real customer name via the ws025 talk->name map and scrape THAT;
+    # if it is still unresolvable, return empty immediately WITHOUT running the doomed
+    # click eval. Reversible: ECAN_FEIGE_SCRAPE_CARD_SHORT_CIRCUIT=0.
+    if (
+        isinstance(customer_name, str)
+        and customer_name.startswith("card:")
+        and os.environ.get("ECAN_FEIGE_SCRAPE_CARD_SHORT_CIRCUIT", "1") != "0"
+    ):
+        _card_talk = customer_name.split(":", 1)[1].strip()
+        _card_resolved = ""
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_session import (
+                name_for_talk as _sc_name_for_talk,
+            )
+            _card_resolved = str(_sc_name_for_talk(_card_talk) or "").strip()
+        except Exception:
+            _card_resolved = ""
+        if _card_resolved and not _card_resolved.startswith("card:"):
+            customer_name = _card_resolved
+        else:
+            logger.info(
+                f"[BrowserAutomation] scrape-latest-customer: card-identity "
+                f"{customer_name!r} has no resolvable sidebar name "
+                f"(talk={_card_talk or '?'}) — skipping doomed click eval "
+                f"(empty; caller falls back to sidebar preview)"
+            )
+            _card_empty = dict(empty)
+            _card_empty["skip_reason"] = "unresolvable_card_identity"
+            return _card_empty
+
     # mt044F: per-customer scrape cooldown.  EventMonitor polls the DOM
     # every 250 ms by default; on a flood the same customer can have 4+
     # scrape calls queued up within a second, each one acquiring the
@@ -2731,6 +2880,16 @@ async def _scrape_locked_body(
                 f"seen_names={_diag.get('seen_names')!r})"
             )
             return empty
+        # ws184: open the click-bind window — the page reacts to the row activation
+        # with a read-ack carrying the conversation id, which binds talk->name
+        # without waiting for the thread DOM to paint (see ws_session.note_row_click).
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                ws_session as _ws184_wss,
+            )
+            _ws184_wss.note_row_click(customer_name)
+        except Exception:
+            pass
         # Brief settle so the chat pane repaints after clicking a row.
         if not click_data.get("already_active"):
             await _s_asyncio.sleep(0.35)
@@ -2833,6 +2992,28 @@ async def _scrape_locked_body(
         text = str(data.get("text") or "").strip()
         msg_id = str(data.get("msg_id") or "").strip()
         idx = int(data.get("index", -1) or -1)
+        # ws159: the JS surfaces is_handover when the (newest) customer bubble is a standalone 转人工
+        # — it's skipped as a QA "message" but IS a real handover request. Arm the [微笑] ack (the ack
+        # IS the answer). Prior: the 转人工 bubble was silently dropped → index=-1 → dead silence
+        # (live 2026-07-10 sc 16:10:54: 转人工 rendered as a bubble but never handled). The arm fn is
+        # idempotent + rate-limited; skip card: identities (mirrors _maybe_arm_handover_ack).
+        if (
+            data.get("is_handover")
+            and customer_name
+            and not str(customer_name).startswith("card:")
+            and os.environ.get("ECAN_FEIGE_SCRAPE_HANDOVER_ACK", "1") != "0"
+        ):
+            try:
+                from .placeholder_timer import note_handover_ack_needed as _s_note_ho
+                _s_note_ho(str(customer_name))
+                logger.info(
+                    f"[BrowserAutomation] ws159 scrape found standalone 转人工 handover for "
+                    f"{customer_name!r} — armed [微笑] ack (was silently skipped → index=-1)"
+                )
+            except Exception as _s_ho_err:
+                logger.debug(
+                    f"[BrowserAutomation] ws159 handover-ack arm failed (non-fatal): {_s_ho_err}"
+                )
         # Attachments — list of {kind, url, alt}.  Defensive coercion:
         # the JS may, on selector drift, return missing key or non-list.
         raw_atts = data.get("attachments") or []

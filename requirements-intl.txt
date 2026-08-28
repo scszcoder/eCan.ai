@@ -1,0 +1,24 @@
+# ============================================================================
+# eCan.ai Intl (International) App Requirements
+# ============================================================================
+# This file contains dependencies specific to the Intl app variant.
+# Intl users run on AWS infrastructure globally and use AWS S3 for storage.
+#
+# Usage:
+#   pip install -r requirements-intl.txt
+#
+# Includes:
+#   - All common dependencies from requirements-base.txt
+#   - AWS S3 storage (boto3, already in base)
+#   - NO Tencent COS (excluded for Intl users)
+#
+# For CN app (Tencent Cloud), use requirements-cn.txt instead.
+# ============================================================================
+
+# Common base dependencies (shared with CN app)
+-r requirements-base.txt
+
+# Intl-specific extras (none currently - reserved for future Intl-only deps)
+# Examples of what would go here:
+# - aws-cdk for AWS-specific tooling
+# - boto3-stubs for better IDE intellisense (optional)

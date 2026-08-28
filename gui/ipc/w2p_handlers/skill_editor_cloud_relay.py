@@ -38,7 +38,8 @@ def _get_cloud_context() -> Optional[Dict[str, Any]]:
 
         session = mainwin.session
         endpoint = mainwin.getWanApiEndpoint() if hasattr(mainwin, 'getWanApiEndpoint') else None
-        owner = getattr(mainwin, 'user', None) or ""
+        from agent.cloud_api.cloud_api import normalize_cloud_owner
+        owner = normalize_cloud_owner(getattr(mainwin, 'user', None) or "")
 
         if not owner:
             logger.debug("[se_cloud_relay] No owner/user")
@@ -63,7 +64,7 @@ def _appsync_request(query_string: str, ctx: Dict[str, Any],
     Uses Content-Type: application/json (matching the web app's appSyncClient.ts)
     because AppSync requires JSON content-type when variables are present.
     """
-    from agent.cloud_api.cloud_api import get_appsync_endpoint
+    from agent.cloud_api.cloud_api import get_appsync_endpoint, _http_auth_header
 
     endpoint = ctx.get("endpoint") or get_appsync_endpoint()
     token = ctx["token"]
@@ -71,7 +72,7 @@ def _appsync_request(query_string: str, ctx: Dict[str, Any],
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": token,
+        "Authorization": _http_auth_header(token),
         "cache-control": "no-cache",
     }
 
@@ -202,15 +203,17 @@ def relay_create_session(name: str = "New Chat",
     return _extract_data(jresp, "createSkillEditorChatSession")
 
 
-def relay_get_sessions() -> List[Dict[str, Any]]:
+def relay_get_sessions() -> Optional[List[Dict[str, Any]]]:
     """Relay getSkillEditorChatSessions to cloud.
 
-    Returns list of session dicts.
+    Returns list of session dicts, or None on failure (no cloud context or
+    cloud errors) so the caller can fall back instead of treating a failure
+    as an empty session list.
     """
     ctx = _get_cloud_context()
     if ctx is None:
         logger.warning("[se_cloud_relay] No cloud context for get_sessions")
-        return []
+        return None
 
     owner = ctx["owner"]
     variables = {"userId": owner}
@@ -218,10 +221,10 @@ def relay_get_sessions() -> List[Dict[str, Any]]:
 
     if "errors" in jresp:
         logger.error(f"[se_cloud_relay] get_sessions errors: {jresp['errors']}")
-        return []
+        return None
 
     result = _extract_data(jresp, "getSkillEditorChatSessions")
-    return result if isinstance(result, list) else []
+    return result if isinstance(result, list) else None
 
 
 def relay_get_history(session_id: str,

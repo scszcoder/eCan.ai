@@ -228,25 +228,11 @@ class URLSchemeBuildConfig:
         except Exception as e:
             print(f"[ERROR] [URL_SCHEME] Failed to setup macOS build configuration: {e}")
             return False
-    
-    @staticmethod
-    def _setup_windows_build():
-        """Setup Windows build configuration"""
-        try:
-            # Create Windows-specific build configuration
-            build_config = {
-                "url_scheme": "ecan",
-                "protocol_name": "eCan Protocol",
-                "executable_name": "eCan.exe",
-                "icon_file": "eCan.ico"
-            }
-            
-            print("[URL_SCHEME] Windows URL scheme build configuration created")
-            return True
-            
-        except Exception as e:
-            print(f"[ERROR] [URL_SCHEME] Failed to setup Windows build configuration: {e}")
-            return False
+
+    # _setup_windows_build was previously duplicated in both this file and
+    # build_system/url_scheme_config.py with subtle differences. The
+    # url_scheme_config version now uses utils.app_config_loader helpers and
+    # is the single source of truth — use URLSchemeBuildConfig._setup_windows_build.
     
     @staticmethod
     def _setup_linux_build():
@@ -285,8 +271,18 @@ Comment=eCan Automation Platform
             # macOS specific options
             info_plist_path = Path("resource/Info.plist")
             if info_plist_path.exists():
+                # Bundle identifier is per-app (e.g. com.ecan.app vs com.ecan.cn.app).
+                # Pull it from the loaded build config so CN/Intl both get the
+                # correct value instead of an Intl-only hardcode.
+                try:
+                    from build_system.url_scheme_config import _get_config_path
+                    import json
+                    _cfg = json.load(open(_get_config_path()))
+                    bundle_id = _cfg.get('installer', {}).get('macos', {}).get('bundle_identifier', 'com.ecan.app')
+                except Exception:
+                    bundle_id = 'com.ecan.app'
                 options.extend([
-                    f"--osx-bundle-identifier=com.ecan.app",
+                    f"--osx-bundle-identifier={bundle_id}",
                     f"--info-plist={info_plist_path.absolute()}"
                 ])
         
@@ -333,19 +329,25 @@ def print_mode_info(mode: str, fast: bool = False):
     print("=" * 60)
 
 
-def standardize_artifact_names(version: str, arch: str = "amd64") -> None:
-    """Standardize build artifact filenames to match release.yml expected format"""
+def standardize_artifact_names(version: str, arch: str = "amd64", app_short_name: str = "eCan") -> None:
+    """Standardize build artifact filenames to match release.yml expected format.
+
+    `app_short_name` must match the value of `app.name` in the per-app build
+    config (and the `ECAN_APP_NAME`/`DIST_APP` env vars used by release.yml),
+    so that the renamed artifacts land in dist/ under the same name that the
+    upload steps look for. Defaults to "eCan" (Intl) for backward compatibility.
+    """
     platform_name = platform.system()
 
     if platform_name == "Windows":
-        _standardize_windows_artifacts(version, arch)
+        _standardize_windows_artifacts(version, arch, app_short_name)
     elif platform_name == "Darwin":
-        _standardize_macos_artifacts(version, arch)
+        _standardize_macos_artifacts(version, arch, app_short_name)
     elif platform_name == "Linux":
-        _standardize_linux_artifacts(version, arch)
+        _standardize_linux_artifacts(version, arch, app_short_name)
 
 
-def _standardize_windows_artifacts(version: str, arch: str):
+def _standardize_windows_artifacts(version: str, arch: str, app_short_name: str):
     """Standardize Windows build artifacts"""
     dist_dir = Path("dist")
 
@@ -353,7 +355,7 @@ def _standardize_windows_artifacts(version: str, arch: str):
     setup_files = list(dist_dir.glob("*Setup*.exe"))
     for setup_file in setup_files:
         # Check if it's already in standardized format
-        expected_name = f"eCan-{version}-windows-{arch}-Setup.exe"
+        expected_name = f"{app_short_name}-{version}-windows-{arch}-Setup.exe"
         expected_path = dist_dir / expected_name
 
         if setup_file.name != expected_name:
@@ -361,6 +363,14 @@ def _standardize_windows_artifacts(version: str, arch: str):
                 if not expected_path.exists():
                     shutil.move(setup_file, expected_path)
                     print(f"[RENAME] {setup_file.name} -> {expected_name}")
+                    # Keep the corresponding .sig file in sync with the rename,
+                    # otherwise OTA signing leaves an orphan signature under
+                    # the pre-rename name and the upload step can't find it.
+                    old_sig = dist_dir / f"{setup_file.name}.sig"
+                    new_sig = expected_path.with_suffix(expected_path.suffix + ".sig")
+                    if old_sig.exists() and not new_sig.exists():
+                        shutil.move(old_sig, new_sig)
+                        print(f"[RENAME] {old_sig.name} -> {new_sig.name}")
                 else:
                     # Remove duplicate if standardized version already exists
                     setup_file.unlink()
@@ -371,10 +381,10 @@ def _standardize_windows_artifacts(version: str, arch: str):
     # Find and standardize executable files (main app)
     exe_files = [f for f in dist_dir.glob("*.exe") if "Setup" not in f.name]
     for exe_file in exe_files:
-        expected_name = f"eCan-{version}-windows-{arch}.exe"
+        expected_name = f"{app_short_name}-{version}-windows-{arch}.exe"
         expected_path = dist_dir / expected_name
 
-        if exe_file.name != expected_name and "eCan" in exe_file.name:
+        if exe_file.name != expected_name and app_short_name in exe_file.name:
             try:
                 if not expected_path.exists():
                     shutil.move(exe_file, expected_path)
@@ -387,12 +397,12 @@ def _standardize_windows_artifacts(version: str, arch: str):
                 print(f"[RENAME] Warning: Failed to rename {exe_file}: {e}")
 
 
-def _standardize_macos_artifacts(version: str, arch: str):
+def _standardize_macos_artifacts(version: str, arch: str, app_short_name: str = "eCan"):
     """Standardize macOS build artifacts"""
     dist_dir = Path("dist")
 
     # Standardize PKG file naming to match release.yml format
-    expected_name = f"eCan-{version}-macos-{arch}.pkg"
+    expected_name = f"{app_short_name}-{version}-macos-{arch}.pkg"
     expected_path = dist_dir / expected_name
 
     # Find .pkg files that need renaming
@@ -427,25 +437,33 @@ def _standardize_macos_artifacts(version: str, arch: str):
         print("[RENAME] No PKG installer found for macOS")
 
 
-def _standardize_linux_artifacts(version: str, arch: str):
+def _standardize_linux_artifacts(version: str, arch: str, app_short_name: str):
     """Standardize Linux build artifacts"""
     dist_dir = Path("dist")
 
     # Find executable files or AppImage
     executables = []
-    for pattern in ["eCan", "*.AppImage", "*.deb", "*.rpm"]:
+    for pattern in [app_short_name, "*.AppImage", "*.deb", "*.rpm"]:
         executables.extend(dist_dir.glob(pattern))
 
     if executables:
         old_path = executables[0]
         suffix = old_path.suffix or ""
-        new_name = f"eCan-{version}-linux-{arch}{suffix}"
+        new_name = f"{app_short_name}-{version}-linux-{arch}{suffix}"
         new_path = dist_dir / new_name
 
         try:
             if old_path != new_path:
                 shutil.move(old_path, new_path)
                 print(f"[RENAME] {old_path.name} -> {new_name}")
+                # Keep the corresponding .sig file in sync with the rename,
+                # otherwise OTA signing leaves an orphan signature under
+                # the pre-rename name and the upload step can't find it.
+                old_sig = dist_dir / f"{old_path.name}.sig"
+                new_sig = new_path.with_suffix(new_path.suffix + ".sig")
+                if old_sig.exists() and not new_sig.exists():
+                    shutil.move(old_sig, new_sig)
+                    print(f"[RENAME] {old_sig.name} -> {new_sig.name}")
         except Exception as e:
             print(f"[RENAME] Warning: Failed to rename {old_path}: {e}")
 
@@ -488,6 +506,66 @@ def clean_macos_build_artifacts(build_path: Path) -> None:
         print(f"[CLEANUP] Cleaned {build_path}")
     except Exception as e:
         print(f"[CLEANUP] Warning: Failed to clean {build_path}: {e}")
+
+
+def validate_browser_installation(path: Path) -> bool:
+    """Build-only Playwright browser installation validator.
+
+    This intentionally does NOT depend on `agent.playwright.core.utils` (or
+    anything that pulls in `utils.logger_helper` / `colorlog`). The build runs
+    on a CI runner that has no GUI, no user appdata dir, and no use for
+    runtime-only modules — keeping that surface out of the build path makes
+    the build deterministic and avoids module-level side effects from
+    runtime singletons.
+
+    Mirrors the validation logic the runtime agent uses, but in a self-contained
+    stdlib-only form.
+    """
+    try:
+        if not path or not path.exists():
+            return False
+
+        # Method 1: prefer browsers.json when present
+        browsers_json = path / "browsers.json"
+        if browsers_json.exists():
+            try:
+                import json
+                with open(browsers_json, "r", encoding="utf-8") as f:
+                    browsers_data = json.load(f)
+                if isinstance(browsers_data, dict):
+                    return True
+            except Exception:
+                pass
+
+        # Method 2: fall back to looking for browser directories
+        browser_dirs = [
+            d for d in path.iterdir()
+            if d.is_dir() and not d.name.startswith('.')
+            and any(
+                name in d.name.lower()
+                for name in ('chromium', 'chrome', 'firefox', 'webkit', 'safari', 'edge')
+            )
+        ]
+        if not browser_dirs:
+            return False
+
+        for browser_dir in browser_dirs:
+            try:
+                files = list(browser_dir.rglob("*"))
+            except Exception:
+                continue
+            if len(files) >= 10:
+                return True
+            # Even with few files, accept if a recognizable executable is present
+            for f in files:
+                if not f.is_file():
+                    continue
+                if (f.name.lower().startswith(('chrome', 'chromium', 'firefox'))
+                        or f.suffix.lower() in ('.exe', '.app')):
+                    return True
+        return False
+    except Exception:
+        return False
 
 
 def prepare_third_party_assets() -> None:
@@ -666,12 +744,14 @@ def _prepare_playwright_simple() -> None:
     # Note: symlinks=True preserves symbolic links, which is critical for browser functionality
     try:
         shutil.copytree(cache_path, target_path, symlinks=True, dirs_exist_ok=True)
-        
-        # Validate the copy
-        from agent.playwright.core.utils import PlaywrightCoreUtils
-        if not PlaywrightCoreUtils.validate_browser_installation(target_path):
+
+        # Validate the copy using the build-only helper. We intentionally avoid
+        # importing agent.playwright.core.utils here: that runtime module pulls
+        # in utils.logger_helper / colorlog as a side effect, which has no
+        # place in a CI build step.
+        if not validate_browser_installation(target_path):
             raise RuntimeError(f"Browser installation validation failed after copy: {target_path}")
-        
+
         print(f"[BUILD] ✅ Playwright browsers copied and validated successfully")
     except Exception as e:
         print(f"[PLAYWRIGHT] Copy failed: {e}")
@@ -684,9 +764,11 @@ def _find_playwright_cache() -> Path:
     import platform
     from pathlib import Path
 
-    # Check environment variable first
-    from agent.playwright.core.utils import PlaywrightCoreUtils
-    env_path = os.getenv(PlaywrightCoreUtils.ENV_BROWSERS_PATH)
+    # Check environment variable first.  The constant name comes from the
+    # runtime agent module, but we don't need to import that whole module
+    # (which would pull utils.logger_helper → colorlog into the build process).
+    # The literal matches agent.playwright.core.utils.PlaywrightCoreUtils.ENV_BROWSERS_PATH.
+    env_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
     if env_path:
         env_path_obj = Path(env_path)
         if env_path_obj.exists():
@@ -1056,6 +1138,597 @@ def _dev_sign_macos():
 
     print("[DEV-SIGN] macOS: Development signing enabled")
     # Implementation would go here
+
+
+# ============================================================================
+# Production macOS signing, notarization, and stapling
+# ============================================================================
+#
+# Why this is a no-op-by-default function:
+# -----------------------------------------
+# The release-{intl,cn}.yml workflows already inject these env vars from
+# the runner's secrets into the macOS build job:
+#
+#   MAC_CERT_P12, MAC_CERT_PASSWORD, MAC_CODESIGN_IDENTITY,
+#   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, TEAM_ID
+#
+# Until this commit they were dead code — grep for those env names in
+# build_system/ found zero call sites. macOS prod signing therefore
+# silently did nothing; the resulting `.dmg` / `.pkg` ships
+# un-signed and un-notarized, and Gatekeeper will quarantine it on
+# first open unless the user right-clicks and chooses "Open Anyway".
+#
+# This function is the entry point that wires those env vars into a
+# real Developer ID signing + notarytool submission + staple. It is
+# gated on `MAC_CODESIGN_IDENTITY` being present (a non-empty,
+# non-"NOT_SET" string) — that is, it only runs when the workflow
+# actually injected a Developer ID identity from the runner's
+# secret store. In the absence of that secret the function is a
+# no-op so the current behaviour is preserved exactly.
+#
+# Status: STUB — UNVERIFIED.
+# ---------------------------
+# As of this commit, the function is wired into the workflow and the
+# unit-test surface is in place, but the actual `codesign` /
+# `notarytool` / `stapler` invocations have not been exercised on
+# a real macOS runner with a real Developer ID. The tests cover the
+# gating logic only. When the first Developer ID secret is
+# provisioned, run this on a staging tag and watch for:
+#
+#   1. `codesign --verify --deep --strict --verbose=2` passes
+#   2. `xcrun notarytool info <submission-id>` returns "Accepted"
+#   3. `xcrun stapler validate -v <app>` prints "The staple is valid"
+#   4. `spctl --assess --type execute --verbose <app>` returns
+#      "accepted" without "source=Notarized Developer ID" warning
+#
+# Until that smoke is green, treat this as scaffolding, not as a
+# feature: do not lower `MAC_CODESIGN_IDENTITY`'s opt-in gate.
+#
+# Required tooling (all ship with Xcode + CLT):
+#   codesign      (Xcode CLT)
+#   xcrun         (Xcode CLT)  → notarytool, stapler, altool
+#   ditto         (system)
+#
+# Required env vars (set by the workflow from `${{ secrets.* }}`):
+#   MAC_CODESIGN_IDENTITY       — "Developer ID Application: <Name> (<TEAM>)"
+#   MAC_CERT_P12                — base64 of the Developer ID .p12 cert
+#   MAC_CERT_PASSWORD           — password for the .p12
+#   APPLE_ID                    — Apple ID email for notarytool
+#   APPLE_APP_SPECIFIC_PASSWORD — app-specific password (NOT the Apple ID password)
+#   TEAM_ID                     — 10-character Apple developer team ID
+#
+# Workflow contract:
+#   * This function is invoked from a release-{intl,cn}.yml step AFTER
+#     `Build macOS package` finishes and BEFORE `Prepare artifacts`.
+#   * The step sets the same env vars as `Build macOS package` does.
+#   * On non-macOS runners the function logs "skipped (non-Darwin)"
+#     and returns cleanly.
+#   * On macOS without `MAC_CODESIGN_IDENTITY` it logs "skipped
+#     (no identity)" and returns cleanly — preserving today's
+#     un-signed-and-notarized behaviour until secrets are wired.
+
+_MAC_SIGN_KEYCHAIN_NAME = "ecan-build.keychain-db"
+_MAC_SIGN_KEYCHAIN_PASSWORD = "ecan-build-temp-password"  # ephemeral, deleted at end
+
+
+def _mac_sign_is_configured() -> bool:
+    """Return True iff the workflow injected all secrets needed for
+    real macOS prod signing. Used both as a gate and as a way for
+    tests to assert the configuration state without invoking any
+    `codesign` subprocess."""
+    required = (
+        "MAC_CODESIGN_IDENTITY",
+        "MAC_CERT_P12",
+        "MAC_CERT_PASSWORD",
+        "APPLE_ID",
+        "APPLE_APP_SPECIFIC_PASSWORD",
+        "TEAM_ID",
+    )
+    for name in required:
+        v = os.getenv(name)
+        if not v or v == "NOT_SET":
+            return False
+    return True
+
+
+def _mac_sign_resolve_app_bundle(dist_dir: "Path | None" = None) -> "Path | None":
+    """Locate the .app bundle produced by `build.py prod` for signing.
+
+    Returns the path to the bundle, or None if no bundle is found.
+    The convention `dist/eCan.app` / `dist/eCan.cn.app` comes from
+    PyInstaller's BUNDLE directive (see minibuild_core.py:1270).
+    """
+    import platform as _platform
+    if _platform.system() != "Darwin":
+        return None
+    project_root = Path(__file__).resolve().parents[1]  # build_system/.. = repo root
+    if dist_dir is None:
+        dist_dir = project_root / "dist"
+    if not dist_dir.exists():
+        print(f"[MAC-SIGN] dist/ not found at {dist_dir}; cannot locate .app bundle")
+        return None
+    candidates = sorted(dist_dir.glob("*.app"))
+    if not candidates:
+        print(f"[MAC-SIGN] no .app bundle in {dist_dir}; nothing to sign")
+        return None
+    if len(candidates) > 1:
+        print(f"[MAC-SIGN] WARNING: multiple .app bundles found, signing the first: "
+              f"{[c.name for c in candidates]}")
+    return candidates[0]
+
+
+def _rebuild_pkg_from_signed_app(
+    app_bundle: Path,
+    original_pkg: Path,
+    tmp_path: Path,
+    run,
+) -> None:
+    """Rebuild a .pkg installer from a signed+notarized .app bundle.
+
+    Called by sign_macos_prod() after the .app has been successfully
+    notarized and stapled. The original .pkg was built before the
+    signing step, so it embeds an unsigned copy of the .app.
+
+    Two PKG variants exist in the wild:
+      productbuild PKG  — built with productbuild; has a Distribution XML;
+                          the signed .app must be rebuilt into it.
+      pkgbuild PKG      — built with pkgbuild --root; same rebuild required
+                          because pkgbuild also embeds a byte copy.
+
+    Rebuild strategy (identical for both variants):
+      1. Read install-location from the original PKG's Distribution XML
+         or PackageInfo (via xar).
+      2. Copy the now-signed .app to a temp payload tree at that path.
+      3. Run pkgbuild --root to produce a new component .pkg.
+      4. If the original was a productbuild PKG, rebuild with productbuild.
+      5. Copy the result back over original_pkg in-place.
+
+    The productsign + notarytool + stapler steps that follow this call
+    operate on the (now-rebuilt) .pkg in-place.
+    """
+    import shutil as _shutil
+
+    build_dir = tmp_path / "pkg_rebuild"
+    build_dir.mkdir(exist_ok=True)
+    payload_dir = build_dir / "payload"
+    payload_dir.mkdir()
+
+    # Detect PKG type and extract install-location BEFORE constructing payload.
+    # BUGFIX (B1): original code copied .app to a hard-coded
+    # /Applications path BEFORE reading the real install-location,
+    # then re-computed the path after the fact. When install-location
+    # is a custom path, the first target_app path is stale and
+    # copytree writes to the wrong place.
+    install_location = "/Applications"
+    is_productbuild_pkg = False
+    dist_xml_path = None
+
+    try:
+        import subprocess as _subprocess
+
+        # Read archive member list (no extraction, just metadata).
+        list_result = _subprocess.run(
+            ["xar", "-t", "-f", str(original_pkg)],
+            capture_output=True, text=True, timeout=60,
+        )
+        members = list_result.stdout.strip().splitlines()
+
+        if "Distribution" in members:
+            is_productbuild_pkg = True
+            _subprocess.run(
+                ["xar", "-x", "-f", str(original_pkg), "Distribution"],
+                cwd=str(build_dir), check=True, timeout=60,
+            )
+            dist_xml_path = build_dir / "Distribution"
+
+        if "PackageInfo" in members:
+            _subprocess.run(
+                ["xar", "-x", "-f", str(original_pkg), "PackageInfo"],
+                cwd=str(build_dir), check=True, timeout=60,
+            )
+            pkg_info = build_dir / "PackageInfo"
+            if pkg_info.exists():
+                try:
+                    import xml.etree.ElementTree as ET
+                    tree = ET.parse(str(pkg_info))
+                    il = tree.getroot().get("install-location", "")
+                    if il.startswith("/"):
+                        install_location = il
+                except Exception:
+                    pass
+
+        # Also parse Distribution XML for install-location override.
+        if is_productbuild_pkg and dist_xml_path and dist_xml_path.exists():
+            try:
+                import xml.etree.ElementTree as ET
+                tree = ET.parse(str(dist_xml_path))
+                root = tree.getroot()
+                # Distribution XML uses no namespace in practice.
+                choices = root.findall(".//choice")
+                for choice in choices:
+                    il = choice.get("installLocation", "")
+                    if il.startswith("/"):
+                        install_location = il
+                        break
+            except Exception:
+                pass
+
+    except Exception as e_extract:
+        print(f"[MAC-SIGN] Warning: could not read original PKG metadata "
+              f"(using default install-location='/Applications'): {e_extract}")
+
+    # BUGFIX (B1): construct payload AFTER install_location is known.
+    relative_root = install_location.lstrip("/")   # "/Applications" → "Applications"
+    target_parent = payload_dir / relative_root
+    target_parent.mkdir(parents=True, exist_ok=True)
+    target_app = target_parent / app_bundle.name
+
+    if target_app.exists() or target_app.is_symlink():
+        _shutil.rmtree(str(target_app), ignore_errors=True)
+    _shutil.copytree(str(app_bundle), str(target_app), symlinks=True)
+
+    # Derive bundle identifier from the signed .app's Info.plist.
+    bundle_id = None
+    info_plist = target_app / "Contents" / "Info.plist"
+    if info_plist.exists():
+        try:
+            import plistlib
+            info = plistlib.loads(info_plist.read_bytes())
+            bundle_id = info.get("CFBundleIdentifier")
+        except Exception:
+            pass
+    if not bundle_id:
+        bundle_name = app_bundle.name.replace(".app", "")
+        bundle_id = f"com.ecan.{bundle_name.lower()}"
+
+    # pkgbuild the new component .pkg from the signed payload.
+    # BUGFIX (B2): --component-placement and --component are incompatible
+    # with --root; we use --root only. The install-location drives
+    # where the app lands inside the PKG.
+    component_pkg = tmp_path / f"{original_pkg.stem}-rebuilt.pkg"
+    pkgbuild_cmd = [
+        "pkgbuild",
+        "--root", str(payload_dir),
+        "--identifier", bundle_id,
+        "--version", "1.0",
+        "--install-location", install_location,
+        str(component_pkg),
+    ]
+    print(f"[MAC-SIGN] Running pkgbuild to rebuild PKG:\n"
+          f"  {' '.join(pkgbuild_cmd)}")
+    pkg_result = run(pkgbuild_cmd, check=False)
+    if pkg_result.returncode != 0:
+        print(f"[MAC-SIGN] pkgbuild rebuild failed:\n"
+              f"  stdout: {pkg_result.stdout}\n"
+              f"  stderr: {pkg_result.stderr}")
+        return  # Non-fatal; original PKG is untouched.
+
+    # Rebuild productbuild PKG if the original was productbuild-style.
+    # BUGFIX (B5): the original code re-ran `xar -t` here to detect
+    # Distribution. We already know `is_productbuild_pkg` from the first
+    # extraction pass above — reuse it instead of running xar twice.
+    if is_productbuild_pkg and dist_xml_path and dist_xml_path.exists():
+        print("[MAC-SIGN] Rebuilding productbuild PKG ...")
+        packages_dir = build_dir / "packages"
+        packages_dir.mkdir(exist_ok=True)
+        final_component = packages_dir / component_pkg.name
+        _shutil.copy(str(component_pkg), str(final_component))
+
+        productbuild_cmd = [
+            "productbuild",
+            "--distribution", str(dist_xml_path),
+            "--package-path", str(packages_dir),
+            str(original_pkg),
+        ]
+        print(f"[MAC-SIGN] Running productbuild:\n"
+              f"  {' '.join(productbuild_cmd)}")
+        pb_result = run(productbuild_cmd, check=False)
+        if pb_result.returncode != 0:
+            print(f"[MAC-SIGN] productbuild rebuild failed; "
+                  f"falling back to pkgbuild component .pkg:\n"
+                  f"  stdout: {pb_result.stdout}\n"
+                  f"  stderr: {pb_result.stderr}")
+            _shutil.copy(str(component_pkg), str(original_pkg))
+    else:
+        # Plain pkgbuild PKG: copy the component .pkg in-place.
+        _shutil.copy(str(component_pkg), str(original_pkg))
+
+    print(f"[MAC-SIGN] PKG rebuilt in-place: {original_pkg.name} "
+          f"(install-location={install_location})")
+
+
+def sign_macos_prod() -> bool:
+    """Production sign + notarize + staple the macOS .app bundle.
+
+    Returns True on success, False on any failure (and logs the
+    failure to stdout so CI surfaces it). Designed to be invoked
+    from a release workflow step like:
+
+        - name: Sign and notarize macOS artifact
+          env:
+            MAC_CODESIGN_IDENTITY:     ${{ secrets.MAC_CODESIGN_IDENTITY     || 'NOT_SET' }}
+            MAC_CERT_P12:              ${{ secrets.MAC_CERT_P12              || 'NOT_SET' }}
+            MAC_CERT_PASSWORD:         ${{ secrets.MAC_CERT_PASSWORD         || 'NOT_SET' }}
+            APPLE_ID:                  ${{ secrets.APPLE_ID                  || 'NOT_SET' }}
+            APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || 'NOT_SET' }}
+            TEAM_ID:                   ${{ secrets.TEAM_ID                   || 'NOT_SET' }}
+          run: |
+            & $VenvPython -c "import sys; sys.path.insert(0, '.'); from build_system.build_utils import sign_macos_prod; sys.exit(0 if sign_macos_prod() else 1)"
+
+    Gate behaviour:
+      * Non-Darwin → log + return True (no-op).
+      * Missing any required env var → log + return True (no-op).
+      * Anything else → run the full pipeline; return True iff every
+        step succeeded.
+
+    C1 fix (sign/package ordering): after the .app is successfully
+    signed, notarized, and stapled, this function checks whether a .pkg
+    installer exists in dist/. If so, it rebuilds the .pkg from the
+    now-notarized .app (via productbuild or pkgbuild), then signs,
+    notarizes, and staples the .pkg in-place. The workflow's
+    "Prepare artifacts" step uploads whatever is in dist/ at that
+    point, so the freshly rebuilt .pkg is what gets distributed.
+
+    L2 fix (keychain cleanup): the original keychain search list is
+    saved before any modification and restored in the finally block,
+    along with an explicit security delete-keychain call. This prevents
+    the temp keychain from persisting on self-hosted runners.
+    """
+    import platform as _platform
+    import subprocess as _subprocess
+    import tempfile as _tempfile
+
+    # Gate 1: only runs on macOS.
+    if _platform.system() != "Darwin":
+        print("[MAC-SIGN] Skipped: not running on Darwin.")
+        return True
+
+    # Gate 2: only runs when all required secrets are present.
+    if not _mac_sign_is_configured():
+        print("[MAC-SIGN] Skipped: one or more required env vars are "
+              "missing or set to 'NOT_SET' (MAC_CODESIGN_IDENTITY, "
+              "MAC_CERT_P12, MAC_CERT_PASSWORD, APPLE_ID, "
+              "APPLE_APP_SPECIFIC_PASSWORD, TEAM_ID).")
+        return True
+
+    identity = os.environ["MAC_CODESIGN_IDENTITY"]
+    cert_p12_b64 = os.environ["MAC_CERT_P12"]
+    cert_password = os.environ["MAC_CERT_PASSWORD"]
+    apple_id = os.environ["APPLE_ID"]
+    app_specific_password = os.environ["APPLE_APP_SPECIFIC_PASSWORD"]
+    team_id = os.environ["TEAM_ID"]
+
+    app_bundle = _mac_sign_resolve_app_bundle()
+    if app_bundle is None:
+        print(
+            "[MAC-SIGN] No .app bundle found in dist/. This usually "
+            "means the `Build macOS package` step failed (PyInstaller "
+            "crash, missing module, disk full, etc.) — that earlier "
+            "step will report the failure with the correct cause. "
+            "Sign step is skipping to avoid masking the real error."
+        )
+        return True
+
+    print(f"[MAC-SIGN] Signing: {app_bundle}")
+    print(f"[MAC-SIGN] Identity: {identity}")
+
+    # Detect dist/ directory (sibling to the .app's parent).
+    dist_dir = app_bundle.parent
+    if not dist_dir.exists():
+        dist_dir = Path("dist")
+    pkg_files = sorted(dist_dir.glob("*.pkg"))
+
+    # -------------------------------------------------------------------------
+    # Shared helper: run a subprocess command, capture output on failure.
+    # -------------------------------------------------------------------------
+    def _run(cmd, **kwargs):
+        kwargs.setdefault("check", True)
+        result = _subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+        return result
+
+    # BUGFIX (B7): initialise keychain_path here so the finally block can
+    # safely reference it even if an exception fires before Step 2.
+    keychain_path: Optional[Path] = None
+
+    try:
+        # --- L2 fix: save original keychain list before touching it. ---
+        orig_kc_raw = _run(
+            ["security", "list-keychains", "-d", "user"],
+            check=False,
+        ).stdout
+        orig_kc_list = [
+            p.strip() for p in orig_kc_raw.strip().splitlines() if p.strip()
+        ]
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+
+            # Step 1: Decode the .p12 to disk.
+            cert_path = tmp_path / "ecan-codesign.p12"
+            import base64
+            cert_path.write_bytes(base64.b64decode(cert_p12_b64))
+
+            # Step 2: Create an ephemeral keychain.
+            keychain_path = tmp_path / _MAC_SIGN_KEYCHAIN_NAME
+            _run(["security", "create-keychain", "-p",
+                  _MAC_SIGN_KEYCHAIN_PASSWORD, str(keychain_path)])
+            _run(["security", "unlock-keychain", "-p",
+                  _MAC_SIGN_KEYCHAIN_PASSWORD, str(keychain_path)])
+            _run(["security", "set-keychain-settings", "-lut",
+                  str(keychain_path)])
+
+            # --- L2 fix: build the new search list = orig + temp. ---
+            new_kc_list = orig_kc_list + [str(keychain_path)]
+            _run(["security", "list-keychains", "-d", "user", "-s"]
+                 + new_kc_list)
+
+            # Import the .p12 into the temp keychain.
+            _run(["security", "import", str(cert_path),
+                  "-k", str(keychain_path),
+                  "-P", cert_password,
+                  "-T", "/usr/bin/codesign",
+                  "-T", "/usr/bin/security"])
+
+            # Step 3: codesign the .app bundle.
+            print("[MAC-SIGN] Running codesign --force --sign ...")
+            _run(["codesign", "--force",
+                  "--sign", identity,
+                  "--options", "runtime",
+                  "--timestamp",
+                  "--deep",
+                  str(app_bundle)])
+            print("[MAC-SIGN] Verifying codesign result ...")
+            _run(["codesign", "--verify", "--deep", "--strict",
+                  "--verbose=2", str(app_bundle)])
+
+            # Step 4: Zip the bundle for notarytool.
+            zip_path = tmp_path / f"{app_bundle.stem}.zip"
+            _run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent",
+                  str(app_bundle), str(zip_path)])
+
+            # Step 5: Submit to notarization.
+            print("[MAC-SIGN] Submitting .app to notarytool (may take "
+                  "several minutes) ...")
+            submit_result = _run(
+                ["xcrun", "notarytool", "submit", str(zip_path),
+                 "--apple-id", apple_id,
+                 "--password", app_specific_password,
+                 "--team-id", team_id,
+                 "--wait"],
+                check=False,
+            )
+            if submit_result.returncode != 0:
+                print(f"[MAC-SIGN] notarytool submit FAILED: "
+                      f"rc={submit_result.returncode}")
+                print(f"[MAC-SIGN] stdout: {submit_result.stdout}")
+                print(f"[MAC-SIGN] stderr: {submit_result.stderr}")
+                return False
+            print(f"[MAC-SIGN] .app notarization succeeded")
+
+            # Step 6: Staple the notarization ticket onto the .app bundle.
+            print("[MAC-SIGN] Stapling notarization ticket to .app ...")
+            _run(["xcrun", "stapler", "staple", str(app_bundle)])
+            _run(["xcrun", "stapler", "validate", "-v", str(app_bundle)])
+            print(f"[MAC-SIGN] .app signed + notarized + stapled: "
+                  f"{app_bundle.name}")
+
+            # -----------------------------------------------------------------
+            # C1 fix: rebuild .pkg from the now-notarized .app, then sign,
+            # notarize, and staple the .pkg itself. The workflow's
+            # "Prepare artifacts" step uploads dist/*.pkg, so this in-place
+            # replacement ensures the signed+notarized artifact is shipped.
+            # -----------------------------------------------------------------
+            # BUGFIX (B6): track per-PKG failure so we don't return True when
+            # some PKGs failed. Initialised before the if/else so the subsequent
+            # `if all_pkg_ok:` check is safe even when pkg_files is empty.
+            all_pkg_ok = True
+
+            if not pkg_files:
+                print("[MAC-SIGN] No .pkg found in dist/; skipping PKG "
+                      "re-sign step.")
+            else:
+                for pkg_file in pkg_files:
+                    print(f"[MAC-SIGN] Checking PKG: {pkg_file.name}")
+                    # Detect productbuild PKG: contains BOM+XML metadata.
+                    is_productbuild_pkg = (
+                        pkg_file.stat().st_size > 512
+                        and b"product" in pkg_file.read_bytes()[:1024]
+                    )
+                    if is_productbuild_pkg:
+                        print(f"[MAC-SIGN] productbuild PKG detected; "
+                              "rebuilding from signed .app ...")
+                        _rebuild_pkg_from_signed_app(
+                            app_bundle=app_bundle,
+                            original_pkg=pkg_file,
+                            tmp_path=tmp_path,
+                            run=_run,
+                        )
+                    else:
+                        print(f"[MAC-SIGN] pkgbuild PKG; "
+                              "no rebuild needed (pkgbuild does not embed "
+                              "a signed .app copy — it references the "
+                              "install-location payload).")
+
+                    # Sign the .pkg with Developer ID Installer certificate.
+                    print(f"[MAC-SIGN] Signing .pkg with productsign ...")
+                    _run(["productsign", "--sign", identity,
+                          str(pkg_file), str(pkg_file)])
+
+                    # Re-notarize the .pkg.
+                    pkg_zip = tmp_path / f"{pkg_file.stem}.zip"
+                    _run(["ditto", "-c", "-k", str(pkg_file), str(pkg_zip)])
+                    print("[MAC-SIGN] Submitting .pkg to notarytool ...")
+                    pkg_submit = _run(
+                        ["xcrun", "notarytool", "submit", str(pkg_zip),
+                         "--apple-id", apple_id,
+                         "--password", app_specific_password,
+                         "--team-id", team_id,
+                         "--wait"],
+                        check=False,
+                    )
+                    if pkg_submit.returncode != 0:
+                        print(f"[MAC-SIGN] .pkg notarytool FAILED: "
+                              f"rc={pkg_submit.returncode}")
+                        print(f"[MAC-SIGN] stdout: {pkg_submit.stdout}")
+                        print(f"[MAC-SIGN] stderr: {pkg_submit.stderr}")
+                        print("[MAC-SIGN] Skipping this PKG; continuing "
+                              "with remaining PKGs.")
+                        all_pkg_ok = False
+                        continue
+                    print(f"[MAC-SIGN] .pkg notarization succeeded")
+
+                    # Staple the .pkg.
+                    print("[MAC-SIGN] Stapling notarization ticket to .pkg ...")
+                    _run(["xcrun", "stapler", "staple", str(pkg_file)])
+                    _run(["xcrun", "stapler", "validate", "-v",
+                          str(pkg_file)])
+                    print(f"[MAC-SIGN] .pkg signed + notarized + stapled: "
+                          f"{pkg_file.name}")
+
+            if all_pkg_ok:
+                print("[MAC-SIGN] OK: all artifacts signed, notarized, "
+                      "and stapled.")
+                return True
+            else:
+                print("[MAC-SIGN] PARTIAL: one or more PKGs failed; "
+                      "returning False so CI marks the job red.")
+                return False
+
+    except _subprocess.CalledProcessError as e:
+        print(f"[MAC-SIGN] FAILED: subprocess error: {e}")
+        if e.stderr:
+            print(f"[MAC-SIGN] stderr: {e.stderr}")
+        if e.stdout:
+            print(f"[MAC-SIGN] stdout: {e.stdout}")
+        return False
+    except Exception as e:
+        print(f"[MAC-SIGN] FAILED: unexpected error: {e}")
+        return False
+    finally:
+        # --- L2 fix: restore original keychain list and delete temp keychain. ---
+        try:
+            if orig_kc_list:
+                _subprocess.run(
+                    ["security", "list-keychains", "-d", "user", "-s"]
+                    + orig_kc_list,
+                    capture_output=True,
+                )
+            # BUGFIX (B7): guard against keychain_path being None if an
+            # exception fired before Step 2 (create-keychain) ran.
+            if keychain_path is not None and keychain_path.exists():
+                _subprocess.run(
+                    ["security", "delete-keychain", str(keychain_path)],
+                    capture_output=True,
+                )
+        except Exception as e_kc:
+            print(f"[MAC-SIGN] WARNING: keychain cleanup error (non-fatal): "
+                  f"{e_kc}")
+
+
+# Backwards-compat alias. Older code paths may import
+# `_sign_macos_prod` (with underscore prefix) — keep the name alive
+# so a refactor that adds call sites doesn't break the import.
+_sign_macos_prod = sign_macos_prod
 
 
 

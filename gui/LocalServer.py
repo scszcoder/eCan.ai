@@ -14,6 +14,7 @@ import typing
 
 from utils.logger_helper import logger_helper as logger
 from utils.gui_dispatch import run_on_main_thread
+from utils.app_env import get_app_id, is_cn as _is_cn
 
 if typing.TYPE_CHECKING:
     from gui.MainGUI import MainWindow
@@ -122,10 +123,21 @@ class AppWebSocketManager:
     - Chat messages and notifications
     - Skill run statistics
     - LightRAG streaming
+    
+    Memory leak prevention:
+    - Periodic cleanup of stale connections
+    - Maximum connections limit
+    - Connection health checks
     """
     
     _instance = None
     _lock = threading.Lock()
+    
+    # Memory leak protection: limits
+    _MAX_CONNECTIONS_PER_CHANNEL = 50
+    _MAX_TOTAL_CONNECTIONS = 500
+    _CLEANUP_INTERVAL_SEC = 60
+    _CONNECTION_TIMEOUT_SEC = 300  # 5 minutes
     
     def __new__(cls):
         if cls._instance is None:
@@ -135,30 +147,140 @@ class AppWebSocketManager:
                     cls._instance._connections: dict[str, set[WebSocket]] = {}  # channel_id -> set of websockets
                     cls._instance._all_connections: set[WebSocket] = set()
                     cls._instance._event_loop = None
+                    cls._instance._connection_timestamps: dict[int, float] = {}  # Track connection time
+                    cls._instance._cleanup_task = None
         return cls._instance
     
     def set_event_loop(self, loop):
         """Set the event loop for async operations from sync context."""
         self._event_loop = loop
+        # Start periodic cleanup task
+        self._start_periodic_cleanup()
+    
+    def _start_periodic_cleanup(self):
+        """Start periodic cleanup of stale connections."""
+        if self._cleanup_task is not None:
+            return
+        if self._event_loop and self._event_loop.is_running():
+            import asyncio
+            self._cleanup_task = self._event_loop.create_task(self._periodic_cleanup())
+            logger.debug("[AppWS] Started periodic connection cleanup task")
+    
+    async def _periodic_cleanup(self):
+        """Periodically clean up stale connections."""
+        import asyncio
+        import time
+        while True:
+            try:
+                await asyncio.sleep(self._CLEANUP_INTERVAL_SEC)
+                await self._cleanup_stale_connections()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"[AppWS] Periodic cleanup error: {e}")
+    
+    async def _cleanup_stale_connections(self):
+        """Clean up stale connections that may have been missed."""
+        import time
+        current_time = time.time()
+        stale_ws_ids = []
+        
+        # Find stale connections
+        for ws_id, timestamp in list(self._connection_timestamps.items()):
+            if current_time - timestamp > self._CONNECTION_TIMEOUT_SEC:
+                stale_ws_ids.append(ws_id)
+        
+        # Clean up stale connections
+        cleaned = 0
+        for ws_id in stale_ws_ids:
+            for ws in list(self._all_connections):
+                if id(ws) == ws_id:
+                    try:
+                        await ws.close()
+                    except:
+                        pass
+                    self._all_connections.discard(ws)
+                    self._connection_timestamps.pop(ws_id, None)
+                    cleaned += 1
+                    # Also remove from channel connections
+                    for channel in self._connections:
+                        self._connections[channel].discard(ws)
+        
+        if cleaned > 0:
+            logger.info(f"[AppWS] Cleaned up {cleaned} stale connections")
+        
+        # Clean up empty channels
+        empty_channels = [ch for ch, ws_set in self._connections.items() if not ws_set]
+        for ch in empty_channels:
+            del self._connections[ch]
+        
+        # Log current state
+        total = len(self._all_connections)
+        if total > self._MAX_TOTAL_CONNECTIONS:
+            logger.warning(f"[AppWS] Connection count exceeds limit: {total} > {self._MAX_TOTAL_CONNECTIONS}")
+        else:
+            logger.debug(f"[AppWS] Connection state: {total} total, {len(self._connections)} channels")
     
     async def connect(self, websocket: WebSocket, channel_id: str = None):
         """Accept a new WebSocket connection."""
+        # Memory leak protection: check limits
+        total_connections = len(self._all_connections)
+        if total_connections >= self._MAX_TOTAL_CONNECTIONS:
+            logger.warning(f"[AppWS] Connection limit reached ({total_connections}), rejecting new connection")
+            await websocket.close(code=1013, reason="Server at capacity")
+            return
+        
+        if channel_id and channel_id in self._connections:
+            channel_connections = len(self._connections[channel_id])
+            if channel_connections >= self._MAX_CONNECTIONS_PER_CHANNEL:
+                logger.warning(f"[AppWS] Channel {channel_id} connection limit reached ({channel_connections}), rejecting")
+                await websocket.close(code=1013, reason="Channel at capacity")
+                return
+        
         await websocket.accept()
         self._all_connections.add(websocket)
+        self._connection_timestamps[id(websocket)] = time.time()
+        
         if channel_id:
             if channel_id not in self._connections:
                 self._connections[channel_id] = set()
             self._connections[channel_id].add(websocket)
+        
         logger.info(f"[SkillEditorWS] Client connected. Channel: {channel_id}, Total connections: {len(self._all_connections)}")
     
     def disconnect(self, websocket: WebSocket, channel_id: str = None):
         """Remove a WebSocket connection."""
+        ws_id = id(websocket)
         self._all_connections.discard(websocket)
+        self._connection_timestamps.pop(ws_id, None)
         if channel_id and channel_id in self._connections:
             self._connections[channel_id].discard(websocket)
             if not self._connections[channel_id]:
                 del self._connections[channel_id]
         logger.info(f"[SkillEditorWS] Client disconnected. Total connections: {len(self._all_connections)}")
+    
+    async def shutdown(self):
+        """Gracefully shutdown all connections."""
+        logger.info(f"[AppWS] Shutting down {len(self._all_connections)} connections...")
+        
+        # Cancel cleanup task
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            self._cleanup_task = None
+        
+        # Close all connections
+        for ws in list(self._all_connections):
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        
+        # Clear all state
+        self._all_connections.clear()
+        self._connections.clear()
+        self._connection_timestamps.clear()
+        
+        logger.info("[AppWS] All connections closed")
     
     async def broadcast(self, message: dict, channel_id: str = None):
         """Broadcast a message to all connections or a specific channel.
@@ -503,9 +625,31 @@ class RequestHandlers:
             elif error_code == "GRAPHQL_ERROR" and "SYSTEM_NOT_READY" in error_message:
                 error_code = "SYSTEM_NOT_READY"
             
-            # Log expected auth/system errors as warning without traceback
-            # Log unexpected errors as error with traceback
-            if error_code in ("INVALID_TOKEN", "TOKEN_REQUIRED", "SYSTEM_NOT_READY"):
+            # Log expected auth/system/login errors as warning without
+            # traceback.  Log unexpected errors as error with traceback.
+            #
+            # ``LOGIN_FAILED`` was previously logged with a full
+            # traceback (because the handler raised RuntimeError to
+            # surface the error code, then LocalServer caught it and
+            # unconditionally logged the traceback for any code not in
+            # the early-exit list).  That produced scary red noise in
+            # the user's console every time they typed the wrong
+            # password, even though the GraphQL response correctly
+            # surfaced ``code: LOGIN_FAILED`` to the frontend (see
+            # terminals/7.txt:51-65).  Adding ``LOGIN_FAILED``,
+            # ``CLOUDBASE_NOT_AVAILABLE``, ``INVALID_CREDENTIALS`` and
+            # ``SMS_SEND_FAILED`` to the warning list keeps the noise
+            # down without changing behaviour — the frontend still
+            # gets the structured error code in the GraphQL response.
+            if error_code in (
+                "INVALID_TOKEN",
+                "TOKEN_REQUIRED",
+                "SYSTEM_NOT_READY",
+                "LOGIN_FAILED",
+                "CLOUDBASE_NOT_AVAILABLE",
+                "INVALID_CREDENTIALS",
+                "SMS_SEND_FAILED",
+            ):
                 logger.warning(f"[GraphQL] {error_code} for {method}: {error_message}")
             else:
                 logger.error(f"[GraphQL] ❌ Error handling request: {e}")
@@ -559,12 +703,26 @@ class RequestHandlers:
         task_id = str(uuid.uuid4())
         future = asyncio.get_event_loop().create_future()
         response_dict[task_id] = future
+        
+        def _cleanup():
+            response_dict.pop(task_id, None)
+        
         run_on_main_thread(lambda: self.main_win.task_queue.put({
             "task_id": task_id,
             "data": incoming_data
         }))
-        result = await asyncio.wait_for(future, timeout=30)
-        return JSONResponse({"status": "success", "result": result})
+        try:
+            result = await asyncio.wait_for(future, timeout=30)
+            _cleanup()  # Clean up on success
+            return JSONResponse({"status": "success", "result": result})
+        except asyncio.TimeoutError:
+            _cleanup()  # Clean up on timeout
+            logger.warning(f"[post_data] Request timed out after 30s, task_id={task_id}")
+            return JSONResponse({"status": "error", "error": "Request timed out"}, status_code=504)
+        except Exception as e:
+            _cleanup()  # Clean up on error
+            logger.error(f"[post_data] Request failed: {e}")
+            return JSONResponse({"status": "error", "error": str(e)}, status_code=500)
 
     async def initialize(self, request):
         # Perform whatever server-side initialization you want
@@ -1366,6 +1524,16 @@ class ServerManager:
         self.server_thread = None
         self.request_handlers = None
         self.server_ready = threading.Event()  # 服务器启动完成信号
+        # Auto-restart plumbing: detect server-thread death and respawn.
+        # The previous design had no liveness check, so once the uvicorn
+        # server exited "normally" (e.g. after the MCP cancel-scope
+        # RuntimeError swallowed by the legacy shutdown exception handler)
+        # every subsequent GraphQL request from the frontend failed silently
+        # and was logged as `[APIRouter] Local GraphQL error …` forever
+        # (terminals/5.txt:1005-1027).
+        self._health_monitor_thread: Optional[threading.Thread] = None
+        self._shutdown_requested: bool = False
+        self._restart_lock = threading.Lock()
 
     def get_server_url(self) -> str:
         """Get local server URL
@@ -1405,15 +1573,33 @@ class ServerManager:
         self.server_thread.daemon = False  # Allow proper cleanup instead of forced termination
         self.server_thread.start()
         logger.info(f"🚀 Optimized local server starting on port {self.port} in separate thread")
-        
+
         # 等待服务器就绪（最多 10 秒）
         if self.server_ready.wait(timeout=10):
             logger.info("[ServerManager] ✅ Server started successfully and event loop ready")
         else:
             logger.warning("[ServerManager] ⚠️ Server startup timeout after 10s")
 
+        # 启动健康监控：发现 server thread 死亡后自动重启，避免
+        # 前端 GraphQL 调用永远拿不到响应（terminals/5.txt:1005-1027）。
+        # 注意 stop() 会设置 _shutdown_requested=True 来优雅退出监控。
+        if self._health_monitor_thread is None or not self._health_monitor_thread.is_alive():
+            self._shutdown_requested = False
+            self._health_monitor_thread = threading.Thread(
+                target=self._health_monitor_loop,
+                name="LocalServerHealthMonitor",
+                daemon=True,
+            )
+            self._health_monitor_thread.start()
+            logger.debug("[ServerManager] Health monitor thread started")
+
     def stop(self):
         """Request Uvicorn server to shut down gracefully"""
+        # Tell the health monitor to stop watching before we tear the server
+        # down — otherwise it would treat this deliberate shutdown as an
+        # unexpected death and respawn the server immediately.
+        self._shutdown_requested = True
+
         if self.uvicorn_server:
             logger.info("Stopping local Starlette server...")
 
@@ -1468,6 +1654,77 @@ class ServerManager:
             # Note: Python doesn't have thread.terminate(), so we rely on daemon behavior
             self.server_thread.daemon = True  # Convert to daemon for force termination
 
+    # ------------------------------------------------------------------
+    # Health monitor: detect unexpected server-thread death and respawn.
+    # ------------------------------------------------------------------
+    def _health_monitor_loop(self):
+        """Watchdog thread: restart the Starlette server if its thread dies.
+
+        Polls ``self.server_thread`` once per second.  When the thread exits
+        without ``_shutdown_requested`` being set (i.e. an unexpected death —
+        not a deliberate ``stop()`` call), the server is restarted in place so
+        that the frontend's GraphQL calls keep working.
+        """
+        poll_interval = 1.0
+        # Backing-off after consecutive restarts avoids tight loops if the
+        # server crashes immediately on every start.  Caps at 30 seconds.
+        consecutive_restarts = 0
+        while not self._shutdown_requested:
+            thread = self.server_thread
+            if thread is None or not thread.is_alive():
+                if self._shutdown_requested:
+                    break
+                # The server thread is gone but we weren't told to stop →
+                # respawn it.  Guard against multiple health-monitor instances
+                # racing by serialising through ``_restart_lock``.
+                with self._restart_lock:
+                    if self.server_thread is thread and not (
+                        thread is not None and thread.is_alive()
+                    ):
+                        backoff = min(2 ** consecutive_restarts, 30)
+                        if consecutive_restarts > 0:
+                            logger.warning(
+                                f"[ServerManager] ⚠️ Server thread died "
+                                f"(restart #{consecutive_restarts}); "
+                                f"restarting in {backoff}s"
+                            )
+                            # Sleep under the lock so concurrent monitors
+                            # don't all sleep in parallel.
+                            for _ in range(int(backoff)):
+                                if self._shutdown_requested:
+                                    return
+                                time.sleep(1)
+                        logger.error(
+                            "[ServerManager] ❌ Local Starlette server died — "
+                            "auto-restarting (was: 127.0.0.1:%d)" % self.port
+                        )
+                        self._restart_server()
+                        consecutive_restarts += 1
+                        continue
+                    consecutive_restarts = 0
+            else:
+                consecutive_restarts = 0
+            time.sleep(poll_interval)
+
+    def _restart_server(self):
+        """Spin up a fresh server thread, preserving the bound port."""
+        # Clear the ready event so callers waiting on the next start block
+        # until the new server is actually accepting connections.
+        self.server_ready = threading.Event()
+        self.uvicorn_server = None
+        self.server_thread = threading.Thread(
+            target=self._run_starlette, args=(self.port,)
+        )
+        self.server_thread.daemon = False
+        self.server_thread.start()
+        if self.server_ready.wait(timeout=10):
+            logger.info(
+                "[ServerManager] ✅ Auto-restarted Starlette server on "
+                f"127.0.0.1:{self.port}"
+            )
+        else:
+            logger.warning("[ServerManager] ⚠️ Auto-restart timed out after 10s")
+
     def _run_starlette(self, port=4668):
         """Optimized Starlette server startup method"""
         logger.info(f"🚀 Starting optimized Starlette server on port {port}")
@@ -1490,10 +1747,17 @@ class ServerManager:
         import platform
         system = platform.system().lower()
         
+        # Check if remote access is enabled via environment variable
+        allow_remote = os.getenv('ECAN_ALLOW_REMOTE', 'false').lower() == 'true'
+        
         if system == 'linux':
             # Linux: Prioritize 0.0.0.0 for remote access support
             host_candidates = ["0.0.0.0", "127.0.0.1"]
             logger.info("🐧 Linux detected: Enabling remote access (0.0.0.0)")
+        elif allow_remote:
+            # Remote access enabled via ECAN_ALLOW_REMOTE=true
+            host_candidates = ["0.0.0.0", "127.0.0.1"]
+            logger.info(f"🖥️  Remote access enabled (ECAN_ALLOW_REMOTE=true): Using 0.0.0.0")
         else:
             # macOS/Windows: Prioritize 127.0.0.1 for security
             host_candidates = ["127.0.0.1", "0.0.0.0"]
@@ -1548,20 +1812,63 @@ class ServerManager:
                     # This is needed when uvicorn runs in a thread and FileResponse uses anyio
                     sniffio.current_async_library_cvar.set("asyncio")
 
-                    # Suppress MCP StreamableHTTPSessionManager TaskGroup errors during shutdown.
-                    # These occur because the async generator's TaskGroup is torn down in a different
-                    # task context during event loop cleanup — harmless but noisy.
+                    # Suppress only the narrow set of harmless teardown signals
+                    # that surface when MCP's StreamableHTTPSessionManager TaskGroup
+                    # is unwound during event loop cleanup.
+                    #
+                    # Regression (2026-08-25): the previous version swallowed ANY
+                    # exception whose repr contained "cancel scope", "StreamableHTTP",
+                    # or "asyncgen".  The matching exception —
+                    # `RuntimeError: Attempted to exit cancel scope in a different task`
+                    # — actually tears down the entire asyncio task tree, which
+                    # terminates the uvicorn server "normally" while requests are
+                    # still in flight, and the eCan process never restarts it.  The
+                    # frontend then logs `[APIRouter] Local GraphQL error …`
+                    # forever (see terminals/5.txt:1005-1027).
+                    #
+                    # The safe swallow set is the trio of teardown signals that anyio
+                    # produces when an async generator / TaskGroup is closed in a
+                    # cooperating task — they are not actionable and re-raising them
+                    # only clutters logs.
                     original_handler = loop.get_exception_handler()
+
+                    _SAFE_TEARDOWN_TYPES = (
+                        asyncio.CancelledError,
+                        GeneratorExit,
+                    )
+
+                    def _is_safe_teardown(exc: BaseException, msg: str) -> bool:
+                        if isinstance(exc, _SAFE_TEARDOWN_TYPES):
+                            return True
+                        # anyio's task group emits a BaseExceptionGroup whose
+                        # children are CancelledError; treat those as safe.
+                        if isinstance(exc, BaseExceptionGroup):
+                            return all(
+                                isinstance(c, _SAFE_TEARDOWN_TYPES)
+                                or _is_safe_teardown(c, str(c))
+                                for c in exc.exceptions
+                            )
+                        return False
+
                     def _shutdown_exception_handler(loop, context):
                         exc = context.get("exception")
                         msg = context.get("message", "")
-                        if exc and ("cancel scope" in str(exc) or "StreamableHTTP" in msg or "asyncgen" in msg):
-                            logger.debug(f"[MCP] Suppressed expected shutdown error: {type(exc).__name__}")
+                        if exc is not None and _is_safe_teardown(exc, msg):
+                            logger.debug(
+                                f"[MCP] Suppressed expected teardown signal: "
+                                f"{type(exc).__name__}"
+                            )
                             return
-                        if original_handler:
+                        # Anything else — including the original
+                        # "Attempted to exit cancel scope in a different task"
+                        # RuntimeError — must propagate to the default handler so
+                        # it shows up as a real error rather than silently killing
+                        # the server.
+                        if original_handler is not None:
                             original_handler(loop, context)
                         else:
                             loop.default_exception_handler(context)
+
                     loop.set_exception_handler(_shutdown_exception_handler)
 
                     # 标记服务器就绪

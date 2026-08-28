@@ -1,0 +1,32 @@
+{
+  "app_id": "cn",
+  "app_name": "eCan · 中国版",
+  "app_short_name": "eCan.cn",
+  "bundle_id": {
+    "macos": "com.ecan.cn.app",
+    "windows": "com.ecan.cn.app",
+    "linux": "com.ecan.cn.app"
+  },
+  "url_scheme": "ecan-cn://",
+  "description": "eCan AI 助手 - 智能自动化平台（中国版）",
+  "author": "eCan.AI Team",
+  "primary_language": "zh-CN",
+  "supported_languages": ["zh-CN"],
+  "default_language": "zh-CN",
+  "default_currency": "CNY",
+  "default_timezone": "Asia/Shanghai",
+  "default_region": "CN",
+  "cloud_provider": "tencent",
+  "payment_providers": ["wechat", "alipay"],
+  "push_providers": ["huawei", "xiaomi", "umeng"],
+  "app_store": {
+    "huawei": "AppGallery",
+    "xiaomi": "小米应用商店",
+    "oppo": "OPPO软件商店",
+    "vivo": "vivo应用商店"
+  },
+  "legal": {
+    "icp_beian": "粤ICP备2021146525号-1",
+    "operating_entity": "fastprecisiontech.com"
+  }
+}

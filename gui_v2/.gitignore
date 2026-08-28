@@ -30,8 +30,13 @@ vite.config.js
 *.sw?
 
 # Environment files
-.env
-.env.*
+# 新架构：CN/Intl 不再使用构建期 .env.cn/.env.intl，运行时配置由后端提供
+# （desktop 走 IPC handler getAppConfig，web 部署走 web_server.py 同源 /api/config）
+# .env 是桌面开发期共享默认（tracked）
+# .env.example 是变量文档模板（tracked）
+# .env.local 是个人覆盖（gitignored）
+.env.local
+!.env
 !.env.example
 
 # Build files

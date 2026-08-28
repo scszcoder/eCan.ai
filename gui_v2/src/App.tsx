@@ -5,6 +5,7 @@ import { registerOnboardingModalApi } from './services/onboarding/onboardingServ
 import { routes, RouteConfig } from './routes';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { LanguageProvider } from './contexts/LanguageContext';
+import { AppConfigProvider } from './contexts/AppConfigContext';
 import { getAntdLocale } from './i18n';
 import { pageRefreshManager } from './services/events/PageRefreshManager';
 import { logger, LogLevel } from './utils/logger';
@@ -111,6 +112,7 @@ const renderRoutes = (routes: RouteConfig[]) => {
 };
 
 const AppContent = () => {
+
     const ModalRegistrar: React.FC = () => {
         const api = AntdApp.useApp();
         React.useEffect(() => {
@@ -252,6 +254,12 @@ const AppContent = () => {
     const Router = (isFileProtocol || hasHashRoute) ? HashRouter : BrowserRouter;
     const routerProps = (isFileProtocol || hasHashRoute) ? {} : { basename };
 
+    // Block rendering until AppConfig is loaded to prevent flash of wrong region content
+    // Note: We used to block here with LoadingProgress, but that caused an extra
+    // loading screen after splash. Now we let children render even during config load
+    // - Login page handles missing config gracefully (shows LoginCN/LoginIntl based on default)
+    // - Protected routes will redirect to login anyway if config not ready
+
     return (
         <ConfigProvider
             locale={getAntdLocale()}
@@ -275,74 +283,39 @@ const AppContent = () => {
 };
 
 function App() {
-    const [isInitialized, setIsInitialized] = React.useState(false);
-
+    // Initialize services in background (non-blocking)
     React.useEffect(() => {
         const initApp = async () => {
             try {
-                // Initialize IPC service (supports desktop + web)
                 await ipcClient.initialize();
                 set_ipc_api(createIPCAPI());
-
-                // Initialize platform configuration (synchronous) - depends on IPC API for platform detection
                 initializePlatform();
 
-                // Asynchronously initialize other services
-                const initOtherServices = async () => {
-                    try {
-                        // Initialize page refresh manager
-                        pageRefreshManager.initialize();
+                // Initialize other services (non-blocking)
+                pageRefreshManager.initialize();
+                protocolHandler.init();
+                initializeStoreSync();
 
-                        // Initialize protocol handler
-                        protocolHandler.init();
-                        
-                        // Initialize store sync listeners
-                        initializeStoreSync();
-
-                        // Set log level based on environment
-                        const isDevelopment = process.env.NODE_ENV === 'development';
-
-                        if (isDevelopment) {
-                            logger.setLevel(LogLevel.DEBUG);
-                        } else {
-                            logger.setLevel(LogLevel.INFO);
-                            logger.info('Running in production mode, debug logs disabled');
-                        }
-                    } catch (error) {
-                        console.error('Failed to initialize other services:', error);
-                    }
-                };
-
-                initOtherServices();
-                setIsInitialized(true);
+                const isDevelopment = process.env.NODE_ENV === 'development';
+                if (isDevelopment) {
+                    logger.setLevel(LogLevel.DEBUG);
+                } else {
+                    logger.setLevel(LogLevel.INFO);
+                }
             } catch (error) {
-                console.error('Failed to initialize core services:', error);
-                setIsInitialized(true); // Still allow app to start, but functionality may be limited
+                console.error('[App] Initialization error:', error);
             }
         };
 
         void initApp();
     }, []);
 
-    if (!isInitialized) {
-        return (
-            <div style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                height: '100vh',
-                backgroundColor: '#0f172a',
-                color: '#f8fafc'
-            }}>
-                <div>Initializing...</div>
-            </div>
-        );
-    }
-
     return (
         <ThemeProvider>
             <LanguageProvider>
-                <AppContent />
+                <AppConfigProvider>
+                    <AppContent />
+                </AppConfigProvider>
             </LanguageProvider>
         </ThemeProvider>
     );

@@ -141,9 +141,9 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
                         style={{ marginBottom: '8px' }}
                       >
                         <Select size="small">
-                          <Select.Option value="D1920X1080">1920x1080</Select.Option>
-                          <Select.Option value="D2560X1440">2560x1440</Select.Option>
-                          <Select.Option value="D3840X2160">3840x2160</Select.Option>
+                          <Select.Option value="D1920X1080">{t('pages.settings.resolution_1920x1080')}</Select.Option>
+                          <Select.Option value="D2560X1440">{t('pages.settings.resolution_2560x1440')}</Select.Option>
+                          <Select.Option value="D3840X2160">{t('pages.settings.resolution_3840x2160')}</Select.Option>
                         </Select>
                       </StyledFormItem>
                     </Col>

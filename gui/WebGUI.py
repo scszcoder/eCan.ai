@@ -3,6 +3,7 @@ from PySide6.QtGui import QKeySequence, QShortcut, QAction, QIcon, QPixmap
 from PySide6.QtCore import Qt
 from typing import Optional
 from utils.time_util import TimeUtil
+from utils.app_config_loader import get_config
 import sys
 import os
 from gui.menu_manager import MenuManager
@@ -108,7 +109,7 @@ def _get_webgui_messages():
 class WebGUI(QMainWindow):
     def __init__(self, parent=None, splash=None, progress_callback=None):
         super().__init__()
-        self.setWindowTitle("eCan.ai")
+        self.setWindowTitle(get_config().app_name + " - eCan.ai")
         self.parent = parent
         self._splash = splash
         self._progress_callback = progress_callback
@@ -604,8 +605,12 @@ class WebGUI(QMainWindow):
             except Exception as e:
                 logger.warning(f"Failed to set Windows window style: {e}")
         else:
-            # Non-Windows platform, keep default style
-            logger.info(f"Current platform {sys.platform} does not support custom window styles; using system default")
+            # Non-Windows platform (macOS, Linux)
+            self.setStyleSheet("""
+                QMainWindow {
+                    background-color: #0f172a;
+                }
+            """)
 
     def _apply_messagebox_style(self, msg_box):
         """Apply dark gray theme to QMessageBox with logo background support"""
@@ -957,16 +962,16 @@ class WebGUI(QMainWindow):
                 logger.info("🔔 [DEBUG] Start exit process")
 
                 try:
-                    logger.info("🔔 [DEBUG] Preparing Feige shutdown drain")
+                    logger.info("🔔 [DEBUG] Preparing live-chat shutdown drain")
                     from agent.ec_tasks.runner import TaskRunnerRegistry
-                    feige_drained = TaskRunnerRegistry.prepare_feige_shutdown(
+                    live_chat_drained = TaskRunnerRegistry.prepare_live_chat_shutdown(
                         reason="user_exit"
                     )
                     logger.info(
-                        f"🔔 [DEBUG] Feige shutdown drain completed: {feige_drained}"
+                        f"🔔 [DEBUG] live-chat shutdown drain completed: {live_chat_drained}"
                     )
                 except Exception as e:
-                    logger.warning(f"Error preparing Feige shutdown drain: {e}")
+                    logger.warning(f"Error preparing live-chat shutdown drain: {e}")
 
                 # Stop LightragServer
                 try:

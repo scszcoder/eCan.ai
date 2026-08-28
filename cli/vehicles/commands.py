@@ -69,11 +69,11 @@ def list_vehicles(name, status, limit, format):
             out.json({'vehicles': vehicles_data, 'count': len(vehicles_data)})
         elif format == 'simple':
             for vehicle in vehicles_data:
-                out.print(f"{vehicle.get('id', '')[:12]}\t{vehicle.get('name', '')}\t{vehicle.get('status', '')}")
+                out.print(f"{(vehicle.get('id') or '')[:12]}\t{vehicle.get('name', '')}\t{vehicle.get('status', '')}")
         else:
             rows = [
                 [
-                    vehicle.get('id', '')[:12] + '...' if len(vehicle.get('id', '')) > 12 else vehicle.get('id', ''),
+                    (vehicle.get('id') or '')[:12] + '...' if len(vehicle.get('id') or '') > 12 else (vehicle.get('id') or ''),
                     vehicle.get('name', ''),
                     vehicle.get('status', 'unknown'),
                 ]
@@ -154,14 +154,16 @@ def add(name, host, description, config):
             else:
                 extra_config = json_module.load(f)
 
+    # Server-controlled fields always win over user-supplied --config.
     vehicle_data = {
-        'name': name,
         'host': host,
         'description': description,
+        **extra_config,
+        'name': name,
         'owner': ctx.username,
         'status': 'offline',
-        **extra_config
     }
+    vehicle_data.pop('id', None)
 
     try:
         result = ctx.db.vehicle_service.add_vehicle(vehicle_data)

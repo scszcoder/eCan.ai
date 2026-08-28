@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useImperativeHandle, useRef } from "react";
 import {
   Table,
   Button,
@@ -21,6 +21,7 @@ import {
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { get_ipc_api } from "../../../services/ipc_api";
+import { useIsCN } from "../../../contexts/AppConfigContext";
 import type { LLMProvider } from "../types";
 import { isOllamaProvider, validateOllamaProvider } from "../utils/ollamaValidation";
 import { saveOllamaConfig } from "../utils/ollamaConfigUtils";
@@ -49,6 +50,16 @@ const LLMManagement = React.forwardRef<
 }, ref) => {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
+
+  // Get current region for provider filtering
+  const isCN = useIsCN();
+  const currentRegion = isCN ? 'cn' : 'intl';
+
+  // Use ref to always get the latest region value in async callbacks
+  const regionRef = useRef(currentRegion);
+  useEffect(() => {
+    regionRef.current = currentRegion;
+  }, [currentRegion]);
 
   // State management
   const [providers, setProviders] = useState<LLMProvider[]>([]);
@@ -126,7 +137,7 @@ const LLMManagement = React.forwardRef<
     setRyoaisLoading(true);
     try {
       // Pass username so backend can save to user-specific path
-      const response = await get_ipc_api().getRyoAISModels<{ models: Array<{ name: string; size: number }>; host: string }>(targetHost, username || undefined);
+      const response = await get_ipc_api().getRyoAISModels<{ models: Array<{ name: string; size: number }>; host: string }>(targetHost, username || undefined, false);
       if (response.success && response.data) {
         setRyoaisModels(response.data.models || []);
         // Return true to indicate success, caller can reload providers if needed
@@ -208,11 +219,20 @@ const LLMManagement = React.forwardRef<
     try {
       const response = await get_ipc_api().getLLMProviders<{
         providers: LLMProvider[];
-      }>();
+      }>(username || undefined);
       if (response.success && response.data) {
         const loadedProviders = response.data.providers;
-        setProviders(loadedProviders);
-        console.log("✅ LLM providers loaded:", loadedProviders);
+        
+        // Filter providers by region
+        const region = regionRef.current;
+        const filteredProviders = loadedProviders.filter((p) => {
+          const regions = (p as any).regions;
+          if (!regions || regions.length === 0) return true; // No region filter means all regions
+          return regions.includes(region);
+        });
+        
+        setProviders(filteredProviders);
+        console.log(`✅ LLM providers loaded: ${filteredProviders.length} (region: ${region})`, filteredProviders);
 
         const ollamaProvider = loadedProviders.find(
           (p) =>
@@ -235,6 +255,23 @@ const LLMManagement = React.forwardRef<
         const loadedRyoaisHost = ryoaisProvider?.base_url;
         if (!editingRyoaisHost && loadedRyoaisHost && loadedRyoaisHost !== ryoaisHost) {
           setRyoaisHost(loadedRyoaisHost);
+        }
+
+        // Backfill RyoAIS API key from backend (security: only fill a masked
+        // marker so the input renders "••••" instead of disappearing). The real
+        // key is fetched on demand via getLLMProviderApiKey when user clicks "eye".
+        if (ryoaisProvider?.api_key_configured && !ryoaisApiKey) {
+          try {
+            const keyResp = await get_ipc_api().getLLMProviderApiKey<{
+              api_key?: string;
+              credentials?: any;
+            }>(ryoaisProvider.provider || ryoaisProvider.name, true);
+            if (keyResp.success && keyResp.data?.api_key) {
+              setRyoaisApiKey(keyResp.data.api_key);
+            }
+          } catch (e) {
+            console.warn('[LLMManagement] Failed to backfill RyoAIS API key:', e);
+          }
         }
 
         // Debug: Check OpenAI provider name
@@ -262,7 +299,7 @@ const LLMManagement = React.forwardRef<
     } finally {
       setLoading(false);
     }
-  }, [username, defaultLLM, t, message, editingOllamaHost, ollamaHost, editingRyoaisHost, ryoaisHost]);
+  }, [username, defaultLLM, t, message, editingOllamaHost, ollamaHost, editingRyoaisHost, ryoaisHost, ryoaisApiKey]);
 
   // Expose loadProviders method via ref
   useImperativeHandle(ref, () => ({
@@ -1071,12 +1108,12 @@ const LLMManagement = React.forwardRef<
           return (
             <Space direction="vertical" size={2}>
               <Space>
-                <span style={{ color: "#999", fontSize: "12px" }}>Host:</span>
+                <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
                 <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ollamaHost}</span>
               </Space>
               {ollamaApiKey && (
                 <Space>
-                  <span style={{ color: "#999", fontSize: "12px" }}>API Key:</span>
+                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
                   <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
                 </Space>
               )}
@@ -1177,12 +1214,12 @@ const LLMManagement = React.forwardRef<
           return (
             <Space direction="vertical" size={2}>
               <Space>
-                <span style={{ color: "#999", fontSize: "12px" }}>Host:</span>
+                <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
                 <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ryoaisHost}</span>
               </Space>
               {ryoaisApiKey && (
                 <Space>
-                  <span style={{ color: "#999", fontSize: "12px" }}>API Key:</span>
+                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
                   <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
                 </Space>
               )}
@@ -1201,8 +1238,8 @@ const LLMManagement = React.forwardRef<
                     onChange={(e) => setEditingAzureEndpoint(e.target.value)}
                     placeholder={
                       editingLoading
-                        ? "Loading current Azure endpoint..."
-                        : "Enter Azure endpoint (https://your-resource.openai.azure.com)"
+                        ? t("pages.settings.loading_current")
+                        : t("pages.settings.enter_azure_endpoint")
                     }
                     style={{ width: "350px" }}
                     disabled={editingLoading}
@@ -1212,8 +1249,8 @@ const LLMManagement = React.forwardRef<
                     onChange={(e) => setEditingValue(e.target.value)}
                     placeholder={
                       editingLoading
-                        ? "Loading current API key..."
-                        : "Enter Azure OpenAI API key"
+                        ? t("pages.settings.loading_current")
+                        : t("pages.settings.enter_azure_api_key")
                     }
                     style={{ width: "350px" }}
                     disabled={editingLoading}
@@ -1229,8 +1266,8 @@ const LLMManagement = React.forwardRef<
                     onChange={(e) => setEditingAwsAccessKeyId(e.target.value)}
                     placeholder={
                       editingLoading
-                        ? "Loading current AWS Access Key ID..."
-                        : "Enter AWS Access Key ID"
+                        ? t("pages.settings.loading_current")
+                        : t("pages.settings.enter_aws_access_key_id")
                     }
                     style={{ width: "350px" }}
                     disabled={editingLoading}
@@ -1242,8 +1279,8 @@ const LLMManagement = React.forwardRef<
                     }
                     placeholder={
                       editingLoading
-                        ? "Loading current AWS Secret Access Key..."
-                        : "Enter AWS Secret Access Key"
+                        ? t("pages.settings.loading_current")
+                        : t("pages.settings.enter_aws_secret_access_key")
                     }
                     style={{ width: "350px" }}
                     disabled={editingLoading}
@@ -1260,7 +1297,7 @@ const LLMManagement = React.forwardRef<
                     onChange={(e) => setEditingValue(e.target.value)}
                     placeholder={
                       editingLoading
-                        ? "Loading current API key..."
+                        ? t("pages.settings.loading_current")
                         : t("pages.settings.enter_api_key")
                     }
                     style={{ width: "350px" }}
@@ -1290,7 +1327,7 @@ const LLMManagement = React.forwardRef<
         }
 
         const apiKeyText = record.is_local
-          ? "🏠 Local Service"
+          ? `🏠 ${t("pages.settings.local_service")}`
           : record.api_key_configured
           ? visibleApiKeys.has(record.name)
             ? apiKeyValues.get(record.name) || "••••••••••••••••"
@@ -1488,13 +1525,13 @@ const LLMManagement = React.forwardRef<
               ))}
             </Select>
             {showEnableThinking && (
-              <Tooltip title="Enable Qwen3 thinking mode (chain-of-thought reasoning)">
+              <Tooltip title={t("pages.settings.enable_thinking_tooltip")}>
                 <Checkbox
                   checked={enableThinkingValue}
                   onChange={(e) => handleEnableThinkingChange(record.name, e.target.checked)}
                   style={{ fontSize: '12px' }}
                 >
-                  Enable Thinking
+                  {t("pages.settings.enable_thinking")}
                 </Checkbox>
               </Tooltip>
             )}
@@ -1649,7 +1686,7 @@ const LLMManagement = React.forwardRef<
             )}
             {record.is_local && (
               <span style={{ color: "#999", fontSize: "12px" }}>
-                Local Service
+                {t("pages.settings.local_service")}
               </span>
             )}
           </Space>

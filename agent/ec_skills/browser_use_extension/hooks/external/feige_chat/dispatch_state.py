@@ -28,6 +28,7 @@ plugin acquire it via sibling import (the same pattern we use for
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import threading
 import time
@@ -43,6 +44,19 @@ _recent_turn_sends: dict[tuple[str, str, str], float] = {}
 _recent_sends_lock = threading.Lock()
 DEDUP_TTL_S = 15.0
 SOURCE_TURN_DEDUP_TTL_S = 600.0
+
+# ws003e: long-window ledger of REAL replies that were actually DELIVERED, keyed by
+# (customer, sha1(reply)). The claim caches above suppress concurrent/near dups but
+# expire in 15-600s; a stale direct-delivery retry (CDP cooldown/circuit deferring a
+# re-queue) can fire many minutes later — after the claim aged out — and re-send an
+# already-delivered answer (live 2026-06-05: packet's reply re-sent 19 min later, same
+# turn_key). This survives long enough to catch that. Placeholders are NEVER recorded
+# here (they intentionally repeat).
+_delivered_replies: dict[tuple[str, str], float] = {}
+# ws164: source customer msg_id each delivered reply answered (same key), so a
+# NEW turn whose answer text collides with an old one isn't dup-suppressed.
+_delivered_reply_srcs: dict[tuple[str, str], str] = {}
+DELIVERED_REPLY_TTL_S = 1800.0
 
 # ── Last reply HOT-PATH-B typed for each customer ────────────────────
 # Keyed by normalised customer id.  Read by PreDispatch to recognise
@@ -252,14 +266,27 @@ def mark_placeholder_text(reply_text: str) -> str:
     return norm
 
 
+# ws153: our OWN standby placeholder ("人工服务正在回复中…", placeholder_timer._PLACEHOLDER_
+# DEFAULT_TEXTS) left in a reopened thread from a PRIOR turn/session/restart is NOT in the
+# per-process runtime dict below, so is_placeholder_text() returned False → mt052N treated it as
+# a real prior reply → mt030 masked the customer's NEW message with our own standby (live
+# 2026-07-08 15:56:51 packet: baseline='人工服务正在回复中...' → mt030 skip → never answered →
+# plain-text cold-start "not working"). Static fallback recognizes the standby phrase regardless
+# of session/TTL. Precise phrase (customers don't type our standby), so safe to match always.
+_STATIC_PLACEHOLDER_RE = re.compile(r"人工服务正在回复中")
+
+
 def is_placeholder_text(text: str) -> bool:
     """Return True iff *text* was recently registered as a placeholder
-    via :func:`mark_placeholder_text` (within ``RECENT_REPLY_TTL_S``).
+    via :func:`mark_placeholder_text` (within ``RECENT_REPLY_TTL_S``), OR
+    matches the known standby placeholder phrase (ws153 static fallback,
+    for placeholders from a prior session / after restart / past TTL).
 
-    Used by PreDispatch's dom-echo guard to override the skip when the
-    sidebar's matched text is actually a placeholder (not a real
-    answer).  Without the override, customers can stay stuck for
-    minutes after a placeholder fires (live trace 2026-05-27 15:41:13).
+    Used by PreDispatch's dom-echo guard + mt052N to override mt030's
+    "agent replied after customer" skip when the matched agent bubble is
+    actually a placeholder (not a real answer).  Without the override,
+    customers stay stuck for minutes after a placeholder fires (live
+    trace 2026-05-27 15:41:13; cold-start mask 2026-07-08 15:56:51).
     """
     norm = normalize_reply_text(text or "")
     if not norm:
@@ -268,7 +295,16 @@ def is_placeholder_text(text: str) -> bool:
     cutoff = now - RECENT_REPLY_TTL_S
     with _placeholder_reply_lock:
         ts = _placeholder_reply_texts.get(norm, 0.0)
-    return ts >= cutoff
+    if ts >= cutoff:
+        return True
+    # ws153: static fallback — a placeholder carried over in a reopened thread isn't in the
+    # per-process runtime dict, but it's still OUR standby, not a real prior reply.
+    if (
+        os.environ.get("ECAN_FEIGE_PLACEHOLDER_STATIC_MATCH", "1") != "0"
+        and _STATIC_PLACEHOLDER_RE.search(text or "")
+    ):
+        return True
+    return False
 
 
 def remember_agent_reply(customer: str, reply_text: str) -> str:
@@ -289,6 +325,19 @@ def remember_agent_reply(customer: str, reply_text: str) -> str:
         return ""
     last_agent_reply_by_customer[cust] = reply_norm
     _append_recent_agent_reply(cust, reply_norm)
+    # ws187: feed the Q&A context buffer with the RAW reply text (the ledgers
+    # above store normalized text for echo matching only). Placeholders and
+    # synthetic card identities excluded — the LLM needs its real answers to
+    # this real customer. Keyed by the caller's customer string, which is the
+    # same key the dispatch payload carries (mt050J lookup).
+    try:
+        if not is_placeholder_text(reply_text or ""):
+            _cust_raw = str(customer or "").strip()
+            if _cust_raw and not _cust_raw.startswith("card:"):
+                from . import actionable_items as _ai187
+                _ai187.note_agent_reply(_cust_raw, reply_text or "")
+    except Exception:
+        pass
     return reply_norm
 
 
@@ -388,6 +437,87 @@ def clear_recent_replies(customer: str) -> None:
     with _recent_replies_lock:
         recent_agent_replies_by_customer.pop(cust, None)
     last_agent_reply_by_customer.pop(cust, None)
+
+
+def clear_dispatch_blockers(customer: str, *, reason: str = "") -> dict:
+    """ws155: clear ONLY the re-dispatch-BLOCKING state for *customer*, across ALL identity key
+    variants (real name / synthetic ``card:<talk>`` / bare ``<talk>``), so an orphaned cold-start
+    message can be re-dispatched on the next monitor tick.
+
+    Blockers cleared (the three stores whose survival BLOCKS a re-dispatch):
+      1. ``last_dispatched_msg_id_by_customer`` — strict msg-id dedup (this module).
+      2. ``_dispatched_identity_keys``          — actionable_items identity dedup.
+      3. ``_dispatch_inflight``                 — build_node cross-scope inflight lock.
+    Plus ``force_reemit_for_customer`` so EventMonitor re-emits even if the sidebar row text is
+    unchanged after the drop.
+
+    Deliberately does NOT touch the SUPPRESSOR stores (``_recent_sends`` / ``_recent_turn_sends``
+    / ``_delivered_replies`` / ``recent_agent_replies_by_customer``): those prevent DUPLICATE
+    sends and MUST survive — clearing them would risk a double-reply. A caller that also needs the
+    echo-suppressor cleared (safe only when the reply was never delivered) calls
+    :func:`clear_recent_replies` separately, exactly as today.
+
+    This is the single, complete replacement for the scattered partial clears (mt046A / mt052L /
+    mt053H2 / mt053J), each of which historically cleared a DIFFERENT subset and leaked one store
+    (mt052L left identity_key stamped ~1h; mt053H2 left inflight ~30s → orphaned cold-start reply).
+    Invoked ONLY from those failure/stale recovery sites — never from the normal dispatch/dedup
+    check path — so it has NO effect on steady-state behaviour. All imports are lazy to avoid
+    circular-import at module load. Returns per-store counts for logging.
+    """
+    out = {"msg_id": 0, "identity": 0, "inflight": 0, "reemit": False, "keys": 0}
+    name = (customer or "").strip()
+    if not name:
+        return out
+    # Full identity-key set: real name + synthetic card:<talk> + bare <talk>. Different dispatch
+    # paths stamp blockers under different keys (WS hot path → card:<talk>; PreDispatch → name),
+    # so we must clear all of them to be complete. Extra keys that were never stamped are no-ops.
+    keys = [name]
+    try:
+        from .ws_session import talk_for_name as _cdb_t4n
+        _talk = str(_cdb_t4n(name) or "").strip()
+        if _talk:
+            keys += [f"card:{_talk}", _talk]
+    except Exception:
+        pass
+    out["keys"] = len(keys)
+    # 1. strict msg-id dedup (local module dict)
+    for _k in keys:
+        try:
+            if last_dispatched_msg_id_by_customer.pop(_k, None) is not None:
+                out["msg_id"] += 1
+        except Exception:
+            pass
+    # 2. identity_key dedup (actionable_items; prefix-matches "<key>|")
+    try:
+        from .actionable_items import clear_dispatched_identity_keys_for_customer as _cdb_ci
+        for _k in keys:
+            try:
+                out["identity"] += int(_cdb_ci(_k) or 0)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # 3. dispatch_inflight cross-scope lock (build_node)
+    try:
+        from agent.ec_skills.build_node import _clear_dispatch_inflight as _cdb_cif
+        for _k in keys:
+            try:
+                _cdb_cif(_k)
+                out["inflight"] += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # 4. force EventMonitor to re-emit this customer on its next tick (real name only)
+    try:
+        from agent.ec_skills.browser_use_extension.event_monitor import (
+            force_reemit_for_customer as _cdb_re,
+        )
+        _cdb_re(name)
+        out["reemit"] = True
+    except Exception:
+        pass
+    return out
 
 
 def was_recently_sent(customer: str, reply_text: str) -> float:
@@ -539,12 +669,76 @@ def mark_sent_for_turn(
         _gc_recent_sends_locked(now)
 
 
+def mark_reply_delivered(
+    customer: str, reply_text: str, source_msg_id: str = "",
+) -> None:
+    """ws003e: record that a REAL reply was actually delivered (success), for
+    long-window dup suppression against stale retries / cross-path re-sends.
+    Placeholders are never recorded (they intentionally repeat).
+
+    ws164: also record *source_msg_id* (the customer message this reply
+    answered) so :func:`was_reply_delivered` can tell a stale RETRY of the
+    same turn from a NEW turn whose answer happens to be identical text."""
+    if is_placeholder_text(reply_text):
+        return
+    key = _fingerprint(customer, reply_text)
+    if not key[0] or not key[1]:
+        return
+    now = time.time()
+    with _recent_sends_lock:
+        _delivered_replies[key] = now
+        _src = str(source_msg_id or "").strip()
+        if _src:
+            _delivered_reply_srcs[key] = _src
+        _gc_recent_sends_locked(now)
+
+
+def was_reply_delivered(
+    customer: str, reply_text: str, source_msg_id: str = "",
+) -> float:
+    """Age (s) of a prior successful delivery of this (customer, reply) within
+    DELIVERED_REPLY_TTL_S, else 0.0. Used to drop a re-send of an answer already
+    delivered — e.g. a stale direct-delivery retry firing minutes later.
+
+    ws164: the 30-min (customer, text) window wrongly swallowed the answer to
+    a NEW question when the LLM produced the same text as an earlier turn —
+    live 2026-07-10 'sc': cold-start greeting delivered 19:40:40; the customer
+    asked 有人吗？ afresh at 19:44:16; the identical greeting answer was
+    "Dup-send skip age=224.0s" → customer saw only the placeholder, platform
+    warned. When BOTH the recorded and the incoming source_msg_id are known
+    and DIFFER, this is a new turn, not a stale retry → not a dup."""
+    if is_placeholder_text(reply_text):
+        return 0.0
+    key = _fingerprint(customer, reply_text)
+    if not key[0] or not key[1]:
+        return 0.0
+    now = time.time()
+    with _recent_sends_lock:
+        ts = _delivered_replies.get(key)
+        if ts is None:
+            return 0.0
+        age = now - ts
+        if age > DELIVERED_REPLY_TTL_S:
+            _delivered_replies.pop(key, None)
+            _delivered_reply_srcs.pop(key, None)
+            return 0.0
+        _cur_src = str(source_msg_id or "").strip()
+        _rec_src = _delivered_reply_srcs.get(key, "")
+        if (
+            _cur_src and _rec_src and _cur_src != _rec_src
+            and os.environ.get("ECAN_FEIGE_DELIVERED_DUP_NEWTURN", "1") != "0"
+        ):
+            return 0.0  # ws164: answers a DIFFERENT customer message → new turn
+        return age if age > 0.0 else 0.000001
+
+
 def _gc_recent_sends_locked(now: float) -> None:
     """Opportunistically keep the recent-send cache bounded.
 
     Caller must hold ``_recent_sends_lock``.
     """
-    if len(_recent_sends) <= 256 and len(_recent_turn_sends) <= 512:
+    if (len(_recent_sends) <= 256 and len(_recent_turn_sends) <= 512
+            and len(_delivered_replies) <= 512):
         return
     for k in list(_recent_sends.keys()):
         if now - _recent_sends[k] > DEDUP_TTL_S:
@@ -552,3 +746,7 @@ def _gc_recent_sends_locked(now: float) -> None:
     for k in list(_recent_turn_sends.keys()):
         if now - _recent_turn_sends[k] > SOURCE_TURN_DEDUP_TTL_S:
             _recent_turn_sends.pop(k, None)
+    for k in list(_delivered_replies.keys()):
+        if now - _delivered_replies[k] > DELIVERED_REPLY_TTL_S:
+            _delivered_replies.pop(k, None)
+            _delivered_reply_srcs.pop(k, None)  # ws164

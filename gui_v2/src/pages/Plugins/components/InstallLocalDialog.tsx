@@ -101,7 +101,7 @@ export const InstallLocalDialog: React.FC<InstallLocalDialogProps> = ({
           {t('plugins.install.action', 'Install')}
         </Button>,
       ]}
-      destroyOnClose
+      destroyOnHidden
     >
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Text type="secondary">

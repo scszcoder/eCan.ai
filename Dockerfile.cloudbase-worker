@@ -1,0 +1,212 @@
+# eCan.ai CN Cloud Worker Dockerfile — Tencent CloudBase 云托管 (CloudBase Run)
+#
+# CN analog of Dockerfile.worker (AWS Fargate). Same headless worker runtime
+# (Xvfb + Chromium + Playwright browser automation), adapted for 云托管:
+#   - 云托管 requires the container to listen on an HTTP port, so this image
+#     wraps single-task mode behind a small FastAPI entry (POST /run).
+#   - CN build mirrors (Tencent apt/pypi mirror, npmmirror Playwright host)
+#     are used by default; override the ARGs to build outside China.
+#   - ECAN_APP_ID=cn flips the app to the CN stack (TCB auth and private backend).
+#
+# Build (in CN; override mirrors with --build-arg outside CN):
+#   docker build -f Dockerfile.cloudbase-worker -t ecan-cn-worker .
+#
+# Push to TCR and deploy as a 云托管 service:
+#   - service listen port: 8080 (or set the PORT env on the service)
+#   - recommended: max concurrency per instance = 1 (one task per instance),
+#     request timeout >= the longest expected task run
+#
+# HTTP contract:
+#   GET  /healthz  -> {"status": "ok", "busy": false}
+#   POST /run      -> body = worker message JSON; runs the task synchronously,
+#                     returns {"exit_code", "duration_s", "log_tail"}; 409 if busy
+#
+# The same image also works as the TKE worker-launcher's WORKER_IMAGE
+# (apps/cn/services/worker-launcher), which passes the task via env instead:
+#   command: python -m agent.cloud_worker.worker_main
+#   env:     ECAN_WORKER_MODE=single  ECAN_WORKER_MESSAGE_JSON={...}
+#
+# Message routing: a body containing task_id + owner_id runs the CN path
+# (agent/cloud_worker/cn_worker_main.py — loads task/skill from the CN GraphQL
+# backend, files via COS reqFileOp; auth via ECAN_TCB_ACCESS_TOKEN or
+# ECAN_TCB_REFRESH_TOKEN on the service). AWS-shaped messages (skill_name /
+# run_id) still run the legacy worker_main path.
+
+FROM python:3.12-slim
+
+# CN build mirrors — set to empty / another value to build outside China
+ARG APT_MIRROR=mirrors.cloud.tencent.com
+ARG PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
+ARG PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    ECAN_MODE=worker \
+    ECAN_APP_ID=cn \
+    XDG_DATA_HOME=/app/data \
+    # Xvfb display configuration
+    DISPLAY=:99 \
+    XVFB_RESOLUTION=1920x1080x24
+
+WORKDIR /app
+
+# Point apt at the Tencent Debian mirror (deb822 sources on trixie-slim)
+RUN if [ -n "$APT_MIRROR" ] && [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i "s|deb.debian.org|$APT_MIRROR|g" /etc/apt/sources.list.d/debian.sources; \
+    fi
+
+# Install system dependencies (same set as Dockerfile.worker)
+# - gcc, libffi-dev: Build dependencies for some Python packages
+# - libgl1, libglib2.0-0: Required by opencv-python
+# - ca-certificates: SSL certificate verification
+# - xvfb, x11-utils: Virtual framebuffer for headless GUI
+# - scrot, python3-tk, python3-dev: Required by PyAutoGUI
+# - libxkbcommon-x11-0, libxcb-*: X11 libraries for Qt/automation
+# - chromium, chromium-driver: Browser for automation
+# - fonts-liberation: Fonts for proper rendering
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libffi-dev \
+    libgl1 \
+    libglib2.0-0 \
+    ca-certificates \
+    # Xvfb and X11 support
+    xvfb \
+    x11-utils \
+    xauth \
+    # PyAutoGUI dependencies
+    scrot \
+    python3-tk \
+    python3-dev \
+    # X11 libraries for automation
+    libxkbcommon-x11-0 \
+    libxcb-icccm4 \
+    libxcb-image0 \
+    libxcb-keysyms1 \
+    libxcb-randr0 \
+    libxcb-render-util0 \
+    libxcb-shape0 \
+    libxcb-xfixes0 \
+    libxcb-xinerama0 \
+    libxcb-cursor0 \
+    # Browser for automation (Chromium is lighter than Chrome)
+    chromium \
+    chromium-driver \
+    # Fonts for proper browser rendering
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install requirements first (better layer caching)
+COPY requirements-base.txt ./
+
+# Install Python dependencies, filtering out only desktop-specific packages
+# Keep: PyAutoGUI, pynput, keyboard, mss (needed for browser automation)
+RUN pip install --no-cache-dir --upgrade pip -i "$PIP_INDEX_URL" && \
+    grep -v -E "^(PySide6|shiboken6|PyQt|qtpy|qasync|pyinstaller)" requirements-base.txt > requirements-worker.txt && \
+    pip install --no-cache-dir -i "$PIP_INDEX_URL" -r requirements-worker.txt && \
+    # Install Playwright Chromium browser from the npmmirror host
+    PLAYWRIGHT_DOWNLOAD_HOST="$PLAYWRIGHT_DOWNLOAD_HOST" playwright install chromium
+
+# Install additional fonts that Playwright might need (using correct Debian Trixie names)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fonts-unifont \
+    fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user and required directories
+RUN useradd --create-home --shell /bin/bash ecan && \
+    mkdir -p /app/data /app/runlogs /tmp/.X11-unix && \
+    chown -R ecan:ecan /app && \
+    chmod 1777 /tmp/.X11-unix
+
+# Copy application code
+COPY --chown=ecan:ecan . .
+
+# HTTP entry for 云托管: wraps worker single-task mode behind POST /run
+COPY --chown=ecan:ecan <<'EOF' /app/cbr_entry.py
+"""CloudBase Run HTTP entry for the eCan CN cloud worker.
+
+云托管 services must listen on an HTTP port. This app exposes the worker's
+single-task mode over HTTP: one task per request, executed synchronously so
+the instance is not scaled away mid-task (set 云托管 max concurrency per
+instance to 1 and request timeout >= the longest task).
+"""
+import asyncio
+import json
+import sys
+import time
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+
+app = FastAPI()
+_busy = asyncio.Lock()
+
+
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok", "busy": _busy.locked()}
+
+
+@app.post("/run")
+async def run(request: Request):
+    if _busy.locked():
+        return JSONResponse({"error": "busy"}, status_code=409)
+    message = await request.json()
+    # CN messages carry task/owner identifiers; AWS-shaped ones carry
+    # skill_name/run_id and keep the legacy path.
+    is_cn = isinstance(message, dict) and ("task_id" in message or "taskId" in message)
+    module = "agent.cloud_worker.cn_worker_main" if is_cn else "agent.cloud_worker.worker_main"
+    async with _busy:
+        start = time.monotonic()
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", module,
+            "--mode", "single", "--message-json", json.dumps(message),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        output, _ = await proc.communicate()
+        return {
+            "exit_code": proc.returncode,
+            "duration_s": round(time.monotonic() - start, 1),
+            "log_tail": output.decode("utf-8", "replace")[-4000:],
+        }
+EOF
+
+# Copy entrypoint script (starts Xvfb before the main command)
+COPY --chown=ecan:ecan <<'EOF' /app/entrypoint.sh
+#!/bin/bash
+set -e
+
+# Start Xvfb in the background
+Xvfb :99 -screen 0 ${XVFB_RESOLUTION} -ac +extension GLX +render -noreset &
+XVFB_PID=$!
+
+# Wait for Xvfb to be ready
+sleep 1
+
+# Verify display is working
+if ! xdpyinfo -display :99 >/dev/null 2>&1; then
+    echo "ERROR: Xvfb failed to start"
+    exit 1
+fi
+
+echo "Xvfb started successfully on display :99"
+
+# Run the main command
+exec "$@"
+EOF
+
+RUN chmod +x /app/entrypoint.sh
+
+# Switch to non-root user
+USER ecan
+
+EXPOSE 8080
+
+# Use entrypoint to start Xvfb before the HTTP server
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# 云托管 service should target this port (or set PORT on the service)
+CMD ["sh", "-c", "exec python -m uvicorn cbr_entry:app --host 0.0.0.0 --port ${PORT:-8080}"]

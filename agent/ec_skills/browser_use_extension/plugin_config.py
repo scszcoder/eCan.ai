@@ -31,7 +31,7 @@ from typing import Any, Optional
 
 from . import plugin_registry
 
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 
 class ConfigError(Exception):
@@ -174,7 +174,7 @@ def _shallow_validate(patch: dict[str, Any], schema: dict) -> None:
     """Best-effort type check.
 
     Covers: type=string/integer/number/boolean, enum, and the
-    object-of-strings shape used in feige_chat.  Doesn't enforce required
+    object-of-strings shape used by the reference bundle.  Doesn't enforce required
     or recurse into nested objects beyond one level (good enough for the
     schemas the frontend renders).
     """

@@ -30,8 +30,13 @@ from types import SimpleNamespace
 from unittest import mock
 
 
+# 2026-08-02: the site tool implementations (feige_send_message & co.)
+# moved from extension_tools_service.py into the bundle's site_tools.py;
+# scan both so structure asserts keep pointing at the live code.
 ET_SRC = Path(
     "agent/ec_skills/browser_use_extension/extension_tools_service.py"
+).read_text(encoding="utf-8") + Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/site_tools.py"
 ).read_text(encoding="utf-8")
 PD_SRC = Path(
     "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py"
@@ -1792,7 +1797,7 @@ class Mt044DSourceTests(unittest.TestCase):
     — too tight under load.  mt044D makes it a tunable defaulting to 8.0s."""
 
     def test_runner_reads_resolve_timeout_tunable(self) -> None:
-        self.assertIn("FEIGE_TAB_RESOLVE_TIMEOUT_S", RUNNER_SRC_044)
+        self.assertIn("tab_resolve_timeout_s()", RUNNER_SRC_044)
         self.assertIn("_mt044d_resolve_timeout", RUNNER_SRC_044)
         self.assertIn(
             "timeout=_mt044d_resolve_timeout",
@@ -1823,7 +1828,7 @@ class Mt044ESourceTests(unittest.TestCase):
     def test_helper_lazily_resolves_size(self) -> None:
         self.assertIn("def _mt044e_get_typing_semaphore()", RUNNER_SRC_044)
         # Must read the tunable so live config changes apply.
-        self.assertIn("FEIGE_TYPING_CONCURRENCY", RUNNER_SRC_044)
+        self.assertIn("typing_concurrency()", RUNNER_SRC_044)
         # Non-positive size => return None (cap disabled).
         self.assertIn("if size is None or size <= 0:", RUNNER_SRC_044)
 
@@ -2245,7 +2250,7 @@ class Mt046ASourceTests(unittest.TestCase):
         # (where we DO want the msg_id stamped for future dedup).  The
         # successful branch is the `if _ok:` block immediately above
         # the stale-reason branch.
-        ok_idx = RUNNER_SRC_046.find('if _ok:\n                try:\n                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery')
+        ok_idx = RUNNER_SRC_046.find('if _ok:\n                try:\n                    clear_pending_delivery = _live_chat_bridge().delivery_durability.clear_pending_delivery')
         stale_idx = RUNNER_SRC_046.find('if _reason == "stale_reply_source_msg_id":')
         self.assertGreater(ok_idx, -1)
         self.assertGreater(stale_idx, ok_idx)
@@ -2719,7 +2724,7 @@ class Mt048BSourceTests(unittest.TestCase):
         )
         self.assertGreater(start, -1)
         body = RUNNER_SRC_048B[start:start + 9000]
-        self.assertIn("human_relevance_judge", body)
+        self.assertIn("relevance_judge", body)
         self.assertTrue(
             "_mt048b_verdict = _mt048b_judge_mod.judge(" in body
             or "_mt048b_verdict = await _mt048b_judge_mod.judge_async(" in body,
@@ -2752,7 +2757,7 @@ class Mt048BSourceTests(unittest.TestCase):
         self.assertIn("mt048b_confidence", body)
         self.assertIn("mt048b_reason", body)
         # Both the drop and the allow paths must emit a ledger event.
-        self.assertIn('"direct_feige_send_skipped_human_handled"', body)
+        self.assertIn('"direct_send_skipped_human_handled"', body)
         self.assertIn('"direct_human_judge_allowed_send"', body)
 
 
@@ -4028,11 +4033,11 @@ class Mt050JSourceTests(unittest.TestCase):
 
     def test_recent_messages_helpers_imported(self) -> None:
         self.assertIn(
-            "_get_recent_messages as _mt050j_get_recent",
+            "_mt050j_get_recent = _mt050j_ai._get_recent_messages",
             FD_SRC_050J,
         )
         self.assertIn(
-            "_append_recent_message as _mt050j_append_recent",
+            "_mt050j_append_recent = _mt050j_ai._append_recent_message",
             FD_SRC_050J,
         )
 
@@ -4393,9 +4398,10 @@ class Mt050N_ProactiveLedgerClearTests(unittest.TestCase):
         self.assertIn("mt050N", block)
 
     def test_clear_imported_from_actionable_items(self) -> None:
-        # Must reuse the existing mt046A helper, not redefine.
+        # Must reuse the existing mt046A helper (resolved via the
+        # live-chat bridge), not redefine.
         self.assertIn(
-            "from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.actionable_items import",
+            "_live_chat_bridge().actionable_items",
             FD_SRC_050N,
         )
         self.assertIn(
@@ -5227,10 +5233,10 @@ class Mt051E_PhantomAbstractionRenameTests(unittest.TestCase):
         # literals carry the env var names; renaming them would break
         # every customer that set them.
         for env_var in (
-            'os.getenv("DIRECT_FEIGE_CDP_TIMEOUT_CIRCUIT_THRESHOLD"',
-            'os.getenv("DIRECT_FEIGE_JOB_TIMEOUT_S"',
-            'os.getenv("DIRECT_FEIGE_MAX_RETRIES"',
-            'os.getenv("ECAN_FEIGE_SHUTDOWN_DRAIN_TIMEOUT_S"',
+            '_live_chat_env("DIRECT_LIVE_CHAT_CDP_TIMEOUT_CIRCUIT_THRESHOLD"',
+            '_live_chat_env("DIRECT_LIVE_CHAT_JOB_TIMEOUT_S"',
+            '_live_chat_env("DIRECT_LIVE_CHAT_MAX_RETRIES"',
+            '_live_chat_env("ECAN_LIVE_CHAT_SHUTDOWN_DRAIN_TIMEOUT_S"',
         ):
             self.assertIn(
                 env_var, RUN_SRC_051E,
@@ -5242,10 +5248,10 @@ class Mt051E_PhantomAbstractionRenameTests(unittest.TestCase):
         # Operator-visible log stage names must not change.  Customers
         # grep these from FEIGE-LEDGER output for monitoring.
         for stage in (
-            '"direct_feige_delivery"',
-            '"direct_feige_send_start"',
-            '"direct_feige_send_success"',
-            '"direct_feige_send_failed"',
+            '"direct_live_chat_delivery"',
+            '"direct_send_start"',
+            '"direct_send_success"',
+            '"direct_send_failed"',
         ):
             self.assertIn(
                 stage, RUN_SRC_051E,
@@ -5421,29 +5427,33 @@ class Mt052C_EarlyArmSourceTests(unittest.TestCase):
         idx = EM_SRC_052C.find("mt052C")
         self.assertGreater(idx, -1)
         block = EM_SRC_052C[idx:idx + 3000]
-        self.assertIn("_feige_ph_timer.arm(", block)
+        self.assertIn("_lc_ph_timer.arm(", block)
         self.assertIn("customer_key=str(_cust)", block)
         self.assertIn("source_msg_id=_msg_id", block)
         self.assertIn("timeout_s=_mt052c_timeout", block)
 
     def test_arm_resolves_tunable(self) -> None:
-        # The new arm site reads the same ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S
-        # tunable as the existing PreDispatch arm — operator config
-        # must not need changes.
+        # The new arm site reads the same placeholder-timeout tunable as
+        # the existing PreDispatch arm (resolved via the live-chat
+        # bridge's typed wrapper, whose branded env spelling lives in the
+        # bundle's runner_bridge.py) — operator config must not need
+        # changes.
         idx = EM_SRC_052C.find("mt052C")
         block = EM_SRC_052C[idx:idx + 3000]
-        self.assertIn('"FEIGE_PLACEHOLDER_TIMEOUT_S"', block)
-        self.assertIn(
-            "DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _MT052C_DEF_PH_TIMEOUT",
-            block,
-        )
+        self.assertIn(".placeholder_timeout_s()", block)
+        rb_src = Path(
+            "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/"
+            "runner_bridge.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"FEIGE_PLACEHOLDER_TIMEOUT_S"', rb_src)
+        self.assertIn("DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S", rb_src)
 
     def test_arm_runs_after_mark_first_seen(self) -> None:
         # Order matters: mark_message_first_seen must precede arm so
         # arm's first_seen lookup finds the just-stamped value.  Same
         # pattern as the existing PreDispatch arm.
         mark_idx = EM_SRC_052C.find("mark_message_first_seen(str(_cust)")
-        arm_idx = EM_SRC_052C.find("_feige_ph_timer.arm(\n")
+        arm_idx = EM_SRC_052C.find("_lc_ph_timer.arm(\n")
         # arm appears later in the file than mark_first_seen.
         self.assertGreater(mark_idx, -1)
         self.assertGreater(arm_idx, -1)
@@ -6545,7 +6555,8 @@ class Mt052K_InflightOverrideSourceTests(unittest.TestCase):
     def test_imports_is_placeholder_text(self) -> None:
         # The dispatch_state import should sit in the inflight branch,
         # close to where _inflight_sidebar_is_placeholder is computed.
-        self.assertIn("is_placeholder_text as _is_ph_text_inflight", FD_SRC_052K)
+        self.assertIn("_is_ph_text_inflight = (", FD_SRC_052K)
+        self.assertIn("dispatch_state.is_placeholder_text", FD_SRC_052K)
 
     def test_placeholder_flag_computed_once(self) -> None:
         # Single source of truth — referenced at each of the 4 sites.
@@ -6928,12 +6939,10 @@ class Mt052O_SupersedeRearmSourceTests(unittest.TestCase):
     def test_imports_placeholder_timer_and_tunables(self) -> None:
         idx = FD_SRC_052O.find("mt052O")
         block = FD_SRC_052O[idx:idx + 2500]
+        self.assertIn("_lc_bridge_rearm = _live_chat_bridge()", block)
         self.assertIn(
-            "from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import",
-            block,
+            "_ph_timer_rearm = _lc_bridge_rearm.placeholder_timer", block
         )
-        self.assertIn("placeholder_timer as _ph_timer_rearm", block)
-        self.assertIn("tunables as _ph_tunables_rearm", block)
 
     def test_arms_using_new_msg_id_from_item(self) -> None:
         idx = FD_SRC_052O.find("mt052O")
@@ -6969,9 +6978,9 @@ class Mt052O_SupersedeRearmSourceTests(unittest.TestCase):
         idx = FD_SRC_052O.find("mt052O")
         block = FD_SRC_052O[idx:idx + 2500]
         self.assertIn(
-            "_ph_tunables_rearm.resolve_float(",
+            "_lc_bridge_rearm.placeholder_timeout_s()",
             block,
-            "must use the float-typed resolver for a duration value",
+            "must use the bridge's float-typed timeout wrapper",
         )
 
 
@@ -7132,7 +7141,7 @@ class Mt053H2_SessionNotFoundClearSourceTests(unittest.TestCase):
         idx = RUN_SRC_053H2.find("mt053H2 (2026-05-30)")
         block = RUN_SRC_053H2[idx:idx + 4000]
         self.assertIn("release_on_failure", block)
-        self.assertIn('"tool_failed:feige_send_message"', block)
+        self.assertIn('_send_fail_reason', block)
         self.assertIn('Session not found', block)
         self.assertIn('target_not_found', block)
 
@@ -7205,7 +7214,7 @@ class Mt053J_JsonParseFailureRecoverySourceTests(unittest.TestCase):
         idx = RUN_SRC_053J.find("mt053J-A")
         block = RUN_SRC_053J[idx:idx + 4000]
         self.assertIn(
-            "from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import",
+            "_live_chat_bridge().drift_recovery.mark_drift_recovery_pending",
             block,
         )
         self.assertIn("mark_drift_recovery_pending", block)
@@ -7449,7 +7458,7 @@ class Mt053K_CdpRediscoverySourceTests(unittest.TestCase):
         # from arbitrary Chrome tabs the user might have open.  Both
         # substrings must be in the tuple so we cover the workspace path
         # and the bare host (in case Feige redirects between subpaths).
-        self.assertIn('_MT053K_FEIGE_URL_HINTS', RUN_BN_SRC_053K)
+        self.assertIn('_MT053K_LIVE_CHAT_URL_HINTS', RUN_BN_SRC_053K)
         self.assertIn('"im.jinritemai.com"', RUN_BN_SRC_053K)
         self.assertIn('"/pc_seller_v2/main/workspace"', RUN_BN_SRC_053K)
 
@@ -7478,7 +7487,7 @@ class Mt053K_CdpRediscoverySourceTests(unittest.TestCase):
         block = RUN_BN_SRC_053K[idx:idx + 5000]
         self.assertIn('"page"', block)
         # And the Feige filter must apply on top.
-        self.assertIn("_MT053K_FEIGE_URL_HINTS", block)
+        self.assertIn("_MT053K_LIVE_CHAT_URL_HINTS", block)
 
     def test_logs_chrome_vs_session_manager_discrepancy(self) -> None:
         # The most important operator-visible signal: how many tabs
@@ -7489,7 +7498,7 @@ class Mt053K_CdpRediscoverySourceTests(unittest.TestCase):
         block = RUN_BN_SRC_053K[idx:idx + 5000]
         self.assertIn("session_manager saw 0", block)
         self.assertIn("chrome_targets_total", block)
-        self.assertIn("feige_targets", block)
+        self.assertIn("live_chat_targets", block)
 
     def test_recovery_failure_is_non_fatal(self) -> None:
         # The recovery is best-effort.  Any exception (CDP timeout,
@@ -7506,7 +7515,7 @@ class Mt053K_CdpRediscoverySourceTests(unittest.TestCase):
         # leaking websocket connections under the customer's high-
         # frequency reentry into this path would exhaust file handles.
         idx = RUN_BN_SRC_053K.find("_mt053k_try_cdp_rediscover_and_attach")
-        block = RUN_BN_SRC_053K[idx:idx + 5000]
+        block = RUN_BN_SRC_053K[idx:idx + 6000]
         self.assertIn("finally:", block)
         self.assertIn("client.stop()", block)
 

@@ -33,6 +33,13 @@ export class UnifiedEventHandler {
 
   private constructor() {}
 
+  private humanizeSkillEditorError(message: string): string {
+    const raw = String(message || '').trim();
+    if (!raw) return raw;
+
+    return raw;
+  }
+
   static getInstance(): UnifiedEventHandler {
     if (!UnifiedEventHandler.instance) {
       UnifiedEventHandler.instance = new UnifiedEventHandler();
@@ -130,6 +137,23 @@ export class UnifiedEventHandler {
         // No logging needed to reduce noise
         return;
       
+      // Onboarding events - route to onboarding service
+      case 'onboarding_message':
+        // Forward to onboarding service via eventBus
+        eventBus.emit('onboarding-message', event.payload);
+        return;
+      
+      // Agent status update events - route to agent store/listeners
+      case 'update_agents_status':
+        // Emit event for agent store components to handle
+        eventBus.emit('agents-status-update', event.payload);
+        return;
+
+      case 'update_home_agents':
+        // Emit event for home agents components to handle
+        eventBus.emit('home-agents-update', event.payload);
+        return;
+      
       default:
         logger.warn(`[UnifiedEventHandler] Unknown event type: ${type}`);
     }
@@ -168,11 +192,13 @@ export class UnifiedEventHandler {
 
   private handleSkillEditorChatError(event: StandardizedEvent): void {
     const { sessionId, code, message } = event.payload;
+    const friendlyMessage = this.humanizeSkillEditorError(message);
     
     eventBus.emit('skill_editor:chat:error', {
       sessionId: sessionId || event.sessionId,
       code,
-      message,
+      message: friendlyMessage,
+      rawMessage: message,
       source: event.source
     });
   }

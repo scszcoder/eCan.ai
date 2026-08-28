@@ -16,9 +16,9 @@ def resolve_entity_id(service, identifier: str, kind: str) -> Optional[str]:
     """Resolve *identifier* (an id or a name) to a concrete id.
 
     Args:
-        service: DBAgentService or DBTaskService.
+        service: DBAgentService, DBTaskService, or DBSkillService.
         identifier: an id or a (case-insensitive) name.
-        kind: 'agent' or 'task'.
+        kind: 'agent', 'task', or 'skill'.
 
     Returns:
         The resolved id, or None if nothing matches.
@@ -26,7 +26,12 @@ def resolve_entity_id(service, identifier: str, kind: str) -> Optional[str]:
     Raises:
         ValueError: if a name matches more than one record.
     """
-    query = service.query_agents if kind == "agent" else service.query_tasks
+    if kind == "agent":
+        query = service.query_agents
+    elif kind == "skill":
+        query = service.query_skills
+    else:
+        query = service.query_tasks
 
     # 1) exact id
     r = query(id=identifier)

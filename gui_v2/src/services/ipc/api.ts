@@ -11,6 +11,7 @@ import { apiRouter } from '../api/api-router';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../api/api-config';
 import { useUserStore } from '../../stores/userStore';
 import { detectPlatform } from '../../config/platform';
+import { getCachedAppConfig } from '../../contexts/AppConfigContext';
 
 const getLoginRedirectUrl = (): string => {
     if (window.location.protocol === 'file:') {
@@ -324,8 +325,68 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'login' }, { username, password, machine_role, lang });
     }
 
+    // ==================== CloudBase (CN) ====================
+    // Frontend HTTP /api/cloudbase/login has never been registered; route every
+    // CloudBase call through IPC to the cloudbase_handler module so it talks
+    // to Tencent Cloud and not AWS Cognito.
+    public async cloudbaseLogin<T>(email: string, password: string, role?: string, lang?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_login' }, { email, password, role: role || 'Commander', lang });
+    }
+
+    public async cloudbasePhoneLogin<T>(phone: string, code: string, role?: string, lang?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_phone_login' }, { phone, code, role: role || 'Commander', lang });
+    }
+
+    public async cloudbaseSendCode<T>(phone: string, purpose: string = 'login'): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_send_code' }, { phone, purpose });
+    }
+
+    public async cloudbaseSignup<T>(email: string, password: string, lang?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_signup' }, { email, password, lang });
+    }
+
+    public async cloudbaseSignupConfirm<T>(email: string, code: string, verificationId: string, password: string, lang?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_signup_confirm' }, { email, code, verification_id: verificationId, password, lang });
+    }
+
+    public async cloudbaseGetUserInfo<T>(refreshToken: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_get_user_info' }, { refresh_token: refreshToken });
+    }
+
+    public async cloudbaseLogout<T>(token: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_logout' }, { token });
+    }
+
+    public async cloudbaseRefreshToken<T>(refreshToken: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_refresh_token' }, { refresh_token: refreshToken });
+    }
+
+    public async cloudbaseFinalizeSession<T>(params: {
+        access_token: string;
+        refresh_token?: string;
+        expires_in?: number;
+        user_identifier: string;
+        user_info?: Record<string, any>;
+        role?: string;
+        lang?: string;
+    }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_finalize_session' }, params);
+    }
+
+    public async cloudbaseCheckConfig<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloudbase_check_config' }, {});
+    }
+
     public async getLastLoginInfo<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'get_last_login' });
+    }
+
+    public async saveLoginInfo<T>(username: string, password: string, role: string, language?: string, loginType?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'save_login_info' }, { username, password, role, language, login_type: loginType });
+    }
+
+    public async clearLoginInfo<T>(username: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'clear_login_info' }, { username });
     }
 
     public async getHostname<T>(): Promise<APIResponse<T>> {
@@ -450,22 +511,28 @@ export class IPCAPI {
             }
         }
 
-        const params = company ? { username, company } : { username };
+        const isCloudBase = getCachedAppConfig()?.auth_type === 'cloudbase';
+        const params = isCloudBase
+            ? {}
+            : company ? { username, company } : { username };
         const response = await apiRouter.execute<any>(
       {
         method: 'get_all_org_agents',
         graphql: {
-          query: GRAPHQL_QUERIES.GET_ORG_AGENT_TREE,
+          query: isCloudBase
+              ? GRAPHQL_QUERIES.GET_ORG_AGENT_TREE_CLOUDBASE
+              : GRAPHQL_QUERIES.GET_ORG_AGENT_TREE,
           resultPath: 'getOrgAgentTree'
         }
       },
       params
     );
         
-        // Wrap the tree response in {orgs: ...} format expected by the store
-        if (response.success && response.data) {
-            // If data is already wrapped with orgs, use as-is; otherwise wrap it
-            const wrappedData = response.data.orgs ? response.data : { orgs: response.data };
+        // Wrap the tree response in {orgs: ...} format expected by the store.
+        // CloudBase returns null when a new account has not created an organization yet.
+        if (response.success) {
+          // If data is already wrapped with orgs, use as-is; otherwise wrap it.
+          const wrappedData = response.data?.orgs ? response.data : { orgs: response.data ?? null };
             return { ...response, data: wrappedData as T };
         }
         return response as APIResponse<T>;
@@ -491,13 +558,13 @@ export class IPCAPI {
       {
         method: 'get_agent_skills',
         graphql: {
-          query: GRAPHQL_QUERIES.GET_ALL_MINE,
-          resultPath: 'getAllMine.skills'
+          query: GRAPHQL_QUERIES.GET_AGENT_SKILLS,
+          resultPath: 'queryAgentSkills'
         }
       },
-      // IMPORTANT: GRAPHQL_QUERIES.GET_ALL_MINE only declares $owner and $userId.
-      // Do not pass extra variables like skill_ids, otherwise AppSync will reject the request.
-      { owner: username, userId: username }
+      // CloudBase derives ownership from the authenticated bearer. `skill_ids`
+      // is retained for the desktop IPC signature but is not a GraphQL filter.
+      { input: {} }
     );
     }
 
@@ -507,10 +574,10 @@ export class IPCAPI {
         method: 'get_public_skills',
         graphql: {
           query: GRAPHQL_QUERIES.GET_PUBLIC_SKILLS,
-          resultPath: 'getPublicSkills'
+          resultPath: 'queryAgentSkills'
         }
       },
-      { owner: username }
+      { input: { isPublic: true } }
     );
     }
 
@@ -525,6 +592,48 @@ export class IPCAPI {
       },
       { owner: username }
     );
+    }
+
+    public async getSkillVersions<T>(skillId: string, limit = 10): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_versions' },
+            { skillId, limit }
+        );
+    }
+
+    public async restoreSkillVersion<T>(skillId: string, versionId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'restore_skill_version' },
+            { skillId, versionId }
+        );
+    }
+
+    public async upsertSkillReview<T>(skillId: string, reviewerId: string, rating: number, reviewText?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'upsert_skill_review' },
+            { skillId, reviewerId, rating, reviewText: reviewText || '' }
+        );
+    }
+
+    public async getSkillReviews<T>(skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_reviews' },
+            { skillId }
+        );
+    }
+
+    public async deleteSkillReview<T>(reviewId: string, reviewerId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'delete_skill_review' },
+            { reviewId, reviewerId }
+        );
+    }
+
+    public async getSkillAnalytics<T>(username: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_analytics' },
+            { username }
+        );
     }
 
     public async subscribeToSkill<T>(username: string, skillId: string): Promise<APIResponse<T>> {
@@ -553,6 +662,97 @@ export class IPCAPI {
     );
     }
 
+    public async incrementSkillDownload<T>(skillId: string, delta: number = 1): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'increment_skill_download' },
+            { skillId, delta }
+        );
+    }
+
+    public async getSkillMarketplaceStats<T>(skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_marketplace_stats' },
+            { skillId }
+        );
+    }
+
+    public async getSkillChangelog<T>(skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_skill_changelog' },
+            { skillId }
+        );
+    }
+
+    public async appendSkillChangelog<T>(skillId: string, version: string, notes: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'append_skill_changelog' },
+            { skillId, version, notes }
+        );
+    }
+
+    public async recordSkillUsage<T>(skillId: string, userId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'record_skill_usage' },
+            { skillId, userId }
+        );
+    }
+
+    public async getUserSkillProficiency<T>(userId: string, skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'get_user_skill_proficiency' },
+            { userId, skillId }
+        );
+    }
+
+    public async updateUserSkillProficiency<T>(userId: string, skillId: string, score: number, level: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'update_user_skill_proficiency' },
+            { userId, skillId, score, level }
+        );
+    }
+
+    public async toggleSkillFavorite<T>(userId: string, skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'toggle_skill_favorite' },
+            { userId, skillId }
+        );
+    }
+
+    public async listFavoriteSkills<T>(userId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'list_favorite_skills' },
+            { userId }
+        );
+    }
+
+    public async reportSkill<T>(skillId: string, reporterId: string, reason: string, note: string = ''): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'report_skill' },
+            { skillId, reporterId, reason, note }
+        );
+    }
+
+    public async listSimilarSkills<T>(skillId: string, limit: number = 6): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'list_similar_skills' },
+            { skillId, limit }
+        );
+    }
+
+    public async listSkillsByOwner<T>(owner: string, excludeId: string = '', limit: number = 8): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'list_skills_by_owner' },
+            { owner, excludeId, limit }
+        );
+    }
+
+    public async incrementReviewHelpful<T>(reviewId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'increment_review_helpful' },
+            { reviewId }
+        );
+    }
+
     public async getAgentTasks<T>(username: string, agent_task_ids: string[]): Promise<APIResponse<T>> {
         return apiRouter.execute(
       {
@@ -574,11 +774,11 @@ export class IPCAPI {
       {
         method: 'get_prompts',
         graphql: {
-          query: GRAPHQL_QUERIES.GET_ALL_MINE,
-          resultPath: 'getAllMine.prompts'
+          query: GRAPHQL_QUERIES.GET_PROMPTS,
+          resultPath: 'getPrompts'
         }
       },
-      { owner: username, userId: username }
+      { owner: username }
     );
     }
 
@@ -928,7 +1128,7 @@ export class IPCAPI {
     }
 
     // LLM Management APIs
-    public async getLLMProviders<T>(): Promise<APIResponse<T>> {
+    public async getLLMProviders<T>(username?: string): Promise<APIResponse<T>> {
         // Ensure settings are loaded (providers come from DynamoDB settings)
         await this._ensureSettingsLoaded();
         console.log('[IPCAPI] getLLMProviders: _settingsData keys=', this._settingsData ? Object.keys(this._settingsData) : 'NULL');
@@ -938,8 +1138,16 @@ export class IPCAPI {
         if (providers) {
             return { success: true, data: { providers } as T };
         }
-        console.warn('[IPCAPI] getLLMProviders: cache miss, falling back to GraphQL');
-        return apiRouter.execute({ method: 'get_llm_providers' });
+        // In desktop mode, _settingsData doesn't contain llm_providers (they come from Python backend)
+        // This is expected behavior, not an error condition
+        if (this._settingsUsername) {
+            console.debug('[IPCAPI] getLLMProviders: cache miss, using IPC for desktop mode');
+        }
+        // Pass username so the backend reads ryoais_models.json / ollama_models.json from the
+        // same path that fetchRyoAISModels / fetchOllamaModels wrote to.
+        const params: any = {};
+        if (username) params.username = username;
+        return apiRouter.execute({ method: 'get_llm_providers' }, params);
     }
 
     public async setDefaultLLM<T>(name: string, username: string, model?: string): Promise<APIResponse<T>> {
@@ -1138,13 +1346,19 @@ export class IPCAPI {
     }
 
     // Embedding Management APIs
-    public async getEmbeddingProviders<T>(): Promise<APIResponse<T>> {
+    public async getEmbeddingProviders<T>(username?: string): Promise<APIResponse<T>> {
         await this._ensureSettingsLoaded();
         const providers = this._extractProviders('embedding_providers');
         if (providers) {
             return { success: true, data: { providers } as T };
         }
-        return apiRouter.execute({ method: 'get_embedding_providers' });
+        // In desktop mode, providers come from Python backend via IPC
+        if (this._settingsUsername) {
+            console.debug('[IPCAPI] getEmbeddingProviders: cache miss, using IPC for desktop mode');
+        }
+        const params: any = {};
+        if (username) params.username = username;
+        return apiRouter.execute({ method: 'get_embedding_providers' }, params);
     }
 
     public async setDefaultEmbedding<T>(name: string, username: string, model?: string): Promise<APIResponse<T>> {
@@ -1269,13 +1483,19 @@ export class IPCAPI {
     }
 
     // Rerank Management APIs
-    public async getRerankProviders<T>(): Promise<APIResponse<T>> {
+    public async getRerankProviders<T>(username?: string): Promise<APIResponse<T>> {
         await this._ensureSettingsLoaded();
         const providers = this._extractProviders('rerank_providers');
         if (providers) {
             return { success: true, data: { providers } as T };
         }
-        return apiRouter.execute({ method: 'get_rerank_providers' });
+        // In desktop mode, providers come from Python backend via IPC
+        if (this._settingsUsername) {
+            console.debug('[IPCAPI] getRerankProviders: cache miss, using IPC for desktop mode');
+        }
+        const params: any = {};
+        if (username) params.username = username;
+        return apiRouter.execute({ method: 'get_rerank_providers' }, params);
     }
 
     public async setDefaultRerank<T>(name: string, username: string, model?: string): Promise<APIResponse<T>> {
@@ -1401,8 +1621,8 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'settings.getOllamaModels' }, { host, username });
     }
 
-    public async getRyoAISModels<T>(host: string, username?: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'settings.getRyoAISModels' }, { host, username });
+    public async getRyoAISModels<T>(host: string, username?: string, verifySsl: boolean = false): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'settings.getRyoAISModels' }, { host, username, verify_ssl: verifySsl });
     }
 
     public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {
@@ -1624,6 +1844,26 @@ export class IPCAPI {
       },
       { username, input: [agent_task_id] }
     );
+    }
+
+    /**
+     * Refresh agent task status
+     */
+    public async refreshAgentTaskStatus(username: string, taskId: string): Promise<APIResponse<any>> {
+        return this.executeRequest('refresh_agent_task_status', { username, task_id: taskId });
+    }
+
+    /**
+     * Run agent task
+     */
+    public async runAgentTask(username: string, params: {
+        task_id: string;
+        task_type?: string;
+        cloud_based?: boolean;
+        skill_id?: string;
+        skill?: string;
+    }): Promise<APIResponse<any>> {
+        return this.executeRequest('run_agent_task', { username, ...params });
     }
 
     // ==================== Relation Tables (RDS) - Web GraphQL Only ====================
@@ -2457,47 +2697,24 @@ export class IPCAPI {
     }
 
     /**
-     * GetInitialize进度
-     * @returns Promise 对象，Parse为Initialize进度Information
+     * Get system initialization status
+     * @returns Promise with simple ready status and i18n key
      */
-    public async getInitializationProgress<T = {
-        ui_ready: boolean;
-        critical_services_ready: boolean;
-        async_init_complete: boolean;
-        fully_ready: boolean;
-        sync_init_complete: boolean;
-        message: string;
-    }>(): Promise<APIResponse<T & {
-        sync_init_complete: boolean;
-        message: string;
+    public async getInitializationProgress(): Promise<APIResponse<{
+        ready: boolean;
+        status: string;  // i18n key like 'system.ready' or 'system.initializing'
     }>> {
-        // Get username from localStorage for owner/userId
-        const username = localStorage.getItem('username');
-        const response = await apiRouter.execute<any>(
-      {
-        method: 'get_initialization_progress',
-        graphql: {
-          query: GRAPHQL_QUERIES.GET_ALL_MINE,
-          resultPath: 'getAllMine'
-        }
-      },
-      { owner: username, userId: username }
-    );
+        const response = await apiRouter.execute<{ready: boolean; status: string}>(
+            { method: 'get_initialization_progress' }
+        );
 
-        // api-router 已自动解包 GraphQL 响应，直接使用即可
         if (response.success && response.data) {
-            const data = response.data as any;
-            const initProgress = {
-                ui_ready: data.ui_ready ?? false,
-                critical_services_ready: data.critical_services_ready ?? false,
-                async_init_complete: data.async_init_complete ?? false,
-                fully_ready: data.fully_ready ?? false,
-                sync_init_complete: data.sync_init_complete ?? false,
-                message: data.message ?? 'Checking initialization...',
-            };
             return {
                 success: true,
-                data: initProgress as any
+                data: {
+                    ready: response.data.ready ?? false,
+                    status: response.data.status ?? 'system.initializing'
+                }
             };
         }
 

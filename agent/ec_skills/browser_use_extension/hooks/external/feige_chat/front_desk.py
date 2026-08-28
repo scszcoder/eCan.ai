@@ -52,7 +52,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import dataclasses
 import logging
+import os
+import time
 from typing import Any
 
 from agent.ec_skills.node_runtime.frontdesk_dispatch import (
@@ -63,9 +66,699 @@ from agent.ec_skills.node_runtime.frontdesk_dispatch import (
 from . import dispatch_state as _ds
 from . import typing_lock as _typing_lock
 
-logger = logging.getLogger("eCan")
+# CN builds name the app logger "eCan.cn" (propagate=False) — a bare
+# getLogger("eCan") record never reaches its handlers, silencing this
+# module's entire log output in packaged CN apps (v0.9.95u incident:
+# the WS reader looked dead because none of its lines could land).
+from utils.logger_helper import logger_helper as logger
 
-__all__ = ["before_run_hook", "before_session_setup_hook", "register"]
+__all__ = ["before_run_hook", "before_session_setup_hook", "register", "route_inbound_customer_ws"]
+
+# ws023: registry of the most-recent front-desk dispatch context, so the WS
+# detector can route a customer message DIRECTLY through run() (the full
+# coordination: inflight/dedup/RR/placeholder/source-msg-id) WITHOUT going through
+# the serial front-desk task queue (the 1-to-6 throughput cliff). The node
+# populates this on every before_run_hook; route_inbound_customer_ws reuses it with
+# a per-item state. One front-desk agent per process => single "slot".
+_FEIGE_FD_DISPATCH_REG: dict[str, Any] = {}
+
+
+def _is_pre_dispatch_busy(res: Any) -> bool:
+    """ws084: True if run() short-circuited as ``pre_dispatch_busy`` — it could NOT acquire
+    the per-scope dispatch lock within its 15s wait (a concurrent invocation held it past the
+    deadline), so the turn was NOT dispatched. The caller must recover it, not discard it."""
+    if not isinstance(res, dict):
+        return False
+    if str(res.get("history") or "").endswith(":busy"):
+        return True
+    try:
+        return json.loads(res.get("final") or "{}").get("hot_path_type") == "pre_dispatch_busy"
+    except Exception:
+        return False
+
+
+async def route_inbound_customer_ws(item: dict, fallback) -> None:
+    """ws023: route ONE WS-detected customer message straight through the front-desk
+    dispatch coordination (run()), bypassing the serial front-desk task. Reuses the
+    DispatchContext the node registered (dataclasses.replace with a per-item state
+    carrying the WS browser_event, so ws021/ws022 read THIS item). Runs per-frame in
+    the WS observer loop => customers no longer serialize through one task. On
+    registry-miss or ANY error it invokes `fallback` (the legacy browser_event
+    dispatch) so a message is never lost. Gated by the caller on
+    ECAN_FEIGE_WS_DIRECT_QA=1.
+    """
+    reg = _FEIGE_FD_DISPATCH_REG.get("slot")
+    if not reg or not isinstance(item, dict):
+        fallback()
+        return
+    cfg, ctx_template, agent = reg
+    try:
+        fresh_state = {
+            "attributes": {
+                "browser_event": {
+                    "type": "browser_event",
+                    "source": "ws_frontier",
+                    "body": {"items": [dict(item)]},
+                }
+            }
+        }
+        new_ctx = dataclasses.replace(ctx_template, state=fresh_state)
+        _res = await _run_frontdesk_dispatch(cfg, new_ctx, agent)
+        # ws084 (#1): a `pre_dispatch_busy` short-circuit means run() could NOT acquire the
+        # per-scope dispatch lock within its 15s wait (a concurrent invocation held it past
+        # the deadline — e.g. a ~10s thread-scrape) and returned WITHOUT dispatching. The
+        # result was previously DISCARDED here (route is ``-> None``) -> the turn was silently
+        # lost (一对六 2026-06-18: 瓦哒嘻哇's two 00:59 msgs busy-dropped at 00:59:36/00:59:48,
+        # customer saw nothing for ~3 min then re-sent). Recover via the legacy queue so a
+        # busy turn is re-dispatched, never lost. Gated ECAN_FEIGE_WS_BUSY_FALLBACK=1 (default ON).
+        if (os.environ.get("ECAN_FEIGE_WS_BUSY_FALLBACK", "1") != "0"
+                and _is_pre_dispatch_busy(_res)):
+            logger.info(
+                f"[WS-DIRECT-QA] pre_dispatch_busy cust={item.get('customer_name')!r} — lock "
+                f"contention starved the WS hot path; re-dispatching via legacy queue "
+                f"(turn would otherwise be silently dropped)")
+            try:
+                fallback()
+            except Exception:
+                pass
+    except Exception as _e:
+        logger.warning(
+            f"[WS-DIRECT-QA] route_inbound_customer_ws failed -> legacy dispatch: {_e}",
+            exc_info=True,
+        )
+        try:
+            fallback()
+        except Exception:
+            pass
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# ws103: cold-start OVERDUE recovery via the MAIN-tab sidebar.
+#
+# Why ws095's detection-tab path could not fix this: the DOM monitor runs on the
+# DEDICATED detection tab — a SEPARATE tab that does NOT render the conversation
+# sidebar (live logs: status=page_mismatch, items=0), so it sees ZERO rows. And
+# even the main DOM diff baselines pre-existing rows on its first scrape
+# (keys_initialized), so an overdue row already on screen at startup is never
+# "added" → never dispatched. ws089 (the last working version) only succeeded
+# because its first scrape hit an empty sidebar (rows appeared AFTER baseline);
+# the dedicated-detection-tab change (post-089 realtime work) regressed it.
+#
+# Fix: scan the MAIN tab's sidebar directly (the tab that DOES have the rows),
+# find rows that look unanswered (unread badge / needReply), and route each to QA
+# via route_inbound_customer_ws — bypassing the diff entirely. enrich_item's own
+# guards (mt030 agent_already_replied, msg-id dedup, system-row filter) prevent
+# re-answering, so the scan can be liberal. One shot per customer name per
+# process. Gated on the existing ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE=1.
+_COLDSTART_RECOVERED_NAMES: set[str] = set()
+
+# ws108: the recovery scan is now a CONTINUOUS missed-message backstop (not just a
+# startup window), so it also catches a NEW conversation's first message that the
+# WS/detection path jams on. Cold-start first-message root cause: ws096 recognizes the
+# "小店为你服务" connect banner and ws086 is supposed to thread-scrape the real first
+# message — but ws086 runs in the DOM-monitor path, which is PAUSED while WS owns
+# dispatch (ECAN_FEIGE_WS_PAUSE_DOM_MONITOR=1), so recovery never fires and the first
+# message hangs until a 2nd message arrives. This main-tab scan runs independent of the
+# pause, routes connect-banner rows (-> enrich thread-scrapes the real question), and
+# uses a per-(name,preview) dedup + staleness gate so it NEVER races the WS path (WS
+# answers fresh msgs within seconds; the backstop only fires for what's still unanswered).
+_BACKSTOP_FIRST_SEEN: dict = {}   # (name, preview) -> first-seen monotonic ts
+_BACKSTOP_ROUTED: set = set()     # (name, preview) already routed once
+_CONNECT_BANNER_PATTERNS = (
+    "store_assignment_notice", "store_auto_greeting", "smart_cs_auto_greeting",
+)
+
+# ws168 (1): typing-lock deferral retry. enrich_item defers a routed row while the
+# GLOBAL typing lock is held (skip_reason="typing_lock_active") and registers it in
+# pre_dispatch_enrich's deferred set expecting event_monitor's tick to re-fire it —
+# but that tick is PAUSED while WS owns dispatch, so the deferral never retried and
+# the row stayed in _BACKSTOP_ROUTED forever (live 2026-07-11 11:20:48 'packet':
+# deferred once behind a card delivery, silent until the customer re-asked 56s
+# later). THIS scan runs regardless of the pause, so it serves the retry itself:
+# when the typing lock is free and a deferred entry matches a row's name, drop the
+# key from _BACKSTOP_ROUTED (rate-limited) so the normal gate re-routes it.
+_BACKSTOP_DEFERRED_LAST_RETRY: dict = {}  # (name, preview) -> last forced-retry monotonic ts
+
+# ws168 (3): reopen re-scrape. A reopened conversation's sidebar preview STAYS the
+# connect banner when the customer's next message arrives, so the (name, preview)
+# GC never re-tracks the row — and a partially-painted thread can make the reopen
+# enrich scrape the PRE-close bubble, leaving the fresh message masked until some
+# unrelated event re-triggers enrich (live 2026-07-11 09:59 'packet': 你好 sat 10
+# min). After routing a CONNECT-BANNER row, schedule bounded re-routes so enrich
+# re-scrapes the settled thread; msg-id dedup + mt030 no-op when nothing new.
+_BACKSTOP_REOPEN_RESCRAPE: dict = {}      # (name, preview) -> list of due monotonic ts
+
+# ws168 (2): startup system-row recovery. A question dispatched just before app
+# shutdown dies with the process; after restart the row's preview is a PLATFORM
+# notice (长时间未回复 / 无效会话…) that this scan skipped as system_other on every
+# tick — permanently (live 2026-07-11: 肽斯特+packet asked 10:30, app exited
+# 10:31:33 mid-LLM, restarted 10:39, rows skipped 20+ min, never answered). For a
+# window after process start, route non-close system rows once so enrich
+# thread-scrapes the real thread; mt030/msg-id dedup decide what's unanswered.
+_BACKSTOP_PROCESS_START: float = time.monotonic()
+
+# ws178: rate-limit for the nameless-row DOM dump (see the scan JS debug block).
+_NAMELESS_DUMP_AT: dict = {}
+
+_COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
+  function readName(row){
+    var nick=row.querySelector('[data-qa-id="qa-conversation-nickname"]');
+    if(nick){var nv=(nick.textContent||'').trim(); if(nv) return nv;}
+    var line=row.querySelector('[class*="nameLine"]');
+    if(line){var lt=(line.getAttribute('title')||'').trim(); if(lt) return lt;
+      var nc=line.querySelector('[class*="NameContent"]'); if(nc){var ncv=(nc.textContent||'').trim(); if(ncv) return ncv;}}
+    var nc2=row.querySelector('[class*="NameContent"]'); if(nc2){var v=(nc2.textContent||'').trim(); if(v) return v;}
+    // ws110: broader fallbacks for DOM/selector drift (ws109 run: 27 rows, readName ''
+    // for ALL -> rows=0). Any data-qa-id mentioning nickname/name, or a short title=
+    // attribute that isn't a numeric preview/time.
+    var alt=row.querySelector('[data-qa-id*="nickname" i],[data-qa-id*="name" i]');
+    if(alt){var av=(alt.getAttribute('title')||alt.textContent||'').trim(); if(av&&av.length<=24) return av;}
+    // ws183: iterate ALL titled descendants, not just the first — the 重复来访
+    // revisit-row variant has qa=[] and its FIRST [title] is the unread badge
+    // ('1', numeric → rejected), while the SECOND is the actual name (live
+    // 2026-07-26 15:36 'packet': titles=['1','packet'], rows=0 total=1 for the
+    // whole session → backstop never routed). Skip badge counts and time-ago
+    // strings (45分钟/2小时…).
+    var titledAll=row.querySelectorAll('[title]');
+    for(var t=0;t<titledAll.length&&t<6;t++){
+      var tv=(titledAll[t].getAttribute('title')||'').trim();
+      if(tv&&tv.length<=24&&!/^[\d:\s]+$/.test(tv)&&!/^\d+\s*(分钟|小时|秒|天)/.test(tv)) return tv;
+    }
+    return '';
+  }
+  function readPreview(row){
+    var p=row.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span');
+    return p?(p.textContent||'').trim():'';
+  }
+  function rowIsCurrent(row){
+    var btm=row&&row.getAttribute?String(row.getAttribute('data-btm-id')||''):'';
+    if(btm.endsWith('.current')) return true;
+    if(btm.endsWith('.recent')||btm.endsWith('.systemConv')) return false;
+    if(row&&row.closest&&row.closest('.pigeonChatNotScrollBox')) return true;
+    if(row&&row.closest&&row.closest('.pigeonChatScrollBox')) return false;
+    return true;
+  }
+  function hasUnread(row){
+    if(/needReply/i.test(String(row.className||''))) return true;
+    var b=row.querySelector('[class*="badge"],[class*="Badge"],[class*="unread"],[class*="Unread"],[class*="redDot"],[class*="RedDot"]');
+    if(b){var t=(b.textContent||'').trim(); if(/^\d+$/.test(t)&&t!=='0') return true;
+      if(b.offsetParent!==null&&/dot|badge|unread|red/i.test(String(b.className||''))) return true;}
+    return false;
+  }
+  // ws107: scan ALL conversation rows (NOT just the .current sub-tab) — a residue
+  // from a prior session usually sits in 最近联系 (.recent), which the current-only
+  // filter excluded (ws104 run logged rows=0 with a residue present). Tag each row
+  // with `current` so Python can prefer current but still recover recent ones.
+  var all=Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
+  var out=[];
+  for(var i=0;i<all.length;i++){
+    var nm=readName(all[i]); if(!nm) continue;
+    out.push({name:nm, preview:readPreview(all[i]), unread:hasUnread(all[i]),
+              needReply:/needReply/i.test(String(all[i].className||'')),
+              current:rowIsCurrent(all[i])});
+  }
+  // ws110: when rows match the selector (total>0) but NONE yield a name, dump the
+  // structure of the first few rows so we can fix readName precisely instead of
+  // guessing — class, data-btm-id, all descendant data-qa-ids, and a textContent
+  // sample (reveals whether the name is present-but-under-a-new-selector vs the row
+  // is an empty virtualized shell).
+  var debug=[];
+  // ws178: dump ANY nameless row, not only the all-nameless case. Live
+  // 2026-07-15 19:56:11->19:57:14: 肽斯特's row was RENDERED within ~3s of the
+  // message (total=3) but readName returned '' for ~75s (rows=2), so the scan
+  // skipped it as noname and the customer waited — while the ws110 dump (gated
+  // on out.length===0) stayed silent because the OTHER two rows had names.
+  // Dump the nameless rows' structure (with outerHTML head) so readName can be
+  // extended from evidence.
+  if(out.length<all.length){
+    for(var d=0; d<all.length && debug.length<3; d++){
+      var r=all[d];
+      if(readName(r)) continue;   // only the nameless ones
+      debug.push({
+        cls:String(r.className||'').slice(0,60),
+        btm:String((r.getAttribute&&r.getAttribute('data-btm-id'))||''),
+        qa:Array.from(r.querySelectorAll('[data-qa-id]')).slice(0,10).map(function(e){return e.getAttribute('data-qa-id');}),
+        titles:Array.from(r.querySelectorAll('[title]')).slice(0,4).map(function(e){return String(e.getAttribute('title')||'').slice(0,20);}),
+        txt:String(r.textContent||'').replace(/\s+/g,' ').trim().slice(0,60),
+        html:String(r.outerHTML||'').slice(0,500)
+      });
+    }
+  }
+  return JSON.stringify({rows:out, total:all.length, url:String(location.href||'').slice(-60), debug:debug});
+})()"""
+
+
+async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
+    """ws103: scan the MAIN-tab sidebar for unanswered overdue rows and route each
+    to QA, bypassing the (blind detection-tab + baseline-diff) detection path.
+
+    Returns the number of rows dispatched. One shot per customer name per process.
+    Gated ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE=1.
+
+    ws166: *legacy_dispatcher* (optional, a sync ``fn(item) -> None``) lets the
+    scan run BEFORE the front-desk dispatch slot exists. The slot registers only
+    in before_run_hook — i.e. on the FIRST browser_event — so an app started
+    against a QUIET sidebar (nothing pending) never fires an event, never
+    registers the slot, and this scan silently returned 0 every 5s while the WS
+    monitor (which paused the DOM path on its first frame) dropped the cold-start
+    message: TOTAL blindness (live 2026-07-10 21:38:35 'sc' 转人工 — zero
+    ws108/scan lines the whole run; earlier runs worked only because they
+    START with unread rows → startup event → slot). Routing a found row through
+    the legacy browser_event dispatcher invokes the node → before_run_hook →
+    registers the slot → self-healing.
+    """
+    if os.environ.get("ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE", "") != "1":
+        return 0
+    _slot_missing = not _FEIGE_FD_DISPATCH_REG.get("slot")
+    if _slot_missing and legacy_dispatcher is None:
+        return 0  # front-desk dispatch context not registered yet (pre-ws166 behavior)
+    if _slot_missing:
+        logger.info(
+            "[BrowserAutomation] ws166 backstop scanning WITHOUT dispatch slot "
+            "(no browser_event yet this process) — found rows will route via the "
+            "legacy event dispatcher to bootstrap the slot"
+        )
+    try:
+        from agent.ec_skills.browser_node.build_helpers import cached_browser_sessions
+        from agent.ec_skills.browser_use_extension.extension_tools_service import _evaluate_js
+        from .dom_assets import (
+            ensure_feige_tab_reachable,
+            _SESSION_FOCUSED_FEIGE_TID_ATTR,
+        )
+    except Exception:
+        return 0
+    browser_session = None
+    for sess in list((cached_browser_sessions or {}).values()):
+        if sess is not None:
+            browser_session = sess
+            break
+    if browser_session is None:
+        return 0
+    _tid = None
+    try:
+        if await ensure_feige_tab_reachable(browser_session):
+            _tid = getattr(browser_session, _SESSION_FOCUSED_FEIGE_TID_ATTR, None)
+    except Exception:
+        _tid = None
+    # ws170: flush parked undeliverable card replies whose talk has since
+    # resolved to a real name (see undeliverable.py). This scan runs every
+    # ~5s regardless of who owns dispatch, so it's the natural driver.
+    try:
+        from . import undeliverable as _undlv
+        if _undlv.pending():
+            await _undlv.resolve_and_flush(browser_session)
+    except Exception as _undlv_e:
+        logger.debug(f"[BrowserAutomation] ws170 flush tick failed (non-fatal): {_undlv_e}")
+    # ws182: dormant-conversation read-probe tick (phase-1 experiment; internally
+    # throttled + capped, total no-op unless ECAN_FEIGE_DORMANT_POLL=1).
+    try:
+        from . import dormant_probe as _dprobe
+        await _dprobe.maybe_probe(browser_session)
+    except Exception as _dp_e:
+        logger.debug(f"[BrowserAutomation] ws182 dormant probe tick failed (non-fatal): {_dp_e}")
+    try:
+        r = await _evaluate_js(
+            browser_session, _COLDSTART_SIDEBAR_SCAN_JS,
+            target_id=str(_tid) if _tid else None,
+            focus=False, read_only=True, lock_free=True,
+            trace_label="feige_coldstart_recovery_scan",
+        )
+        if isinstance(r, str):
+            r = json.loads(r)
+        rows = (r or {}).get("rows") or []
+        _scan_total = (r or {}).get("total")
+        _scan_url = (r or {}).get("url") or ""
+        _scan_debug = (r or {}).get("debug") or []
+        if _scan_debug:
+            # ws110/ws178: some rows yield no name — show the real row DOM so we can fix
+            # readName instead of guessing (the wall behind every prior residue/first-msg fix).
+            # Rate-limited: while a row stays nameless (partial paint) the scan would
+            # otherwise dump every 5s tick.
+            _now_dump = time.monotonic()
+            if _now_dump - _NAMELESS_DUMP_AT.get("ts", 0.0) >= 120.0:
+                _NAMELESS_DUMP_AT["ts"] = _now_dump
+                logger.info(f"[BrowserAutomation] ws178 backstop scan NAMELESS-ROW DUMP: {_scan_debug}")
+    except Exception as _e:
+        logger.debug(f"[BrowserAutomation] ws103 coldstart recovery scan failed: {_e}")
+        return 0
+    try:
+        from .system_message_filter import first_matching_pattern as _sys_match
+    except Exception:
+        _sys_match = None
+    try:
+        from .dispatch_state import matches_recent_agent_reply as _recent_reply
+    except Exception:
+        _recent_reply = None
+    # ws126 (1): bridge for backstop<->WS in-flight dedup. ``talk_for_name`` (ws046
+    # forward map) turns the sidebar row's NAME into the conversation's talk_id so we
+    # can ask whether the WS hot path is already dispatching it under the synthetic
+    # ``card:<talk_id>`` identity (30s TTL).
+    try:
+        from .ws_session import talk_for_name as _talk_for_name
+    except Exception:
+        _talk_for_name = None
+    # ws167: per-conversation live/dormant map — the cold-start algorithm's core
+    # (docs/FEIGE_COLDSTART_DETECTION.md). dormant = no WS frame for this conv since
+    # process start / its last 关闭会话. A dormant customer's row change routes FAST
+    # (WS will NOT deliver it); a live customer's row keeps the "give WS first crack"
+    # stale gate. Gated ECAN_FEIGE_DORMANT_FASTROUTE=1 (default on).
+    try:
+        from .ws_session import (
+            is_conv_live as _is_conv_live,
+            mark_conv_dormant as _mark_conv_dormant,
+        )
+    except Exception:
+        _is_conv_live = None
+        _mark_conv_dormant = None
+    try:
+        from agent.ec_skills.build_node import _is_dispatch_inflight
+    except Exception:
+        _is_dispatch_inflight = None
+    # ws104: ALWAYS log what the scan found (rows + names), even when 0 are routed —
+    # the ws103 run dispatched 0 with NO clue why; the gap was: a residue row from a
+    # prior session has NO unread badge (same as ws055/ws086 platform-stall rows), so
+    # the old `unread || needReply` gate dropped exactly the row we needed.
+    _now = time.monotonic()
+    try:
+        _stale_s = float(os.environ.get("ECAN_FEIGE_BACKSTOP_STALE_S", "15") or 15)
+    except (TypeError, ValueError):
+        _stale_s = 15.0
+    _names = [str((r or {}).get("name") or "") for r in rows if isinstance(r, dict)]
+    # ws171: preview-correlation bridge — bind still-unnamed WS conversations to
+    # sidebar names via exact preview==text match (see ws_session for the safety
+    # rules). Runs BEFORE the row loop so this tick's dedup/delivery/flush all
+    # see the fresh mapping; the ws170 parking lot flushes on the next tick.
+    try:
+        from .ws_session import bind_unnamed_conv_by_preview as _bind_by_preview
+        _bind_by_preview([
+            (str((r or {}).get("name") or ""), str((r or {}).get("preview") or ""))
+            for r in rows if isinstance(r, dict)
+        ])
+    except Exception as _bind_e:
+        logger.debug(f"[BrowserAutomation] ws171 preview-bridge failed (non-fatal): {_bind_e}")
+    # ws168 (1): customers whose enrich deferred on the typing lock. The event_monitor
+    # re-fire that normally serves these is paused while WS owns dispatch, so this
+    # scan retries them once the lock frees (see _BACKSTOP_DEFERRED_LAST_RETRY).
+    _deferred_names: set = set()
+    if os.environ.get("ECAN_FEIGE_BACKSTOP_DEFERRED_RETRY", "1") != "0":
+        try:
+            from .pre_dispatch_enrich import snapshot_deferred as _snap_deferred
+            _deferred_names = {c for (_s, c) in _snap_deferred()}
+        except Exception:
+            _deferred_names = set()
+    try:
+        _deferred_retry_min_s = float(
+            os.environ.get("ECAN_FEIGE_DEFERRED_RETRY_MIN_S", "10") or 10
+        )
+    except (TypeError, ValueError):
+        _deferred_retry_min_s = 10.0
+    _n = 0
+    _skipped: dict = {}
+    _live_keys: set = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        _name = str(row.get("name") or "").strip()
+        if not _name:
+            _skipped["noname"] = _skipped.get("noname", 0) + 1
+            continue
+        _prev = str(row.get("preview") or "").strip()
+        if not _prev:
+            _skipped["empty_preview"] = _skipped.get("empty_preview", 0) + 1
+            continue
+        # ws116: a sidebar row whose preview is a 转人工/人工 handover request must get
+        # the [微笑] ack even when the WS observer missed the frame AND the DOM monitor
+        # is paused (live 2026-06-25: packet typed 人工 — the WS reader never decoded a
+        # 人工 text frame, the DOM monitor was paused under WS-owns-dispatch, and bare
+        # 人工 matches NO system filter -> it fell through every crack: no dispatch, no
+        # ack). This backstop scans the sidebar continuously regardless of who owns
+        # dispatch, so arm the ack here. Arming only (no routing change); idempotent +
+        # rate-limited (600s) in placeholder_timer. The WS path (ws_observer:561) and
+        # the enrich path (ws115 early-arm) still cover the cases they see.
+        try:
+            from . import human_mode as _bs_hm
+            # ws117: is_human_handover_request (SHORT standalone), NOT is_human_trigger
+            # (substring) — the preview is often OUR placeholder/reply ("人工服务正在
+            # 回复中…", "正在为您转接人工客服") or a platform notice ("现在是人工客服为您
+            # 服务"), all of which contain 人工 and would flood false [微笑] acks.
+            if _bs_hm.is_human_handover_request(_prev):
+                from .placeholder_timer import note_handover_ack_needed as _bs_note_ho
+                _bs_note_ho(_name)
+                logger.info(
+                    f"[BrowserAutomation] ws116 backstop handover trigger cust={_name!r} "
+                    f"preview={_prev[:40]!r} -> [微笑] ack armed")
+        except Exception:
+            pass
+        _key = (_name, _prev)
+        _live_keys.add(_key)
+        # Classify the preview. A CONNECT banner ("小店接入"/"小店为你服务", ws096) means
+        # a NEW conversation whose real first message lives in the thread — route it so
+        # enrich_item thread-scrapes the question (the ws086 path, but pause-independent).
+        # Any OTHER system message (platform-stall / transfer) we leave alone. Our own
+        # recent reply as the preview => already answered.
+        _sys = None
+        if _sys_match is not None:
+            try:
+                _sys = _sys_match(_prev)
+            except Exception:
+                _sys = None
+        _is_connect = _sys in _CONNECT_BANNER_PATTERNS
+        _is_sysrow_recovery = False
+        if _sys and not _is_connect:
+            # ws167: a 关闭会话 close marker re-enters DORMANT for this conversation —
+            # the server stops pushing its frames after a close, so this customer's
+            # NEXT message is a cold start that the DOM watcher must own.
+            if _sys == "session_close_notice" and _mark_conv_dormant is not None:
+                try:
+                    _mark_conv_dormant(_name)
+                    logger.info(
+                        f"[BrowserAutomation] ws167 close marker -> conversation "
+                        f"DORMANT cust={_name!r} (next msg = cold start, DOM owns it)"
+                    )
+                except Exception:
+                    pass
+            # ws168 (2): within the startup window a platform-notice preview usually
+            # hides a question whose dispatch died with the previous process (app
+            # shutdown mid-turn). Route it ONCE through the normal gates below so
+            # enrich thread-scrapes the real thread; outside the window keep the
+            # old skip (these rows are just closed/idle conversations). A 关闭会话
+            # close-notice row stays excluded — the platform closed it, nothing is
+            # pending. Reversible: ECAN_FEIGE_STARTUP_SYSROW_RECOVERY=0.
+            try:
+                _sysrow_window = float(
+                    os.environ.get("ECAN_FEIGE_STARTUP_SYSROW_WINDOW_S", "900") or 900
+                )
+            except (TypeError, ValueError):
+                _sysrow_window = 900.0
+            if (
+                _sys != "session_close_notice"
+                and os.environ.get("ECAN_FEIGE_STARTUP_SYSROW_RECOVERY", "1") != "0"
+                and (_now - _BACKSTOP_PROCESS_START) <= _sysrow_window
+            ):
+                _is_sysrow_recovery = True
+            else:
+                _skipped["system_other"] = _skipped.get("system_other", 0) + 1
+                continue
+        if not _sys and _recent_reply is not None:
+            try:
+                if _recent_reply(_name, _prev):
+                    _skipped["our_recent_reply"] = _skipped.get("our_recent_reply", 0) + 1
+                    continue
+            except Exception:
+                pass
+        # ws126 (1): dedup against an IN-FLIGHT WS card-identity dispatch. The WS hot
+        # path owns a conversation under the synthetic ``card:<talk_id>`` identity (a
+        # name-less product card) while THIS backstop scans the sidebar by NAME — the
+        # identities mismatch, so without this check the same customer is dispatched
+        # TWICE (once real-time by WS under card:<talk>, once here by name). That is the
+        # 陆地飞鱼 double-dispatch: doubled main-tab work + the card-id self-block the
+        # post-ws095 recovery machinery re-introduced. Bridge name -> talk_id and skip
+        # while the WS path is actively dispatching this conversation (30s inflight TTL).
+        # The 15s staleness gate below only gives the WS path "first crack"; a SLOW WS
+        # turn (>15s LLM) still needs this to avoid a duplicate. Reversible:
+        # ECAN_FEIGE_BACKSTOP_WS_DEDUP=0.
+        if (
+            os.environ.get("ECAN_FEIGE_BACKSTOP_WS_DEDUP", "1") != "0"
+            and _talk_for_name is not None
+            and _is_dispatch_inflight is not None
+        ):
+            try:
+                _talk = str(_talk_for_name(_name) or "").strip()
+            except Exception:
+                _talk = ""
+            _ws_busy = 0.0
+            _probe_keys = ((f"card:{_talk}", _talk) if _talk else ()) + (_name,)
+            for _idk in _probe_keys:
+                try:
+                    _age = float(_is_dispatch_inflight(_idk) or 0.0)
+                except Exception:
+                    _age = 0.0
+                if _age > 0.0:
+                    _ws_busy = _age
+                    break
+            if _ws_busy > 0.0:
+                _skipped["ws_inflight"] = _skipped.get("ws_inflight", 0) + 1
+                logger.info(
+                    f"[BrowserAutomation] ws126 backstop dedup: WS hot path already "
+                    f"dispatching cust={_name!r} talk={_talk or '?'} "
+                    f"inflight_age={_ws_busy:.1f}s — skipping duplicate main-tab route"
+                )
+                continue
+        # Per-(name,preview) dedup + staleness: give the WS/normal path first crack;
+        # only route what's STILL unanswered after _stale_s. enrich_item's mt030 +
+        # msg-id dedup + inflight guard are the final safety net against double-answer.
+        if _key in _BACKSTOP_ROUTED:
+            # ws168 (1): the routed row's enrich deferred on the typing lock and was
+            # never retried (event_monitor's re-fire is paused under WS ownership).
+            # Once the lock is free, un-route the key so the gates below route it
+            # again; enrich re-defers (refreshing the deferral) if the lock got
+            # re-taken, and clears the deferral on success.
+            _retried = False
+            if _name in _deferred_names:
+                try:
+                    _lock_holder = str(_typing_lock.holder() or "")
+                except Exception:
+                    _lock_holder = ""
+                _last_retry = _BACKSTOP_DEFERRED_LAST_RETRY.get(_key, 0.0)
+                if not _lock_holder and (_now - _last_retry) >= _deferred_retry_min_s:
+                    _BACKSTOP_DEFERRED_LAST_RETRY[_key] = _now
+                    _BACKSTOP_ROUTED.discard(_key)
+                    _retried = True
+                    logger.info(
+                        f"[BrowserAutomation] ws168 deferred-row retry cust={_name!r} "
+                        f"(enrich deferred on the typing lock; lock now free -> re-route)"
+                    )
+            # ws168 (3): a routed CONNECT-BANNER row keeps its banner preview when the
+            # customer's next message arrives, so the GC never re-tracks it. Re-route
+            # at the scheduled re-scrape times so enrich re-scrapes the settled thread
+            # (partial paint on reopen can hide the fresh bubble from the first pass).
+            if not _retried:
+                # An exhausted schedule stays as [] so a re-route can't re-arm it
+                # (the GC drops the key when the row leaves the screen).
+                _due = _BACKSTOP_REOPEN_RESCRAPE.get(_key)
+                if _due and _now >= _due[0]:
+                    _due.pop(0)
+                    _BACKSTOP_ROUTED.discard(_key)
+                    _retried = True
+                    logger.info(
+                        f"[BrowserAutomation] ws168 reopen re-scrape cust={_name!r} "
+                        f"preview={_prev[:30]!r} (re-route so enrich re-scrapes the "
+                        f"thread; msg-id dedup/mt030 no-op when nothing new)"
+                    )
+            if not _retried:
+                _skipped["already_routed"] = _skipped.get("already_routed", 0) + 1
+                continue
+        _fs = _BACKSTOP_FIRST_SEEN.setdefault(_key, _now)
+        # ws144: a CONNECT-BANNER row is a cold-start conversation whose real customer
+        # message the WS path is NOT dispatching (WS delivered the card, not the text; the
+        # preview here is a SYSTEM banner, not a customer bubble). So the 15s "give WS first
+        # crack" wait is pure wasted latency — live 1-vs-2 cold-start: 陆地飞鱼's 买两件有优惠吗
+        # arrived 18:19:18 but only routed at 18:20:05 (age=24s), ~47s end-to-end. The ws126
+        # inflight-dedup + mt030 + msg-id dedup already prevent a double-answer if WS DOES
+        # catch it, so route connect-banner rows fast. Regular (missed-msg) rows keep the full
+        # gate. Reversible: ECAN_FEIGE_BACKSTOP_CONNECT_STALE_S (default 4).
+        _stale_eff = _stale_s
+        if _is_connect:
+            _stale_eff = float(
+                os.environ.get("ECAN_FEIGE_BACKSTOP_CONNECT_STALE_S", "4") or 4
+            )
+        # ws167: a DORMANT conversation's row change is a cold start BY DEFINITION —
+        # WS will not deliver this message (no frames since process start / last
+        # 关闭会话), so the 15s "give WS first crack" wait is pure lost latency.
+        # Route on the fast (connect) gate. Live conversations keep the full gate
+        # (WS is delivering for them; this scan is only their late safety net).
+        elif (
+            _is_conv_live is not None
+            and os.environ.get("ECAN_FEIGE_DORMANT_FASTROUTE", "1") != "0"
+        ):
+            try:
+                if not _is_conv_live(_name):
+                    _stale_eff = float(
+                        os.environ.get("ECAN_FEIGE_BACKSTOP_CONNECT_STALE_S", "4") or 4
+                    )
+                    logger.info(
+                        f"[BrowserAutomation] ws167 dormant fast-route "
+                        f"cust={_name!r} preview={_prev[:30]!r} (no WS frames for "
+                        f"this conv -> cold start, gate {_stale_eff:.0f}s)"
+                    )
+            except Exception:
+                pass
+        if (_now - _fs) < _stale_eff:
+            _skipped["not_stale_yet"] = _skipped.get("not_stale_yet", 0) + 1
+            continue
+        _BACKSTOP_ROUTED.add(_key)
+        # ws168 (3): schedule bounded re-routes for a CONNECT-BANNER (reopen) row —
+        # its preview never changes when the customer's next message arrives, and a
+        # partially-painted thread can hide that message from the first enrich pass.
+        if (
+            _is_connect
+            and os.environ.get("ECAN_FEIGE_REOPEN_RESCRAPE", "1") != "0"
+            and _key not in _BACKSTOP_REOPEN_RESCRAPE  # arm once; re-routes must not re-arm
+        ):
+            try:
+                _rs_raw = os.environ.get("ECAN_FEIGE_REOPEN_RESCRAPE_S", "12,30") or "12,30"
+                _rs_delays = [float(x) for x in _rs_raw.split(",") if x.strip()]
+            except (TypeError, ValueError):
+                _rs_delays = [12.0, 30.0]
+            if _rs_delays:
+                _BACKSTOP_REOPEN_RESCRAPE[_key] = [_now + _d for _d in _rs_delays]
+        if _is_sysrow_recovery:
+            _source = "startup_sysrow_backstop"
+            _row_kind = "STARTUP-SYSROW"
+        elif _is_connect:
+            _source = "connect_banner_backstop"
+            _row_kind = "CONNECT-BANNER"
+        else:
+            _source = "missed_msg_backstop"
+            _row_kind = "stale"
+        _item = {
+            "customer_name": _name,
+            "name": _name,
+            "customer_id": _name,
+            "last_message": _prev,
+            "latest_message": _prev,
+            "unread_badge": "1",
+            "_ecan_coldstart_recovery": True,
+            "source": _source,
+        }
+        logger.info(
+            f"[BrowserAutomation] ws108 missed-msg backstop: routing "
+            f"{_row_kind} row cust={_name!r} "
+            f"preview={_prev[:40]!r} age={_now - _fs:.0f}s (enrich thread-scrapes the "
+            f"real message; mt030/dedup decide)"
+        )
+        try:
+            if _FEIGE_FD_DISPATCH_REG.get("slot"):
+                await route_inbound_customer_ws(_item, lambda: None)
+            elif legacy_dispatcher is not None:
+                # ws166: no slot yet — legacy browser_event dispatch. The runner
+                # invokes the node, before_run_hook registers the slot, and THIS
+                # item is processed by the full PreDispatch pipeline.
+                logger.info(
+                    f"[BrowserAutomation] ws166 backstop -> legacy event dispatch "
+                    f"cust={_name!r} (bootstrapping dispatch slot)"
+                )
+                legacy_dispatcher(_item)
+            else:
+                continue
+            _n += 1
+        except Exception as _de:
+            logger.warning(
+                f"[BrowserAutomation] ws108 backstop dispatch failed cust={_name!r}: {_de}"
+            )
+    # GC: a key that's no longer on screen (preview changed = answered or superseded)
+    # is dropped, so a NEW message for the same customer gets tracked + routed fresh.
+    for _k in list(_BACKSTOP_FIRST_SEEN):
+        if _k not in _live_keys:
+            _BACKSTOP_FIRST_SEEN.pop(_k, None)
+            _BACKSTOP_ROUTED.discard(_k)
+            _BACKSTOP_REOPEN_RESCRAPE.pop(_k, None)
+            _BACKSTOP_DEFERRED_LAST_RETRY.pop(_k, None)
+    logger.info(
+        f"[BrowserAutomation] ws108 backstop scan: rows={len(rows)} total={_scan_total} "
+        f"url=...{_scan_url} names={_names[:8]} routed={_n} skipped={_skipped}"
+    )
+    return _n
 
 
 async def before_session_setup_hook(
@@ -196,7 +889,23 @@ async def before_session_setup_hook(
             # Under bursty queues prompt_refs.events can be empty while a
             # stale browser_event remains in state.  If the current input is
             # clearly a Q&A reply, recover it here and force HOT-PATH-B.
-            if not state.get("_ecan_predispatch_actionable_items"):
+            #
+            # ws006 (2026-06-06): but NOT when the CURRENT cycle is a fresh
+            # browser_event (a new customer message). In that case state.input /
+            # messages[4] still holds the PREVIOUS turn's reply; recovering it
+            # forces HOT-PATH-B, which then source-verify-drops it as stale —
+            # consuming the invocation so the new customer message never reaches
+            # PreDispatch. Under WS dispatch the message is then never re-dispatched
+            # (observer dedup + DOM suppressed) → permanently stuck (live 2026-06-06:
+            # 'sc' 2nd msg). build_helpers.py already suppresses the response payload
+            # for browser_event cycles; mirror that here so the browser_event flows
+            # to PreDispatch for fresh Q&A. A genuinely-pending reply still has its
+            # own a2a_response/chat_message event (and the drift-recovery override
+            # below handles a2a_response explicitly).
+            if (
+                not state.get("_ecan_predispatch_actionable_items")
+                and _hp_b_evt_type != "browser_event"
+            ):
                 _hp_b_candidates = []
                 _hp_b_current_values = set()
                 _hp_b_current_input = state.get("current_invocation_input")
@@ -651,6 +1360,38 @@ async def before_session_setup_hook(
                                 f"dispatch_inflight after stale reply drop "
                                 f"for cust={_stale_cust!r}, node={hook_ctx.node_name}"
                             )
+                            # ws142: a cold-start card was dispatched under the
+                            # 'card:<talk>' identity, so its inflight marker is keyed
+                            # there (and on the bare <talk>) — NOT under the resolved
+                            # name cleared above. The ws126 backstop dedup probes
+                            # card:<talk>/<talk>/<name>, so a surviving card-keyed
+                            # inflight BLOCKS the intended re-dispatch of the newer
+                            # bubble → the stale-dropped reply never recovers (live 肽斯特
+                            # 15:38: answer stale-dropped, then 'WS hot path already
+                            # dispatching card:<talk>' for 2min, question answered
+                            # nowhere). Clear the talk-keyed variants too. mt030 +
+                            # msg-id dedup in enrich_item remain the double-answer guard.
+                            # Reversible: ECAN_FEIGE_STALE_CLEAR_CARD_INFLIGHT=0.
+                            if os.environ.get(
+                                "ECAN_FEIGE_STALE_CLEAR_CARD_INFLIGHT", "1"
+                            ) != "0":
+                                try:
+                                    from .ws_session import talk_for_name as _sd_t4n
+                                    _sd_talk = str(_sd_t4n(_stale_cust) or "").strip()
+                                except Exception:
+                                    _sd_talk = ""
+                                if _sd_talk:
+                                    for _sd_k in (f"card:{_sd_talk}", _sd_talk):
+                                        try:
+                                            hook_ctx.clear_dispatch_inflight(_sd_k)
+                                        except Exception:
+                                            pass
+                                    logger.info(
+                                        f"[BrowserAutomation] ws142: also cleared "
+                                        f"inflight for card:{_sd_talk}/{_sd_talk} after "
+                                        f"stale-drop so the backstop re-dispatch isn't "
+                                        f"blocked, cust={_stale_cust!r}"
+                                    )
                             # mt052L (2026-05-29): also clear the dispatched-
                             # msg_id ledger entry so PreDispatch's msg_id-
                             # based dedup doesn't suppress the next scrape's
@@ -682,6 +1423,27 @@ async def before_session_setup_hook(
                                     f"last_dispatched_msg_id clear failed "
                                     f"(non-fatal): {_mt052l_clear_err}"
                                 )
+                            # ws155: complete the clear via the unified primitive. mt052L above
+                            # cleared msg-id and ws142 cleared inflight, but NEITHER cleared the
+                            # identity_key dedup — which then blocked re-dispatch for up to ~1h
+                            # (identity TTL 3600s), orphaning the customer's newer message.
+                            # clear_dispatch_blockers clears ALL blockers (msg-id/identity/inflight)
+                            # across all keys (name/card:<talk>/<talk>); it never touches the
+                            # suppressor stores, so no double-send risk. Additive + gated.
+                            if os.environ.get("ECAN_FEIGE_UNIFIED_BLOCKER_CLEAR", "1") != "0":
+                                try:
+                                    _u155 = _ds.clear_dispatch_blockers(
+                                        _stale_cust, reason="mt052L_stale"
+                                    )
+                                    logger.info(
+                                        f"[BrowserAutomation] ws155 unified blocker-clear "
+                                        f"(mt052L) cust={_stale_cust!r}: {_u155}"
+                                    )
+                                except Exception as _u155_err:
+                                    logger.debug(
+                                        f"[BrowserAutomation] ws155 unified-clear failed "
+                                        f"(non-fatal): {_u155_err}"
+                                    )
                         else:
                             logger.info(
                                 f"[BrowserAutomation] HOT-PATH-B: kept "
@@ -902,6 +1664,35 @@ async def before_session_setup_hook(
                         )
                     # (Typing-lock release now handled inside
                     # feige_chat.hot_path.execute's finally.)
+                    # ws170: action_failed is a retry-chain DEAD-END — the
+                    # send_response_back short-circuit (correctly) never
+                    # propagates it, so a reply that reached HOT-PATH-B via the
+                    # runner's fallback dies here silently (live 2026-07-12
+                    # 17:00:24 card ack). For a card:<talk> identity the failure
+                    # is structural (no row by that name yet): park the reply so
+                    # the backstop flushes it once the talk resolves to a real
+                    # name. Real-name customers keep the existing recovery
+                    # (inflight + last_dispatched cleared above -> PreDispatch
+                    # re-dispatches).
+                    try:
+                        _hp_b_park_cust = str(
+                            _hp_b_payload.get("customer_name")
+                            or _hp_b_payload.get("customer_id")
+                            or ""
+                        )
+                        if _hp_b_park_cust.startswith("card:"):
+                            from . import undeliverable as _hp_b_undlv
+                            _hp_b_undlv.park(
+                                _hp_b_park_cust,
+                                str(_hp_b_payload.get("response_text") or ""),
+                                str(_hp_b_payload.get("source_customer_msg_id") or ""),
+                                reason="hot_path_action_failed",
+                            )
+                    except Exception as _hp_b_park_err:
+                        logger.debug(
+                            f"[BrowserAutomation] ws170 park failed (non-fatal): "
+                            f"{_hp_b_park_err}"
+                        )
                     state.setdefault("result", {})["llm_result"] = {
                         "all_done": True,
                         "work_done": False,
@@ -1009,8 +1800,11 @@ async def before_run_hook(
         normalize_dispatch_identity_key=hook_ctx.normalize_dispatch_identity_key,
         normalize_reply_text=_ds.normalize_reply_text,
         safe_format_dict=hook_ctx.safe_format_dict,
-        feige_typing_holder_getter=_typing_lock.holder,
+        typing_holder_getter=_typing_lock.holder,
     )
+    # ws023: register this context so the WS detector can route messages directly
+    # through run() (bypassing the serial front-desk task) when ECAN_FEIGE_WS_DIRECT_QA=1.
+    _FEIGE_FD_DISPATCH_REG["slot"] = (_pd_config, _pd_ctx, agent)
     return await _run_frontdesk_dispatch(_pd_config, _pd_ctx, agent)
 
 

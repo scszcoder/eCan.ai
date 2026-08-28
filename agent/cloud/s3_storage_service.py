@@ -53,33 +53,66 @@ class S3StorageConfig:
         )
     
     @classmethod
-    def from_default(cls, resource_type: str = 'avatar') -> 'S3StorageConfig':
+    def from_default(cls, resource_type: str = 'avatar', app_config=None) -> 'S3StorageConfig':
         """
-        Load default S3 configuration (hardcoded in code).
-        
-        This configuration is used when environment variables are not set.
-        Uses Cognito temporary credentials by default (no static keys needed).
-        
+        Load default S3 configuration from the active app's cloud_endpoints.json.
+
+        Reads the bucket name from ``app_config._endpoints['backend_avatar_bucket']``
+        (for ``resource_type='avatar'``) or
+        ``app_config._endpoints['backend_skill_bucket']`` (for
+        ``resource_type='skill'``). Region and CDN are likewise sourced from
+        ``storage_region`` / ``cdn``. There is no fallback — if the field is
+        missing we raise, so the misconfiguration surfaces immediately.
+
         Args:
-            resource_type: Type of resource ('avatar' or 'skill')
+            resource_type: Type of resource ('avatar' or 'skill').
+            app_config:    AppConfigLoader instance. When None, the loader is
+                           resolved lazily via utils.app_config_loader.get_config()
+                           so callers can keep passing nothing during early init.
+
+        Raises:
+            RuntimeError: if the active app's cloud_endpoints.json does not
+                declare the bucket name expected for ``resource_type``.
         """
-        # Different buckets for different resource types
+        if app_config is None:
+            from utils.app_config_loader import get_config
+            app_config = get_config()
+        endpoints = app_config._endpoints
+
         if resource_type == 'skill':
-            bucket = 'ecan-skills'
-            path_prefix = ''  # Skills are stored at bucket root level
-        else:  # avatar
-            bucket = 'ecan-avatars'
-            path_prefix = ''  # Avatars are stored at bucket root level
-        
+            bucket_field = 'backend_skill_bucket'
+            path_prefix = ''
+        elif resource_type == 'avatar':
+            bucket_field = 'backend_avatar_bucket'
+            path_prefix = ''
+        else:
+            raise ValueError(
+                f"Unknown resource_type {resource_type!r}; expected 'avatar' or 'skill'"
+            )
+
+        try:
+            bucket = endpoints[bucket_field]
+        except KeyError as exc:
+            raise RuntimeError(
+                f"apps/{app_config.app_id}/config/cloud_endpoints.json is missing "
+                f"required field {bucket_field!r} (resource_type={resource_type!r}). "
+                f"Refusing to fall back to a hardcoded bucket name."
+            ) from exc
+        if not bucket:
+            raise RuntimeError(
+                f"apps/{app_config.app_id}/config/cloud_endpoints.json has empty "
+                f"value for required field {bucket_field!r}."
+            )
+
         return cls(
             access_key='',  # Empty - will use Cognito temporary credentials
             secret_key='',  # Empty - will use Cognito temporary credentials
-            bucket=bucket,  # Resource-specific bucket
-            region='us-east-1',  # AWS region
-            endpoint='',  # Empty for standard AWS S3
-            cdn_domain='',  # Optional: Set CloudFront domain for CDN
-            use_ssl=True,  # Always use HTTPS
-            path_prefix=path_prefix  # Path prefix (empty for root level)
+            bucket=bucket,
+            region=endpoints.get('storage_region') or endpoints.get('aws_region') or '',
+            endpoint=endpoints.get('storage', ''),
+            cdn_domain=endpoints.get('cdn', ''),
+            use_ssl=True,
+            path_prefix=path_prefix,
         )
     
     def is_configured(self) -> bool:
@@ -430,27 +463,36 @@ class S3StorageService:
 
 def create_s3_storage_service(
     config: S3StorageConfig = None,
-    use_cognito_credentials: bool = True
+    use_cognito_credentials: bool = True,
+    resource_type: str = 'avatar',
 ) -> Optional[S3StorageService]:
     """
     Create AWS S3 storage service.
-    
+
     Args:
-        config: S3 storage configuration. If None, loads from default config.
-        use_cognito_credentials: Whether to use Cognito temporary credentials
-    
+        config: S3 storage configuration. If None, loaded from env vars and
+            then from the active app's ``cloud_endpoints.json``.
+        use_cognito_credentials: Whether to use Cognito temporary credentials.
+        resource_type: Which bucket to load from cloud_endpoints.json when
+            ``config`` is None. ``'avatar'`` (default) reads
+            ``backend_avatar_bucket``; ``'skill'`` reads ``backend_skill_bucket``.
+
     Returns:
         S3StorageService instance or None if not configured
     """
     if config is None:
-        # Try loading from environment first, fallback to default
+        # Try loading from environment first, fallback to app config
         env_config = S3StorageConfig.from_env()
         if env_config.bucket:
             config = env_config
             logger.info("[S3Storage] Using configuration from environment variables")
         else:
-            config = S3StorageConfig.from_default()
-            logger.info("[S3Storage] Using default hardcoded configuration")
+            # Resolve the bucket from the active app's cloud_endpoints.json.
+            # from_default() raises if the field is missing — that is intentional,
+            # see the docstring for why we do not fall back to a hardcoded name.
+            from utils.app_config_loader import get_config
+            config = S3StorageConfig.from_default(resource_type=resource_type, app_config=get_config())
+            logger.info(f"[S3Storage] Using configuration from app cloud_endpoints.json (resource_type={resource_type})")
     
     # Try to get Cognito credentials if enabled
     aws_credentials = None

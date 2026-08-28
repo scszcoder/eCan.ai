@@ -18,7 +18,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 
 def clean_browser_profile_locks(user_data_dir: str | Path | None) -> bool:

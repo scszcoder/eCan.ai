@@ -1,5 +1,11 @@
 # Authentication Configuration
 # Centralized configuration for all authentication providers
+#
+# Production credentials MUST come from environment variables:
+#   AWS_COGNITO_USER_POOL_ID, AWS_COGNITO_CLIENT_ID,
+#   AWS_COGNITO_IDENTITY_POOL_ID, AWS_REGION.
+# The defaults below are the Intl dev pool only — override via env vars
+# for any non-local environment. See docs/SECRETS_CONFIG.md.
 
 COGNITO:
   USER_POOL_ID: "us-east-1_uUmKJUfB3"  # Set via environment variable AWS_COGNITO_USER_POOL_ID

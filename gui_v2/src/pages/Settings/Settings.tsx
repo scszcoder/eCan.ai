@@ -12,6 +12,9 @@ import { get_ipc_api } from '@/services/ipc_api';
 import type { Settings } from './types';
 import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement, BrowserUseSettings, GeneralTabContent, ChannelSettings } from './components';
 
+// CN/Intl detection is now handled by backend at login time (see user_handler._apply_intl_endpoints)
+// CN uses TCB, Intl uses AppSync - frontend receives populated endpoints from backend
+
 // Suppress Ant Design useForm warning (form is properly connected in Tab children)
 const originalError = console.error;
 const originalWarn = console.warn;
@@ -125,16 +128,19 @@ const OCR_PRESETS = {
   }
 };
 
+// Endpoints are now populated by backend at login time (see user_handler._apply_intl_endpoints)
+// CN uses TCB (no endpoint config needed), Intl uses AppSync (filled from auth_config.yml)
+
 const initialSettings: Settings = {
   // General
   schedule_mode: 'auto',
   debug_mode: false,
-  
+
   // Hardware
   default_wifi: '',
   default_printer: '',
   display_resolution: 'D1920X1080',
-  
+
   // Paths
   default_webdriver_path: '',
   build_dom_tree_script_path: 'agent/ec_skills/dom/buildDomTree.js',
@@ -145,7 +151,7 @@ const initialSettings: Settings = {
   browser_use_download_dir: '',
   browser_use_user_data_dir: '',
   gui_flowgram_schema: 'myskills/node_schemas.json',
-  
+
   // Local DB
   local_user_db_host: '127.0.0.1',
   local_user_db_port: '5080',
@@ -153,17 +159,16 @@ const initialSettings: Settings = {
   local_agent_db_port: '6668',
   local_agent_ports: [3600, 3800],
   local_server_port: '4668',
-  
-  // API Endpoints
+
+  // API Endpoints (populated by backend at login time)
   lan_api_endpoint: '',
-  wan_api_endpoint: 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql',
-  ws_api_endpoint: 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql',
-  ws_api_host: '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com',
+  wan_api_endpoint: '',
+  ws_api_endpoint: '',
+  ws_api_host: '',
   ecan_cloud_searcher_url: 'http://52.204.81.197:5808/search_components',
   
   // API Keys
   wan_api_key: '',
-  ocr_api_key: '',
   
   // Engines
   network_api_engine: 'lan',
@@ -171,6 +176,11 @@ const initialSettings: Settings = {
   
   // OCR
   ocr_api_endpoint: 'http://52.204.81.197:8848/graphql/reqScreenTxtRead',
+  ocr_api_key: '',
+  
+  // Cloud LLM Proxy
+  use_lambda_proxy: false,
+  lambda_proxy_endpoint: '',
   
   // LLM
   default_llm: 'ChatOpenAI',
@@ -912,7 +922,7 @@ const Settings: React.FC = () => {
               label: (
                 <span>
                   <MessageOutlined style={{ marginRight: 8 }} />
-                  Channels
+                  {t('pages.settings.channels_tab_title')}
                 </span>
               ),
               children: <ChannelSettings />,

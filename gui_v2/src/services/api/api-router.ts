@@ -84,7 +84,7 @@ export class APIRouter {
 
   private constructor(config: APIRouterConfig = {}) {
     this.config = {
-      localServerBaseUrl: config.localServerBaseUrl || 'http://localhost:4668',
+      localServerBaseUrl: config.localServerBaseUrl ?? '',
       enableLogging: config.enableLogging ?? true,
       defaultTimeout: config.defaultTimeout || 30000  // 30 秒，后端串行处理请求时排队可能超过 10 秒
     };
@@ -479,7 +479,12 @@ export class APIRouter {
         // For mutations with input objects: inject owner into each input item
         // so the Lambda can resolve user identity even when JWT expires and
         // AppSync falls back to API-key auth (no identity claims available).
-        if (mutation && 'input' in params) {
+        if (
+          mutation
+          && 'input' in params
+          && !definition.method.startsWith('skill_editor.')
+          && definition.method !== 'rag_register_documents'
+        ) {
           const username = (params as any).username
             || userStorageManager.getUsername()
             || userStorageManager.getUserInfo()?.email
@@ -570,31 +575,24 @@ export class APIRouter {
 
   /**
    * 获取本地服务器 URL
-   * 根据运行环境动态构建正确的服务器地址
+   *
+   * production 下 WebEngineView 从 file:// 加载，但仍需要访问本地后端
+   * LocalServer。直接用 `window.location.origin` 在 file:// 下会是
+   * `null`/空串，所以这里固定返回 LocalServer 的 localhost URL（端口
+   * 来自 VITE_LOCAL_SERVER_PORT，默认 4668，与 vite.config.ts proxy 一致）。
+   * dev 下用 origin 即可：页面从 http://localhost:3000/ 加载，
+   * /graphql 等由 vite proxy 转发给 LocalServer。
    */
   private getLocalServerUrl(): string {
-    // 1. 优先使用配置的 baseUrl
     if (this.config.localServerBaseUrl) {
       return this.config.localServerBaseUrl;
     }
-
-    // 2. 根据当前页面 URL 动态构建
-    if (typeof window !== 'undefined') {
-      const currentHost = window.location.hostname;
-      const protocol = window.location.protocol;
-      
-      // Desktop 模式：使用 localhost
-      if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
-        return `${protocol}//localhost:4668`;
-      }
-      
-      // Web 模式：使用当前页面的 IP 地址
-      // 例如：http://192.168.1.100:3000 → http://192.168.1.100:4668
-      return `${protocol}//${currentHost}:4668`;
+    if (typeof window !== 'undefined' && window.location?.origin?.startsWith('http')) {
+      return window.location.origin;
     }
-
-    // 3. 降级到默认值
-    return 'http://localhost:4668';
+    // file:// 或 SSR: 退回 LocalServer 默认地址
+    const port = import.meta.env.VITE_LOCAL_SERVER_PORT || '4668';
+    return `http://localhost:${port}`;
   }
 
   /**

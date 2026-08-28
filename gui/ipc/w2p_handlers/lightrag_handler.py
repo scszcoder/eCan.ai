@@ -1289,12 +1289,15 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
             if pipeline_data.get('busy') or processing > 0 or pending > 0:
                 logger.info(f"[lightrag_handler] Including pipeline data: busy={pipeline_data.get('busy')}, processing={processing}, pending={pending}")
                 
-                # Get chunk progress from pipeline_data (set by operate_custom.py)
+                # Chunk-level progress fields. LightRAG ≥ 1.5 no longer exposes
+                # them through /documents/pipeline_status (only batch-level via
+                # ``cur_batch`` / ``batchs``). We keep the keys in the GUI
+                # response as None so older GUI builds that read them do not
+                # crash; they will simply show no chunk progress.
                 total_chunks = pipeline_data.get('total_chunks', 0)
                 processed_chunks = pipeline_data.get('processed_chunks', 0)
-                # Get current processing file path for per-document progress display
                 current_chunk_file = pipeline_data.get('current_chunk_file', None)
-                
+
                 pipeline_info = {
                     'job_name': pipeline_data.get('job_name'),
                     'current_batch': pipeline_data.get('cur_batch', 0),
@@ -1302,7 +1305,7 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
                     'latest_message': pipeline_data.get('latest_message'),
                     'total_chunks': total_chunks if total_chunks > 0 else None,
                     'processed_chunks': processed_chunks if total_chunks > 0 else None,
-                    'current_chunk_file': current_chunk_file  # File path of current processing document
+                    'current_chunk_file': current_chunk_file,  # File path of current processing document (1.5: always None)
                 }
                 
                 logger.info(f"[lightrag_handler] Pipeline info: {pipeline_info}")
@@ -1689,107 +1692,6 @@ def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         return create_error_response(request, 'QUERY_GRAPH_ERROR', str(e))
 
 
-def _convert_providers_to_lightrag_ui(providers: List[Dict[str, Any]], provider_type: str, manager) -> List[Dict[str, Any]]:
-    """
-    Convert standard provider format to LightRAG UI format.
-    
-    Args:
-        providers: List of provider dicts from manager.get_all_providers()
-        provider_type: 'LLM', 'EMBEDDING', or 'RERANK'
-        manager: Manager instance for retrieving API keys
-    
-    Returns:
-        List of provider dicts in LightRAG UI format
-    """
-    ui_providers = []
-    
-    for p in providers:
-        # Build model field
-        model_key = f'{provider_type}_MODEL'
-        default_model = p.get('default_model', '')
-        model_field = {
-            'key': model_key,
-            'label': 'fields.model',
-            'type': 'text',
-            'required': True,
-            'defaultValue': default_model
-        }
-        
-        # Add model options if available
-        supported_models = p.get('supported_models', [])
-        if supported_models:
-            model_field['type'] = 'select'
-            model_field['options'] = [
-                {'value': m.get('model_id'), 'label': m.get('display_name') or m.get('name')}
-                for m in supported_models
-            ]
-        
-        fields = [model_field]
-        model_metadata = {}
-        
-        # Embedding-specific fields
-        if provider_type == 'EMBEDDING':
-            fields.append({'key': 'EMBEDDING_DIM', 'label': 'fields.dimensions', 'type': 'number', 'placeholder': '1024', 'disabled': True})
-            fields.append({'key': 'EMBEDDING_TOKEN_LIMIT', 'label': 'fields.tokenLimit', 'type': 'number', 'placeholder': '8192', 'disabled': True})
-            # Build model metadata
-            for m in supported_models:
-                model_metadata[m.get('model_id')] = {
-                    'dimensions': m.get('dimensions'),
-                    'max_tokens': m.get('max_tokens')
-                }
-        
-        # Host field for local providers
-        if p.get('base_url') or p.get('is_local'):
-            host_key = f'{provider_type}_BINDING_HOST'
-            fields.append({
-                'key': host_key,
-                'label': 'fields.apiHost',
-                'type': 'text',
-                'defaultValue': p.get('base_url', ''),
-                'disabled': True
-            })
-        
-        # API key field
-        api_key_env_vars = p.get('api_key_env_vars', [])
-        if api_key_env_vars and manager:
-            api_key_key = f'{provider_type}_BINDING_API_KEY'
-            field_def = {
-                'key': api_key_key,
-                'label': 'fields.apiKey',
-                'type': 'password',
-                'required': True
-            }
-            
-            # Try to retrieve API key
-            try:
-                for env_var in api_key_env_vars:
-                    api_key = manager.retrieve_api_key(env_var)
-                    if api_key:
-                        field_def['isSystemManaged'] = True
-                        field_def['defaultValue'] = api_key
-                        break
-            except Exception as e:
-                logger.warning(f"Failed to retrieve API key for {p.get('provider')}: {e}")
-            
-            fields.append(field_def)
-        
-        # Build provider UI object
-        provider_ui = {
-            'id': p.get('provider'),
-            'name': p.get('display_name'),
-            'description': p.get('description'),
-            'fields': fields
-        }
-        
-        # Add model metadata for embedding providers
-        if provider_type == 'EMBEDDING' and model_metadata:
-            provider_ui['modelMetadata'] = model_metadata
-        
-        ui_providers.append(provider_ui)
-    
-    return ui_providers
-
-
 @IPCHandlerRegistry.handler('lightrag.getSystemProviders')
 def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
@@ -1799,16 +1701,24 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
     """
     try:
         from app_context import AppContext
-        from gui.ipc.context_bridge import get_handler_context
+        from gui.ipc.context_bridge import get_handler_context, get_username
         from gui.ollama_utils import merge_ollama_models_to_providers
-        from gui.ryoais_utils import merge_ryoais_models_to_providers
+        from gui.ryoais_utils import merge_ryoais_models_to_providers, load_ryoais_models
         
         # Get manager instances
         ctx = get_handler_context(request, params)
         llm_manager = ctx.get_config_manager().llm_manager if ctx else None
         embedding_manager = ctx.get_config_manager().embedding_manager if ctx else None
         rerank_manager = ctx.get_config_manager().rerank_manager if ctx else None
-        
+
+        # Get current username for user-specific file paths
+        username = get_username(request, params)
+
+        # Pre-load RyoAIS models with correct username so merge finds them
+        ryoais_llm = load_ryoais_models(username=username, model_type='llm')
+        ryoais_emb = load_ryoais_models(username=username, model_type='embedding')
+        ryoais_rerank = load_ryoais_models(username=username, model_type='rerank')
+
         # Get providers with Ollama and RyoAIS models merged (same as Settings page)
         llm_providers = merge_ollama_models_to_providers(
             llm_manager.get_all_providers() if llm_manager else [],
@@ -1816,6 +1726,7 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
         )
         llm_providers = merge_ryoais_models_to_providers(
             llm_providers,
+            ryoais_models=ryoais_llm,
             provider_type='llm'
         )
         
@@ -1825,6 +1736,7 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
         )
         embedding_providers = merge_ryoais_models_to_providers(
             embedding_providers,
+            ryoais_models=ryoais_emb,
             provider_type='embedding'
         )
         
@@ -1834,18 +1746,14 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
         )
         rerank_providers = merge_ryoais_models_to_providers(
             rerank_providers,
+            ryoais_models=ryoais_rerank,
             provider_type='rerank'
         )
         
-        # Convert to LightRAG UI format
-        llm_providers_ui = _convert_providers_to_lightrag_ui(llm_providers, 'LLM', llm_manager)
-        embedding_providers_ui = _convert_providers_to_lightrag_ui(embedding_providers, 'EMBEDDING', embedding_manager)
-        rerank_providers_ui = _convert_providers_to_lightrag_ui(rerank_providers, 'RERANK', rerank_manager)
-        
         return create_success_response(request, {
-            'llm_providers': llm_providers_ui,
-            'embedding_providers': embedding_providers_ui,
-            'rerank_providers': rerank_providers_ui
+            'llm_providers': llm_providers,
+            'embedding_providers': embedding_providers,
+            'rerank_providers': rerank_providers
         })
     except Exception as e:
         logger.error(f"Error getting system providers: {e}")

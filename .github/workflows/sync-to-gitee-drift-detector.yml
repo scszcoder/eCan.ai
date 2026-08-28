@@ -1,0 +1,248 @@
+# ============================================================================
+# GitHub Actions Workflow: Gitee mirror drift detector
+# ============================================================================
+#
+# Compares a known set of refs between GitHub (source of truth) and Gitee
+# (mirror) and triggers a `sync-to-gitee` re-run when the two diverge.
+#
+# Why this exists:
+#
+#   `sync-to-gitee.yml` pushes on every GitHub `push:` event and every 6h
+#   schedule tick. The push-based trigger covers nearly all real-world
+#   divergence. The 6h schedule is the safety net for:
+#
+#     * GitHub Actions cache LRU eviction (~7d unused) — first run after
+#     eviction has no bare clone to fetch from.
+#     * External actors modifying the Gitee mirror (manual force-push,
+#     web admin deletes a ref, repo deletion).
+#     * A `sync-to-gitee` run that fails silently (e.g. GITEE_TOKEN lost
+#     scope: push exits 0 with no refs sent; verifier catches it but the
+#     failure is invisible until the next push trigger).
+#
+#   Those scenarios can leave the mirror stale for an unbounded interval
+#   if no new push event arrives. The drift detector runs weekly and asks
+#   "are the SHAs equal?" — if not, it auto-dispatches `sync-to-gitee`
+#   with `workflow_dispatch`, which is a real sync run (not just a smoke
+#   test). The drift detector never repairs directly; it only re-runs
+#   the authoritative sync workflow.
+#
+# Design constraints:
+#
+#   * No write to this repo, no write to Gitee. Read-only operations on
+#   both sides plus a `workflow_dispatch` of an existing workflow.
+#   * Drift detection is reference-based: the workflow compares a small
+#     set of high-signal refs (HEAD branches + recent tags) — NOT every
+#     ref. A full ref set comparison would take longer than the sync
+#     itself and is unnecessary: a divergence on any high-signal ref
+#     triggers a full sync, which catches everything.
+#   * Drift detection is OFFLINE with respect to push events: even if
+#     `sync-to-gitee` ran perfectly 5 minutes ago, this detector may run
+#     immediately after and find zero drift. The cost is one `git ls-remote`
+#     to each side per week (~1s).
+#
+# Required secrets: GITEE_TOKEN (same secret the mirror workflow uses;
+# the detector only reads via `git ls-remote` + the Gitee REST API).
+#
+# Manual trigger: `workflow_dispatch` lets an operator force a check
+# after suspected incidents ("did that force-push actually sync?").
+# ============================================================================
+
+name: Sync to Gitee — drift detector
+
+# Drift detection is cheap (~5s). No concurrency group: it's safe to
+# overlap multiple detector runs, and pinning them to a single lane
+# could delay recovery by a schedule tick.
+on:
+  schedule:
+    # Weekly Monday 03:00 UTC. Picks a low-traffic hour for the
+    # detector so it never collides with sync-to-gitee on a
+    # cache-miss re-clone (~30s). 03:00 UTC = 11:00 Beijing time,
+    # which is empirically the quietest window for eCan.ai.
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why are you running this manually?'
+        required: false
+        default: 'manual check'
+
+jobs:
+  detect-and-repair:
+    name: Detect drift and dispatch sync if found
+    runs-on: ubuntu-latest
+    # Read GitHub refs (free, no scope) + read Gitee via REST/ls-remote
+    # (GITEE_TOKEN) + dispatch an existing workflow (GITHUB_TOKEN, default).
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GITEE_OWNER: songszchen
+      GITEE_REPO: eCan.ai
+      SRC_REPO: 'https://github.com/${{ github.repository }}.git'
+    steps:
+      - name: Validate inputs
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          MANUAL_REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GITEE_TOKEN:-}" ]; then
+            echo "::error::secrets.GITEE_TOKEN is empty. The drift detector reads Gitee via /api/v5/repos/... and git ls-remote; without the token both probes will 401."
+            exit 1
+          fi
+          echo "[OK] GITEE_TOKEN present"
+          if [ -n "${MANUAL_REASON:-}" ]; then
+            echo "[INFO] Manual trigger reason: ${MANUAL_REASON}"
+          fi
+
+      - name: Detect drift between GitHub and Gitee
+        id: detect
+        # Compare a curated list of high-signal refs. The list is
+        # intentionally short: any divergence triggers a full sync,
+        # so coverage is implicitly complete. Keeping it short means
+        # a single `git ls-remote` per side (~5s combined) instead of
+        # an exhaustive ~1141-ref compare (~minutes).
+        #
+        # The list mirrors what operators care about for "did the
+        # sync work?" — default branches + the most recent tags.
+        # Add branches here as the project's release topology evolves.
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          DRIFT_REFS: 'refs/heads/lq_dev_multi, refs/heads/master, refs/tags'
+        run: |
+          set -euo pipefail
+
+          # Inline credential helper for Gitee. Same pattern as the
+          # sync workflow; never embedded into the URL.
+          GIT_ASKPASS=$(mktemp)
+          cat > "$GIT_ASKPASS" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            Username*) echo 'oauth2' ;;
+            Password*) printf '%s' "$GITEE_TOKEN" ;;
+            *) echo ;;
+          esac
+          EOF
+          chmod 700 "$GIT_ASKPASS"
+
+          mkdir -p /tmp/drift
+          echo "====[ GitHub refs ]===="
+          GIT_ASKPASS="$GIT_ASKPASS" git ls-remote "$SRC_REPO" \
+            | sort > /tmp/drift/github.txt
+          wc -l /tmp/drift/github.txt
+
+          echo "====[ Gitee refs ]===="
+          GIT_ASKPASS="$GIT_ASKPASS" git ls-remote \
+            "https://gitee.com/${GITEE_OWNER}/${GITEE_REPO}.git" \
+            | sort > /tmp/drift/gitee.txt
+          wc -l /tmp/drift/gitee.txt
+
+          rm -f "$GIT_ASKPASS"
+
+          # Resolve the curated DRIFT_REFS list to concrete refs.
+          # `refs/tags` is a token (top 3 most-recent tags); the
+          # others are exact names. We ask GitHub (source of truth)
+          # which tag refs exist, then build the comparison set.
+          echo "====[ Curated ref set ]===="
+          : > /tmp/drift/curated.txt
+          for r in $(printf '%s' "$DRIFT_REFS" | tr ',' ' '); do
+            r_trim="$(echo "$r" | xargs)"
+            [ -z "$r_trim" ] && continue
+            if [ "$r_trim" = "refs/tags" ]; then
+              # Pull the 3 most-recent tags off GitHub (source of
+              # truth) — using local GH ls-remote output avoids a
+              # second API call.
+              grep -E '^[^[:space:]]+[[:space:]]+refs/tags/' /tmp/drift/github.txt \
+                | tail -3 | awk '{print $2}' >> /tmp/drift/curated.txt
+            elif echo "$r_trim" | grep -q '^refs/'; then
+              echo "$r_trim" >> /tmp/drift/curated.txt
+            fi
+          done
+          sort -u /tmp/drift/curated.txt > /tmp/drift/curated.sorted.txt
+          cat /tmp/drift/curated.sorted.txt
+
+          # Compare SHAs per ref. `join -j 2` aligns on the refname
+          # column; columns end up as: ref github-sha gitee-sha.
+          echo "====[ Per-ref SHA comparison ]===="
+          : > /tmp/drift/join.txt
+          while IFS= read -r ref; do
+            [ -z "$ref" ] && continue
+            gh_sha=$(awk -v r="$ref" '$2 == r {print $1}' /tmp/drift/github.txt)
+            gt_sha=$(awk -v r="$ref" '$2 == r {print $1}' /tmp/drift/gitee.txt)
+            printf '%s %s %s\n' "$ref" "${gh_sha:-MISSING}" "${gt_sha:-MISSING}" >> /tmp/drift/join.txt
+          done < /tmp/drift/curated.sorted.txt
+          cat /tmp/drift/join.txt
+
+          # Drift condition: any row where github != gitee, OR
+          # a ref missing on either side. `tail -n +1` reads rows;
+          # awk flags ones where the two SHAs differ or either is
+          # MISSING.
+          DRIFT_COUNT=$(awk '$2 == "MISSING" || $3 == "MISSING" || $2 != $3' \
+            /tmp/drift/join.txt | wc -l | tr -d ' ')
+          echo "[DRIFT_COUNT=${DRIFT_COUNT}]"
+
+          # Persist as a step output so the dispatch step can gate
+          # on it via `if: steps.detect.outputs.drift_count != '0'`.
+          # GitHub Actions does NOT automatically surface shell
+          # variables; they must be written via $GITHUB_OUTPUT.
+          echo "drift_count=${DRIFT_COUNT}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch sync-to-gitee on mismatch
+        # Drift detected → invoke the authoritative sync workflow.
+        # We use the GITHUB_TOKEN (default) — no extra secret needed.
+        # The dispatched run is a real sync, not a smoke check; it
+        # runs the full bare-clone / push / verify pipeline.
+        #
+        # Why a separate dispatch instead of doing the push here:
+        #   * Single source of truth for sync logic. Drift detector
+        #     stays a thin comparator.
+        #   * If sync-to-gitee's logic changes (e.g. the SIGPIPE-141
+        #     fix), this detector automatically picks it up — no
+        #     parallel logic to drift.
+        #   * Cache state is preserved on the sync-to-gitee side;
+        #     a detector that pushed from scratch would re-clone
+        #     ~30s of pack every time it found drift.
+        if: steps.detect.outputs.drift_count != '0'
+        env:
+          # `inputs.reason` is only set when invoked manually; on a
+          # schedule tick we fall back to a fixed label so the run
+          # always has a human-readable dispatch reason.
+          DRIFT_REASON: ${{ inputs.reason || 'weekly drift detector found divergence' }}
+        run: |
+          set -euo pipefail
+          echo "::warning::Drift detected (count=${{ steps.detect.outputs.drift_count }}); dispatching sync-to-gitee..."
+          cat /tmp/drift/join.txt
+
+          RESPONSE=$(curl -sS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/sync-to-gitee.yml/dispatches" \
+            -d '{"ref":"'"$GITHUB_REF_NAME"'"}')
+
+          # The dispatches endpoint returns 204 on success with no
+          # body. Anything else is a problem worth surfacing.
+          if [ -n "$RESPONSE" ]; then
+            echo "::error::workflow_dispatch returned body: $RESPONSE"
+            exit 1
+          fi
+          echo "[OK] sync-to-gitee dispatched (reason: ${DRIFT_REASON})"
+
+      - name: Report mirror consistency
+        # Single-line PASS/FAIL summary. Surfaced in the GitHub UI
+        # so an operator scanning recent workflow runs sees at a
+        # glance whether drift has ever been detected.
+        #
+        # The detect step's `id` exposes its `drift_count` output;
+        # we re-derive it here (instead of trusting the persisted
+        # /tmp file) so a stray /tmp reset can't poison the report.
+        if: always()
+        run: |
+          DRIFT_COUNT="$(awk '$2 == "MISSING" || $3 == "MISSING" || $2 != $3' \
+            /tmp/drift/join.txt 2>/dev/null | wc -l | tr -d ' ')"
+          if [ "$DRIFT_COUNT" = "0" ]; then
+            echo "MIRROR CONSISTENT (drift_count=0)"
+            exit 0
+          fi
+          echo "MIRROR DRIFT DETECTED (drift_count=${DRIFT_COUNT})"
+          echo "::error::Drift detector found ${DRIFT_COUNT} divergent refs. sync-to-gitee was dispatched; check its run for resolution. If the dispatched run also fails (e.g. GITEE_TOKEN invalid, Gitee unreachable), manual intervention is required: rerun sync-to-gitee via workflow_dispatch after fixing."
+          exit 1

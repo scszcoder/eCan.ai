@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Modal, Alert } from 'antd';
+import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Modal } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { 
@@ -20,73 +20,20 @@ import { FIELDS_BY_TAB, FieldConfig, PROVIDER_BASED_TABS } from './settingsConfi
 import WorkspaceSelector from './WorkspaceSelector';
 import ProviderSelector from './ProviderSelector';
 import {
-  RERANKING_PROVIDERS, RERANKING_COMMON_FIELDS,
-  LLM_PROVIDERS, LLM_COMMON_FIELDS,
-  EMBEDDING_PROVIDERS, EMBEDDING_COMMON_FIELDS,
-  STORAGE_KV_PROVIDERS, STORAGE_VECTOR_PROVIDERS, STORAGE_GRAPH_PROVIDERS, 
+  STORAGE_KV_PROVIDERS, STORAGE_VECTOR_PROVIDERS, STORAGE_GRAPH_PROVIDERS,
   STORAGE_DOC_STATUS_PROVIDERS, STORAGE_COMMON_POSTGRES,
-  ProviderConfig
+  RERANKING_COMMON_FIELDS,
+  LLM_COMMON_FIELDS,
+  EMBEDDING_COMMON_FIELDS,
+  ProviderConfig, getProvidersByRegion
 } from './providerConfig';
+import { buildProviderConfig, type RawProvider } from './buildProviderFields';
+import { useIsCN } from '@/contexts/AppConfigContext';
 import { Card } from 'antd';
 import HelpDialog from './HelpDialog';
 
-// Helper to merge static providers with system providers
-// Preserves static config (rich UI) for known providers, adds new ones from system
-// IMPORTANT: Keep all static providers even if not in system list (for offline/fallback)
-const mergeProviders = (staticList: ProviderConfig[], systemList: ProviderConfig[]) => {
-  if (!systemList || !Array.isArray(systemList)) return staticList;
-  
-  const systemMap = new Map(systemList.map(p => [p.id.toLowerCase(), p]));
-  const result: ProviderConfig[] = [];
-
-  // Process static list first to preserve order and rich fields
-  for (const staticP of staticList) {
-    if (systemMap.has(staticP.id.toLowerCase())) {
-      // Keep static config for known providers as it has better UI definitions
-      // BUT we must merge dynamic data (options, defaults, system status) from the system provider
-      const systemP = systemMap.get(staticP.id.toLowerCase())!;
-      
-      // Clone static provider to avoid mutation
-      const mergedP = { ...staticP, fields: [...staticP.fields] };
-      
-      // Merge modelMetadata from system provider (for embedding providers)
-      if (systemP.modelMetadata) {
-        mergedP.modelMetadata = systemP.modelMetadata;
-      }
-      
-      // Update fields with system data
-      mergedP.fields = mergedP.fields.map(staticField => {
-        const systemField = systemP.fields.find(f => f.key === staticField.key);
-        if (systemField) {
-          // Start with system field (has runtime data), then overlay static field UI properties
-          return {
-            ...systemField,
-            // Preserve static field UI properties
-            label: staticField.label || systemField.label,
-            placeholder: staticField.placeholder || systemField.placeholder,
-            tooltip: staticField.tooltip || systemField.tooltip,
-            required: staticField.required !== undefined ? staticField.required : systemField.required,
-          };
-        }
-        return staticField;
-      });
-
-      result.push(mergedP);
-      systemMap.delete(staticP.id.toLowerCase());
-    } else {
-      // Keep static provider even if not in system list (for offline/fallback)
-      // This includes 'null' and any providers not returned by backend
-      result.push(staticP);
-    }
-  }
-
-  // Add remaining new providers from system
-  for (const p of systemMap.values()) {
-    result.push(p);
-  }
-  
-  return result;
-};
+// Helper to build ProviderConfig from raw backend data
+// (defined in buildProviderFields.ts)
 
 interface Workspace {
   name: string;
@@ -518,9 +465,20 @@ const SettingsTab: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [llmProviders, setLlmProviders] = useState<ProviderConfig[]>(LLM_PROVIDERS);
-  const [embeddingProviders, setEmbeddingProviders] = useState<ProviderConfig[]>(EMBEDDING_PROVIDERS);
-  const [rerankingProviders, setRerankingProviders] = useState<ProviderConfig[]>(RERANKING_PROVIDERS);
+  
+  // Get current region for provider filtering
+  const isCN = useIsCN();
+  const currentRegion = isCN ? 'cn' : 'intl';
+  
+  // Use ref to always get the latest region value in async callbacks
+  const regionRef = useRef(currentRegion);
+  useEffect(() => {
+    regionRef.current = currentRegion;
+  }, [currentRegion]);
+  
+  const [llmProviders, setLlmProviders] = useState<ProviderConfig[]>([]);
+  const [embeddingProviders, setEmbeddingProviders] = useState<ProviderConfig[]>([]);
+  const [rerankingProviders, setRerankingProviders] = useState<ProviderConfig[]>([]);
   
   const { t, ready } = useTranslation();
   const { token } = theme.useToken();
@@ -534,7 +492,7 @@ const SettingsTab: React.FC = () => {
       await loadProviders();
     };
     initializeSettings();
-  }, []);
+  }, [isCN]);
 
   // Auto-check dimension conflict when user manually changes dimension
   useEffect(() => {
@@ -784,13 +742,17 @@ const SettingsTab: React.FC = () => {
     try {
       const response = await get_ipc_api().executeRequest<any>('lightrag.getSystemProviders', {});
       if (response.success && response.data) {
-        const systemLlm = response.data.llm_providers as ProviderConfig[];
-        const systemEmbed = response.data.embedding_providers as ProviderConfig[];
-        const systemRerank = response.data.rerank_providers as ProviderConfig[];
+        const rawLlm = (response.data.llm_providers || []) as RawProvider[];
+        const rawEmbed = (response.data.embedding_providers || []) as RawProvider[];
+        const rawRerank = (response.data.rerank_providers || []) as RawProvider[];
 
-        setLlmProviders(mergeProviders(LLM_PROVIDERS, systemLlm));
-        setEmbeddingProviders(mergeProviders(EMBEDDING_PROVIDERS, systemEmbed));
-        setRerankingProviders(mergeProviders(RERANKING_PROVIDERS, systemRerank));
+        const builtLlm = rawLlm.map(p => buildProviderConfig(p, 'llm'));
+        const builtEmbed = rawEmbed.map(p => buildProviderConfig(p, 'embedding'));
+        const builtRerank = rawRerank.map(p => buildProviderConfig(p, 'rerank'));
+
+        setLlmProviders(getProvidersByRegion(builtLlm, regionRef.current as 'cn' | 'intl'));
+        setEmbeddingProviders(getProvidersByRegion(builtEmbed, regionRef.current as 'cn' | 'intl'));
+        setRerankingProviders(getProvidersByRegion(builtRerank, regionRef.current as 'cn' | 'intl'));
       }
     } catch (e) {
       console.error('Failed to load system providers:', e);
@@ -1588,29 +1550,6 @@ const SettingsTab: React.FC = () => {
         padding: '20px 24px 0 24px',
         background: token.colorBgLayout
       }}>
-        {/* Server Status Indicator - Always visible */}
-        {startupStatus && (
-          <Alert
-            type={startupStatus.running && startupStatus.ok !== false ? "success" : "warning"}
-            showIcon
-            style={{ marginBottom: 12 }}
-            message={
-              startupStatus.running && startupStatus.ok !== false 
-                ? "LightRAG 服务运行中" 
-                : t('pages.knowledge.settings.lightragUnavailableTitle')
-            }
-            description={
-              !startupStatus.running || startupStatus.ok === false ? (
-                <div>
-                  <div>{startupStatus.message || t('pages.knowledge.settings.lightragUnavailableDesc')}</div>
-                  <div style={{ marginTop: 6, color: token.colorTextSecondary }}>
-                    {t('pages.knowledge.settings.lightragUnavailableAction')}
-                  </div>
-                </div>
-              ) : undefined
-            }
-          />
-        )}
         <div style={{
           display: 'flex',
           alignItems: 'center',

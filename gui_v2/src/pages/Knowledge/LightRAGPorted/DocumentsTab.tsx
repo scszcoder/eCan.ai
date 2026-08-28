@@ -5,7 +5,6 @@ import { ScanOutlined, UnorderedListOutlined, ClearOutlined, FolderOpenOutlined,
 import { useTheme } from '@/contexts/ThemeContext';
 import React, { useState, useEffect, useRef } from 'react';
 import type { ProcessingProgress } from '@/services/ipc/lightragApi';
-import WorkspacePicker from './WorkspacePicker';
 import { useWorkspace } from './useWorkspace';
 
 interface Document {
@@ -96,12 +95,10 @@ const DocumentsTab: React.FC = () => {
   const batchSubmittingRef = useRef(false);
   const [autoStopOnFailure, setAutoStopOnFailure] = useState(true); // 默认启用自动停止
   const [consoleCollapsed, setConsoleCollapsed] = useState(false); // Console折叠状态，默认展开
-  // Shared LightRAG workspace (tenant). Backed by useWorkspace() so the
-  // header picker, this picker, and RetrievalTab stay in lockstep.
-  // Empty = server default. The workspace scopes BOTH ingestion AND the
-  // documents grid below (list, paginated, status, scan, clear, delete).
-  const [workspace, setWorkspace] = useWorkspace();
-  
+  // LightRAG workspace (tenant) for scoping ingestion and document queries.
+  // Empty = server default. Controlled by the global header picker.
+  const [workspace] = useWorkspace();
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -1409,12 +1406,6 @@ const DocumentsTab: React.FC = () => {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <WorkspacePicker
-            value={workspace}
-            onChange={setWorkspace}
-            label="Ingest into"
-            placeholder="(server default)"
-          />
           <button className="ec-btn" onClick={handleSelectFiles}>
             <FolderOpenOutlined /> {t('pages.knowledge.documents.uploadFiles')}
           </button>

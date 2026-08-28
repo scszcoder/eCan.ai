@@ -3,11 +3,24 @@ Skill database models.
 
 This module contains database models for skill management:
 - DBAgentSkill: Agent skill model
+- DBAgentSkillReview: Skill review/rating model
 """
 
 import uuid
-from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, BigInteger
+from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, BigInteger, Float, ForeignKey
 from .base_model import BaseModel, TimestampMixin, ExtensibleMixin
+
+
+class DBAgentSkillReview(BaseModel, TimestampMixin):
+    """Database model for skill reviews and ratings."""
+    __tablename__ = 'agent_skill_reviews'
+
+    id = Column(String(64), primary_key=True, default=lambda: f"skr_{uuid.uuid4().hex[:16]}")
+    skill_id = Column(String(64), nullable=False, index=True)
+    reviewer_id = Column(String(128), nullable=False)  # user who submitted the review
+    rating = Column(Integer, nullable=False)  # 1-5 stars
+    review_text = Column(Text)  # Optional written review
+    helpful = Column(Integer, default=0)  # Helpful vote count
 
 
 class DBAgentSkillView:

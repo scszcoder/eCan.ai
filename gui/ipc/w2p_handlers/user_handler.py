@@ -1,4 +1,5 @@
 import traceback
+import threading
 from typing import Any, Optional, Dict
 from app_context import AppContext
 from gui.ipc.handlers import validate_params
@@ -83,6 +84,63 @@ def get_message_from_cognito_error(error_code, default_key):
     """Maps a Cognito error code to a localized message key."""
     key = COGNITO_ERROR_MAP.get(error_code, default_key)
     return auth_messages.get_message(key)
+
+def _get_endpoint_config_for_settings() -> Optional[Dict[str, str]]:
+    """Get AppSync endpoint config for general_settings, or None if CN (CN uses TCB)."""
+    try:
+        from agent.cloud_api.endpoints import get_endpoint_config
+        cfg = get_endpoint_config()
+        if cfg.is_cn:
+            return None  # CN uses TCB, handled by cloudbase_handler
+        return {
+            "wan_api_endpoint": cfg.graphql_endpoint,
+            "ws_api_endpoint": cfg.ws_endpoint,
+            "ws_api_host": cfg.host,
+        }
+    except Exception as e:
+        logger.debug(f"[_get_endpoint_config_for_settings] Failed: {e}")
+        return None
+
+
+def _apply_endpoints_to_general_settings(cfg_ep: Dict[str, str]) -> bool:
+    """Apply AppSync endpoints to general_settings. Returns True if any value changed."""
+    try:
+        from gui.context.config_manager import ConfigManager
+        config_manager = ConfigManager.get_instance()
+        gs = config_manager.general_settings
+        
+        changed = False
+        if gs.wan_api_endpoint != cfg_ep.get("wan_api_endpoint"):
+            gs.wan_api_endpoint = cfg_ep.get("wan_api_endpoint", "")
+            changed = True
+        if gs.ws_api_endpoint != cfg_ep.get("ws_api_endpoint"):
+            gs.ws_api_endpoint = cfg_ep.get("ws_api_endpoint", "")
+            changed = True
+        if gs.ws_api_host != cfg_ep.get("ws_api_host"):
+            gs.ws_api_host = cfg_ep.get("ws_api_host", "")
+            changed = True
+        
+        if changed:
+            config_manager.save_settings()
+            logger.info(
+                f"[_apply_endpoints_to_general_settings] Updated endpoints: "
+                f"wan={gs.wan_api_endpoint}, ws={gs.ws_api_endpoint}, host={gs.ws_api_host}"
+            )
+        return changed
+    except Exception as e:
+        logger.debug(f"[_apply_endpoints_to_general_settings] Failed: {e}")
+        return False
+
+
+def _apply_intl_endpoints() -> None:
+    """Apply AppSync endpoints from auth_config.yml for Intl version (called on login)."""
+    try:
+        cfg_ep = _get_endpoint_config_for_settings()
+        if cfg_ep:
+            _apply_endpoints_to_general_settings(cfg_ep)
+    except Exception:
+        pass
+
 
 def _build_user_info_response(request, token, user_profile, username, machine_role, login_type, message_key, session_id=None):
     """Helper to build consistent user info response for both login methods.
@@ -212,6 +270,9 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
             'login_type': 'password'
         }, auth_token=token)
         
+        # Apply AppSync endpoints from auth_config.yml (Intl only, CN uses TCB)
+        _apply_intl_endpoints()
+        
         return _build_user_info_response(
             request, token, user_profile, username, machine_role, 'password', 'login_success', session_id
         )
@@ -247,6 +308,13 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
         else:
             result = login.handleGetLastLogin()
 
+        # Flood-test harness: tell the frontend to auto-submit the prefilled
+        # credentials so the GUI logs in (and visually transitions) with no
+        # human click. Env-gated; no effect on normal runs.
+        if isinstance(result, dict):
+            import os as _os
+            result['autologin'] = _os.getenv('ECAN_AUTOLOGIN', '0') == '1'
+
         # Mask sensitive fields before logging
         safe_result = {k: ('***' if k == 'password' and v else v) for k, v in result.items()} if isinstance(result, dict) else result
         logger.info(f"last saved user info: {safe_result}")
@@ -260,12 +328,158 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
         auth_messages.set_language(lang)
         return create_error_response(request, 'LOGIN_ERROR', f"Error during get_last_login: {str(e)}")
 
+@IPCHandlerRegistry.handler('save_login_info')
+def handle_save_login_info(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """Handles save_login_info requests - saves login credentials to keyring.
+
+    This is used when the user checks 'Remember password' during login.
+
+    The keyring.set_password() call (macOS Keychain) can take 1-12 seconds on
+    cold start (Aug-20 trace measured 11.3s). That blocks the Starlette worker
+    long enough to stall every other concurrent frontend request — including
+    get_initialization_progress polling that the LoginCN page watches before
+    navigating. We offload the actual write to a daemon thread and return
+    immediately so the user's UI flow is never blocked by Keychain latency.
+    """
+    lang = auth_messages.DEFAULT_LANG
+    try:
+        if params and 'lang' in params:
+            lang = params['lang']
+            auth_messages.set_language(lang)
+
+        username = params.get('username') if params else None
+        password = params.get('password') if params else None
+        role = params.get('role') if params else None
+        language = params.get('language') if params else None
+        login_type = params.get('login_type') if params else None
+
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Username is required')
+
+        # Resolve the auth_manager once, on the request thread, so we don't
+        # touch AppContext from the background thread.
+        login = AppContext.get_login()
+        if login is None:
+            auth_manager = None
+        else:
+            auth_manager = login.auth_manager
+
+        if auth_manager is None:
+            # Fallback: build AuthManager directly so we still complete the save
+            try:
+                from auth.auth_manager import AuthManager
+                auth_manager = AuthManager()
+            except Exception as fallback_init_error:
+                logger.error(f"Failed to construct AuthManager for save_login_info: {fallback_init_error}")
+                return create_error_response(request, 'SAVE_ERROR', str(fallback_init_error))
+
+        def _do_save():
+            try:
+                success = auth_manager._update_saved_login_info(
+                    username=username,
+                    password=password or "",
+                    role=role or "Commander",
+                    login_type=login_type
+                )
+                if success:
+                    logger.info(f"[save_login_info] Background keyring save completed for {username}")
+                else:
+                    logger.warning(f"[save_login_info] Background keyring save returned failure for {username}")
+            except Exception as bg_err:
+                logger.error(f"[save_login_info] Background save failed for {username}: {bg_err} {traceback.format_exc()}")
+
+        threading.Thread(target=_do_save, name="save-login-info", daemon=True).start()
+
+        return create_success_response(request, {
+            'message': 'Login info save scheduled',
+            'async': True,
+        })
+
+    except Exception as e:
+        logger.error(f"Error in save_login_info handler: {e} {traceback.format_exc()}")
+        auth_messages.set_language(lang)
+        return create_error_response(request, 'SAVE_ERROR', f"Error during save_login_info: {str(e)}")
+
+@IPCHandlerRegistry.handler('clear_login_info')
+def handle_clear_login_info(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """Handles clear_login_info requests - clears saved credentials from keyring.
+    
+    This is used when the user unchecks 'Remember password'.
+    """
+    lang = auth_messages.DEFAULT_LANG
+    try:
+        if params and 'lang' in params:
+            lang = params['lang']
+            auth_messages.set_language(lang)
+
+        username = params.get('username') if params else None
+
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Username is required')
+
+        login = AppContext.get_login()
+        if login is None:
+            # Fallback: try to get AuthManager directly
+            try:
+                from auth.auth_manager import AuthManager
+                auth_manager = AuthManager()
+                # Save with empty password to clear credentials, keep login_type
+                success = auth_manager._update_saved_login_info(
+                    username=username,
+                    password="",
+                    role="Commander",
+                    login_type=None  # Clear login_type so user can choose again
+                )
+                if success:
+                    return create_success_response(request, {
+                        'message': 'Login info cleared successfully'
+                    })
+                else:
+                    return create_error_response(request, 'CLEAR_FAILED', 'Failed to clear login info')
+            except Exception as fallback_error:
+                logger.error(f"Fallback clear failed: {fallback_error}")
+                return create_error_response(request, 'CLEAR_ERROR', str(fallback_error))
+        else:
+            # Save with empty password to clear credentials, keep login_type
+            success = login.auth_manager._update_saved_login_info(
+                username=username,
+                password="",
+                role="Commander",
+                login_type=None  # Clear login_type so user can choose again
+            )
+            if success:
+                return create_success_response(request, {
+                    'message': 'Login info cleared successfully'
+                })
+            else:
+                return create_error_response(request, 'CLEAR_FAILED', 'Failed to clear login info')
+
+    except Exception as e:
+        logger.error(f"Error in clear_login_info handler: {e} {traceback.format_exc()}")
+        auth_messages.set_language(lang)
+        return create_error_response(request, 'CLEAR_ERROR', f"Error during clear_login_info: {str(e)}")
+
 @IPCHandlerRegistry.background_handler('logout')
 def handle_logout(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """Handles logout requests with internationalized responses.
-    
+
     Note: This is a background handler because logout triggers async cleanup.
-    We need to wait for the cleanup to complete before returning to the frontend.
+    The frontend kicks off cleanup, navigates back to /login, and re-arms
+    WebSocket reconnection when LoginCN mounts (see
+    gui_v2/src/pages/Login/LoginCN.tsx).  We return ``success`` immediately
+    after firing the cleanup coroutine — there is no value in blocking the
+    IPC response on cleanup completion:
+
+      - Cleanup runs in the qasync event loop; a long block here would also
+        block the GraphQL worker that processes ``get_initialization_progress``
+        / ``get_last_login`` queries LoginCN fires on mount.  That's the
+        exact race that was producing the perceived "logout hang" (terminals/
+        7.txt post-logout 30-60s IPC failures during uvicorn graceful
+        shutdown — see gui/LocalServer.py:1688 ``timeout_graceful_shutdown=1``).
+      - Logout is best-effort: if any single cleanup step times out, the
+        user should still be back at the login screen, not staring at a
+        dead UI.  Cleanup exceptions are caught and logged inside
+        ``MainWindow._async_cleanup_and_logout`` already.
     """
     lang = auth_messages.DEFAULT_LANG
     try:
@@ -279,35 +493,27 @@ def handle_logout(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
             return create_success_response(request, {
                 'message': auth_messages.get_message('logout_success')
             })
-        
-        # Call handleLogout which triggers async cleanup
-        logger.info("[user_handler] Starting logout process...")
-        result = login.handleLogout()
-        
-        # Wait for async cleanup to complete
-        # The cleanup task is created in logout() method, we need to give it time to finish
-        import asyncio
-        import time
-        
-        # Wait up to 3 seconds for cleanup to complete
-        max_wait = 3.0
-        start_time = time.time()
-        while time.time() - start_time < max_wait:
-            # Check if cleanup is done by looking for the completion log
-            # In practice, we just wait a reasonable amount of time
-            time.sleep(0.5)
-            if time.time() - start_time >= 1.5:
-                # Most cleanup should be done by now
-                break
-        
-        logger.info("[user_handler] Logout cleanup wait completed")
-        
+
+        # Fire-and-forget: ``handleLogout`` schedules ``MainWindow.logout``
+        # via ``asyncio.run_coroutine_threadsafe`` with an internal 5s
+        # timeout.  Cleanup runs on its own and we don't gate the IPC
+        # response on it (see docstring above for the rationale).
+        logger.info("[user_handler] Starting logout process (fire-and-forget)...")
+        try:
+            login.handleLogout()
+        except Exception as cleanup_exc:
+            # Cleanup exceptions must not surface to the IPC caller — the
+            # frontend will redirect to /login regardless.  Log and move on.
+            logger.warning(
+                f"[user_handler] handleLogout raised {cleanup_exc!r}; "
+                f"frontend will still proceed to /login"
+            )
+
         # Destroy web session if in web mode (no-op in desktop mode)
         session_id = params.get('session_id') if params else None
         _destroy_web_session(session_id=session_id)
 
         return create_success_response(request, {
-            "result": result,
             'message': auth_messages.get_message('logout_success')
         })
 
@@ -511,6 +717,9 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 'login_type': 'google'
             })
             
+            # Apply AppSync endpoints from auth_config.yml (Intl only, CN uses TCB)
+            _apply_intl_endpoints()
+            
             return _build_user_info_response(
                 request, session_token, user_profile, user_email, machine_role, 'google', 'google_login_success', session_id
             )
@@ -535,6 +744,65 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         return create_error_response(request, 'GOOGLE_LOGIN_ERROR', auth_messages.get_message('login_failed'))
 
 
+@IPCHandlerRegistry.background_handler('wechat_login')
+def handle_wechat_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle WeChat OAuth login in background thread to avoid blocking UI.
+
+    This handler implements the desktop-app WeChat login flow:
+    1. Start local OAuth server
+    2. Open system browser to WeChat authorization
+    3. Wait for callback from WeChat
+    4. Exchange code for CloudBase token
+    5. Complete login
+    """
+    lang = auth_messages.DEFAULT_LANG
+    try:
+        lang = params.get('lang', auth_messages.DEFAULT_LANG) if params else auth_messages.DEFAULT_LANG
+        machine_role = params.get('role', params.get('machine_role', 'Commander')) if params else 'Commander'
+        auth_messages.set_language(lang)
+
+        login = AppContext.get_login()
+        if login is None:
+            return create_error_response(request, 'SYSTEM_NOT_READY', 'System not ready')
+
+        logger.info("[WeChatLogin] Starting WeChat OAuth login...")
+
+        # Directly call auth_manager.wechat_login() which handles the full flow
+        result = login.auth_manager.wechat_login(role=machine_role)
+
+        if result.get('success'):
+            logger.info(f"[WeChatLogin] Success for user: {login.auth_manager.get_current_user()}")
+
+            # Generate session token and return user info
+            from gui.ipc.token_manager import token_manager
+            user_email = login.auth_manager.get_current_user()
+            user_profile = login.auth_manager.get_user_profile()
+            session_token = token_manager.generate_token(user_email, machine_role)
+
+            from gui.LoginoutGUI import _generate_session_id
+            session_id = _generate_session_id()
+
+            return _build_user_info_response(
+                request,
+                session_token,
+                user_profile,
+                user_email,
+                machine_role,
+                'wechat',
+                'wechat_login_success',
+                session_id
+            )
+        else:
+            error_msg = result.get('error', 'WeChat login failed')
+            logger.error(f"[WeChatLogin] Failed: {error_msg}")
+            return create_error_response(request, 'WECHAT_LOGIN_ERROR', error_msg)
+
+    except Exception as e:
+        logger.error(f"Error in WeChat login handler: {e} {traceback.format_exc()}")
+        auth_messages.set_language(lang)
+        return create_error_response(request, 'WECHAT_LOGIN_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('force_close_oauth_port_blocker')
 def handle_force_close_oauth_port_blocker(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Force-terminate the process holding the OAuth callback port.
@@ -546,7 +814,7 @@ def handle_force_close_oauth_port_blocker(request: IPCRequest, params: Optional[
     handle_google_login returns ``error_kind=port_occupied``.
     """
     try:
-        from auth.config.auth_config import AuthConfig
+        from auth.auth_config import AuthConfig
         from auth.oauth.local_oauth_server import LocalOAuthServer
         from urllib.parse import urlparse
 

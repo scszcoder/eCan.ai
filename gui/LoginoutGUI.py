@@ -7,6 +7,40 @@ import asyncio
 import os
 import time
 
+
+def _apply_pending_tcb_endpoints(mainwin):
+    """Apply pending TCB endpoints from AppContext to MainWindow.general_settings.
+
+    Called after MainWindow is created so config_manager.general_settings is available.
+    """
+    try:
+        ctx = AppContext()
+        pending = getattr(ctx, '_pending_tcb_endpoints', None)
+        if not pending:
+            return
+        if not (mainwin and hasattr(mainwin, 'config_manager') and mainwin.config_manager):
+            return
+        gs = mainwin.config_manager.general_settings
+        changed = False
+        if gs.wan_api_endpoint != pending.get("wan_api_endpoint"):
+            gs.wan_api_endpoint = pending.get("wan_api_endpoint", "")
+            changed = True
+        if gs.ws_api_endpoint != pending.get("ws_api_endpoint"):
+            gs.ws_api_endpoint = pending.get("ws_api_endpoint", "")
+            changed = True
+        if gs.ws_api_host != pending.get("ws_api_host"):
+            gs.ws_api_host = pending.get("ws_api_host", "")
+            changed = True
+        if changed:
+            logger.info(
+                f"[_apply_pending_tcb_endpoints] Applied TCB endpoints: "
+                f"wan={gs.wan_api_endpoint}, ws={gs.ws_api_endpoint}, host={gs.ws_api_host}"
+            )
+        # Clear pending after applying
+        ctx._pending_tcb_endpoints = None
+    except Exception as e:
+        logger.warning(f"[_apply_pending_tcb_endpoints] Failed: {e}")
+
 # Conditionally import PySide6 - not needed in web mode
 _ECAN_MODE = os.getenv('ECAN_MODE', 'desktop')
 if _ECAN_MODE != 'web':
@@ -58,19 +92,65 @@ class Login:
         logger.info("Login controller initialized start")
         self.auth_manager = AuthManager()
 
+        # Install the SessionSupervisor singleton and start its background
+        # loop. The supervisor reads the JWT exp claim directly, fires
+        # on_session_expiring_soon / on_session_refreshed / on_session_expired
+        # events, and exposes get_valid_token() for callers that need a
+        # non-expired access token. Standard OAuth refresh-token-rotation
+        # pattern (RFC 6749 §1.5) — the rest of the app should not reach
+        # into auth_manager.tokens directly.
+        try:
+            from auth.session_supervisor import install_session_supervisor
+            sup = install_session_supervisor(self.auth_manager)
+            sup.start()
+            self.session_supervisor = sup
+
+            # When the supervisor decides the session is dead (refresh
+            # failed or no refresh_token and JWT expired), trigger the
+            # same logout path that ``cloud_api._get_fresh_auth_token``
+            # uses, so the user is redirected to the login window exactly
+            # once. The guard (``_session_invalidated`` in cloud_api) is
+            # not visible here, so we add our own once-per-process flag.
+            self._session_invalidated = False
+
+            def _on_session_expired():
+                if self._session_invalidated:
+                    return
+                self._session_invalidated = True
+                logger.warning(
+                    "[Login] Session expired event received; triggering logout."
+                )
+                try:
+                    if self.main_win is not None and hasattr(self.main_win, 'set_wan_connected'):
+                        self.main_win.set_wan_connected(False)
+                except Exception:
+                    pass
+                try:
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, self.handleLogout)
+                except Exception as exc:
+                    logger.warning(f"[Login] QTimer.singleShot failed: {exc}")
+
+            sup.on_session_expiring_soon(self.prompt_for_reauth)
+            sup.on_session_refreshed(self._on_session_refreshed_login)
+            sup.on_session_expired(_on_session_expired)
+        except Exception as exc:
+            logger.warning(f"[Login] SessionSupervisor install failed: {exc}")
+            self.session_supervisor = None
+
         # Application state (unrelated to auth)
         self.xport = None
         self.ip = commanderIP
         self.main_win = None
-        
+
         # Login progress tracking
         self._login_in_progress = False
         self._login_progress_callback = None
-        
+
         # UI references (will be set by WebGUI)
         self.login_window = None
         self.login_progress_dialog = None
-        
+
         # Login handler mapping
         self._login_handlers = {
             LoginType.USERNAME_PASSWORD: self._handle_username_password_auth,
@@ -82,6 +162,22 @@ class Login:
         }
 
         logger.info("Login controller initialized end")
+
+    def _on_session_refreshed_login(self, info: Dict[str, Any]) -> None:
+        """Hooked to on_session_refreshed to clear the in-progress guard
+        and re-enable wan_connected UI on the main window.
+
+        The previous "show modal dialog" flag was removed in favor of
+        silent background refresh; this hook is now only needed to
+        surface the refreshed state to the GUI and to release the
+        thread guard so the next expiry window can refresh again.
+        """
+        self._reauth_in_progress = False
+        try:
+            if self.main_win is not None and hasattr(self.main_win, "set_wan_connected"):
+                self.main_win.set_wan_connected(True)
+        except Exception:
+            pass
 
     @property
     def access_token(self) -> str:
@@ -243,6 +339,18 @@ class Login:
                 self._launch_main_window(request.schedule_mode)
                 main_window_launch_time = time.time() - main_window_launch_start
                 total_launch_time = time.time() - launch_start_time
+
+                # Reset SessionSupervisor state and nudge any paused
+                # offline-sync work to retry. After re-login we definitely
+                # have a fresh token, so flip back to "active" and let the
+                # supervisor notify subscribers.
+                try:
+                    if self.session_supervisor is not None:
+                        self.session_supervisor.notify_token_installed()
+                except Exception as _sup_exc:
+                    logger.debug(
+                        f"[Login] supervisor notify_token_installed skipped: {_sup_exc}"
+                    )
 
                 logger.info(
                     f"[Login] ⏱️ Launch timing: preload_state={preload_state}, "
@@ -486,6 +594,8 @@ class Login:
                         self.auth_manager.get_role(), schedule_mode
                     )
                     AppContext().set_main_window(self.main_win)
+                    # Apply pending TCB endpoints to general_settings if CN login
+                    _apply_pending_tcb_endpoints(self.main_win)
                     logger.info(f"[AsyncLogin] ✅ Main window created for user: {current_user}")
                     return True
                 except Exception as e:
@@ -542,6 +652,8 @@ class Login:
     def handleLogout(self):
         """Handle user logout (graceful)."""
         try:
+            self._reauth_prompt_shown = False
+            self._reauth_in_progress = False
             if self.main_win:
                 # Delegate to MainWindow's graceful logout which cleans tasks/servers and closes window
                 self.main_win.logout()
@@ -567,6 +679,116 @@ class Login:
             logger.debug(f"LoginoutGUI: Error clearing IPC registry cache: {e}")
 
         return self.auth_manager.logout()
+
+    # ------------------------------------------------------------------
+    # Background silent refresh (no user interaction required)
+    # ------------------------------------------------------------------
+    #
+    # The CloudBase WeChat provider does not currently return a refresh
+    # token — verified by inspecting the response of
+    # ``/auth/v1/authentication`` with ``provider_id=wx_open``.  The
+    # active access_token expires in ~10 minutes, which makes a modal
+    # "do you want to re-auth?" prompt confusing to ship: it would fire
+    # roughly every 10 minutes and feel like a punishment.
+    #
+    # Instead, ``prompt_for_reauth`` is now a non-blocking silent-refresh
+    # scheduler.  It kicks off a background thread that re-runs the
+    # WeChat OAuth flow.  WeChat's open-platform code path shows the
+    # "Confirm authorization" screen for already-consented users (one
+    # tap, no QR scan needed) — this is the closest we can get to silent
+    # without the refresh_token that CloudBase is currently withholding.
+    # See https://tools.ietf.org/html/rfc6749#section-1.5.
+    #
+    # If the silent refresh fails (e.g. user closes the browser), the
+    # SessionSupervisor still keeps the *local* session alive (the user
+    # is still "logged in" from the GUI's perspective) and the offline
+    # sync queue keeps buffering writes.  When the next refresh window
+    # opens — or when the user takes any action that triggers a new
+    # GraphQL call — the queue resumes automatically.
+    #
+    # The only fallback that does push a modal is the absolute
+    # fallthrough to ``handleLogout`` when CloudBase itself rejects
+    # every attempt (revoked session, account disabled, etc.).
+    _reauth_in_progress: bool = False
+
+    def prompt_for_reauth(self, info: Dict[str, Any]) -> None:
+        """Schedule a silent background re-auth.
+
+        Called from SessionSupervisor.on_session_expiring_soon.  We
+        deliberately do NOT pop a modal here — see the comment block
+        at the top of this section for the rationale.  The web frontend
+        still gets a non-blocking notification so it can render an
+        unobtrusive "syncing…" banner if it wants to.
+        """
+        if os.getenv("ECAN_MODE", "desktop") == "web":
+            self._notify_reauth_needed_web(info)
+        # Kick off the silent refresh in the background.  Idempotent —
+        # _start_reauth_flow bails out if a refresh is already queued.
+        self._start_reauth_flow()
+
+    def _start_reauth_flow(self) -> None:
+        """Spawn a background thread that re-runs the WeChat OAuth flow.
+
+        Reuses the existing ``auth_manager.wechat_login()`` entry point
+        because that's the same path used at initial login and it
+        already handles the browser callback + token exchange.  Once the
+        new tokens land, supervisors fire ``on_session_refreshed`` and
+        the offline-sync queue resumes.
+        """
+        if self._reauth_in_progress:
+            logger.debug("[Login] Re-auth already in progress; skipping")
+            return
+        self._reauth_in_progress = True
+        logger.info("[Login] Starting silent re-auth (WeChat OAuth)")
+
+        import threading
+        def _run():
+            try:
+                am = self.auth_manager
+                role = getattr(am, "current_user_role", None) or "Commander"
+                result = am.wechat_login(role=role)
+                if result.get("success"):
+                    logger.info("[Login] Silent re-auth completed; new tokens installed.")
+                    if self.session_supervisor is not None:
+                        # Supervisor's on_session_refreshed subscribers
+                        # (offline_sync_manager, etc.) wake up here.
+                        self.session_supervisor.notify_token_installed()
+                else:
+                    logger.warning(
+                        f"[Login] Silent re-auth failed: {result.get('error')}; "
+                        "queue stays paused, will retry on next expiry window."
+                    )
+            except Exception as exc:
+                logger.error(f"[Login] Silent re-auth crashed: {exc}")
+            finally:
+                self._reauth_in_progress = False
+
+        threading.Thread(target=_run, name="ReAuthWeChat", daemon=True).start()
+
+    def _notify_reauth_needed_web(self, info: Dict[str, Any]) -> None:
+        """Tell the React frontend that a silent re-auth is in flight.
+
+        This is purely advisory — the frontend may render a tiny
+        "syncing…" badge.  No blocking UI, no login screen takeover.
+        """
+        try:
+            from gui.ipc.w2p_event_bus import emit_event
+            emit_event("session.silent_refreshing", {
+                "exp": info.get("exp"),
+                "reason": "wechat_no_refresh_token",
+            })
+        except Exception as exc:
+            logger.debug(f"[Login] emit_event(session.silent_refreshing) skipped: {exc}")
+
+    def reset_reauth_prompt_state(self) -> None:
+        """No-op kept for backward compatibility.
+
+        Previously used to clear the once-per-session modal flag.  The
+        silent refresh path is now idempotent on its own thread guard,
+        so this method is intentionally a no-op.  Kept because
+        ``handleLogout`` calls it and external code may still expect it.
+        """
+        self._reauth_in_progress = False
 
     def get_main_window_status(self):
         """Get MainWindow initialization status"""
@@ -619,6 +841,63 @@ class Login:
     def handleLogin(self, uname="", pw="", mrole=""):
         """Legacy login method for backward compatibility with IPC handlers."""
         return self._handle_login(uname, pw, mrole or "Commander", "manual")
+
+    def maybe_autologin(self):
+        """Env-gated automated login for the flood-test harness.
+
+        When ECAN_AUTOLOGIN=1, perform a username/password login using the
+        saved credentials (same path the React Login button triggers via
+        user_handler.handleLogin), so the app can boot to a fully-loaded
+        state with zero human interaction. No-op otherwise — no effect on
+        normal runs.
+
+        Credentials come from saved login info (keyring), with
+        ECAN_AUTOLOGIN_USER / ECAN_AUTOLOGIN_PASS as fallbacks. Runs on a
+        daemon thread because handleLogin() does a synchronous network auth
+        and must not block the event loop; it internally schedules the
+        main-window launch on AppContext.main_loop, so the loop must already
+        be running when this fires (call via loop.call_later).
+        """
+        if os.getenv('ECAN_AUTOLOGIN', '0') != '1':
+            return
+
+        # When a web GUI is present (desktop/web mode), the React frontend
+        # performs the auto-login itself: handle_get_last_login returns
+        # autologin=true and the login page auto-submits the prefilled
+        # credentials. That runs the real login flow, so the UI also
+        # transitions to the logged-in view. Driving login from the backend
+        # here too would double-login, so only do it headlessly.
+        try:
+            if AppContext.get_web_gui() is not None:
+                logger.info("[AutoLogin] web GUI present — frontend auto-submits; "
+                            "backend login skipped")
+                return
+        except Exception:
+            pass
+
+        import threading
+        import traceback
+
+        def _run():
+            try:
+                info = self.auth_manager.get_saved_login_info() or {}
+                username = info.get('username') or os.getenv('ECAN_AUTOLOGIN_USER', '')
+                password = info.get('password') or os.getenv('ECAN_AUTOLOGIN_PASS', '')
+                role = info.get('machine_role') or os.getenv('ECAN_AUTOLOGIN_ROLE', 'Commander')
+                if not username or not password:
+                    logger.error("[AutoLogin] ECAN_AUTOLOGIN=1 but no saved credentials "
+                                 "(and no ECAN_AUTOLOGIN_USER/PASS) — aborting auto-login")
+                    return
+                logger.info(f"[AutoLogin] Performing automated login for '{username}' (role={role})")
+                result = self.handleLogin(username, password, role)
+                logger.info(f"[AutoLogin] Login result: success={bool(result and result.get('success'))} "
+                            f"detail={result}")
+            except Exception as e:
+                logger.error(f"[AutoLogin] Auto-login failed: {e}")
+                logger.error(traceback.format_exc())
+
+        threading.Thread(target=_run, name="AutoLogin", daemon=True).start()
+        logger.info("[AutoLogin] ECAN_AUTOLOGIN=1 — auto-login thread started")
 
     def handleSignUp(self, uname="", pw=""):
         """Legacy signup method for backward compatibility with IPC handlers."""

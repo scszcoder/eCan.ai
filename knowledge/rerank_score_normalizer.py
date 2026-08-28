@@ -82,6 +82,7 @@ def normalize_rerank_scores(
       - sigmoid(x) = 1 / (1 + exp(-x))
       - Negative logits → ~0 (irrelevant)
       - Positive logits → ~1 (relevant)
+      - IMPORTANT: Only apply sigmoid if scores look like logits (> 1 or < 0)
     
     - Jina/Cohere models: Min-Max normalization (preserves relative ranking)
       - normalized = (x - min) / (max - min)
@@ -96,10 +97,15 @@ def normalize_rerank_scores(
         List of results with normalized scores in [0, 1] range
         
     Examples:
-        >>> # BGE model (Sigmoid)
+        >>> # BGE model (Sigmoid) - for raw logits
         >>> results = [{"index": 0, "relevance_score": -2.5}, {"index": 1, "relevance_score": 3.2}]
         >>> normalized = normalize_rerank_scores(results, "bge-reranker-v2-m3")
         >>> # Returns: [{"index": 0, "relevance_score": 0.076}, {"index": 1, "relevance_score": 0.961}]
+        
+        >>> # BGE model - for already-normalized scores (0-1 range)
+        >>> results = [{"index": 0, "relevance_score": 0.01}, {"index": 1, "relevance_score": 0.58}]
+        >>> normalized = normalize_rerank_scores(results, "bge-reranker-v2-m3")
+        >>> # Returns: [{"index": 0, "relevance_score": 0.01}, {"index": 1, "relevance_score": 0.58}]
         
         >>> # Jina model (Min-Max)
         >>> results = [{"index": 0, "relevance_score": 0.2}, {"index": 1, "relevance_score": 0.8}]
@@ -120,23 +126,33 @@ def normalize_rerank_scores(
     logger.info(f"{log_prefix} Model '{model_name}' returned {len(raw_scores)} results")
     logger.info(f"{log_prefix} Raw scores: {raw_scores}")
     
-    # ========== BGE Models: Use Sigmoid Normalization ==========
+    # ========== BGE Models ==========
     if model_type == "bge":
-        logger.info(f"{log_prefix} Using Sigmoid normalization for BGE model")
-        logger.info(f"{log_prefix} Algorithm: sigmoid(x) = 1 / (1 + exp(-x))")
+        # Check if scores look like logits (outside [0, 1] range)
+        has_logits = any(s < 0 or s > 1 for s in raw_scores)
         
-        for i, item in enumerate(results_list):
-            original_score = raw_scores[i]
-            normalized_score = _sigmoid_normalize(original_score)
-            item["relevance_score"] = normalized_score
+        if has_logits:
+            # Scores are logits, apply sigmoid normalization
+            logger.info(f"{log_prefix} Using Sigmoid normalization for BGE model (scores are logits)")
+            logger.info(f"{log_prefix} Algorithm: sigmoid(x) = 1 / (1 + exp(-x))")
             
-            # Detailed logging
-            if original_score < 0:
-                logger.info(f"{log_prefix} Doc {item.get('index', i)}: {original_score:.4f} → {normalized_score:.4f} (irrelevant, logit < 0)")
-            elif original_score > 0:
-                logger.info(f"{log_prefix} Doc {item.get('index', i)}: {original_score:.4f} → {normalized_score:.4f} (relevant, logit > 0)")
-            else:
-                logger.info(f"{log_prefix} Doc {item.get('index', i)}: {original_score:.4f} → {normalized_score:.4f} (neutral, logit = 0)")
+            for i, item in enumerate(results_list):
+                original_score = raw_scores[i]
+                normalized_score = _sigmoid_normalize(original_score)
+                item["relevance_score"] = normalized_score
+                
+                # Detailed logging
+                if original_score < 0:
+                    logger.info(f"{log_prefix} Doc {item.get('index', i)}: {original_score:.4f} → {normalized_score:.4f} (irrelevant, logit < 0)")
+                elif original_score > 0:
+                    logger.info(f"{log_prefix} Doc {item.get('index', i)}: {original_score:.4f} → {normalized_score:.4f} (relevant, logit > 0)")
+                else:
+                    logger.info(f"{log_prefix} Doc {item.get('index', i)}: {original_score:.4f} → {normalized_score:.4f} (neutral, logit = 0)")
+        else:
+            # Scores are already normalized (0-1 range), keep as-is
+            logger.info(f"{log_prefix} BGE scores already in [0,1] range, keeping as-is")
+            for i, item in enumerate(results_list):
+                logger.info(f"{log_prefix} Doc {item.get('index', i)}: score={raw_scores[i]:.4f} (kept native)")
         
         return results_list
     

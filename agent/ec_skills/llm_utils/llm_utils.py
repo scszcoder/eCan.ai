@@ -8,6 +8,7 @@ import sys
 import time
 import uuid
 import threading
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from threading import Thread
 from typing import Any, Dict, Tuple, TYPE_CHECKING
 
@@ -312,10 +313,10 @@ def _resolve_attachment_data_uri(entry: dict) -> str:
     image_ref = entry.get("image_ref")
     if image_ref:
         try:
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.image_store import (
-                get_data_uri,
-            )
-            resolved = get_data_uri(str(image_ref))
+            from agent.ec_skills import live_chat_dispatch as _lcd
+            # Bridge None -> AttributeError -> same fallback as the old
+            # failed lazy import (no image this turn).
+            resolved = _lcd.runner_bridge().image_store.get_data_uri(str(image_ref))
             if isinstance(resolved, str) and resolved.startswith("data:image/"):
                 return resolved
         except Exception:
@@ -2847,7 +2848,7 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
 
         # ── HOT-PATH-B failure feedback-loop guard ────────────────────────
         # Background (incident 2026-05-13 flood test, 6-min window):
-        #   - 7 actual feige_send_message attempts, 4 successes
+        #   - 7 actual site send-tool attempts, 4 successes
         #   - 147 HOT-PATH-B "action_failed" outcomes (timeouts under load)
         #   - **127 of the 172 Q&A-bot LLM rounds (74%) were triggered by
         #     a hot_path failure echo, not a real customer question**
@@ -2890,12 +2891,12 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                     "dedup_skip",
                     # Fix 10 (2026-05-13): also suppress SUCCESS echoes.
                     # Background: end-of-test queue inspection found Q&A
-                    # bot tasks (feige_chat_1/2/3) still holding 3-deep
+                    # bot tasks (the three live-chat workers) still holding 3-deep
                     # queues of ``{all_done:true, work_done:false,
                     # hot_path:true, hot_path_type:configurable}`` events
                     # arriving from the front-desk.  These are HOT-PATH-B
                     # SUCCESS notifications — the front-desk typed the
-                    # reply into Feige, no further action needed — but
+                    # reply into the live-chat site, no further action needed — but
                     # they were being delivered back to the Q&A bot as
                     # chat_message events.  The Q&A bot's LLM then
                     # processes each one as if it were a real customer
@@ -3878,19 +3879,61 @@ class _PersistentAsyncWorkerThread:
         if not self._loop:
             raise RuntimeError(f"Persistent worker loop failed to start: {self.name}")
 
-    def submit(self, awaitable_or_factory):
+    def submit(self, awaitable_or_factory, timeout_s: float | None = None):
         self.start()
         loop = self._loop
         if loop is None:
             raise RuntimeError(f"Persistent worker loop is unavailable: {self.name}")
 
         async def _invoke():
+            # ws174: start-marker. The 2026-07-12 22:32:35 front-desk freeze was a
+            # submitted coroutine that NEVER began executing while the caller
+            # blocked in future.result() with no timeout — and thread stack dumps
+            # can't show suspended coroutines, so nothing named the wedge. This
+            # log line is the scheduled-vs-started discriminator for next time.
+            logger.info(f"[PersistentAsyncWorker] task START name={self.name}")
             if callable(awaitable_or_factory):
                 return await awaitable_or_factory()
             return await awaitable_or_factory
 
         future = asyncio.run_coroutine_threadsafe(_invoke(), loop)
-        return future.result()
+        if timeout_s is None or timeout_s <= 0:
+            return future.result()
+        try:
+            return future.result(timeout=timeout_s)
+        except FuturesTimeoutError:
+            # ws174: bound the wait — an unbounded result() froze the front-desk
+            # node thread for 5+ minutes (user had to kill the app). Cancel the
+            # straggler and dump the worker loop's task list so the wedge is
+            # identifiable post-mortem.
+            try:
+                future.cancel()
+            except Exception:
+                pass
+            _tasks_desc = "<unavailable>"
+            try:
+                _tasks_holder: list = []
+                _done = threading.Event()
+
+                def _snapshot_tasks():
+                    try:
+                        _tasks_holder.extend(
+                            repr(t)[:200] for t in asyncio.all_tasks(loop)
+                        )
+                    finally:
+                        _done.set()
+
+                loop.call_soon_threadsafe(_snapshot_tasks)
+                if _done.wait(timeout=2.0):
+                    _tasks_desc = " | ".join(_tasks_holder[:8]) or "<none>"
+            except Exception:
+                pass
+            logger.error(
+                f"[PersistentAsyncWorker] ws174 submit TIMED OUT after "
+                f"{timeout_s:.0f}s name={self.name} — coroutine cancelled; "
+                f"loop tasks at timeout: {_tasks_desc}"
+            )
+            raise
 
     def stop(self) -> None:
         loop = self._loop
@@ -3905,12 +3948,22 @@ class _PersistentAsyncWorkerThread:
             self._thread.join(timeout=5.0)
 
 
-def run_async_in_persistent_worker_thread(awaitable_or_factory, worker_name: str = "browser-use-persistent-worker"):
+def run_async_in_persistent_worker_thread(
+    awaitable_or_factory,
+    worker_name: str = "browser-use-persistent-worker",
+    timeout_s: float | None = None,
+):
     """Run an async awaitable on a long-lived worker thread/loop.
 
     Unlike run_async_in_worker_thread(), this keeps the event loop alive after the
     submitted coroutine completes. Use this for workloads that intentionally spawn
     background asyncio tasks that must survive the caller's completion.
+
+    ws174: *timeout_s* bounds the caller-side wait (None/<=0 keeps the legacy
+    unbounded wait). On expiry the pending coroutine is cancelled and
+    ``concurrent.futures.TimeoutError`` is raised — an unbounded wait froze the
+    live-chat front-desk node thread for 5+ minutes on 2026-07-12 when the
+    submitted coroutine never started.
     """
     with _persistent_worker_runners_lock:
         runner = _persistent_worker_runners.get(worker_name)
@@ -3919,7 +3972,7 @@ def run_async_in_persistent_worker_thread(awaitable_or_factory, worker_name: str
             _persistent_worker_runners[worker_name] = runner
 
     logger.debug(f"[run_async_in_persistent_worker_thread] worker={worker_name}")
-    return runner.submit(awaitable_or_factory)
+    return runner.submit(awaitable_or_factory, timeout_s=timeout_s)
 
 
 def stop_persistent_worker_thread(worker_name: str) -> bool:

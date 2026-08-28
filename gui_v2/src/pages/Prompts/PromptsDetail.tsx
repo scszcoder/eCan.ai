@@ -17,6 +17,7 @@ import {
   SearchOutlined,
   CloseOutlined,
   CodeSandboxOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons';
 import type { Prompt, PromptSection, PromptSectionType, PromptFormat } from './types';
 import { useTranslation } from 'react-i18next';
@@ -1209,6 +1210,121 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
     try { await navigator.clipboard.writeText(textToCopy); message.success(t('pages.prompts.copied', { defaultValue: 'Copied' })); } catch {}
   };
 
+  // ── Import prompt contents from a local .md / .json file ──────────────
+  // The hidden <input type="file"> opens the native file dialog; the picked
+  // file is read once (and thereby "closed"), its contents replace the
+  // draft's content fields, the editor format auto-switches to match the
+  // file type, and the editor enters edit mode.
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const normalizeImportedSections = useCallback((arr: any[]): PromptSection[] =>
+    arr
+      .filter((s) => s && typeof s === 'object')
+      .map((s, i) => ({
+        id: typeof s.id === 'string' && s.id ? s.id : `imported_${Date.now()}_${i}`,
+        type: SECTION_TYPE_KEYS.includes(s.type) ? s.type : 'custom',
+        items: Array.isArray(s.items) ? s.items.map(String) : [],
+        ...(s.customLabel ? { customLabel: String(s.customLabel) } : {}),
+      })), []);
+
+  const readImportFileText = useCallback(async (file: File): Promise<string> => {
+    // file.text() first; FileReader fallback for embedded engines where the
+    // Blob promise API misbehaves after the native dialog closes.
+    try {
+      if (typeof (file as any).text === 'function') {
+        return await file.text();
+      }
+    } catch (err) {
+      console.warn('[prompts-import] file.text() failed, falling back to FileReader', err);
+    }
+    return await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result ?? ''));
+      fr.onerror = () => reject(fr.error);
+      fr.readAsText(file);
+    });
+  }, []);
+
+  const handleImportFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const inputEl = e.target;
+    const file = inputEl.files?.[0];
+    if (!file) {
+      console.warn('[prompts-import] change event fired with no file');
+      inputEl.value = '';
+      return;
+    }
+    if (!draft) {
+      console.warn('[prompts-import] no draft (no prompt selected)');
+      inputEl.value = '';
+      return;
+    }
+
+    const name = (file.name || '').toLowerCase();
+    const isMd = name.endsWith('.md') || name.endsWith('.markdown');
+    const isJson = name.endsWith('.json');
+    if (!isMd && !isJson) {
+      inputEl.value = '';
+      message.warning(t('pages.prompts.importUnsupported', { defaultValue: 'Unsupported file type — pick a .md or .json file' }));
+      return;
+    }
+
+    let text: string;
+    try {
+      text = await readImportFileText(file);
+    } catch (err) {
+      console.error('[prompts-import] read failed', err);
+      message.error(t('pages.prompts.importReadFailed', { defaultValue: 'Could not read the file' }));
+      return;
+    } finally {
+      // Reset AFTER the read: some engines invalidate the File once the
+      // input's value is cleared. Also lets the same file re-fire onChange.
+      inputEl.value = '';
+    }
+    // Strip a UTF-8 BOM if present (json.parse and the backend loader reject it)
+    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+
+    if (isJson) {
+      let parsed: any;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        message.error(t('pages.prompts.importInvalidJson', { defaultValue: 'File is not valid JSON' }));
+        return;
+      }
+      const hasContent = parsed && typeof parsed === 'object' && (
+        Array.isArray(parsed.sections) || Array.isArray(parsed.userSections) ||
+        typeof parsed.mdContent === 'string'
+      );
+      if (!hasContent) {
+        message.error(t('pages.prompts.importNotPrompt', { defaultValue: 'JSON has no prompt content (expected sections / userSections / mdContent)' }));
+        return;
+      }
+      pushUndoStack(clonePrompt(draft));
+      // Content fields only — the prompt's identity (id/title/owner/source)
+      // stays with the currently selected prompt. mdContent is replaced (or
+      // cleared) because the runtime prefers it over sections.
+      setDraft((prev) => prev ? {
+        ...prev,
+        format: 'json',
+        sections: Array.isArray(parsed.sections) ? normalizeImportedSections(parsed.sections) : prev.sections,
+        userSections: Array.isArray(parsed.userSections) ? normalizeImportedSections(parsed.userSections) : prev.userSections,
+        humanInputs: Array.isArray(parsed.humanInputs) ? parsed.humanInputs.map(String) : prev.humanInputs,
+        mdContent: typeof parsed.mdContent === 'string' ? parsed.mdContent : '',
+      } : prev);
+      setEditFormat('json');
+    } else {
+      pushUndoStack(clonePrompt(draft));
+      setDraft((prev) => prev ? { ...prev, format: 'md', mdContent: text } : prev);
+      setEditFormat('md');
+    }
+
+    setEditing(true);
+    hasPendingChangesRef.current = true;
+    scheduleAutosave();
+    console.info(`[prompts-import] imported ${file.name} (${text.length} chars, ${isMd ? 'md' : 'json'} mode)`);
+    message.success(t('pages.prompts.importSuccess', { defaultValue: 'Imported {{name}}', name: file.name }));
+  }, [draft, pushUndoStack, clonePrompt, normalizeImportedSections, readImportFileText, scheduleAutosave, t]);
+
   return (
     <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0f172a' }}>
       {!hasDraft ? (
@@ -1287,6 +1403,22 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                 {t('common.cancel')}
               </Button>
             )}
+            <Tooltip title={t('pages.prompts.importFromFile', { defaultValue: 'Import from file (.md / .json)' })}>
+              <Button
+                size="small"
+                icon={<FolderOpenOutlined />}
+                onClick={() => importFileInputRef.current?.click()}
+                disabled={!!active.readOnly}
+                className={styles.smallButton}
+              />
+            </Tooltip>
+            <input
+              ref={importFileInputRef}
+              type="file"
+              accept=".md,.markdown,.json"
+              style={{ display: 'none' }}
+              onChange={handleImportFileChange}
+            />
             <Button
               type={editing ? 'primary' : 'default'}
               size="small"

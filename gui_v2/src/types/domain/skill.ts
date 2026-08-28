@@ -7,11 +7,41 @@
 
 /**
  * Skill level - matches EC_Skill.level
+ *
+ * `level` (string from DB) reflects the author's declared difficulty.
+ * `proficiency` is the user's personal growth with this skill, updated by
+ * recordSkillUsage / updateUserSkillProficiency.
  */
 export enum SkillLevel {
   ENTRY = 'entry',
   INTERMEDIATE = 'intermediate',
   ADVANCED = 'advanced',
+  EXPERT = 'expert',
+}
+
+/**
+ * Helper that maps a 0-100 proficiency score to a SkillLevel.
+ */
+export function scoreToLevel(score: number): SkillLevel {
+  if (score >= 90) return SkillLevel.EXPERT;
+  if (score >= 60) return SkillLevel.ADVANCED;
+  if (score >= 30) return SkillLevel.INTERMEDIATE;
+  return SkillLevel.ENTRY;
+}
+
+/**
+ * Helper that maps a SkillLevel string to a 0-100 display percentage.
+ * Mirrors the python LEVEL_PERCENT constant used on the backend.
+ */
+export function levelToScore(level: string | number | undefined): number {
+  if (typeof level === 'number') return Math.max(0, Math.min(100, level));
+  switch (String(level || '').toLowerCase()) {
+    case 'expert': return 100;
+    case 'advanced': return 75;
+    case 'intermediate': return 50;
+    case 'entry': return 25;
+    default: return 0;
+  }
 }
 
 /**
@@ -30,6 +60,21 @@ export enum SkillStatus {
 export enum SkillRunMode {
   DEVELOPMENT = 'development',
   RELEASED = 'released',
+}
+
+/**
+ * Skill run environment - where the skill executes.
+ * Supersedes deprecated run_in_cloud and hybrid_cloud_mode fields.
+ *
+ * Defined values:
+ * - 'local': Skill runs entirely on local machine
+ * - 'cloud': Skill runs entirely in the cloud (Lambda/serverless)
+ * - 'hybrid': Skill runs with local+cloud components (hybrid mode)
+ */
+export enum SkillRunEnvironment {
+  LOCAL = 'local',
+  CLOUD = 'cloud',
+  HYBRID = 'hybrid',
 }
 
 /**
@@ -100,7 +145,11 @@ export interface Skill {
   level?: SkillLevel | string; // entry/intermediate/advanced
 
   // Configuration
+  // NOTE: run_in_cloud and hybrid_cloud_mode are deprecated in favor of run_environment
   config?: Record<string, any> | string; // JSON configuration
+
+  // Execution environment: where the skill runs
+  run_environment?: SkillRunEnvironment | string;
 
   // EC_Skill fields
   tags?: string[]; // Tag list
@@ -131,9 +180,27 @@ export interface Skill {
   // Source type: origin of the skill ('ui'/'code'/'subscribed'/'external')
   source?: SkillSource;
 
+  // Original owner when the skill was copied/subscribed
+  skillOwner?: string;
+
   // Usage statistics
   usageCount?: number;
   lastUsed?: string;
+
+  // Rating / Reviews
+  rating?: number;
+  reviewCount?: number;
+  rating_distribution?: Record<number, number>;
+
+  // ========== Marketplace statistics (stored on skill.ext) ==========
+  downloadCount?: number;
+  favoriteCount?: number;
+  /** Total subscribers (may differ from unique active users) */
+  subscriberCount?: number;
+  /** Trending score 0..100 computed by analytics */
+  trendingScore?: number;
+  /** Editor-only: list of changelog entries {version, date, notes} */
+  changelog?: Array<{ version: string; date?: string; notes: string }>;
 
   // Timestamps (TimestampMixin)
   createdAt?: string;
@@ -141,6 +208,65 @@ export interface Skill {
 
   // Extended data (ExtensibleMixin)
   extra_data?: Record<string, any>;
+}
+
+/**
+ * Per-user proficiency record for a subscribed skill.
+ */
+export interface UserSkillProficiency {
+  skill_id: string;
+  user_id: string;
+  score: number;          // 0..100
+  level: SkillLevel | string;
+  updatedAt?: string;
+}
+
+/**
+ * Skill marketplace statistics, returned by getSkillMarketplaceStats.
+ */
+export interface SkillMarketplaceStats {
+  skill_id: string;
+  downloadCount: number;
+  favoriteCount: number;
+  subscriberCount: number;
+  lastUsed?: string | null;
+  trendingScore: number;
+  rating: number;
+  reviewCount: number;
+}
+
+/**
+ * A user-submitted skill review.
+ */
+export interface SkillReview {
+  id: string;
+  skill_id: string;
+  reviewer_id: string;
+  reviewer_name?: string;
+  rating: number;          // 1..5
+  review_text?: string;
+  helpful: number;
+  created_at: string;
+  updated_at?: string;
+}
+
+/**
+ * Aggregated review stats for a skill.
+ */
+export interface SkillRatingStats {
+  total: number;
+  avgRating: number;
+  totalHelpful: number;
+  distribution?: Record<number, number>;
+}
+
+/**
+ * Skill changelog entry as stored on skill.ext.changelog.
+ */
+export interface SkillChangelogEntry {
+  version: string;
+  date?: string;
+  notes: string;
 }
 
 /**
@@ -233,5 +359,13 @@ export interface SkillsAPIResponseData {
   token?: string;
   skills: Skill[];
   message?: string;
+}
+
+/**
+ * Subscribed skill - extends Skill with subscription metadata
+ */
+export interface SubscribedSkill extends Skill {
+  subscribedAt?: string;
+  subscribedBy?: string;
 }
 

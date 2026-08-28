@@ -106,6 +106,15 @@ class CLIOutput:
         self.no_color = no_color or not sys.stdout.isatty()
         self.file = file or sys.stdout
         self._style = OutputStyle()
+        # The styled glyphs (✓, etc.) crash on legacy Windows cp1252 consoles
+        # ('charmap' codec can't encode) and corrupt when piped (âœ"). Force
+        # UTF-8 so callers that capture our stdout (e.g. the GUI) decode cleanly;
+        # errors='replace' keeps a console that still can't encode from crashing.
+        for _stream in (self.file, sys.stderr):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
     def _color(self, code: str, text: str) -> str:
         """Apply color code to text."""
@@ -151,19 +160,13 @@ class CLIOutput:
         self.print(self._color(self._style.BOLD, line))
 
     def json(self, data: Any, indent: int = 2):
-        """Print JSON output."""
-        if self.no_color:
-            print(json.dumps(data, indent=indent, default=str), file=self.file)
-        else:
-            json_str = json.dumps(data, indent=indent, default=str)
-            lines = json_str.split('\n')
-            for line in lines:
-                line = line.rstrip()
-                if ':' in line:
-                    key, _, value = line.partition(':')
-                    self.print(f"{self._color(self._style.CYAN, key)}:{value}")
-                else:
-                    self.print(line)
+        """Print JSON output.
+
+        Always emits clean, machine-parseable JSON (no ANSI injection) so
+        `--format json` / programmatic callers can json.loads() the output
+        verbatim, whether or not stdout is a TTY.
+        """
+        print(json.dumps(data, indent=indent, default=str), file=self.file)
 
     def table(
         self,
@@ -178,6 +181,12 @@ class CLIOutput:
             self.warning(f"No {title.lower()} found")
             return
 
+        ncols = len(columns)
+        # Normalize ragged rows to exactly `ncols` cells so a row with more or
+        # fewer cells than the header can't raise IndexError / drop columns.
+        rows = [(list(row) + [''] * ncols)[:ncols] for row in rows]
+
+        # Calculate widths based on content (single pass).
         col_widths = [len(c) for c in columns]
         for row in rows:
             for i, cell in enumerate(row):
@@ -187,15 +196,6 @@ class CLIOutput:
                 col_widths[i] = max(col_widths[i], len(cell_str))
 
         self.title(title)
-
-        # Calculate widths based on content
-        col_widths = [len(c) for c in columns]
-        for row in rows:
-            for i, cell in enumerate(row):
-                cell_str = str(cell)
-                if truncate and len(cell_str) > max_col_width:
-                    cell_str = cell_str[:max_col_width-3] + "..."
-                col_widths[i] = max(col_widths[i], len(cell_str))
 
         # Build table parts
         # Each cell: [space][content padded][space]
@@ -258,7 +258,12 @@ class CLIOutput:
         suffix_colored = f" {self._color(self._style.DIM, suffix)}"
 
         while True:
-            response = input(f"{message}{suffix_colored}: ").strip().lower()
+            try:
+                response = input(f"{message}{suffix_colored}: ").strip().lower()
+            except EOFError:
+                # Non-interactive stdin (piped / CI): fall back to the default
+                # instead of crashing with an uncaught EOFError.
+                return default
             if not response:
                 return default
             if response in ('y', 'yes'):
@@ -272,9 +277,15 @@ _global_output: Optional[CLIOutput] = None
 
 
 def get_output(**kwargs) -> CLIOutput:
-    """Get or create global output handler."""
+    """Get or create the global output handler.
+
+    The first caller (the ``cli()`` group callback) configures it with
+    level/no_color; later ``get_output()`` calls return that same configured
+    singleton. Previously ANY kwargs replaced the singleton, silently
+    discarding the configured level — so only create when absent.
+    """
     global _global_output
-    if _global_output is None or kwargs:
+    if _global_output is None:
         _global_output = CLIOutput(**kwargs)
     return _global_output
 

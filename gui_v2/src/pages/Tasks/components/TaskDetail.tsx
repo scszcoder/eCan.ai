@@ -8,10 +8,16 @@ import {
   MinusCircleOutlined,
   ReloadOutlined,
   PlayCircleOutlined,
+  HistoryOutlined,
+  ClockCircleOutlined,
+  SettingOutlined,
+  InfoCircleOutlined,
+  LeftOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
-import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Tag, Checkbox } from 'antd';
+import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Checkbox, Segmented, Tooltip } from 'antd';
 import { useTranslation } from 'react-i18next';
-import React, { useRef } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { Task } from '../types';
 import dayjs from 'dayjs';
@@ -27,12 +33,27 @@ import {
   buttonStyle,
   primaryButtonStyle
 } from '@/components/Common/StyledForm';
+import styled from '@emotion/styled';
+import { keyframes } from '@emotion/react';
 
-// Typography components (currently unused but available for future use)
-// const { Text, Title } = Typography;
+const fadeInAnimation = keyframes`
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+`;
+
+const pulseAnimation = keyframes`
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+`;
 
 // Generate a unique task ID
-const generateTaskId = () => `task_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`; 
+const generateTaskId = () => `task_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
 const DEFAULT_TASK = {
   id: '',
@@ -41,9 +62,9 @@ const DEFAULT_TASK = {
   task_type: 'local',
   priority: 'none',
   trigger: ['schedule'] as string[],
-  skills: [] as string[],  // Support multiple skills
+  skills: [] as string[],
   schedule: {
-    repeat_type: 'none',  // Default to 'none' (one-time run)
+    repeat_type: 'none',
     repeat_number: 1,
     repeat_unit: 'by hours',
     start_date_time: dayjs(),
@@ -59,31 +80,14 @@ const TASK_TYPE_OPTIONS = ['local', 'cloud', 'hybrid_cloud'];
 const TIMEZONE_OPTIONS = [
   'UTC',
   'America/New_York',
-  'America/Chicago',
-  'America/Denver',
   'America/Los_Angeles',
-  'America/Anchorage',
-  'Pacific/Honolulu',
-  'America/Toronto',
-  'America/Vancouver',
-  'America/Mexico_City',
-  'America/Sao_Paulo',
-  'America/Argentina/Buenos_Aires',
   'Europe/London',
   'Europe/Paris',
   'Europe/Berlin',
-  'Europe/Moscow',
-  'Europe/Istanbul',
-  'Asia/Dubai',
-  'Asia/Kolkata',
-  'Asia/Bangkok',
-  'Asia/Singapore',
   'Asia/Shanghai',
   'Asia/Tokyo',
-  'Asia/Seoul',
+  'Asia/Singapore',
   'Australia/Sydney',
-  'Australia/Melbourne',
-  'Pacific/Auckland',
 ];
 
 const PRIORITY_OPTIONS = ['none', 'low', 'medium', 'high', 'urgent'];
@@ -103,12 +107,177 @@ const REPEAT_OPTIONS = [
   'by years',
 ];
 
+// Styled Components
+const DetailContainer = styled.div`
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+`;
+
+const HeaderSection = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(99, 102, 241, 0.05) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 10px;
+  animation: ${fadeInAnimation} 0.3s ease-out;
+`;
+
+const StatusBadge = styled.div<{ $status: string }>`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: ${props => {
+    switch (props.$status.toLowerCase()) {
+      case 'running':
+      case 'working':
+        return 'rgba(24, 144, 255, 0.15)';
+      case 'ready':
+      case 'completed':
+        return 'rgba(82, 196, 26, 0.15)';
+      case 'failed':
+      case 'error':
+        return 'rgba(255, 77, 79, 0.15)';
+      case 'pending':
+      case 'submitted':
+        return 'rgba(114, 46, 209, 0.15)';
+      default:
+        return 'rgba(140, 140, 140, 0.15)';
+    }
+  }};
+  border: 1px solid ${props => {
+    switch (props.$status.toLowerCase()) {
+      case 'running':
+      case 'working':
+        return 'rgba(24, 144, 255, 0.3)';
+      case 'ready':
+      case 'completed':
+        return 'rgba(82, 196, 26, 0.3)';
+      case 'failed':
+      case 'error':
+        return 'rgba(255, 77, 79, 0.3)';
+      case 'pending':
+      case 'submitted':
+        return 'rgba(114, 46, 209, 0.3)';
+      default:
+        return 'rgba(140, 140, 140, 0.3)';
+    }
+  }};
+`;
+
+const StatusDot = styled.div<{ $status: string }>`
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: ${props => {
+    switch (props.$status.toLowerCase()) {
+      case 'running':
+      case 'working':
+        return '#1890FF';
+      case 'ready':
+      case 'completed':
+        return '#52C41A';
+      case 'failed':
+      case 'error':
+        return '#FF4D4F';
+      case 'pending':
+      case 'submitted':
+        return '#722ed1';
+      default:
+        return '#8C8C8C';
+    }
+  }};
+  ${props => (props.$status.toLowerCase() === 'running' || props.$status.toLowerCase() === 'working') && `
+    animation: ${pulseAnimation} 2s ease-in-out infinite;
+  `}
+`;
+
+const HeaderActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+`;
+
+const TabSection = styled.div`
+  padding: 0 16px;
+  margin-bottom: 10px;
+`;
+
+const StatsGrid = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px;
+  margin-bottom: 10px;
+`;
+
+const StatItem = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+`;
+
+const StatLabel = styled.span`
+  font-size: 11px;
+  color: var(--text-secondary);
+`;
+
+const StatValue = styled.span<{ $color?: string }>`
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 600;
+  color: ${props => props.$color || 'var(--text-primary)'};
+`;
+
+const QuickInfoSection = styled.div`
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  flex-wrap: wrap;
+`;
+
+const InfoItem = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+
+  .anticon {
+    color: var(--primary-color);
+  }
+`;
+
 interface TaskDetailProps {
   task: Task | null | object;
   isNew?: boolean;
-  onSave?: (taskId?: string) => void; // ä¿®æ”¹ï¼šæ”¯æŒä¼ é€’æ–°åˆ›å»ºçš„task ID
+  onSave?: (taskId?: string) => void;
   onCancel?: () => void;
   onDelete?: () => void;
+  onClose?: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
 }
 
 type ExtendedTask = Task & {
@@ -117,12 +286,11 @@ type ExtendedTask = Task & {
   owner?: string;
   description?: string;
   latest_version?: string;
-  metadata_text?: string; // stringified metadata for editing
-  skills?: string[];  // Support multiple skills
+  metadata_text?: string;
+  skills?: string[];
 };
 
-// Skill Select that hides unresolvable UUIDs (shows placeholder) in edit mode.
-// Form.Item passes value/onChange automatically when used as a direct child.
+// Skill Select
 const SkillSelect = ({
   value,
   onChange,
@@ -143,7 +311,6 @@ const SkillSelect = ({
     <Select
       showSearch
       allowClear
-      size="large"
       placeholder={placeholder}
       options={skillOptions}
       value={selectVal}
@@ -158,25 +325,21 @@ const SkillSelect = ({
 // Helper to safely convert to dayjs object
 const toDayjs = (date: string | Date | null | undefined) => {
   if (!date) return undefined;
-  // Handle custom date format "YYYY-MM-DD HH:mm:ss:SSS"
   const customFormat = "YYYY-MM-DD HH:mm:ss:SSS";
-  let d = dayjs(date, customFormat, true); // Strict parsing
+  let d = dayjs(date, customFormat, true);
   if (!d.isValid()) {
-    // Fallback to default parsing for standard formats like ISO 8601
     d = dayjs(date);
   }
   return d.isValid() ? d : undefined;
 };
 
-export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as any, isNew = false, onSave, onCancel, onDelete }) => {
+export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as any, isNew = false, onSave, onCancel, onDelete, onClose, onPrev, onNext, hasPrev = false, hasNext = false }) => {
   const { message } = App.useApp();
   const showDeleteConfirm = useDeleteConfirm();
-  
-  // ScrollPositionSave
+
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const savedScrollPositionRef = useRef<number>(0);
 
-  // Pre-process the task data - extract only primitive values to avoid circular references
   const task = React.useMemo(() => {
     if (!rawTask || Object.keys(rawTask).length === 0) {
       return isNew ? DEFAULT_TASK : null;
@@ -190,7 +353,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       end_date_time: toDayjs(raw.schedule?.end_date_time),
       time_out: raw.schedule?.time_out || 3600,
     };
-    // Extract only primitive values, no spreading to avoid circular references
     return {
       id: raw.id,
       name: raw.name,
@@ -209,22 +371,23 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       schedule: processedSchedule,
     };
   }, [rawTask, isNew]);
+
   const { t } = useTranslation();
   const username = useUserStore((s) => s.username) || '';
   const [form] = Form.useForm<ExtendedTask>();
-  const [editMode, setEditMode] = React.useState(isNew);
-  const [saving, setSaving] = React.useState(false);
-  const [refreshingStatus, setRefreshingStatus] = React.useState(false);
-  const [launching, setLaunching] = React.useState(false);
-  const [latestStatus, setLatestStatus] = React.useState<string>('');
-  const [currentTrigger, setCurrentTrigger] = React.useState<string[]>(['schedule']);
-  const [currentTaskType, setCurrentTaskType] = React.useState<string>('local');
-  // skills store and fetch-on-mount if needed
+  const [editMode, setEditMode] = useState(isNew);
+  const [saving, setSaving] = useState(false);
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [latestStatus, setLatestStatus] = useState<string>('');
+  const [_currentTrigger, setCurrentTrigger] = useState<string[]>(['schedule']);
+  const [currentTaskType, setCurrentTaskType] = useState<string>('local');
+  const [activeTab, setActiveTab] = useState<string>('basic');
+
   const skills = useSkillStore((s) => s.items);
   const setSkills = useSkillStore((s) => s.setItems);
-  // all tasks from store (for companion local task picker)
   const allTasks = useTaskStore((s) => s.items);
-  // Compute local task options for companion picker (exclude current task)
+
   const localTaskOptions = React.useMemo(() => {
     const currentId = task ? (task as any).id : '';
     return (allTasks || [])
@@ -235,18 +398,12 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       .map((t: any) => ({ value: t.id, label: t.name || t.id }));
   }, [allTasks, task]);
 
-  // Extract only id and name to avoid circular reference in deep comparison
-  // Use primitive dependencies to avoid triggering deep comparison on circular structures
-  const skillsKey = React.useMemo(() => {
-    return (skills || []).length;
-  }, [skills?.length]);
+  const skillsKey = React.useMemo(() => (skills || []).length, [skills?.length]);
 
   const skillsSimplified = React.useMemo(() => {
     return (skills || []).map((s: any) => ({ id: s.id, name: s.name }));
-  }, [skillsKey]);  // Depend on primitive key instead of full skills object
+  }, [skillsKey]);
 
-  // Memoize skill options to avoid circular reference warnings
-  // value is always the skill ID; label/display is the name
   const skillOptions = React.useMemo(() => {
     return skillsSimplified.map((s) => ({
       key: s.id,
@@ -255,24 +412,20 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     }));
   }, [skillsSimplified]);
 
-  // Fetch skills on mount - always fetch to ensure we have the latest
+  // Fetch skills on mount
   React.useEffect(() => {
     const api = get_ipc_api();
     const ensureSkills = async () => {
       try {
         let uname = username;
         if (!uname) {
-          const loginInfo = await api.getLastLoginInfo<any>();
+          const loginInfo = await api.getLastLoginInfo();
           uname = (loginInfo?.success && (loginInfo.data as any)?.last_login?.username) || '';
         }
         if (uname) {
-          const res = await api.getAgentSkills<any[]>(uname, []);
-          // API returns skills array directly in res.data (not res.data.skills)
-          // due to resultPath: 'getAllMine.skills' in api config
-          const skillsData = res?.data?.skills || res?.data;
+          const res = await api.getAgentSkills(uname, []);
+          const skillsData = Array.isArray(res?.data) ? res.data : ((res?.data as any)?.skills || []);
           if (res?.success && Array.isArray(skillsData) && skillsData.length > 0) {
-
-            // Sanitize skills data to remove circular references before storing
             const sanitizedSkills = skillsData.map((skill: any) => ({
               id: skill.id,
               name: skill.name,
@@ -283,65 +436,54 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
               path: skill.path,
               source: skill.source,
               tags: skill.tags,
-              examples: skill.examples,
-              inputModes: skill.inputModes,
-              outputModes: skill.outputModes,
-              apps: skill.apps,
-              limitations: skill.limitations,
-              price: skill.price,
-              price_model: skill.price_model,
-              public: skill.public,
-              rentable: skill.rentable,
-              run_in_cloud: skill.run_in_cloud,
-              // Explicitly exclude config, work_flow, ui_info and other fields that may contain circular refs
             }));
-
             setSkills(sanitizedSkills as any);
           }
         }
       } catch (e) {
-        // Silently handle skill fetch errors - non-critical
+        // Silent fail
       }
     };
     ensureSkills();
   }, [username, setSkills]);
 
-  // Create a stable primitive key for task to avoid circular reference warnings
-  const taskKey = React.useMemo(() => {
-    if (!task) return 'no-task';
-    const t = task as any;
-    // Include status in the key so taskStatus updates when status changes
-    const status = t.status ?? t.state?.top ?? '';
-    const statusStr = typeof status === 'object' ? (status.state || status.status || '') : String(status || '');
-    return `${t.id || ''}_${t.name || ''}_${t.latest_version || ''}_${statusStr}_${isNew ? 'new' : 'edit'}`;
-  }, [task, isNew]);
+  // Extract a clean string status from any value shape (string, object, nested)
+  const extractStatus = (val: any): string => {
+    if (!val) return '';
+    if (typeof val === 'string') return val;
+    if (typeof val === 'number') return String(val);
+    if (typeof val === 'object') {
+      // Try common status field names recursively
+      const found = extractField(val, ['state', 'status', 'top', 'value', 'label']);
+      if (found) return extractStatus(found);
+    }
+    return String(val);
+  };
+
+  // Deep-read a field from an object, returning its value or null
+  const extractField = (obj: any, keys: string[]): any => {
+    for (const k of keys) {
+      if (obj && typeof obj === 'object' && k in obj) {
+        return obj[k];
+      }
+    }
+    return null;
+  };
 
   const taskStatus = React.useMemo(() => {
     if (!task) return '';
-    const statusValue = (task as any).status ?? (task as any).state?.top ?? '';
-    
-    // Handle different status formats
-    if (typeof statusValue === 'string') {
-      return statusValue;
-    } else if (statusValue && typeof statusValue === 'object') {
-      // If status is an object like {state: 'submitted', message: null, timestamp: null}
-      return statusValue.state || statusValue.status || String(statusValue);
-    }
-    
-    return String(statusValue || '');
-  }, [taskKey]);
+    const t = task as any;
+    const statusValue = t.status ?? t.state?.top ?? '';
+    return extractStatus(statusValue);
+  }, [task]);
 
+  // Keep latestStatus reactive with the task
   React.useEffect(() => {
     setLatestStatus(taskStatus);
   }, [taskStatus]);
 
-  // Watch trigger changes to update repeat_type options
-  const handleTriggerChange = React.useCallback(() => {
-    // 'none' repeat_type is valid for schedule triggers (one-time run)
-    // Trigger state is managed by form, no need for separate state
-  }, []);
-
-  React.useEffect(() => {
+  // Initialize form
+  useEffect(() => {
     if (task) {
       const rawSkillNames: string[] = (task as any).skill_names || [];
       const rawSkillIds: string[] = (task as any).skill_ids || [];
@@ -349,44 +491,29 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       const taskSkills: string[] = Array.from({ length: sourceLen }, (_, i) => {
         const rawId = String(rawSkillIds[i] || '');
         const rawName = String(rawSkillNames[i] || '');
-        // Try by ID first (most reliable — avoids empty-name or case-mismatch issues)
         if (rawId) {
           const byId = skillsSimplified.find((sk) => String(sk.id) === rawId);
           if (byId) return String(byId.id);
         }
-        // Try by name
         if (rawName) {
           const byName = skillsSimplified.find((sk) => sk.name === rawName);
           if (byName) return String(byName.id);
-          // Also try name as an ID value (legacy)
           const byNameAsId = skillsSimplified.find((sk) => String(sk.id) === rawName);
           if (byNameAsId) return String(byNameAsId.id);
         }
-        // Keep as-is; skillsKey effect will re-resolve after store loads
         return rawId || rawName;
       });
-      
-      // Metadata is clean (no skill stored in it anymore)
+
       const metadata = (task as any).metadata || {};
       const metaStr = Object.keys(metadata).length > 0 ? JSON.stringify(metadata, null, 2) : '';
 
-      // ä½¿ç"¨ name Fieldï¼ŒIfä¸å­˜åœ¨åˆ™ä½¿ç"¨ skill Fieldä½œä¸ºåŽå¤‡
       const taskName = (task as any).name || '';
-
-      // ä½¿ç"¨ description Fieldï¼ŒIfä¸å­˜åœ¨åˆ™ä½¿ç"¨ metadata ä¸­çš„Descriptionä½œä¸ºåŽå¤‡
-      const taskDescription = (task as any).description
-        || (task as any).metadata?.description
-        || '';
-
-      // ç¡®ä¿AllFieldéƒ½æ­£ç¡®Settings
-      // For new tasks, auto-generate ID and set owner
+      const taskDescription = (task as any).description || (task as any).metadata?.description || '';
       const taskId = isNew ? generateTaskId() : (task as any).id;
       const taskOwner = isNew ? username : ((task as any).owner || username);
       const taskAgentId = (task as any).agent_id || (task as any).agentId || '';
 
-      // Extract primitive values from task to avoid circular references
       const t = task as any;
-      // Process trigger value - backend stores as comma-separated string
       const rawTrigger = t.trigger;
       const taskTrigger: string[] = Array.isArray(rawTrigger)
         ? rawTrigger
@@ -402,12 +529,15 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         task_type: (task as any).task_type || metadata?.task_type || 'local',
         companion_local_task: metadata?.companion_local_task || undefined,
         light_weight: !!metadata?.light_weight,
-        skills: taskSkills,  // Multiple skills support
+        skills: taskSkills,
         metadata_text: metaStr,
         agent_id: taskAgentId,
         latest_version: t.latest_version || '1.0.0',
         priority: t.priority || 'none',
-        trigger: taskTrigger,  // Use processed trigger value
+        trigger: taskTrigger,
+        // Shared-skill per-task variables (metadata.task_vars) — rendered as
+        // form fields from the selected skills' need_inputs declarations.
+        task_vars: metadata?.task_vars || {},
         schedule: {
           repeat_type: t.schedule?.repeat_type || 'none',
           repeat_number: t.schedule?.repeat_number || 1,
@@ -418,23 +548,18 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         },
       };
 
-      // Set all form values at once, including trigger
       form.setFieldsValue(formValues);
-
-      // Set current task type for conditional companion picker
       const taskType = (task as any).task_type || metadata?.task_type || 'local';
       setCurrentTaskType(taskType);
-
-      // Set current trigger for validation
       setCurrentTrigger(taskTrigger);
     } else {
       form.resetFields();
       setEditMode(false);
     }
-  }, [taskKey, username, (task as any).skill_ids]); // skill_ids 变化时重新初始化表单
+  }, [task, isNew, username, skillsSimplified, form]);
 
-  // Re-normalize skill IDs when skills store loads (handles race: task loads before skills).
-  React.useEffect(() => {
+  // Re-normalize skill IDs when skills store loads
+  useEffect(() => {
     if (skillsSimplified.length === 0) return;
     const current: string[] = form.getFieldValue('skills') || [];
     if (current.length === 0) return;
@@ -443,51 +568,40 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       if (byId) return String(byId.id);
       const byName = skillsSimplified.find((sk) => sk.name === s);
       if (byName) return String(byName.id);
-      return s; // keep original — do not remove skills the store hasn't loaded yet
+      return s;
     }).filter(Boolean);
     if (resolved.length !== current.length || resolved.some((v, i) => v !== current[i])) {
       form.setFieldsValue({ skills: resolved });
     }
-  }, [skillsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [skillsKey]);
 
   const handleCancel = () => {
     if (isNew) {
-      // New mode: Clear form and notify parent to close panel
       form.resetFields();
-      if (onCancel) {
-        onCancel();
-      }
+      if (onCancel) onCancel();
     } else {
-      // Edit mode: Exit edit mode (form will be re-populated by useEffect)
       setEditMode(false);
-      // Edit mode does not call onCancel to keep panel open
     }
   };
 
-  // Check if task is code-generated (read-only)
   const isCodeGenerated = React.useMemo(() => {
     if (!task) return false;
     const t = task as any;
-    // Check source field first
     if (t.source === 'code') return true;
-    // Check ID prefix as fallback
     if (t.id && typeof t.id === 'string' && t.id.startsWith('code-task-')) return true;
     return false;
   }, [task]);
 
   const handleEdit = () => {
     if (isCodeGenerated) {
-        message.warning(t('pages.tasks.readOnlyCodeGenerated') || 'This task is code-generated and read-only');
+      message.warning(t('pages.tasks.readOnlyCodeGenerated') || 'This task is code-generated and read-only');
     }
     setEditMode(true);
   };
 
-
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
-      
-      // Form stores skill IDs directly — no name<->id conversion needed
       const skillIds = ((values as any).skills || []).map((s: string) => String(s || '').trim()).filter(Boolean);
 
       const payload: any = {
@@ -499,7 +613,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         latest_version: (values as any).latest_version || '1.0.0',
         priority: (values as any).priority || 'medium',
         trigger: ((values as any).trigger || ['auto']).join(','),
-        skill_ids: skillIds,  // canonical IDs for backend
+        skill_ids: skillIds,
         schedule: {
           repeat_type: (values as any).schedule?.repeat_type || 'none',
           repeat_number: (values as any).schedule?.repeat_number || 1,
@@ -513,16 +627,27 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           time_out: (values as any).schedule?.time_out || 3600,
           timezone: (values as any).schedule?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
-        metadata: {
-          ...((values as any).metadata_text ? JSON.parse((values as any).metadata_text) : {}),
-          task_type: (values as any).task_type || 'local',
-          ...((values as any).task_type === 'hybrid_cloud' && (values as any).companion_local_task
-            ? { companion_local_task: (values as any).companion_local_task }
-            : {}),
-          ...((values as any).task_type === 'cloud'
-            ? { light_weight: !!(values as any).light_weight }
-            : {}),
-        },
+        metadata: (() => {
+          const baseMeta = (values as any).metadata_text ? JSON.parse((values as any).metadata_text) : {};
+          // Merge form-entered task variables over any task_vars already in
+          // the raw metadata JSON (form fields win; empty values dropped).
+          const formVars = (values as any).task_vars || {};
+          const cleanedVars = Object.fromEntries(
+            Object.entries(formVars).filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '')
+          );
+          const mergedVars = { ...(baseMeta.task_vars || {}), ...cleanedVars };
+          return {
+            ...baseMeta,
+            ...(Object.keys(mergedVars).length > 0 ? { task_vars: mergedVars } : {}),
+            task_type: (values as any).task_type || 'local',
+            ...((values as any).task_type === 'hybrid_cloud' && (values as any).companion_local_task
+              ? { companion_local_task: (values as any).companion_local_task }
+              : {}),
+            ...((values as any).task_type === 'cloud'
+              ? { light_weight: !!(values as any).light_weight }
+              : {}),
+          };
+        })(),
       };
 
       if (!payload || typeof payload !== 'object' || !payload.name) {
@@ -542,10 +667,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
 
         const desired = Array.from(new Set((desiredSkillIds || []).map((s) => String(s || '').trim()).filter(Boolean)));
         const q = await api.queryAgentTaskSkillRels({ task_id: safeTaskId, limit: 500, offset: 0 });
-        if (!q.success) {
-          console.warn('[TaskDetail] queryAgentTaskSkillRels failed:', q.error);
-          return;
-        }
+        if (!q.success) return;
 
         const existing = Array.isArray(q.data) ? q.data : [];
         const existingBySkill = new Map<string, any>();
@@ -571,49 +693,31 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           }))
           .filter((x: any) => x.skill_id);
 
-        if (toAdd.length) {
-          const r = await api.addAgentTaskSkillRels(toAdd);
-          if (!r.success) console.warn('[TaskDetail] addAgentTaskSkillRels failed:', r.error);
-        }
-        if (toRemove.length) {
-          const r = await api.removeAgentTaskSkillRels(toRemove);
-          if (!r.success) console.warn('[TaskDetail] removeAgentTaskSkillRels failed:', r.error);
-        }
+        if (toAdd.length) await api.addAgentTaskSkillRels(toAdd);
+        if (toRemove.length) await api.removeAgentTaskSkillRels(toRemove);
       };
 
       if (response.success) {
         message.success(t(isNew ? 'common.createSuccess' : 'common.saveSuccess'));
         setEditMode(false);
-        // ä¼ é€’æ–°åˆ›å»ºçš„task IDç»™çˆ¶ç»„ä»¶
         if (onSave) {
-          // API返回的是数组格式 [{id, success, error}]，需要从第一个元素获取ID
           const responseData = (response as any).data;
           let newTaskId: string | undefined;
           if (isNew) {
-            // Handle array response format from addAgentTasks: [{id, success, error}]
             if (Array.isArray(responseData) && responseData.length > 0) {
               newTaskId = responseData[0]?.id;
             } else if (responseData?.task_id) {
               newTaskId = responseData.task_id;
             } else if (responseData?.id) {
               newTaskId = responseData.id;
-            } else if (responseData?.task?.id) {
-              newTaskId = responseData.task.id;
             } else {
               newTaskId = payload.id;
             }
           } else {
-            // For save (update) operation, extract task_id from response
-            if (responseData?.task_id) {
-              newTaskId = responseData.task_id;
-            } else if (responseData?.id) {
-              newTaskId = responseData.id;
-            } else {
-              newTaskId = payload.id;
-            }
+            if (responseData?.task_id) newTaskId = responseData.task_id;
+            else if (responseData?.id) newTaskId = responseData.id;
+            else newTaskId = payload.id;
           }
-          // Web app: keep task↔skills relations in agent_task_skill_rels.
-          // If this call fails (e.g., local dev GraphQL schema), we don't block saving the task itself.
           try {
             const finalTaskId = String(newTaskId || payload.id || '').trim();
             const desiredSkillIds = (payload.skill_ids || []).map((x: any) => String(x || '').trim()).filter(Boolean);
@@ -621,12 +725,10 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           } catch (e) {
             console.warn('[TaskDetail] syncTaskSkillRels error:', e);
           }
-
           onSave(newTaskId);
         }
       } else {
-        message.error(response.error?.message || 
-          t(isNew ? 'common.createFailed' : 'common.saveFailed'));
+        message.error(response.error?.message || t(isNew ? 'common.createFailed' : 'common.saveFailed'));
       }
     } catch (error) {
       console.error(`Error ${isNew ? 'creating' : 'saving'} task:`, error);
@@ -644,19 +746,14 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     setRefreshingStatus(true);
     try {
       const api = get_ipc_api();
-      const response = await api.refreshAgentTaskStatus<any>(username, taskId);
+      const response = await api.refreshAgentTaskStatus(username, taskId);
       if (response.success) {
         const refreshed = (response as any).data?.task || (response as any).data;
         let nextStatus = refreshed?.status ?? refreshed?.state?.top ?? taskStatus;
-        
-        // Handle object format status
         if (nextStatus && typeof nextStatus === 'object') {
           nextStatus = nextStatus.state || nextStatus.status || String(nextStatus);
         }
-        
-        if (nextStatus) {
-          setLatestStatus(String(nextStatus));
-        }
+        if (nextStatus) setLatestStatus(String(nextStatus));
         message.success(t('common.refresh_success', 'Refresh success'));
       } else {
         message.error(response.error?.message || t('common.refresh_failed', 'Refresh failed'));
@@ -677,7 +774,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     setLaunching(true);
     try {
       const api = get_ipc_api();
-      const response = await api.runAgentTask<any>(username, {
+      const response = await api.runAgentTask(username, {
         task_id: taskId,
         task_type: (task as any).task_type || 'local',
         cloud_based: ((task as any).task_type || 'local') !== 'local',
@@ -703,14 +800,13 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     showDeleteConfirm({
       title: t('pages.tasks.deleteConfirmTitle', 'Delete Task'),
       message: t('pages.tasks.deleteConfirmMessage', `Are you sure you want to delete "${(task as any)?.name}"? This action cannot be undone.`),
-      warningText: t('pages.tasks.deleteWarning', 'æ­¤Operationæ— æ³•æ’¤é”€'),
+      warningText: t('pages.tasks.deleteWarning', 'This operation cannot be undone'),
       okText: t('common.delete', 'Delete'),
       cancelText: t('common.cancel', 'Cancel'),
       onOk: async () => {
         try {
           const api = get_ipc_api();
 
-          // Best-effort: remove task↔skill relations first (keeps relation table clean in web mode)
           try {
             const taskId = String((task as any).id || '').trim();
             if (taskId) {
@@ -719,9 +815,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 const relIds = q.data
                   .map((r: any) => ({ id: String(r?.id || '').trim() }))
                   .filter((x: any) => x.id);
-                if (relIds.length) {
-                  await api.removeAgentTaskSkillRels(relIds);
-                }
+                if (relIds.length) await api.removeAgentTaskSkillRels(relIds);
               }
             }
           } catch (e) {
@@ -729,16 +823,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           }
 
           const resp = await api.deleteAgentTask(username, String((task as any).id));
-          
+
           if (resp.success) {
             message.success(t('pages.tasks.deleteSuccess', 'Task deleted successfully'));
-            // Call onDelete callback to close detail page
-            if (onDelete) {
-              onDelete();
-            } else if (onSave) {
-              // Fallback to onSave if no onDelete callback
-              onSave();
-            }
+            if (onDelete) onDelete();
+            else if (onSave) onSave();
           } else {
             message.error(resp.error?.message || t('pages.tasks.deleteError', 'Failed to delete task'));
           }
@@ -750,24 +839,27 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     });
   };
 
-  // If no task is selected, show empty state
+  // Empty state
   if (!task && !isNew) {
     return (
       <FormContainer>
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
           height: '100%',
-          color: '#999'
+          color: 'var(--text-muted)',
+          gap: 12,
         }}>
-          {t('pages.tasks.selectTask', 'è¯·Selectä¸€ä¸ªä»»åŠ¡')}
+          <InfoCircleOutlined style={{ fontSize: 48, opacity: 0.5 }} />
+          <div style={{ fontSize: 14 }}>{t('pages.tasks.selectTask', '请选择一个任务')}</div>
         </div>
       </FormContainer>
     );
   }
 
-  // ä½¿ç”¨ useEffectOnActive åœ¨ComponentActiveæ—¶RestoreScrollPosition
+  // Scroll position management
   useEffectOnActive(
     () => {
       const container = scrollContainerRef.current;
@@ -776,7 +868,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           container.scrollTop = savedScrollPositionRef.current;
         });
       }
-      
       return () => {
         const container = scrollContainerRef.current;
         if (container) {
@@ -787,540 +878,494 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     []
   );
 
-  // Status color mapping
-  const getStatusColor = (status: string) => {
-    const statusLower = status.toLowerCase();
-    if (statusLower === 'completed' || statusLower === 'success') return 'success';
-    if (statusLower === 'running' || statusLower === 'working') return 'processing';
-    if (statusLower === 'failed' || statusLower === 'error') return 'error';
-    if (statusLower === 'pending' || statusLower === 'submitted') return 'default';
-    if (statusLower === 'cancelled' || statusLower === 'canceled') return 'warning';
-    return 'default';
+  // Calculate task statistics
+  const taskStats = {
+    runCount: (task as any)?.metadata?.run_count || 0,
+    successCount: (task as any)?.metadata?.success_count || 0,
+    failCount: (task as any)?.metadata?.fail_count || 0,
+    lastRun: (task as any)?.last_run_datetime || null,
   };
 
   return (
-    <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <FormContainer ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          padding: '12px 24px',
-          background: 'rgba(255, 255, 255, 0.02)',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-          marginBottom: '16px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ color: 'rgba(255, 255, 255, 0.65)', fontSize: 14 }}>
-              {t('pages.tasks.statusLabel', 'Status')}:
+    <DetailContainer>
+      {/* Header with Status */}
+      <HeaderSection>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
+          <StatusBadge $status={latestStatus}>
+            <StatusDot $status={latestStatus} />
+            <span style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.2 }}>
+              {latestStatus ? t(`pages.tasks.status.${latestStatus}`, latestStatus) : t('pages.tasks.status.unknown', '未知')}
             </span>
-            <Tag 
-              color={getStatusColor(latestStatus)} 
-              style={{ margin: 0, fontSize: 13, padding: '2px 12px' }}
-            >
-              {latestStatus ? t(`pages.tasks.status.${latestStatus}`, latestStatus) : t('pages.tasks.status.unknown', 'Unknown')}
-            </Tag>
-          </div>
-          <Button
-            type="text"
-            size="small"
-            icon={<ReloadOutlined />}
-            loading={refreshingStatus}
-            onClick={handleRefreshStatus}
-            aria-label={t('pages.tasks.refresh', 'Refresh')}
-          >
-            {t('pages.tasks.refresh', 'Refresh')}
-          </Button>
+          </StatusBadge>
+
+          {/* Quick Info */}
+          <QuickInfoSection>
+            <Tooltip title={t('pages.tasks.taskId', '任务ID')}>
+              <InfoItem>
+                <ClockCircleOutlined />
+                <span>{(task as any)?.id?.slice(-8) || '-'}</span>
+              </InfoItem>
+            </Tooltip>
+
+            {(task as any)?.latest_version && (
+              <Tooltip title={t('pages.tasks.latestVersion', '版本')}>
+                <InfoItem>
+                  <HistoryOutlined />
+                  <span>v{(task as any).latest_version}</span>
+                </InfoItem>
+              </Tooltip>
+            )}
+          </QuickInfoSection>
         </div>
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleSave}
-          disabled={!editMode && !isNew}
-        >
+
+        <HeaderActions>
+          {!isNew && (hasPrev || hasNext) && (
+            <>
+              <Tooltip title={t('common.previous', '上一个')}>
+                <Button
+                  type="text"
+                  icon={<LeftOutlined />}
+                  onClick={onPrev}
+                  disabled={!hasPrev}
+                />
+              </Tooltip>
+              <Tooltip title={t('common.next', '下一个')}>
+                <Button
+                  type="text"
+                  icon={<RightOutlined />}
+                  onClick={onNext}
+                  disabled={!hasNext}
+                />
+              </Tooltip>
+            </>
+          )}
+          {onClose && (
+            <Tooltip title={t('common.close', '关闭')}>
+              <Button
+                type="text"
+                icon={<CloseOutlined />}
+                onClick={onClose}
+              />
+            </Tooltip>
+          )}
+          <Tooltip title={t('pages.tasks.refresh', '刷新状态')}>
+            <Button
+              type="text"
+              icon={<ReloadOutlined spin={refreshingStatus} />}
+              onClick={handleRefreshStatus}
+              loading={refreshingStatus}
+            />
+          </Tooltip>
+        </HeaderActions>
+      </HeaderSection>
+
+      {/* Statistics Summary */}
+      <StatsGrid>
+        <StatItem>
+          <StatLabel>{t('pages.tasks.stats.totalRuns', '运行次数')}</StatLabel>
+          <StatValue>{taskStats.runCount}</StatValue>
+        </StatItem>
+        <StatItem>
+          <StatLabel>{t('pages.tasks.stats.successRuns', '成功次数')}</StatLabel>
+          <StatValue $color="#52c41a">{taskStats.successCount}</StatValue>
+        </StatItem>
+        <StatItem>
+          <StatLabel>{t('pages.tasks.stats.failedRuns', '失败次数')}</StatLabel>
+          <StatValue $color="#ff4d4f">{taskStats.failCount}</StatValue>
+        </StatItem>
+        <StatItem>
+          <StatLabel>{t('pages.tasks.stats.successRate', '成功率')}</StatLabel>
+          <StatValue $color={taskStats.runCount > 0 ? (taskStats.successCount / taskStats.runCount >= 0.8 ? '#52c41a' : '#faad14') : '#8c8c8c'}>
+            {taskStats.runCount > 0 ? `${((taskStats.successCount / taskStats.runCount) * 100).toFixed(1)}%` : '-'}
+          </StatValue>
+        </StatItem>
+      </StatsGrid>
+
+      {/* Tabs */}
+      {!isNew && (
+        <TabSection>
+          <Segmented
+            value={activeTab}
+            onChange={(value) => setActiveTab(value as string)}
+            options={[
+              { label: t('pages.tasks.tabs.basic', '基本信息'), value: 'basic' },
+              { label: t('pages.tasks.tabs.schedule', '调度设置'), value: 'schedule' },
+              { label: t('pages.tasks.tabs.metadata', '元数据'), value: 'metadata' },
+            ]}
+            block
+          />
+        </TabSection>
+      )}
+
+      {/* Form Content */}
+        <FormContainer ref={scrollContainerRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 16px 12px' }}>
+        <Form form={form} layout="vertical" onFinish={handleSave} disabled={!editMode && !isNew}>
           <Form.Item name="owner" hidden>
             <Input />
           </Form.Item>
-          <Space direction="vertical" style={{ width: '100%' }} size={24}>
-              <div style={{ marginBottom: '16px' }}>
+
+          {(activeTab === 'basic' || isNew) && (
+            <Space direction="vertical" style={{ width: '100%' }} size={12}>
+              {/* Task Name */}
+              <div>
                 <StyledFormItem
                   name="name"
                   label={t('pages.tasks.name')}
-                  rules={[{ required: true }]}
+                  rules={[{ required: true, message: t('pages.tasks.nameRequired', '请输入任务名称') }]}
                   style={{ marginBottom: 0 }}
                   htmlFor="task-name"
                 >
                   <Input
                     id="task-name"
-                    placeholder={t('pages.tasks.namePlaceholder')}
-                    size="large"
+                    placeholder={t('pages.tasks.namePlaceholder', '输入任务名称...')}
                     autoComplete="off"
+                    style={{ fontSize: 15, fontWeight: 500 }}
                   />
                 </StyledFormItem>
               </div>
 
-              <Row gutter={[24, 0]} style={{ marginTop: '16px' }}>
+              {/* Basic Info Row */}
+              <Row gutter={[16, 0]}>
                 <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.taskId', 'ä»»åŠ¡ ID')} name="id" htmlFor="task-id">
-                    <Input id="task-id" readOnly aria-label={t('pages.tasks.taskId', 'ä»»åŠ¡ ID')} />
+                  <StyledFormItem label={t('pages.tasks.taskId', '任务 ID')} name="id">
+                    <Input id="task-id" readOnly style={{ fontFamily: 'Monospace', fontSize: 12 }} />
                   </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.latestVersion', 'Latest Version')} name="latest_version" htmlFor="task-version">
-                    <Input id="task-version" readOnly aria-label={t('pages.tasks.latestVersion', 'Latest Version')} />
-                  </StyledFormItem>
-                </Col>
-                <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.ownerAgent', 'Owner(Agent)')} name="agent_id" htmlFor="task-agent-id">
-                    <Input id="task-agent-id" readOnly aria-label={t('pages.tasks.ownerAgent', 'Owner(Agent)')} />
-                  </StyledFormItem>
-                </Col>
-                <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.priorityLabel', 'Priority')} name="priority" htmlFor="task-priority">
+                  <StyledFormItem label={t('pages.tasks.priorityLabel', '优先级')} name="priority">
                     <Select
                       id="task-priority"
-                      allowClear
-                      size="large"
-                      onChange={(value) => {
-                        if (value === null || value === undefined) {
-                          form.setFieldsValue({ priority: 'none' });
-                        }
-                      }}
                       options={PRIORITY_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.priority.${v}`, v) }))}
-                      aria-label={t('pages.tasks.priorityLabel', 'Priority')}
-                    />
-                  </StyledFormItem>
-                </Col>
-                <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.triggerLabel', 'Trigger')} name="trigger" htmlFor="task-trigger">
-                    <Select
-                      id="task-trigger"
-                      size="large"
-                      mode="multiple"
-                      onChange={handleTriggerChange}
-                      options={TRIGGER_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.trigger.${v}`, v) }))}
-                      aria-label={t('pages.tasks.triggerLabel', 'Trigger')}
-                      placeholder={t('pages.tasks.triggerPlaceholder', 'Select trigger sources')}
-                    />
-                  </StyledFormItem>
-                </Col>
-                <Col span={12}>
-                  <StyledFormItem
-                    label={t('pages.tasks.taskTypeLabel', 'Task Type')}
-                    name="task_type"
-                    htmlFor="task-type"
-                  >
-                    <Select
-                      id="task-type"
-                      size="large"
-                      onChange={(value) => setCurrentTaskType(value)}
-                      options={TASK_TYPE_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.taskType.${v}`, v) }))}
-                      aria-label={t('pages.tasks.taskTypeLabel', 'Task Type')}
-                    />
-                  </StyledFormItem>
-                </Col>
-                {currentTaskType === 'hybrid_cloud' && (
-                  <Col span={12}>
-                    <StyledFormItem
-                      label={t('pages.tasks.companionLocalTask', 'Companion Local Task')}
-                      name="companion_local_task"
-                      htmlFor="task-companion"
-                    >
-                      <Select
-                        id="task-companion"
-                        size="large"
-                        allowClear
-                        showSearch
-                        placeholder={t('pages.tasks.selectCompanionTask', 'Select a local helper task')}
-                        options={localTaskOptions}
-                        filterOption={(input, option) =>
-                          (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())
-                        }
-                        aria-label={t('pages.tasks.companionLocalTask', 'Companion Local Task')}
-                      />
-                    </StyledFormItem>
-                  </Col>
-                )}
-                {currentTaskType === 'cloud' && (
-                  <Col span={12}>
-                    <StyledFormItem
-                      label={t('pages.tasks.lightWeightLabel', 'Light Weight')}
-                      name="light_weight"
-                      valuePropName="checked"
-                    >
-                      <Checkbox>{t('pages.tasks.lightWeightDesc', 'Run as light-weight cloud task')}</Checkbox>
-                    </StyledFormItem>
-                  </Col>
-                )}
-                <Col span={24}>
-                  <StyledFormItem label={t('common.description', 'Description')} name="description" htmlFor="task-description">
-                    <Input.TextArea
-                      id="task-description"
-                      rows={4}
-                      placeholder={t('pages.tasks.descriptionPlaceholder', 'Enter task description...')}
-                      size="large"
-                      autoComplete="off"
-                    />
-                  </StyledFormItem>
-                </Col>
-                <Col span={24}>
-                  <Form.List name="skills">
-                    {(fields, { add, remove }) => (
-                      <>
-                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-                          <span style={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.85)' }}>
-                            {t('pages.tasks.skills', 'Associated Skills')}
-                          </span>
-                          {(editMode || isNew) && (
-                            <Button
-                              type="link"
-                              onClick={() => add('')}
-                              icon={<PlusOutlined />}
-                              style={{ marginLeft: 8 }}
-                            >
-                              {t('common.add', 'Add')}
-                            </Button>
-                          )}
-                        </div>
-                        {fields.length === 0 && (
-                          <div style={{ color: 'rgba(255, 255, 255, 0.45)', marginBottom: 16 }}>
-                            {t('pages.tasks.noSkillsAssociated', 'No skills associated. Click Add to associate a skill.')}
-                          </div>
-                        )}
-                        {fields.map(({ key, name, ...restField }) => (
-                          <div key={key} style={{ display: 'flex', alignItems: 'center', marginBottom: 8, gap: 8 }}>
-                            <Form.Item
-                              {...restField}
-                              name={name}
-                              style={{ flex: 1, marginBottom: 0 }}
-                            >
-                              {editMode || isNew ? (
-                                <SkillSelect
-                                  skillOptions={skillOptions}
-                                  placeholder={t('pages.tasks.skillPlaceholder', 'Select a skill')}
-                                />
-                              ) : (
-                                <Form.Item noStyle shouldUpdate>
-                                  {({ getFieldValue }) => {
-                                    const skillId = getFieldValue(['skills', name]);
-                                    const found = skillsSimplified.find(
-                                      (s) => String(s.id) === String(skillId) || s.name === skillId,
-                                    );
-                                    let displayVal: string;
-                                    if (found) {
-                                      displayVal = found.name;
-                                    } else {
-                                      // Fallback: use skill_names returned directly from backend
-                                      const backendName: string = ((task as any).skill_names || [])[name] || '';
-                                      if (backendName) {
-                                        displayVal = backendName;
-                                      } else {
-                                        const looksLikeId = /^[0-9a-f-]{8,}$/i.test(String(skillId || '')) || /^\d+$/.test(String(skillId || ''));
-                                        displayVal = looksLikeId ? '' : String(skillId || '');
-                                      }
-                                    }
-                                    return <Input readOnly size="large" value={displayVal} placeholder="" />;
-                                  }}
-                                </Form.Item>
-                              )}
-                            </Form.Item>
-                            {(editMode || isNew) && fields.length > 0 && (
-                              <MinusCircleOutlined
-                                onClick={() => remove(name)}
-                                style={{ color: '#ff4d4f', fontSize: 18, cursor: 'pointer' }}
-                              />
-                            )}
-                          </div>
-                        ))}
-                      </>
-                    )}
-                  </Form.List>
-                </Col>
-
-                <Col span={24}>
-                  <StyledCard
-                    size="small"
-                    title={t('pages.tasks.scheduleDetails', 'Schedule')}
-                    style={{
-                      marginTop: '16px',
-                      background: 'rgba(64, 169, 255, 0.05)',
-                      borderColor: 'rgba(64, 169, 255, 0.2)'
-                    }}
-                  >
-                    <Row gutter={[16, 16]}>
-                      {/* Repeat Settings Row */}
-                      <Col span={24}>
-                        <div style={{ 
-                          padding: '12px', 
-                          background: 'rgba(255, 255, 255, 0.02)', 
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255, 255, 255, 0.05)'
-                        }}>
-                          <div style={{ 
-                            marginBottom: '12px', 
-                            fontSize: '13px', 
-                            fontWeight: 500, 
-                            color: 'rgba(255, 255, 255, 0.65)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.5px'
-                          }}>
-                            {t('pages.tasks.repeatSettings', 'é‡å¤Settings')}
-                          </div>
-                          <Row gutter={[12, 12]}>
-                            <Col span={8}>
-                              <StyledFormItem 
-                                label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')} 
-                                name={["schedule", "repeat_type"]} 
-                                htmlFor="task-repeat-type"
-                              >
-                                <Select
-                                  id="task-repeat-type"
-                                  size="large"
-                                  options={REPEAT_OPTIONS
-                                    .map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v === 'none' ? 'None (One-time)' : v) }))}
-                                  aria-label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')}
-                                />
-                              </StyledFormItem>
-                            </Col>
-                            <Col span={8}>
-                              <StyledFormItem label={t('pages.tasks.scheduleRepeatNumberLabel', 'Repeat Number')} name={["schedule", "repeat_number"]} htmlFor="task-repeat-number">
-                                <Input
-                                  id="task-repeat-number"
-                                  size="large"
-                                  type="number"
-                                  autoComplete="off"
-                                  min={1}
-                                  aria-label={t('pages.tasks.scheduleRepeatNumberLabel', 'Repeat Number')}
-                                />
-                              </StyledFormItem>
-                            </Col>
-                            <Col span={8}>
-                              <StyledFormItem label={t('pages.tasks.scheduleRepeatUnitLabel', 'Repeat Unit')} name={["schedule", "repeat_unit"]} htmlFor="task-repeat-unit">
-                                <Select
-                                  id="task-repeat-unit"
-                                  size="large"
-                                  options={REPEAT_OPTIONS.filter(v => v !== 'none').map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))}
-                                  aria-label={t('pages.tasks.scheduleRepeatUnitLabel', 'Repeat Unit')}
-                                />
-                              </StyledFormItem>
-                            </Col>
-                          </Row>
-                        </div>
-                      </Col>
-
-                      {/* Time Settings Row */}
-                      <Col span={24}>
-                        <div style={{ 
-                          padding: '12px', 
-                          background: 'rgba(255, 255, 255, 0.02)', 
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255, 255, 255, 0.05)'
-                        }}>
-                          <div style={{ 
-                            marginBottom: '12px', 
-                            fontSize: '13px', 
-                            fontWeight: 500, 
-                            color: 'rgba(255, 255, 255, 0.65)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.5px'
-                          }}>
-                            {t('pages.tasks.timeSettings', 'TimeSettings')}
-                          </div>
-                          <Row gutter={[12, 12]}>
-                            <Col span={12}>
-                              <StyledFormItem label={t('pages.tasks.scheduleStartTimeLabel', 'Start Date Time')} name={["schedule", "start_date_time"]} htmlFor="task-start-time">
-                                <DatePicker
-                                  id="task-start-time"
-                                  size="large"
-                                  showTime
-                                  style={{ width: '100%' }}
-                                  aria-label={t('pages.tasks.scheduleStartTimeLabel', 'Start Date Time')}
-                                />
-                              </StyledFormItem>
-                            </Col>
-                            <Col span={12}>
-                              <StyledFormItem label={t('pages.tasks.scheduleEndTimeLabel', 'End Date Time (Optional)')} name={["schedule", "end_date_time"]} htmlFor="task-end-time">
-                                <DatePicker
-                                  id="task-end-time"
-                                  size="large"
-                                  showTime
-                                  style={{ width: '100%' }}
-                                  aria-label={t('pages.tasks.scheduleEndTimeLabel', 'End Date Time (Optional)')}
-                                />
-                              </StyledFormItem>
-                            </Col>
-                            <Col span={12}>
-                              <StyledFormItem label={t('pages.tasks.scheduleTimeoutLabel', 'Timeout (seconds)')} name={["schedule", "time_out"]} htmlFor="task-timeout">
-                                <Input
-                                  id="task-timeout"
-                                  size="large"
-                                  type="number"
-                                  autoComplete="off"
-                                  min={60}
-                                  step={60}
-                                  aria-label={t('pages.tasks.scheduleTimeoutLabel', 'Timeout (seconds)')}
-                                />
-                              </StyledFormItem>
-                            </Col>
-                            <Col span={12}>
-                              <StyledFormItem label={t('pages.tasks.scheduleTimezoneLabel', 'Time Zone')} name={["schedule", "timezone"]} htmlFor="task-timezone">
-                                <Select
-                                  id="task-timezone"
-                                  size="large"
-                                  showSearch
-                                  options={TIMEZONE_OPTIONS.map(tz => ({ value: tz, label: tz }))}
-                                  filterOption={(input, option) =>
-                                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                                  }
-                                  aria-label={t('pages.tasks.scheduleTimezoneLabel', 'Time Zone')}
-                                />
-                              </StyledFormItem>
-                            </Col>
-                          </Row>
-                        </div>
-                      </Col>
-                    </Row>
-                  </StyledCard>
-                </Col>
-
-                <Col span={24}>
-                  <StyledFormItem
-                    label={t('pages.tasks.metadata', 'Metadata (JSON)')}
-                    name="metadata_text"
-                    htmlFor="task-metadata"
-                    tooltip={t('pages.tasks.metadata_tooltip') || 'Must be valid JSON format (e.g., {"key": "value"}) or plain text'}
-                    validateTrigger={['onChange', 'onBlur']}
-                    rules={[{
-                      validator: (_, value) => {
-                        // Allowç©ºValue
-                        if (!value || value.trim() === '') {
-                          return Promise.resolve();
-                        }
-                        
-                        // Mustæ˜¯æœ‰æ•ˆçš„ JSON æ ¼å¼
-                        try {
-                          JSON.parse(value);
-                          return Promise.resolve();
-                        } catch (e) {
-                          return Promise.reject(
-                            new Error(
-                              t('pages.tasks.invalidJson') || 
-                              'Invalid JSON format. Please enter valid JSON (e.g., {"key": "value"})'
-                            )
-                          );
-                        }
-                      }
-                    }]}
-                  >
-                    <Input.TextArea
-                      id="task-metadata"
-                      rows={8}
-                      placeholder={JSON.stringify({ key: 'value' }, null, 2)}
-                      autoComplete="off"
-                      style={{
-                        fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-                        fontSize: '13px',
-                        lineHeight: '1.6'
-                      }}
                     />
                   </StyledFormItem>
                 </Col>
               </Row>
-          </Space>
+
+              <Row gutter={[16, 0]}>
+                <Col span={12}>
+                  <StyledFormItem label={t('pages.tasks.triggerLabel', '触发器')} name="trigger">
+                    <Select
+                      id="task-trigger"
+                      mode="multiple"
+                      maxTagCount="responsive"
+                      maxTagTextLength={6}
+                      options={TRIGGER_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.trigger.${v}`, v) }))}
+                    />
+                  </StyledFormItem>
+                </Col>
+                <Col span={12}>
+                  <StyledFormItem label={t('pages.tasks.taskTypeLabel', '任务类型')} name="task_type">
+                    <Select
+                      id="task-type"
+                      onChange={(value) => setCurrentTaskType(value)}
+                      options={TASK_TYPE_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.taskType.${v}`, v) }))}
+                    />
+                  </StyledFormItem>
+                </Col>
+              </Row>
+
+              {/* Task Type Specific Fields */}
+              {currentTaskType === 'hybrid_cloud' && (
+                <Col span={24}>
+                  <StyledFormItem label={t('pages.tasks.companionLocalTask', '本地辅助任务')} name="companion_local_task">
+                    <Select
+                      allowClear
+                      showSearch
+                      placeholder={t('pages.tasks.selectCompanionTask', '选择本地辅助任务')}
+                      options={localTaskOptions}
+                    />
+                  </StyledFormItem>
+                </Col>
+              )}
+
+              {currentTaskType === 'cloud' && (
+                <Col span={24}>
+                  <StyledFormItem name="light_weight" valuePropName="checked">
+                    <Checkbox>{t('pages.tasks.lightWeightDesc', '作为轻量级云任务运行')}</Checkbox>
+                  </StyledFormItem>
+                </Col>
+              )}
+
+              <Col span={24}>
+                <StyledFormItem label={t('common.description', '描述')} name="description">
+                  <Input.TextArea
+                    id="task-description"
+                    rows={3}
+                    placeholder={t('pages.tasks.descriptionPlaceholder', '输入任务描述...')}
+                    autoComplete="off"
+                  />
+                </StyledFormItem>
+              </Col>
+
+              {/* Skills Section */}
+              <Col span={24}>
+                <Form.List name="skills">
+                  {(fields, { add, remove }) => (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.85)', fontSize: 14 }}>
+                          {t('pages.tasks.skills', '关联技能')}
+                        </span>
+                        {(editMode || isNew) && (
+                          <Button type="link" onClick={() => add('')} icon={<PlusOutlined />} style={{ marginLeft: 8 }}>
+                            {t('common.add', '添加')}
+                          </Button>
+                        )}
+                      </div>
+                      {fields.length === 0 && (
+                        <div style={{ color: 'rgba(255, 255, 255, 0.45)', marginBottom: 16, padding: 12, background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                          {t('pages.tasks.noSkillsAssociated', '尚未关联任何技能。点击"添加"以关联技能。')}
+                        </div>
+                      )}
+                      {fields.map(({ key, name, ...restField }) => (
+                        <div key={key} style={{ display: 'flex', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                          <Form.Item {...restField} name={name} style={{ flex: 1, marginBottom: 0 }}>
+                            {editMode || isNew ? (
+                              <SkillSelect
+                                skillOptions={skillOptions}
+                                placeholder={t('pages.tasks.skillPlaceholder', '选择技能')}
+                              />
+                            ) : (
+                              <Form.Item noStyle shouldUpdate>
+                                {({ getFieldValue }) => {
+                                  const skillId = getFieldValue(['skills', name]);
+                                  const found = skillsSimplified.find((s) => String(s.id) === String(skillId) || s.name === skillId);
+                                  let displayVal: string;
+                                  if (found) displayVal = found.name;
+                                  else {
+                                    const backendName: string = ((task as any).skill_names || [])[name] || '';
+                                    displayVal = backendName || (String(skillId || '').match(/^[0-9a-f-]{8,}$/i) ? '' : String(skillId || ''));
+                                  }
+                                  return <Input readOnly value={displayVal} />;
+                                }}
+                              </Form.Item>
+                            )}
+                          </Form.Item>
+                          {(editMode || isNew) && fields.length > 0 && (
+                            <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f', fontSize: 18, cursor: 'pointer' }} />
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </Form.List>
+              </Col>
+
+              {/* Task Variables Section — per-task values for shared skills.
+                  Fields come from the selected skills' need_inputs
+                  declarations; values persist to metadata.task_vars and are
+                  seeded into the run's prompt variables at start. */}
+              <Col span={24}>
+                <Form.Item noStyle shouldUpdate={(prev: any, cur: any) =>
+                  JSON.stringify(prev.skills || []) !== JSON.stringify(cur.skills || [])
+                }>
+                  {({ getFieldValue }) => {
+                    const selIds: string[] = (getFieldValue('skills') || []).map((s: any) => String(s || ''));
+                    const declared: any[] = [];
+                    const seen = new Set<string>();
+                    for (const sid of selIds) {
+                      const sk: any = (skills || []).find((s: any) => String(s.id) === sid || s.name === sid);
+                      for (const inp of (sk?.need_inputs || [])) {
+                        const nm = String(inp?.name || '').trim();
+                        if (nm && !seen.has(nm)) { seen.add(nm); declared.push(inp); }
+                      }
+                    }
+                    const existingVars: Record<string, any> = ((task as any)?.metadata?.task_vars) || {};
+                    const extraNames = Object.keys(existingVars).filter((k) => !seen.has(k));
+                    if (declared.length === 0 && extraNames.length === 0) return null;
+                    return (
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                          <span style={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.85)', fontSize: 14 }}>
+                            {t('pages.tasks.taskVars', '任务变量')}
+                          </span>
+                          <span style={{ marginLeft: 8, color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
+                            {t('pages.tasks.taskVarsHelp', '填充技能提示词中的 {{变量}} 占位符')}
+                          </span>
+                        </div>
+                        <Row gutter={16}>
+                          {declared.map((inp: any) => (
+                            <Col span={12} key={inp.name}>
+                              <StyledFormItem
+                                label={inp.name}
+                                name={['task_vars', inp.name]}
+                                tooltip={inp.description || undefined}
+                                rules={inp.required ? [{ required: true, message: `${inp.name} ${t('common.required', '为必填项')}` }] : []}
+                              >
+                                <Input
+                                  size="large"
+                                  disabled={!(editMode || isNew)}
+                                  placeholder={inp.default !== undefined && inp.default !== null ? String(inp.default) : ''}
+                                />
+                              </StyledFormItem>
+                            </Col>
+                          ))}
+                          {extraNames.map((nm) => (
+                            <Col span={12} key={nm}>
+                              <StyledFormItem label={nm} name={['task_vars', nm]}>
+                                <Input size="large" disabled={!(editMode || isNew)} />
+                              </StyledFormItem>
+                            </Col>
+                          ))}
+                        </Row>
+                      </div>
+                    );
+                  }}
+                </Form.Item>
+              </Col>
+            </Space>
+          )}
+
+          {(activeTab === 'schedule' || isNew) && (
+            <StyledCard
+              size="small"
+              title={
+                <Space>
+                  <SettingOutlined />
+                  {t('pages.tasks.scheduleDetails', '调度详情')}
+                </Space>
+              }
+              style={{
+                marginTop: 16,
+                background: 'rgba(59, 130, 246, 0.05)',
+                borderColor: 'rgba(59, 130, 246, 0.15)'
+              }}
+            >
+              <Row gutter={[16, 16]}>
+                <Col span={24}>
+                  <div style={{ padding: 12, background: 'rgba(255, 255, 255, 0.02)', borderRadius: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255, 255, 255, 0.65)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      {t('pages.tasks.repeatSettings', '重复设置')}
+                    </div>
+                    <Row gutter={[12, 12]}>
+                      <Col span={8}>
+                        <StyledFormItem label={t('pages.tasks.scheduleRepeatTypeLabel', '重复类型')} name={["schedule", "repeat_type"]}>
+                          <Select size="large" options={REPEAT_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v === 'none' ? '不重复' : v) }))} />
+                        </StyledFormItem>
+                      </Col>
+                      <Col span={8}>
+                        <StyledFormItem label={t('pages.tasks.scheduleRepeatNumberLabel', '重复次数')} name={["schedule", "repeat_number"]}>
+                          <Input size="large" type="number" min={1} />
+                        </StyledFormItem>
+                      </Col>
+                      <Col span={8}>
+                        <StyledFormItem label={t('pages.tasks.scheduleRepeatUnitLabel', '重复单位')} name={["schedule", "repeat_unit"]}>
+                          <Select size="large" options={REPEAT_OPTIONS.filter(v => v !== 'none').map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))} />
+                        </StyledFormItem>
+                      </Col>
+                    </Row>
+                  </div>
+                </Col>
+
+                <Col span={24}>
+                  <div style={{ padding: 12, background: 'rgba(255, 255, 255, 0.02)', borderRadius: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255, 255, 255, 0.65)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      {t('pages.tasks.timeSettings', '时间设置')}
+                    </div>
+                    <Row gutter={[12, 12]}>
+                      <Col span={12}>
+                        <StyledFormItem label={t('pages.tasks.scheduleStartTimeLabel', '开始时间')} name={["schedule", "start_date_time"]}>
+                          <DatePicker size="large" showTime style={{ width: '100%' }} />
+                        </StyledFormItem>
+                      </Col>
+                      <Col span={12}>
+                        <StyledFormItem label={t('pages.tasks.scheduleEndTimeLabel', '结束时间')} name={["schedule", "end_date_time"]}>
+                          <DatePicker size="large" showTime style={{ width: '100%' }} />
+                        </StyledFormItem>
+                      </Col>
+                      <Col span={12}>
+                        <StyledFormItem label={t('pages.tasks.scheduleTimeoutLabel', '超时时间(秒)')} name={["schedule", "time_out"]}>
+                          <Input size="large" type="number" min={60} step={60} />
+                        </StyledFormItem>
+                      </Col>
+                      <Col span={12}>
+                        <StyledFormItem label={t('pages.tasks.scheduleTimezoneLabel', '时区')} name={["schedule", "timezone"]}>
+                          <Select size="large" showSearch options={TIMEZONE_OPTIONS.map(tz => ({ value: tz, label: tz }))} />
+                        </StyledFormItem>
+                      </Col>
+                    </Row>
+                  </div>
+                </Col>
+              </Row>
+            </StyledCard>
+          )}
+
+          {(activeTab === 'metadata' || isNew) && (
+            <Col span={24}>
+              <StyledFormItem
+                label={t('pages.tasks.metadata', '元数据 (JSON)')}
+                name="metadata_text"
+                tooltip={t('pages.tasks.metadata_tooltip') || '必须是有效的 JSON 格式'}
+                validateTrigger={['onChange', 'onBlur']}
+                rules={[{
+                  validator: (_, value) => {
+                    if (!value || value.trim() === '') return Promise.resolve();
+                    try {
+                      JSON.parse(value);
+                      return Promise.resolve();
+                    } catch (e) {
+                      return Promise.reject(new Error(t('pages.tasks.invalidJson') || 'JSON 格式无效'));
+                    }
+                  }
+                }]}
+              >
+                <Input.TextArea
+                  rows={8}
+                  placeholder={JSON.stringify({ key: 'value' }, null, 2)}
+                  style={{ fontFamily: 'Consolas, Monaco, monospace', fontSize: 13 }}
+                />
+              </StyledFormItem>
+            </Col>
+          )}
         </Form>
       </FormContainer>
 
-      {/* Fixed Action Buttons - Outside FormContainer, won't scroll */}
+      {/* Fixed Action Buttons */}
       <div style={{
-          flexShrink: 0,
-          display: 'flex',
-          justifyContent: 'flex-end',
-          gap: '12px',
-          padding: '16px 24px',
-          background: 'transparent',
-          borderTop: '1px solid rgba(255, 255, 255, 0.05)'
-        }}>
-          {!editMode && !isNew && task && latestStatus.toLowerCase() === 'ready' && (
-            <Button
-              type="primary"
-              onClick={handleLaunchTask}
-              icon={<PlayCircleOutlined />}
-              size="large"
-              loading={launching}
-              style={primaryButtonStyle}
-            >
-              {t('pages.tasks.launch', 'Launch')}
-            </Button>
-          )}
-          {/* Edit/æ–°å»ºæ¨¡å¼ï¼šDisplaySaveå’ŒCancelButton */}
-          {(editMode || isNew) && (
-            <>
-              <Button
-                type="primary"
-                onClick={() => form.submit()}
-                loading={saving}
-                disabled={saving}
-                icon={<SaveOutlined />}
-                size="large"
-                style={primaryButtonStyle}
-              >
-                {isNew ? t('common.create') : t('common.save')}
-              </Button>
-              <Button
-                onClick={handleCancel}
-                disabled={saving}
-                icon={<CloseOutlined />}
-                size="large"
-                style={buttonStyle}
-              >
-                {t('common.cancel')}
-              </Button>
-            </>
-          )}
+        flexShrink: 0,
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '12px',
+        padding: '16px 24px',
+        background: 'rgba(255, 255, 255, 0.02)',
+        borderTop: '1px solid rgba(255, 255, 255, 0.06)'
+      }}>
+        {!editMode && !isNew && task && latestStatus.toLowerCase() === 'ready' && (
+          <Button type="primary" onClick={handleLaunchTask} icon={<PlayCircleOutlined />} size="large" loading={launching} style={primaryButtonStyle}>
+            {t('pages.tasks.launch', '启动')}
+          </Button>
+        )}
 
-          {/* æŸ¥çœ‹æ¨¡å¼ï¼šDisplayEditå’ŒDeleteButton */}
-          {!editMode && !isNew && task && (
-            <>
-              {isCodeGenerated ? (
-                 <Button
-                   icon={<LockOutlined />}
-                   disabled
-                   size="large"
-                   style={{ 
-                     ...buttonStyle, 
-                     color: 'rgba(255, 255, 255, 0.6)', 
-                     borderColor: 'rgba(255, 255, 255, 0.2)',
-                     background: 'rgba(255, 255, 255, 0.05)',
-                     cursor: 'not-allowed'
-                   }}
-                 >
-                   {t('pages.tasks.readOnlyCodeGenerated') || 'Read-only: Code Generated'}
-                 </Button>
-              ) : (
-                <>
-                  <Button
-                    type="primary"
-                    onClick={handleEdit}
-                    icon={<EditOutlined />}
-                    size="large"
-                    style={primaryButtonStyle}
-                  >
-                    {t('common.edit')}
-                  </Button>
-                  <Button
-                    danger
-                    onClick={handleDelete}
-                    icon={<DeleteOutlined />}
-                    size="large"
-                    style={buttonStyle}
-                  >
-                    {t('common.delete', 'Delete')}
-                  </Button>
-                </>
-              )}
-            </>
-          )}
-        </div>
+        {(editMode || isNew) && (
+          <>
+            <Button type="primary" onClick={() => form.submit()} loading={saving} disabled={saving} icon={<SaveOutlined />} size="large" style={primaryButtonStyle}>
+              {isNew ? t('common.create') : t('common.save')}
+            </Button>
+            <Button onClick={handleCancel} disabled={saving} icon={<CloseOutlined />} size="large" style={buttonStyle}>
+              {t('common.cancel')}
+            </Button>
+          </>
+        )}
+
+        {!editMode && !isNew && task && (
+          <>
+            {isCodeGenerated ? (
+              <Button icon={<LockOutlined />} disabled size="large" style={{ ...buttonStyle, cursor: 'not-allowed' }}>
+                {t('pages.tasks.readOnlyCodeGenerated') || '只读'}
+              </Button>
+            ) : (
+              <>
+                <Button type="primary" onClick={handleEdit} icon={<EditOutlined />} size="large" style={primaryButtonStyle}>
+                  {t('common.edit')}
+                </Button>
+                <Button danger onClick={handleDelete} icon={<DeleteOutlined />} size="large" style={buttonStyle}>
+                  {t('common.delete')}
+                </Button>
+              </>
+            )}
+          </>
+        )}
       </div>
-    );
-  };
+    </DetailContainer>
+  );
+};

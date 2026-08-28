@@ -1,0 +1,511 @@
+"""
+统一端点配置层 — CN/Intl 共用代码
+
+设计原则:
+  - 所有端点从 apps/{app_id}/config/auth_config.yml 读取,无硬编码
+  - 单一代码路径,CN/Intl 执行逻辑完全一致,仅配置不同
+  - 字段名统一: APPSYNC.GRAPHQL_ENDPOINT / APPSYNC.WS_ENDPOINT / APPSYNC.API_KEY
+
+配置文件结构:
+  apps/cn/config/auth_config.yml:
+    APPSYNC:
+      GRAPHQL_ENDPOINT: https://{env_id}.service.tcloudbase.com/api/graphql
+      WS_ENDPOINT:      wss://{env_id}.service.tcloudbase.com/ws
+      API_KEY:          ""
+
+  apps/intl/config/auth_config.yml:
+    APPSYNC:
+      GRAPHQL_ENDPOINT: https://{id}.appsync-api.{region}.amazonaws.com/graphql
+      WS_ENDPOINT:      (留空,自动推导)
+      API_KEY:          ""
+
+使用方式:
+  from agent.cloud_api.endpoints import CloudEndpointConfig
+  cfg = CloudEndpointConfig()
+  http_url = cfg.graphql_endpoint        # str
+  ws_url   = cfg.ws_endpoint            # str
+  api_key  = cfg.api_key               # str (may be empty)
+  host     = cfg.host                   # str
+"""
+
+from __future__ import annotations
+
+import os
+import ssl
+import certifi
+import base64
+import json
+import asyncio
+import aiohttp
+import websocket as ws_client_module
+from urllib.parse import urlparse
+from typing import Optional, Dict, Any, List, Callable
+from dataclasses import dataclass, field
+from utils.logger_helper import logger_helper as logger
+
+# Apply nest_asyncio for Python 3.11 nested event loops.
+#
+# DO NOT apply this on Python 3.12+ — it has two known breakages on
+# Qt/qasync-based apps like ours (Python 3.12 + qasync + PyQt5):
+#
+#   1. ``nest_asyncio._run_once`` calls ``self._selector.select(timeout)``
+#      directly.  qasync's selector (``qasync._unix._Selector.select``)
+#      is a stub that raises NotImplementedError — actual dispatch is
+#      driven by Qt's QSocketNotifier through ``_process_events``.
+#      See terminals/5.txt:448-465 for the live stack trace.
+#
+#   2. ``asyncio.current_task()`` returns ``None`` for coroutines
+#      driven by ``run_until_complete``, breaking
+#      ``asyncio.wait_for`` / ``asyncio.timeout`` everywhere
+#      process-wide.  See agent/chats/wan_a2a_chat.py:23-31 for
+#      a comment that already documents this in another module.
+#
+# We import this module from main.py early in startup; a stray
+# ``nest_asyncio.apply()`` here patches the qasync QEventLoop class
+# before its first ``run_forever()``, causing a startup crash before
+# the splash even hides.
+import sys as _sys
+if _sys.version_info < (3, 12):
+    try:
+        import nest_asyncio
+        nest_asyncio.apply()
+    except ImportError:
+        pass
+
+
+# =============================================================================
+# Dataclass
+# =============================================================================
+
+@dataclass
+class CloudEndpointConfig:
+    """
+    统一端点配置。
+
+    CN (ECAN_APP_ID=cn):
+      - GRAPHQL_ENDPOINT: TCB GraphQL HTTP URL
+      - WS_ENDPOINT:     TCB 自建 WebSocket 实时推送 URL (graphql-ws / AppSync 兼容)
+      - API_KEY:          TCB API Key (may be empty, uses JWT Bearer auth)
+      - 认证: Bearer token via Authorization header 或 token query param
+
+    Intl (ECAN_APP_ID=intl):
+      - GRAPHQL_ENDPOINT: AWS AppSync HTTP URL
+      - WS_ENDPOINT:      自动推导 (appsync-api → appsync-realtime-api)
+      - API_KEY:           AWS API Key (优先,否则用 Cognito JWT)
+      - 认证: Authorization: <jwt> header 或 x-api-key header
+    """
+    # Module-level: lazily read at first access
+    _app_id: str = field(default=None, repr=False)
+    _cfg: Any = field(default=None, repr=False)
+    _graphql_endpoint: Optional[str] = field(default=None, repr=False)
+    _ws_endpoint: Optional[str] = field(default=None, repr=False)
+    _api_key: Optional[str] = field(default=None, repr=False)
+    _region: Optional[str] = field(default=None, repr=False)
+
+    @property
+    def app_id(self) -> str:
+        if self._app_id is None:
+            object.__setattr__(self, '_app_id', os.getenv("ECAN_APP_ID", "intl"))
+        return self._app_id
+
+    @app_id.setter
+    def app_id(self, value: str) -> None:
+        object.__setattr__(self, '_app_id', value)
+
+    def _ensure_cfg(self) -> None:
+        """Lazily load auth config once."""
+        if self._cfg is not None:
+            return
+        try:
+            from auth.auth_config import AuthConfig
+            object.__setattr__(self, '_cfg', AuthConfig)
+        except Exception:
+            object.__setattr__(self, '_cfg', None)
+
+    @property
+    def graphql_endpoint(self) -> str:
+        """HTTP GraphQL 端点 URL。"""
+        self._ensure_cfg()
+        if self._graphql_endpoint:
+            return self._graphql_endpoint
+
+        if self._cfg is None:
+            return ""
+
+        try:
+            raw = self._cfg.APPSYNC.GRAPHQL_ENDPOINT or ""
+        except AttributeError:
+            raw = ""
+
+        self._graphql_endpoint = raw.strip()
+        return self._graphql_endpoint
+
+    @property
+    def ws_endpoint(self) -> str:
+        """WebSocket 实时订阅端点 URL。
+
+        CN (TCB): 返回自建 graphql-ws 兼容 WS 服务 (wss://.../ws)
+        Intl (AppSync): 自动推导 appsync-realtime-api
+
+        The CN endpoint is fully compatible with the graphql-ws subprotocol so
+        any standard client (e.g. Python `websockets` with subprotocols=['graphql-ws'])
+        can connect unchanged.
+        """
+        self._ensure_cfg()
+        if self._ws_endpoint:
+            return self._ws_endpoint
+
+        if self._cfg is None:
+            return ""
+
+        # CN (TCB): 优先显式 WS_ENDPOINT, 否则从 GRAPHQL_ENDPOINT 推导为 /ws
+        if self.is_cn:
+            try:
+                raw = self._cfg.APPSYNC.WS_ENDPOINT or ""
+            except AttributeError:
+                raw = ""
+            if raw.strip():
+                self._ws_endpoint = raw.strip()
+                return self._ws_endpoint
+            graphql = self.graphql_endpoint
+            if graphql:
+                self._ws_endpoint = graphql.replace('/api/graphql', '/ws')
+            return self._ws_endpoint
+
+        # Intl (AppSync): 优先使用显式配置的 WS_ENDPOINT
+        try:
+            raw = self._cfg.APPSYNC.WS_ENDPOINT or ""
+        except AttributeError:
+            raw = ""
+        if raw.strip():
+            self._ws_endpoint = raw.strip()
+            return self._ws_endpoint
+
+        # 从 GRAPHQL_ENDPOINT 推导
+        graphql = self.graphql_endpoint
+        if not graphql:
+            return ""
+
+        # appsync-api → appsync-realtime-api, https → wss
+        ws = graphql
+        if 'appsync-api' in ws:
+            ws = ws.replace('appsync-api', 'appsync-realtime-api', 1)
+        if ws.startswith('https://'):
+            ws = 'wss://' + ws[8:]
+        self._ws_endpoint = ws
+
+        return self._ws_endpoint
+
+    @property
+    def api_key(self) -> str:
+        """API Key (可能为空字符串)。"""
+        self._ensure_cfg()
+        if self._api_key is not None:
+            return self._api_key
+
+        if self._cfg is None:
+            self._api_key = ""
+            return ""
+
+        try:
+            raw = self._cfg.APPSYNC.API_KEY or ""
+        except AttributeError:
+            raw = ""
+        self._api_key = raw.strip()
+        return self._api_key
+
+    @property
+    def host(self) -> str:
+        """WebSocket Host (用于 header 认证)。"""
+        parsed = urlparse(self.ws_endpoint)
+        return parsed.netloc
+
+    @property
+    def region(self) -> str:
+        """云区域标识。"""
+        self._ensure_cfg()
+        if self._region:
+            return self._region
+
+        if self._cfg is None:
+            self._region = "ap-shanghai" if self.is_cn else "us-east-1"
+            return self._region
+
+        try:
+            raw = self._cfg.APPSYNC.REGION or ""
+        except AttributeError:
+            raw = ""
+        self._region = raw.strip() or ("ap-shanghai" if self.is_cn else "us-east-1")
+        return self._region
+
+    @property
+    def is_cn(self) -> bool:
+        """是否 CN 版本。"""
+        return self.app_id == 'cn'
+
+    # -------------------------------------------------------------------------
+    # Header building
+    # -------------------------------------------------------------------------
+
+    def build_http_headers(self, token: str) -> Dict[str, str]:
+        """构建 HTTP GraphQL 请求 header."""
+        headers: Dict[str, str] = {
+            'Content-Type': 'application/json',
+            'cache-control': 'no-cache',
+        }
+        if self.is_cn:
+            # CN (TCB): prefer the eCan 30-day session token, falling back to
+            # the JWT extracted from <tenant_id>/@@/<jwt> — single source of
+            # truth in cloud_api._http_auth_header (lazy import: cloud_api
+            # imports this module).
+            if token:
+                from agent.cloud_api.cloud_api import _http_auth_header
+                headers['Authorization'] = _http_auth_header(token)
+        else:
+            # Intl (AWS AppSync): API Key takes precedence, otherwise raw JWT.
+            if self.api_key:
+                headers['x-api-key'] = self.api_key
+            elif token:
+                headers['Authorization'] = token
+        return headers
+
+    def build_ws_url(self, token: str) -> str:
+        """构建带认证的 WebSocket 连接 URL。
+
+        CN (TCB) 和 Intl (AppSync) 都用 AWS AppSync realtime 的标准格式:
+            ?header=<base64(json(headers))>&payload=e30=
+
+        服务端契约统一 — CN 自建 WS 服务 (ecan-graphql-ws) 模仿 AWS AppSync
+        接口，客户端无需 region-specific 分支。
+        """
+        headers = {'host': self.host}
+        if self.api_key:
+            headers['x-api-key'] = self.api_key
+        elif token:
+            headers['Authorization'] = token
+        return _appsync_ws_url(self.ws_endpoint, headers)
+
+    # -------------------------------------------------------------------------
+    # HTTP GraphQL
+    # -------------------------------------------------------------------------
+
+    def graphql_request(
+        self,
+        query: str,
+        variables: Optional[Dict[str, Any]] = None,
+        token: str = "",
+    ) -> Dict[str, Any]:
+        """执行 GraphQL HTTP 请求(同步)。"""
+        import requests
+        headers = self.build_http_headers(token)
+        try:
+            resp = requests.post(
+                self.graphql_endpoint,
+                headers=headers,
+                json={'query': query, 'variables': variables or {}},
+                timeout=30,
+            )
+            return resp.json()
+        except Exception as e:
+            logger.error(f"[CloudEndpoint] GraphQL request failed: {e}")
+            raise
+
+    async def graphql_request_async(
+        self,
+        query: str,
+        variables: Optional[Dict[str, Any]] = None,
+        token: str = "",
+    ) -> Dict[str, Any]:
+        """执行 GraphQL HTTP 请求(异步)。"""
+        headers = self.build_http_headers(token)
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+        try:
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.post(
+                    self.graphql_endpoint,
+                    headers=headers,
+                    json={'query': query, 'variables': variables or {}},
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    return await resp.json()
+        except Exception as e:
+            logger.error(f"[CloudEndpoint] GraphQL async request failed: {e}")
+            raise
+
+    # -------------------------------------------------------------------------
+    # WebSocket Subscription
+    # -------------------------------------------------------------------------
+
+    def subscribe(
+        self,
+        subscription_query: str,
+        variables: Optional[Dict[str, Any]],
+        token: str,
+        on_message: Callable[[Dict[str, Any]], None],
+        max_retries: int = 50,
+    ) -> None:
+        """启动 WebSocket 订阅(后台线程,同步调用)。
+
+        CN (TCB 自建 WS 服务) 和 Intl (AWS AppSync) 走同一份代码 — 两边端点
+        都用 AppSync-compatible graphql-ws 协议 + AWS AppSync URL auth 格式。
+        ecan-graphql-ws 服务端模仿 AWS AppSync 接口,所以 client 无需 region 分支。
+
+        Args:
+            subscription_query: GraphQL subscription 字符串
+            variables:          GraphQL variables
+            token:              认证 token
+            on_message:         收到消息时的回调函数(dict)
+            max_retries:        最大重试次数
+        """
+        _graphql_ws_subscribe(
+            ws_endpoint=self.ws_endpoint,
+            host=self.host,
+            api_key=self.api_key,
+            token=token,
+            subscription_query=subscription_query,
+            variables=variables,
+            on_message=on_message,
+            max_retries=max_retries,
+        )
+
+
+# =============================================================================
+# Private helpers
+# =============================================================================
+
+# -------------------------------------------------------------------------
+# graphql-ws URL Builder (CN + Intl — unified)
+# -------------------------------------------------------------------------
+#
+# CN (TCB 自建 ecan-graphql-ws) 和 Intl (AWS AppSync) 都接受 AWS AppSync
+# 标准的 URL auth 格式: ?header=<base64(json(headers))>&payload=<base64>
+# 客户端无需 region-specific 分支。
+
+def _appsync_ws_url(base_ws: str, headers: Dict[str, str]) -> str:
+    """Build AppSync-standard WebSocket URL with auth headers base64-encoded in query string."""
+    # Filter out content-type (not used in WS auth)
+    filtered = {k: v for k, v in headers.items() if k.lower() != 'content-type'}
+    header_b64 = base64.b64encode(json.dumps(filtered).encode('utf-8')).decode('utf-8')
+    return f"{base_ws}?header={header_b64}&payload=e30="
+
+
+# -------------------------------------------------------------------------
+# graphql-ws subscribe (CN + Intl)
+# -------------------------------------------------------------------------
+#
+# CN (TCB 自建 ecan-graphql-ws) 和 Intl (AWS AppSync) 用同一份代码 — 两边
+# 端点都用 AppSync-compatible graphql-ws 协议 + AWS AppSync URL auth 格式
+# (?header=&payload=)。客户端不需要 region-specific 分支。
+
+def _graphql_ws_subscribe(
+    ws_endpoint: str,
+    host: str,
+    api_key: str,
+    token: str,
+    subscription_query: str,
+    variables: Optional[Dict[str, Any]],
+    on_message: Callable[[Dict[str, Any]], None],
+    max_retries: int,
+) -> None:
+    """Subscribe via graphql-ws / AppSync-compatible WebSocket (CN or Intl)."""
+    sub_id = f"sub-{id(on_message)}"
+
+    # URL auth 格式 (AWS AppSync 标准) — CN 服务端 ecan-graphql-ws 模仿此接口
+    headers: Dict[str, str] = {'host': host}
+    if api_key:
+        headers['x-api-key'] = api_key
+    elif token:
+        headers['Authorization'] = token
+
+    ws_url = _appsync_ws_url(ws_endpoint, headers)
+
+    # Build subscription payload — 与 AWS AppSync 完全相同的结构
+    sub_payload = json.dumps({
+        'query': subscription_query,
+        'variables': variables or {},
+    })
+    start_msg = json.dumps({
+        'id': sub_id,
+        'payload': {
+            'data': sub_payload,
+            'extensions': {},
+        },
+        'type': 'start',
+    })
+
+    def _on_message(ws, msg):
+        try:
+            data = json.loads(msg)
+        except Exception:
+            return
+
+        msg_type = data.get('type', '')
+        if msg_type == 'ka':
+            return
+
+        # data 帧结构: { type: 'data', id: 'sub-1', payload: { data: { onMessageReceived: {...} } } }
+        if msg_type == 'data':
+            inner = (data.get('payload') or {}).get('data') or {}
+            for key, value in inner.items():
+                try:
+                    on_message(value)
+                except Exception as e:
+                    logger.debug(f"[WS:sub] callback error: {e}")
+
+    def _on_open(ws):
+        logger.info("[WS:sub] Connected, sending connection_init")
+        # graphql-ws 协议要求: 连接建立后发送 connection_init
+        ws.send(json.dumps({'type': 'connection_init'}))
+
+    def _run():
+        ws = ws_client_module.WebSocketApp(
+            ws_url,
+            on_message=_on_message,
+            subprotocols=['graphql-ws'],
+        )
+        ws.on_open = _on_open
+
+        # 等 connection_ack 后再发送 start (标准 graphql-ws 握手流程)
+        connection_acked = [False]
+        original_on_message = _on_message
+
+        def _on_message_with_ack(ws, msg):
+            try:
+                data = json.loads(msg)
+            except Exception:
+                return
+
+            if data.get('type') == 'connection_ack':
+                logger.info(f"[WS:sub] connection_ack, sending start (sub_id={sub_id})")
+                connection_acked[0] = True
+                ws.send(start_msg)
+                return
+
+            original_on_message(ws, msg)
+
+        ws.on_message = _on_message_with_ack
+
+        ws.run_forever(
+            sslopt={"ca_certs": certifi.where()},
+        )
+
+    import threading
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+
+# =============================================================================
+# Singleton instance
+# =============================================================================
+
+# Lazy singleton — only created when first accessed
+_instance: Optional[CloudEndpointConfig] = None
+
+
+def get_endpoint_config() -> CloudEndpointConfig:
+    """获取全局 CloudEndpointConfig 单例。"""
+    global _instance
+    if _instance is None:
+        _instance = CloudEndpointConfig()
+    return _instance

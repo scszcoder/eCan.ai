@@ -283,7 +283,7 @@ def filter_actionable(
 
     When ``actionable_field`` is empty, returns the input as-is.  Used
     to derive the "actionable_items" list that feeds the prompt-build
-    hooks (e.g. Feige's pending-reply filter).
+    hooks (e.g. a live-chat bundle's pending-reply filter).
     """
     if not actionable_field:
         return list(items or [])

@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Tag, Typography, Space, Empty, Drawer, Button, Spin } from 'antd';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
+import { Tag, Typography, Space, Empty, Button, Spin, Drawer } from 'antd';
 import { useEffectOnActive } from 'keepalive-for-react';
 import {
     RobotOutlined,
@@ -16,9 +16,7 @@ import {
     CodeOutlined,
     EyeOutlined,
     CloudOutlined,
-    CloudFilled,
     DollarCircleFilled,
-    StarFilled,
     TeamOutlined,
     CopyOutlined,
     DownloadOutlined,
@@ -27,33 +25,27 @@ import {
     PlayCircleOutlined,
     UserOutlined,
     ShopOutlined,
+    ClockCircleOutlined,
 } from '@ant-design/icons';
 
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import type { Skill } from '@/types/domain/skill';
 import { SkillFilters, SkillFilterOptions } from './SkillFilters';
-import { logger } from '@/utils/logger';
 
 const { Paragraph } = Typography;
 
 const ListContainer = styled.div`
-    height: 100%;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
 `;
 
 const GridContainer = styled.div`
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 12px;
-    padding: 12px;
-    flex: 1;
-    overflow-y: auto;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+    padding: 16px;
     align-content: start;
-    height: 100%;
-    box-sizing: border-box;
 
     &::-webkit-scrollbar {
         width: 6px;
@@ -62,14 +54,17 @@ const GridContainer = styled.div`
         background: transparent;
     }
     &::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.15);
+        background: transparent;
         border-radius: 3px;
+        transition: background 0.3s ease;
+    }
+    &:hover::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
     }
 `;
 
 const ListViewContainer = styled.div`
     flex: 1;
-    overflow-y: auto;
     padding: 0 8px 8px;
 
     &::-webkit-scrollbar {
@@ -79,128 +74,384 @@ const ListViewContainer = styled.div`
         background: transparent;
     }
     &::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.15);
+        background: transparent;
         border-radius: 3px;
+        transition: background 0.3s ease;
+    }
+    &:hover::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
     }
 `;
 
-// 网格卡片样式 - 紧凑水平布局
+// ===================== 网格卡片样式 =====================
+// 新设计：垂直布局，层次分明
 const GridCard = styled.div<{ $selected?: boolean }>`
     background: var(--bg-secondary);
     border-radius: 12px;
-    padding: 14px;
     cursor: pointer;
-    transition: all 0.2s ease;
-    border: 1px solid ${props => props.$selected ? 'var(--primary-color)' : 'rgba(255, 255, 255, 0.06)'};
-    position: relative;
-    overflow: visible;
-    min-height: 72px;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    border: 1px solid rgba(255, 255, 255, 0.06);
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 12px;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    min-height: 280px;
 
     &:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-        border-color: rgba(24, 144, 255, 0.3);
+        transform: translateY(-2px);
+        border-color: rgba(255, 255, 255, 0.1);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
     }
 
-    ${props => props.$selected && `
-        border-color: var(--primary-color);
-        box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.25);
-    `}
+    ${props => props.$selected ? `
+        border-color: rgba(24, 144, 255, 0.4);
+        box-shadow: 0 0 0 1px rgba(24, 144, 255, 0.2), 0 4px 16px rgba(24, 144, 255, 0.1);
+    ` : ''}
 `;
 
-// 图标容器 - 小圆点徽章
-const CardIconWrapper = styled.div`
-    width: 38px;
-    height: 38px;
-    border-radius: 10px;
+// 卡片头部：渐变图标区
+const CardHeader = styled.div<{ $bg: string[] }>`
+    background: linear-gradient(135deg, ${props => props.$bg[0]}, ${props => props.$bg[1]});
+    padding: 14px 16px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    position: relative;
+    min-height: 60px;
+`;
+
+const CardIconArea = styled.div`
     display: flex;
     align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-    flex-shrink: 0;
+    gap: 10px;
 
     .anticon {
-        color: white;
+        font-size: 24px;
+        color: rgba(255, 255, 255, 0.9);
     }
 `;
 
-// 免费/付费徽章 - 柔和胶囊样式
-const PriceBadge = styled.div<{ $isFree: boolean }>`
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    font-size: 10px;
+const StatusBadge = styled.div<{ $color: string }>`
+    background: ${props => props.$color};
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+
+    .anticon {
+        font-size: 11px;
+    }
+`;
+
+// 卡片主体内容
+const CardContent = styled.div`
+    flex: 1;
+    padding: 14px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 110px;
+`;
+
+const CardTitle = styled.div`
+    font-size: 16px;
+    font-weight: 600;
+    color: rgba(241, 245, 249, 0.92);
+    line-height: 1.35;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: space-between;
+`;
+
+const PriceTag = styled.span<{ $isFree: boolean }>`
+    font-size: 11px;
     font-weight: 700;
-    padding: 3px 8px;
+    padding: 3px 10px;
     border-radius: 20px;
     text-transform: uppercase;
-    letter-spacing: 0.3px;
-    z-index: 2;
+    flex-shrink: 0;
 
     ${props => props.$isFree ? `
         background: rgba(16, 185, 129, 0.15);
-        color: #34d399;
-        border: 1px solid rgba(16, 185, 129, 0.3);
+        color: #10b981;
     ` : `
         background: rgba(245, 158, 11, 0.15);
-        color: #fbbf24;
-        border: 1px solid rgba(245, 158, 11, 0.3);
+        color: #f59e0b;
     `}
 `;
 
-// 卡片标题
-const CardTitle = styled.div`
+const CardDesc = styled.div`
     font-size: 13px;
-    font-weight: 600;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+`;
+
+const CardMeta = styled.div`
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+`;
+
+const MetaTag = styled.span`
+    font-size: 11px;
+    color: var(--text-tertiary, rgba(255, 255, 255, 0.55));
+    background: rgba(255,255,255,0.04);
+    padding: 3px 8px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+
+    .anticon {
+        font-size: 11px;
+        opacity: 0.6;
+    }
+`;
+
+const CardStats = styled.div`
+    display: flex;
+    gap: 12px;
+    padding: 8px 0 4px;
+`;
+
+// 卡片统计项
+const CardStatItem = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+
+    .anticon {
+        font-size: 12px;
+        opacity: 0.5;
+    }
+
+    .stat-value {
+        color: var(--text-secondary);
+        font-weight: 500;
+    }
+`;
+
+// 卡片操作按钮区
+const CardActions = styled.div`
+    padding: 10px 16px 12px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: auto;
+`;
+
+const ActionButton = styled.button<{ $variant?: 'primary' | 'secondary' | 'danger' | 'success' }>`
+    flex: 1;
+    min-width: 80px;
+    max-width: 140px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: none;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: all 0.2s ease;
+
+    ${props => {
+        switch (props.$variant) {
+            case 'primary':
+                return `
+                    background: linear-gradient(135deg, #1890ff, #40a9ff);
+                    color: white;
+                    &:hover {
+                        background: linear-gradient(135deg, #40a9ff, #69c0ff);
+                        transform: translateY(-1px);
+                    }
+                `;
+            case 'danger':
+                return `
+                    background: rgba(245, 34, 45, 0.15);
+                    color: #ff4d4f;
+                    border: 1px solid rgba(245, 34, 45, 0.3);
+                    &:hover {
+                        background: rgba(245, 34, 45, 0.25);
+                    }
+                `;
+            case 'success':
+                return `
+                    background: rgba(82, 196, 26, 0.15);
+                    color: #52c41a;
+                    border: 1px solid rgba(82, 196, 26, 0.3);
+                    &:hover {
+                        background: rgba(82, 196, 26, 0.25);
+                    }
+                `;
+            default:
+                return `
+                    background: rgba(255,255,255,0.08);
+                    color: var(--text-primary);
+                    border: 1px solid rgba(255,255,255,0.1);
+                    &:hover {
+                        background: rgba(255,255,255,0.12);
+                    }
+                `;
+        }
+    }}
+
+    .anticon {
+        font-size: 14px;
+    }
+
+    &:active {
+        transform: scale(0.98);
+    }
+`;
+
+// 标签行（保留）
+const TagLine = styled.div`
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 3px;
+`;
+
+// 底部统计行（保留）
+const StatLine = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+`;
+
+const GridStatItem = styled.div`
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+
+    .anticon {
+        font-size: 12px;
+        opacity: 0.6;
+    }
+`;
+
+// 订阅管理视图卡片
+const SubscriptionCard = styled.div`
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    margin-bottom: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+
+    &:hover {
+        background: var(--bg-tertiary);
+        border-color: rgba(24, 144, 255, 0.2);
+    }
+`;
+
+const SubCardIcon = styled.div<{ $bg: string[] }>`
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: linear-gradient(145deg, ${props => props.$bg[0]}, ${props => props.$bg[1]});
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+
+    .anticon {
+        color: white;
+        font-size: 18px;
+    }
+`;
+
+const SubCardInfo = styled.div`
+    flex: 1;
+    min-width: 0;
+`;
+
+const SubCardTitle = styled.div`
+    font-size: 13.5px;
+    font-weight: 500;
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    letter-spacing: -0.01em;
-    min-width: 0;
 `;
 
-// 标签区域 - 柔和胶囊标签
-const CardTags = styled.div`
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    margin-top: 4px;
-    min-height: 20px;
-`;
-
-// 统计信息
-const CardStats = styled.div`
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-top: 6px;
-    flex-shrink: 0;
-`;
-
-const CardContent = styled.div`
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-`;
-
-const StatItem = styled.div`
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
+const SubCardMeta = styled.div`
+    font-size: 12px;
     color: var(--text-secondary);
+    margin-top: 3px;
+    display: flex;
+    gap: 12px;
+
+    > span {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
 
     .anticon {
-        font-size: 11px;
+        font-size: 12px;
         opacity: 0.7;
     }
+`;
+
+const SubCardProficiency = styled.div`
+    min-width: 120px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+`;
+
+const SubCardProficiencyLabel = styled.div`
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 500;
+`;
+
+const SubCardProficiencyBar = styled.div`
+    height: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    overflow: hidden;
+`;
+
+const SubCardProficiencyFill = styled.div<{ $percent: number }>`
+    height: 100%;
+    width: ${props => props.$percent}%;
+    background: linear-gradient(90deg, #1890ff, #52c41a);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+`;
+
+const SubCardRating = styled.div`
+    min-width: 80px;
+    display: flex;
+    align-items: center;
 `;
 
 // 列表视图样式 - 现代卡片风格
@@ -251,7 +502,7 @@ const ListItemContent = styled.div`
 `;
 
 const ListItemTitle = styled.div`
-    font-size: 14px;
+    font-size: 13.5px;
     font-weight: 500;
     color: var(--text-primary);
     white-space: nowrap;
@@ -287,10 +538,24 @@ const ListItemOwner = styled.div`
     }
 `;
 
-const PriceTag = styled.span<{ $isFree: boolean }>`
-    font-size: 10px;
+// 列表统计项
+const ListStatItem = styled.div`
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+
+    .anticon {
+        font-size: 12px;
+        opacity: 0.6;
+    }
+`;
+
+const ListPriceTag = styled.span<{ $isFree: boolean }>`
+    font-size: 11px;
     font-weight: 600;
-    padding: 2px 8px;
+    padding: 2px 10px;
     border-radius: 20px;
     text-transform: uppercase;
 
@@ -305,7 +570,7 @@ const PriceTag = styled.span<{ $isFree: boolean }>`
     `}
 `;
 
-const StatGroup = styled.div`
+const ListStatsBar = styled.div`
     display: flex;
     align-items: center;
     gap: 12px;
@@ -547,13 +812,11 @@ const inferCategory = (skill: Skill): string => {
 
 const normalizeValue = (value: unknown): string => String(value ?? '').trim();
 
-const isResourceMySkillsPath = (path?: string | null): boolean => {
-    if (!path) return false;
-    const norm = String(path).replace(/\\/g, '/');
-    return norm.includes('/resource/my_skills/') || norm.startsWith('resource/my_skills/');
+const getSkillSource = (skill: Skill): string => {
+    return normalizeValue((skill as any)?.source).toLowerCase() || '';
 };
 
-const isCodeSkill = (skill: Skill): boolean => normalizeValue((skill as any)?.source).toLowerCase() === 'code';
+const isCodeSkill = (skill: Skill): boolean => getSkillSource(skill) === 'code';
 
 const getDisplayOwner = (skill: Skill): string | null => {
     const owner = ((skill as any)?.owner || '').trim();
@@ -586,12 +849,16 @@ interface SkillListProps {
     loading: boolean;
     onSelectSkill: (skill: Skill) => void;
     selectedSkillId?: string;
-    viewMode: 'list' | 'grid';
+    viewMode: 'list' | 'grid' | 'subscriptions';
     username: string;
     subscribedSkillIds?: string[];
     onEditInGrid?: () => void;
     onSubscribe?: (skillId: string) => Promise<void>;
     onUnsubscribe?: (skillId: string) => Promise<void>;
+    onCopy?: (skill: Skill) => Promise<void>;
+    onRun?: (skill: Skill) => void;
+    filters?: SkillFilterOptions;
+    renderFilters?: boolean;
 }
 
 const SkillList: React.FC<SkillListProps> = ({
@@ -606,13 +873,16 @@ const SkillList: React.FC<SkillListProps> = ({
     onEditInGrid,
     onSubscribe,
     onUnsubscribe,
+    onCopy,
+    onRun,
+    filters: externalFilters,
+    renderFilters = false,
 }) => {
     const { t } = useTranslation();
-    const [filters, setFilters] = useState<SkillFilterOptions>({ sortBy: 'name' });
-    const [detailDrawer, setDetailDrawer] = useState<{ open: boolean; skill: Skill | null }>({
-        open: false,
-        skill: null,
-    });
+    const [internalFilters, setInternalFilters] = useState<SkillFilterOptions>({ sortBy: 'name' });
+    const filters = externalFilters || internalFilters;
+    const setFilters = externalFilters ? () => {} : setInternalFilters;
+    const [detailDrawer, setDetailDrawer] = useState<{ open: boolean; skill: Skill | null }>({ open: false, skill: null });
 
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const savedScrollPositionRef = useRef<number>(0);
@@ -637,11 +907,61 @@ const SkillList: React.FC<SkillListProps> = ({
         savedScrollPositionRef.current = e.currentTarget.scrollTop;
     };
 
-    const applyFiltersAndSort = (rows: Skill[]) => {
+    const isSkillSubscribed = useCallback((skill: Skill) => {
+        const subscribedSet = new Set((subscribedSkillIds || []).map((id) => String(id)));
+        const skillId = String((skill as any)?.id ?? '').trim();
+        const skillAskid = String((skill as any)?.askid ?? '').trim();
+        return !!(skillId && subscribedSet.has(skillId)) ||
+            (skillAskid && skillAskid !== '0' && subscribedSet.has(skillAskid));
+    }, [subscribedSkillIds]);
+
+    const applyFiltersAndSort = useCallback((rows: Skill[]) => {
         let result = [...rows];
 
         if (filters.status) {
             result = result.filter(skill => skill.status === filters.status);
+        }
+
+        // Source filter: ui = my skills, code = code skills, subscribed = subscribed skills
+        if (filters.source) {
+            const me = normalizeValue(username).toLowerCase();
+            result = result.filter(skill => {
+                const source = getSkillSource(skill);
+                const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+
+                if (filters.source === 'ui') {
+                    // My Skills: owned by me OR code skills
+                    if (source === 'code') return true;
+                    return owner === me;
+                }
+                if (filters.source === 'code') {
+                    return source === 'code';
+                }
+                if (filters.source === 'subscribed') {
+                    return isSkillSubscribed(skill);
+                }
+                return true;
+            });
+        }
+
+        if (filters.level) {
+            result = result.filter(skill => skill.level === filters.level);
+        }
+
+        if (filters.category) {
+            const categoryLower = filters.category.toLowerCase();
+            result = result.filter(skill => {
+                const skillCategory = (skill.category || inferCategory(skill) || '').toLowerCase();
+                return skillCategory === categoryLower;
+            });
+        }
+
+        if (filters.priceType) {
+            result = result.filter(skill => {
+                const price = (skill as any)?.price;
+                const isFree = typeof price === 'number' ? price <= 0 : !price;
+                return filters.priceType === 'free' ? isFree : !isFree;
+            });
         }
 
         if (filters.search) {
@@ -659,72 +979,124 @@ const SkillList: React.FC<SkillListProps> = ({
                 case 'name': return (a.name || '').localeCompare(b.name || '');
                 case 'status': return (a.status || '').localeCompare(b.status || '');
                 case 'level': {
-                    const levelA = typeof a.level === 'string' ? parseInt(a.level, 10) : (a.level || 0);
-                    const levelB = typeof b.level === 'string' ? parseInt(b.level, 10) : (b.level || 0);
+                    const levelMap: Record<string, number> = { entry: 1, intermediate: 2, advanced: 3 };
+                    const levelA = typeof a.level === 'string' ? (levelMap[a.level.toLowerCase()] ?? 0) : (Number(a.level) || 0);
+                    const levelB = typeof b.level === 'string' ? (levelMap[b.level.toLowerCase()] ?? 0) : (Number(b.level) || 0);
                     return levelB - levelA;
+                }
+                case 'rating': {
+                    const ratingA = Number((a as any).rating ?? 5);
+                    const ratingB = Number((b as any).rating ?? 5);
+                    return ratingB - ratingA;
+                }
+                case 'newest': {
+                    const dateA = (a as any).updatedAt || (a as any).createdAt || '';
+                    const dateB = (b as any).updatedAt || (b as any).createdAt || '';
+                    return dateB.localeCompare(dateA);
                 }
                 default: return 0;
             }
         });
 
         return result;
-    };
+    }, [filters, username, isSkillSubscribed]);
 
     const mySkills = useMemo(() => {
         const me = normalizeValue(username).toLowerCase();
-        const candidates = (skills || []).filter((skill) => {
+        const ownedSkills = (skills || []).filter((skill) => {
+            const source = getSkillSource(skill);
             const owner = normalizeValue((skill as any)?.owner).toLowerCase();
-            if (owner === 'unknown' || owner === '') return false; // skip unknown/empty owners
-            const path = normalizeValue((skill as any)?.path);
-            const source = normalizeValue((skill as any)?.source).toLowerCase();
-            const skillId = normalizeValue((skill as any)?.id).toLowerCase();
-            return owner === me || isResourceMySkillsPath(path) || source === 'code' || skillId.startsWith('code-skill-');
+            // code skills always belong to "my skills"
+            if (source === 'code') return true;
+            // For all other skills, check ownership
+            if (owner === me) return true;
+            return false;
         });
-
-        const localPreferredNames = new Set(
-            candidates
-                .filter((skill) => {
-                    const path = normalizeValue((skill as any)?.path);
-                    const source = normalizeValue((skill as any)?.source).toLowerCase();
-                    const skillId = normalizeValue((skill as any)?.id).toLowerCase();
-                    return isResourceMySkillsPath(path) || source === 'code' || skillId.startsWith('code-skill-');
-                })
-                .map((skill) => normalizeValue(skill.name).toLowerCase())
-                .filter(Boolean)
-        );
-
-        const rows = candidates.filter((skill) => {
-            const skillName = normalizeValue(skill.name).toLowerCase();
-            if (!skillName || !localPreferredNames.has(skillName)) return true;
-            const path = normalizeValue((skill as any)?.path);
-            const source = normalizeValue((skill as any)?.source).toLowerCase();
-            const skillId = normalizeValue((skill as any)?.id).toLowerCase();
-            return isResourceMySkillsPath(path) || source === 'code' || skillId.startsWith('code-skill-');
-        });
-
-        const seenIds = new Set<string>();
-        return rows.filter((skill) => {
-            const id = String((skill as any)?.id ?? '');
-            if (!id || seenIds.has(id)) return false;
-            seenIds.add(id);
-            return true;
-        });
+        return ownedSkills;
     }, [skills, username]);
 
-    const storeSkills = useMemo(() => applyFiltersAndSort(publicSkills || []), [publicSkills]);
+    const storeSkills = useMemo(() => {
+        const me = normalizeValue(username).toLowerCase();
+        return (publicSkills || []).filter((skill) => {
+            const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+            // Don't show my own skills in the store
+            if (owner === me) return false;
+            // Only show public skills
+            if (!(skill as any)?.public) return false;
+            return true;
+        });
+    }, [publicSkills, username]);
 
-    const isSkillSubscribed = (skill: Skill) => {
-        const subscribedSet = new Set((subscribedSkillIds || []).map((id) => String(id)));
-        const skillId = String((skill as any)?.id ?? '').trim();
-        const skillAskid = String((skill as any)?.askid ?? '').trim();
-        return !!(skillId && subscribedSet.has(skillId)) ||
-            (skillAskid && skillAskid !== '0' && subscribedSet.has(skillAskid));
-    };
+    // Apply source filter and get filtered skill lists
+    const filteredMySkills = useMemo(() => {
+        const me = normalizeValue(username).toLowerCase();
+        if (filters.source === 'subscribed') {
+            // Subscribed tab: show subscribed skills from both sources
+            return mySkills.filter(skill => isSkillSubscribed(skill));
+        }
+        if (filters.source === 'code') {
+            return mySkills.filter(skill => getSkillSource(skill) === 'code');
+        }
+        if (filters.source === 'ui') {
+            // UI source = my owned skills (not code skills)
+            return mySkills.filter(skill => {
+                const source = getSkillSource(skill);
+                const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+                return source !== 'code' && owner === me;
+            });
+        }
+        if (filters.source === 'marketplace') {
+            return mySkills.filter(skill => (skill as any)?.public === true);
+        }
+        return mySkills;
+    }, [mySkills, filters.source, username, isSkillSubscribed]);
+
+    const filteredStoreSkills = useMemo(() => {
+        if (filters.source === 'subscribed') {
+            // Subscribed tab: show subscribed skills from store
+            return storeSkills.filter(skill => isSkillSubscribed(skill));
+        }
+        if (filters.source === 'code') {
+            return [];
+        }
+        if (filters.source === 'ui') {
+            return [];
+        }
+        if (filters.source === 'marketplace') {
+            return storeSkills;
+        }
+        return storeSkills;
+    }, [storeSkills, filters.source, isSkillSubscribed]);
 
     const handleCardClick = (skill: Skill) => {
+        setDetailDrawer({ open: true, skill });
         onSelectSkill(skill);
-        if (viewMode === 'grid') {
-            setDetailDrawer({ open: true, skill });
+    };
+
+    const handleSubscribe = async (e: React.MouseEvent, skillId: string) => {
+        e.stopPropagation();
+        try {
+            await onSubscribe?.(skillId);
+        } catch (err) {
+            console.error('Subscribe error:', err);
+        }
+    };
+
+    const handleUnsubscribe = async (e: React.MouseEvent, skillId: string) => {
+        e.stopPropagation();
+        try {
+            await onUnsubscribe?.(skillId);
+        } catch (err) {
+            console.error('Unsubscribe error:', err);
+        }
+    };
+
+    const handleCopy = async (e: React.MouseEvent, skill: Skill) => {
+        e.stopPropagation();
+        try {
+            await onCopy?.(skill);
+        } catch (err) {
+            console.error('Copy error:', err);
         }
     };
 
@@ -735,6 +1107,24 @@ const SkillList: React.FC<SkillListProps> = ({
         const execMode = getExecMode(skill);
         const isSubscribed = isSkillSubscribed(skill);
         const { icon: skillIcon, bg: skillBg } = getSkillIcon(skill);
+        const me = normalizeValue(username).toLowerCase();
+        const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+        const isOwnedByMe = owner === me;
+        const isSubscribedSkill = getSkillSource(skill) === 'subscribed' && !isOwnedByMe;
+        const category = skill.category || inferCategory(skill);
+
+        const statusColorMap: Record<string, string> = {
+            active: '#52c41a',
+            learning: '#1890ff',
+            planned: '#8c8c8c',
+        };
+        const statusColor = statusColorMap[skill.status || ''] || '#8c8c8c';
+        const statusBgMap: Record<string, string> = {
+            active: 'rgba(82, 196, 26, 0.2)',
+            learning: 'rgba(24, 144, 255, 0.2)',
+            planned: 'rgba(140, 140, 140, 0.2)',
+        };
+        const statusBg = statusBgMap[skill.status || ''] || 'rgba(140, 140, 140, 0.2)';
 
         return (
             <GridCard
@@ -742,65 +1132,172 @@ const SkillList: React.FC<SkillListProps> = ({
                 $selected={isSelected}
                 onClick={() => handleCardClick(skill)}
             >
-                <PriceBadge $isFree={isFree}>
-                    {isFree ? t('pages.skills.free', 'Free') : <DollarCircleFilled />}
-                </PriceBadge>
+                {/* 卡片头部：渐变图标区 */}
+                <CardHeader $bg={skillBg}>
+                    <CardIconArea>
+                        {skillIcon}
+                    </CardIconArea>
+                    <StatusBadge $color={statusBg}>
+                        <span style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: '50%',
+                            background: statusColor,
+                            display: 'inline-block'
+                        }} />
+                        {t(`pages.skills.status.${skill.status || 'unknown'}`)}
+                    </StatusBadge>
+                </CardHeader>
 
-                <CardIconWrapper style={{ background: `linear-gradient(145deg, ${skillBg[0]}, ${skillBg[1]})` }}>
-                    {skillIcon}
-                </CardIconWrapper>
-
+                {/* 卡片主体 */}
                 <CardContent>
-                    <CardTitle title={skill.name}>{skill.name}</CardTitle>
+                    {/* 标题 + 价格 */}
+                    <CardTitle>
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {skill.name}
+                        </span>
+                        <PriceTag $isFree={isFree}>
+                            {isFree ? t('pages.skills.free') : t('pages.skills.paid')}
+                        </PriceTag>
+                    </CardTitle>
 
-                    <CardTags>
-                        <Tag
-                            color={getStatusConfig(skill.status).color}
-                            style={{
-                                margin: 0,
-                                fontSize: 10,
-                                padding: '2px 8px',
-                                borderRadius: 20,
-                                border: 'none',
-                                fontWeight: 500,
-                            }}
-                        >
-                            {t(`pages.skills.status.${skill.status || 'unknown'}`)}
-                        </Tag>
-                        {execMode === 'cloud' && (
-                            <Tag
-                                color="blue"
-                                style={{ margin: 0, fontSize: 10, padding: '2px 8px', borderRadius: 20, border: 'none', fontWeight: 500 }}
-                            >
-                                <CloudFilled />
-                            </Tag>
-                        )}
+                    {/* 描述 */}
+                    {skill.description && (
+                        <CardDesc>{skill.description}</CardDesc>
+                    )}
+
+                    {/* 元信息标签 */}
+                    <CardMeta>
+                        <MetaTag>
+                            <RadarChartOutlined />
+                            {t(`pages.skills.levels.${skill.level || 'entry'}`, String(skill.level || 'entry'))}
+                        </MetaTag>
+                        <MetaTag>
+                            {execMode === 'cloud' ? <CloudOutlined /> : <ThunderboltOutlined />}
+                            {t(`pages.skills.execMode.${execMode}`, execMode)}
+                        </MetaTag>
                         {isCodeSkill(skill) && (
-                            <Tag
-                                color="geekblue"
-                                style={{ margin: 0, fontSize: 10, padding: '2px 8px', borderRadius: 20, border: 'none', fontWeight: 500 }}
-                            >
+                            <MetaTag>
                                 <CodeOutlined />
-                            </Tag>
+                                {t('pages.skills.code', 'Code')}
+                            </MetaTag>
                         )}
                         {isSubscribed && (
-                            <Tag
-                                color="green"
-                                style={{ margin: 0, fontSize: 10, padding: '2px 8px', borderRadius: 20, border: 'none', fontWeight: 500 }}
-                            >
-                                ✓
-                            </Tag>
+                            <MetaTag style={{ background: 'rgba(82, 196, 26, 0.15)', color: '#52c41a' }}>
+                                <CheckCircleOutlined />
+                                {t('pages.skills.subscribed', 'Subscribed')}
+                            </MetaTag>
                         )}
-                    </CardTags>
+                        {/* Publish status on the summary card: public / rentable */}
+                        {(skill as any).public && (
+                            <MetaTag style={{ background: 'rgba(24, 144, 255, 0.15)', color: '#1890ff' }}>
+                                <CloudOutlined />
+                                {t('pages.skills.public', 'Public')}
+                            </MetaTag>
+                        )}
+                        {(skill as any).rentable && (
+                            <MetaTag style={{ background: 'rgba(250, 173, 20, 0.15)', color: '#faad14' }}>
+                                <ThunderboltOutlined />
+                                {t('pages.skills.rentable', 'Rentable')}
+                            </MetaTag>
+                        )}
+                        {/* Version drift: this skill was saved more recently on
+                            another device / by the author (cloud copy is newer) */}
+                        {(skill as any).update_available && (
+                            <MetaTag
+                                style={{ background: 'rgba(245, 34, 45, 0.15)', color: '#f5222d' }}
+                                title={String((skill as any).cloud_version || '')}
+                            >
+                                <CloudOutlined />
+                                {t('pages.skills.cloudNewerBadge', 'Newer version in cloud')}
+                            </MetaTag>
+                        )}
+                    </CardMeta>
 
+                    {/* 统计信息 */}
                     <CardStats>
-                        <StarRatingSmall rating={(skill as any).rating ?? 0} />
-                        <StatItem>
+                        <CardStatItem>
+                            <StarOutlined style={{ color: '#faad14' }} />
+                            <span className="stat-value">{Number((skill as any).rating ?? 5).toFixed(1)}</span>
+                        </CardStatItem>
+                        <CardStatItem>
                             <TeamOutlined />
-                            <span>{(skill as any).subscribers ?? 0}</span>
-                        </StatItem>
+                            <span className="stat-value">{(skill as any).subscribers ?? 0}</span>
+                        </CardStatItem>
+                        <CardStatItem>
+                            <SyncOutlined />
+                            <span className="stat-value">{(skill as any).usageCount ?? 0}</span>
+                        </CardStatItem>
                     </CardStats>
                 </CardContent>
+
+                    {/* 操作按钮 */}
+                <CardActions>
+                    {isOwnedByMe ? (
+                        <>
+                            <ActionButton
+                                $variant="primary"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSelectSkill(skill);
+                                    if (onEditInGrid) onEditInGrid();
+                                }}
+                            >
+                                <EditOutlined />
+                                {t('pages.skills.edit', 'Edit')}
+                            </ActionButton>
+                        </>
+                    ) : isSubscribed ? (
+                        <>
+                            <ActionButton
+                                $variant="secondary"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCardClick(skill);
+                                }}
+                            >
+                                <EyeOutlined />
+                                {t('pages.skills.actions.view', 'View')}
+                            </ActionButton>
+                            <ActionButton
+                                $variant="danger"
+                                onClick={(e) => handleUnsubscribe(e, skillIdStr)}
+                            >
+                                <CloseOutlined />
+                                {t('pages.skills.unsubscribe', 'Unsubscribe')}
+                            </ActionButton>
+                        </>
+                    ) : (
+                        <>
+                            <ActionButton
+                                $variant="secondary"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCardClick(skill);
+                                }}
+                            >
+                                <EyeOutlined />
+                                {t('pages.skills.actions.view', 'View')}
+                            </ActionButton>
+                            {isFree ? (
+                                <ActionButton
+                                    $variant="success"
+                                    onClick={(e) => handleCopy(e, skill)}
+                                >
+                                    <CopyOutlined />
+                                    {t('common.copy', 'Copy')}
+                                </ActionButton>
+                            ) : null}
+                            <ActionButton
+                                $variant="primary"
+                                onClick={(e) => handleSubscribe(e, skillIdStr)}
+                            >
+                                <DownloadOutlined />
+                                {t('pages.skills.subscribe', 'Subscribe')}
+                            </ActionButton>
+                        </>
+                    )}
+                </CardActions>
             </GridCard>
         );
     };
@@ -825,11 +1322,11 @@ const SkillList: React.FC<SkillListProps> = ({
                 <ListItemContent>
                     <ListItemTitle>{skill.name}</ListItemTitle>
                     <ListItemMeta>
-                        <PriceTag $isFree={isFree}>
+                        <ListPriceTag $isFree={isFree}>
                             {isFree ? t('pages.skills.free', 'Free') : t('pages.skills.paid', 'Paid')}
-                        </PriceTag>
+                        </ListPriceTag>
                         {t(`pages.skills.status.${skill.status || 'unknown'}`)} · {t(`pages.skills.categories.${category}`, category)}
-                        {execMode === 'cloud' && ' · Cloud'}
+                        {execMode === 'cloud' && ` · ${t('pages.skills.cloud', 'Cloud')}`}
                     </ListItemMeta>
                     {(() => {
                         const owner = getDisplayOwner(skill);
@@ -841,13 +1338,13 @@ const SkillList: React.FC<SkillListProps> = ({
                         ) : null;
                     })()}
                 </ListItemContent>
-                <StatGroup>
-                    <StarRatingSmall rating={(skill as any).rating ?? 0} />
-                    <StatItem>
+                <ListStatsBar>
+                    <StarRatingSmall rating={(skill as any).rating ?? 5} />
+                    <ListStatItem>
                         <TeamOutlined />
                         <span>{(skill as any).subscribers ?? 0}</span>
-                    </StatItem>
-                </StatGroup>
+                    </ListStatItem>
+                </ListStatsBar>
             </SkillItem>
         );
     };
@@ -913,7 +1410,7 @@ const SkillList: React.FC<SkillListProps> = ({
 
                 {skill.description && (
                     <DetailSection>
-                        <DetailSectionTitle>{t('pages.skills.description', 'Description')}</DetailSectionTitle>
+                        <DetailSectionTitle>{t('common.description', 'Description')}</DetailSectionTitle>
                         <DetailDescription ellipsis={{ rows: 3, expandable: true }}>
                             {skill.description}
                         </DetailDescription>
@@ -924,7 +1421,7 @@ const SkillList: React.FC<SkillListProps> = ({
                     const owner = getDisplayOwner(skill);
                     return owner ? (
                         <DetailSection>
-                            <DetailSectionTitle>{t('pages.skills.owner', 'Owner')}</DetailSectionTitle>
+                            <DetailSectionTitle>{t('common.owner', 'Owner')}</DetailSectionTitle>
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: 8,
                                 padding: '8px 12px',
@@ -941,7 +1438,7 @@ const SkillList: React.FC<SkillListProps> = ({
 
                 <DetailStats>
                     <DetailStatItem>
-                        <DetailStatValue>{(skill as any).rating ?? 0}</DetailStatValue>
+                        <DetailStatValue>{(skill as any).rating ?? 5}</DetailStatValue>
                         <DetailStatLabel>{t('pages.skills.rating', 'Rating')}</DetailStatLabel>
                     </DetailStatItem>
                     <DetailStatItem>
@@ -982,9 +1479,6 @@ const SkillList: React.FC<SkillListProps> = ({
                             >
                                 {t('pages.skills.edit', 'Edit Skill')}
                             </Button>
-                            <Button icon={<PlayCircleOutlined />} block>
-                                {t('pages.skills.run', 'Run Skill')}
-                            </Button>
                         </>
                     ) : (
                         <>
@@ -1022,7 +1516,17 @@ const SkillList: React.FC<SkillListProps> = ({
                                 </Button>
                             )}
                             {isFree && (
-                                <Button icon={<CopyOutlined />} block>
+                                <Button
+                                    icon={<CopyOutlined />}
+                                    block
+                                    onClick={async () => {
+                                        try {
+                                            await onCopy?.(skill);
+                                        } catch (e) {
+                                            console.error('Copy error:', e);
+                                        }
+                                    }}
+                                >
                                     {t('pages.skills.copy', 'Copy to My Skills')}
                                 </Button>
                             )}
@@ -1061,12 +1565,17 @@ const SkillList: React.FC<SkillListProps> = ({
         );
     }
 
-    const allSkills = applyFiltersAndSort([...mySkills, ...storeSkills]);
+    // Calculate filtered totals for empty state
+    const filteredMySkillsTotal = applyFiltersAndSort(filteredMySkills);
+    const filteredStoreSkillsTotal = applyFiltersAndSort(filteredStoreSkills);
+    const allSkills = [...filteredMySkillsTotal, ...filteredStoreSkillsTotal];
+
+    // Determine which sections to show based on filter
+    const showMySkillsSection = filteredMySkills.length > 0;
+    const showStoreSection = filteredStoreSkills.length > 0 && filters.source !== 'ui' && filters.source !== 'code';
 
     return (
         <ListContainer>
-            <SkillFilters filters={filters} onChange={setFilters} />
-
             {viewMode === 'grid' ? (
                 <GridContainer ref={scrollContainerRef as any} onScroll={handleScroll}>
                     {allSkills.length === 0 ? (
@@ -1075,37 +1584,95 @@ const SkillList: React.FC<SkillListProps> = ({
                         </EmptyContainer>
                     ) : (
                         <>
-                            {mySkills.length > 0 && (
+                            {showMySkillsSection && (
                                 <>
                                     <GridSectionTitle>
-                                        <UserOutlined /> {t('pages.skills.sections.mySkills', 'My Skills')}
+                                        <UserOutlined /> {t('pages.skills.filter.mySkills', 'My Skills')}
                                     </GridSectionTitle>
-                                    {mySkills.map(renderGridCard)}
+                                    {filteredMySkillsTotal.map(renderGridCard)}
                                 </>
                             )}
-                            {storeSkills.length > 0 && (
+                            {showStoreSection && (
                                 <>
                                     <GridSectionTitle>
-                                        <ShopOutlined /> {t('pages.skills.sections.skillStore', 'Skill Store')}
+                                        <ShopOutlined /> {t('pages.skills.heroTitle', 'Skill Store')}
                                     </GridSectionTitle>
-                                    {storeSkills.map(renderGridCard)}
+                                    {filteredStoreSkillsTotal.map(renderGridCard)}
                                 </>
                             )}
                         </>
                     )}
                 </GridContainer>
+            ) : viewMode === 'subscriptions' ? (
+                <ListViewContainer ref={scrollContainerRef as any} onScroll={handleScroll}>
+                    <SectionTitle>{t('pages.skills.subscriptions.title', 'My Subscriptions')}</SectionTitle>
+                    {(() => {
+                        const subscribedSkills = skills.filter(s => isSkillSubscribed(s));
+                        if (subscribedSkills.length === 0) {
+                            return (
+                                <EmptyContainer style={{ padding: '40px 0' }}>
+                                    <Empty description={t('pages.skills.subscriptions.empty', 'No subscriptions yet. Browse the Skill Store to subscribe.')} />
+                                </EmptyContainer>
+                            );
+                        }
+                        return subscribedSkills.map(skill => {
+                            const levelMap: Record<string, number> = { entry: 33, intermediate: 66, advanced: 100 };
+                            const rawLevel = (skill as any)?.level;
+                            const levelPercent = typeof rawLevel === 'string' ? (levelMap[rawLevel.toLowerCase()] ?? 0) : (Number(rawLevel) || 0);
+                            const usageCount = (skill as any)?.usageCount ?? 0;
+                            const rating = Number((skill as any).rating ?? 5);
+                            return (
+                                <SubscriptionCard
+                                    key={String(skill.id)}
+                                    onClick={() => handleCardClick(skill)}
+                                >
+                                    <SubCardIcon $bg={getSkillIcon(skill).bg}>
+                                        {getSkillIcon(skill).icon}
+                                    </SubCardIcon>
+                                    <SubCardInfo>
+                                        <SubCardTitle>{skill.name}</SubCardTitle>
+                                        <SubCardMeta>
+                                            <span><RadarChartOutlined /> {t(`pages.skills.levels.${skill.level || 'entry'}`, String(skill.level || 'entry'))}</span>
+                                            <span><SyncOutlined spin /> {usageCount} {t('pages.skills.uses', 'uses')}</span>
+                                        </SubCardMeta>
+                                    </SubCardInfo>
+                                    <SubCardProficiency>
+                                        <SubCardProficiencyLabel>
+                                            {levelPercent === 100 ? t('pages.skills.levelExpert', 'Expert')
+                                                : levelPercent >= 66 ? t('pages.skills.levelAdvanced', 'Advanced')
+                                                : levelPercent >= 33 ? t('pages.skills.levelIntermediate', 'Intermediate')
+                                                : t('pages.skills.levelBeginner', 'Beginner')}
+                                        </SubCardProficiencyLabel>
+                                        <SubCardProficiencyBar>
+                                            <SubCardProficiencyFill $percent={levelPercent} />
+                                        </SubCardProficiencyBar>
+                                    </SubCardProficiency>
+                                    <SubCardRating>
+                                        <StarRatingSmall rating={rating} />
+                                    </SubCardRating>
+                                </SubscriptionCard>
+                            );
+                        });
+                    })()}
+                </ListViewContainer>
             ) : (
                 <ListViewContainer ref={scrollContainerRef as any} onScroll={handleScroll}>
-                    {mySkills.length > 0 && (
+                    {renderFilters && (
+                        <SkillFilters
+                            filters={filters}
+                            onChange={(newFilters) => setFilters(newFilters)}
+                        />
+                    )}
+                    {showMySkillsSection && (
                         <>
-                            <SectionTitle>{t('pages.skills.sections.mySkills', 'My Skills')}</SectionTitle>
-                            {mySkills.map(renderListItem)}
+                            <SectionTitle>{t('pages.skills.filter.mySkills', 'My Skills')}</SectionTitle>
+                            {filteredMySkillsTotal.map(renderListItem)}
                         </>
                     )}
-                    {storeSkills.length > 0 && (
+                    {showStoreSection && (
                         <>
-                            <SectionTitle>{t('pages.skills.sections.skillStore', 'Skill Store')}</SectionTitle>
-                            {storeSkills.map(renderListItem)}
+                            <SectionTitle>{t('pages.skills.heroTitle', 'Skill Store')}</SectionTitle>
+                            {filteredStoreSkillsTotal.map(renderListItem)}
                         </>
                     )}
                     {allSkills.length === 0 && (
@@ -1123,9 +1690,9 @@ const SkillList: React.FC<SkillListProps> = ({
 
 // Helper components
 const StarRatingSmall: React.FC<{ rating: number }> = ({ rating }) => (
-    <Space size={2}>
+    <Space size={3}>
         {[1, 2, 3, 4, 5].map((star) => (
-            <span key={star} style={{ color: star <= rating ? '#faad14' : 'rgba(255,255,255,0.2)', fontSize: 12 }}>
+            <span key={star} style={{ color: star <= rating ? '#faad14' : 'rgba(255,255,255,0.2)', fontSize: 13 }}>
                 ★
             </span>
         ))}
@@ -1133,30 +1700,30 @@ const StarRatingSmall: React.FC<{ rating: number }> = ({ rating }) => (
 );
 
 const SectionTitle = styled.div`
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    padding: 16px 16px 8px;
+    padding: 18px 16px 10px;
 `;
 
 const GridSectionTitle = styled.div`
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
-    padding: 16px 0 12px;
+    padding: 18px 0 14px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     grid-column: 1 / -1;
 
     &::after {
         content: '';
         flex: 1;
         height: 1px;
-        background: var(--border-color);
-        margin-left: 8px;
+        background: linear-gradient(90deg, var(--border-color), transparent);
+        margin-left: 10px;
     }
 
     .anticon {

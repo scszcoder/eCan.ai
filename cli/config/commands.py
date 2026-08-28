@@ -84,21 +84,34 @@ def set_value(key, value):
     ctx = get_context()
     out = get_output()
 
+    if not key or '=' in key or any(c.isspace() for c in key):
+        out.error("Invalid key: must not be empty or contain '=' or whitespace")
+        raise SystemExit(1)
+    if '\n' in value or '\r' in value:
+        out.error("Invalid value: must not contain a newline")
+        raise SystemExit(1)
+
     env_file = ctx.project_root / ".env.web"
-    settings = {}
 
+    lines = []
     if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                k, v = line.split('=', 1)
-                settings[k.strip()] = v.strip()
+        lines = env_file.read_text(encoding='utf-8').splitlines()
 
-    settings[key] = value
+    new_line = f"{key}={value}"
+    replaced = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped and not stripped.startswith('#') and '=' in stripped:
+            existing_key = stripped.split('=', 1)[0].strip()
+            if existing_key == key:
+                lines[i] = new_line
+                replaced = True
+                break
+    if not replaced:
+        lines.append(new_line)
 
-    with open(env_file, 'w') as f:
-        for k, v in sorted(settings.items()):
-            f.write(f"{k}={v}\n")
+    with open(env_file, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines) + '\n')
 
     out.success(f"Set {key}={value}")
 

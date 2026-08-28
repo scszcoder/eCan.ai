@@ -33,16 +33,25 @@ def handle_get_rerank_providers(request: IPCRequest, params: Optional[Dict[str, 
     """Get all Rerank providers with Ollama and RyoAIS models merged"""
     try:
         from gui.ollama_utils import merge_ollama_models_to_providers
-        from gui.ryoais_utils import merge_ryoais_models_to_providers
-        
+        from gui.ryoais_utils import merge_ryoais_models_to_providers, load_ryoais_models
+        from gui.ipc.context_bridge import get_username
+
         rerank_manager = get_rerank_manager(request, params)
         providers = rerank_manager.get_all_providers()
-        
+
+        # Get current username for user-specific file paths.
+        # Prefer params.username so the read path matches the write path used
+        # by fetchRyoAISModels / fetchOllamaModels on the frontend.
+        username = (params or {}).get('username') or get_username(request, params)
+
+        # Pre-load RyoAIS models with correct username so merge finds them
+        ryoais_models = load_ryoais_models(username=username, model_type='rerank')
+
         # Merge Ollama models using shared utility
         providers = merge_ollama_models_to_providers(providers, provider_type='rerank')
-        
+
         # Merge RyoAIS models using shared utility
-        providers = merge_ryoais_models_to_providers(providers, provider_type='rerank')
+        providers = merge_ryoais_models_to_providers(providers, ryoais_models=ryoais_models, provider_type='rerank')
         
         logger.info(f"Retrieved {len(providers)} Rerank providers")
 

@@ -1,0 +1,16 @@
+{
+  "_comment_purpose": "此文件是 CN app 运行时存储配置的真实信息单一真相源。\n构建流程（ota_config.yaml）独立配置，不引用此文件。",
+  "_comment_bucket_roles": "Two separate buckets exist for this app: (1) the OTA bucket used by CI/CD and read by clients checking for updates — name lives in ota/config/ota_config.yaml (currently 'ecan-releases-1251680599'). (2) the runtime app-storage bucket used by utils/storage/get_storage_provider() for user uploads / avatars / exports — the storage_bucket/cdn/region fields below (currently 'ecan-skills-1251680599'). They MUST stay separate; never point an OTA artifact upload at the runtime bucket.",
+  "_comment_field_naming": "字段命名与 apps/intl/config/cloud_endpoints.json 完全一致，方便代码统一读取（utils/app_config_loader.py 通过 _endpoints.get(name) 取值，utils/storage/*.py 通过 storage_region / storage_bucket / cdn 读取）。",
+  "_comment_removed_fields": "Removed (unreferenced in production code): graphql, websocket, auth, update, website, privacy_policy, terms_of_service, support, backend_ota_bucket, backend_ota_region, vcloudbase_env_id, icp_beian. Cloud GraphQL/WS endpoints live in apps/cn/config/auth_config.yml -> APPSYNC.* and are read by agent/cloud_api/endpoints.py. ICP 备案号在 apps/cn/config/app_manifest.json -> legal.icp_beian。",
+
+  "storage": "https://ecan-skills-1251680599.cos.ap-shanghai.myqcloud.com",
+  "storage_region": "ap-shanghai",
+  "storage_bucket": "ecan-skills-1251680599",
+  "cdn": "",
+
+  "backend_avatar_bucket": "ecan-avatars-1251680599",
+  "backend_skill_bucket": "ecan-skills-1251680599",
+  "backend_log_bucket": "",
+  "backend_rag_bucket": "ecan-rags-1251680599"
+}

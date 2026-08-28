@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -344,6 +345,21 @@ class LightragClient:
                 "include_references": True,
                 "include_chunk_content": True,
             }
+
+            # Enforce token caps BEFORE sending to server.  LightRAG respects query-
+            # param values over env values, so a caller's max_total_tokens=32768 can
+            # exceed the model's deployed context window (8K) and cause vLLM 400 errors.
+            # Values are hardcoded here (not read from env) because the client runs in
+            # the main process whose env differs from the server subprocess env.
+            # These defaults must match the server's _apply_retrieval_token_limits caps.
+            # For 8K context models (Qwen3.8-27B-AWQ-INT4):
+            #   - MAX_ENTITY_TOKENS:     capped at 2000  (covers ~10 entities with descriptions)
+            #   - MAX_RELATION_TOKENS:  capped at 2500  (covers ~15 relations)
+            #   - MAX_TOTAL_TOKENS:     capped at 8192  (matches deployed context window)
+            _cap_entity = 2000
+            _cap_relation = 2500
+            _cap_total = 8192
+
             if options:
                 # Map all supported parameters as defined in QueryRequest schema
                 for key in [
@@ -363,10 +379,19 @@ class LightragClient:
                     'enable_rerank',
                     'include_references',
                     'include_chunk_content',
+                    'include_progress',
                     'stream',
                 ]:
                     if key in options:
                         payload[key] = options[key]
+
+                # Hard cap: client-side options must not exceed server-side limits
+                if payload.get('max_entity_tokens', 0) > _cap_entity:
+                    payload['max_entity_tokens'] = _cap_entity
+                if payload.get('max_relation_tokens', 0) > _cap_relation:
+                    payload['max_relation_tokens'] = _cap_relation
+                if payload.get('max_total_tokens', 0) > _cap_total:
+                    payload['max_total_tokens'] = _cap_total
             
             # Use JSON content type
             headers = _ws_headers(workspace, {'Content-Type': 'application/json'})
@@ -743,6 +768,12 @@ class LightragClient:
             "include_references": True,
             "include_chunk_content": True,
         }
+
+        # Enforce token caps (same as query method above)
+        _cap_entity = 2000
+        _cap_relation = 2500
+        _cap_total = 8192
+
         if options:
             # Map all supported parameters as defined in QueryRequest schema
             for key in [
@@ -760,11 +791,20 @@ class LightragClient:
                 'enable_rerank',
                 'include_references',
                 'include_chunk_content',
+                'include_progress',
                 'stream',
             ]:
                 if key in options:
                     payload[key] = options[key]
-        
+
+            # Hard cap: client-side options must not exceed server-side limits
+            if payload.get('max_entity_tokens', 0) > _cap_entity:
+                payload['max_entity_tokens'] = _cap_entity
+            if payload.get('max_relation_tokens', 0) > _cap_relation:
+                payload['max_relation_tokens'] = _cap_relation
+            if payload.get('max_total_tokens', 0) > _cap_total:
+                payload['max_total_tokens'] = _cap_total
+
         # Log query parameters for debugging
         logger.info(f"[Stream Query] Payload: query='{text[:50]}...', mode={payload.get('mode')}, "
                    f"only_need_context={payload.get('only_need_context')}, "
@@ -777,10 +817,51 @@ class LightragClient:
             # LightRAG's /query/stream endpoint uses NDJSON streaming
             'Accept': 'application/x-ndjson',
         })
-        
+
+        # For streaming, LightRAG 1.5 returns text tokens only via /query/stream.
+        # Get references from non-streaming /query endpoint first, then stream text.
+        # This is more efficient than two sequential streaming requests.
+        initial_references: List[Dict] = []
+        initial_chunks: List[Dict] = []
+        try:
+            # Build non-streaming request for references
+            refs_payload = {**payload, 'stream': False}
+            refs_headers = _ws_headers(workspace, {'Content-Type': 'application/json'})
+            refs_response = self.session.post(
+                f"{self.base_url}/query",
+                json=refs_payload,
+                headers=refs_headers,
+                timeout=90
+            )
+            if refs_response.status_code == 200:
+                refs_result = refs_response.json()
+                initial_references = refs_result.get('references') or []
+                initial_chunks = (refs_result.get('data') or {}).get('chunks') or []
+                logger.info(f"[Stream] Pre-fetched {len(initial_references)} references from non-stream query")
+            else:
+                logger.warning(f"[Stream] Pre-fetch references failed: {refs_response.status_code}")
+        except Exception as e:
+            logger.warning(f"[Stream] Failed to pre-fetch references: {e}")
+
         # Accumulate response for confidence calculation
-        accumulated_response = {'response': '', 'references': []}
-        
+        accumulated_response = {'response': '', 'references': initial_references, 'data': {'chunks': initial_chunks}}
+        # LightRAG 1.5 progress events: ``progress`` is an optional string field
+        # emitted mid-stream (see docs/lightrag-1.5-upgrade-analysis.md §5).
+        # We track the latest phase and the wall-clock time it was observed so
+        # the GUI can render the four phases recommended in the upgrade plan
+        # (关键词提取 / 图谱检索 / 文本检索 / 生成答案).
+        progress_state: Dict[str, Any] = {
+            'phase': None,
+            'updated_at': None,
+        }
+        # Performance metrics surfaced as a final ``metrics`` chunk. Captures
+        # ``response_time`` (server-reported) and client-side retrieval timing
+        # (time-to-first-token, total elapsed) so the GUI can stop relying on
+        # local wall-clock heuristics alone.
+        stream_started_at = time.monotonic()
+        first_token_at: Optional[float] = None
+        server_response_time: Optional[float] = None
+
         try:
             with self.session.post(
                 f"{self.base_url}/query/stream",
@@ -803,52 +884,136 @@ class LightragClient:
                         line_count += 1
                         line_str = line.decode('utf-8')
                         # /query/stream returns pure NDJSON lines, no 'data: ' prefix
-                        
-                        yield line_str
-                        
+
+                        # Mark first-token arrival before yielding so the
+                        # metric reflects the moment the first chunk reached us.
+                        if first_token_at is None:
+                            first_token_at = time.monotonic()
+
                         # Accumulate response for confidence calculation
                         try:
                             import json
                             chunk_data = json.loads(line_str)
-                            if 'response' in chunk_data:
+                            # Debug: log first chunk structure
+                            if line_count == 1:
+                                logger.info(f"[Stream] First chunk keys: {list(chunk_data.keys())}")
+                            if 'response' in chunk_data and chunk_data.get('response'):
                                 accumulated_response['response'] += chunk_data.get('response', '')
+                                # Yield immediately for streaming animation
+                                yield line_str
+                            elif 'references' in chunk_data or 'data' in chunk_data:
+                                # Don't yield references-only chunks here to avoid duplicates;
+                                # we will yield references with the final confidence chunk
+                                pass
+                            else:
+                                # Yield other chunks (progress, metrics, etc.) as-is
+                                yield line_str
+
+                            # Fix: accumulate references from all chunks, don't overwrite
                             if 'references' in chunk_data:
-                                accumulated_response['references'] = chunk_data.get('references', [])
+                                incoming_refs = chunk_data.get('references', [])
+                                if incoming_refs:
+                                    if 'references' not in accumulated_response:
+                                        accumulated_response['references'] = []
+                                    # Extend instead of overwrite to capture all references
+                                    accumulated_response['references'].extend(incoming_refs)
                             if 'data' in chunk_data and isinstance(chunk_data['data'], dict):
-                                accumulated_response['data'] = chunk_data['data']
+                                # Merge data.chunks if present
+                                incoming_data = chunk_data['data']
+                                if 'chunks' in incoming_data and incoming_data['chunks']:
+                                    if 'data' not in accumulated_response:
+                                        accumulated_response['data'] = {'chunks': []}
+                                    if 'chunks' not in accumulated_response['data']:
+                                        accumulated_response['data']['chunks'] = []
+                                    accumulated_response['data']['chunks'].extend(incoming_data['chunks'])
+                            # 1.5 progress tracking. ``progress`` is the
+                            # streaming phase string. Older payloads won't
+                            # have it; we just skip silently.
+                            if 'progress' in chunk_data and chunk_data['progress']:
+                                progress_state['phase'] = chunk_data['progress']
+                                progress_state['updated_at'] = time.monotonic()
+                            if 'response_time' in chunk_data and isinstance(
+                                chunk_data['response_time'], (int, float)
+                            ):
+                                server_response_time = float(chunk_data['response_time'])
                         except json.JSONDecodeError:
                             accumulated_response['response'] += line_str
-                
+                            # Yield raw line for streaming
+                            yield line_str
+
                 logger.debug(f"[Stream] Finished reading stream, total chunks: {line_count}")
-                
+
+                # Emit a final ``metrics`` chunk so consumers can read timing
+                # without re-parsing every NDJSON line. The keys are stable;
+                # any of them may be ``None`` if the server didn't report them.
+                # The ``import json`` is duplicated locally so it survives the
+                # case where the upstream returned zero NDJSON lines (the only
+                # other place it's imported lives inside the ``for`` loop and
+                # therefore may never have run).
+                try:
+                    import json
+                    stream_ended_at = time.monotonic()
+                    elapsed_ms = (stream_ended_at - stream_started_at) * 1000.0
+                    time_to_first_token_ms = (
+                        (first_token_at - stream_started_at) * 1000.0
+                        if first_token_at is not None
+                        else None
+                    )
+                    metrics = {
+                        'metrics': {
+                            'response_time': server_response_time,
+                            'elapsed_ms': elapsed_ms,
+                            'time_to_first_token_ms': time_to_first_token_ms,
+                            'progress_phase': progress_state['phase'],
+                        }
+                    }
+                    yield json.dumps(metrics)
+                except Exception as metrics_err:
+                    logger.debug(f"[Stream] metrics chunk skipped: {metrics_err}")
+
                 # Log stream statistics
                 logger.info(
                     f"📊 Stream completed: {line_count} lines, "
                     f"response_length={len(accumulated_response['response'])}, "
-                    f"references_count={len(accumulated_response.get('references', []))}"
+                    f"references_count={len(accumulated_response.get('references', []))}, "
+                    f"progress_phase={progress_state['phase']}, "
+                    f"server_response_time={server_response_time}"
                 )
                 
                 # Calculate and yield confidence as final chunk
+                # Fix v2: use accumulated_response which now has proper references and chunks
                 try:
                     from knowledge.lightrag_confidence_scorer import score_lightrag_response
+
+                    # Log what we have for debugging
+                    refs_count = len(accumulated_response.get('references', []))
+                    chunks_count = len((accumulated_response.get('data') or {}).get('chunks', []))
+                    resp_len = len(accumulated_response.get('response', ''))
+                    logger.info(f"[Confidence v2] refs={refs_count}, chunks={chunks_count}, response_len={resp_len}")
+
                     confidence = score_lightrag_response(
                         query=text,
                         response_data=accumulated_response,
                         query_options=options
                     )
-                    logger.info(f"Stream query confidence: {confidence.get('overall_score', 0):.2f} ({confidence.get('confidence_level', 'unknown')})")
+
                     decision = (confidence or {}).get('decision') or {}
-                    if decision.get('should_answer') is False:
+                    should_answer = decision.get('should_answer', True)
+
+                    logger.info(f"Stream query confidence v2: {confidence.get('overall_score', 0):.2f} ({confidence.get('confidence_level', 'unknown')}), should_answer={should_answer}")
+
+                    # 修复：即使置信度低，如果 should_answer=True 也显示 LLM 的回答
+                    # 置信度分数只用于提示，不阻止显示
+                    response_text = accumulated_response.get('response', '')
+                    if should_answer:
+                        # 不再重复 yield references，避免前端去重问题
+                        yield json.dumps({'response': response_text, 'confidence': confidence})
+                    else:
                         no_answer_message = (
                             "未找到足够相关的资料来可靠回答该问题。建议换个问法或上传/导入更多文档后再试。\n"
                             "I couldn't find enough relevant context to answer reliably. Try rephrasing your question or ingest more documents."
                         )
-                        import json
-                        yield json.dumps({'confidence': confidence, 'no_answer_message': no_answer_message})
-                    else:
-                        # Yield confidence as final JSON chunk
-                        import json
-                        yield json.dumps({'confidence': confidence})
+                        yield json.dumps({'response': no_answer_message, 'confidence': confidence})
                 except Exception as conf_err:
                     logger.warning(f"Failed to calculate confidence score for stream: {conf_err}")
                     
@@ -1029,7 +1194,7 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
-    def get_pipeline_status(self) -> Dict[str, Any]:
+    def get_pipeline_status(self, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Get the current status of the document indexing pipeline.
         
         Returns information about:
@@ -1041,7 +1206,11 @@ class LightragClient:
         - latest_message: Latest message from pipeline processing
         """
         try:
-            r = self.session.get(f"{self.base_url}/documents/pipeline_status", timeout=10)
+            r = self.session.get(
+                f"{self.base_url}/documents/pipeline_status",
+                headers=_ws_headers(workspace),
+                timeout=10,
+            )
             
             if r.status_code >= 400:
                 logger.error(f"Get pipeline status failed with status {r.status_code}: {r.text}")
@@ -1055,6 +1224,45 @@ class LightragClient:
             return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.get_pipeline_status")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+
+    def get_supported_file_types(self, workspace: Optional[str] = None) -> Dict[str, Any]:
+        """Return LightRAG's live upload allowlist and parser capabilities.
+
+        Backed by a 5 minute module-level TTL cache so the GUI doesn't hit
+        the server on every UI render. Cache key is ``(base_url, workspace)``
+        so multi-tenant setups don't poison each other. Call
+        :func:`clear_supported_file_types_cache` to force a refresh.
+        """
+        cache_key = (self.base_url, workspace)
+        cached = _SUPPORTED_FILE_TYPES_CACHE.get(cache_key)
+        now = time.monotonic()
+        if cached is not None:
+            payload, fetched_at = cached
+            if (now - fetched_at) < _SUPPORTED_FILE_TYPES_TTL_SECONDS:
+                return {"status": "success", "data": payload, "cached": True}
+
+        try:
+            r = self.session.get(
+                f"{self.base_url}/documents/supported_file_types",
+                headers=_ws_headers(workspace),
+                timeout=10,
+            )
+            r.raise_for_status()
+            payload = r.json()
+            _SUPPORTED_FILE_TYPES_CACHE[cache_key] = (payload, now)
+            return {"status": "success", "data": payload}
+        except requests.exceptions.HTTPError as e:
+            error_msg = (
+                f"HTTP Error {e.response.status_code}: {e.response.text}"
+                if e.response
+                else str(e)
+            )
+            logger.error(f"LightragClient.get_supported_file_types HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.get_supported_file_types")
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
@@ -1324,3 +1532,21 @@ class LightragClient:
 # Convenience factory
 def get_client(api_key: Optional[str] = None, token: Optional[str] = None) -> LightragClient:
     return LightragClient(api_key=api_key, token=token)
+
+
+# ============================================================================
+# Cached capability discovery (LightRAG 1.5 §4 of upgrade analysis).
+# ============================================================================
+# Module-level TTL cache so the GUI doesn't hit ``/documents/supported_file_types``
+# on every render.  Five minutes is a deliberately conservative budget — the
+# parser matrix rarely changes between releases, and the cost of a stale list
+# is just a slightly out-of-date "supported" hint in the upload widget.  See
+# ``clear_supported_file_types_cache`` for forced refresh on test setups and
+# after a hot-reload of upstream config.
+_SUPPORTED_FILE_TYPES_TTL_SECONDS = 300.0
+_SUPPORTED_FILE_TYPES_CACHE: Dict[tuple, tuple] = {}
+
+
+def clear_supported_file_types_cache() -> None:
+    """Drop every cached ``/documents/supported_file_types`` response."""
+    _SUPPORTED_FILE_TYPES_CACHE.clear()

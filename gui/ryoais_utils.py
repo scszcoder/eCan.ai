@@ -195,38 +195,40 @@ def _detect_embedding_dimensions_parallel(host: str, api_key: str, embedding_mod
     logger.info(f"[RyoAIS] Parallel dimension detection completed in {parallel_duration:.2f}s")
 
 
-def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) -> Tuple[bool, list, str]:
+def fetch_ryoais_models(host: str, api_key: str = None, username: str = None, verify_ssl: bool = False) -> Tuple[bool, list, str]:
     """
     Fetch available models from RyoAIS OpenAI-compatible API and save to local file.
-    
+
     Args:
         host: RyoAIS API host (e.g., 'http://localhost/v1')
         api_key: Optional API key for authentication
         username: Optional username for saving to user-specific path
-    
+        verify_ssl: Whether to verify TLS certificates. Defaults to False because
+            many self-hosted RyoAIS deployments use self-signed certs.
+
     Returns:
         Tuple of (success: bool, models: list, error_message: str)
     """
     import requests
-    
+
     try:
         import time
         start_time = time.time()
-        
+
         # Normalize host - remove trailing slash
         host = host.rstrip('/')
-        
+
         # Call OpenAI-compatible API to get models
         api_url = f"{host}/models"
-        
-        logger.info(f"[RyoAIS] Fetching models from: {api_url}")
-        
+
+        logger.info(f"[RyoAIS] Fetching models from: {api_url} (verify_ssl={verify_ssl})")
+
         # Prepare headers
         headers = {}
         if api_key:
             headers['Authorization'] = f'Bearer {api_key}'
-        
-        response = requests.get(api_url, headers=headers, timeout=10)
+
+        response = requests.get(api_url, headers=headers, timeout=10, verify=verify_ssl)
         
         if response.status_code != 200:
             error_msg = f"RyoAIS API returned status {response.status_code}"

@@ -120,7 +120,7 @@ class TaskExecutor:
     # ==================== Resource Cleanup ====================
 
     def _clear_skill_module_caches(self):
-        """Clear skill module caches and checkpoints after execution to prevent memory accumulation.
+        """Clear skill module caches and THIS task's checkpoints after execution.
 
         IMPORTANT: when the task is currently INTERRUPTED (input_required) we
         must NOT clear the InMemorySaver checkpoints, because the executor
@@ -130,6 +130,12 @@ class TaskExecutor:
         from scratch on resume — pend_event then interrupts again without
         ever consuming the resume payload, so the chat_message is silently
         lost and the LLM body of the loop is never reached.
+
+        Shared-skill safety (SHARED_SKILL_MULTI_TASK_PLAN Phase 1): multiple
+        tasks can reference ONE EC_Skill and therefore one InMemorySaver, so
+        checkpoint cleanup must be scoped to this task's thread_id only.
+        Wiping the whole saver here (the pre-2026-08 behaviour) destroyed
+        concurrent/parked sibling tasks' checkpoints on the same skill.
         """
         try:
             # 1. Clear build_node module caches
@@ -140,11 +146,11 @@ class TaskExecutor:
             except (ImportError, TypeError):
                 pass
 
-            # 2. Clear the skill's InMemorySaver checkpoints to prevent unbounded growth.
-            #    InMemorySaver stores every checkpoint in a dict keyed by thread_id.
-            #    Without clearing, the checkpoint dict grows indefinitely across executions.
-            #    Skip when the task is parked on an interrupt so the auto-resume
-            #    path can find the saved checkpoint.
+            # 2. Delete THIS task's thread from the skill's InMemorySaver to
+            #    prevent unbounded growth. The saver may be shared with other
+            #    tasks running the same skill — never clear it wholesale.
+            #    Skip when the task is parked on an interrupt so the
+            #    auto-resume path can find the saved checkpoint.
             try:
                 from a2a.types import TaskState as _TaskState
                 _is_interrupted = bool(
@@ -156,28 +162,57 @@ class TaskExecutor:
                 _is_interrupted = False
 
             if _is_interrupted:
-                logger.debug(
-                    "[TaskExecutor] Skipping InMemorySaver clear: task is parked on "
-                    "interrupt (input_required); checkpoints are required for auto-resume"
+                logger.info(
+                    f"[TaskExecutor] Skipping checkpoint delete for task "
+                    f"'{getattr(self.task, 'name', '?')}': parked on interrupt "
+                    f"(input_required); checkpoints retained for auto-resume"
                 )
             elif self.task and hasattr(self.task, "skill") and self.task.skill:
                 skill = self.task.skill
                 if hasattr(skill, "runnable") and skill.runnable:
                     try:
                         saver = getattr(skill.runnable, "checkpointer", None)
-                        if saver is not None:
-                            # InMemorySaver has storage (defaultdict), writes (defaultdict), blobs (defaultdict)
-                            # Each can be cleared via .clear() inherited from dict
-                            cleared = 0
-                            for attr in ("storage", "writes", "blobs"):
-                                coll = getattr(saver, attr, None)
-                                if coll is not None and hasattr(coll, "clear"):
-                                    cleared += len(coll) if hasattr(coll, "__len__") else 0
-                                    coll.clear()
-                            if cleared > 0:
-                                logger.debug(f"[TaskExecutor] Cleared {cleared} checkpoint entries from InMemorySaver")
+                        thread_id = None
+                        try:
+                            metadata = getattr(self.task, "metadata", None)
+                            if isinstance(metadata, dict):
+                                cfg = metadata.get("config")
+                                if isinstance(cfg, dict):
+                                    configurable = cfg.get("configurable")
+                                    if isinstance(configurable, dict):
+                                        thread_id = configurable.get("thread_id")
+                        except Exception:
+                            thread_id = None
+
+                        if saver is not None and thread_id:
+                            if hasattr(saver, "delete_thread"):
+                                saver.delete_thread(thread_id)
+                            else:
+                                # Older langgraph-checkpoint without delete_thread:
+                                # storage is keyed by thread_id; writes/blobs by
+                                # tuples whose first element is the thread_id.
+                                storage = getattr(saver, "storage", None)
+                                if isinstance(storage, dict):
+                                    storage.pop(thread_id, None)
+                                for attr in ("writes", "blobs"):
+                                    coll = getattr(saver, attr, None)
+                                    if isinstance(coll, dict):
+                                        for k in list(coll.keys()):
+                                            if isinstance(k, tuple) and k and k[0] == thread_id:
+                                                del coll[k]
+                            logger.info(
+                                f"[TaskExecutor] Deleted checkpoints for thread_id={thread_id} "
+                                f"(task='{getattr(self.task, 'name', '?')}', "
+                                f"skill='{getattr(skill, 'name', '?')}'); other tasks' "
+                                f"threads on this skill untouched"
+                            )
+                        elif saver is not None:
+                            logger.debug(
+                                "[TaskExecutor] No thread_id in task config; "
+                                "leaving shared checkpointer untouched"
+                            )
                     except Exception as _ckpt_err:
-                        logger.debug(f"[TaskExecutor] Failed to clear checkpoints: {_ckpt_err}")
+                        logger.debug(f"[TaskExecutor] Failed to delete checkpoints: {_ckpt_err}")
 
             # 3. Force garbage collection to reclaim Python object memory
             import gc

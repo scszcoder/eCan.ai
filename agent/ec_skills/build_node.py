@@ -12,8 +12,11 @@ from pathlib import Path
 
 # Process-level guard to prevent duplicate messages from parallel pend_event_node executions.
 # Key: (skill_name, node_name, chat_id) → True once sent.
-_PEND_GLOBAL_SENT = {}
-_PEND_GLOBAL_LOCK = threading.Lock()
+# mt101: added size limit and insertion order tracking to prevent unbounded growth.
+_MAX_PEND_GLOBAL_SENT_SIZE = 1000  # Cap to prevent memory leak
+_PEND_GLOBAL_SENT: dict[tuple, bool] = {}
+_PEND_GLOBAL_SENT_LOCK = threading.Lock()
+_PEND_GLOBAL_SENT_INSERTION_ORDER: list[tuple] = []  # Track insertion order for FIFO eviction
 from agent.mcp.local_client import mcp_call_tool
 # REMOVED: from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync  # Moved to lazy import to avoid circular dependency
 from agent.ec_skills.dev_defs import BreakpointManager
@@ -40,16 +43,22 @@ from dataclasses import dataclass
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 
+# Dedup set for the build_llm_node 'system==user promptId' warning. The same
+# misconfigured node is rebuilt on every skill invocation, so without dedup
+# a single bug spams logs at warning level on each chat turn.
+_BUILDLLM_DUP_PROMPT_WARNED: set[tuple[str, str, str]] = set()
+
+
 # ==================== Browser-Use Node Lifecycle Hooks ====================
 #
-# Site-specific business-case patterns (e.g. Feige's front-desk +
+# Site-specific business-case patterns (e.g. a live-chat site's front-desk +
 # Q&A-worker-team fan-out) that wrap ``browser_automation`` register
 # themselves here as async callables invoked before the browser-use
 # agent runs.  If any hook returns a non-None state dict, the LLM
 # invocation is skipped and that state dict is returned from the node.
 # Hooks are invoked in registration order.
 #
-# Site bundles (e.g. ``hooks/external/feige_chat``) register their
+# Site bundles (under ``hooks/external/``) register their
 # hook at import time; this module imports the bundle near the end of
 # the file so the registry is populated before any node executes.
 # ``build_node`` itself has no knowledge of what any hook does — it
@@ -57,8 +66,8 @@ from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 # Early-phase hooks run BEFORE the browser-use agent is constructed.
 # Used for fast-paths that can decide to short-circuit the whole node
-# based on the incoming event alone (e.g. Feige's HOT-PATH-B typing a
-# pre-computed reply into Feige without invoking the LLM or the full
+# based on the incoming event alone (e.g. the live-chat HOT-PATH-B typing a
+# pre-computed reply into the chat without invoking the LLM or the full
 # browser-use agent lifecycle).  ``agent`` is always None at this phase.
 _before_browser_session_setup_hooks: list[
     Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]]
@@ -88,7 +97,7 @@ def register_before_browser_session_setup_hook(
 # extracted + compacted but BEFORE the task prompt / override block
 # are finalised and the browser-use agent is constructed.  Site
 # plugins use this to enrich the task prompt with business-case-
-# specific rules (e.g. Feige's front-desk actionable-items filter,
+# specific rules (e.g. a live-chat front-desk actionable-items filter,
 # protocol-override block, and deterministic auto-dispatch short-
 # circuit).  ``build_node`` itself only performs a generic snapshot
 # injection when no prompt-build hook handles the round.
@@ -122,7 +131,7 @@ def register_before_prompt_build_hook(
 
 # Late-phase hooks run AFTER the browser-use agent is constructed and
 # its browser session is ready.  Use this for patterns that need the
-# live agent / browser session (e.g. Feige's PreDispatch customer-
+# live agent / browser session (e.g. a live-chat PreDispatch customer-
 # message fan-out that reads the sidebar DOM via agent.browser_session).
 _before_browser_use_run_hooks: list[
     Callable[[Any, dict, dict, "BrowserUseHookContext"], Awaitable[dict | None]]
@@ -147,7 +156,7 @@ def register_before_browser_use_run_hook(
 # ─── Phase 6.5: context dataclasses moved to browser_node.contexts ───
 # Lifted 2026-04-24 to break the runner→build_node import cycle.  The
 # four classes below are re-exported here for back-compat so external
-# hook bundles (e.g. browser_use_extension/hooks/external/feige_chat)
+# hook bundles (under browser_use_extension/hooks/external/)
 # can continue to import them from their historical location.
 from agent.ec_skills.browser_node.contexts import (
     BrowserUseHookContext,
@@ -255,7 +264,7 @@ def _stale_input_has_undelivered_response_text(
     previous_hot_path_type: str = "",
 ) -> tuple[bool, str, str]:
     """Detect if a soon-to-be-cleared ``state["input"]`` carries a Q&A
-    worker reply that HOT-PATH-B has not yet typed into Feige.
+    worker reply that HOT-PATH-B has not yet typed into the live chat.
 
     Used by :func:`build_pend_for_event_node` to defend against an
     event-bus race where a chat_message resume populates
@@ -321,9 +330,8 @@ def _stale_input_has_undelivered_response_text(
     ):
         return False, "", ""
     try:
-        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
-            dispatch_state as _ds,
-        )
+        from agent.ec_skills import live_chat_dispatch as _lcd
+        _ds = _lcd.runner_bridge().dispatch_state
         recent_age = _ds.was_recently_sent_for_turn(
             customer, response_text, source_msg_id
         )
@@ -504,7 +512,7 @@ _LLM_CACHE_TTL_SECONDS = 300.0  # Invalidate after 5 min to avoid stale credenti
 
 # Cache resolved API keys per provider so we don't hit the LLM Manager / secure
 # store on every tool call or LLM invocation.  Key = provider string.
-_API_KEY_CACHE: dict[str, str] = {}
+_API_KEY_CACHE: dict[str, tuple[float, str]] = {}  # provider|username -> (cached_at, key)
 _API_KEY_CACHE_TTL_SECONDS = 120.0  # Re-resolve after 2 min
 
 # Cache the LLM manager singleton so we don't call get_llm_manager() on every
@@ -547,11 +555,18 @@ def _clear_module_caches():
     # forced clear yields cross-turn cache hits.
     # _LLM_INSTANCE_CACHE.clear()
 
-    # Clear LLM manager cache
-    _LLM_MANAGER_CACHE.clear()
-
-    # Clear API key cache
-    _API_KEY_CACHE.clear()
+    # 2026-06-06: Do NOT clear _LLM_MANAGER_CACHE / _API_KEY_CACHE here, for the
+    # same reason _LLM_INSTANCE_CACHE is preserved (see the block above). This
+    # clear ran in the executor's finally block at the END of EVERY skill
+    # execution (= every Q&A turn). Under the 5-customer flood that made each
+    # turn re-parse settings.json (LLM-manager rebuild) and re-hit the secure
+    # store for the API key — the bulk of the ~2 s `build_llm` PERF stage, and
+    # with concurrent turns the clears thrashed each other. Both caches are
+    # bounded (_API_KEY_CACHE has a 120 s TTL; the manager is a process-stable
+    # singleton), so surviving across executions is safe and a rotated key is
+    # still picked up within the TTL.
+    # _LLM_MANAGER_CACHE.clear()
+    # _API_KEY_CACHE.clear()
 
     # NOTE (Phase 6.7 hotfix, 2026-04-24): the previous block here cleared
     # browser-session caches AND stopped persistent worker threads.  It
@@ -1087,7 +1102,7 @@ def _state_current_event_human_payload(state: dict) -> dict:
     """Return the current turn's human payload from prompt_refs/events/input.
 
     Q&A replies are generated from a front-desk assignment payload.  That
-    payload may carry Feige's source customer-bubble msg_id; we need to
+    payload may carry the live-chat source customer-bubble msg_id; we need to
     propagate it into the response envelope so the front desk can reject a
     stale answer if the customer sends a newer bubble before the LLM returns.
     """
@@ -1288,6 +1303,10 @@ def _reset_qa_history_on_customer_change(
                     f"(cleared history={hist_len}, prompts={prompts_len})"
                 )
         attrs["_last_qa_customer_id"] = cust
+        # ws148 #2: reset the per-turn tool-select loop counter on every inbound turn so the
+        # runaway-loop cap (in the MCP auto-select node) measures THIS turn's iterations, not a
+        # carryover. Unconditional (even when no history reset) so it always tracks the fresh turn.
+        attrs["_ecan_toolselect_iters"] = 0
         return did_reset
     except Exception as exc:
         if logger_ is not None:
@@ -3066,7 +3085,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     # BOTH the system and user templates, so every ``{{input}}`` slot
     # and every token of the body is sent to the model twice, and any
     # inlined attachment ``data_uri`` in ``{{input}}`` blows the system
-    # message up to tens of megabytes.  This caused the Feige Q&A
+    # message up to tens of megabytes.  This caused the live-chat Q&A
     # worker "我看不到图片" regression; keep a loud warning here so the
     # next misconfiguration is obvious in logs and the skill editor
     # timeline.
@@ -3075,20 +3094,24 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         and user_prompt_id
         and system_prompt_id == user_prompt_id
     ):
-        _dup_msg = (
-            f"[build_llm_node] ⚠️ node={node_name}: systemPromptId and "
-            f"promptId are both set to '{system_prompt_id}'. The prompt "
-            f"body will be used as BOTH system and user prompt, which "
-            f"doubles token cost and inlines attachment data_uri blobs "
-            f"into the system message. Set promptId to a separate "
-            f"user-input template (e.g. one containing just "
-            f"'{{{{input}}}}'), or clear one of the two fields."
-        )
-        logger.warning(_dup_msg)
-        try:
-            send_skill_editor_log("warning", _dup_msg)
-        except Exception:
-            pass
+        # Dedup by (skill, node, prompt_id): one log line per misconfiguration.
+        _dup_key = (str(skill_name or ""), str(node_name or ""), str(system_prompt_id))
+        if _dup_key not in _BUILDLLM_DUP_PROMPT_WARNED:
+            _BUILDLLM_DUP_PROMPT_WARNED.add(_dup_key)
+            _dup_msg = (
+                f"[build_llm_node] node={node_name}: systemPromptId and "
+                f"promptId are both set to '{system_prompt_id}'. The prompt "
+                f"body will be used as BOTH system and user prompt, which "
+                f"doubles token cost and inlines attachment data_uri blobs "
+                f"into the system message. Set promptId to a separate "
+                f"user-input template (e.g. one containing just "
+                f"'{{{{input}}}}'), or clear one of the two fields."
+            )
+            logger.warning(_dup_msg)
+            try:
+                send_skill_editor_log("warning", _dup_msg)
+            except Exception:
+                pass
 
     # Get inline prompt content.
     # Note: ``inline_user_prompt`` defaults to ``{{input}}`` (NOT
@@ -3464,34 +3487,41 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         # but Cognito ID tokens last ~1 h; if a cached token does expire mid-TTL
         # the LLM call returns 401 and the caller can retry, which will be
         # caught by the regular failure path.
-        if _should_use_proxy(inputs):
+        def _make_proxy_llm(reason: str):
+            """Build (or return cached) proxy LLM; None when no endpoint configured."""
             proxy_cfg = _get_proxy_config()
-            if proxy_cfg:
-                from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
-                _now_proxy = time.time()
-                _proxy_key = (
-                    f"lambda_proxy|{provider_name or 'openai'}|"
-                    f"{model_name_value or 'gpt-4o'}|"
-                    f"{(proxy_cfg.get('endpoint') or '').rstrip('/')}|"
-                    f"{proxy_cfg.get('user_id') or ''}|"
-                    f"{temperature_value}"
-                )
-                _cached_proxy = _LLM_INSTANCE_CACHE.get(_proxy_key)
-                if _cached_proxy is not None:
-                    _cached_at, _cached_llm = _cached_proxy
-                    if _now_proxy - _cached_at < _LLM_CACHE_TTL_SECONDS:
-                        return _cached_llm
-                logger.info(f"[LLM Node] Using Lambda proxy for {provider_name}/{model_name_value}")
-                _llm = create_lambda_proxy_langchain(
-                    provider=provider_name or 'openai',
-                    model=model_name_value or 'gpt-4o',
-                    user_id=proxy_cfg['user_id'],
-                    lambda_endpoint=proxy_cfg['endpoint'],
-                    auth_token=proxy_cfg['auth_token'],
-                    temperature=temperature_value,
-                )
-                _LLM_INSTANCE_CACHE[_proxy_key] = (_now_proxy, _llm)
-                return _llm
+            if not proxy_cfg:
+                return None
+            from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
+            _now_proxy = time.time()
+            _proxy_key = (
+                f"lambda_proxy|{provider_name or 'openai'}|"
+                f"{model_name_value or 'gpt-4o'}|"
+                f"{(proxy_cfg.get('endpoint') or '').rstrip('/')}|"
+                f"{proxy_cfg.get('user_id') or ''}|"
+                f"{temperature_value}"
+            )
+            _cached_proxy = _LLM_INSTANCE_CACHE.get(_proxy_key)
+            if _cached_proxy is not None:
+                _cached_at, _cached_llm = _cached_proxy
+                if _now_proxy - _cached_at < _LLM_CACHE_TTL_SECONDS:
+                    return _cached_llm
+            logger.info(f"[LLM Node] Using Lambda proxy for {provider_name}/{model_name_value} ({reason})")
+            _llm = create_lambda_proxy_langchain(
+                provider=provider_name or 'openai',
+                model=model_name_value or 'gpt-4o',
+                user_id=proxy_cfg['user_id'],
+                lambda_endpoint=proxy_cfg['endpoint'],
+                auth_token=proxy_cfg['auth_token'],
+                temperature=temperature_value,
+            )
+            _LLM_INSTANCE_CACHE[_proxy_key] = (_now_proxy, _llm)
+            return _llm
+
+        if _should_use_proxy(inputs):
+            _proxy_llm = _make_proxy_llm("proxy routing enabled")
+            if _proxy_llm is not None:
+                return _proxy_llm
 
         # ── LLM instance cache: skip re-construction for repeated invocations ──
         # Build a stable cache key from the parameters that define the LLM identity.
@@ -3546,6 +3576,12 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 raise ImportError(f"{import_name} is not available. Please install the required package.")
 
         if special_features.get("requires_api_key") and not api_key_value:
+            # Missing local API key → fall back to the cloud LLM proxy when an
+            # endpoint is configured (the proxy holds the provider keys
+            # server-side). Only raise when there is no proxy to fall back to.
+            _proxy_llm = _make_proxy_llm("no local API key")
+            if _proxy_llm is not None:
+                return _proxy_llm
             raise ValueError(f"{provider_name} requires an API key")
 
         if special_features.get("requires_model") and not model_name_value:
@@ -3856,7 +3892,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         # and user templates (e.g. when ``systemPromptId`` and
                         # ``promptId`` point at the same prompt id, or when
                         # the prompt body has multiple ``{{input}}`` slots —
-                        # both common in Feige-style Q&A workers), the
+                        # both common in live-chat Q&A workers), the
                         # ``final_system_prompt`` and ``final_user_prompt``
                         # each balloon to tens of megabytes of inline base64.
                         #
@@ -4010,6 +4046,25 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
                     logger.debug(f"username: {username}")
 
+                    # Whole-resolution cache (keyed provider|username, 120 s TTL):
+                    # the LLM-manager + secure-store lookups below run on EVERY LLM
+                    # call and dominated the `build_llm` PERF stage (~2 s) under the
+                    # 5-customer Q&A flood. Cache the resolved key so that cost is
+                    # paid at most once per TTL. Shares the key namespace with
+                    # _resolve_api_key_from_provider_env_vars so either resolver
+                    # primes the other. A rotated key self-heals within the TTL.
+                    # NOTE: bare `time` is shadowed by a later local `import time`
+                    # in this node-fn scope (function-wide local binding), so we
+                    # import a private alias here rather than reference `time`.
+                    import time as _ak_time
+                    _ak_now = _ak_time.time()
+                    _ak_key = f"{provider_l}|{username or ''}"
+                    _ak_hit = _API_KEY_CACHE.get(_ak_key)
+                    if _ak_hit is not None:
+                        _ak_at, _ak_val = _ak_hit
+                        if _ak_now - _ak_at < _API_KEY_CACHE_TTL_SECONDS and _ak_val:
+                            return _ak_val
+
                     # Try provider settings (LLM Manager stores full key)
                     resolved_key = None
                     try:
@@ -4027,11 +4082,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         logger.debug(f"Failed to load API key from provider settings: {settings_err}")
 
                     if resolved_key:
+                        _API_KEY_CACHE[_ak_key] = (_ak_now, resolved_key)
                         return resolved_key
 
                     return _resolve_api_key_from_provider_env_vars(provider_l, username=username)
 
+                _t_key = _time.perf_counter()
                 key = _resolve_api_key(llm_provider, api_key)
+                _perf_llm("resolve_key", _t_key)
                 host = (api_host or "").strip()
                 prov = llm_provider
 
@@ -4298,9 +4356,16 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             )
                             elapsed = time.time() - start_time
                             if _attempt > 0:
+                                # ws043: surface a successful retry at INFO so recovered
+                                # transient failures are visible — WITHOUT the result blob
+                                # (that stays at debug; logging it at INFO would re-create
+                                # the ws041/042 GIL-hog serialization pattern).
+                                logger.info(
+                                    f"✅ LLM recovered after {_attempt} retry(s) in "
+                                    f"{elapsed:.2f}s node={node_name}")
                                 log_msg = (
                                     f"✅ LLM async invocation completed in {elapsed:.2f}s "
-                                    f"after {_attempt} APIConnectionError retry(s) {result}"
+                                    f"after {_attempt} retry(s) {result}"
                                 )
                             else:
                                 log_msg = f"✅ LLM async invocation completed in {elapsed:.2f}s {result}"
@@ -4320,26 +4385,41 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             raise TimeoutError(timeout_msg)
 
                         except Exception as exc:
-                            # Only retry on APIConnectionError-shaped failures.
-                            # We pattern-match the class name string rather
-                            # than importing openai.APIConnectionError to keep
-                            # this code provider-agnostic — Anthropic and
-                            # DeepSeek SDKs have their own analogues that
-                            # surface as similar transport errors.
+                            # Only retry on TRANSIENT failures. We pattern-match the
+                            # class name / message string rather than importing the
+                            # openai exception types, to keep this provider-agnostic
+                            # (Anthropic/DeepSeek SDKs surface analogous errors).
                             _exc_name = type(exc).__name__
+                            _exc_str = str(exc)
                             _is_transient_transport = (
                                 "APIConnectionError" in _exc_name
                                 or "ConnectionError" in _exc_name
                                 or "ConnectError" in _exc_name
                                 or _exc_name == "RemoteProtocolError"
                             )
-                            if _is_transient_transport and _attempt < len(_api_conn_backoffs):
+                            # ws043: a provider-gateway 5xx (e.g. the live "Upstream
+                            # openai 520: error code: 520" api_error, wrapped here as a
+                            # ValueError) is a TRANSIENT server error that almost always
+                            # succeeds on a quick retry. Before, only transport errors
+                            # retried, so a 520 propagated -> mark_task_failed_for_redispatch
+                            # re-ran the WHOLE turn (another 7-9s LLM + RAG, firing MORE
+                            # calls = more provider load = more 520s). Retry 5xx in place.
+                            _is_transient_server = (
+                                "InternalServerError" in _exc_name
+                                or "ServiceUnavailable" in _exc_name
+                                or "error code: 5" in _exc_str
+                            )
+                            _retry_kind = (
+                                "transport" if _is_transient_transport
+                                else "server-5xx" if _is_transient_server else ""
+                            )
+                            if _retry_kind and _attempt < len(_api_conn_backoffs):
                                 _last_exc = exc
                                 _backoff = _api_conn_backoffs[_attempt]
                                 _attempt += 1
                                 logger.warning(
-                                    f"🔁 LLM transient transport error "
-                                    f"({_exc_name}: {exc}); retrying in "
+                                    f"🔁 LLM transient {_retry_kind} error "
+                                    f"({_exc_name}: {_exc_str[:160]}); retrying in "
                                     f"{_backoff:.2f}s "
                                     f"(attempt {_attempt}/{len(_api_conn_backoffs)}) "
                                     f"node={node_name}"
@@ -4347,17 +4427,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                                 send_skill_editor_log(
                                     "warning",
                                     f"LLM retry {_attempt}/{len(_api_conn_backoffs)} "
-                                    f"after {_exc_name}",
+                                    f"after {_retry_kind} {_exc_name}",
                                 )
                                 await asyncio.sleep(_backoff)
                                 continue
-                            # Non-retryable, OR retry budget exhausted —
-                            # propagate.  Outer except block in the LLM-node
-                            # callable handles error categorisation +
-                            # mark_task_failed_for_redispatch (which already
-                            # re-queues the message for the next dispatch
-                            # cycle on Feige customer tasks — see
-                            # qa_llm_failed ledger event).
+                            # Non-retryable, OR retry budget exhausted — propagate.
+                            # Outer except handles categorisation +
+                            # mark_task_failed_for_redispatch (re-queues for the next
+                            # dispatch cycle — see qa_llm_failed ledger event).
                             raise
 
                 def _invoke_async_with_thread_timeout(llm_to_use, timeout_sec: float):
@@ -4705,27 +4782,26 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 # Resolve timeout with hybrid precedence (runtime > config > default)
                 full_node_name = f"{owner}:{skill_name}:{node_name}"
-                _feige_qa_payload = {}
-                _feige_qa_llm_start = None
+                _live_chat_qa_payload = {}
+                _live_chat_qa_llm_start = None
                 try:
-                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                        log_payload as _feige_ledger_payload,
-                    )
+                    from agent.ec_skills import live_chat_dispatch as _lcd
+                    _live_chat_ledger_payload = _lcd.runner_bridge().trace_ledger.log_payload
 
                     _candidate_payload = _state_current_event_human_payload(state)
                     if _is_qa_inbound_payload(_candidate_payload):
-                        _feige_qa_payload = _candidate_payload
-                        _feige_qa_llm_start = time.time()
-                        _feige_ledger_payload(
+                        _live_chat_qa_payload = _candidate_payload
+                        _live_chat_qa_llm_start = time.time()
+                        _live_chat_ledger_payload(
                             "qa_llm_start",
-                            _feige_qa_payload,
+                            _live_chat_qa_payload,
                             node=full_node_name,
                             provider=llm_provider,
                             model=model_name,
                         )
                 except Exception:
-                    _feige_qa_payload = {}
-                    _feige_qa_llm_start = None
+                    _live_chat_qa_payload = {}
+                    _live_chat_qa_llm_start = None
                 effective_timeout = resolve_timeout(
                     node_name=full_node_name,
                     state=state,
@@ -4810,23 +4886,23 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 _perf_llm("invoke", _t_stage)
                 try:
-                    if _feige_qa_payload and _feige_qa_llm_start is not None:
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                            log_payload as _feige_ledger_payload,
-                            short_text as _feige_short_text,
-                        )
+                    if _live_chat_qa_payload and _live_chat_qa_llm_start is not None:
+                        from agent.ec_skills import live_chat_dispatch as _lcd
+                        _lc_ledger = _lcd.runner_bridge().trace_ledger
+                        _live_chat_ledger_payload = _lc_ledger.log_payload
+                        _live_chat_short_text = _lc_ledger.short_text
 
                         _resp_text = getattr(response, "content", "")
                         if not isinstance(_resp_text, str) or not _resp_text:
                             _resp_text = str(response)
-                        _feige_ledger_payload(
+                        _live_chat_ledger_payload(
                             "qa_llm_response",
-                            _feige_qa_payload,
+                            _live_chat_qa_payload,
                             node=full_node_name,
                             provider=llm_provider,
                             model=model_name,
-                            duration_ms=int((time.time() - _feige_qa_llm_start) * 1000),
-                            response_preview=_feige_short_text(_resp_text),
+                            duration_ms=int((time.time() - _live_chat_qa_llm_start) * 1000),
+                            response_preview=_live_chat_short_text(_resp_text),
                         )
                 except Exception:
                     pass
@@ -5087,13 +5163,12 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 }
 
                 try:
-                    _qa_payload = locals().get("_feige_qa_payload") or {}
+                    _qa_payload = locals().get("_live_chat_qa_payload") or {}
                     if _is_qa_inbound_payload(_qa_payload):
-                        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                            log_payload as _feige_ledger_payload,
-                        )
+                        from agent.ec_skills import live_chat_dispatch as _lcd
+                        _live_chat_ledger_payload = _lcd.runner_bridge().trace_ledger.log_payload
 
-                        _feige_ledger_payload(
+                        _live_chat_ledger_payload(
                             "qa_llm_failed",
                             _qa_payload,
                             node=f"{owner}:{skill_name}:{node_name}",
@@ -5141,7 +5216,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             _task.status.state = TaskState.failed
                 except Exception as _qa_fail_log_err:
                     logger.debug(
-                        f"[FEIGE-LEDGER] qa_llm_failed handling failed: "
+                        f"[LIVE-CHAT-LEDGER] qa_llm_failed handling failed: "
                         f"{_qa_fail_log_err}"
                     )
         else:
@@ -6450,9 +6525,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             if _is_qa_inbound_payload(_qa_cand):
                 _qa_tool_payload = _qa_cand
                 _qa_tool_t0 = time.time()
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                    log_payload as _qa_tool_ledger,
-                )
+                from agent.ec_skills import live_chat_dispatch as _lcd
+                _qa_tool_ledger = _lcd.runner_bridge().trace_ledger.log_payload
                 _qa_tool_ledger(
                     "qa_tool_node_enter",
                     _qa_tool_payload,
@@ -6936,6 +7010,36 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
             actual_tool_name = next_tool_name.strip()
 
+            # ws148 #2: cap the runaway tool-select loop. Each time the LLM picks another tool
+            # (loop continues), count it; past the max, force all_done so the loop exits
+            # GRACEFULLY with its current answer instead of spinning toward recursion_limit=200
+            # (live 1-vs-8: one turn ran 176 rag_query iterations, ballooning the state that then
+            # GIL-starved the CDP loop). Counter is reset per inbound turn (see the Q&A reset).
+            # Reversible: ECAN_QA_LOOP_MAX_ITERS=0 disables the cap.
+            try:
+                _ts_max = int(os.environ.get("ECAN_QA_LOOP_MAX_ITERS", "8") or 8)
+            except (TypeError, ValueError):
+                _ts_max = 8
+            if _ts_max > 0 and isinstance(state, dict):
+                _ts_attrs = state.setdefault("attributes", {})
+                if isinstance(_ts_attrs, dict):
+                    _ts_iters = int(_ts_attrs.get("_ecan_toolselect_iters", 0) or 0) + 1
+                    _ts_attrs["_ecan_toolselect_iters"] = _ts_iters
+                    if _ts_iters > _ts_max:
+                        logger.warning(
+                            f"[{node_name}] ws148 loop cap: tool-select iteration {_ts_iters} "
+                            f"exceeded max {_ts_max} — forcing all_done to exit the loop "
+                            f"gracefully (would-be tool={actual_tool_name!r})")
+                        send_skill_editor_log(
+                            "warning", f"[{node_name}] loop cap hit ({_ts_iters}>{_ts_max}) — exiting")
+                        if 'result' in state and isinstance(state['result'], dict):
+                            state['result'].setdefault('llm_result', {})
+                            if isinstance(state['result']['llm_result'], dict):
+                                state['result']['llm_result']['work_done'] = True
+                                state['result']['llm_result']['all_done'] = True
+                        _sync_completion_flags(state)
+                        return state
+
             tool_schema = _get_tool_schema_by_name(actual_tool_name)
             if not tool_schema:
                 log_msg = f"[MCP Auto-Select] Tool '{actual_tool_name}' not found in MCP tool registry, skipping tool call for node '{node_name}'"
@@ -7248,9 +7352,24 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         logger.warning(
                             f"[MCP Result Propagation] rag_query promotion failed: {_rag_promote_err}"
                         )
+                # ws042: do NOT dump the full work_result here. A rag_query result
+                # carries the retrieved document chunks (~110KB); logging that at INFO
+                # on every tool call x6 concurrent QA graphs is the SAME GIL hog as the
+                # ws041 condition-eval 230KB dump — stringifying it CPU-bound starves
+                # the CDP I/O thread, turning sub-second sends into 5-28s round-trips
+                # (the 1-to-N stall). Log a compact summary; work_result itself is
+                # unchanged for downstream use.
+                if isinstance(work_result, dict):
+                    _wr_log = {
+                        "keys": list(work_result.keys()),
+                        "last_action_succeeded": work_result.get("last_action_succeeded"),
+                        "rag_answer": str(work_result.get("rag_answer") or "")[:120],
+                    }
+                else:
+                    _wr_log = str(work_result)[:200]
                 logger.info(
                     f"[MCP Result Propagation] tool={tool_name} success={success} "
-                    f"work_result={work_result}"
+                    f"work_result={_wr_log}"
                 )
             except Exception:
                 return
@@ -7281,7 +7400,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             except Exception:
                 pass
 
-            # send_chat is a local in-process tool.  Under Feige flood tests,
+            # send_chat is a local in-process tool.  Under live-chat flood tests,
             # multiple Q&A workers can call it at nearly the same time; routing
             # those calls through the shared persistent MCP HTTP session can
             # stall before chat_tools.send_chat is even entered.  Bypass MCP
@@ -7310,6 +7429,39 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     log_msg = (
                         "[MCP_DIRECT] Direct local send_chat failed; "
                         f"falling back to MCP HTTP: {_direct_send_chat_err}"
+                    )
+                    logger.warning(log_msg)
+                    send_skill_editor_log("warning", log_msg)
+
+            # mt068: rag_query is a local in-process tool (it just POSTs to the
+            # local LightRAG HTTP server). In desktop mode it otherwise goes
+            # through a FRESH EPHEMERAL MCP HTTP session per call — streams_open
+            # + initialize + spin-up cost 1.5-7s on EVERY query (2026-06-03
+            # customer trace: rag_query 1.6-12.4s, dominated by MCP-EPHEM
+            # overhead, not the ~1-5s LightRAG query itself). Call the handler
+            # directly in-process like send_chat, bypassing the ephemeral
+            # session. rag_query is registry-mapped (_CLOUD_TOOL_REGISTRY) with
+            # the standard (mainwin, args) signature.
+            if _actual_tool_name == "rag_query":
+                try:
+                    from app_context import AppContext
+                    from mcp.types import CallToolResult
+
+                    _rag_func = _resolve_cloud_tool_func("rag_query")
+                    if _rag_func is not None:
+                        log_msg = (
+                            "[MCP_DIRECT] Invoking local rag_query directly "
+                            "in-process (bypassing ephemeral MCP HTTP session)"
+                        )
+                        logger.info(log_msg)
+                        send_skill_editor_log("log", log_msg)
+                        _rag_mainwin = AppContext.get_main_window()
+                        content_blocks = await _rag_func(_rag_mainwin, _actual_tool_input)
+                        return CallToolResult(content=content_blocks, isError=False)
+                except Exception as _direct_rag_err:
+                    log_msg = (
+                        "[MCP_DIRECT] Direct local rag_query failed; "
+                        f"falling back to MCP HTTP: {_direct_rag_err}"
                     )
                     logger.warning(log_msg)
                     send_skill_editor_log("warning", log_msg)
@@ -8079,9 +8231,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         # routing + result-marshaling overhead that's currently invisible.
         if _qa_tool_payload is not None and _qa_tool_t0 is not None:
             try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.trace_ledger import (
-                    log_payload as _qa_tool_ledger,
-                )
+                from agent.ec_skills import live_chat_dispatch as _lcd
+                _qa_tool_ledger = _lcd.runner_bridge().trace_ledger.log_payload
                 _qa_tool_ledger(
                     "qa_tool_node_exit",
                     _qa_tool_payload,
@@ -8284,7 +8435,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             _attrs_for_guard = state.get("attributes", {})
             _prompt_already_sent = bool(str(_attrs_for_guard.get("prompt_to_human", "")).strip())
             _flag_already_sent = _attrs_for_guard.get(_pend_sent_key, False)
-            with _PEND_GLOBAL_LOCK:
+            with _PEND_GLOBAL_SENT_LOCK:
                 _global_already_sent = _PEND_GLOBAL_SENT.get(_global_key, False)
             _already_sent = _global_already_sent or _prompt_already_sent or _flag_already_sent
             if not _already_sent:
@@ -8319,8 +8470,16 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                         logger.info(f"[pend_event] Failed to send prompt: {_send_err}")
 
                 # Mark as sent in all three places.
-                with _PEND_GLOBAL_LOCK:
+                # mt101: added FIFO eviction to prevent unbounded growth.
+                with _PEND_GLOBAL_SENT_LOCK:
+                    # Evict oldest entries if over limit
+                    while len(_PEND_GLOBAL_SENT) >= _MAX_PEND_GLOBAL_SENT_SIZE and _PEND_GLOBAL_SENT_INSERTION_ORDER:
+                        oldest_key = _PEND_GLOBAL_SENT_INSERTION_ORDER.pop(0)
+                        if oldest_key in _PEND_GLOBAL_SENT:
+                            _PEND_GLOBAL_SENT.pop(oldest_key)
                     _PEND_GLOBAL_SENT[_global_key] = True
+                    if _global_key not in _PEND_GLOBAL_SENT_INSERTION_ORDER:
+                        _PEND_GLOBAL_SENT_INSERTION_ORDER.append(_global_key)
                 if isinstance(state.get("attributes"), dict):
                     state["attributes"][_pend_sent_key] = True
             else:
@@ -8628,8 +8787,9 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 # signal through a process-local dict instead so it
                 # survives the state hand-off.
                 try:
-                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.drift_recovery_signal import (
-                        mark_drift_recovery_pending,
+                    from agent.ec_skills import live_chat_dispatch as _lcd
+                    mark_drift_recovery_pending = (
+                        _lcd.runner_bridge().drift_recovery.mark_drift_recovery_pending
                     )
                     mark_drift_recovery_pending(
                         _undeliv_cust,
@@ -9305,6 +9465,87 @@ _first_invocation_done: set[str] = set()
 # was bypassed).
 _dispatch_state_by_agent: dict[tuple[str, str, str], dict] = {}
 
+# mt068: last-known agent_id recovery cache.  `state["attributes"]
+# ["agent_id"]` is intermittently empty on long-lived front-desk sessions
+# (some node re-entries run on a state that lost it — confirmed in the
+# 2026-06-03 customer trace: agent_id=None on 4/11 front-desk runs after a
+# multi-hour session, 0/25 after a fresh restart).  An empty agent_id makes
+# the front-desk PreDispatch skip ("missing runtime sender agent id") and
+# fall back to the slow LLM agent, which is the single-customer failure.
+# Cache the last non-empty agent_id and reuse it when the live resolution
+# comes back empty — this can only ever turn a None into the correct
+# stable id, never override a real one.
+#
+# SHARED_SKILL_MULTI_TASK_PLAN Phase 1 (B3): the original cache was keyed
+# by node_name alone, on the assumption that a node's owning agent is
+# stable per process.  With multiple agents sharing ONE skill (identical
+# node names), that back-fills agent A's id into agent B's degraded run.
+# The cache is now keyed by (node_name, task scope) where the scope comes
+# from per-run state identifiers.  When the degraded state has lost the
+# scope too, recovery falls back to the bare node ONLY while a single
+# agent_id has ever been recorded for it (the single-agent world, where
+# the old behaviour was safe); with 2+ known agents an unscoped guess
+# would misdispatch, so recovery declines instead.
+_last_known_agent_id_by_node: dict[str, str] = {}   # "node|scope" -> agent_id
+_known_agent_ids_by_node: dict[str, set] = {}       # node_name -> {agent_id, ...}
+
+
+def _agent_recovery_scope(state: dict) -> str:
+    """Per-task disambiguator for the mt068 recovery cache.
+
+    Prefers stable per-task identifiers seeded into state.attributes by
+    the executor (sync_state_identifiers) / run prep.  Returns "" when the
+    state is too degraded to carry any of them.
+    """
+    try:
+        attrs = state.get("attributes") if isinstance(state, dict) else None
+        if isinstance(attrs, dict):
+            for key in ("thread_id", "run_id", "task_id", "chat_id"):
+                v = attrs.get(key)
+                if v:
+                    return str(v)
+    except Exception:
+        pass
+    return ""
+
+
+def _record_or_recover_agent_id(node_name: str, state: dict, agent_id) -> "str | None":
+    """Record a live agent_id for (node, task scope), or recover the last
+    known one when the live resolution came back empty.  See the cache
+    comment above for the sharing-safety rules."""
+    scope = _agent_recovery_scope(state)
+    scoped_key = f"{node_name}|{scope}"
+    if agent_id:
+        _last_known_agent_id_by_node[scoped_key] = agent_id
+        _known_agent_ids_by_node.setdefault(node_name, set()).add(agent_id)
+        return agent_id
+
+    recovered = _last_known_agent_id_by_node.get(scoped_key)
+    if recovered:
+        logger.warning(
+            f"[BrowserAutomation] mt068: agent_id empty for node={node_name} "
+            f"scope={scope!r} (state.attributes lost it); recovered last-known "
+            f"agent_id={recovered!r} to keep PreDispatch alive"
+        )
+        return recovered
+
+    known = _known_agent_ids_by_node.get(node_name) or set()
+    if len(known) == 1:
+        sole = next(iter(known))
+        logger.warning(
+            f"[BrowserAutomation] mt068: agent_id empty for node={node_name} "
+            f"scope={scope!r}; single known agent for this node — recovered "
+            f"agent_id={sole!r}"
+        )
+        return sole
+    if len(known) > 1:
+        logger.warning(
+            f"[BrowserAutomation] mt068: agent_id empty for node={node_name} "
+            f"scope={scope!r} and {len(known)} agents share this node "
+            f"(shared skill); declining ambiguous recovery"
+        )
+    return None
+
 # Cross-scope, cross-agent dispatch-inflight lock keyed by normalised
 # customer_id.  PreDispatch can run in either scope=node:<node> (front-desk)
 # or scope=chat:<customer> (a QA worker whose EventMonitor happens to fire
@@ -9319,33 +9560,113 @@ _dispatch_state_by_agent: dict[tuple[str, str, str], dict] = {}
 _dispatch_inflight: dict[str, float] = {}
 _DISPATCH_INFLIGHT_TTL_S = 30.0
 
+# Maximum size for unbounded caches to prevent memory leaks
+_MAX_FIRST_INVOCATION_CACHE_SIZE = 100   # 每个 skill run 添加 1 个，正常运行几十到几百个
+_MAX_DISPATCH_STATE_CACHE_SIZE = 100     # 每个 agent+node 添加 1 个，正常运行几十个
+_MAX_AGENT_ID_RECOVERY_CACHE_SIZE = 200  # 每个 node+task scope 添加 1 个
 
-def _is_dispatch_inflight(customer_key: str) -> float:
+
+def _cleanup_build_node_caches() -> dict[str, int]:
+    """Clean up module-level caches to prevent unbounded memory growth.
+    
+    Call this periodically or when memory is high.
+    
+    Returns:
+        Dict with cache names and number of entries removed
+    """
+    import time as _cleanup_time
+    
+    removed = {}
+    
+    # Clean up _PEND_GLOBAL_SENT - mt101: evict oldest entries if over limit
+    global _PEND_GLOBAL_SENT, _PEND_GLOBAL_SENT_INSERTION_ORDER
+    if len(_PEND_GLOBAL_SENT) > _MAX_PEND_GLOBAL_SENT_SIZE:
+        old_size = len(_PEND_GLOBAL_SENT)
+        # Keep only the most recent entries (FIFO eviction)
+        items_to_keep = _PEND_GLOBAL_SENT_INSERTION_ORDER[-_MAX_PEND_GLOBAL_SENT_SIZE:] if _PEND_GLOBAL_SENT_INSERTION_ORDER else []
+        new_dict = {k: True for k in items_to_keep if k in _PEND_GLOBAL_SENT}
+        _PEND_GLOBAL_SENT.clear()
+        _PEND_GLOBAL_SENT.update(new_dict)
+        _PEND_GLOBAL_SENT_INSERTION_ORDER = items_to_keep
+        removed['_PEND_GLOBAL_SENT'] = old_size - len(_PEND_GLOBAL_SENT)
+    
+    # Clean up _first_invocation_done - keep only most recent entries
+    global _first_invocation_done
+    if len(_first_invocation_done) > _MAX_FIRST_INVOCATION_CACHE_SIZE:
+        old_size = len(_first_invocation_done)
+        # Convert to list and keep only the last N entries
+        # Since it's a set, we can't determine order, so just cap at max size
+        _first_invocation_done = set(list(_first_invocation_done)[-_MAX_FIRST_INVOCATION_CACHE_SIZE:])
+        removed['_first_invocation_done'] = old_size - len(_first_invocation_done)
+    
+    # Clean up _dispatch_state_by_agent - remove old entries based on TTL
+    global _dispatch_state_by_agent
+    old_dispatch_size = len(_dispatch_state_by_agent)
+    if old_dispatch_size > _MAX_DISPATCH_STATE_CACHE_SIZE:
+        # Keep only the most recent entries
+        # Since dict preserves insertion order in Python 3.7+, keep last N
+        items = list(_dispatch_state_by_agent.items())
+        _dispatch_state_by_agent = dict(items[-_MAX_DISPATCH_STATE_CACHE_SIZE:])
+        removed['_dispatch_state_by_agent'] = old_dispatch_size - len(_dispatch_state_by_agent)
+    
+    # Clean up _dispatch_inflight - already has TTL but clean expired
+    global _dispatch_inflight
+    current_time = _cleanup_time.time()
+    expired_keys = [k for k, ts in _dispatch_inflight.items()
+                   if current_time - ts > _DISPATCH_INFLIGHT_TTL_S]
+    for k in expired_keys:
+        _dispatch_inflight.pop(k, None)
+
+    # Cap the mt068 agent-id recovery cache (now keyed per node+task scope,
+    # so it grows with task count; keep the most recent entries)
+    global _last_known_agent_id_by_node
+    if len(_last_known_agent_id_by_node) > _MAX_AGENT_ID_RECOVERY_CACHE_SIZE:
+        old_size = len(_last_known_agent_id_by_node)
+        items = list(_last_known_agent_id_by_node.items())
+        _last_known_agent_id_by_node = dict(items[-_MAX_AGENT_ID_RECOVERY_CACHE_SIZE:])
+        removed['_last_known_agent_id_by_node'] = old_size - len(_last_known_agent_id_by_node)
+
+    return removed
+
+
+def _dispatch_inflight_key(customer_key: str, session_key: str = "") -> str:
+    """Compose the inflight-lock key.
+
+    SHARED_SKILL_MULTI_TASK_PLAN Phase 5 groundwork: with multiple live-chat
+    sessions (shops) in one process, the same customer nickname can exist in
+    two shops — the lock must not couple them. Single-session processes pass
+    no session_key and get the historical bare customer key.
+    """
+    return f"{session_key}|{customer_key}" if session_key else customer_key
+
+
+def _is_dispatch_inflight(customer_key: str, session_key: str = "") -> float:
     """Return age (s) of an active inflight lock, or 0.0 if none/expired."""
     if not customer_key:
         return 0.0
     import time as _cdi_time
-    ts = _dispatch_inflight.get(customer_key)
+    key = _dispatch_inflight_key(customer_key, session_key)
+    ts = _dispatch_inflight.get(key)
     if ts is None:
         return 0.0
     age = _cdi_time.time() - ts
     if age > _DISPATCH_INFLIGHT_TTL_S:
-        _dispatch_inflight.pop(customer_key, None)
+        _dispatch_inflight.pop(key, None)
         return 0.0
     return age if age > 0.0 else 0.000001
 
 
-def _mark_dispatch_inflight(customer_key: str) -> None:
+def _mark_dispatch_inflight(customer_key: str, session_key: str = "") -> None:
     if not customer_key:
         return
     import time as _cdi_time
-    _dispatch_inflight[customer_key] = _cdi_time.time()
+    _dispatch_inflight[_dispatch_inflight_key(customer_key, session_key)] = _cdi_time.time()
 
 
-def _clear_dispatch_inflight(customer_key: str) -> None:
+def _clear_dispatch_inflight(customer_key: str, session_key: str = "") -> None:
     if not customer_key:
         return
-    _dispatch_inflight.pop(customer_key, None)
+    _dispatch_inflight.pop(_dispatch_inflight_key(customer_key, session_key), None)
 
 
 # ── External lifecycle-hook bundle auto-discovery ───────────────────────────
@@ -9369,7 +9690,7 @@ def _clear_dispatch_inflight(customer_key: str) -> None:
 # ``ECAN_DISABLE_EXTERNAL_HOOK_DISCOVERY=1`` to turn discovery off
 # entirely (useful for isolated tests or locked-down deployments).
 #
-# Reference implementation: ``feige_chat/`` (in-tree) — registers
+# Reference implementation: the in-tree Douyin live-chat bundle — registers
 # HOT-PATH-B (early phase), the actionable-items prompt-build filter,
 # and PreDispatch (late phase).
 def _discover_external_hook_bundles() -> None:
@@ -9950,10 +10271,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
       - enable_guardrail_timer: If True, register pending event for timeout tracking
       - timeout_seconds: Max time for browser automation (default 300)
       - hotPathToolTimeoutS / hotPathDriftRetryMax /
-        feigeSendCdpEvaluateTimeoutS / browserAutoMaxRetries /
-        browserAutoRetrySleepS: per-node performance tunables that
-        override the conservative chat-optimised defaults from
-        feige_chat/tunables.py.  Empty / 0 = use env / hardcoded
+        browserAutoMaxRetries / browserAutoRetrySleepS (plus any
+        site-specific fields the active live-chat bundle contributes
+        via its runner bridge): per-node performance tunables that
+        override the conservative chat-optimised defaults from the
+        bundle's tunables module.  Empty / 0 = use env / hardcoded
         default.
     """
     log_msg = f"building browser automation node : {config_metadata}"
@@ -9980,14 +10302,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         except (TypeError, ValueError):
             return None
 
+    # Site bundles contribute their branded per-node tunable fields via
+    # the runner bridge so this table stays business-independent.
+    _site_number_fields: list = []
+    _site_bool_fields: list = []
+    try:
+        from agent.ec_skills import live_chat_dispatch as _lcd
+        _lc_bridge = _lcd.runner_bridge()
+        if _lc_bridge is not None:
+            _site_number_fields = list(getattr(_lc_bridge, "node_tunable_number_fields", []) or [])
+            _site_bool_fields = list(getattr(_lc_bridge, "node_tunable_bool_fields", []) or [])
+    except Exception:
+        pass
+
     _browser_auto_overrides_build_time: dict = {}
     for ui_field, override_key in [
         ("hotPathToolTimeoutS", "HOT_PATH_TOOL_TIMEOUT_S"),
         ("hotPathDriftRetryMax", "HOT_PATH_DRIFT_RETRY_MAX"),
-        ("feigeSendCdpEvaluateTimeoutS", "FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S"),
         ("browserAutoMaxRetries", "BROWSER_AUTO_MAX_RETRIES"),
         ("browserAutoRetrySleepS", "BROWSER_AUTO_RETRY_SLEEP_S"),
-    ]:
+    ] + _site_number_fields:
         raw_val = (inputs.get(ui_field) or {}).get("content")
         coerced = _coerce_optional_number(raw_val)
         if coerced is not None:
@@ -9999,8 +10333,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     for ui_field, override_key in [
         ("eventMonitorB1ForceEmit", "EVENT_MONITOR_B1_FORCE_EMIT"),
         ("frontdeskRearmEnabled", "FRONTDESK_REARM_ENABLED"),
-        ("directFeigeBypassOnBackpressure", "DIRECT_FEIGE_BYPASS_ON_BACKPRESSURE"),
-    ]:
+    ] + _site_bool_fields:
         raw_val = (inputs.get(ui_field) or {}).get("content")
         if raw_val is None:
             continue
@@ -10613,9 +10946,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         f"[BA._auto] worker_call start node={node_name} kind=persistent worker={_worker_suffix}, "
                         f"effective_timeout={effective_timeout}s, use_hard_timeout={use_hard_timeout}"
                     )
+                    # ws174: bound the caller-side wait. use_hard_timeout=False used
+                    # to mean NO timeout at all — the logged effective_timeout was
+                    # never enforced, so a submitted coroutine that failed to start
+                    # (2026-07-12 22:32:35) froze this node thread until the user
+                    # killed the app. Margin over effective_timeout keeps the
+                    # coroutine's own timeout machinery as the primary bound.
+                    try:
+                        _ws174_wait_s = (
+                            float(effective_timeout) + 30.0
+                            if effective_timeout else None
+                        )
+                    except (TypeError, ValueError):
+                        _ws174_wait_s = None
                     info = run_async_in_persistent_worker_thread(
                         _run_with_hard_timeout if use_hard_timeout else lambda: _run_browser_use(combined_task, mainwin, state, agent_id),
                         worker_name=f"browser-use-persistent-{_worker_suffix}",
+                        timeout_s=_ws174_wait_s,
                     ) or {}
                     _elapsed_ms = (_exbu_time.perf_counter()-_worker_t0)*1000
                     logger.info(
@@ -11153,6 +11500,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         )
             except Exception as e:
                 logger.warning(f"[BrowserAutomation] Failed to extract agent_id: {e}")
+
+            # mt068: durable per-(node, task-scope) fallback. state.attributes
+            # .agent_id is intermittently empty on long-lived front-desk
+            # sessions — empty → PreDispatch skips ("missing runtime sender
+            # agent id") → slow-agent fallback → the single-customer failure.
+            # Reuse the last good agent_id when the live resolution is empty;
+            # record it when present.  Scoped per task so agents sharing one
+            # skill can't contaminate each other (see helper for rules).
+            agent_id = _record_or_recover_agent_id(node_name, state, agent_id)
             
             if not is_cloud_mode:
                 try:
@@ -11262,20 +11618,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # Browser-automation node retry count.  v0.9.79 had no retry
             # (effectively 0); v0.9.80 introduced this loop at 2 to handle
             # transient CDP disconnects during product-listing scrapes,
-            # but on the Feige chat hot path this 2× re-execution of a
+            # but on the live-chat hot path this 2× re-execution of a
             # 5-15 s browser turn is catastrophic.  Reverted default to 0
             # on 2026-05-18 and made env-gated.  Per-node override path:
             # set ``state.metadata.browser_auto_overrides.BROWSER_AUTO_MAX_RETRIES``
             # to a positive value for skills that need retries.
-            from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
-                resolve_int as _tunable_int_ba,
-                DEFAULT_BROWSER_AUTO_MAX_RETRIES as _DEFAULT_BA_MAX_RETRIES,
-            )
-            _MAX_RETRIES = _tunable_int_ba(
-                "BROWSER_AUTO_MAX_RETRIES",
-                _DEFAULT_BA_MAX_RETRIES,
-                state,
-            )
+            try:
+                from agent.ec_skills import live_chat_dispatch as _lcd
+                _lc_tunables = _lcd.runner_bridge().tunables
+                _MAX_RETRIES = _lc_tunables.resolve_int(
+                    "BROWSER_AUTO_MAX_RETRIES",
+                    _lc_tunables.DEFAULT_BROWSER_AUTO_MAX_RETRIES,
+                    state,
+                )
+            except Exception:
+                _MAX_RETRIES = 0
             _retry_count = 0
             _last_error = None
             _retry_info = None
@@ -11321,16 +11678,17 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # Use the same per-node tunable layer as _MAX_RETRIES
                     # so a skill that bumps retries can also tune the
                     # sleep between them.
-                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.tunables import (
-                        resolve_float as _tunable_float_ba,
-                        DEFAULT_BROWSER_AUTO_RETRY_SLEEP_S as _DEFAULT_BA_RETRY_SLEEP_S,
-                    )
                     import time as _retry_delay
-                    _retry_sleep_s = _tunable_float_ba(
-                        "BROWSER_AUTO_RETRY_SLEEP_S",
-                        _DEFAULT_BA_RETRY_SLEEP_S,
-                        state,
-                    )
+                    try:
+                        from agent.ec_skills import live_chat_dispatch as _lcd
+                        _lc_tunables = _lcd.runner_bridge().tunables
+                        _retry_sleep_s = _lc_tunables.resolve_float(
+                            "BROWSER_AUTO_RETRY_SLEEP_S",
+                            _lc_tunables.DEFAULT_BROWSER_AUTO_RETRY_SLEEP_S,
+                            state,
+                        )
+                    except Exception:
+                        _retry_sleep_s = 0.5
                     if _retry_sleep_s > 0:
                         _retry_delay.sleep(_retry_sleep_s)
                     continue

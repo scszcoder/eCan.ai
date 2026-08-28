@@ -69,8 +69,8 @@ class LinuxBuilder:
             if profile.get("debug", False):
                 cmd.append("--debug=all")
             
-            # Hidden imports from config
-            pyinstaller_config = self.config.get("pyinstaller", {})
+            # Hidden imports from config (build_config.json nests pyinstaller under "build")
+            pyinstaller_config = self.config.get("build", {}).get("pyinstaller", {})
             for module in pyinstaller_config.get("hiddenimports", []):
                 cmd.extend(["--hidden-import", module])
             
@@ -243,8 +243,8 @@ exec "${{HERE}}/usr/bin/{self.app_name}" "$@"
             # Copy desktop file to AppDir root
             shutil.copy2(desktop_file, app_dir / f"{self.app_name}.desktop")
             
-            # Create AppImage
-            output_file = self.dist_dir / f"{self.app_name}-{self.version}-x86_64.AppImage"
+            # Create AppImage (use consistent naming: {name}-{version}-linux-{arch})
+            output_file = self.dist_dir / f"{self.app_name}-{self.version}-linux-amd64.AppImage"
             if output_file.exists():
                 output_file.unlink()
             
@@ -305,8 +305,9 @@ exec "${{HERE}}/usr/bin/{self.app_name}" "$@"
                 print("   sudo apt install dpkg-dev")
                 return False
             
-            # Create package directory structure
-            pkg_name = f"{self.app_name.lower()}-{self.version}"
+            # Use consistent naming format: {app_name}-{version}-linux-{arch}.deb
+            # This matches the workflow expectations: eCan.cn-{version}-linux-amd64.deb
+            pkg_name = f"{self.app_name}-{self.version}-linux-amd64"
             pkg_dir = self.dist_dir / pkg_name
             if pkg_dir.exists():
                 shutil.rmtree(pkg_dir)
@@ -440,8 +441,8 @@ exit 0
             postrm_file.write_text(postrm_content)
             os.chmod(postrm_file, 0o755)
             
-            # Build DEB package
-            output_file = self.dist_dir / f"{pkg_name}_amd64.deb"
+            # Build DEB package (pkg_name already includes -linux-amd64)
+            output_file = self.dist_dir / f"{pkg_name}.deb"
             if output_file.exists():
                 output_file.unlink()
             

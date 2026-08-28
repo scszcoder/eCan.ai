@@ -1,6 +1,10 @@
 """
 Simple OTA Configuration Loader
 Loads configuration from ota_config.yaml
+
+Supports CN/INTL separation:
+  - CN app (ECAN_APP_ID=cn): Uses Tencent Cloud COS storage
+  - INTL app (ECAN_APP_ID=intl): Uses AWS S3 storage
 """
 
 import os
@@ -8,10 +12,11 @@ import yaml
 from pathlib import Path
 from typing import Any, Optional, Dict
 from utils.logger_helper import logger_helper as logger
+from utils.app_env import get_app_id, is_cn as _is_cn_func
 
 
 class OTAConfig:
-    """Simple OTA configuration loader"""
+    """Simple OTA configuration loader with CN/INTL support"""
     
     def __init__(self, config_file: Optional[str] = None):
         """
@@ -27,11 +32,16 @@ class OTAConfig:
         self._config = self._load_config(config_file)
         self._validate_config()
         
+        # Detect CN/INTL app type from environment
+        self._app_id = get_app_id()
+        self._is_cn = _is_cn_func()
+        
         if self.enabled:
+            storage_backend = "COS (CN)" if self._is_cn else "S3 (INTL)"
             logger.info(f"[OTA Config] Loaded configuration from {config_file}")
+            logger.info(f"[OTA Config] App Type: {self._app_id} ({storage_backend})")
             logger.info(f"[OTA Config] Environment: {self.environment}")
-            logger.info(f"[OTA Config] OTA Server: {self.get('ota_server')}")
-            logger.info(f"[OTA Config] S3 Bucket: {self.get('s3_bucket')}")
+            logger.info(f"[OTA Config] Storage Backend: {storage_backend}")
         else:
             logger.info("[OTA Config] OTA is disabled")
     
@@ -151,7 +161,9 @@ class OTAConfig:
     
     def get_appcast_url(self, platform: str, arch: Optional[str] = None, language: Optional[str] = None) -> str:
         """
-        Get appcast URL for platform and architecture (with i18n support)
+        Get appcast URL for platform and architecture (with CN/INTL support)
+        
+        CN app uses Tencent Cloud COS, INTL app uses AWS S3.
         
         Args:
             platform: Platform name (macos, windows, linux)
@@ -159,14 +171,20 @@ class OTAConfig:
             language: Language code (e.g., 'en-US', 'zh-CN'), optional
             
         Returns:
-            Appcast URL
+            Appcast URL (COS for CN app, S3 for INTL app)
             
         Example:
+            # CN app (ECAN_APP_ID=cn)
             get_appcast_url('macos', 'aarch64')
-            → https://ecan-updates.s3.us-east-1.amazonaws.com/production/channels/stable/appcast-macos-aarch64.xml
-            
+            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/appcast-macos-aarch64.xml
+
+            # INTL app (ECAN_APP_ID=intl)
+            get_appcast_url('macos', 'aarch64')
+            → https://ecan-releases.s3.us-east-1.amazonaws.com/production/channels/stable/appcast-macos-aarch64.xml
+
+            # With language support
             get_appcast_url('macos', 'aarch64', 'zh-CN')
-            → https://ecan-updates.s3.us-east-1.amazonaws.com/production/channels/stable/appcast-macos-aarch64.zh-CN.xml
+            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/appcast-macos-aarch64.zh-CN.xml
         """
         if not self.enabled:
             return ""
@@ -186,8 +204,8 @@ class OTAConfig:
         else:
             filename = f"{base_filename}.xml"
         
-        # Use S3 URL with channel path
-        return self.get_s3_url(f"channels/{channel}/{filename}")
+        # Use storage URL based on app type (CN uses COS, INTL uses S3)
+        return self.get_storage_url(f"channels/{channel}/{filename}")
     
     def get_s3_prefix(self) -> str:
         """
@@ -207,9 +225,51 @@ class OTAConfig:
         """
         return self.get('channel', 'stable')
     
+    def get_cos_url(self, path: str) -> str:
+        """
+        Construct Tencent Cloud COS URL for a given path
+        
+        Args:
+            path: Path relative to environment prefix (e.g., 'channels/stable/appcast-macos-amd64.xml')
+            
+        Returns:
+            Full COS URL with base path and environment prefix
+            
+        Example:
+            get_cos_url('channels/stable/appcast-macos-amd64.xml')
+            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/appcast-macos-amd64.xml
+        """
+        if not self.enabled:
+            return ""
+
+        cos_bucket = self.get_common('cos_bucket', 'ecan-releases-1251680599')
+        cos_region = self.get_common('cos_region', 'ap-shanghai')
+        cos_prefix = self.get('cos_prefix', self.environment)
+
+        # Combine: bucket + region + prefix + path
+        # Example: ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/...
+        full_path = f"{cos_prefix}/{path}"
+
+        return f"https://{cos_bucket}.cos.{cos_region}.myqcloud.com/{full_path}"
+    
+    def get_storage_url(self, path: str) -> str:
+        """
+        Get storage URL based on app type (CN uses COS, INTL uses S3)
+        
+        Args:
+            path: Path relative to environment prefix
+            
+        Returns:
+            Full storage URL (COS for CN, S3 for INTL)
+        """
+        if self._is_cn:
+            return self.get_cos_url(path)
+        else:
+            return self.get_s3_url(path)
+    
     def get_s3_url(self, path: str) -> str:
         """
-        Construct S3 URL for a given path
+        Construct S3 URL for a given path (INTL app only)
         
         Args:
             path: Path relative to environment prefix (e.g., 'releases/v1.0.0/...')
@@ -224,6 +284,10 @@ class OTAConfig:
         if not self.enabled:
             return ""
         
+        # Warn if CN app is trying to use S3
+        if self._is_cn:
+            logger.warning("[OTA Config] INTL S3 URL requested for CN app, use get_cos_url() instead")
+        
         s3_bucket = self.get_common('s3_bucket', 'ecan-releases')
         s3_region = self.get_common('s3_region', 'us-east-1')
         s3_base_path = self.get_common('s3_base_path', '')
@@ -237,6 +301,14 @@ class OTAConfig:
             full_path = f"{s3_prefix}/{path}"
         
         return f"https://{s3_bucket}.s3.{s3_region}.amazonaws.com/{full_path}"
+    
+    def is_cn_app(self) -> bool:
+        """Check if running as CN app"""
+        return self._is_cn
+    
+    def is_intl_app(self) -> bool:
+        """Check if running as INTL app"""
+        return not self._is_cn
     
     def is_dev_mode(self) -> bool:
         """Check if running in development mode"""
@@ -293,11 +365,7 @@ class OTAConfig:
     def is_http_allowed(self) -> bool:
         """Check if HTTP is allowed (only in dev mode)"""
         return self.is_dev_mode() and self.get('allow_http', True)
-    
-    def get_update_server(self) -> str:
-        """Get update server URL"""
-        return self.get('ota_server', '')
-    
+
     def get_platform_config(self, platform: Optional[str] = None) -> Dict[str, Any]:
         """
         Get platform-specific configuration
@@ -315,7 +383,6 @@ class OTAConfig:
         # Return basic platform config
         return {
             'appcast_url': self.get_appcast_url(platform),
-            'ota_server': self.get_update_server(),
         }
     
     def get_appcast_url_for_arch(self, arch: str) -> str:
@@ -353,9 +420,13 @@ class OTAConfig:
         return {
             'ota_enabled': True,
             'environment': env,
-            'ota_server': env_config.get('ota_server'),
-            's3_bucket': env_config.get('s3_bucket'),
+            'app_id': self._app_id,
+            'is_cn': self._is_cn,
+            'storage_backend': 'cos' if self._is_cn else 's3',
+            's3_bucket': self.get_common('s3_bucket'),
+            'cos_bucket': self.get_common('cos_bucket'),
             'appcast_base': env_config.get('appcast_base'),
+            'appcast_base_cos': env_config.get('appcast_base_cos'),
             'signature_required': env_config.get('signature_required', False),
             'signature_verification': env_config.get('signature_verification', False),
             'auto_check': env_config.get('auto_check', False),
@@ -369,7 +440,8 @@ class OTAConfig:
         """String representation"""
         if not self.enabled:
             return "OTAConfig(disabled)"
-        return f"OTAConfig(environment={self.environment}, enabled={self.enabled})"
+        backend = "COS" if self._is_cn else "S3"
+        return f"OTAConfig(app={self._app_id}, backend={backend}, environment={self.environment}, enabled={self.enabled})"
 
 
 # Global instance
@@ -407,24 +479,3 @@ def is_ota_enabled() -> bool:
 
 # Create global ota_config instance for backward compatibility
 ota_config = get_ota_config()
-
-
-def validate_config() -> bool:
-    """
-    Validate OTA configuration
-    
-    Returns:
-        True if configuration is valid
-    """
-    config = get_ota_config()
-    if not config.enabled:
-        return False
-    
-    # Check if update server is valid
-    update_server = config.get_update_server()
-    if not update_server or not (update_server.startswith('http://') or update_server.startswith('https://')):
-        logger.error("[OTA Config] Invalid update server URL")
-        return False
-    
-    logger.info("[OTA Config] Configuration validation passed")
-    return True

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AutoComplete, Tooltip } from 'antd';
 import { AppstoreOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 
 /**
@@ -128,13 +129,15 @@ const WorkspacePicker: React.FC<WorkspacePickerProps> = ({
     return options.filter((o) => o.value.toLowerCase().includes(qLower) || o.value.includes(q));
   }, [options, value]);
 
+  const { t } = useTranslation();
+
   return (
     <div style={{ display: block ? 'block' : 'inline-flex', alignItems: 'center', gap: 8 }}>
       {label ? (
         <span style={{ fontSize: 12, opacity: 0.75, whiteSpace: 'nowrap' }}>
           <AppstoreOutlined style={{ marginRight: 4 }} />
           {label}
-          <Tooltip title="Leave empty to use the server's default workspace. Use distinct names per category (e.g. customer_service, product_details) for data isolation.">
+          <Tooltip title={t('pages.knowledge.lightrag.workspacePicker.tooltip')}>
             <InfoCircleOutlined style={{ marginLeft: 4, opacity: 0.55 }} />
           </Tooltip>
         </span>
@@ -145,7 +148,7 @@ const WorkspacePicker: React.FC<WorkspacePickerProps> = ({
           onChange((v || '').trim());
         }}
         options={filteredOptions}
-        placeholder={placeholder || 'workspace name (empty = server default)'}
+        placeholder={placeholder || t('pages.knowledge.lightrag.workspacePicker.placeholder')}
         allowClear
         size="small"
         style={{ width: 220 }}

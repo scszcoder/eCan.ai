@@ -801,8 +801,8 @@ def universal_chunking_func(
             content,
             split_by_character=split_by_character,
             split_by_character_only=split_by_character_only,
-            overlap_token_size=chunk_overlap_token_size,
-            max_token_size=chunk_token_size,
+            chunk_overlap_token_size=chunk_overlap_token_size,
+            chunk_token_size=chunk_token_size,
         )
     
     return valid_chunks

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QMainWindow, QApplication)
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings, QWebEnginePage, QWebEngineScript
 from PySide6.QtCore import QUrl, Qt, Slot, Signal
+from PySide6.QtGui import QColor
 from utils.logger_helper import logger_helper as logger
 from gui.core.request_interceptor import RequestInterceptor
 from gui.ipc.api import IPCAPI
@@ -171,7 +172,11 @@ class CustomWebEnginePage(QWebEnginePage):
         return True
 
     # Track temporary pages created by createWindow to prevent premature GC
-    _temp_pages = None
+    _temp_pages: Optional[list] = None
+
+    # Memory leak protection: limit max temp pages and cleanup delay
+    _MAX_TEMP_PAGES: int = 10  # Maximum number of temp pages to keep
+    _TEMP_PAGE_CLEANUP_DELAY_MS: int = 5000  # Reduced from 10000ms to 5s
 
     def createWindow(self, _type):
         """Handle JavaScript window.open calls without creating visible popup windows.
@@ -180,16 +185,26 @@ class CustomWebEnginePage(QWebEnginePage):
         destroy it immediately via deleteLater() because Chromium may still access
         the page pointer after urlChanged fires. Instead, we use a delayed timer
         to give Chromium enough time to release its reference.
+        
+        Memory leak protection:
+        - Limits temp page list size to _MAX_TEMP_PAGES
+        - Reduces cleanup delay to 5s (from 10s)
+        - Enforces cleanup on max capacity reached
         """
         logger.debug(f"Window creation requested, type: {_type}")
 
-        # Lazy-init the temp page tracking list
+        # Lazy-init the temp page tracking list with memory-safe initialization
         if self._temp_pages is None:
             self._temp_pages = []
+
+        # Enforce max temp pages limit to prevent unbounded growth
+        self._enforce_temp_pages_limit()
 
         # Create a temporary page to capture the target URL, then open in system browser
         temp_page = CustomWebEnginePage(self.profile(), self)
         self._temp_pages.append(temp_page)
+        
+        logger.debug(f"[createWindow] Added temp page, total tracked: {len(self._temp_pages)}")
 
         def _open_external(url):
             try:
@@ -214,19 +229,65 @@ class CustomWebEnginePage(QWebEnginePage):
         temp_page.urlChanged.connect(_open_external)
         return temp_page
 
+    def _enforce_temp_pages_limit(self):
+        """Enforce maximum temp pages limit to prevent memory leak.
+        
+        This method ensures the _temp_pages list never grows unbounded by:
+        1. Cleaning up excess pages beyond _MAX_TEMP_PAGES
+        2. Removing the oldest pages first (FIFO cleanup)
+        """
+        if self._temp_pages is None or len(self._temp_pages) <= self._MAX_TEMP_PAGES:
+            return
+        
+        excess_count = len(self._temp_pages) - self._MAX_TEMP_PAGES
+        logger.warning(
+            f"[createWindow] Temp pages limit reached ({len(self._temp_pages)} > {self._MAX_TEMP_PAGES}), "
+            f"cleaning up {excess_count} oldest pages"
+        )
+        
+        # Remove oldest pages first (FIFO)
+        for _ in range(excess_count):
+            if self._temp_pages:
+                old_page = self._temp_pages.pop(0)
+                try:
+                    old_page.deleteLater()
+                except Exception:
+                    pass  # Page may already be destroyed
+
     def _schedule_temp_page_cleanup(self, page):
-        """Safely schedule cleanup of a temporary page after Chromium releases it."""
+        """Safely schedule cleanup of a temporary page after Chromium releases it.
+        
+        Memory leak fix: Now enforces max pages limit and uses shorter delay.
+        """
         from PySide6.QtCore import QTimer
+        
         def _do_cleanup():
             try:
                 if self._temp_pages and page in self._temp_pages:
                     self._temp_pages.remove(page)
-                page.deleteLater()
-                logger.debug("[createWindow] Temp page cleaned up safely")
-            except (RuntimeError, TypeError):
-                pass  # Page already destroyed or parent gone
-        # 10 second delay gives Chromium plenty of time to release the page reference
-        QTimer.singleShot(10000, _do_cleanup)
+                    logger.debug(f"[createWindow] Temp page cleaned up, remaining: {len(self._temp_pages)}")
+                else:
+                    logger.debug("[createWindow] Temp page already removed or not tracked")
+                try:
+                    page.deleteLater()
+                except RuntimeError:
+                    pass  # Page already destroyed
+            except (RuntimeError, TypeError, AttributeError) as e:
+                logger.debug(f"[createWindow] Temp page cleanup skipped: {e}")
+        
+        # Use reduced delay (5s) for better memory reclamation
+        QTimer.singleShot(self._TEMP_PAGE_CLEANUP_DELAY_MS, _do_cleanup)
+
+    def cleanup_temp_pages(self):
+        """Cleanup all tracked temporary pages. Call this when the page is destroyed."""
+        if self._temp_pages:
+            logger.info(f"[cleanup] Cleaning up {len(self._temp_pages)} tracked temp pages")
+            for page in self._temp_pages[:]:  # Copy list to avoid modification during iteration
+                try:
+                    page.deleteLater()
+                except Exception:
+                    pass
+            self._temp_pages.clear()
 
 
 class WebEngineView(QWebEngineView):
@@ -386,7 +447,10 @@ class WebEngineView(QWebEngineView):
 
             custom_page = CustomWebEnginePage(profile, self)
             self.setPage(custom_page)
-            
+
+            # Store profile reference for cleanup
+            self._web_profile = profile
+
             # Enable console capture in development mode
             try:
                 from config.app_settings import app_settings
@@ -428,7 +492,7 @@ class WebEngineView(QWebEngineView):
         try:
             # Configure page
             page = self.page()
-            page.setBackgroundColor(Qt.white)
+            page.setBackgroundColor(QColor("#0f172a"))
 
             # Configure WebEngine settings - use the profile from page
             profile = page.profile()
@@ -579,3 +643,149 @@ class WebEngineView(QWebEngineView):
     def interceptor(self) -> Optional[RequestInterceptor]:
         """Get request interceptor"""
         return self._interceptor
+
+    # ============================================================================
+    # Memory Management - QtWebEngine is known to leak memory over time
+    # ============================================================================
+
+    def clear_profile_cache(self) -> bool:
+        """Clear WebEngine profile cache and cookies to reclaim memory.
+        
+        This is the most effective way to reduce QtWebEngine memory usage.
+        Call this periodically (e.g., every 30 minutes) or when memory is high.
+        
+        Returns:
+            True if cleanup was successful, False otherwise
+        """
+        try:
+            profile = getattr(self, '_web_profile', None) or self.page().profile()
+            
+            # Clear HTTP cache
+            profile.clearHttpCache()
+            
+            # Clear all cookies
+            cookie_store = profile.cookieStore()
+            cookie_store.deleteAllCookies()
+            
+            logger.info("[WebEngine] Profile cache cleared successfully")
+            return True
+        except Exception as e:
+            logger.warning(f"[WebEngine] Failed to clear profile cache: {e}")
+            return False
+
+    def trigger_garbage_collection(self) -> None:
+        """Trigger garbage collection to reclaim Python memory.
+        
+        QtWebEngine's underlying Chromium process manages its own memory,
+        but Python objects holding references to WebEngine components
+        can prevent GC from working properly.
+        """
+        import gc
+        try:
+            # Collect all unreachable objects
+            collected = gc.collect(generation=2)
+            logger.debug(f"[WebEngine] GC collected {collected} objects")
+        except Exception as e:
+            logger.warning(f"[WebEngine] GC failed: {e}")
+
+    def get_webengine_memory_info(self) -> dict:
+        """Get memory usage information for WebEngine components.
+        
+        Returns:
+            Dict with memory statistics
+        """
+        import gc
+        info = {
+            'python_gc_counts': gc.get_count(),
+            'python_gc_stats': {},
+            'profile_exists': hasattr(self, '_web_profile') and self._web_profile is not None,
+            'temp_pages_tracked': 0,
+        }
+        
+        # Get GC stats if available
+        try:
+            gc_stats = gc.get_stats()
+            if gc_stats:
+                info['python_gc_stats'] = {
+                    'collections': gc_stats[0].get('collections', [0, 0, 0]) if gc_stats else [0, 0, 0],
+                    'collected': gc_stats[0].get('collected', 0) if gc_stats else 0,
+                    'uncollectable': gc_stats[0].get('uncollectable', 0) if gc_stats else 0,
+                }
+        except Exception:
+            pass
+        
+        # Track temp pages from CustomWebEnginePage
+        try:
+            custom_page = self.page()
+            if hasattr(custom_page, '_temp_pages') and custom_page._temp_pages:
+                info['temp_pages_tracked'] = len(custom_page._temp_pages)
+        except Exception:
+            pass
+        
+        return info
+
+    def perform_memory_cleanup(self) -> None:
+        """Perform comprehensive memory cleanup.
+        
+        Call this method periodically (e.g., every 30 minutes) or when
+        the application is experiencing high memory usage.
+        
+        This method:
+        1. Clears WebEngine profile cache
+        2. Triggers garbage collection
+        3. Logs memory statistics
+        """
+        import gc
+        import psutil
+        
+        logger.info("[WebEngine] Starting memory cleanup...")
+        
+        # 1. Clear WebEngine cache
+        self.clear_profile_cache()
+        
+        # 2. Trigger garbage collection
+        collected = gc.collect(generation=2)
+        
+        # 3. Get current process memory
+        try:
+            process = psutil.Process()
+            rss_mb = process.memory_info().rss / 1024 / 1024
+            logger.info(f"[WebEngine] Memory cleanup complete: RSS={rss_mb:.1f}MB, GC collected={collected}")
+        except Exception as e:
+            logger.info(f"[WebEngine] Memory cleanup complete: GC collected={collected}")
+        
+        # 4. Log WebEngine memory info
+        info = self.get_webengine_memory_info()
+        if info.get('temp_pages_tracked', 0) > 0:
+            logger.warning(f"[WebEngine] Warning: {info['temp_pages_tracked']} temp pages still tracked")
+
+    def shutdown(self) -> None:
+        """Properly shutdown WebEngine and release all resources.
+        
+        Call this method when the WebEngineView is no longer needed.
+        This ensures all resources are properly released.
+        """
+        logger.info("[WebEngine] Shutting down WebEngineView...")
+        
+        try:
+            # 1. Clear custom page temp pages
+            custom_page = self.page()
+            if custom_page and hasattr(custom_page, 'cleanup_temp_pages'):
+                custom_page.cleanup_temp_pages()
+            
+            # 2. Clear profile cache
+            self.clear_profile_cache()
+            
+            # 3. Stop loading
+            if self.is_loading:
+                self.stop()
+            
+            # 4. Set empty page to release DOM resources
+            self.setHtml("")
+            
+            # 5. Trigger GC
+            self.trigger_garbage_collection()
+            
+            logger.info("[WebEngine] WebEngineView shutdown complete")
+        except Exception as e:
+            logger.warning(f"[WebEngine] Error during shutdown: {e}")

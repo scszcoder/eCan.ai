@@ -1,0 +1,64 @@
+# eCan.ai CN 版本 - CloudBase 配置
+# =============================================================================
+
+# ---------- CloudBase 认证配置 ----------
+CLOUDBASE:
+  # 环境标识（公开资源 ID）
+  ENV_ID: "sccb0-d0gc5398xf028be6a"
+
+  # 区域（必须与 ENV_ID 创建时选择的区域一致）
+  # 可选: ap-shanghai, ap-beijing, ap-nanjing, ap-hongkong
+  REGION: "ap-shanghai"
+
+  # 是否启用微信登录
+  ENABLE_WECHAT_LOGIN: true
+
+  # 短信验证码配置
+  SMS_ENABLED: false
+  SMS_APP_ID: ""
+  SMS_APP_KEY: ""
+  SMS_SIGN_NAME: "eCan"
+  SMS_TEMPLATE_CODE: ""
+
+# ---------- 微信登录配置 ----------
+WECHAT:
+  # 微信开放平台 AppID（用于微信扫码登录）
+  # 用于 https://open.weixin.qq.com 申请「网站应用」类型
+  # 注意：APP_SECRET 不在此文件中，请在 CloudBase 控制台配置
+  APP_ID: "wx4684669fc9270cbb"
+  # 登录类型：open_platform（开放平台网站应用扫码登录）
+  LOGIN_TYPE: "open_platform"
+  # 权限范围：snsapi_login（扫码登录用）
+  SCOPE: "snsapi_login"
+  # 桌面 App 微信扫码登录入口页（已备案域名上的 PHP 入口）。
+  # 桌面 App 会在内嵌浏览器弹窗中打开该地址完成扫码，登录成功后
+  # 从页面 localStorage 读取 token/username（见 gui/auth/wechat_login_dialog.py）。
+  LOGIN_URL: "https://www.fastprecisiontech.com/cn/login_callback/wechat_login.php"
+
+# ---------- CN 实时推送端点 (graphql-ws 兼容 WS 自建) ----------
+# 与 Intl 的 APPSYNC.* 字段对应,CN 用自建 WS 实现
+#
+# WS 服务部署在 TCB 云托管 (TCS), 通过 API Gateway 路由暴露公网入口.
+# 客户端连接地址与 GraphQL API 同域名: wss://<env>.service.tcloudbase.com/ws
+# API Gateway 路由由 deploy-ws-tcs.sh 自动配置 (tcb routes add).
+#
+APPSYNC:
+  # HTTP GraphQL 端点
+  # 部署后由 deploy.sh 自动回写(scripts/update_auth_config.py)
+  # 格式: https://{env_id}.service.tcloudbase.com/api/graphql
+  GRAPHQL_ENDPOINT: "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/graphql"
+  # WebSocket 实时推送端点 (graphql-ws / AppSync 兼容)
+  # 注意: 必须使用 TCB 云托管 (TCS) 直接域名，不支持 API Gateway CBR WebSocket 路由
+  # CBR 直接域名从 TCB 控制台获取，或从部署日志中的 DefaultDomainName 提取
+  # 完整 URL = WS_ENDPOINT + /ws (客户端代码会自动拼接)
+  WS_ENDPOINT: "wss://ecan-graphql-ws-288118-5-1251680599.sh.run.tcloudbase.com/ws"
+  # API Key(可选)
+  API_KEY: ""
+
+# ---------- CN 版本功能开关 ----------
+FEATURES:
+  # 是否启用 CloudBase 云端功能
+  ENABLE_CLOUDBASE: true
+
+  # 是否启用短信登录
+  ENABLE_SMS_LOGIN: false

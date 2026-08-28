@@ -4,9 +4,7 @@
   "description": "Skill entity field mapping with file upload support",
   "last_updated": "2025-12-23",
   
-  "field_mapping": {
-    
-  },
+  "field_mapping": {},
   
   "cloud_required_fields": {
     "name": ""
@@ -51,6 +49,7 @@
     "Excluded fields:",
     "  - agid, skid: Belong in AgentSkillRelation (relationship table)",
     "Schema fields: askid, owner, name, description, version, level, config, diagram, flowgram, langgraph, tags, examples, inputModes, outputModes, apps, limitations, path, source, status, price, price_model, public, rentable, created_at, updated_at",
+    "Field names use snake_case matching the AWS AppSync schema (scripts/appsync_schema_latest.graphql)",
     "source field: Comma-separated list of relative file paths under the skill directory. Cloud returns presigned URLs for uploading these files."
   ]
 }

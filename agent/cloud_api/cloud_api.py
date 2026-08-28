@@ -3,12 +3,15 @@ import os
 import base64
 import requests
 import asyncio
+import time
 from config.envi import getECBotDataHome
 from utils.logger_helper import logger_helper as logger
+from utils.app_env import is_cn
 import traceback
 from config.constants import API_DEV_MODE
 from aiolimiter import AsyncLimiter
 import websocket
+from websocket import WebSocketException
 import threading
 from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
 from typing import Optional, Tuple, Any
@@ -73,59 +76,33 @@ _APPSYNC_ENDPOINT_LOGGED = False
 
 # ==========================================================
 
+def is_cn_app() -> bool:
+    """Check if running CN version. Delegates to utils.app_env."""
+    return is_cn()
+
+
+def get_tcb_api_url() -> str:
+    """Get TCB GraphQL HTTP endpoint URL (CN only).
+    
+    Delegates to CloudEndpointConfig. Kept for backward compatibility.
+    """
+    from agent.cloud_api.endpoints import get_endpoint_config
+    cfg = get_endpoint_config()
+    return cfg.graphql_endpoint
+
+
 def get_appsync_endpoint() -> str:
+    """Get the active cloud GraphQL endpoint URL (CN/Intl unified).
+    
+    Delegates to CloudEndpointConfig which reads APPSYNC.GRAPHQL_ENDPOINT
+    from the current app's auth_config.yml. No hardcoded fallbacks.
     """
-    Get AppSync API endpoint URL (common method)
-
-    Priority:
-    1. MainWindow.getWanApiEndpoint() (dynamic GUI config)
-    2. settings.json wan_api_endpoint (user persistent config)
-    3. API_DEV_MODE hardcoded fallback
-
-    Returns:
-        AppSync API endpoint URL
-    """
+    from agent.cloud_api.endpoints import get_endpoint_config
     global _APPSYNC_ENDPOINT_LOGGED
-
-    try:
-        from app_context import AppContext
-        main_window = AppContext.get_main_window()
-        if main_window and hasattr(main_window, 'getWanApiEndpoint'):
-            endpoint = main_window.getWanApiEndpoint()
-            if endpoint and isinstance(endpoint, str) and endpoint.strip():
-                endpoint = endpoint.strip()
-                if not _APPSYNC_ENDPOINT_LOGGED:
-                    logger_helper.info(f"[CloudAPI] Using AppSync endpoint (MainWindow.getWanApiEndpoint): {endpoint}")
-                    _APPSYNC_ENDPOINT_LOGGED = True
-                return endpoint
-    except Exception:
-        pass
-
-    try:
-        settings_file = os.path.join(ecb_data_homepath, 'resource', 'data', 'settings.json')
-        if os.path.exists(settings_file):
-            with open(settings_file, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
-            endpoint = settings.get('wan_api_endpoint')
-            if endpoint and isinstance(endpoint, str) and endpoint.strip():
-                endpoint = endpoint.strip()
-                if not _APPSYNC_ENDPOINT_LOGGED:
-                    logger_helper.info(f"[CloudAPI] Using AppSync endpoint (settings.json:{settings_file}): {endpoint}")
-                    _APPSYNC_ENDPOINT_LOGGED = True
-                return endpoint
-    except Exception:
-        pass
-
-    if API_DEV_MODE:
-        endpoint = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
-        if not _APPSYNC_ENDPOINT_LOGGED:
-            logger_helper.info(f"[CloudAPI] Using AppSync endpoint (API_DEV_MODE=True (hardcoded)): {endpoint}")
-            _APPSYNC_ENDPOINT_LOGGED = True
-        return endpoint
-
-    endpoint = "https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql"
+    cfg = get_endpoint_config()
+    endpoint = cfg.graphql_endpoint
     if not _APPSYNC_ENDPOINT_LOGGED:
-        logger_helper.info(f"[CloudAPI] Using AppSync endpoint (API_DEV_MODE=False (hardcoded)): {endpoint}")
+        logger_helper.info(f"[CloudAPI] Using GraphQL endpoint: {endpoint}")
         _APPSYNC_ENDPOINT_LOGGED = True
     return endpoint
 
@@ -1030,17 +1007,104 @@ def send_file_op_request_to_cloud(session, fops, token, endpoint):
     return jresponse
 
 
+def _appsync_http_request_with_fresh_token_backoff(
+    query_string,
+    session,
+    token,
+    endpoint,
+    *,
+    max_attempts=3,
+    sleep_seconds=15.0,
+    operation_name="",
+):
+    """Wrap ``appsync_http_request`` with cache-lag retry.
+
+    CloudBase's SCF gateway takes 30-60s to propagate a freshly minted
+    JWT to its auth cache, so a 401 right after login is almost always
+    cache lag rather than a real auth failure. SessionSupervisor already
+    suppresses ``on_session_expired`` for the grace window, and
+    OfflineSyncManager already backs the offline queue off for the same
+    reason, but synchronous startup calls (``queryAgents``, ``reqAccountInfo``)
+    don't go through either — without help, the user would briefly see
+    an empty agent list and an "account info unavailable" warning.
+
+    This wrapper detects "401 + supervisor.fresh" and retries up to
+    ``max_attempts`` times with ``sleep_seconds`` between attempts. The
+    retry budget is bounded so it can't block a caller forever; if the
+    cache really hasn't caught up, the last 401 falls through unchanged.
+
+    Default timing (3 attempts × 15s sleep ≈ 30s total) was chosen to
+    span the lower bound of CloudBase's documented 30-60s cache-lag
+    window. Earlier settings (3 × 5s ≈ 10s) were too short — verified
+    empirically on 2026-08-15 that the cache lag routinely exceeds
+    10s, leaving queryAgents + reqAccountInfo to fall through with
+    "Bearer token required" on cold starts.
+    """
+    last_resp = None
+    for attempt in range(1, max_attempts + 1):
+        resp = appsync_http_request(query_string, session, token, endpoint)
+        last_resp = resp
+        if not _is_unauthenticated_error(resp):
+            return resp
+        if attempt >= max_attempts:
+            break
+        if not _supervisor_says_fresh_token():
+            # 401 with stale token — real auth failure, do not retry.
+            break
+        logger_helper.info(
+            f"[AppSync] {operation_name or 'request'} hit 401 but "
+            f"SessionSupervisor marks the token fresh (cache lag). "
+            f"Retrying in {sleep_seconds:.0f}s "
+            f"(attempt {attempt}/{max_attempts - 1})."
+        )
+        time.sleep(sleep_seconds)
+    return last_resp
+
+
+def _is_unauthenticated_error(jresp):
+    """True if the AppSync response is a 401 'Invalid or expired access token'."""
+    if not isinstance(jresp, dict) or "errors" not in jresp:
+        return False
+    for err in jresp.get("errors") or []:
+        if not isinstance(err, dict):
+            continue
+        msg = str(err.get("message", ""))
+        ext = err.get("extensions") or {}
+        if "Invalid or expired access token" in msg or ext.get("code") == "UNAUTHENTICATED":
+            return True
+    return False
+
+
+def _supervisor_says_fresh_token():
+    """True iff a SessionSupervisor is wired AND its token is fresh."""
+    try:
+        from auth.session_supervisor import get_session_supervisor
+        supervisor = get_session_supervisor()
+    except Exception:
+        return False
+    if supervisor is None:
+        return False
+    return bool(supervisor.is_fresh_token_rejection())
+
+
 def send_account_info_request_to_cloud(session, acct_ops, token, endpoint):
     queryInfo = gen_account_info_request_string(acct_ops)
 
-    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    jresp = _appsync_http_request_with_fresh_token_backoff(
+        queryInfo, session, token, endpoint,
+        operation_name="reqAccountInfo",
+    )
 
     logger_helper.debug("account info response:" + json.dumps(jresp)[:500])
     if "errors" in jresp:
         error_obj = jresp["errors"][0]
         error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
         error_msg = error_obj.get("message", str(error_obj))
-        logger_helper.error(f"ERROR Type: {error_type} ERROR Info: {error_msg}")
+        if _is_token_expired_error_message(error_msg):
+            logger_helper.warning(f"🔑 reqAccountInfo token expired: {error_msg}")
+            logger_helper.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+        else:
+            logger_helper.error(f"ERROR Type: {error_type} ERROR Info: {error_msg}")
         jresponse = {"errorType": error_type, "message": error_msg}
     else:
         jresponse = json.loads(jresp["data"]["reqAccountInfo"])
@@ -1307,10 +1371,125 @@ def download_file(session, datahome, f2dl, source, token, endpoint, ftype="gener
 #     res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
 #     logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
+_wechat_session_auth_mgr = None
+_wechat_session_token_announced = False
+_http_session_mint_last_attempt = 0.0
+_HTTP_SESSION_MINT_RETRY_S = 300.0
+
+
+def _try_lazy_http_session_mint() -> None:
+    """Best-effort mint of the CN HTTP session token from a LIVE session.
+
+    2026-08-25: a running (or restored) session can lack the eCan session
+    token — e.g. the login-time mint failed because the server had not yet
+    deployed mintHttpSessionToken. Without this retry, every HTTP GraphQL
+    call keeps failing "Bearer token required" until the user logs out and
+    back in. Uses the live AppContext auth manager (it holds the CloudBase
+    access token the mint needs); throttled to one attempt per 5 minutes.
+    """
+    global _http_session_mint_last_attempt
+    import time as _t
+    now = _t.time()
+    if now - _http_session_mint_last_attempt < _HTTP_SESSION_MINT_RETRY_S:
+        return
+    _http_session_mint_last_attempt = now
+    try:
+        from app_context import AppContext
+        login = AppContext.get_login()
+        live_mgr = getattr(login, "auth_manager", None)
+        if live_mgr is None or not getattr(live_mgr, "signed_in", False):
+            return
+        logger_helper.info(
+            "[AppSync] No CN HTTP session token — attempting lazy mint via live auth manager"
+        )
+        live_mgr._finalize_http_session_token()
+    except Exception as e:
+        logger_helper.debug(f"[AppSync] lazy HTTP session mint failed: {e}")
+
+
+def _get_wechat_http_session_token() -> str:
+    """Return the eCan-minted 30-day session token, or '' if unavailable.
+
+    The SCF HTTP GraphQL gate (cloudbase-graphql/scf/auth.js resolveIdentity)
+    can only validate the eCan self-signed HS256 session token (minted by
+    registerWeChatSession for WeChat logins, mintHttpSessionToken for
+    email/phone/password logins) — it cannot validate the raw CloudBase
+    access token over plain HTTPS. So CN HTTP requests must authenticate
+    with the session token; the access token stays in use for WS paths.
+    """
+    global _wechat_session_auth_mgr, _wechat_session_token_announced
+    try:
+        if _wechat_session_auth_mgr is None:
+            from auth.auth_manager import AuthManager
+            _wechat_session_auth_mgr = AuthManager()
+        # Re-sync username from uli.json each call: the cached instance's
+        # current_user snapshot would otherwise go stale on account switch.
+        saved_user = _wechat_session_auth_mgr._get_saved_username()
+        if saved_user:
+            _wechat_session_auth_mgr.current_user = saved_user
+        ok, tok = _wechat_session_auth_mgr._get_wechat_session_token()
+        if ok and tok:
+            if not _wechat_session_token_announced:
+                _wechat_session_token_announced = True
+                logger_helper.info("[AppSync] Using 30-day session token for CN HTTP auth")
+            return tok
+        # No stored session token — self-heal from the live session
+        # (throttled), then re-read.
+        _try_lazy_http_session_mint()
+        ok, tok = _wechat_session_auth_mgr._get_wechat_session_token()
+        if ok and tok:
+            if not _wechat_session_token_announced:
+                _wechat_session_token_announced = True
+                logger_helper.info("[AppSync] Using 30-day session token for CN HTTP auth (lazy mint)")
+            return tok
+    except Exception as e:
+        logger_helper.debug(f"[AppSync] session token unavailable: {e}")
+    return ""
+
+
+def normalize_cloud_owner(owner: str) -> str:
+    """Cloud-side identity for owner-enforced resolvers.
+
+    MainWindow.user carries a synthetic ``@local`` suffix for CN WeChat
+    logins (``wechat_<openid>@local``); the cloud knows only the bare
+    username and rejects the suffixed form with FORBIDDEN
+    ("Cross-owner access is forbidden" — verified empirically 2026-08-20).
+    Real emails (Intl logins) pass through unchanged.
+    """
+    if owner and owner.endswith("@local"):
+        return owner[: -len("@local")]
+    return owner
+
+
+def _http_auth_header(token: str) -> str:
+    """Authorization header value for an HTTP cloud (GraphQL) request.
+
+    CN: prefer the eCan 30-day session token (minted by registerWeChatSession)
+    — it is the only bearer the SCF HTTP gate can verify (HS256, sub=openid).
+    Fall back to the JWT extracted from the combined ``<id>/@@/<jwt>`` access
+    token when no session token exists (e.g. email/CIAM login).
+
+    Intl: unchanged — Cognito sends the IdToken raw (no ``Bearer`` prefix).
+
+    Only the HTTP paths use this; the WS subscription paths keep sending the
+    combined token verbatim (the WS bridge parses ``<id>/@@/<jwt>``).
+    """
+    if not token:
+        return ""
+    if is_cn_app():
+        session_tok = _get_wechat_http_session_token()
+        if session_tok:
+            return f"Bearer {session_tok}"
+        jwt = token.split('/@@/', 1)[-1] if '/@@/' in token else token
+        return f"Bearer {jwt}"
+    return token
+
+
 def appsync_http_request(query_string, session, token, endpoint=None, timeout=180, variables=None):
     """
     Send AppSync GraphQL request with authentication.
     Supports both Cognito User Pool tokens and Google ID tokens.
+    Also supports CN version (TCB Auth).
 
     Args:
         query_string: GraphQL query string
@@ -1332,9 +1511,12 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
     else:
         logger_helper.warning("[AppSync] Token is None or empty!")
 
+    # CN version uses application/json, Intl uses application/graphql.
+    # Authorization: CN → 'Bearer <jwt>' (JWT extracted from the combined
+    # session token); Intl → raw Cognito token. See _http_auth_header.
     headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
+        'Content-Type': "application/json" if is_cn_app() else "application/graphql",
+        'Authorization': _http_auth_header(token),
         'cache-control': "no-cache"
     }
 
@@ -1458,7 +1640,7 @@ def appsync_http_request_w_apikey(query_string, session, apikey, endpoint):
 def appsync_http_request2(query_string, session, token, endpoint):
     headers = {
         'Content-Type': "application/json",
-        'Authorization': token,
+        'Authorization': _http_auth_header(token),
         'cache-control': "no-cache",
     }
 
@@ -1481,7 +1663,7 @@ def appsync_http_request2(query_string, session, token, endpoint):
 async def appsync_http_request8(query_string, token, endpoint, retries=3):
     headers = {
         'Content-Type': "application/graphql",
-        'Authorization': token,
+        'Authorization': _http_auth_header(token),
         'cache-control': "no-cache",
     }
 
@@ -1794,18 +1976,45 @@ def gen_query_agent_skills_string(q_setting):
     logger.debug(query_string)
     return query_string
 
-def gen_get_agent_skills_string():
-    """Generate GraphQL query string for getting all skills for current user
-    
+def gen_get_agent_skills_string(public_catalog: bool = False):
+    """Generate GraphQL query string for getting skills.
+
     Server schema: queryAgentSkills(input: SkillQueryInput): [AgentSkill!]!
     SkillQueryInput: { id: ID, name: String, description: String }
     AgentSkill fields: id, askid, owner, name, description, version, level, config, diagram,
                        tags, examples, inputModes, outputModes, apps, limitations, path,
                        source, price, price_model, public, rentable
+
+    Args:
+        public_catalog: when True, request the PUBLIC skill catalog
+            (``input: {isPublic: true}``) — the CN/TCB resolver skips owner
+            scoping in this mode and returns every skill with isPublic=true
+            (skill store). Default False = the caller's own skills.
+            NOTE: the AWS AppSync SkillQueryInput does not define isPublic —
+            callers must be prepared for a validation error there and fall
+            back to the getPublicSkills Lambda query (cloud_get_public_skills).
+
+    NOTE on 'source' field:
+      The 'source' field returned by the GraphQL query is a SkillSource enum value
+      ('ui' | 'code' | 'subscribed' | 'external'), NOT a list of file paths.
+      See SkillSource in constants.py for the full definition.
+      This contrasts with the Python-side prepare_skill_with_source() function which
+      populates 'source' as comma-separated code filenames for upload purposes.
     """
     # Query all skills by passing empty input (no filters)
+    # AWS schema uses snake_case: price_model, public (see scripts/appsync_schema_latest.graphql)
+    _input = '{isPublic: true}' if public_catalog else '{}'
+    # Catalog variant must ALSO select `isPublic`: the CN/TCB resolver
+    # populates isPublic (prisma field) while the legacy `public` alias can
+    # resolve null — and GraphQL returns ONLY selected fields, so without
+    # this the response rows carry no usable flag at all and the store
+    # filter drops every row (customer log 2026-08-25: catalog returned 4
+    # skills, store stayed empty). CN-only selection: on AWS this makes the
+    # catalog attempt fail validation, which is fine — that path already
+    # falls back to the getPublicSkills Lambda query.
+    _extra_fields = '\n            isPublic' if public_catalog else ''
     query_string = '''query MyGetAgentSkillsQuery {
-        queryAgentSkills(input: {}) {
+        queryAgentSkills(input: ''' + _input + ''') {''' + _extra_fields + '''
             id
             askid
             owner
@@ -2481,6 +2690,24 @@ def send_completion_status_to_cloud(session, taskStats, token, endpoint, full=Tr
 
 # =================================================================================================
 # Helper function for safe JSON parsing
+def _is_token_expired_error_message(error_message: str) -> bool:
+    """True if `error_message` is a transient UNAUTHENTICATED / token-expired
+    message the SessionSupervisor will refresh. Used to demote these from
+    ERROR to WARNING so they don't pollute log-monitoring dashboards.
+    """
+    if not error_message:
+        return False
+    msg_lower = error_message.lower()
+    return (
+        'unauthenticated' in msg_lower
+        or 'invalid or expired access token' in msg_lower
+        or 'access token has expired' in msg_lower
+        or 'expired access token' in msg_lower
+        or 'token expired' in msg_lower
+        or 'bearer token required' in msg_lower
+    )
+
+
 def safe_parse_response(jresp, operation_name, data_key):
     """
     Safely parse AppSync response
@@ -2517,12 +2744,26 @@ def safe_parse_response(jresp, operation_name, data_key):
             # No data and errors - this is a failure
             # Detect "Cannot return null for non-nullable type" as a known backend schema issue
             is_schema_null_error = "Cannot return null for non-nullable type" in error_message
+            # UNAUTHENTICATED / token expired is a known transient — the
+            # OfflineSyncManager and SessionSupervisor are on the case, so
+            # logging at ERROR would only pollute log-monitoring dashboards
+            # without helping anyone find a real problem.
+            is_token_expired_error = _is_token_expired_error_message(error_message)
             if is_schema_null_error:
                 logger.warning(f"GraphQL schema null error in '{operation_name}': {error_message} (known backend issue)")
+            elif is_token_expired_error:
+                logger.warning(f"🔑 GraphQL token expired in '{operation_name}': {error_message}")
+                logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
             else:
                 logger.error(f"❌ GraphQL Error: {error_message}")
                 logger.error(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
-            raise Exception(f"{operation_name} failed: {error_message}")
+            # Tag the exception so OfflineSyncManager / cloud_api_service can
+            # distinguish "token is dead, refresh & retry later" from a real
+            # permanent failure without re-parsing the message string.
+            exc = Exception(f"{operation_name} failed: {error_message}")
+            if is_token_expired_error:
+                exc.is_token_expired_error = True  # type: ignore[attr-defined]
+            raise exc
     else:
         if response_data is not None:
             # If already parsed (list/dict from typed GraphQL response), return directly
@@ -2592,16 +2833,35 @@ def send_get_agents_request_to_cloud(session, token, endpoint):
     """Query all agents for current user using queryAgents with byowneruser"""
     queryInfo = gen_get_agents_string()
 
-    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    jresp = _appsync_http_request_with_fresh_token_backoff(
+        queryInfo, session, token, endpoint,
+        operation_name="queryAgents",
+    )
 
     if "errors" in jresp:
-        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+        first_error = jresp["errors"][0] if jresp["errors"] else {}
+        first_message = str(first_error.get("message", ""))
+        if "Cannot return null for non-nullable type" in first_message:
             err_msg = "AppSync queryAgents schema error: resolver returned null for non-nullable field"
             logger.error(f"{err_msg}. Raw errors: {json.dumps(jresp.get('errors', []), ensure_ascii=False)}")
             raise Exception(err_msg)
+        elif "GRAPHQL_VALIDATION_FAILED" in str(first_error.get("extensions", {}).get("code", "")):
+            # Schema mismatch — backend SDL is missing the camelCase/snake_case
+            # alias this client expected. Not a client bug, not a transient
+            # network issue; log once at WARNING and return empty so the UI
+            # keeps working. The proper fix is to update the backend SDL.
+            logger.warning(
+                f"AppSync queryAgents schema mismatch: {json.dumps(jresp.get('errors', []), ensure_ascii=False)[:500]}"
+            )
+            return []
+        elif _is_token_expired_error_message(first_message):
+            # Transient UNAUTHENTICATED — SessionSupervisor will refresh.
+            logger.warning(f"🔑 AppSync queryAgents token expired: {first_message}")
+            logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            jresponse = first_error
         else:
             logger.error("AppSync queryAgents error: " + json.dumps(jresp))
-            jresponse = jresp["errors"][0] if jresp["errors"] else {}
+            jresponse = first_error
     else:
         try:
             agents_data = jresp["data"]["queryAgents"]
@@ -2650,6 +2910,317 @@ def send_query_agent_skill_relations_request_to_cloud(session, token, q_settings
     queryInfo = gen_query_agent_skills_string(q_settings)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
     return safe_parse_response(jresp, "queryAgentSkillRels", "queryAgentSkillRels")
+
+
+# ============================================================================
+# Direct Lambda mutation wrappers for skill subscription
+# These call the Lambda GraphQL mutations (subscribeToSkill / unsubscribeFromSkill)
+# which operate on the agent_skill_rels table in Aurora.
+# ============================================================================
+
+@cloud_api(DataType.AGENT_SKILL, Operation.SUBSCRIBE)
+def send_subscribe_to_skill_request(session, token, endpoint, skill_id: str, owner: str, timeout=60):
+    """Call Lambda subscribeToSkill mutation to create agent_skill_rels record."""
+    mutation = """
+    mutation {
+      subscribeToSkill(skillId: "%s", owner: "%s") {
+        id
+        success
+        error
+      }
+    }
+    """ % (skill_id, owner)
+    jresp = appsync_http_request(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "subscribeToSkill", "subscribeToSkill")
+
+
+@cloud_api(DataType.AGENT_SKILL, Operation.UNSUBSCRIBE)
+def send_unsubscribe_from_skill_request(session, token, endpoint, skill_id: str, owner: str, timeout=60):
+    """Call Lambda unsubscribeFromSkill mutation to remove agent_skill_rels record."""
+    mutation = """
+    mutation {
+      unsubscribeFromSkill(skillId: "%s", owner: "%s") {
+        id
+        success
+        error
+      }
+    }
+    """ % (skill_id, owner)
+    jresp = appsync_http_request(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "unsubscribeFromSkill", "unsubscribeFromSkill")
+
+
+# ============================================================================
+# Skill Marketplace / Statistics Operations (via Lambda GraphQL)
+# ============================================================================
+
+def _cloud_graphql_query(query_str: str, session, token, endpoint: str, timeout: int = 60):
+    """Internal: Execute a GraphQL query/mutation via AppSync and return parsed data."""
+    jresp = appsync_http_request(query_str, session, token, endpoint, timeout)
+    return jresp
+
+
+def cloud_get_skill_marketplace_stats(skill_id: str, session, token, endpoint: str, timeout: int = 60):
+    """Query skill marketplace statistics (downloads, favorites, subscribers, rating, reviews, trending).
+
+    Lambda GraphQL query: query { getSkillMarketplaceStats(skillId: "...") { ... } }
+    """
+    query = """
+    query {
+      getSkillMarketplaceStats(skillId: "%s") {
+        downloadCount
+        favoriteCount
+        subscriberCount
+        rating
+        reviewCount
+        trendingScore
+      }
+    }
+    """ % skill_id
+    jresp = _cloud_graphql_query(query, session, token, endpoint, timeout)
+    if isinstance(jresp, dict) and "data" in jresp:
+        return (jresp["data"].get("getSkillMarketplaceStats") or {})
+    return {}
+
+
+def cloud_toggle_skill_favorite(skill_id: str, owner: str, session, token, endpoint: str, timeout: int = 60):
+    """Toggle skill favorite status.
+
+    Lambda GraphQL mutation: mutation { toggleSkillFavorite(skillId: "...", owner: "...") { favorited success error } }
+    """
+    mutation = """
+    mutation {
+      toggleSkillFavorite(skillId: "%s", owner: "%s") {
+        favorited
+        success
+        error
+      }
+    }
+    """ % (skill_id, owner)
+    jresp = _cloud_graphql_query(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "toggleSkillFavorite", "toggleSkillFavorite")
+
+
+def cloud_get_skill_reviews(skill_id: str, session, token, endpoint: str, limit: int = 20, timeout: int = 60):
+    """Query skill reviews.
+
+    Lambda GraphQL query: query { getSkillReviews(skillId: "...", limit: N) { ... } }
+    """
+    query = """
+    query {
+      getSkillReviews(skillId: "%s", limit: %d) {
+        reviews {
+          id
+          owner
+          rating
+          comment
+          helpfulCount
+          createdAt
+        }
+        totalCount
+      }
+    }
+    """ % (skill_id, limit)
+    jresp = _cloud_graphql_query(query, session, token, endpoint, timeout)
+    if isinstance(jresp, dict) and "data" in jresp:
+        return (jresp["data"].get("getSkillReviews") or {})
+    return {}
+
+
+def cloud_upsert_skill_review(skill_id: str, owner: str, rating: int, comment: str,
+                              session, token, endpoint: str, timeout: int = 60):
+    """Add or update a skill review.
+
+    Lambda GraphQL mutation: mutation { upsertSkillReview(skillId: "...", owner: "...", rating: N, comment: "...") { ... } }
+    """
+    escaped_comment = comment.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    mutation = """
+    mutation {
+      upsertSkillReview(skillId: "%s", owner: "%s", rating: %d, comment: "%s") {
+        id
+        success
+        error
+      }
+    }
+    """ % (skill_id, owner, rating, escaped_comment)
+    jresp = _cloud_graphql_query(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "upsertSkillReview", "upsertSkillReview")
+
+
+def cloud_increment_skill_download(skill_id: str, amount: int, session, token, endpoint: str, timeout: int = 60):
+    """Increment skill download count.
+
+    Lambda GraphQL mutation: mutation { incrementSkillDownload(skillId: "...", amount: N) { success error } }
+    """
+    mutation = """
+    mutation {
+      incrementSkillDownload(skillId: "%s", amount: %d) {
+        success
+        error
+      }
+    }
+    """ % (skill_id, amount)
+    jresp = _cloud_graphql_query(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "incrementSkillDownload", "incrementSkillDownload")
+
+
+def cloud_get_skill_changelog(skill_id: str, session, token, endpoint: str, timeout: int = 60):
+    """Query skill changelog entries.
+
+    Lambda GraphQL query: query { getSkillChangelog(skillId: "...") { entries { version date notes } } }
+    """
+    query = """
+    query {
+      getSkillChangelog(skillId: "%s") {
+        entries {
+          version
+          date
+          notes
+        }
+      }
+    }
+    """ % skill_id
+    jresp = _cloud_graphql_query(query, session, token, endpoint, timeout)
+    if isinstance(jresp, dict) and "data" in jresp:
+        return (jresp["data"].get("getSkillChangelog") or {})
+    return {}
+
+
+def cloud_append_skill_changelog(skill_id: str, version: str, notes: str,
+                                  session, token, endpoint: str, timeout: int = 60):
+    """Append a new changelog entry to a skill.
+
+    Lambda GraphQL mutation: mutation { appendSkillChangelog(skillId: "...", version: "...", notes: "...") { success error } }
+    """
+    escaped_notes = notes.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    mutation = """
+    mutation {
+      appendSkillChangelog(skillId: "%s", version: "%s", notes: "%s") {
+        success
+        error
+      }
+    }
+    """ % (skill_id, version, escaped_notes)
+    jresp = _cloud_graphql_query(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "appendSkillChangelog", "appendSkillChangelog")
+
+
+def cloud_list_similar_skills(skill_id: str, limit: int, session, token, endpoint: str, timeout: int = 60):
+    """Query similar skills.
+
+    Lambda GraphQL query: query { listSimilarSkills(skillId: "...", limit: N) { skills { ... } } }
+    """
+    query = """
+    query {
+      listSimilarSkills(skillId: "%s", limit: %d) {
+        skills {
+          id
+          name
+          description
+          version
+          rating
+          downloadCount
+          owner
+          tags
+          level
+        }
+      }
+    }
+    """ % (skill_id, limit)
+    jresp = _cloud_graphql_query(query, session, token, endpoint, timeout)
+    if isinstance(jresp, dict) and "data" in jresp:
+        return (jresp["data"].get("listSimilarSkills") or {})
+    return {}
+
+
+def cloud_list_skills_by_owner(owner: str, exclude_id: str, limit: int,
+                                session, token, endpoint: str, timeout: int = 60):
+    """Query skills by owner.
+
+    Lambda GraphQL query: query { listSkillsByOwner(owner: "...", excludeId: "...", limit: N) { skills { ... } } }
+    """
+    query = """
+    query {
+      listSkillsByOwner(owner: "%s", excludeId: "%s", limit: %d) {
+        skills {
+          id
+          name
+          description
+          version
+          downloadCount
+          owner
+          tags
+          level
+        }
+      }
+    }
+    """ % (owner, exclude_id, limit)
+    jresp = _cloud_graphql_query(query, session, token, endpoint, timeout)
+    if isinstance(jresp, dict) and "data" in jresp:
+        return (jresp["data"].get("listSkillsByOwner") or {})
+    return {}
+
+
+def cloud_report_skill(skill_id: str, reporter: str, reason: str, note: str,
+                       session, token, endpoint: str, timeout: int = 60):
+    """Report a skill for abuse.
+
+    Lambda GraphQL mutation: mutation { reportSkill(skillId: "...", reporter: "...", reason: "...", note: "...") { success error } }
+    """
+    escaped_reason = reason.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    escaped_note = note.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    mutation = """
+    mutation {
+      reportSkill(skillId: "%s", reporter: "%s", reason: "%s", note: "%s") {
+        success
+        error
+      }
+    }
+    """ % (skill_id, reporter, escaped_reason, escaped_note)
+    jresp = _cloud_graphql_query(mutation, session, token, endpoint, timeout)
+    return safe_parse_response(jresp, "reportSkill", "reportSkill")
+
+
+def cloud_get_public_skills(session, token, endpoint: str, timeout: int = 120):
+    """Query all public skills from cloud.
+
+    Lambda GraphQL query: query { getPublicSkills { skills { ... } } }
+    """
+    query = """
+    query {
+      getPublicSkills {
+        skills {
+          id
+          askid
+          name
+          description
+          version
+          owner
+          public
+          source
+          level
+          tags
+          rating
+          downloadCount
+          favoriteCount
+          subscriberCount
+          trendingScore
+          changelog
+          updatedAt
+          createdAt
+        }
+      }
+    }
+    """
+    jresp = _cloud_graphql_query(query, session, token, endpoint, timeout)
+    if isinstance(jresp, dict) and "data" in jresp:
+        raw = jresp["data"].get("getPublicSkills")
+        # Lambda can return { skills: [...] } or a bare [...] array
+        if isinstance(raw, list):
+            return {"skills": raw}
+        if isinstance(raw, dict):
+            return raw if "skills" in raw else {"skills": []}
+    return {"skills": []}
 
 
 # ============================================================================
@@ -2773,7 +3344,12 @@ def collect_skill_files(skill_directory: str) -> list:
 def build_skill_source_string(file_paths: list) -> str:
     """
     Build comma-separated source string from file paths.
-    
+
+    IMPORTANT: This 'source' is a Python-side convenience field used for file upload
+    tracking (comma-separated code filenames like "a.py,b.py,c.py"). It is NOT the
+    SkillSource enum ('ui' | 'code' | 'subscribed' | 'external') used in the database
+    and GraphQL schema. See SkillSource in constants.py for the authoritative enum.
+
     Args:
         file_paths: List of relative file paths
         
@@ -2786,7 +3362,16 @@ def build_skill_source_string(file_paths: list) -> str:
 def prepare_skill_with_source(skill_data: dict, skill_directory: str = None) -> dict:
     """
     Prepare skill data with source attribute containing CODE file paths only.
-    
+
+    IMPORTANT: The 'source' attribute set here is a Python-side field used for
+    file upload tracking (comma-separated code filenames like "a.py,b.py,c.py").
+    It is NOT the SkillSource enum ('ui' | 'code' | 'subscribed' | 'external')
+    used in the database and GraphQL schema. These are two completely different
+    uses of the same field name:
+      - Python-side (this function): source = "a.py,b.py"   → used for upload tracking
+      - Database/GraphQL:            source = 'ui'|'code'|... → skill origin classification
+    See SkillSource in constants.py for the authoritative enum definition.
+
     The 'source' field should only contain code files (e.g., .py files).
     Diagram JSON, bundle, and data_mapping files are handled separately via upload_urls.
     
@@ -3345,23 +3930,35 @@ def send_update_skills_with_files_to_cloud(
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_get_agent_skills_request_to_cloud(session, token, endpoint):
-    """Query all skills for current user using queryAgentSkills
-    
-    Server returns [AgentSkill!]! - an array of skill objects (not AWSJSON)
+def send_get_agent_skills_request_to_cloud(session, token, endpoint, public_catalog: bool = False):
+    """Query skills using queryAgentSkills.
+
+    Server returns [AgentSkill!]! - an array of skill objects (not AWSJSON).
+    With ``public_catalog=True`` the PUBLIC skill catalog is requested
+    (CN/TCB ``input: {isPublic: true}`` mode) instead of the caller's own
+    skills — see gen_get_agent_skills_string for backend caveats.
     """
-    queryInfo = gen_get_agent_skills_string()
+    queryInfo = gen_get_agent_skills_string(public_catalog=public_catalog)
 
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+        first_error = jresp["errors"][0] if jresp["errors"] else {}
+        first_message = str(first_error.get("message", ""))
+        if "Cannot return null for non-nullable type" in first_message:
+            # Real schema bug (backend resolver returned null) — keep at ERROR.
             err_msg = "AppSync queryAgentSkills schema error: resolver returned null for non-nullable field"
             logger.error(f"{err_msg}. Raw errors: {json.dumps(jresp.get('errors', []), ensure_ascii=False)}")
             raise Exception(err_msg)
+        # Token-expired / UNAUTHENTICATED is a known transient — the
+        # SessionSupervisor will refresh; logging at ERROR would only pollute
+        # log-monitoring dashboards without helping anyone find a real bug.
+        if _is_token_expired_error_message(first_message):
+            logger.warning(f"🔑 AppSync queryAgentSkills token expired: {first_message}")
+            logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
         else:
             logger.error("AppSync queryAgentSkills error: " + json.dumps(jresp))
-            jresponse = jresp["errors"][0] if jresp["errors"] else {}
+        jresponse = first_error
     else:
         # Response is already parsed as array of objects (not AWSJSON string)
         skills_data = jresp.get("data", {}).get("queryAgentSkills")
@@ -3388,6 +3985,7 @@ def gen_query_skill_by_id_string(skill_id: str) -> str:
         GraphQL query string
     """
     filter_input = {"id": skill_id}
+    # AWS schema uses snake_case: price_model, public (see scripts/appsync_schema_latest.graphql)
     query_string = f'''query MyQueryAgentSkillById {{
         queryAgentSkills(input: {json.dumps(filter_input)}) {{
             id
@@ -3561,12 +4159,18 @@ def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+        first_error = jresp["errors"][0] if jresp["errors"] else {}
+        first_message = str(first_error.get("message", ""))
+        if "Cannot return null for non-nullable type" in first_message:
             logger.warning("AppSync queryAgentTasks: no data for user - returning empty dict")
             jresponse = {}
+        elif _is_token_expired_error_message(first_message):
+            logger.warning(f"🔑 AppSync queryAgentTasks token expired: {first_message}")
+            logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            jresponse = first_error
         else:
             logger.error("AppSync queryAgentTasks error: " + json.dumps(jresp))
-            jresponse = jresp["errors"][0] if jresp["errors"] else {}
+            jresponse = first_error
     else:
         try:
             tasks_data = jresp["data"]["queryAgentTasks"]
@@ -3815,12 +4419,18 @@ def send_get_agent_tools_request_to_cloud(session, token, endpoint):
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+        first_error = jresp["errors"][0] if jresp["errors"] else {}
+        first_message = str(first_error.get("message", ""))
+        if "Cannot return null for non-nullable type" in first_message:
             logger.warning("AppSync queryAgentTools: no data for user - returning empty dict")
             jresponse = {}
+        elif _is_token_expired_error_message(first_message):
+            logger.warning(f"🔑 AppSync queryAgentTools token expired: {first_message}")
+            logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            jresponse = first_error
         else:
             logger.error("AppSync queryAgentTools error: " + json.dumps(jresp))
-            jresponse = jresp["errors"][0] if jresp["errors"] else {}
+            jresponse = first_error
     else:
         try:
             tools_data = jresp["data"]["queryAgentTools"]
@@ -3877,12 +4487,18 @@ def send_get_knowledges_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger.error("AppSync getKnowledges error: " + json.dumps(jresp))
-        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+        first_error = jresp["errors"][0] if jresp["errors"] else {}
+        first_message = str(first_error.get("message", ""))
+        if "Cannot return null for non-nullable type" in first_message:
             logger.info("No knowledges data found for user - returning empty dict")
             jresponse = {}
+        elif _is_token_expired_error_message(first_message):
+            logger.warning(f"🔑 AppSync getKnowledges token expired: {first_message}")
+            logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            jresponse = first_error
         else:
-            jresponse = jresp["errors"][0] if jresp["errors"] else {}
+            logger.error("AppSync getKnowledges error: " + json.dumps(jresp))
+            jresponse = first_error
     else:
         try:
             knowledges_data = jresp["data"]["getKnowledges"]
@@ -4674,18 +5290,300 @@ def send_stop_soap_to_cloud(session, soap_id: str, token: str, endpoint: str) ->
 # WebSocket Subscription Helpers (auto-reconnect with fresh tokens)
 # ============================================================================
 
-def _get_fresh_auth_token(fallback_token: str) -> str:
-    """Get a fresh Cognito auth token from AppContext, falling back to the provided token."""
+def _get_fresh_auth_token(fallback_token: str) -> Optional[str]:
+    """Get a live Cognito auth token from AppContext.
+
+    Resolution order:
+        1. Ask the live session for a fresh token. ``get_auth_token`` calls
+           ``AuthManager.ensure_valid_tokens`` which already:
+             - refreshes with RefreshToken when available,
+             - clears credentials and sets ``signed_in=False`` when no
+               RefreshToken (CN WeChat) and the token is expiring/expired.
+        2. If we still have no token, examine ``signed_in``:
+             - ``False`` means AuthManager has explicitly invalidated the
+               session. Kick the user back to the login window exactly once
+               and return None so the WS loop stops.
+             - ``True`` (or N/A) means a transient backend blip; fall back to
+               the provided token so the loop can keep trying.
+    """
+    from typing import Optional as _Opt
+
+    token: _Opt[str] = None
+    signed_in = None
     try:
         from app_context import AppContext
         main_window = AppContext.get_main_window()
         if main_window and hasattr(main_window, 'get_auth_token'):
             token = main_window.get_auth_token()
-            if token:
-                return token
-    except Exception:
-        pass
+        if main_window is not None and hasattr(main_window, 'auth_manager'):
+            am = main_window.auth_manager
+            if am is not None and hasattr(am, 'signed_in'):
+                signed_in = bool(am.signed_in)
+    except Exception as e:
+        logger.debug(f"[_get_fresh_auth_token] Could not query AppContext: {e}")
+
+    if token:
+        return token
+
+    if signed_in is False:
+        # AuthManager has cleared the credentials (e.g. CN WeChat token
+        # expired and no RefreshToken). Surface the session loss to the UI
+        # exactly once per process and stop the WS reconnect loop instead
+        # of hammering AppSync with a dead token.
+        global _session_invalidated
+        if not _session_invalidated:
+            _session_invalidated = True
+            try:
+                login = AppContext.get_login()
+                if login is not None and hasattr(login, 'handleLogout'):
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, login.handleLogout)
+                    logger.info(
+                        f"[CloudLLMTask] Session invalidated by AuthManager; "
+                        "scheduling logout. WS reconnect will stop."
+                    )
+            except Exception as e:
+                logger.warning(f"[_get_fresh_auth_token] Could not schedule logout: {e}")
+        return None
+
+    # Transient: keep the loop alive with the fallback (live or stale).
     return fallback_token
+
+
+# Guard so a flapping WS triggers handleLogout at most once per process.
+_session_invalidated = False
+
+# Process-global event set when any WS subscription observes an auth failure
+# (401 / 403 / token rejected). Subscribers read this and stop reconnecting
+# instead of hammering the backend with a dead token.
+_auth_failure_event = threading.Event()
+
+# Hard cap on consecutive reconnect attempts regardless of error class. Once
+# exceeded, the loop exits even if the error never reached the `except` branch
+# (e.g. websocket-client raises handshake 401 via on_error/on_close, not as
+# an exception — so the existing `max_retries` check never fires for it).
+_WS_HARD_FAILURE_LIMIT = 10
+
+# Idempotency latch: ``SessionSupervisor.on_session_refreshed`` accumulates
+# callbacks, so we must register exactly once per process.
+_session_recovery_hook_installed = False
+
+# Tracks the currently-active WebSocketApp per subscription label so a
+# SessionSupervisor refresh event can proactively close them and force the
+# reconnect loop to pick up the new token on the next iteration. Keyed by
+# ``label`` (e.g. "CloudLLMTask") and guarded by ``_active_ws_lock``.
+_active_ws_by_label: dict = {}
+_active_ws_lock = threading.Lock()
+
+# Latch for the "close all active ws on refresh" hook. Separate from
+# ``_session_recovery_hook_installed`` so the two callbacks can evolve
+# independently and either can be re-armed for testing.
+_proactive_close_hook_installed = False
+
+
+def is_session_invalidated() -> bool:
+    """Whether any WS subscription has flagged the session as unrecoverable.
+
+    Callers (e.g. MainGUI restart logic) can poll this to decide whether to
+    reload the token from AuthManager before relaunching subscriptions.
+    """
+    return _auth_failure_event.is_set()
+
+
+def clear_session_invalidated() -> None:
+    """Reset the process-global auth-failure latch.
+
+    Intended to be called by AuthManager after a successful login or token
+    refresh so a previously-invalidated session can resume subscriptions.
+    """
+    global _session_invalidated
+    _session_invalidated = False
+    _auth_failure_event.clear()
+
+
+def _flag_auth_failure(label: str, status_or_error: str) -> None:
+    """Mark the session as auth-failed and surface to UI at most once.
+
+    Called from on_error / on_close when a 401/403 / unauthorized response is
+    observed. Idempotent — only the first call triggers handleLogout; later
+    calls just keep the latch set so other subscribers see it.
+    """
+    global _session_invalidated
+    if _auth_failure_event.is_set():
+        return
+
+    _auth_failure_event.set()
+
+    if not _session_invalidated:
+        _session_invalidated = True
+        try:
+            from app_context import AppContext
+            login = AppContext.get_login()
+            if login is not None and hasattr(login, 'handleLogout'):
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, login.handleLogout)
+                logger.info(
+                    f"[{label}] Auth failure detected ({status_or_error}); "
+                    "scheduling logout. WS reconnect will stop."
+                )
+        except Exception as e:
+            logger.warning(f"[{label}] Could not schedule logout: {e}")
+
+
+def _install_session_recovery_hook() -> bool:
+    """Subscribe to ``SessionSupervisor.on_session_refreshed`` so a successful
+    token refresh (or re-login) clears the auth-failure latch.
+
+    Once ``_auth_failure_event`` is set, all WS reconnect loops bail out at
+    the top of their next iteration — which is correct behaviour while the
+    session is broken, but leaves us stuck forever after the user re-logs in
+    unless somebody clears the latch.  ``SessionSupervisor`` already fires
+    ``on_session_refreshed`` whenever ``AuthManager`` installs a new token
+    (login, silent refresh, restore), so we hook into that and call
+    ``clear_session_invalidated()``.
+
+    Safe to call from any thread; the underlying ``on_session_refreshed``
+    uses an internal lock and we guard against double-registration with
+    ``_session_recovery_hook_installed``.
+
+    Returns ``True`` if the hook is now installed (including if it was
+    already installed by a previous call), ``False`` if it could not be
+    installed because the supervisor is unavailable.
+    """
+    global _session_recovery_hook_installed
+    if _session_recovery_hook_installed:
+        return True
+
+    try:
+        from auth.session_supervisor import get_session_supervisor
+    except Exception as e:
+        logger.debug(f"[SessionRecovery] SessionSupervisor not importable: {e}")
+        return False
+
+    supervisor = get_session_supervisor()
+    if supervisor is None:
+        # Supervisor hasn't been installed yet (e.g. user hasn't logged in).
+        # No retry: the next subscribe_* call will try again, and once the
+        # user logs in the supervisor singleton will exist.
+        return False
+
+    def _on_session_refreshed(_info):
+        # ``info`` from the supervisor is unused here — we only care that
+        # *some* fresh token just landed.
+        try:
+            clear_session_invalidated()
+            logger.info(
+                "[SessionRecovery] New token detected — cleared auth-failure "
+                "latch; WS subscriptions can resume on next launch."
+            )
+        except Exception as e:
+            logger.warning(f"[SessionRecovery] clear_session_invalidated failed: {e}")
+
+    try:
+        supervisor.on_session_refreshed(_on_session_refreshed)
+    except Exception as e:
+        logger.warning(f"[SessionRecovery] Could not register callback: {e}")
+        return False
+
+    _session_recovery_hook_installed = True
+    logger.info("[SessionRecovery] Hook installed; auth-failure latch will "
+                "reset automatically on next token refresh / re-login.")
+    return True
+
+
+def register_active_ws(label: str, ws) -> None:
+    """Record the current ``WebSocketApp`` for ``label`` so a SessionSupervisor
+    refresh can proactively close it. Called by the reconnect loop right after
+    ``build_ws_fn`` returns."""
+    with _active_ws_lock:
+        _active_ws_by_label[label] = ws
+
+
+def unregister_active_ws(label: str, ws=None) -> None:
+    """Forget the current ``WebSocketApp`` for ``label`` (e.g. after the loop
+    exits, or before we replace it with a fresh one).  When ``ws`` is provided,
+    only remove if the registered ws still matches — avoids dropping a newer
+    registration that the supervisor might already have closed."""
+    with _active_ws_lock:
+        if label not in _active_ws_by_label:
+            return
+        if ws is None or _active_ws_by_label[label] is ws:
+            _active_ws_by_label.pop(label, None)
+
+
+def _close_all_active_ws() -> int:
+    """Snapshot and clear ``_active_ws_by_label``, then close each ws.  Returns
+    the number of ws we attempted to close.  Idempotent: callers can invoke
+    multiple times and only fresh entries will be closed."""
+    with _active_ws_lock:
+        if not _active_ws_by_label:
+            return 0
+        items = list(_active_ws_by_label.items())
+        _active_ws_by_label.clear()
+    for label, ws in items:
+        try:
+            ws.close()
+            logger.info(
+                f"[{label}] Proactive close after token refresh; "
+                "reconnect loop will pick up the new token."
+            )
+        except Exception as e:
+            logger.debug(f"[{label}] ws.close() during proactive refresh failed: {e}")
+    return len(items)
+
+
+def _install_proactive_close_hook() -> bool:
+    """Subscribe to ``SessionSupervisor.on_session_refreshed`` so a token
+    refresh actively closes every active WS — letting the reconnect loops
+    immediately rebuild their signed URLs with the new token instead of
+    waiting for the server to drop the old (stale) connection.
+
+    Why this exists: the AppSync-style signed URL embeds the bearer token
+    in ``?header=...&payload=...`` at upgrade time.  After a refresh, the
+    server may still accept the old connection for a while, but eventually
+    starts rejecting reads with ``401 Unauthorized`` — by which point the
+    reconnect storm has already started.  Proactively closing the moment
+    AuthManager finishes installing the new token avoids that gap.
+
+    Idempotent: a separate latch (``_proactive_close_hook_installed``) keeps
+    us from registering duplicate callbacks even though
+    ``on_session_refreshed`` would happily accumulate them.
+    """
+    global _proactive_close_hook_installed
+    if _proactive_close_hook_installed:
+        return True
+
+    try:
+        from auth.session_supervisor import get_session_supervisor
+    except Exception as e:
+        logger.debug(f"[ProactiveClose] SessionSupervisor not importable: {e}")
+        return False
+
+    supervisor = get_session_supervisor()
+    if supervisor is None:
+        return False
+
+    def _on_refreshed_close_all(_info):
+        try:
+            n = _close_all_active_ws()
+            if n:
+                logger.info(
+                    f"[ProactiveClose] Closed {n} active WS connection(s) "
+                    "after token refresh."
+                )
+        except Exception as e:
+            logger.warning(f"[ProactiveClose] close sweep failed: {e}")
+
+    try:
+        supervisor.on_session_refreshed(_on_refreshed_close_all)
+    except Exception as e:
+        logger.warning(f"[ProactiveClose] Could not register callback: {e}")
+        return False
+
+    _proactive_close_hook_installed = True
+    logger.info("[ProactiveClose] Hook installed; token refresh will "
+                "proactively close all active WS connections.")
+    return True
 
 
 def _resolve_appsync_ws_url(ws_url: Optional[str], label: str) -> str:
@@ -4694,6 +5592,13 @@ def _resolve_appsync_ws_url(ws_url: Optional[str], label: str) -> str:
         ws_url = os.getenv("ECAN_WS_URL", "")
     if not ws_url:
         raise ValueError(f"[{label}] WebSocket URL not provided and ECAN_WS_URL is not set")
+    
+    # CN TCB: return as-is (SSE endpoint)
+    if ".service.tcloudbase.com" in ws_url:
+        logger.info(f"[{label}] Using CN TCB endpoint: {ws_url}")
+        return ws_url
+    
+    # Intl AppSync: convert to realtime endpoint
     if ws_url.startswith("https://") and "appsync-api" in ws_url:
         prefix = "https://"
         rest = ws_url[len(prefix):]
@@ -4718,48 +5623,207 @@ def _build_appsync_signed_url(ws_url: str, token: str) -> tuple:
 
 
 def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
-                                build_ws_fn, max_retries: int = 50,
-                                base_backoff: int = 10):
-    """Run an AppSync WebSocket subscription with auto-reconnect and fresh tokens.
+                                build_ws_fn, max_retries: int = 5,
+                                base_backoff: float = 1.0):
+    """Run an AppSync WebSocket subscription with bounded retry and jitter.
 
-    Intended as a threading.Thread target. On disconnect, fetches a fresh auth
-    token via AppContext and reconnects with exponential backoff.
+    Intended as a threading.Thread target.
+
+    Retry semantics (per error class):
+        - AuthError (401 / 403):  stop immediately — token is invalid, retrying
+                                  with the same or fallback token is wasted.
+        - TransientError (network, timeout, 5xx): backoff with ±20% jitter up to
+                                                  MAX_BACKOFF seconds.
+        - ExhaustiveError (max_retries exceeded OR consecutive failures across
+                           callback path): stop, let the caller decide.
+
+    Note: websocket-client surfaces HTTP-handshake failures (e.g. 401 returned
+    during the upgrade) via ``on_error``/``on_close`` rather than as Python
+    exceptions, so the legacy ``except`` branch never sees them. To avoid an
+    infinite reconnect loop in that case we monkey-patch ``on_error`` and
+    ``on_close`` after each ``build_ws_fn`` call to detect 401/403 and stop the
+    loop, and we also count consecutive failures across the callback path
+    against ``_WS_HARD_FAILURE_LIMIT``.
 
     Args:
         label: Log prefix (e.g. "CloudLLMTask")
         ws_url: Resolved AppSync realtime WebSocket URL (wss://...)
-        initial_token: Initial auth token (used as fallback if fresh token unavailable)
+        initial_token: Initial auth token (used on first attempt only)
         build_ws_fn: Callable(token, api_host, signed_url) -> WebSocketApp
-            Called on each reconnect to build a new WebSocketApp with fresh closures.
-        max_retries: Maximum consecutive reconnect attempts (resets on successful connection)
-        base_backoff: Base backoff seconds between retries
+        max_retries: Maximum consecutive reconnect attempts after a transient error.
+                     401/403 never counts as a retry — it exits immediately.
+        base_backoff: Base seconds for exponential backoff (jitter applied on top).
     """
+    import random
     import ssl
     import time
 
+    MAX_BACKOFF = 30.0  # seconds — never exceed this regardless of retry count
+
+    def _backoff(attempt: int) -> float:
+        """Exponential backoff with ±20% uniform jitter."""
+        raw = base_backoff * (2 ** attempt)
+        capped = min(raw, MAX_BACKOFF)
+        jitter = capped * random.uniform(-0.2, 0.2)
+        return max(0.1, capped + jitter)
+
+    def _is_auth_failure_payload(value) -> bool:
+        """Match 401/403-ish payloads anywhere in a string or exception args."""
+        if value is None:
+            return False
+        s = str(value).lower()
+        return (
+            "401" in s or "403" in s
+            or "unauthorized" in s or "forbidden" in s
+        )
+
+    def _install_ws_hooks(ws, user_on_error, user_on_close):
+        """Wrap user callbacks so 401/403 stop the loop and trigger logout once.
+
+        ``websocket-client`` runs ``run_forever`` in a background thread; the
+        callbacks fire on that same thread, so writes to ``auth_failed`` and
+        ``consecutive_failures`` are already serialized by the GIL — no extra
+        lock needed.
+        """
+        def _on_error(ws_local, error):
+            if _is_auth_failure_payload(error):
+                auth_failed.set()
+                _flag_auth_failure(label, f"on_error={error!r}")
+            consecutive_failures[0] += 1
+            if user_on_error is not None:
+                try:
+                    user_on_error(ws_local, error)
+                except Exception:
+                    pass
+
+        def _on_close(ws_local, status_code, msg):
+            if _is_auth_failure_payload(status_code) or _is_auth_failure_payload(msg):
+                auth_failed.set()
+                _flag_auth_failure(label, f"on_close={status_code} {msg!r}")
+            consecutive_failures[0] += 1
+            if user_on_close is not None:
+                try:
+                    user_on_close(ws_local, status_code, msg)
+                except Exception:
+                    pass
+
+        ws.on_error = _on_error
+        ws.on_close = _on_close
+
+    auth_failed = threading.Event()
+    consecutive_failures = [0]  # mutable cell — shared between callbacks and loop
     retry_count = 0
 
-    while retry_count < max_retries:
-        # Get fresh token on reconnect attempts; use initial token for first connection
-        token = _get_fresh_auth_token(initial_token) if retry_count > 0 else initial_token
+    # Make sure both SessionSupervisor hooks are installed: one clears the
+    # auth-failure latch on refresh, the other proactively closes any active
+    # ws so the reconnect loop rebuilds the signed URL with the new token.
+    # Both are idempotent and lazy — first call only.
+    _install_session_recovery_hook()
+    _install_proactive_close_hook()
+
+    while True:
+        # Bail early if any peer subscription already detected an auth failure
+        # — there is no point burning a TCP upgrade on a dead token.
+        if _auth_failure_event.is_set() or auth_failed.is_set():
+            logger.warning(
+                f"[{label}] Session already flagged as auth-failed by another "
+                "subscription; stopping without retrying."
+            )
+            return
+
+        # First attempt always uses the initial token; subsequent attempts
+        # always ask AuthManager for a live token.
+        token = initial_token if retry_count == 0 else _get_fresh_auth_token(initial_token)
+        if token is None:
+            # AuthManager has cleared the session (e.g. CN WeChat token expired
+            # and no RefreshToken). The UI has already been notified; stop here.
+            logger.warning(
+                f"[{label}] No usable token (session invalidated); stopping subscription."
+            )
+            return
+
         signed_url, api_host = _build_appsync_signed_url(ws_url, token)
 
         try:
             ws = build_ws_fn(token, api_host, signed_url)
+            # Capture the user-supplied callbacks (may be None) before we
+            # overwrite them so we can still invoke them from our wrapper.
+            user_on_error = ws.on_error
+            user_on_close = ws.on_close
+            _install_ws_hooks(ws, user_on_error, user_on_close)
+            # Publish the new ws so a SessionSupervisor refresh event can
+            # close it. Old registration for this label (if any) is cleared
+            # implicitly — ``register_active_ws`` overwrites.
+            register_active_ws(label, ws)
+
             logger.info(f"[{label}] WebSocket connecting (attempt {retry_count + 1})")
-            ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
+            # Keep the TCP stream alive so upstream LBs/NATs (≈60s idle
+            # timeout observed in production) don't FIN the socket.
+            ws.run_forever(
+                sslopt={"cert_reqs": ssl.CERT_NONE},
+                ping_interval=30,  # 30s to stay under server's ~60s idle timeout
+                ping_timeout=15,
+            )
+
+            # Drop the registration before we check exit conditions. If
+            # ``_close_all_active_ws`` already ran (token-refresh path) the
+            # dict won't contain ``ws`` and the unregister is a no-op.
+            unregister_active_ws(label, ws)
+
+            # Every run_forever return counts as one tick against the hard
+            # limit, even if no callback fired. Without this, a backend that
+            # closes the socket cleanly without invoking on_error/on_close
+            # (or a token-refresh close where our wrapper hasn't already
+            # incremented the counter) would loop forever here.
+            consecutive_failures[0] += 1
+
+            if auth_failed.is_set():
+                logger.warning(
+                    f"[{label}] Auth failure detected during this iteration; "
+                    "stopping subscription without retry."
+                )
+                return
+
+            # Hard ceiling on consecutive failures across both paths (callback
+            # and exception). Without this, a backend that returns 1006 every
+            # time would loop forever because it never matches the 401/403
+            # branch and never raises an exception either.
+            if consecutive_failures[0] >= _WS_HARD_FAILURE_LIMIT:
+                logger.error(
+                    f"[{label}] Reached hard failure limit "
+                    f"({consecutive_failures[0]} consecutive); giving up."
+                )
+                return
+
             logger.warning(f"[{label}] WebSocket run_forever exited, will reconnect")
         except Exception as e:
-            logger.error(f"[{label}] WebSocket error during run: {e}")
+            err_str = str(e).lower()
 
-        retry_count += 1
-        if retry_count < max_retries:
-            backoff = min(base_backoff * (2 ** min(retry_count - 1, 4)), 120)
-            logger.info(f"[{label}] Reconnecting with fresh token in {backoff}s "
-                        f"(attempt {retry_count + 1}/{max_retries})")
-            time.sleep(backoff)
+            # ---- Auth errors: bail immediately, do not retry -----------------
+            if _is_auth_failure_payload(err_str):
+                logger.error(
+                    f"[{label}] Auth error (401/403): {e!r}. "
+                    "Session may be expired; stopping subscription."
+                )
+                _flag_auth_failure(label, f"exception={e!r}")
+                return
 
-    logger.error(f"[{label}] Max retries ({max_retries}) reached, subscription stopped")
+            # ---- Transient errors: back off and retry -----------------------
+            if retry_count + 1 >= max_retries:
+                logger.error(
+                    f"[{label}] Transient error after {retry_count + 1} attempts: {e!r}. "
+                    f"Max retries ({max_retries}) reached; giving up."
+                )
+                return
+
+            wait = _backoff(retry_count)
+            retry_count += 1
+            logger.warning(
+                f"[{label}] Transient error: {e!r}. "
+                f"Retrying in {wait:.1f}s (attempt {retry_count}/{max_retries})."
+            )
+            time.sleep(wait)
+            continue
 
 
 # related to websocket sub/push to get long running task results
@@ -4784,6 +5848,27 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
             except Exception:
                 data = {"raw": message}
             msg_type = data.get("type")
+            # AppSync protocol layer: auth errors are fatal — raise so run_forever
+            # exits and the reconnect loop handles them immediately (no backoff).
+            if msg_type == "error" and isinstance(data.get("payload"), dict):
+                payload = data.get("payload", {})
+                # Try structured errors array first (AppSync standard).
+                errors = payload.get("errors", [])
+                auth_err = None
+                for err in errors:
+                    err_msg = str(err.get("message", "")).lower()
+                    if any(kw in err_msg for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = err.get("message", "")
+                        break
+                # Fallback: some AppSync variants embed the error text directly
+                # in payload.message (no errors[] array).
+                if auth_err is None:
+                    msg_str = str(payload.get("message", "")).lower()
+                    if any(kw in msg_str for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = payload.get("message", "")
+                if auth_err is not None:
+                    logger.warning(f"[{label}] AppSync auth error: {auth_err!r}")
+                    raise WebSocketException(f"AppSync auth error: {auth_err}")
             if msg_type in ("ka", "keepalive"):
                 return
             logger.debug("[CloudLLMTask] Received WebSocket message type=%s", msg_type)
@@ -4902,6 +5987,27 @@ def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[
             except Exception:
                 data = {"raw": message}
             msg_type = data.get("type")
+            # AppSync protocol layer: auth errors are fatal — raise so run_forever
+            # exits and the reconnect loop handles them immediately (no backoff).
+            if msg_type == "error" and isinstance(data.get("payload"), dict):
+                payload = data.get("payload", {})
+                # Try structured errors array first (AppSync standard).
+                errors = payload.get("errors", [])
+                auth_err = None
+                for err in errors:
+                    err_msg = str(err.get("message", "")).lower()
+                    if any(kw in err_msg for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = err.get("message", "")
+                        break
+                # Fallback: some AppSync variants embed the error text directly
+                # in payload.message (no errors[] array).
+                if auth_err is None:
+                    msg_str = str(payload.get("message", "")).lower()
+                    if any(kw in msg_str for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = payload.get("message", "")
+                if auth_err is not None:
+                    logger.warning(f"[{label}] AppSync auth error: {auth_err!r}")
+                    raise WebSocketException(f"AppSync auth error: {auth_err}")
             if msg_type in ("ka", "keepalive"):
                 return
             logger.debug("[AccountNotification] Received WebSocket message type=%s", msg_type)
@@ -5096,6 +6202,27 @@ def subscribe_agent_scene_events(acct_site_id: str, id_token: str, ws_url: Optio
             except Exception:
                 data = {"raw": message}
             msg_type = data.get("type")
+            # AppSync protocol layer: auth errors are fatal — raise so run_forever
+            # exits and the reconnect loop handles them immediately (no backoff).
+            if msg_type == "error" and isinstance(data.get("payload"), dict):
+                payload = data.get("payload", {})
+                # Try structured errors array first (AppSync standard).
+                errors = payload.get("errors", [])
+                auth_err = None
+                for err in errors:
+                    err_msg = str(err.get("message", "")).lower()
+                    if any(kw in err_msg for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = err.get("message", "")
+                        break
+                # Fallback: some AppSync variants embed the error text directly
+                # in payload.message (no errors[] array).
+                if auth_err is None:
+                    msg_str = str(payload.get("message", "")).lower()
+                    if any(kw in msg_str for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = payload.get("message", "")
+                if auth_err is not None:
+                    logger.warning(f"[{label}] AppSync auth error: {auth_err!r}")
+                    raise WebSocketException(f"AppSync auth error: {auth_err}")
             if msg_type in ("ka", "keepalive"):
                 return
             logger.debug(f"[AgentSceneEvent] Message type: {msg_type}")
@@ -5239,6 +6366,27 @@ def subscribe_puzzle_results(id_token: str, ws_url: Optional[str] = None,
             except Exception:
                 data = {"raw": message}
             msg_type = data.get("type")
+            # AppSync protocol layer: auth errors are fatal — raise so run_forever
+            # exits and the reconnect loop handles them immediately (no backoff).
+            if msg_type == "error" and isinstance(data.get("payload"), dict):
+                payload = data.get("payload", {})
+                # Try structured errors array first (AppSync standard).
+                errors = payload.get("errors", [])
+                auth_err = None
+                for err in errors:
+                    err_msg = str(err.get("message", "")).lower()
+                    if any(kw in err_msg for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = err.get("message", "")
+                        break
+                # Fallback: some AppSync variants embed the error text directly
+                # in payload.message (no errors[] array).
+                if auth_err is None:
+                    msg_str = str(payload.get("message", "")).lower()
+                    if any(kw in msg_str for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = payload.get("message", "")
+                if auth_err is not None:
+                    logger.warning(f"[{label}] AppSync auth error: {auth_err!r}")
+                    raise WebSocketException(f"AppSync auth error: {auth_err}")
             if msg_type in ("ka", "keepalive"):
                 return
             logger.debug("[PuzzleResult] Received WebSocket message type=%s", msg_type)
@@ -5352,6 +6500,27 @@ def subscribe_scene_complete(acct_site_id: str, id_token: str, ws_url: Optional[
             except Exception:
                 data = {"raw": message}
             msg_type = data.get("type")
+            # AppSync protocol layer: auth errors are fatal — raise so run_forever
+            # exits and the reconnect loop handles them immediately (no backoff).
+            if msg_type == "error" and isinstance(data.get("payload"), dict):
+                payload = data.get("payload", {})
+                # Try structured errors array first (AppSync standard).
+                errors = payload.get("errors", [])
+                auth_err = None
+                for err in errors:
+                    err_msg = str(err.get("message", "")).lower()
+                    if any(kw in err_msg for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = err.get("message", "")
+                        break
+                # Fallback: some AppSync variants embed the error text directly
+                # in payload.message (no errors[] array).
+                if auth_err is None:
+                    msg_str = str(payload.get("message", "")).lower()
+                    if any(kw in msg_str for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = payload.get("message", "")
+                if auth_err is not None:
+                    logger.warning(f"[{label}] AppSync auth error: {auth_err!r}")
+                    raise WebSocketException(f"AppSync auth error: {auth_err}")
             if msg_type in ("ka", "keepalive"):
                 return
             logger.debug("[SceneComplete] Received WebSocket message type=%s", msg_type)
@@ -5697,6 +6866,27 @@ def subscribe_story_updates(acct_site_id: str, id_token: str, ws_url: Optional[s
             except Exception:
                 data = {"raw": message}
             msg_type = data.get("type")
+            # AppSync protocol layer: auth errors are fatal — raise so run_forever
+            # exits and the reconnect loop handles them immediately (no backoff).
+            if msg_type == "error" and isinstance(data.get("payload"), dict):
+                payload = data.get("payload", {})
+                # Try structured errors array first (AppSync standard).
+                errors = payload.get("errors", [])
+                auth_err = None
+                for err in errors:
+                    err_msg = str(err.get("message", "")).lower()
+                    if any(kw in err_msg for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = err.get("message", "")
+                        break
+                # Fallback: some AppSync variants embed the error text directly
+                # in payload.message (no errors[] array).
+                if auth_err is None:
+                    msg_str = str(payload.get("message", "")).lower()
+                    if any(kw in msg_str for kw in ("401", "403", "authorized", "forbidden", "expired")):
+                        auth_err = payload.get("message", "")
+                if auth_err is not None:
+                    logger.warning(f"[{label}] AppSync auth error: {auth_err!r}")
+                    raise WebSocketException(f"AppSync auth error: {auth_err}")
             if msg_type in ("ka", "keepalive"):
                 return
             logger.debug("[StoryUpdate] Received WebSocket message type=%s", msg_type)
@@ -7546,20 +8736,26 @@ def upload_skill_files_to_cloud(session, token, files: list, endpoint=None, time
     Returns:
         Response from cloud with uploaded file info
     """
-    mutation_string = """
-        mutation WriteSkillFile($input: [SkillFileInput!]!) {
-          writeSkillFile(input: $input) {
+    # CN (TCB/COS): writeSkillFile only registers the file and returns a
+    # signed COS PUT URL — the CLIENT must upload the bytes. Intl (AWS):
+    # the Lambda writes S3 server-side and its SDL has no uploadUrl field,
+    # so the extra selection must stay CN-only.
+    cn = is_cn_app()
+    extra_fields = "\n            uploadUrl\n            method\n            expiresIn" if cn else ""
+    mutation_string = f"""
+        mutation WriteSkillFile($input: [SkillFileInput!]!) {{
+          writeSkillFile(input: $input) {{
             filePath
             fileName
             fileSize
             skillName
-            updatedAt
-          }
-        }
+            updatedAt{extra_fields}
+          }}
+        }}
     """
     logger.info(f"[CloudSkill] Uploading {len(files)} skill files to cloud")
     logger.debug(f"[CloudSkill] writeSkillFile using variables, fileCount={len(files)}")
-    
+
     jresp = appsync_http_request(
         mutation_string,
         session,
@@ -7568,17 +8764,65 @@ def upload_skill_files_to_cloud(session, token, files: list, endpoint=None, time
         timeout=timeout,
         variables={"input": files},
     )
-    
+
     if "errors" in jresp:
         logger.error(f"[CloudSkill] writeSkillFile error: {jresp['errors']}")
         return {"success": False, "errors": jresp["errors"]}
-    
+
     try:
         result = jresp.get("data", {}).get("writeSkillFile")
         uploaded_count = len(result) if result else 0
-        logger.info(f"[CloudSkill] writeSkillFile success: {uploaded_count} files uploaded")
         if uploaded_count == 0:
+            logger.warning("[CloudSkill] writeSkillFile returned zero uploaded files")
             return {"success": False, "error": "writeSkillFile returned zero uploaded files", "data": result}
+
+        # CN: PUT each file's content to its signed COS URL. Without this
+        # step the metadata row exists but the object never lands in COS
+        # (the historical split-persistence bug).
+        if cn:
+            content_by_path = {
+                str(f.get("filePath")): f.get("content")
+                for f in files if isinstance(f, dict) and f.get("filePath")
+            }
+            put_ok, put_fail = 0, 0
+            for item in result:
+                if not isinstance(item, dict):
+                    continue
+                url = item.get("uploadUrl") or item.get("upload_url")
+                if not url:
+                    continue
+                body = content_by_path.get(str(item.get("filePath") or item.get("file_path")))
+                if body is None:
+                    logger.warning(f"[CloudSkill] No local content for signed URL of {item.get('filePath')}")
+                    put_fail += 1
+                    continue
+                method = str(item.get("method") or "PUT").upper()
+                try:
+                    # No explicit Content-Type: the signature may include the
+                    # header set server-side; keep the request minimal.
+                    resp = session.request(
+                        method=method, url=url,
+                        data=body.encode("utf-8") if isinstance(body, str) else body,
+                        timeout=timeout,
+                    )
+                    if resp.status_code in (200, 204):
+                        put_ok += 1
+                    else:
+                        put_fail += 1
+                        logger.warning(
+                            f"[CloudSkill] COS PUT failed ({resp.status_code}) for "
+                            f"{item.get('filePath')}: {resp.text[:200]}"
+                        )
+                except Exception as put_e:
+                    put_fail += 1
+                    logger.warning(f"[CloudSkill] COS PUT raised for {item.get('filePath')}: {put_e}")
+            logger.info(f"[CloudSkill] COS uploads: {put_ok} ok, {put_fail} failed of {uploaded_count}")
+            if put_fail and not put_ok:
+                return {"success": False, "error": f"all {put_fail} COS uploads failed", "data": result}
+            if put_fail:
+                return {"success": False, "error": f"{put_fail} of {uploaded_count} COS uploads failed", "data": result}
+
+        logger.info(f"[CloudSkill] writeSkillFile success: {uploaded_count} files uploaded")
         return {"success": True, "data": result}
     except Exception as e:
         logger.error(f"[CloudSkill] Failed to parse writeSkillFile response: {e}")
@@ -7740,7 +8984,7 @@ def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60,
 
     headers = {
         'Content-Type': "application/json",
-        'Authorization': token,
+        'Authorization': _http_auth_header(token),
         'cache-control': "no-cache",
     }
 

@@ -416,11 +416,13 @@ def handle_get_a2a_messages(request: IPCRequest, params: Optional[dict]) -> IPCR
             'nextToken': next_token,
         }
 
+        from agent.cloud_api.cloud_api import _http_auth_header
         response = requests.post(
             url=endpoints['http'],
             headers={
                 'Content-Type': 'application/json',
-                'Authorization': token,
+                # CN needs the session-token bearer; Intl passes the token through.
+                'Authorization': _http_auth_header(token),
                 'cache-control': 'no-cache',
             },
             json={

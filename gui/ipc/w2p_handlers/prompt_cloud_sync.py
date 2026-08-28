@@ -59,7 +59,8 @@ def _get_cloud_context() -> Optional[Dict[str, Any]]:
 
         session = mainwin.session
         endpoint = mainwin.getWanApiEndpoint() if hasattr(mainwin, 'getWanApiEndpoint') else None
-        owner = getattr(mainwin, 'user', None) or ""
+        from agent.cloud_api.cloud_api import normalize_cloud_owner
+        owner = normalize_cloud_owner(getattr(mainwin, 'user', None) or "")
 
         if not owner:
             logger.warning("[prompt_sync] ⚠️ No owner/user – skipping cloud sync")
@@ -86,7 +87,7 @@ def _appsync_request(query_string: str, ctx: Dict[str, Any], variables: Optional
     The shared ``appsync_http_request`` uses ``application/graphql`` which causes
     AppSync to ignore the variables dict.
     """
-    from agent.cloud_api.cloud_api import get_appsync_endpoint
+    from agent.cloud_api.cloud_api import get_appsync_endpoint, _http_auth_header
 
     endpoint = ctx.get("endpoint") or get_appsync_endpoint()
     token = ctx["token"]
@@ -94,7 +95,9 @@ def _appsync_request(query_string: str, ctx: Dict[str, Any], variables: Optional
 
     headers = {
         "Content-Type": "application/json",
-        "Authorization": token,
+        # CN: session-token bearer (the only credential the SCF HTTP gate
+        # accepts); Intl: raw Cognito token — same as skill_editor_cloud_relay.
+        "Authorization": _http_auth_header(token),
         "cache-control": "no-cache",
     }
 
@@ -210,7 +213,11 @@ def sync_prompt_to_cloud(prompt: Dict[str, Any]) -> None:
             errors = resp.get("errors")
             if errors:
                 logger.error(f"[prompt_sync] ❌ CLOUD SYNC FAILED for {prompt.get('id')}: {errors}")
-                logger.error(f"[prompt_sync] This indicates AWS AppSync settings may be incorrect")
+                logger.error(
+                    "[prompt_sync] Known cause on CN/TCB: addPrompts is INSERT-only "
+                    "server-side — re-adding an existing prompt id 500s (needs "
+                    "upsert). See docs/OPEN_ITEMS.md."
+                )
             else:
                 data = resp.get("data", {}).get("addPrompts", [])
                 logger.warning(f"[prompt_sync] ✅ SUCCESS - Synced prompt '{prompt.get('id')}' to cloud: {data}")
@@ -396,8 +403,18 @@ def sync_all_prompts_to_cloud(prompts: List[Dict[str, Any]]) -> None:
 
             owner = ctx["owner"]
 
-            # Only sync user-owned prompts (not sample/read-only, not system)
-            to_sync = [p for p in prompts if not p.get("readOnly") and p.get("id") and p.get("owner") != "system"]
+            # Only sync user-owned prompts (not sample/read-only, not system).
+            # sample_prompts ship with the app and are marked editable since
+            # 2026 — but their ids belong to the ORIGINAL author cloud-side,
+            # so uploading them from another account is guaranteed to fail
+            # "Prompt belongs to a different owner" (observed 7/7 errors on a
+            # customer machine, 2026-08-25). Skip them by source.
+            to_sync = [
+                p for p in prompts
+                if not p.get("readOnly") and p.get("id")
+                and p.get("owner") != "system"
+                and p.get("source") not in ("sample_prompts", "subscribed")
+            ]
             if not to_sync:
                 logger.debug("[prompt_sync] No user prompts to sync to cloud")
                 return

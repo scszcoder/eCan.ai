@@ -223,6 +223,22 @@ const RerankManagement = React.forwardRef<
         if (!editingRyoaisHost && loadedRyoaisHost && loadedRyoaisHost !== ryoaisHost) {
           setRyoaisHost(loadedRyoaisHost);
         }
+
+        // Backfill RyoAIS API key from backend so the input renders "••••••••"
+        // instead of being empty. Mirrors LLMManagement backfill behavior.
+        if (ryoaisProvider?.api_key_configured && !ryoaisApiKey) {
+          try {
+            const keyResp = await get_ipc_api().getRerankProviderApiKey<{
+              api_key?: string;
+              credentials?: any;
+            }>(ryoaisProvider.provider || ryoaisProvider.name, true);
+            if (keyResp.success && keyResp.data?.api_key) {
+              setRyoaisApiKey(keyResp.data.api_key);
+            }
+          } catch (e) {
+            console.warn('[RerankManagement] Failed to backfill RyoAIS API key:', e);
+          }
+        }
       } else {
         message.error(
           `${t("pages.settings.failed_to_load_providers")}: ${
@@ -236,7 +252,7 @@ const RerankManagement = React.forwardRef<
     } finally {
       setLoading(false);
     }
-  }, [username, t, message, editingOllamaHost, ollamaHost, editingRyoaisHost, ryoaisHost]);
+  }, [username, t, message, editingOllamaHost, ollamaHost, editingRyoaisHost, ryoaisHost, ryoaisApiKey]);
 
   // Expose loadProviders method via ref
   useImperativeHandle(ref, () => ({
@@ -937,12 +953,12 @@ const RerankManagement = React.forwardRef<
           return (
             <Space direction="vertical" size={2}>
               <Space>
-                <span style={{ color: "#999", fontSize: "12px" }}>Host:</span>
+                <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
                 <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ollamaHost}</span>
               </Space>
               {ollamaApiKey && (
                 <Space>
-                  <span style={{ color: "#999", fontSize: "12px" }}>API Key:</span>
+                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
                   <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
                 </Space>
               )}
@@ -1040,12 +1056,12 @@ const RerankManagement = React.forwardRef<
           return (
             <Space direction="vertical" size={2}>
               <Space>
-                <span style={{ color: "#999", fontSize: "12px" }}>Host:</span>
+                <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
                 <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ryoaisHost}</span>
               </Space>
               {ryoaisApiKey && (
                 <Space>
-                  <span style={{ color: "#999", fontSize: "12px" }}>API Key:</span>
+                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
                   <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
                 </Space>
               )}
@@ -1121,7 +1137,7 @@ const RerankManagement = React.forwardRef<
         }
 
         const apiKeyText = record.is_local
-          ? "🏠 Local Service"
+          ? `🏠 ${t("pages.settings.local_service")}`
           : record.api_key_configured
           ? visibleApiKeys.has(record.name)
             ? apiKeyValues.get(record.name) || "••••••••••••••••"
@@ -1454,7 +1470,7 @@ const RerankManagement = React.forwardRef<
             )}
             {record.is_local && (
               <span style={{ color: "#999", fontSize: "12px" }}>
-                Local Service
+                {t("pages.settings.local_service")}
               </span>
             )}
           </Space>

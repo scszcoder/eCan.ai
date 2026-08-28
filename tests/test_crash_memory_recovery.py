@@ -157,23 +157,23 @@ class CdpRecoverySignalTests(unittest.TestCase):
         import agent.ec_skills.browser_use_extension.extension_tools_service as ets
 
         session = SimpleNamespace(id="s1")
-        old_feige_threshold = ets._FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD
+        old_feige_threshold = ets._LIVE_CHAT_CDP_EVALUATE_RECOVERY_THRESHOLD
         try:
-            ets._FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD = 1
+            ets._LIVE_CHAT_CDP_EVALUATE_RECOVERY_THRESHOLD = 1
             ets._CDP_EVALUATE_TIMEOUT_RECOVERY.clear()
-            ets.mark_feige_cdp_healthy()
+            ets.mark_live_chat_cdp_healthy()
             with patch(
                 "agent.ec_skills.browser_node.build_helpers.invalidate_browser_session_for_recovery",
                 return_value=True,
             ) as mocked:
-                ets.mark_feige_cdp_unhealthy("unit", cooldown_s=5.0)
+                ets.mark_live_chat_cdp_unhealthy("unit", cooldown_s=5.0)
                 ets._record_cdp_evaluate_recovery_signal(session, "feige_open_session", "Runtime.evaluate")
                 mocked.assert_called_once()
-                self.assertGreater(ets.feige_cdp_health_cooldown_remaining(), 0.0)
+                self.assertGreater(ets.live_chat_cdp_health_cooldown_remaining(), 0.0)
         finally:
-            ets._FEIGE_CDP_EVALUATE_RECOVERY_THRESHOLD = old_feige_threshold
+            ets._LIVE_CHAT_CDP_EVALUATE_RECOVERY_THRESHOLD = old_feige_threshold
             ets._CDP_EVALUATE_TIMEOUT_RECOVERY.clear()
-            ets.mark_feige_cdp_healthy()
+            ets.mark_live_chat_cdp_healthy()
 
 
 class MemorySelfProtectionTests(unittest.TestCase):
@@ -192,18 +192,22 @@ class MemorySelfProtectionTests(unittest.TestCase):
     def test_feige_high_rss_marks_cdp_unhealthy_and_releases_cache_pressure(self):
         from utils.memory_monitor import MemoryMonitor
 
-        monitor = MemoryMonitor(rss_feige_protect_mb=1, rss_protect_mb=10, rss_critical_mb=20)
+        # The handler resolves the CDP-health marker through the live-chat
+        # runner bridge; import the reference bundle so it is registered.
+        import agent.ec_skills.browser_use_extension.hooks.external.feige_chat  # noqa: F401
+
+        monitor = MemoryMonitor(rss_live_chat_protect_mb=1, rss_protect_mb=10, rss_critical_mb=20)
         with patch(
             "agent.ec_skills.browser_node.build_helpers.release_browser_cache_pressure",
             return_value=2,
         ) as mocked:
             with patch(
-                "agent.ec_skills.browser_use_extension.extension_tools_service.mark_feige_cdp_unhealthy",
+                "agent.ec_skills.browser_use_extension.extension_tools_service.mark_live_chat_cdp_unhealthy",
                 return_value=5.0,
             ) as marker:
-                monitor._handle_feige_high_rss(6500.0)
+                monitor._handle_live_chat_high_rss(6500.0)
 
-        mocked.assert_called_once_with(reason="memory_feige_protect", aggressive=False)
+        mocked.assert_called_once_with(reason="memory_live_chat_protect", aggressive=False)
         marker.assert_called_once()
 
 

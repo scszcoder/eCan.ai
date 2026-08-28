@@ -71,7 +71,7 @@ from typing import Any, Literal
 
 from .hook_api import HookApiError
 
-logger = logging.getLogger("eCan")
+from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
 
 TrustMode = Literal["permissive", "strict", "lockdown"]
 

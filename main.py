@@ -9,6 +9,81 @@ import time
 import warnings
 
 # ============================================================================
+# Load .env file BEFORE any other imports that depend on environment variables.
+# This must happen at the very top — before dotenv import, before any project
+# module imports — so ECAN_APP_ID (and other env vars) are visible everywhere.
+# ============================================================================
+from dotenv import load_dotenv
+load_dotenv()
+
+# ============================================================================
+# CRITICAL (CN/Intl): Detect app variant from the running bundle BEFORE any
+# other imports. PyInstaller strips the build-time `ECAN_APP_ID` env var, so
+# the running process must set it itself or `_is_cn_app()` always falls back
+# to the intl default and CN builds log into AWS Cognito.
+#
+# Detection rules (in order):
+#   1. ECAN_APP_ID already set in the OS environment (CI, tests, manual).
+#   2. Frozen executable: detect from exe filename or parent directory name.
+#   3. Fallback: leave unset; downstream code defaults to 'intl'.
+#
+# IMPORTANT: Each version (cn/intl) uses independent paths, so co-installing
+# both versions works correctly. The exe filename or parent dir determines
+# which version is running.
+# ============================================================================
+def _detect_app_id_from_bundle() -> str | None:
+    """Detect ECAN_APP_ID from the running bundle.
+    
+    Platform-specific detection:
+    - Windows: Parse from exe filename or parent directory (e.g., eCan.cn.exe).
+    - macOS: Read CFBundleIdentifier from Contents/Info.plist.
+    - Linux: Parse from executable filename (eCan.cn or eCan.intl).
+    
+    Each version has independent paths, so co-installing both versions works.
+    """
+    if not getattr(sys, 'frozen', False):
+        return None
+    
+    exe_path = getattr(sys, 'executable', '') or ''
+    exe_name = os.path.basename(exe_path).lower()
+    parent_dir = os.path.basename(os.path.dirname(exe_path)).lower()
+    
+    # ---- Windows/Linux: Detect from exe filename or parent directory ----
+    # CN versions: eCan.cn.exe, eCan.cn.app, eCan.cn
+    # Intl versions: eCan.exe, eCan.app, eCan (no suffix = intl)
+    if 'cn' in exe_name or 'cn' in parent_dir:
+        return 'cn'
+    
+    # Intl: no 'cn' suffix (eCan.exe, eCan, eCan.app)
+    if 'intl' in exe_name or 'intl' in parent_dir:
+        return 'intl'
+    
+    # No suffix means intl
+    return 'intl'
+
+if 'ECAN_APP_ID' not in os.environ:
+    detected = _detect_app_id_from_bundle()
+    if detected:
+        os.environ['ECAN_APP_ID'] = detected
+        print(f"[BOOT] Detected app variant from bundle: ECAN_APP_ID={detected}")
+
+# ============================================================================
+# Load the persisted runtime env file (<appdata>/run.env), written by
+# deployment recipes (e.g. 快速生成→抖店客服 seeds the Feige run flags) so
+# customers get the validated runtime configuration without setting dozens
+# of OS env vars by hand. override=False: a real OS env var always wins.
+# Must come AFTER ECAN_APP_ID detection (the appdata path is per-variant).
+# ============================================================================
+try:
+    from config.envi import getECBotDataHome
+    _run_env_path = os.path.join(getECBotDataHome(), 'run.env')
+    if os.path.exists(_run_env_path):
+        load_dotenv(_run_env_path, override=False)
+        print(f"[BOOT] Loaded runtime env file: {_run_env_path}")
+except Exception as _run_env_err:
+    print(f"[BOOT] run.env load skipped: {_run_env_err}")
+
+# ============================================================================
 # Suppress known third-party deprecation/compatibility warnings
 # These are library issues (langchain, pydantic) not fixable in our code
 # ============================================================================
@@ -147,6 +222,53 @@ def _patch_browser_use_to_utf8():
     except Exception as e:
         # Non-critical - log but continue
         print(f"[GBK_FIX] Warning: Could not apply browser-use encoding fix: {e}")
+
+
+def _patch_cdp_no_compression():
+    """ws088: disable permessage_deflate on the CDP (localhost) WebSocket.
+
+    ws087's live loop-block stack dumps pinned the responsiveness root cause: browser-use's
+    ``cdp_use`` client connects to Chrome over ``ws://127.0.0.1`` with the websockets library's
+    DEFAULT compression ON, so every large CDP frame (50KB+ DOM bubble-scrapes, eval results, and
+    the forwarded ``Network.webSocketFrameReceived`` events the live-chat WS observer reads) is
+    zlib-decompressed (``permessage_deflate.decode``) SYNCHRONOUSLY on the event loop inside
+    ``_handle_messages`` — freezing the loop 8-23s, which is the real cause behind the late/missing/
+    triple 过渡句, det-tab 3s timeouts, pool saturation, and slow replies.
+
+    On a LOCALHOST socket compression saves no meaningful bandwidth and costs only loop CPU, so
+    force ``compression=None`` for ``ws://`` (CDP) URLs. eCan's own raw Frontier socket
+    (``wss://ws.fxg.jinritemai.com`` over the internet, where compression IS worthwhile) is
+    ``wss://`` so it is NOT touched. Idempotent. Kill switch: ECAN_CDP_NO_COMPRESSION=0.
+    """
+    import os as _os
+    if _os.environ.get("ECAN_CDP_NO_COMPRESSION", "1") == "0":
+        return
+    try:
+        import websockets as _ws
+        _orig_connect = _ws.connect
+        if getattr(_orig_connect, "_ecan_cdp_nocompress", False):
+            return
+
+        def _connect_no_compress(uri, *args, **kwargs):
+            try:
+                _u = str(uri or "")
+                # ws:// == CDP/localhost (unencrypted); wss:// == remote Frontier (keep compressed).
+                if _u.startswith("ws://") and "compression" not in kwargs:
+                    kwargs["compression"] = None
+            except Exception:
+                pass
+            return _orig_connect(uri, *args, **kwargs)
+
+        _connect_no_compress._ecan_cdp_nocompress = True
+        _ws.connect = _connect_no_compress
+        print("[CDP_NOCOMPRESS] ✅ ws088: disabled permessage_deflate on ws:// (CDP) sockets — "
+              "large CDP frames no longer zlib-decompress on the event loop")
+    except Exception as _e:
+        print(f"[CDP_NOCOMPRESS] patch skipped: {_e}")
+
+
+# Install at import time — must precede the first cdp_use connection (browser-use / live-chat monitors).
+_patch_cdp_no_compression()
 
 
 def _wait_for_port_ready(port: int, host: str = '127.0.0.1', timeout_s: float = 8.0) -> bool:
@@ -704,7 +826,17 @@ try:
         if not startup_splash:
             startup_splash = None
 
-    progress_manager.update_progress(5, "Loading core modules...")
+    # Get i18n messages for splash screen
+    try:
+        from gui.splash import _get_splash_messages
+        _splash_msg = _get_splash_messages()
+        def splash_msg(key):
+            return _splash_msg.get(key)
+    except Exception:
+        def splash_msg(key):
+            return key  # fallback: use key as-is
+
+    progress_manager.update_progress(5, splash_msg('loading_core_modules'))
 
     # Standard imports
     asyncio = globals().get('ASYNCIO')
@@ -712,14 +844,14 @@ try:
         asyncio = _import_asyncio_safely()
         globals()['ASYNCIO'] = asyncio
     import qasync
-    progress_manager.update_progress(10, "Importing standard libraries...")
+    progress_manager.update_progress(10, splash_msg('importing_std_libs'))
 
     # Basic configuration imports
     from config.app_info import app_info
     from config.app_settings import app_settings
     from utils.logger_helper import logger_helper as logger
     from app_context import AppContext
-    progress_manager.update_progress(15, "Loading configuration...")
+    progress_manager.update_progress(15, splash_msg('loading_config'))
 
     # Print startup banner
     _print_startup_banner(logger, app_info)
@@ -733,11 +865,14 @@ try:
         set_crash_boundary_phase("startup:configuration_loaded")
         previous_boundary = report_previous_process_boundary()
         if previous_boundary.get("unexpected"):
-            try:
-                from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import abort_pending_from_previous_process
-                abort_pending_from_previous_process()
-            except Exception as e:
-                logger.warning(f"[FEIGE-DURABILITY] startup abort scan failed: {e}")
+            # Publish a neutral, pid-stamped signal so site bundles loaded
+            # later in startup (e.g. the live-chat bundle's
+            # delivery-durability scan, which auto-loads with build_node's
+            # bundle discovery) can react to the unexpected previous-process
+            # death without main.py knowing about any specific site.
+            # Pid-stamped so child processes inheriting the environment
+            # don't mistake it for their own boundary.
+            os.environ["ECAN_PREV_BOUNDARY_UNEXPECTED_PID"] = str(os.getpid())
         start_crash_boundary_heartbeat()
     except Exception as e:
         logger.warning(f"[CrashBoundary] startup monitor failed: {e}")
@@ -756,10 +891,10 @@ try:
         logger.warning(f"Failed to configure third-party loggers: {e}")
 
     # Runtime environment is already initialized above
-    progress_manager.update_progress(20, "Setting up environment...")
+    progress_manager.update_progress(20, splash_msg('setting_up_env'))
 
     # Load shell environment variables early (for non-terminal launches)
-    progress_manager.update_progress(22, "Loading environment variables...")
+    progress_manager.update_progress(22, splash_msg('loading_env_vars'))
     try:
         from utils.env import load_shell_environment
         loaded_count = load_shell_environment()
@@ -781,7 +916,7 @@ try:
     except Exception as e:
         print(f"Warning: Failed to enforce direct-connection baseline: {e}")
 
-    progress_manager.update_progress(28, "Starting local server...")
+    progress_manager.update_progress(28, splash_msg('starting_local_server'))
     try:
         from gui.LocalServer import start_local_server_early
         local_server_port = int(os.environ.get('ECAN_LOCAL_SERVER_PORT', os.environ.get('VITE_LOCAL_SERVER_PORT', '4668')))
@@ -792,13 +927,13 @@ try:
         print(f"Warning: Failed to start local server early: {e}")
 
     # Import other necessary modules
-    progress_manager.update_progress(30, "Loading Login components...")
+    progress_manager.update_progress(30, splash_msg('loading_login'))
     from gui.LoginoutGUI import Login
-    progress_manager.update_progress(32, "Loading WebGUI components...")
+    progress_manager.update_progress(32, splash_msg('loading_webgui'))
     from gui.WebGUI import WebGUI
     
     # Patch browser-use to use UTF-8 encoding
-    progress_manager.update_progress(33, "Patching browser-use to UTF-8...")
+    progress_manager.update_progress(33, splash_msg('patching_browser'))
     _patch_browser_use_to_utf8()
 
     # Compatibility shim: httpx >= 0.20 renamed TimeoutError → TimeoutException.
@@ -823,7 +958,7 @@ try:
             set_crash_boundary_phase("startup:main_entered")
         except Exception:
             pass
-        progress_manager.update_progress(35, "Initializing application...")
+        progress_manager.update_progress(35, splash_msg('init_app'))
 
         # Start hot reload monitoring (development mode)
         # if app_settings.is_dev_mode:
@@ -842,12 +977,12 @@ try:
             raise RuntimeError("QApplication was not properly initialized")
 
         # Set application info and icon (unified management)
-        progress_manager.update_progress(40, "Setting up application info...")
+        progress_manager.update_progress(40, splash_msg('setting_up_app_info'))
         from utils.app_setup_helper import setup_application_info
         setup_application_info(app, logger)
 
         # Initialize global AppContext
-        progress_manager.update_progress(45, "Initializing application context...")
+        progress_manager.update_progress(45, splash_msg('init_app_context'))
         try:
             from utils.crash_boundary import set_crash_boundary_phase
             set_crash_boundary_phase("startup:app_context")
@@ -871,7 +1006,7 @@ try:
         init_gui_dispatch()
 
         # Verify application icon (already set early for macOS/Linux)
-        progress_manager.update_progress(50, "Verifying application icons...")
+        progress_manager.update_progress(50, splash_msg('verifying_icons'))
         from utils.icon_manager import get_icon_manager
         icon_mgr = get_icon_manager()
         icon_mgr.set_logger(logger)
@@ -890,9 +1025,24 @@ try:
         # (requires window handle, especially important for frozen/packaged builds)
 
         # Create event loop
-        progress_manager.update_progress(55, "Creating event loop...")
+        progress_manager.update_progress(55, splash_msg('creating_event_loop'))
         loop = qasync.QEventLoop(app)
         asyncio.set_event_loop(loop)
+
+        # ws089: attach the stall-diag heartbeat to the qasync MAIN loop (the Qt-pumped loop that
+        # owns the CDP clients). The CDP-send handoff stalls (HANDOFF-STARVED, 8-12s) happen when
+        # Qt isn't dispatching events — but until now the heartbeat only watched the plain CDP
+        # loops, never this one, so we never dumped MainThread during a Qt stall. The off-loop
+        # canary (a real daemon thread) detects when this loop stops ticking and dumps MainThread's
+        # FULL stack (ws089 deepens it) — naming the exact Qt slot/handler blocking the GUI loop.
+        # No-op unless ECAN_STALL_DIAG=1. call_soon defers the attach until the loop is running.
+        try:
+            from utils import stall_diagnostics as _stall_diag
+            if _stall_diag.enabled():
+                _stall_diag.start_canary()
+                loop.call_soon(lambda: _stall_diag.ensure_loop_heartbeat(loop))
+        except Exception:
+            pass
 
         # Install power monitor for sleep/wake detection (cross-platform)
         try:
@@ -905,11 +1055,11 @@ try:
 
         # Async preload will be started by WebGUI after event loop is running
         # This allows heavy modules to load in background during user login
-        progress_manager.update_progress(58, "Preparing background preload...")
+        progress_manager.update_progress(58, splash_msg('preparing_preload'))
         logger.info("✅ [Startup] Async preload will start after event loop is ready")
 
         # Create login component
-        progress_manager.update_progress(60, "Initializing login system...")
+        progress_manager.update_progress(60, splash_msg('init_login_system'))
         login = Login()
         ctx.set_login(login)
         ctx.set_main_loop(loop)
@@ -945,7 +1095,7 @@ try:
             logger.warning(f"Failed to start memory monitor: {e}")
 
         # Print current running mode
-        progress_manager.update_progress(65, "Configuring runtime mode...")
+        progress_manager.update_progress(65, splash_msg('config_runtime'))
         if app_settings.is_dev_mode:
             logger.info("Running in development mode (Vite dev server)")
         else:
@@ -953,7 +1103,7 @@ try:
 
         # Create Web GUI (do not show yet; wait until resources are loaded)
         logger.info("Creating WebGUI instance...")
-        progress_manager.update_progress(70, "Creating main interface...")
+        progress_manager.update_progress(70, splash_msg('creating_ui'))
         try:
             from utils.crash_boundary import set_crash_boundary_phase
             set_crash_boundary_phase("startup:webgui")
@@ -967,7 +1117,7 @@ try:
         web_gui = WebGUI(splash=startup_splash, progress_callback=webgui_progress_callback)
         logger.info("WebGUI instance created successfully")
 
-        progress_manager.update_progress(80, "Setting up URL scheme handling...")
+        progress_manager.update_progress(80, splash_msg('setting_up_url'))
 
         # Setup URL scheme handling
         try:
@@ -978,7 +1128,7 @@ try:
         except Exception as e:
             logger.warning(f"URL scheme setup failed: {e}")
 
-        progress_manager.update_progress(85, "Finalizing setup...")
+        progress_manager.update_progress(85, splash_msg('finalizing'))
         ctx.set_web_gui(web_gui)
 
         # Set UI references for login controller (WebGUI is the "login window")
@@ -1027,7 +1177,7 @@ try:
         logger.info("Registered OTA updater cleanup on application quit.")
 
         # Finish splash screen
-        progress_manager.update_progress(100, "Ready to launch!")
+        progress_manager.update_progress(100, splash_msg('ready'))
         progress_manager.finish(web_gui)
 
         # Initialize proxy environment after splash (non-blocking, in background)
@@ -1092,6 +1242,17 @@ try:
             daemon=True,
         )
         plugin_init_thread.start()
+
+        # Env-gated automated login for the flood-test harness. No-op unless
+        # ECAN_AUTOLOGIN=1. Scheduled via call_later so it fires AFTER the loop
+        # is running (handleLogin schedules the main-window launch on this loop).
+        try:
+            if os.getenv('ECAN_AUTOLOGIN', '0') == '1':
+                _autologin_delay = float(os.getenv('ECAN_AUTOLOGIN_DELAY', '4'))
+                loop.call_later(_autologin_delay, login.maybe_autologin)
+                logger.info(f"[AutoLogin] Scheduled auto-login in {_autologin_delay}s")
+        except Exception as e:
+            logger.warning(f"[AutoLogin] Failed to schedule auto-login: {e}")
 
         # Run main loop
         try:

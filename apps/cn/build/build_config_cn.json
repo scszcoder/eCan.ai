@@ -1,0 +1,104 @@
+{
+  "_inherit_from": "../../../build_system/build_config.json",
+  "_description": "CN app build configuration. Only fields that differ from build_system/build_config.json are listed here; everything else is deep-merged from the base. Keys with _prefix are stripped from the final config and only serve as metadata.",
+  "app": {
+    "name": "eCan.cn",
+    "description": "eCan AI 助手 - 智能自动化平台（中国版）",
+    "author": "eCan.AI Team",
+    "app_user_model_id": "eCan.cn.AI.Assistant",
+    "icons": {
+      "macos": "eCan.cn.icns",
+      "windows": "eCan.cn.ico"
+    },
+    "version_info": {
+      "company_name": "eCan.AI Team",
+      "file_description": "eCan AI 助手 - 智能自动化平台（中国版）",
+      "product_name": "eCan · 中国版",
+      "internal_name": "eCan.cn",
+      "original_filename": "eCan.cn.exe",
+      "copyright_holder": "eCan.AI Team"
+    }
+  },
+  "installer": {
+    "app_name": "eCan.cn",
+    "app_id": "{8E2A1B3C-4D5E-6F7A-8B9C-0D1E2F3A4B5C}",
+    "app_publisher": "eCan.AI Team",
+    "publisher": "eCan.AI Team",
+    "publisher_url": "https://www.fastprecisiontech.com",
+    "support_url": "https://www.fastprecisiontech.com/support",
+    "updates_url": "https://update.fastprecisiontech.com/releases",
+    "default_dir": "{localappdata}\\eCan.cn",
+    "default_group": "eCan.cn",
+    "windows": {
+      "app_id": "{8E2A1B3C-4D5E-6F7A-8B9C-0D1E2F3A4B5C}",
+      "icon_file": "eCan.cn.ico",
+      "default_dir": "{localappdata}\\eCan.cn",
+      "default_group": "eCan.cn",
+      "publisher": "eCan.AI Team",
+      "publisher_url": "https://www.fastprecisiontech.com",
+      "support_url": "https://www.fastprecisiontech.com/support",
+      "updates_url": "https://update.fastprecisiontech.com/releases",
+      "registry_entries": [
+        {
+          "root": "HKCU",
+          "subkey": "Software\\Classes\\ecan-cn",
+          "value_name": "",
+          "value_data": "URL:eCan.cn Protocol",
+          "value_type": "string"
+        },
+        {
+          "root": "HKCU",
+          "subkey": "Software\\Classes\\ecan-cn",
+          "value_name": "URL Protocol",
+          "value_data": "",
+          "value_type": "string"
+        },
+        {
+          "root": "HKCU",
+          "subkey": "Software\\Classes\\ecan-cn\\shell\\open\\command",
+          "value_name": "",
+          "value_data": "\"{app}\" \"%1\"",
+          "value_type": "string"
+        }
+      ]
+    },
+    "macos": {
+      "bundle_identifier": "com.ecan.cn.app",
+      "app_name": "eCan.cn",
+      "copyright": "Copyright (c) 2025 eCan.cn Team",
+      "pkg": {
+        "title": "eCan.cn"
+      },
+      "url_schemes": [
+        {
+          "scheme": "ecan-cn",
+          "name": "eCan.cn URL",
+          "role": "Viewer"
+        }
+      ]
+    },
+    "linux": {
+      "icon": "resource/images/icons/eCan.cn.png",
+      "appimage": {
+        "name": "eCan.cn"
+      },
+      "deb": {
+        "package_name": "ecan-cn",
+        "description": "eCan AI 助手 - 智能自动化平台（中国版）",
+        "long_description": "eCan.cn 是智能自动化平台，帮助您自动化重复任务、管理工作流，并通过先进的 AI 能力提升生产力。",
+        "homepage": "https://www.fastprecisiontech.com",
+        "maintainer": "eCan.cn Team <support@fastprecisiontech.com>"
+      },
+      "rpm": {
+        "package_name": "ecan-cn"
+      },
+      "desktop_file": {
+        "name": "eCan.cn",
+        "startup_wm_class": "eCan.cn"
+      }
+    }
+  },
+  "ota": {
+    "update_url": "https://update.fastprecisiontech.com/releases"
+  }
+}

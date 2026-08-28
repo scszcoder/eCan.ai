@@ -6,6 +6,7 @@ Development Commands - Build, test, lint, and development utilities.
 
 import os
 import sys
+import shutil
 import click
 import subprocess
 
@@ -61,11 +62,22 @@ def run(mode, clean, verbose):
     ctx = get_context()
     out = get_output()
 
-    cmd = [sys.executable, 'build.py', '--mode', mode]
+    # build.py takes `mode` as a POSITIONAL arg (fast|dev|prod). It has no
+    # --mode/--verbose flags, and --cleanup-only cleans WITHOUT building (the
+    # opposite of "clean before building"). So for --clean we run a cleanup
+    # pass first, then the actual build. `verbose` is not forwarded because
+    # build.py does not accept it.
     if clean:
-        cmd.append('--cleanup-only')
-    if verbose:
-        cmd.append('--verbose')
+        out.info("Cleaning build artifacts before building...")
+        clean_result = subprocess.run(
+            [sys.executable, 'build.py', '--cleanup-only'],
+            cwd=str(ctx.project_root)
+        )
+        if clean_result.returncode != 0:
+            out.error("Clean step failed")
+            raise SystemExit(clean_result.returncode)
+
+    cmd = [sys.executable, 'build.py', mode]
 
     out.info(f"Running build in {mode} mode...")
     result = subprocess.run(cmd, cwd=str(ctx.project_root))
@@ -418,6 +430,5 @@ def shell(python, ipython):
 
 
 def _which(cmd):
-    """Check if command exists."""
-    result = subprocess.run(['which', cmd], capture_output=True)
-    return result.returncode == 0
+    """Check if command exists (cross-platform)."""
+    return shutil.which(cmd) is not None

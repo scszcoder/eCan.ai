@@ -37,7 +37,18 @@ except ImportError:
 
 class S3Uploader:
     """Upload build artifacts to S3 with environment-based path structure"""
-    
+
+    # Exit-code sentinels used by the wrapper script in
+    # .github/workflows/shared-s3-upload.yml. rc=2 is a hard precondition
+    # failure (missing dist, no artifacts) — the wrapper renders this as a
+    # red `::error::` annotation so the failure is visible in the GitHub
+    # UI rather than a buried yellow warning. rc=1 is a soft runtime
+    # failure (S3 unreachable, auth) — the wrapper turns that into a
+    # `::warning::` plus a GHA artifact fallback URL.
+    EXIT_OK = 0
+    EXIT_SOFT_FAIL = 1
+    EXIT_HARD_FAIL = 2
+
     def __init__(self, version: str, environment: str, user_prefix: str = ''):
         """
         Initialize S3 uploader
@@ -123,43 +134,74 @@ class S3Uploader:
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
     
-    def upload_file(self, local_path: Path, s3_key: str, content_type: str = 'application/octet-stream') -> bool:
+    def upload_file(self, local_path: Path, s3_key: str, content_type: str = 'application/octet-stream', max_retries: int = 3) -> bool:
         """
-        Upload a file to S3
+        Upload a file to S3 with retry logic for large files.
         
         Args:
             local_path: Local file path
             s3_key: S3 object key
             content_type: MIME type
+            max_retries: Maximum number of retry attempts
             
         Returns:
             True if successful, False otherwise
         """
-        try:
-            print(f"  Uploading {local_path.name} → s3://{self.bucket}/{s3_key}")
-            
-            self.s3.upload_file(
-                str(local_path),
-                self.bucket,
-                s3_key,
-                ExtraArgs={
-                    'ContentType': content_type,
-                    'CacheControl': 'max-age=3600'  # 1 hour cache
-                }
-            )
-            
-            self.uploaded_files.append({
-                'local_path': str(local_path),
-                's3_key': s3_key,
-                's3_url': f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{s3_key}",
-                'size': local_path.stat().st_size
-            })
-            
-            return True
-            
-        except ClientError as e:
-            print(f"  [ERROR] Failed to upload {local_path.name}: {e}")
-            return False
+        import time
+        from boto3.s3.transfer import TransferConfig
+        from botocore.exceptions import ClientError
+        
+        file_size_mb = local_path.stat().st_size / (1024 * 1024)
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                if attempt > 1:
+                    print(f"  [RETRY] {local_path.name} (attempt {attempt}/{max_retries}, {file_size_mb:.0f}MB)...")
+                    time.sleep(5)
+                
+                # Use transfer config for optimized multipart uploads
+                config = TransferConfig(
+                    multipart_chunksize=50 * 1024 * 1024,  # 50MB chunks for large files
+                    max_concurrency=10 if file_size_mb > 100 else 5
+                )
+                
+                print(f"  Uploading {local_path.name} → s3://{self.bucket}/{s3_key}")
+                
+                self.s3.upload_file(
+                    str(local_path),
+                    self.bucket,
+                    s3_key,
+                    ExtraArgs={
+                        'ContentType': content_type,
+                        'CacheControl': 'max-age=3600'
+                    },
+                    Config=config
+                )
+                
+                self.uploaded_files.append({
+                    'local_path': str(local_path),
+                    's3_key': s3_key,
+                    's3_url': f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{s3_key}",
+                    'size': local_path.stat().st_size
+                })
+                
+                return True
+                
+            except ClientError as e:
+                if attempt < max_retries:
+                    print(f"  [ERROR] {local_path.name} failed (attempt {attempt}): {e}, retrying...")
+                else:
+                    print(f"  [ERROR] {local_path.name} failed after {max_retries} attempts: {e}")
+                if attempt >= max_retries:
+                    return False
+            except Exception as e:
+                if attempt < max_retries:
+                    print(f"  [ERROR] {local_path.name} failed (attempt {attempt}): {e}, retrying...")
+                else:
+                    print(f"  [ERROR] {local_path.name} failed after {max_retries} attempts: {e}")
+                if attempt >= max_retries:
+                    return False
+        return False
     
     def upload_windows_artifacts(self, platform_filter: Optional[str] = None) -> int:
         """
@@ -455,13 +497,23 @@ class S3Uploader:
     def run(self, platform_filter: Optional[str] = None, arch_filter: Optional[str] = None) -> bool:
         """
         Run the upload process
-        
+
         Args:
             platform_filter: Only upload this platform (macos/windows)
             arch_filter: Only upload this architecture (amd64/aarch64)
-            
+
         Returns:
             True if successful, False otherwise
+
+        Raises:
+            _PreconditionError: when an upload cannot proceed because of a
+                hard precondition failure (missing dist directory, no
+                artifacts matched). The CLI translates this to exit code 2
+                so the workflow wrapper can render it as a red `::error::`
+                annotation. Distinguishing hard failures from soft upload
+                errors (S3 unreachable, auth expired) is what lets the
+                GitHub UI flag an upstream-broken build instead of burying
+                it under a yellow warning.
         """
         print("=" * 60)
         print("[INFO] S3 Upload - Single Bucket Design")
@@ -475,43 +527,52 @@ class S3Uploader:
         print(f"S3 Region:   {self.region}")
         print(f"S3 Prefix:   {self.prefix}")
         print(f"Dist Dir:    {self.dist_dir}")
-        
+
         if platform_filter:
             print(f"Platform:    {platform_filter}")
         if arch_filter:
             print(f"Arch:        {arch_filter}")
-        
+
         print("=" * 60)
-        
-        # Verify dist directory exists
+
+        # Verify dist directory exists. The wrapper downloads
+        # `*-s3-transfer` artifacts into `dist/` before invoking us; if
+        # we land here without that directory, every build job either
+        # failed or produced no artifacts, and there is nothing to
+        # upload. Surface that as a hard precondition failure
+        # (cf. EXIT_HARD_FAIL) so the CI UI shows a red error rather
+        # than silently logging a warning.
         if not self.dist_dir.exists():
-            print(f"[ERROR] Dist directory not found: {self.dist_dir}")
-            return False
-        
+            raise _PreconditionError(f"Dist directory not found: {self.dist_dir}")
+
         # Verify S3 access
         print("\n[INFO] Verifying S3 access...")
         if not self.verify_s3_access():
             return False
         print("  [OK] S3 access verified")
-        
+
         # Upload artifacts
         windows_count = self.upload_windows_artifacts(platform_filter)
         macos_count = self.upload_macos_artifacts(platform_filter, arch_filter)
         linux_count = self.upload_linux_artifacts(platform_filter, arch_filter)
-        
+
         total_count = windows_count + macos_count + linux_count
-        
+
         if total_count == 0:
-            print("\n[WARN] No artifacts found to upload")
-            return False
-        
+            # Builds ran but produced no installable artifacts (e.g.,
+            # `package_*_prod` short-circuited, or the pre-built
+            # installer / .deb / .pkg never landed in dist/). Same
+            # hard-fail semantics as a missing dist directory: there's
+            # nothing to upload and the upstream pipeline is broken.
+            raise _PreconditionError("No artifacts found to upload")
+
         # Upload metadata
         if not self.upload_metadata():
             return False
-        
+
         # Note: latest/version.json generation has been removed (deprecated)
         # All version information is now in latest.json (generated by generate_appcast.py)
-        
+
         # Summary
         print("\n" + "=" * 60)
         print("[OK] Upload Complete!")
@@ -522,8 +583,16 @@ class S3Uploader:
         for f in self.uploaded_files:
             print(f"  • {f['s3_url']}")
         print("=" * 60)
-        
+
         return True
+
+
+class _PreconditionError(Exception):
+    """Raised by S3Uploader.run() when a hard precondition fails.
+
+    See S3Uploader.EXIT_HARD_FAIL for the contract this exception
+    implements (the CLI translates it to exit code 2, which the CI
+    wrapper renders as a red `::error::` annotation)."""
 
 
 def main():
@@ -558,12 +627,22 @@ Examples:
                        help='Only upload this architecture (optional)')
 
     args = parser.parse_args()
-    
-    # Create uploader and run
+
+    # Create uploader and run. Hard precondition failures (missing dist,
+    # no artifacts) raise _PreconditionError → exit code 2; the GitHub
+    # Actions wrapper in shared-s3-upload.yml renders rc=2 as a red
+    # `::error::` annotation so the failure is visible in the UI instead
+    # of being buried under a yellow warning. Soft runtime failures
+    # (S3 unreachable, auth) keep the historical rc=1 → ::warning::
+    # contract so transient S3 problems don't false-alarm the build.
     uploader = S3Uploader(args.version, args.env, user_prefix=args.user_prefix)
-    success = uploader.run(args.platform, args.arch)
-    
-    sys.exit(0 if success else 1)
+    try:
+        success = uploader.run(args.platform, args.arch)
+    except _PreconditionError as e:
+        print(f"[ERROR] {e}")
+        sys.exit(S3Uploader.EXIT_HARD_FAIL)
+
+    sys.exit(S3Uploader.EXIT_OK if success else S3Uploader.EXIT_SOFT_FAIL)
 
 
 if __name__ == "__main__":

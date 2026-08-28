@@ -53,11 +53,13 @@ class IPCHandlerRegistry:
     _whitelist: ClassVar[Set[str]] = {
         'login', 'signup', 'refresh_token', 'get_system_status',
         'ping', 'health_check', 'get_version', 'forgot_password',
-        'confirm_forgot_password', 'google_login', 'get_last_login',
+        'confirm_forgot_password', 'google_login', 'wechat_login', 'get_last_login',
+        'save_login_info', 'clear_login_info',  # Allow saving/clearing login credentials for remember password feature
         'force_close_oauth_port_blocker',  # pre-login recovery: kill stale eCan.exe holding the OAuth port
         'logout',  # logout doesn't need token validation, as it may be called when token is invalid
         'get_initialization_progress',  # Allow checking initialization progress when system is not ready
         'skill_editor.get_node_state_schema',  # Allow schema retrieval pre-auth/init for editor boot
+        'getAppConfig',  # Allow runtime app config fetch pre-auth (returns auth_type, endpoints, region)
         # File operations should be usable early for local open/save
         'show_open_dialog', 'show_save_dialog', 'read_skill_file', 'write_skill_file', 'open_folder',
         # User preferences (language, theme) should be available before login
@@ -66,6 +68,22 @@ class IPCHandlerRegistry:
         'label_config.get_all', 'label_config.save', 'label_config.delete', 'label_config.check_name',
         # Token management operations - these handlers validate tokens themselves
         'auth.getTokenInfo', 'auth.refreshToken', 'auth.extendToken',
+        # CN / CloudBase auth: all login / signup / phone flows run before a session exists,
+        # so they cannot carry a token. Mirrors intl's `login`/`signup`/`google_login` policy.
+        'cloudbase_check_config',
+        'cloudbase_login',
+        'cloudbase_signup',
+        'cloudbase_signup_confirm',
+        'cloudbase_phone_login',
+        'cloudbase_phone_signup',
+        'cloudbase_send_code',
+        'cloudbase_verify_code',
+        'cloudbase_forgot_password',
+        'cloudbase_reset_password',
+        'cloudbase_wechat_h5_login',
+        'cloudbase_wechat_qr_login',
+        'cloudbase_logout',
+        'cloudbase_refresh_token',
     }
 
     @classmethod
@@ -534,9 +552,13 @@ class IPCHandlerRegistry:
             Exception: If handler execution fails (GraphQL will wrap as error)
         """
         try:
+            # Ensure all handler modules are loaded before looking up
+            from gui.ipc.w2p_handlers import _ensure_handlers_loaded
+            _ensure_handlers_loaded()
+
             # Use the provided IPC request (contains token from Authorization header)
             ipc_request = request
-            
+
             # Get handler
             handler_info = cls.get_handler(method)
             if not handler_info:
@@ -579,8 +601,10 @@ class IPCHandlerRegistry:
         except Exception as e:
             # Use warning level for expected auth errors, error level for unexpected errors
             error_code = getattr(e, 'error_code', None)
-            if error_code in ('INVALID_TOKEN', 'TOKEN_REQUIRED', 'SYSTEM_NOT_READY'):
-                # Expected auth/initialization errors - log as warning without stack trace
+            if error_code in ('INVALID_TOKEN', 'TOKEN_REQUIRED', 'SYSTEM_NOT_READY',
+                              'LOGIN_FAILED', 'CLOUDBASE_NOT_AVAILABLE',
+                              'INVALID_PARAMS', 'INVALID_CREDENTIALS', 'SMS_SEND_FAILED'):
+                # Expected user-visible errors - log as warning without stack trace
                 logger.warning(f"[registry] {error_code} for method {method}: {e}")
             else:
                 # Unexpected errors - log as error with full stack trace

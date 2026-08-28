@@ -1,154 +1,106 @@
 # GitHub Actions Workflows
 
-This project contains a main GitHub Actions workflow for automated build and release processes.
+## Layout
 
-## Workflows Overview
+```
+.github/workflows/
+├── release-intl.yml              Intl release pipeline (AWS S3)
+├── release-cn.yml                CN release pipeline (Tencent Cloud COS)
+├── lint-runner-labels.yml        Label-parity check for self-hosted runners
+├── shared-appcast-generation.yml       S3 appcast (Intl)
+├── shared-cos-appcast-generation.yml   COS appcast (CN)
+├── shared-s3-latest-json.yml          S3 latest.json (Intl)
+├── shared-cos-latest-json.yml         COS latest.json (CN)
+├── shared-s3-upload.yml          Upload Intl artifacts to S3
+├── shared-cos-upload.yml         Upload CN artifacts to COS
+├── shared-download-links.yml     Download-links summary (Intl)
+└── shared-cos-download-links.yml Download-links summary (CN)
+```
 
-### Release Build (`release.yml`)
-**Unified Release Process** - Triggered when creating tags or releases
+## Two independent release pipelines
 
-**Trigger Conditions:**
-- Push tag: `v*` (e.g., `v1.0.0`, `v2.1.3`)
-- Create/edit/publish GitHub Release
-- Manual trigger (with platform selection support)
+We ship two parallel releases — one per app. Each owns a fully closed loop
+(validate → build → upload → appcast → status) on its own backend so the
+two never share state, never depend on each other's secrets, and never
+need to know `app='intl'|'cn'`.
 
-**Features:**
-- ✅ Validate tag format
-- ✅ Support selective builds (Windows, macOS, or all)
-- ✅ Parallel build for Windows and macOS versions
-- ✅ Automatic GitHub Release creation
-- ✅ Upload build artifacts
-- ✅ Unified multi-platform build management
+| Workflow | Backend | Builds | Always uploads to | Appcast lives at |
+|---|---|---|---|---|
+| `release-intl.yml` | AWS S3 | windows, macos amd64 / aarch64, linux | `s3://ecan-updates/...` | `s3://ecan-updates/{env}/channels/{ch}/` |
+| `release-cn.yml`   | Tencent COS | same four builds | `cos://.../...` | `cos://.../{env}/channels/{ch}/` |
 
-## Usage
+### Why split?
 
-### Creating a New Version Release
+* **Isolation** — a failure or refactor in one workflow cannot break the other.
+* **Clear ownership** — every named artifact is owned by exactly one pipeline.
+* **Smaller diffs** — touching windows code signing never touches CN's
+  COS upload template.
 
-1. **Prepare Code**
-   ```bash
-   git checkout main
-   git pull origin main
-   ```
+### Sharing code
 
-2. **Create and Push Tag**
-   ```bash
-   # Create tag (following Semantic Versioning)
-   git tag v1.0.0
-   
-   # Push tag to remote repository
-   git push origin v1.0.0
-   ```
+Build steps that are 100% identical between the two workflows (env setup,
+artifact upload-to-GH pattern, signing decision) intentionally live twice.
+We pay N lines for the locality gain. If a third backend ever appears,
+promote shared bits to `.github/actions/*` (composite actions) and let
+both workflows `uses:` them.
 
-3. **Automatic Build Trigger**
-   - After pushing the tag, GitHub Actions will automatically trigger the build process
-   - After build completion, it will automatically create a GitHub Release
+### Inputs
 
-### Tag Naming Convention
+Both workflows accept the same surface so operator muscle memory transfers:
 
-Following [Semantic Versioning (SemVer)](https://semver.org/) specification:
+* `platform` — `all | windows | macos | linux`
+* `arch` — `all | amd64 | aarch64`
+* `ref` — branch or tag; empty = use workflow branch
+* `environment` — `production | staging | test | development | ''` (auto-detect)
+* `channel` — `stable | beta | nightly | dev | ''` (auto-detect)
+* `upload_artifacts` — debug mirror to GH Artifacts (`true | false`)
+* `runner_group` — `github-hosted | ecan-{os}-{arch}` self-hosted runner
 
-- **Stable Release**: `v1.0.0`, `v2.1.3`
-- **Pre-release**: `v1.0.0-alpha.1`, `v2.0.0-beta.1`
-- **Development**: `v1.0.0-dev.20240101`
+### Tag rules
 
-### Manual Trigger
+Both pipelines apply the same:
 
-You can manually trigger builds through GitHub's web interface:
+* Semver tag (`v1.0.0`, `v1.0.0-rc.1`, `songc_v1.0.0`)
+* Reserved prefixes blocked: `rc beta alpha dev nightly pre preview snapshot`
+* `production/stable` requires a clean tag (no branch builds)
 
-1. Go to project's **Actions** tab
-2. Select **Release Build** workflow
-3. Click **Run workflow**
-4. Choose platform (Windows, macOS, or all)
-5. Click **Run workflow** button
+See `validate-tag` job in either workflow for the full ruleset.
 
-## Build Artifacts
+## Per-app pipeline shape (Intl as example; CN is mirrored)
 
-### Windows
-- `eCan-Setup.exe` - Installer
-- `eCan/eCan.exe` - Portable executable
+```
+              ┌── build-windows ─────────────┐
+validate-tag ─┤── build-macos-amd64 ─────────┤
+              ├── build-macos-aarch64 ───────┤── upload-to-s3 ── generate-appcast ──┬── latest.json
+              └── build-linux ───────────────┘                                       ├── download-links
+                                                                                     └── final-status
+```
 
-### macOS
-- `eCan.pkg` - macOS installer package
-- `eCan.app` - macOS application bundle (portable)
+`generate-appcast` collapses the previous 4-way split (one job per
+platform×arch) into a single invocation: the underlying
+`generate_appcast.py --platform all --arch all --app <x>` produces all
+six feed files in one pass.
 
-### Artifact Storage
-- **GitHub Actions**: 30 days retention
-- **GitHub Releases**: Permanent storage
-- **Download**: Available from GitHub Releases page
+## Reusable (shared-*) workflows
 
-## Version Management
+* `shared-s3-upload.yml`            — upload `*-s3-transfer` artifacts to S3, requires AWS secrets.
+* `shared-cos-upload.yml`           — upload `*-s3-transfer` artifacts to COS, requires Tencent secrets.
+* `shared-appcast-generation.yml`   — write Sparkle appcast XML to S3 (`--app intl`).
+* `shared-cos-appcast-generation.yml` — write Sparkle appcast XML to COS (`--app cn` hardcoded).
+* `shared-s3-latest-json.yml`       — render S3 latest.json (Intl).
+* `shared-cos-latest-json.yml`      — render COS latest.json (CN).
+* `shared-download-links.yml`       — render GH Actions Summary with download URLs (Intl only).
+* `shared-cos-download-links.yml`   — render GH Actions Summary with download URLs (CN).
 
-### Version Information Passing
-- Automatically extract version number from Git tags
-- Version information automatically applied to build artifacts
-- Support for Semantic Versioning (SemVer)
-- Build artifact filenames include version numbers
+## Local linting
 
-### Version Application Scope
-- **Windows Installer**: Application information in `eCan-Setup.exe`
-- **macOS Installer**: `eCan-{version}.pkg` filename and package information
-- **Application**: Application version information in executable files
-- **Release Notes**: Automatically generate release notes with version information
+```sh
+actionlint .github/workflows/release-intl.yml .github/workflows/release-cn.yml
+python3 build_system/scripts/runner/check_label_parity.py --repo-root .
+```
 
-## Build Process
-
-### Windows Build
-1. **Environment Setup**: Windows Server 2022
-2. **Dependencies**: Install Python, Node.js, system tools
-3. **Build**: Execute `python build.py prod --version {version}`
-4. **Artifacts**: Generate installer and portable version
-5. **Upload**: Upload to GitHub Actions artifacts
-
-### macOS Build
-1. **Environment Setup**: macOS 12 (Intel)
-2. **Dependencies**: Install Python, Node.js, system tools
-3. **Build**: Execute `python build.py prod --version {version}`
-4. **Artifacts**: Generate `.pkg` installer and `.app` bundle
-5. **Upload**: Upload to GitHub Actions artifacts
-
-### Release Creation
-1. **Dependency**: Requires successful completion of Windows and macOS builds
-2. **Artifacts**: Download build artifacts from previous jobs
-3. **Release**: Create GitHub Release with version tag
-4. **Upload**: Upload all platform artifacts to Release
-5. **Notes**: Generate release notes with download links
-
-## Platform Selection
-
-When manually triggering workflows, you can select specific platforms to build:
-
-- **all**: Build both Windows and macOS (default)
-- **windows**: Build Windows only
-- **macos**: Build macOS only
-
-This feature is useful for:
-- 🔧 Debugging platform-specific issues
-- ⚡ Faster iteration during development
-- 💰 Reducing CI/CD resource usage
-- 🎯 Platform-specific releases
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Tag format error**: Ensure tag follows `v*` format (e.g., `v1.0.0`)
-2. **Build failure**: Check build logs in GitHub Actions
-3. **Missing artifacts**: Verify build completed successfully
-4. **Permission error**: Ensure repository has proper access permissions
-
-### Debug Steps
-
-1. Check GitHub Actions logs
-2. Verify tag format and version number
-3. Ensure all required dependencies are available
-4. Check build script execution permissions
-5. Verify artifact upload permissions
-
-## Configuration
-
-Build configuration is managed through:
-- `build_system/build_config.json` - Application and installer configuration
-- `build.py` - Main build script entry point
-- `build_system/ecan_build.py` - Core build system implementation
-
-For detailed configuration options, see the build system documentation.
+The label-parity check enforces that `release-intl.yml` and
+`release-cn.yml` declare the same set of `ecan-*` self-hosted runner
+labels as `build_system/scripts/runner/register_runner.{sh,ps1}` and
+`build_system/scripts/runner/README.md`. Drifting any of those surfaces
+fails the PR check.

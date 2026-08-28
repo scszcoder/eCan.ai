@@ -27,6 +27,7 @@ import os
 import sys
 import asyncio
 import signal
+from utils.app_env import get_app_id, is_cn as _is_cn
 from typing import Optional
 
 # Set deployment mode BEFORE any other imports
@@ -352,6 +353,52 @@ def create_asgi_app():
                 "status": "healthy",
                 "mode": "web",
                 "sessions": SessionManager.get_instance().get_session_count()
+            }
+        
+        # App config endpoint - returns frontend runtime configuration.
+        # Mirrors the IPC handler `getAppConfig` payload shape so the frontend
+        # can use the same normalization in both modes (desktop → IPC,
+        # web deployment → this HTTP endpoint). See gui_v2/src/contexts/
+        # AppConfigContext.tsx for the consumer.
+        @app.get("/api/config")
+        async def get_config():
+            app_id = get_app_id()
+            is_cn_flag = _is_cn()
+
+            cloudbase_env_id = ""
+            wechat_app_id = ""
+            cognito_domain = ""
+            cognito_client_id = ""
+            graphql_endpoint = ""
+            try:
+                from auth.auth_config import AuthConfig
+                if is_cn_flag:
+                    cb = AuthConfig.CLOUDBASE
+                    cloudbase_env_id = getattr(cb, "ENV_ID", "") or ""
+                    wx = AuthConfig.WECHAT
+                    wechat_app_id = getattr(wx, "APP_ID", "") or ""
+                    app_sync = AuthConfig.APPSYNC
+                    graphql_endpoint = getattr(app_sync, "GRAPHQL_ENDPOINT", "") or ""
+                else:
+                    cog = AuthConfig.COGNITO
+                    cognito_domain = getattr(cog, "DOMAIN", "") or ""
+                    cognito_client_id = getattr(cog, "CLIENT_ID", "") or ""
+            except Exception:
+                pass
+
+            return {
+                "app_id": app_id,
+                "is_cn": is_cn_flag,
+                "auth_type": "cloudbase" if is_cn_flag else "cognito",
+                "auth": {
+                    "cloudbase_env_id": cloudbase_env_id,
+                    "wechat_app_id": wechat_app_id,
+                    "cognito_domain": cognito_domain,
+                    "cognito_client_id": cognito_client_id,
+                },
+                "cloud": {
+                    "graphql_endpoint": graphql_endpoint,
+                },
             }
         
         # Serve static frontend files (if available)

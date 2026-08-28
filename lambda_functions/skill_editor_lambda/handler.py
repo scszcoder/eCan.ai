@@ -2120,8 +2120,9 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(_resp_meta, dict) and _resp_meta.get("log_upload_request"):
                 stream_end_payload["log_upload_request"] = _resp_meta["log_upload_request"]
                 stream_end_payload["state"] = "processing"
-            # Forward the app-wide CLI command proposal (agent/task/prompt CRUD) so
-            # the client can render the interactive CommandCard instead of plain text.
+            # Forward cloud-proposed CLI command metadata (agent/task/prompt CRUD)
+            # so the client can render the interactive CommandCard directly off the
+            # stream_end event.
             if isinstance(_resp_meta, dict):
                 for _pk in ("cli_command", "proposal", "requires_confirmation", "client_os"):
                     if _resp_meta.get(_pk) is not None:
@@ -2219,8 +2220,10 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
                 "hasPlan": bool(getattr(response, "plan", None)),
                 "hasFlowgram": bool(getattr(response, "flowgram", None)),
                 "log_upload_request": _resp_meta.get("log_upload_request"),
-                # App-wide CLI command proposal — persisted so the subscription's
-                # _enrich_stream_end can re-fetch and forward it too.
+                # Cloud-proposed CLI command (agent/task/prompt CRUD). Persisted so
+                # the subscription's stream_end enrichment (_enrich_stream_end) can
+                # re-hydrate the CommandCard from cloud history after a bare
+                # stream_end event.
                 "cli_command": _resp_meta.get("cli_command"),
                 "proposal": _resp_meta.get("proposal"),
                 "requires_confirmation": _resp_meta.get("requires_confirmation"),

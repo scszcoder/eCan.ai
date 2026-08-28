@@ -93,7 +93,7 @@ class GeneralSettings:
                 settings_updated = True
                 logger.info(f"Added missing field '{key}' with default value: {value}")
             # Fill empty endpoint URLs with template defaults (but preserve user-set values)
-            elif key in ['wan_api_endpoint', 'ws_api_endpoint', 'ws_api_host', 'ecan_cloud_searcher_url', 'ocr_api_endpoint']:
+            elif key in ['wan_api_endpoint', 'ws_api_endpoint', 'ws_api_host', 'sse_api_endpoint', 'ecan_cloud_searcher_url', 'ocr_api_endpoint']:
                 # If user's value is empty and template has a non-empty default, use template default
                 if (not settings[key] or settings[key].strip() == "") and value and value.strip() != "":
                     settings[key] = value
@@ -301,6 +301,15 @@ class GeneralSettings:
     @ws_api_endpoint.setter
     def ws_api_endpoint(self, value: str):
         self._data["ws_api_endpoint"] = value
+
+    @property
+    def sse_api_endpoint(self) -> str:
+        """SSE API endpoint (CN TCB only)"""
+        return self._data.get("sse_api_endpoint", "")
+
+    @sse_api_endpoint.setter
+    def sse_api_endpoint(self, value: str):
+        self._data["sse_api_endpoint"] = value
 
     @property
     def ws_api_host(self) -> str:
@@ -540,10 +549,39 @@ class GeneralSettings:
     def use_lambda_proxy(self, value: bool):
         self._data["use_lambda_proxy"] = value
 
+    # CN builds ship a default proxy endpoint so key-less installs work out
+    # of the box (missing-local-API-key → proxy fallback). The TCB service
+    # is OpenAI-compatible at <endpoint>/v1/chat/completions. A user-set
+    # value always wins; intl has no default (endpoint stays user-configured).
+    _CN_DEFAULT_LLM_PROXY_ENDPOINT = (
+        "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy"
+    )
+
     @property
     def lambda_proxy_endpoint(self) -> str:
-        """Lambda Function URL for the cloud LLM proxy"""
-        return self._data.get("lambda_proxy_endpoint", "")
+        """Cloud LLM proxy URL (Lambda Function URL / TCB llm-proxy service)"""
+        value = str(self._data.get("lambda_proxy_endpoint", "") or "").strip()
+        if value:
+            return value
+        try:
+            from utils.app_env import is_cn
+            if is_cn():
+                # One-time breadcrumb so a proxy call in the logs can be traced
+                # to the built-in default rather than a user-configured value.
+                if not getattr(GeneralSettings, "_cn_proxy_default_logged", False):
+                    GeneralSettings._cn_proxy_default_logged = True
+                    try:
+                        from utils.logger_helper import logger_helper as _log
+                        _log.info(
+                            "[GeneralSettings] lambda_proxy_endpoint unset — using "
+                            f"CN default {self._CN_DEFAULT_LLM_PROXY_ENDPOINT}"
+                        )
+                    except Exception:
+                        pass
+                return self._CN_DEFAULT_LLM_PROXY_ENDPOINT
+        except Exception:
+            pass
+        return ""
 
     @lambda_proxy_endpoint.setter
     def lambda_proxy_endpoint(self, value: str):

@@ -123,18 +123,32 @@ class ChatLambdaProxy(BaseChatModel):
                 _action_names = [k for k in _defs if k.endswith('ActionModel')]
                 _action_count = len(_action_names)
                 _has_bu = any('BuSelectAgents' in n or 'bu_select' in n.lower() for n in _action_names)
-                _has_feige = any('Feige' in n or 'feige' in n.lower() for n in _action_names)
-                if _action_count < 10 or not _has_bu or not _has_feige:
+                # The live-chat bundle's tool family is recognised by the
+                # brand prefix of its send tool (resolved via the runner
+                # bridge so this module stays site-agnostic).  No bundle
+                # loaded -> empty marker -> counts as "missing", same as a
+                # schema without the site's tools.
+                _site_marker = ""
+                try:
+                    from agent.ec_skills import live_chat_dispatch as _lcd
+                    _site_tool = str(_lcd.runner_bridge().send_message_tool_name or "")
+                    _site_marker = (_site_tool.split("_", 1)[0] or "").lower()
+                except Exception:
+                    _site_marker = ""
+                _has_site = bool(_site_marker) and any(
+                    _site_marker in n.lower() for n in _action_names
+                )
+                if _action_count < 10 or not _has_bu or not _has_site:
                     logger.warning(
                         f"[ChatLambdaProxy] TOOL SCHEMA ISSUE: {_action_count} ActionModels, "
-                        f"has_bu={_has_bu}, has_feige={_has_feige}, "
+                        f"has_bu={_has_bu}, has_site={_has_site}, "
                         f"output_format={output_format.__name__}, "
                         f"actions={_action_names}"
                     )
                 else:
                     logger.debug(
                         f"[ChatLambdaProxy] Schema OK: {_action_count} ActionModels "
-                        f"(bu={_has_bu}, feige={_has_feige})"
+                        f"(bu={_has_bu}, site={_has_site})"
                     )
             except Exception as _diag_err:
                 logger.debug(f"[ChatLambdaProxy] Schema diagnostic failed: {_diag_err}")
@@ -160,8 +174,11 @@ class ChatLambdaProxy(BaseChatModel):
                         f"{attempt}/{self.max_retries}, retrying..."
                     )
                 else:
+                    from agent.ec_skills.llm_utils.proxy_errors import friendly_proxy_error_message
+                    _friendly = friendly_proxy_error_message(e.response.text)
                     raise ModelProviderError(
-                        message=f"Lambda proxy error {e.response.status_code}: {e.response.text[:500]}",
+                        message=_friendly or
+                        f"Lambda proxy error {e.response.status_code}: {e.response.text[:500]}",
                         model=self.name,
                     ) from e
             except Exception as e:
@@ -234,7 +251,9 @@ class ChatLambdaProxy(BaseChatModel):
             else:
                 error_msg = str(error_detail)
             logger.error(f"[ChatLambdaProxy] Lambda proxy returned error: {error_msg}")
-            raise ValueError(f"Lambda proxy error: {error_msg}")
+            from agent.ec_skills.llm_utils.proxy_errors import friendly_proxy_error_message
+            _friendly = friendly_proxy_error_message(str(error_detail))
+            raise ValueError(_friendly or f"Lambda proxy error: {error_msg}")
         # OpenAI format
         choices = data.get('choices')
         if choices and isinstance(choices, list) and len(choices) > 0:

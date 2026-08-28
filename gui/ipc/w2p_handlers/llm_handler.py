@@ -102,17 +102,28 @@ def handle_get_llm_providers(request: IPCRequest, params: Optional[Dict[str, Any
     """Get all LLM providers with Ollama and RyoAIS models merged"""
     try:
         from gui.ollama_utils import merge_ollama_models_to_providers
-        from gui.ryoais_utils import merge_ryoais_models_to_providers
-        
+        from gui.ryoais_utils import merge_ryoais_models_to_providers, load_ryoais_models
+        from gui.ipc.context_bridge import get_username
+
         llm_manager = get_llm_manager(request, params)
         providers = llm_manager.get_all_providers()
-        
+
+        # Get current username for user-specific file paths.
+        # Prefer params.username (frontend-supplied, matches the value used
+        # when saving ryoais_models.json / ollama_models.json) so the read
+        # path matches the write path. Fall back to the context-derived
+        # username to keep web/legacy callers working.
+        username = (params or {}).get('username') or get_username(request, params)
+
+        # Pre-load RyoAIS models with correct username so merge finds them
+        ryoais_models = load_ryoais_models(username=username, model_type='llm')
+
         # Merge Ollama models using shared utility
         providers = merge_ollama_models_to_providers(providers, provider_type='llm')
-        
+
         # Merge RyoAIS models using shared utility
-        providers = merge_ryoais_models_to_providers(providers, provider_type='llm')
-        
+        providers = merge_ryoais_models_to_providers(providers, ryoais_models=ryoais_models, provider_type='llm')
+
         logger.info(f"Retrieved {len(providers)} LLM providers")
 
         return create_success_response(request, {
@@ -824,16 +835,23 @@ def handle_get_llm_providers_with_credentials(request: IPCRequest, params: Optio
     """
     try:
         from gui.ollama_utils import merge_ollama_models_to_providers
-        from gui.ryoais_utils import merge_ryoais_models_to_providers
-        
+        from gui.ryoais_utils import merge_ryoais_models_to_providers, load_ryoais_models
+        from gui.ipc.context_bridge import get_username
+
         llm_manager = get_llm_manager(request, params)
         all_providers = llm_manager.get_all_providers()
-        
+
+        # Get current username for user-specific file paths
+        username = get_username(request, params)
+
+        # Pre-load RyoAIS models with correct username so merge finds them
+        ryoais_models = load_ryoais_models(username=username, model_type='llm')
+
         # Merge Ollama models using shared utility
         all_providers = merge_ollama_models_to_providers(all_providers, provider_type='llm')
-        
+
         # Merge RyoAIS models using shared utility
-        all_providers = merge_ryoais_models_to_providers(all_providers, provider_type='llm')
+        all_providers = merge_ryoais_models_to_providers(all_providers, ryoais_models=ryoais_models, provider_type='llm')
         
         # Enhance providers with API key information
         enhanced_providers = []

@@ -81,6 +81,7 @@
         "config",
         "auth",
         "bot",
+        "cli",
         "gui",
         "common",
         "utils",
@@ -92,7 +93,9 @@
         "tests",
         "gui_v2/dist",
         "ota",
-        "third_party/lightrag_custom"
+        "third_party/lightrag_custom",
+        "apps/cn/config",
+        "apps/intl/config"
       ],
       "files": [
         "app_context.py",
@@ -316,7 +319,9 @@
         "pyscreeze",
         "pyscreenshot",
         "pynput",
-        "pyperclip"
+        "pyperclip",
+        "colorlog",
+        "click"
       ],
       "excludes": [
         "MySQLdb",

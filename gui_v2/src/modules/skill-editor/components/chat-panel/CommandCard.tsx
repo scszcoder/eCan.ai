@@ -7,10 +7,9 @@
 
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Tooltip, Input } from 'antd';
+import { Button, Input, Radio } from 'antd';
 import {
-  CheckOutlined, CloseOutlined, CodeOutlined, LoadingOutlined,
-  CopyOutlined, EllipsisOutlined, SendOutlined,
+  CodeOutlined, LoadingOutlined, CopyOutlined, SendOutlined,
 } from '@ant-design/icons';
 import styled from 'styled-components';
 
@@ -143,9 +142,22 @@ const OutputBlock = styled.pre<{ $error?: boolean }>`
   word-break: break-word;
 `;
 
-const ButtonContainer = styled.div`
+const ActionGroup = styled(Radio.Group)`
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  .ant-radio-wrapper {
+    color: #e2e8f0;
+    font-size: 13px;
+    margin-inline-end: 0;
+  }
+`;
+
+const SubmitHint = styled.div`
+  margin-top: 8px;
+  font-size: 12px;
+  color: #93c5fd;
 `;
 
 const OtherRow = styled.div`
@@ -155,7 +167,7 @@ const OtherRow = styled.div`
 `;
 
 const CopyButton: React.FC<{ text: string }> = ({ text }) => {
-  const { t } = useTranslation('skillEditor');
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -186,9 +198,9 @@ export const CommandCard: React.FC<CommandCardProps> = ({
   submittedAction,
   result,
 }) => {
-  const { t } = useTranslation('skillEditor');
+  const { t } = useTranslation();
   const isReadOnly = !!submittedAction;
-  const [otherOpen, setOtherOpen] = useState(false);
+  const [choice, setChoice] = useState<'confirm' | 'cancel' | 'other' | ''>('');
   const [otherText, setOtherText] = useState('');
 
   const headerColor = isReadOnly
@@ -205,7 +217,7 @@ export const CommandCard: React.FC<CommandCardProps> = ({
     if (!txt || !onOther) return;
     onOther(txt);
     setOtherText('');
-    setOtherOpen(false);
+    setChoice('');
   };
 
   return (
@@ -243,39 +255,24 @@ export const CommandCard: React.FC<CommandCardProps> = ({
 
       {!isReadOnly && requiresConfirmation && (
         <>
-          <ButtonContainer>
-            <Button
-              type="primary"
-              icon={isSubmitting ? <LoadingOutlined /> : <CheckOutlined />}
-              onClick={onConfirm}
-              disabled={isSubmitting}
-              loading={isSubmitting}
-              style={{ flex: 1, background: '#22c55e', borderColor: '#22c55e' }}
-            >
-              {t('chatPanel.commandProceed', 'Proceed')}
-            </Button>
-            <Button
-              icon={<CloseOutlined />}
-              onClick={onCancel}
-              disabled={isSubmitting}
-              style={{ flex: 1 }}
-            >
-              {t('chatPanel.commandCancel', 'Cancel')}
-            </Button>
+          <ActionGroup
+            value={choice}
+            disabled={isSubmitting}
+            onChange={e => {
+              const v = e.target.value as 'confirm' | 'cancel' | 'other';
+              setChoice(v);
+              if (v === 'confirm') onConfirm?.();
+              else if (v === 'cancel') onCancel?.();
+            }}
+          >
+            <Radio value="confirm">{t('chatPanel.commandProceed', 'Proceed — run it locally')}</Radio>
+            <Radio value="cancel">{t('chatPanel.commandCancel', 'Cancel')}</Radio>
             {onOther && (
-              <Tooltip title={t('chatPanel.commandOtherHint', 'Tell the agent to do it differently')}>
-                <Button
-                  icon={<EllipsisOutlined />}
-                  onClick={() => setOtherOpen(o => !o)}
-                  disabled={isSubmitting}
-                >
-                  {t('chatPanel.commandOther', 'Other')}
-                </Button>
-              </Tooltip>
+              <Radio value="other">{t('chatPanel.commandOther', 'Something else…')}</Radio>
             )}
-          </ButtonContainer>
+          </ActionGroup>
 
-          {otherOpen && onOther && (
+          {choice === 'other' && onOther && (
             <OtherRow>
               <Input
                 autoFocus
@@ -289,6 +286,12 @@ export const CommandCard: React.FC<CommandCardProps> = ({
                 {t('chatPanel.send', 'Send')}
               </Button>
             </OtherRow>
+          )}
+
+          {isSubmitting && (
+            <SubmitHint>
+              <LoadingOutlined /> {t('chatPanel.commandRunning', 'Running…')}
+            </SubmitHint>
           )}
         </>
       )}

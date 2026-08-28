@@ -56,23 +56,24 @@ interface ChannelsMap {
 // ── Status badge helper ───────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
-    running:      { color: 'green',   icon: <CheckCircleOutlined />, label: 'Connected'    },
-    connected:    { color: 'green',   icon: <CheckCircleOutlined />, label: 'Connected'    },
-    starting:     { color: 'blue',    icon: <LoadingOutlined />,     label: 'Starting…'    },
-    reconnecting: { color: 'orange',  icon: <LoadingOutlined />,     label: 'Reconnecting' },
-    stopping:     { color: 'orange',  icon: <LoadingOutlined />,     label: 'Stopping…'    },
-    stopped:      { color: 'default', icon: <StopOutlined />,        label: 'Stopped'      },
-    error:        { color: 'red',     icon: <CloseCircleOutlined />, label: 'Error'        },
-    unreachable:  { color: 'red',     icon: <CloseCircleOutlined />, label: 'Unreachable'  },
+  const { t } = useTranslation();
+  const statusMap: Record<string, { color: string; icon: React.ReactNode; labelKey: string }> = {
+    running:      { color: 'green',   icon: <CheckCircleOutlined />, labelKey: 'pages.settings.channel.status_connected' },
+    connected:    { color: 'green',   icon: <CheckCircleOutlined />, labelKey: 'pages.settings.channel.status_connected' },
+    starting:     { color: 'blue',    icon: <LoadingOutlined />,     labelKey: 'pages.settings.channel.status_starting' },
+    reconnecting: { color: 'orange',  icon: <LoadingOutlined />,     labelKey: 'pages.settings.channel.status_reconnecting' },
+    stopping:     { color: 'orange',  icon: <LoadingOutlined />,     labelKey: 'pages.settings.channel.status_stopping' },
+    stopped:      { color: 'default', icon: <StopOutlined />,        labelKey: 'pages.settings.channel.status_stopped' },
+    error:        { color: 'red',     icon: <CloseCircleOutlined />, labelKey: 'pages.settings.channel.status_error' },
+    unreachable:  { color: 'red',     icon: <CloseCircleOutlined />, labelKey: 'pages.settings.channel.status_unreachable' },
   };
-  const info = map[status] || { color: 'default', icon: null, label: status };
+  const info = statusMap[status] || { color: 'default', icon: null, labelKey: status };
   return (
     <Badge
       color={info.color as any}
       text={
         <Text style={{ fontSize: 12 }}>
-          {info.icon} {info.label}
+          {info.icon} {t(info.labelKey)}
         </Text>
       }
     />
@@ -151,7 +152,7 @@ function WaBaileysCard({
       const vals = await form.validateFields();
       setSaving(true);
       await onSave(vals);
-      message.success('WhatsApp Baileys settings saved');
+      message.success(t('pages.settings.channel.settings_saved'));
     } catch (e: any) {
       if (e?.errorFields) return; // validation error, already shown
       message.error(String(e?.message || e));
@@ -173,21 +174,21 @@ function WaBaileysCard({
 
   return (
     <Form form={form} layout="vertical">
-      <Form.Item name="enabled" valuePropName="checked" label="Enable channel">
-        <Switch />
+      <Form.Item name="enabled" valuePropName="checked" label={t('pages.settings.channel.enable_channel')}>
+        <Switch id="whatsapp_baileys-enabled" />
       </Form.Item>
 
-      <Divider orientation="left" style={{ fontSize: 13 }}>Bridge connection</Divider>
+      <Divider orientation="left" style={{ fontSize: 13 }}>{t('pages.settings.channel.bridge_connection')}</Divider>
 
       {/* Bridge URL row: half-width input + Show QR button + info tooltip */}
-      <Form.Item label="Bridge URL" style={{ marginBottom: 8 }}>
+      <Form.Item label={t('pages.settings.channel.bridge_url')} style={{ marginBottom: 8 }}>
         <Space align="center" style={{ width: '100%' }}>
           <Form.Item
             name="bridge_url"
             noStyle
-            tooltip="URL of the running Node.js wabaileys-bridge (default: http://127.0.0.1:3210)"
+            tooltip={t('pages.settings.channel.bridge_url_tooltip')}
           >
-            <Input placeholder="http://127.0.0.1:3210" style={{ width: 200 }} />
+            <Input placeholder={t('pages.settings.channel.bridge_url_placeholder')} style={{ width: 200 }} id="whatsapp_baileys-bridge_url" />
           </Form.Item>
           <Button
             icon={<QrcodeOutlined />}
@@ -196,20 +197,18 @@ function WaBaileysCard({
               window.open(url, '_blank');
             }}
           >
-            {t('settings.channel.show_qr', 'Show QR Code')}
+            {t('pages.settings.channel.show_qr')}
           </Button>
           <Tooltip
             title={
               <div style={{ whiteSpace: 'pre-line', maxWidth: 320 }}>
-                <strong>{t('settings.channel.wa_tip_title', 'How to pair WhatsApp')}</strong>
+                <strong>{t('pages.settings.channel.wa_tip_title')}</strong>
                 {'\n\n'}
-                {t('settings.channel.wa_tip_body',
-                  '1. Open WhatsApp on your phone.\n2. Tap Menu (⋮) → Linked Devices → Link a Device.\n3. Scan the QR code shown in your browser.\n\n⚠️ Use a dedicated WhatsApp account for eCan.ai agents — do NOT use your personal number.'
-                )}
+                {t('pages.settings.channel.wa_tip_body')}
               </div>
             }
             placement="rightTop"
-            overlayStyle={{ maxWidth: 360 }}
+            styles={{ root: { maxWidth: 360 } }}
           >
             <InfoCircleOutlined style={{ color: 'var(--ant-color-primary)', cursor: 'help', fontSize: 16 }} />
           </Tooltip>
@@ -217,29 +216,30 @@ function WaBaileysCard({
       </Form.Item>
       <Form.Item
         name="webhook_port"
-        label="Inbound webhook port"
-        tooltip="Local port Python listens on for incoming messages forwarded by the bridge"
+        label={t('pages.settings.channel.inbound_webhook_port')}
+        tooltip={t('pages.settings.channel.inbound_webhook_port_tooltip')}
       >
-        <InputNumber min={1024} max={65535} style={{ width: 120 }} />
+        <InputNumber min={1024} max={65535} style={{ width: 120 }} id="whatsapp_baileys-webhook_port" />
       </Form.Item>
-      <Form.Item name="auto_start_bridge" valuePropName="checked" label="Auto-start bridge process">
-        <Checkbox>Launch the Node.js bridge automatically on enable</Checkbox>
+      <Form.Item name="auto_start_bridge" valuePropName="checked" label={t('pages.settings.channel.auto_start_bridge')}>
+        <Checkbox id="whatsapp_baileys-auto_start_bridge">{t('pages.settings.channel.auto_start_bridge_desc')}</Checkbox>
       </Form.Item>
-      <Form.Item name="default_agent_id" label="Default agent ID (optional)">
-        <Input placeholder="Forwards inbound messages to this agent" />
+      <Form.Item name="default_agent_id" label={t('pages.settings.channel.default_agent_id')}>
+        <Input placeholder={t('pages.settings.channel.default_agent_id_placeholder')} id="whatsapp_baileys-default_agent_id" />
       </Form.Item>
 
       {/* QR code section */}
       {entry.config.enabled && !isRunning && (
         <div style={{ marginBottom: 16 }}>
-          <Text strong>WhatsApp pairing</Text>
+          <Text strong>{t('pages.settings.channel.whatsapp_pairing')}</Text>
           <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 4 }}>
-            Start the Node.js bridge, then scan the QR code with WhatsApp on your dedicated
-            agent phone number.
+            {t('pages.settings.channel.whatsapp_pairing_desc')}
           </Paragraph>
           {pollingQr && !qrBase64 && (
             <div style={{ textAlign: 'center', padding: 16 }}>
-              <Spin tip="Waiting for QR code from bridge…" />
+              <Spin>
+                <div>{t('pages.settings.channel.waiting_for_qr')}</div>
+              </Spin>
             </div>
           )}
           {qrBase64 && (
@@ -251,7 +251,7 @@ function WaBaileysCard({
               />
               <div>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  Scan with WhatsApp → Linked Devices → Link a Device
+                  {t('pages.settings.channel.scan_whatsapp')}
                 </Text>
               </div>
             </div>
@@ -270,15 +270,15 @@ function WaBaileysCard({
 
       <Space wrap>
         <Button type="primary" onClick={handleSave} loading={saving}>
-          Save
+          {t('pages.settings.channel.save')}
         </Button>
         {!isRunning ? (
           <Button icon={<WifiOutlined />} onClick={handleStart} loading={starting}>
-            Connect
+            {t('pages.settings.channel.connect')}
           </Button>
         ) : (
           <Button icon={<StopOutlined />} danger onClick={onStop}>
-            Disconnect
+            {t('pages.settings.channel.disconnect')}
           </Button>
         )}
       </Space>
@@ -288,31 +288,31 @@ function WaBaileysCard({
 
 // ── Generic channel card ──────────────────────────────────────────────────────
 
-const CHANNEL_FIELD_DEFS: Record<string, Array<{ key: string; label: string; secret?: boolean; type?: string }>> = {
+const CHANNEL_FIELD_DEFS: Record<string, Array<{ key: string; i18nKey: string; secret?: boolean; type?: string }>> = {
   telegram: [
-    { key: 'bot_token', label: 'Bot Token', secret: true },
-    { key: 'default_agent_id', label: 'Default Agent ID' },
+    { key: 'bot_token', i18nKey: 'pages.settings.channel.field_bot_token', secret: true },
+    { key: 'default_agent_id', i18nKey: 'pages.settings.channel.default_agent_id' },
   ],
   slack: [
-    { key: 'bot_token', label: 'Bot Token', secret: true },
-    { key: 'app_token', label: 'App Token', secret: true },
-    { key: 'default_agent_id', label: 'Default Agent ID' },
+    { key: 'bot_token', i18nKey: 'pages.settings.channel.field_bot_token', secret: true },
+    { key: 'app_token', i18nKey: 'pages.settings.channel.field_app_token', secret: true },
+    { key: 'default_agent_id', i18nKey: 'pages.settings.channel.default_agent_id' },
   ],
   whatsapp: [
-    { key: 'phone_number_id', label: 'Phone Number ID' },
-    { key: 'access_token', label: 'Access Token', secret: true },
-    { key: 'verify_token', label: 'Verify Token' },
-    { key: 'webhook_port', label: 'Webhook Port', type: 'number' },
-    { key: 'default_agent_id', label: 'Default Agent ID' },
+    { key: 'phone_number_id', i18nKey: 'pages.settings.channel.field_phone_number_id' },
+    { key: 'access_token', i18nKey: 'pages.settings.channel.field_access_token', secret: true },
+    { key: 'verify_token', i18nKey: 'pages.settings.channel.field_verify_token' },
+    { key: 'webhook_port', i18nKey: 'pages.settings.channel.field_webhook_port', type: 'number' },
+    { key: 'default_agent_id', i18nKey: 'pages.settings.channel.default_agent_id' },
   ],
   discord: [
-    { key: 'bot_token', label: 'Bot Token', secret: true },
-    { key: 'default_agent_id', label: 'Default Agent ID' },
+    { key: 'bot_token', i18nKey: 'pages.settings.channel.field_bot_token', secret: true },
+    { key: 'default_agent_id', i18nKey: 'pages.settings.channel.default_agent_id' },
   ],
   dingtalk: [
-    { key: 'client_id', label: 'Client ID' },
-    { key: 'client_secret', label: 'Client Secret', secret: true },
-    { key: 'default_agent_id', label: 'Default Agent ID' },
+    { key: 'client_id', i18nKey: 'pages.settings.channel.field_client_id' },
+    { key: 'client_secret', i18nKey: 'pages.settings.channel.field_client_secret', secret: true },
+    { key: 'default_agent_id', i18nKey: 'pages.settings.channel.default_agent_id' },
   ],
 };
 
@@ -329,6 +329,7 @@ function GenericChannelCard({
   onStart: () => Promise<void>;
   onStop: () => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const { message } = App.useApp();
@@ -343,7 +344,7 @@ function GenericChannelCard({
       const vals = await form.validateFields();
       setSaving(true);
       await onSave(vals);
-      message.success('Settings saved');
+      message.success(t('pages.settings.channel.settings_saved'));
     } catch (e: any) {
       if (e?.errorFields) return;
       message.error(String(e?.message || e));
@@ -356,17 +357,17 @@ function GenericChannelCard({
 
   return (
     <Form form={form} layout="vertical">
-      <Form.Item name="enabled" valuePropName="checked" label="Enable channel">
-        <Switch />
+      <Form.Item name="enabled" valuePropName="checked" label={t('pages.settings.channel.enable_channel')}>
+        <Switch id={`${channelId}-enabled`} />
       </Form.Item>
       {fields.map((f) => (
-        <Form.Item key={f.key} name={f.key} label={f.label}>
+        <Form.Item key={f.key} name={f.key} label={t(f.i18nKey)}>
           {f.type === 'number' ? (
-            <InputNumber min={1024} max={65535} style={{ width: 120 }} />
+            <InputNumber min={1024} max={65535} style={{ width: 120 }} id={`${channelId}-${f.key}`} />
           ) : f.secret ? (
-            <Input.Password placeholder={f.label} />
+            <Input.Password placeholder={t(f.i18nKey)} id={`${channelId}-${f.key}`} />
           ) : (
-            <Input placeholder={f.label} />
+            <Input placeholder={t(f.i18nKey)} id={`${channelId}-${f.key}`} />
           )}
         </Form.Item>
       ))}
@@ -375,15 +376,15 @@ function GenericChannelCard({
       )}
       <Space wrap>
         <Button type="primary" onClick={handleSave} loading={saving}>
-          Save
+          {t('pages.settings.channel.save')}
         </Button>
         {!isRunning ? (
           <Button icon={<WifiOutlined />} onClick={onStart}>
-            Start
+            {t('pages.settings.channel.start')}
           </Button>
         ) : (
           <Button icon={<StopOutlined />} danger onClick={onStop}>
-            Stop
+            {t('pages.settings.channel.stop')}
           </Button>
         )}
       </Space>
@@ -393,16 +394,16 @@ function GenericChannelCard({
 
 // ── Channel label helpers ─────────────────────────────────────────────────────
 
-const CHANNEL_LABELS: Record<string, string> = {
-  whatsapp_baileys: 'WhatsApp (Baileys)',
-  whatsapp:         'WhatsApp (Cloud API)',
-  telegram:         'Telegram',
-  slack:            'Slack',
-  discord:          'Discord',
-  dingtalk:         'DingTalk',
-  messenger:        'Facebook Messenger',
-  twitter:          'Twitter / X',
-  webchat:          'Web Chat',
+const CHANNEL_LABELS_KEYS: Record<string, string> = {
+  whatsapp_baileys: 'pages.settings.channel.channel_whatsapp_baileys',
+  whatsapp:         'pages.settings.channel.channel_whatsapp',
+  telegram:         'pages.settings.channel.channel_telegram',
+  slack:            'pages.settings.channel.channel_slack',
+  discord:          'pages.settings.channel.channel_discord',
+  dingtalk:         'pages.settings.channel.channel_dingtalk',
+  messenger:        'pages.settings.channel.channel_messenger',
+  twitter:          'pages.settings.channel.channel_twitter',
+  webchat:          'pages.settings.channel.channel_webchat',
 };
 
 // Preferred display order
@@ -416,6 +417,7 @@ const CHANNEL_ORDER = [
 export function ChannelSettings() {
   const [channels, setChannels] = useState<ChannelsMap>({});
   const [loading, setLoading] = useState(false);
+  const { t } = useTranslation();
   const { message } = App.useApp();
 
   const loadChannels = useCallback(async () => {
@@ -425,14 +427,14 @@ export function ChannelSettings() {
       if (resp?.success && resp.data?.channels) {
         setChannels(resp.data.channels);
       } else {
-        message.error(resp?.error?.message || 'Failed to load channel config');
+        message.error(resp?.error?.message || t('pages.settings.channel.no_channels'));
       }
     } catch (e: any) {
       message.error(String(e?.message || e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [message, t]);
 
   useEffect(() => {
     loadChannels();
@@ -452,20 +454,20 @@ export function ChannelSettings() {
     if (!resp?.success) {
       message.error(resp?.error?.message || 'Start failed');
     } else {
-      message.success(`${CHANNEL_LABELS[channelId] || channelId} starting…`);
+      message.success(`${t(CHANNEL_LABELS_KEYS[channelId] || channelId)} ${t('pages.settings.channel.status_starting')}`);
     }
     setTimeout(loadChannels, 1500);
-  }, [loadChannels]);
+  }, [loadChannels, message, t]);
 
   const handleStop = useCallback(async (channelId: string) => {
     const resp = await get_ipc_api().stopChannel(channelId) as any;
     if (!resp?.success) {
       message.error(resp?.error?.message || 'Stop failed');
     } else {
-      message.success(`${CHANNEL_LABELS[channelId] || channelId} stopped`);
+      message.success(`${t(CHANNEL_LABELS_KEYS[channelId] || channelId)} ${t('pages.settings.channel.status_stopped')}`);
     }
     setTimeout(loadChannels, 1500);
-  }, [loadChannels]);
+  }, [loadChannels, message, t]);
 
   // Determine display order: preferred order first, then any remaining keys
   const channelIds = [
@@ -476,15 +478,14 @@ export function ChannelSettings() {
   return (
     <div style={{ padding: '24px', maxWidth: 800 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>Messaging Channels</Title>
+        <Title level={4} style={{ margin: 0 }}>{t('pages.settings.channel.title')}</Title>
         <Button icon={<ReloadOutlined />} onClick={loadChannels} loading={loading} size="small">
-          Refresh
+          {t('pages.settings.channel.refresh')}
         </Button>
       </div>
 
       <Paragraph type="secondary" style={{ marginBottom: 24 }}>
-        Configure external messaging channels. Each channel requires a dedicated account —
-        do not reuse personal accounts, as inbound/outbound traffic will be routed to agents.
+        {t('pages.settings.channel.description')}
       </Paragraph>
 
       {loading && channelIds.length === 0 ? (
@@ -492,20 +493,20 @@ export function ChannelSettings() {
       ) : channelIds.length === 0 ? (
         <Alert
           type="info"
-          message="No channels configured"
-          description="channels.json not found or empty. Default entries will appear after the first save."
+          message={t('pages.settings.channel.no_channels')}
+          description={t('pages.settings.channel.no_channels_desc')}
         />
       ) : (
         <Space direction="vertical" style={{ width: '100%' }} size={16}>
           {channelIds.map((cid) => {
             const entry = channels[cid];
-            const label = CHANNEL_LABELS[cid] || cid;
+            const labelKey = CHANNEL_LABELS_KEYS[cid] || cid;
             return (
               <Card
                 key={cid}
                 title={
                   <Space>
-                    <Text strong>{label}</Text>
+                    <Text strong>{t(labelKey)}</Text>
                     <StatusBadge status={entry.status} />
                   </Space>
                 }

@@ -46,23 +46,23 @@ def get_log_user(user_email: Optional[str] = None) -> str:
     # If still no user, return a default
     if not user_email:
         return "default_user"
-    
-    # Check if user_email is already in sanitized format (e.g., "249511118_qq_com")
-    # If it doesn't contain "@", it's likely already processed, return as-is
+
+    # Normalize non-email user identifiers to "@local" form, matching MainWindow._init_user_environment
+    # logic.  MainWindow stores non-email users as "wechat_xxx@local", so "wechat_xxx" needs
+    # to be converted to "wechat_xxx@local" before sanitization to produce "wechat_xxx_local".
     if "@" not in user_email:
-        # Already sanitized format, return directly to avoid adding "_local" suffix
-        return user_email
-    
+        user_email = f"{user_email}@local"
+
     # Sanitize email to filesystem-safe format (same logic as MainWindow)
     try:
         local_part, domain_part = user_email.split("@", 1)
     except ValueError:
         # This shouldn't happen after the "@" check above, but keep as fallback
         local_part, domain_part = user_email, "local"
-    
+
     domain_part_sanitized = domain_part.replace(".", "_")
     log_user = f"{local_part}_{domain_part_sanitized}"
-    
+
     return log_user
 
 

@@ -11,6 +11,30 @@ import { initWebSocketEventListeners } from './wsEventListeners';
 import { unifiedEventHandler, createStandardizedEvent } from '@/services/events/unifiedEventHandler';
 import { detectPlatform } from '@/config/platform';
 import { userStorageManager } from '@/services/storage/UserStorageManager';
+import { getCachedAppConfig } from '@/contexts/AppConfigContext';
+
+/**
+ * CN check: read the runtime config populated by AppConfigProvider from the
+ * IPC handler `getAppConfig` (see gui/ipc/w2p_handlers/app_config_handler.py).
+ * The backend derives is_cn from the ECAN_APP_ID env var via
+ * utils.app_env.is_cn(), so this is the single source of truth (no build-time
+ * VITE_APP_ID branching).
+ *
+ * Why this matters: in desktop mode the backend is always the local
+ * LocalServer, which routes CN traffic to TCB through its own WS endpoint
+ * and Intl traffic to AppSync. Skipping AppSync for CN is therefore
+ * correct regardless of whether we are in web or desktop mode.
+ */
+const isCNBuild = (): boolean => {
+  // Read the same module-level cache that AuthProvider uses. We cannot
+  // call useAppConfig() outside a React component, so the cache is the
+  // only synchronous option. AppConfigContext populates it from the
+  // getAppConfig IPC call; before that call resolves we fall back to Intl
+  // (matching AppConfigContext's default and the existing behaviour).
+  const cached = getCachedAppConfig();
+  if (cached) return cached.is_cn;
+  return false;
+};
 
 /**
  * Resolve the owner identity for AppSync subscriptions.
@@ -180,17 +204,17 @@ const connectWebSocket = (owner: string) => {
     return;
   }
 
-  // In desktop mode, skip AppSync entirely and use local WebSocket only
   const platform = detectPlatform();
-  if (platform !== 'web') {
-    logger.debug('[AppSyncSubscriptions] Desktop mode detected - using local WebSocket only, skipping AppSync');
-    console.log('[AppSyncSubscriptions] Attempting to connect local WebSocket for desktop mode...');
+
+  // CN builds: always use local WebSocket (desktop=LocalServer routes to TCB; web has no AppSync)
+  if (platform !== 'web' || isCNBuild()) {
+    console.log(`[AppSyncSubscriptions] ${isCNBuild() ? 'CN build' : 'Desktop mode'} — using local WebSocket only`);
     initWebSocketEventListeners();
     localWebSocketClient.connect(true).then(connected => {
       if (connected) {
-        console.log('[AppSyncSubscriptions] ✅ Local WebSocket connected - will receive push notifications via local server');
+        console.log('[AppSyncSubscriptions] ✅ Local WebSocket connected');
       } else {
-        console.log('[AppSyncSubscriptions] ⚠️ Local WebSocket not connected - push notifications may not work');
+        console.log('[AppSyncSubscriptions] ⚠️ Local WebSocket not connected');
       }
     }).catch(err => {
       console.error('[AppSyncSubscriptions] Local WebSocket connection error:', err);

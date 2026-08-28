@@ -1,0 +1,34 @@
+{
+  "_metadata": {
+    "purpose": "Icon Assets Configuration for CN Version",
+    "description": "References shared icon assets from resource directory",
+    "version": "1.0.0",
+    "note": "CN version uses the same icons as intl version, referenced from resource/"
+  },
+  "icons": {
+    "windows": {
+      "source": "../../../resource/images/logos/icon_multi.ico",
+      "symlink": "icon.ico",
+      "note": "Windows .ico file with multiple sizes"
+    },
+    "macos": {
+      "source": "../../../resource/icon.icns",
+      "note": "macOS .icns file - generate from .ico using iconutil or similar tool",
+      "generation_command": "iconutil -c icns -o icon.icns AppIcon.iconset"
+    },
+    "linux": {
+      "source": "../../../resource/images/logos/desktop_256x256.png",
+      "note": "PNG format for Linux AppImage"
+    }
+  },
+  "installer_images": {
+    "windows_installer": {
+      "source": "../../../resource/images/logos/installer_800x600.png",
+      "dimensions": "800x600"
+    }
+  },
+  "app_icon": {
+    "source": "../../../resource/images/logos/dock_512x512.png",
+    "note": "Used for About dialog and app information"
+  }
+}

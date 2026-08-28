@@ -34,18 +34,48 @@ runs:
           echo "source_exists=false" >> $GITHUB_OUTPUT
         fi
 
-    # ── 2. Node.js ─────────────────────────────────────────────────────────────
-    - name: Set up Node.js ${{ inputs.node-version }}
+    # ── 2. Node.js (probe first; skip download on self-hosted) ──────────────
+    - name: Probe existing Node.js (self-hosted fast path)
+      id: probe-node
       if: steps.check_source.outputs.source_exists == 'true'
+      shell: bash
+      run: |
+        # On self-hosted runners the operator may have installed Node.js
+        # system-wide. Probe first; fall back to actions/setup-node@v6
+        # only when no usable node is on PATH.
+        PREFER=""
+        if [ -n "${RUNNER_NAME:-}" ] && echo "$RUNNER_NAME" | grep -qiE 'self-hosted'; then
+          PREFER="true"
+        fi
+
+        if [ "$PREFER" = "true" ] && command -v node >/dev/null 2>&1; then
+          EXISTING_NODE="$(node --version 2>/dev/null || true)"
+          if [ -n "$EXISTING_NODE" ]; then
+            echo "[OK] wa_bridge using system Node.js: $EXISTING_NODE (skipping download)" >&2
+            echo "have-system-node=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        fi
+
+        echo "[INFO] No system Node.js; falling back to actions/setup-node@v6" >&2
+        echo "have-system-node=false" >> "$GITHUB_OUTPUT"
+
+    # ── 3. Node.js setup (only when system node not available) ─────────────────
+    - name: Set up Node.js ${{ inputs.node-version }}
+      if: steps.check_source.outputs.source_exists == 'true' && steps.probe-node.outputs.have-system-node != 'true'
       uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
 
-    # ── 3. Cache npm deps ──────────────────────────────────────────────────────
+    # ── 4. Cache npm deps (GitHub-hosted only) ──────────────────────────────
+    # On self-hosted runners, $GITHUB_WORKSPACE is a fresh per-job dir
+    # under _work/, so node_modules is always empty; the cache lookup is
+    # pure overhead. Skip the cache step entirely; let npm install
+    # populate the dir.
     - name: Cache wa_bridge npm dependencies
-      if: steps.check_source.outputs.source_exists == 'true'
+      if: steps.check_source.outputs.source_exists == 'true' && startsWith(runner.name, 'GitHub Actions')
       id: cache-wa-bridge-deps
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ${{ inputs.bridge-dir }}/node_modules
         key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-wa-bridge-npm-${{ hashFiles(format('{0}/package-lock.json', inputs.bridge-dir)) }}
@@ -53,7 +83,7 @@ runs:
           ${{ runner.os }}-${{ env.BUILD_ARCH }}-wa-bridge-npm-
           ${{ runner.os }}-wa-bridge-npm-
 
-    # ── 4. npm install ─────────────────────────────────────────────────────────
+    # ── 5. npm install ─────────────────────────────────────────────────────────
     - name: Install wa_bridge npm dependencies
       if: steps.check_source.outputs.source_exists == 'true'
       working-directory: ${{ inputs.bridge-dir }}
@@ -62,12 +92,12 @@ runs:
       run: |
         echo "=== Installing wa_bridge Dependencies ==="
         echo "Bridge dir: ${{ inputs.bridge-dir }}"
-        
+
         if [ ! -f "package.json" ]; then
           echo "⚠️  No package.json in ${{ inputs.bridge-dir }} – skipping"
           exit 0
         fi
-        
+
         if [ ! -f "package-lock.json" ]; then
           echo "⚠️  No package-lock.json – running npm install to generate one"
           npm install --prefer-offline --no-audit --no-fund
@@ -75,7 +105,7 @@ runs:
           echo "Lock file present – installing from lock"
           npm install --prefer-offline --no-audit --no-fund
         fi
-        
+
         echo "✅ wa_bridge dependencies installed"
 
     # ── 5. Verify / download pkg ──────────────────────────────────────────────

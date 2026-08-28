@@ -663,7 +663,7 @@ const renderTextContent = (raw: string) => {
 };
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, width }) => {
-  const { t, i18n } = useTranslation('skillEditor');
+  const { t } = useTranslation();
   // Delay mounting the TextArea until after the CSS width transition (300ms) completes.
   // Without this, autoSize measures the container at width=0 during the animation and
   // produces NaN for the height CSS property.
@@ -696,6 +696,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const skipConfirmRef = useRef(false);  // mirror for reads inside callbacks
   const [pipelineState, setPipelineState] = useState<PipelineState>('idle');
   const [streamingStatus, setStreamingStatus] = useState<string>('');
+  const streamingContentRef = useRef<string>('');  // accumulate streamed content for final render
   const chatThreadRef = useRef<HTMLDivElement>(null);
   const hasLoadedSessionsRef = useRef(false);
   const lastFlowgramJsonRef = useRef<any>(null);  // cache last received flowgram for resending with edit approvals
@@ -709,12 +710,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
   // Get active session
   const activeSession = sessions.find(s => s.id === activeSessionId);
-  const inputHintFallback = i18n.resolvedLanguage?.startsWith('zh')
-    ? '回车发送 · Shift+回车换行'
-    : 'Enter to send · Shift+Enter for newline';
-  const deleteSessionLabelFallback = i18n.resolvedLanguage?.startsWith('zh') ? '删除会话' : 'Delete session';
-  const confirmDeleteFallback = i18n.resolvedLanguage?.startsWith('zh') ? '删除' : 'Delete';
-  const cancelDeleteFallback = i18n.resolvedLanguage?.startsWith('zh') ? '取消' : 'Cancel';
 
   // Load sessions lazily on first expansion to avoid competing with editor startup work
   // ── Handoff seed reader ────────────────────────────────────────
@@ -972,6 +967,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         const chunk = payload.chunk;
         if (typeof chunk !== 'string' || !chunk.trim()) return;
         setStreamingStatus(chunk);
+        streamingContentRef.current += chunk;
       } catch {
         return;
       }
@@ -993,7 +989,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         // For Lambda-timeout responses the synchronous IPC result is a bare
         // "processing" placeholder — the real clarification / a2ui / plan
         // arrives here via the subscription relay's stream_end event.
-        const content = payload.fullContent;
         const clarification = payload.clarification;
         const plan = payload.plan;
         const a2uiData = payload.a2ui;
@@ -1034,6 +1029,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         //
         // IMPORTANT: We attach clarification/state in the SAME setMessages
         // call so that React batching doesn't lose the structured data.
+        //
+        // Fall back to accumulated streaming content when the backend stream_end
+        // arrives without fullContent (e.g. local LLM streaming that only emits
+        // stream_chunk events but not the final assembled content).
+        const streamedContent = streamingContentRef.current;
+        streamingContentRef.current = '';  // reset for next stream
+        const content = (typeof payload.fullContent === 'string' && payload.fullContent.trim())
+          ? payload.fullContent
+          : (typeof streamedContent === 'string' && streamedContent.trim() ? streamedContent : '');
         if (typeof content === 'string' && content.trim()) {
           const msgId = payload.messageId || `msg-stream-${Date.now()}`;
           setMessages(prev => {
@@ -2109,7 +2113,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         const errorMessage: ChatMessage = {
           id: `msg-error-${Date.now()}`,
           role: 'assistant',
-          content: 'Sorry, I encountered an error processing your message. Please try again.',
+          content: t('chatPanel.errorProcessingMessage'),
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, errorMessage]);
@@ -2128,12 +2132,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           metadata: { placeholder: true },
         } as any;
         setMessages(prev => [...prev, infoMessage]);
-        setStreamingStatus('Processing...');
+        setStreamingStatus(t('chatPanel.processing'));
       } else {
         const errorMessage: ChatMessage = {
           id: `msg-error-${Date.now()}`,
           role: 'assistant',
-          content: 'Sorry, I encountered an error. Please check if the backend is running.',
+          content: t('chatPanel.errorBackendRunning'),
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, errorMessage]);
@@ -2348,7 +2352,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       if (currentClarification) {
         setPendingClarification(currentClarification);
       }
-      const errText = error instanceof Error ? error.message : 'Clarification submission failed.';
+      const errText = error instanceof Error ? error.message : t('chatPanel.clarificationSubmissionFailed');
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -2373,7 +2377,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     const cancelMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'assistant',
-      content: 'Clarification cancelled. Feel free to describe what you\'d like to build whenever you\'re ready.',
+          content: t('chatPanel.clarificationCancelled'),
       timestamp: new Date(),
       state: 'idle',
     };
@@ -2438,19 +2442,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     <Popconfirm
                       title={t('chatPanel.deleteSessionConfirm', {
                         topic: generateTopic(session.messages, session.topic || t('chatPanel.defaultSessionTopic')),
-                        defaultValue: i18n.resolvedLanguage?.startsWith('zh')
-                          ? `删除会话“${generateTopic(session.messages, session.topic || t('chatPanel.defaultSessionTopic'))}”？此操作不可撤销。`
-                          : `Delete session "${generateTopic(session.messages, session.topic || t('chatPanel.defaultSessionTopic'))}"? This cannot be undone.`,
                       })}
-                      okText={t('chatPanel.confirmDelete', { defaultValue: confirmDeleteFallback })}
-                      cancelText={t('chatPanel.cancelDelete', { defaultValue: cancelDeleteFallback })}
+                      okText={t('chatPanel.confirmDelete')}
+                      cancelText={t('chatPanel.cancelDelete')}
                       onConfirm={(e) => {
                         e?.stopPropagation?.();
                         handleDeleteSession(session.id);
                       }}
                       onPopupClick={(e) => e.stopPropagation()}
                     >
-                      <Tooltip title={t('chatPanel.deleteSession', { defaultValue: deleteSessionLabelFallback })}>
+                      <Tooltip title={t('chatPanel.deleteSession')}>
                         <SessionDeleteButton
                           onClick={(e) => {
                             e.stopPropagation();
@@ -2581,10 +2582,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
               </ActionButtonsLeft>
               <ComposerMeta>
                 {pendingAttachments.length > 0
-                  ? `${pendingAttachments.length} attachment${pendingAttachments.length > 1 ? 's' : ''}`
-                  : t('chatPanel.inputHint', {
-                      defaultValue: inputHintFallback,
-                    })}
+                  ? `${pendingAttachments.length} ${pendingAttachments.length > 1 ? t('chatPanel.attachments') : t('chatPanel.attachment')}`
+                  : t('chatPanel.inputHint')}
               </ComposerMeta>
             </ActionButtons>
           </InputWrapper>

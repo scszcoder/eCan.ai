@@ -73,7 +73,11 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-logger = logging.getLogger("eCan")
+# CN builds name the app logger "eCan.cn" (propagate=False) — a bare
+# getLogger("eCan") record never reaches its handlers, silencing this
+# module's entire log output in packaged CN apps (v0.9.95u incident:
+# the WS reader looked dead because none of its lines could land).
+from utils.logger_helper import logger_helper as logger
 
 
 # Different text per attempt so the recent-sends dedup cache doesn't
@@ -207,6 +211,74 @@ class _TimerEntry:
 _REGISTRY: dict[tuple[str, str], _TimerEntry] = {}
 _REGISTRY_LOCK = threading.Lock()
 
+# ws050: 转人工 handover acknowledgement ──────────────────────────────
+# When a customer transfers to human (转人工), Feige auto-greets ("Hi，欢迎光临
+# 本店…") and starts a service-attitude penalty timer.  That system greeting is
+# the PLATFORM's, not ours — it does NOT stop the clock; we must send our OWN
+# message.  We send a uniform ASCII emoji once per handover, routed through the
+# placeholder send path (open conversation + type), reusing the sweeper's
+# browser_session/worker_loop.  Gated by ECAN_FEIGE_HANDOVER_ACK (default ON;
+# set =0 to disable).  Deduped per customer for _HANDOVER_ACK_REDEDUP_S so the
+# persistent greeting row (which re-matches every dispatch cycle until the
+# customer types) acks exactly once.
+_HANDOVER_ACK_TEXT = ":)"
+_HANDOVER_ACK_REDEDUP_S = 600.0
+_handover_ack_pending: dict[str, float] = {}
+_handover_ack_done: dict[str, float] = {}
+_handover_ack_lock = threading.Lock()
+
+
+def handover_ack_enabled() -> bool:
+    return os.environ.get("ECAN_FEIGE_HANDOVER_ACK", "1") != "0"
+
+
+def _handover_ack_text() -> str:
+    """The smiley to send on a handover ack. Sourced from the human-mode config
+    (default '[微笑]', a real Douyin emoji) — falls back to the ASCII constant."""
+    try:
+        from . import human_mode as _hm
+        return _hm.human_ack_text()
+    except Exception:
+        return _HANDOVER_ACK_TEXT
+
+
+def note_handover_ack_needed(customer_key: str) -> None:
+    """Mark *customer_key* as owing a 转人工 handover emoji.  Idempotent and
+    rate-limited: a customer acked within the last _HANDOVER_ACK_REDEDUP_S is
+    skipped (the greeting row keeps re-matching until the customer types)."""
+    if not customer_key or not handover_ack_enabled():
+        return
+    now = time.time()
+    with _handover_ack_lock:
+        if now - _handover_ack_done.get(customer_key, 0.0) < _HANDOVER_ACK_REDEDUP_S:
+            return
+        _handover_ack_pending.setdefault(customer_key, now)
+
+
+def clear_handover_ack(customer_key: str) -> None:
+    """Re-arm: a genuine new customer message means a LATER handover for the
+    same customer may be acked again."""
+    if not customer_key:
+        return
+    with _handover_ack_lock:
+        _handover_ack_pending.pop(customer_key, None)
+        _handover_ack_done.pop(customer_key, None)
+
+
+def _drain_handover_acks() -> list[str]:
+    """Return + clear the customers currently owing a handover emoji, stamping
+    each as done (for the re-dedup window)."""
+    now = time.time()
+    with _handover_ack_lock:
+        custs = list(_handover_ack_pending.keys())
+        for c in custs:
+            _handover_ack_pending.pop(c, None)
+            _handover_ack_done[c] = now
+        for c in [c for c, t in _handover_ack_done.items()
+                  if now - t > _HANDOVER_ACK_REDEDUP_S * 2]:
+            _handover_ack_done.pop(c, None)
+    return custs
+
 # Per-customer typed-placeholder ledger (2026-05-21 Fix B).
 # Defense in depth: even when multiple timers exist for the same customer
 # (e.g., PreDispatch mis-dispatched a phantom turn + the real turn — Fix A
@@ -218,11 +290,94 @@ _REGISTRY_LOCK = threading.Lock()
 # older than PLACEHOLDER_CAP_WINDOW_S are pruned on each query.
 _PLACEHOLDERS_TYPED_TS: dict[str, list[float]] = {}
 PLACEHOLDER_CAP_WINDOW_S: float = 90.0
+# ws009: last time a placeholder was CLAIMED (stamped synchronously in claim_expired,
+# unlike _PLACEHOLDERS_TYPED_TS which is written async after the send). The min-interval
+# check reads this so entries claimed in the SAME sweep can't all fire together.
+_LAST_PH_CLAIM_AT: dict[str, float] = {}
+# ws009b: last time a placeholder actually started DELIVERING (stamped at the delivery
+# chokepoint _placeholder_send_coroutine). claim_expired's min-interval only gates the
+# SWEEPER; placeholders also reach delivery via the watchdog / pool-saturated retype /
+# WS fast-path, which bypass it (live 2026-06-06 packet: 2 过渡句 20s apart, one per
+# path). This per-customer "shown" stamp gates ALL delivery paths.
+_LAST_PH_SHOWN_AT: dict[str, float] = {}
 
 
-def mark_placeholder_typed(customer_key: str) -> None:
+def _ph_talk_id(customer_key: str) -> str:
+    """ws074: resolve a customer_key to its underlying talk_id so the card/name split
+    (synthetic ``card:<talk>`` vs the real nickname — the SAME conversation) shares ONE
+    placeholder-dedup key and a single 过渡句 fires per conversation, not one per identity
+    (live 23:35: card:7652017222591825152 AND 肽斯特 both fired for the same talk). Best-effort;
+    returns '' when unresolvable (dedup then falls back to the customer_key-only behaviour)."""
+    cust = str(customer_key or "")
+    if cust.startswith("card:"):
+        return cust[len("card:"):].strip()
+    try:
+        from . import ws_session as _wss
+        return str(_wss.talk_for_name(cust) or "")
+    except Exception:
+        return ""
+
+
+def placeholder_recently_shown(customer_key: str) -> bool:
+    """ws009b: True if a placeholder was delivered to *customer_key* within the
+    min-interval — checked at the delivery chokepoint so duplicates from any path are
+    suppressed. ws074: also matches by talk_id so the card/name split dedups as ONE conv."""
+    cust = str(customer_key or "")
+    if not cust:
+        return False
+    iv = _placeholder_min_interval_s()
+    if iv <= 0:
+        return False
+    _tk = _ph_talk_id(cust)
+    with _REGISTRY_LOCK:
+        last = _LAST_PH_SHOWN_AT.get(cust, 0.0)
+        if _tk:
+            last = max(last, _LAST_PH_SHOWN_AT.get("talk:" + _tk, 0.0))
+    return bool(last) and (time.time() - last) < iv
+
+
+def note_placeholder_shown(customer_key: str) -> None:
+    """ws009b: stamp that a placeholder is being delivered to *customer_key* now.
+    ws074: also stamp by talk_id so the card/name split shares one dedup window."""
+    cust = str(customer_key or "")
+    if not cust:
+        return
+    _tk = _ph_talk_id(cust)
+    now = time.time()
+    with _REGISTRY_LOCK:
+        _LAST_PH_SHOWN_AT[cust] = now
+        if _tk:
+            _LAST_PH_SHOWN_AT["talk:" + _tk] = now
+
+
+def _placeholder_min_interval_s() -> float:
+    """ws004b: minimum spacing between placeholders shown to the SAME customer.
+    Env ECAN_FEIGE_PLACEHOLDER_MIN_INTERVAL_S overrides the tunable default."""
+    try:
+        import os as _os
+        v = _os.getenv("ECAN_FEIGE_PLACEHOLDER_MIN_INTERVAL_S")
+        if v is not None:
+            return float(v)
+        from .tunables import DEFAULT_FEIGE_PLACEHOLDER_MIN_INTERVAL_S as _d
+        return float(_d)
+    except Exception:
+        return 25.0
+
+# mt068: source_msg_id of the most recently typed placeholder per customer.
+# Used to make the mt060 "standing placeholder" suppression turn-aware — only
+# a placeholder for the SAME turn (same source_msg_id) within a short window is
+# a true 弹出多次 duplicate; a placeholder for a NEW customer message, or the
+# intended ~15s rearm of the same wait, must NOT be suppressed.
+_LAST_PLACEHOLDER_SRC: dict[str, str] = {}
+
+
+def mark_placeholder_typed(customer_key: str, source_msg_id: str = "") -> None:
     """Record that a placeholder was typed for ``customer_key``.  Called
-    by the placeholder send coroutine right after the type succeeds."""
+    by the placeholder send coroutine right after the type succeeds.
+
+    mt068: also records the turn's ``source_msg_id`` so the standing-placeholder
+    suppression can tell a same-turn double-fire from a new-message placeholder.
+    """
     if not customer_key:
         return
     cust = str(customer_key)
@@ -234,6 +389,7 @@ def mark_placeholder_typed(customer_key: str) -> None:
         while lst and lst[0] < cutoff:
             lst.pop(0)
         lst.append(now)
+        _LAST_PLACEHOLDER_SRC[cust] = str(source_msg_id or "")
 
 
 def count_recent_placeholders(customer_key: str) -> int:
@@ -378,15 +534,25 @@ def mark_real_reply_delivered(customer_key: str, source_msg_id: str = "") -> Non
         # 2026-05-24 mt038E: also stamp the empty-msg-id slot for
         # key-mismatch suppression — see cancel() for full rationale.
         _REAL_REPLY_AT[(str(customer_key), "")] = now
+        # ws009: a real reply ends this customer's unanswered streak — clear the
+        # first-unanswered anchor so the NEXT question anchors to its own arrival.
+        _FIRST_SEEN_BY_CUSTOMER.pop(str(customer_key), None)
 
 
 # mt060: window within which a typed-but-unanswered placeholder is still
 # considered visually "standing" on the customer's screen.
-PLACEHOLDER_STANDING_WINDOW_S: float = 30.0
+# mt068: shrunk 30s → 5s. The sweeper's intended re-placeholder cadence is
+# rearm=15s; a 30s suppression window swallowed that rearm AND new-message
+# placeholders, producing the customer's "过渡语句 not popping / 50% / 30-40s
+# avg / 109s max" (2026-06-03 1-to-5: 19 suppressions). 5s only catches a
+# genuine near-simultaneous double-fire (a race), not a real wait.
+PLACEHOLDER_STANDING_WINDOW_S: float = 5.0
 
 
 def placeholder_standing_unanswered(
-    customer_key: str, max_age_s: float = PLACEHOLDER_STANDING_WINDOW_S
+    customer_key: str,
+    source_msg_id: str = "",
+    max_age_s: float = PLACEHOLDER_STANDING_WINDOW_S,
 ) -> float:
     """Return the age (s) of the most recently typed placeholder for
     ``customer_key`` IF it is still standing unanswered — typed more recently
@@ -402,6 +568,13 @@ def placeholder_standing_unanswered(
     reply (avoids the opposite "不弹出直接延迟回复" complaint).  It also never
     fires when the prior placeholder failed to type, because
     ``mark_placeholder_typed`` is only called on a successful type.
+
+    mt068: TURN-AWARE. Only suppress when the standing placeholder is for the
+    SAME turn (same ``source_msg_id``) — that's a true 弹出多次 duplicate. A
+    placeholder for a NEW customer message (different source_msg_id) is always
+    allowed, so per-message / per-wait placeholders are no longer eaten. When
+    ``source_msg_id`` is empty (caller didn't supply one) we fall back to the
+    old customer-only behaviour.
     """
     if not customer_key:
         return -1.0
@@ -411,8 +584,12 @@ def placeholder_standing_unanswered(
         lst = _PLACEHOLDERS_TYPED_TS.get(cust)
         last_ph = lst[-1] if lst else 0.0
         last_reply = _REAL_REPLY_AT.get((cust, ""), 0.0)
+        last_src = _LAST_PLACEHOLDER_SRC.get(cust, "")
     if last_ph <= 0.0 or last_ph <= last_reply:
         return -1.0  # no placeholder typed, or a real reply superseded it
+    # mt068: different turn → not a duplicate → allow the placeholder.
+    if source_msg_id and last_src and str(source_msg_id) != last_src:
+        return -1.0
     age = now - last_ph
     if age < 0.0 or age > max_age_s:
         return -1.0
@@ -454,10 +631,13 @@ def mark_message_first_seen(customer_key: str, source_msg_id: str = "") -> None:
     cust = str(customer_key)
     now = time.time()
     with _REGISTRY_LOCK:
-        # Per-customer fallback — latest arrival wins (so a second
-        # message from the same customer correctly anchors to its own
-        # arrival rather than the older one).
-        _FIRST_SEEN_BY_CUSTOMER[cust] = now
+        # ws009: per-customer anchor = EARLIEST arrival of the current UNANSWERED streak,
+        # not latest. A customer who follows up (？/有没有人啊) while waiting must NOT push
+        # their 过渡句 deadline later — the placeholder is anchored to when they FIRST went
+        # unanswered and fires within `timeout` of that. Reset on a real reply (see
+        # mark_real_reply_delivered), so the next question starts a fresh anchor.
+        if cust not in _FIRST_SEEN_BY_CUSTOMER:
+            _FIRST_SEEN_BY_CUSTOMER[cust] = now
         if source_msg_id:
             key = (cust, str(source_msg_id))
             existing = _FIRST_SEEN_AT.get(key)
@@ -856,11 +1036,26 @@ def claim_expired(
                         # avoid spamming the chat.
                         _REGISTRY.pop(k, None)
                         continue
+            # ws004b: per-customer min-interval — DEFER (don't drop) a placeholder when
+            # this customer was shown one within the interval. Re-asks / rapid questions
+            # then get ONE 过渡句 per interval instead of one stacked per turn. Pushing
+            # the deadline past the interval means it still fires later if the turn is
+            # genuinely unanswered (self-healing, unlike a hard count cap).
+            _min_iv = _placeholder_min_interval_s()
+            if _min_iv > 0:
+                # ws009: gate on the synchronous CLAIM time, not the async TYPED time —
+                # otherwise several entries claimed in the SAME sweep all see "nothing
+                # typed yet" and fire together (the "3 过渡句 in 8s" race).
+                _last_claim = _LAST_PH_CLAIM_AT.get(entry.customer_key, 0.0)
+                if _last_claim and (now - _last_claim) < _min_iv:
+                    entry.deadline_at = max(entry.deadline_at, _last_claim + _min_iv)
+                    continue
             # mt048A: resolved lazily so operator file overrides apply.
             _texts = _get_placeholder_texts()
             text_idx = min(entry.placeholders_typed, len(_texts) - 1)
             text = _texts[text_idx]
             entry.placeholders_typed += 1
+            _LAST_PH_CLAIM_AT[entry.customer_key] = now   # ws009: stamp at claim, synchronously
             entry.deadline_at = now + rearm_s
             is_final = entry.placeholders_typed >= max_placeholders
             out.append(
@@ -876,6 +1071,10 @@ def claim_expired(
             if is_final:
                 # Remove now — caller will type but we won't fire again
                 _REGISTRY.pop(k, None)
+    # ws004c (tier2) EDF: when several placeholders come due in one sweep, type the
+    # most URGENT first — the one whose customer message arrived earliest is closest to
+    # Feige's 40s expiration. armed_at is the arrival-anchored time, so ascending = EDF.
+    out.sort(key=lambda e: e.armed_at)
     return out
 
 
@@ -933,6 +1132,33 @@ async def sweep_loop_async(
     while True:
         try:
             await _asyncio.sleep(interval_s)
+            # ws050: drain pending 转人工 handover acks — send the uniform ASCII
+            # emoji once per handover via the SAME submitter (open + type) that
+            # placeholders use, so it inherits browser_session/worker_loop/pool.
+            for _hk in _drain_handover_acks():
+                _ack_text = _handover_ack_text()
+                logger.info(
+                    f"[placeholder_timer] ws050 handover-ack -> cust={_hk!r} "
+                    f"text={_ack_text!r}")
+                try:
+                    _ack_ok = bool(placeholder_submitter(_hk, "", _ack_text))
+                except Exception as _hae:
+                    _ack_ok = False
+                    logger.debug(
+                        f"[placeholder_timer] handover-ack submit failed "
+                        f"cust={_hk!r}: {_hae}")
+                if not _ack_ok:
+                    # ws163: drain stamped 'done' optimistically; a failed submit
+                    # previously burned the 600s re-dedup with NOTHING sent (live
+                    # 2026-07-10 'sc'). Re-arm so the next sweep retries.
+                    try:
+                        clear_handover_ack(_hk)
+                        note_handover_ack_needed(_hk)
+                        logger.info(
+                            f"[placeholder_timer] ws163 handover-ack submit "
+                            f"returned False cust={_hk!r} — re-armed for retry")
+                    except Exception:
+                        pass
             expired = claim_expired(
                 max_placeholders=max_placeholders,
                 rearm_s=rearm_s,
@@ -976,13 +1202,18 @@ async def sweep_loop_async(
                 # that already shows one.  A real reply clears the on-screen
                 # placeholder (stamps _REAL_REPLY_AT), so this never suppresses
                 # the first placeholder of a wait or one after a reply.
-                _standing_age = placeholder_standing_unanswered(entry.customer_key)
+                # mt068: turn-aware + 5s window — only suppress a genuine
+                # same-turn near-simultaneous double-fire, never a new-message
+                # placeholder or the intended ~15s rearm of a long wait.
+                _standing_age = placeholder_standing_unanswered(
+                    entry.customer_key, entry.source_msg_id
+                )
                 if _standing_age >= 0.0:
                     logger.info(
                         f"[placeholder_timer] mt060 suppressed placeholder "
                         f"#{entry.placeholders_typed} for cust={entry.customer_key!r} "
                         f"src_msg={entry.source_msg_id!r} — a placeholder is "
-                        f"still standing unanswered ({_standing_age:.0f}s ago)"
+                        f"still standing unanswered ({_standing_age:.0f}s ago, same turn)"
                     )
                     continue
                 try:

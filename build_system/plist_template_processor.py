@@ -11,41 +11,60 @@ import plistlib
 import tempfile
 from pathlib import Path
 from typing import Dict, Any, Optional
-from utils.logger_helper import logger_helper as logger
+
+
+def _get_logger():
+    """Lazy logger import.
+
+    This module is loaded inside the PyInstaller spec file (and historically
+    also during build validation). To keep the build path clean of cloud-mistake
+    runtime singletons (utils.logger_helper transitively imports colorlog and
+    registers a global file handler + signal handlers via a singleton), the
+    logger is only resolved when actually needed.
+    """
+    try:
+        from utils.logger_helper import logger_helper as logger
+        return logger
+    except Exception:
+        # No usable logger present (e.g. running in a stripped build context).
+        # Fall back to a stdlib logger so the build keeps working.
+        import logging
+        return logging.getLogger("plist_template_processor")
 
 
 class InfoPlistTemplateProcessor:
     """Process Info.plist template with dynamic configuration"""
-    
+
     def __init__(self, project_root: Path, config: Dict[str, Any]):
         self.project_root = project_root
         self.config = config
         self.template_path = project_root / 'resource' / 'Info.plist'
-        
+
     def process_template(self, app_name: str, app_version: str, mode: str = "prod") -> str:
         """
         Process Info.plist template with dynamic values
-        
+
         Args:
             app_name: Application name
             app_version: Application version
             mode: Build mode (prod, dev, etc.)
-            
+
         Returns:
             Path to processed Info.plist file
         """
+        logger = _get_logger()
         try:
             # Load template
             if not self.template_path.exists():
                 logger.error(f"Info.plist template not found: {self.template_path}")
                 return self._create_fallback_plist(app_name, app_version)
-            
+
             with open(self.template_path, 'rb') as f:
                 template_data = plistlib.load(f)
-            
+
             # Apply dynamic configuration
             processed_data = self._apply_dynamic_config(template_data, app_name, app_version, mode)
-            
+
             # Create temporary processed file
             temp_dir = self.project_root / 'build' / 'temp'
             temp_dir.mkdir(parents=True, exist_ok=True)
@@ -139,7 +158,7 @@ class InfoPlistTemplateProcessor:
     
     def _create_fallback_plist(self, app_name: str, app_version: str) -> str:
         """Create fallback Info.plist if template is missing"""
-        logger.warning("Creating fallback Info.plist")
+        _get_logger().warning("Creating fallback Info.plist")
         
         app_config = self.config.get('app', {})
         installer_config = self.config.get('installer', {}).get('macos', {})

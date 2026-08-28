@@ -42,6 +42,26 @@ _mem_logger = logging.getLogger('memory_monitor')
 _mem_logger.propagate = False  # don't bubble up to root/app logger
 
 
+def _live_chat_protect_env_mb() -> str:
+    """Read the live-chat RSS protection threshold from the environment.
+
+    Canonical knob: ``ECAN_RSS_LIVE_CHAT_PROTECT_MB``.  Falls back to any
+    legacy site-branded spelling still set by operator run-scripts
+    (``ECAN_RSS_<SITE>_PROTECT_MB``, single-token site name), so existing
+    configs keep working.  utils/ must not import agent.* (cycle risk),
+    hence this tiny local scan instead of live_chat_env().
+    """
+    import re
+    val = os.getenv("ECAN_RSS_LIVE_CHAT_PROTECT_MB")
+    if val is not None:
+        return val
+    pat = re.compile(r"^ECAN_RSS_[A-Z0-9]+_PROTECT_MB$")
+    for key, value in os.environ.items():
+        if pat.match(key):
+            return value
+    return "6000"
+
+
 def _setup_mem_logger(log_dir: str):
     """Configure the dedicated memory.log file handler."""
     if _mem_logger.handlers:
@@ -70,7 +90,7 @@ class MemoryMonitor:
         top_n: int = 15,
         enable_tracemalloc: bool = False,
         tracemalloc_frames: int = 5,
-        rss_feige_protect_mb: Optional[float] = None,
+        rss_live_chat_protect_mb: Optional[float] = None,
         rss_protect_mb: Optional[float] = None,
         rss_critical_mb: Optional[float] = None,
     ):
@@ -90,13 +110,13 @@ class MemoryMonitor:
         self.growth_warn_mb_per_min = growth_warn_mb_per_min
         self.top_n = top_n
         try:
-            self.rss_feige_protect_mb = float(
-                rss_feige_protect_mb
-                if rss_feige_protect_mb is not None
-                else os.getenv("ECAN_RSS_FEIGE_PROTECT_MB", "6000")
+            self.rss_live_chat_protect_mb = float(
+                rss_live_chat_protect_mb
+                if rss_live_chat_protect_mb is not None
+                else _live_chat_protect_env_mb()
             )
         except Exception:
-            self.rss_feige_protect_mb = 6000.0
+            self.rss_live_chat_protect_mb = 6000.0
         try:
             self.rss_protect_mb = float(
                 rss_protect_mb
@@ -115,9 +135,9 @@ class MemoryMonitor:
             self.rss_critical_mb = 9000.0
         if self.rss_critical_mb < self.rss_protect_mb:
             self.rss_critical_mb = self.rss_protect_mb
-        if self.rss_feige_protect_mb > self.rss_protect_mb:
-            self.rss_feige_protect_mb = self.rss_protect_mb
-        self._rss_feige_protect_fired = False
+        if self.rss_live_chat_protect_mb > self.rss_protect_mb:
+            self.rss_live_chat_protect_mb = self.rss_protect_mb
+        self._rss_live_chat_protect_fired = False
         self._rss_protect_fired = False
         self._rss_critical_fired = False
 
@@ -153,6 +173,10 @@ class MemoryMonitor:
             )
         except Exception:
             self._thread_breakdown_full_every = 20
+        # ws180 gc-census state (no-tracemalloc leak triage): previous
+        # type->count histogram + last-run timestamp for throttling.
+        self._census_counts: Dict[str, int] = {}
+        self._last_census_ts: float = 0.0
         # tracemalloc: how often (in snapshot intervals) to also emit a
         # ``vs baseline`` diff (total growth since start) in addition to
         # the per-interval ``vs previous`` diff.
@@ -331,14 +355,16 @@ class MemoryMonitor:
                     _mem_logger.warning(
                         f'[MemoryMonitor] Forensic dump failed (ignored): {_fd_err}'
                     )
+            # ws180: no-tracemalloc census on the absolute-threshold warning too
+            self._gc_type_census(rss_mb, trigger='rss_warn')
 
         if (
-            self.rss_feige_protect_mb > 0
-            and rss_mb >= self.rss_feige_protect_mb
-            and not self._rss_feige_protect_fired
+            self.rss_live_chat_protect_mb > 0
+            and rss_mb >= self.rss_live_chat_protect_mb
+            and not self._rss_live_chat_protect_fired
         ):
-            self._rss_feige_protect_fired = True
-            self._handle_feige_high_rss(rss_mb)
+            self._rss_live_chat_protect_fired = True
+            self._handle_live_chat_high_rss(rss_mb)
 
         if self.rss_protect_mb > 0 and rss_mb >= self.rss_protect_mb and not self._rss_protect_fired:
             self._rss_protect_fired = True
@@ -361,38 +387,104 @@ class MemoryMonitor:
                     )
                     _mem_logger.warning(msg)
                     _app_logger.warning(msg)
+                    # ws180: name the growing types while the leak is live
+                    self._gc_type_census(rss_mb, trigger='growth_rate')
 
-    def _handle_feige_high_rss(self, rss_mb: float) -> None:
+        # Periodically dump global cache sizes (every 5 minutes) to track memory leaks
+        if not hasattr(self, '_last_cache_dump_time'):
+            self._last_cache_dump_time = now
+        elif now - self._last_cache_dump_time >= 300:  # 5 minutes
+            self.dump_global_caches()
+            self._last_cache_dump_time = now
+
+    def _gc_type_census(self, rss_mb: float, trigger: str, top_n: int = 20) -> None:
+        """ws180: leak triage WITHOUT tracemalloc (which hooks every allocation —
+        vetoed for perf). One O(N) pass over gc-tracked objects, count by type,
+        diff vs the previous census, log the top growers to the MAIN app log so
+        the histogram ships inside eCan.log (memory.log stays on the run box).
+
+        Motivation: both 2026-07-16 runs leaked ~45MB/min and DIED at ~1.17GB
+        RSS (~18min into a 1-vs-3 run) with no allocation-site evidence.
+
+        Cost: a single list+loop over live objects (~0.5-1.5s at millions of
+        objects), no per-allocation overhead, nothing stays enabled between
+        calls. Fires only from the RSS warning branches and at most once per
+        ECAN_MEM_CENSUS_MIN_GAP_S (default 240s). Kill: ECAN_MEM_CENSUS=0.
+        """
+        if os.getenv("ECAN_MEM_CENSUS", "1") == "0":
+            return
+        try:
+            min_gap = float(os.getenv("ECAN_MEM_CENSUS_MIN_GAP_S", "240") or 240)
+        except (TypeError, ValueError):
+            min_gap = 240.0
+        now = time.time()
+        if now - self._last_census_ts < min_gap:
+            return
+        self._last_census_ts = now
+        try:
+            t0 = time.time()
+            counts: Dict[str, int] = {}
+            objs = gc.get_objects()
+            total = len(objs)
+            for o in objs:
+                t = type(o)
+                mod = t.__module__
+                name = t.__name__ if mod in ("builtins", None) else f"{mod}.{t.__name__}"
+                counts[name] = counts.get(name, 0) + 1
+            del objs  # drop the giant list before doing anything else
+            prev, self._census_counts = self._census_counts, counts
+            took_ms = (time.time() - t0) * 1000.0
+            if not prev:
+                top = sorted(counts.items(), key=lambda kv: -kv[1])[:top_n]
+                lines = [f"{n}={c}" for n, c in top]
+                _app_logger.warning(
+                    f"[MemoryMonitor] GC-CENSUS baseline (trigger={trigger} rss={rss_mb:.1f}MB "
+                    f"objects={total} took={took_ms:.0f}ms) top-count: " + "  ".join(lines))
+                return
+            deltas = sorted(
+                ((n, c, c - prev.get(n, 0)) for n, c in counts.items()),
+                key=lambda x: -x[2])[:top_n]
+            lines = [f"{n}={c}({d:+d})" for n, c, d in deltas if d > 0]
+            _app_logger.warning(
+                f"[MemoryMonitor] GC-CENSUS growers (trigger={trigger} rss={rss_mb:.1f}MB "
+                f"objects={total} took={took_ms:.0f}ms) count(+delta): "
+                + ("  ".join(lines) if lines else "none — leak is NOT gc-tracked Python "
+                   "objects (suspect native buffers / bytes held by few objects)"))
+        except Exception as _gce:
+            _mem_logger.warning(f"[MemoryMonitor] gc census failed (ignored): {_gce}")
+
+    def _handle_live_chat_high_rss(self, rss_mb: float) -> None:
         msg = (
-            f"[MemoryMonitor] FEIGE_PROTECT: RSS={rss_mb:.1f}MB crossed "
-            f"{self.rss_feige_protect_mb:.1f}MB; cooling Feige CDP and "
+            f"[MemoryMonitor] LIVE_CHAT_PROTECT: RSS={rss_mb:.1f}MB crossed "
+            f"{self.rss_live_chat_protect_mb:.1f}MB; cooling live-chat CDP and "
             "releasing browser cache pressure"
         )
         _mem_logger.warning(msg)
         _app_logger.warning(msg)
         try:
             from utils.crash_boundary import set_crash_boundary_phase
-            set_crash_boundary_phase(f"memory:feige_protect_rss_{rss_mb:.0f}mb")
+            set_crash_boundary_phase(f"memory:live_chat_protect_rss_{rss_mb:.0f}mb")
         except Exception:
             pass
         try:
-            ets = sys.modules.get(
-                "agent.ec_skills.browser_use_extension.extension_tools_service"
-            )
-            marker = getattr(ets, "mark_feige_cdp_unhealthy", None) if ets else None
-            if callable(marker):
-                marker(f"high_rss:{rss_mb:.0f}mb")
+            # Runtime-only, cycle-safe: resolve the live-chat bundle's
+            # runner bridge and open its site-send CDP health cooldown;
+            # no-op when no live-chat bundle is loaded in this process.
+            from agent.ec_skills import live_chat_dispatch as _lcd
+            bridge = _lcd.runner_bridge()
+            if bridge is not None:
+                bridge.mark_cdp_unhealthy(f"high_rss:{rss_mb:.0f}mb")
         except Exception:
             pass
         try:
             from agent.ec_skills.browser_node import build_helpers as _bh
-            removed = _bh.release_browser_cache_pressure(reason="memory_feige_protect", aggressive=False)
-            _mem_logger.warning(f"[MemoryMonitor] Feige browser cache pressure cleanup removed={removed}")
+            removed = _bh.release_browser_cache_pressure(reason="memory_live_chat_protect", aggressive=False)
+            _mem_logger.warning(f"[MemoryMonitor] live-chat browser cache pressure cleanup removed={removed}")
         except Exception as exc:
-            _mem_logger.warning(f"[MemoryMonitor] Feige browser cache pressure cleanup failed: {exc}")
+            _mem_logger.warning(f"[MemoryMonitor] live-chat browser cache pressure cleanup failed: {exc}")
         try:
             collected = gc.collect()
-            _mem_logger.warning(f"[MemoryMonitor] Feige gc.collect reclaimed={collected}")
+            _mem_logger.warning(f"[MemoryMonitor] live-chat gc.collect reclaimed={collected}")
         except Exception:
             pass
 
@@ -416,6 +508,25 @@ class MemoryMonitor:
             _mem_logger.warning(f"[MemoryMonitor] browser cache pressure cleanup removed={removed}")
         except Exception as exc:
             _mem_logger.warning(f"[MemoryMonitor] browser cache pressure cleanup failed: {exc}")
+
+        # Clean up WebEngine profile cache (QtWebEngine is known to leak memory)
+        try:
+            cleaned = self._cleanup_webengine_memory()
+            if cleaned:
+                _mem_logger.warning(f"[MemoryMonitor] WebEngine memory cleanup triggered")
+        except Exception as web_exc:
+            _mem_logger.warning(f"[MemoryMonitor] WebEngine cleanup failed: {web_exc}")
+
+        # Clean up build_node module caches
+        try:
+            from agent.ec_skills import build_node
+            if hasattr(build_node, '_cleanup_build_node_caches'):
+                removed = build_node._cleanup_build_node_caches()
+                if removed:
+                    _mem_logger.warning(f"[MemoryMonitor] build_node caches cleaned: {removed}")
+        except Exception as build_exc:
+            _mem_logger.debug(f"[MemoryMonitor] build_node cache cleanup skipped: {build_exc}")
+
         try:
             collected = gc.collect()
             _mem_logger.warning(f"[MemoryMonitor] gc.collect reclaimed={collected}")
@@ -672,6 +783,113 @@ class MemoryMonitor:
         result = f'--- Backrefs for {type_name} (1 of {len(objects)}) ---\n{buf.getvalue()}'
         _mem_logger.info(result)
         return result
+
+    def dump_global_caches(self) -> Dict[str, int]:
+        """Log the sizes of critical global caches to help identify memory leaks.
+
+        This method checks and logs the sizes of:
+        - cached_bu_agents (browser-use agents, ~860MB each)
+        - cached_browser_sessions
+        - _cached_passive_agents
+        - fieldLinks (network connections)
+        - response_dict (pending async responses)
+
+        Returns a dict with the cache names and their sizes.
+        """
+        cache_sizes: Dict[str, int] = {}
+
+        # Browser automation caches
+        try:
+            from agent.ec_skills.browser_node import build_helpers as _bh
+            cache_sizes['cached_bu_agents'] = len(_bh.cached_bu_agents)
+            cache_sizes['cached_browser_sessions'] = len(_bh.cached_browser_sessions)
+        except Exception:
+            pass
+
+        try:
+            from agent.ec_skills.browser_node.session import _cached_passive_agents
+            cache_sizes['_cached_passive_agents'] = len(_cached_passive_agents)
+        except Exception:
+            pass
+
+        try:
+            from agent.ec_skills.build_node import _cached_passive_agents as _bh_cpa
+            cache_sizes['_cached_passive_agents (build_node)'] = len(_bh_cpa)
+        except Exception:
+            pass
+
+        # Network connections
+        try:
+            from agent.network.network import fieldLinks
+            cache_sizes['fieldLinks'] = len(fieldLinks)
+        except Exception:
+            pass
+
+        # LocalServer response dict
+        try:
+            from gui.LocalServer import response_dict
+            cache_sizes['response_dict'] = len(response_dict)
+        except Exception:
+            pass
+
+        # WebSocket connections
+        try:
+            from gui.LocalServer import AppWebSocketManager
+            ws_manager = AppWebSocketManager()
+            cache_sizes['websocket_total_connections'] = len(ws_manager._all_connections)
+            cache_sizes['websocket_channels'] = len(ws_manager._connections)
+        except Exception:
+            pass
+
+        # Log the sizes
+        cache_lines = [f'--- Global Cache Sizes ---']
+        for name, size in sorted(cache_sizes.items()):
+            cache_lines.append(f'  {name}: {size}')
+            # Warn about suspicious sizes
+            if 'bu_agents' in name and size > 6:
+                _mem_logger.warning(f"[MemoryMonitor] WARNING: {name} has {size} entries (>6 is suspicious, each ~860MB)")
+            elif 'browser_sessions' in name and size > 10:
+                _mem_logger.warning(f"[MemoryMonitor] WARNING: {name} has {size} entries (>10 is suspicious)")
+
+        _mem_logger.info('\n'.join(cache_lines))
+        return cache_sizes
+
+    def _cleanup_webengine_memory(self) -> bool:
+        """Clean up QtWebEngine memory by clearing profile caches.
+
+        This targets the specific leak source: QtWebEngine's HTTP cache,
+        cookie store, and temp pages accumulating over time.
+
+        Returns:
+            True if cleanup was performed, False if no WebEngine found
+        """
+        cleaned = False
+
+        # Try to clean WebEngine profile cache
+        try:
+            from app_context import AppContext
+            web_gui = AppContext.get_web_gui()
+            if web_gui and hasattr(web_gui, 'web_engine_view'):
+                web_engine = web_gui.web_engine_view
+                if hasattr(web_engine, 'clear_profile_cache'):
+                    web_engine.clear_profile_cache()
+                    cleaned = True
+                    _mem_logger.info("[MemoryMonitor] WebEngine profile cache cleared")
+        except Exception as e:
+            _mem_logger.debug(f"[MemoryMonitor] WebEngine cleanup skipped: {e}")
+
+        # Try to trigger cleanup on any BrowserAutomation sessions
+        try:
+            from agent.ec_skills.browser_node import build_helpers as _bh
+            # Check if there are browser sessions that might hold temp pages
+            if hasattr(_bh, 'cached_browser_sessions'):
+                session_count = len(_bh.cached_browser_sessions)
+                if session_count > 0:
+                    _mem_logger.debug(f"[MemoryMonitor] {session_count} browser sessions active")
+        except Exception:
+            pass
+
+        return cleaned
 
     def get_summary(self) -> Dict[str, Any]:
         """Return current memory stats as a dict (for API/IPC use)."""

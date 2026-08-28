@@ -40,7 +40,7 @@ State dicts (module-level singletons; previously per-build-call):
 
 Constants:
 
-* :data:`MAX_BROWSER_CACHE_SIZE` = 10 — eviction trigger for
+* :data:`MAX_BROWSER_CACHE_SIZE` = 3 — eviction trigger for
   ``cached_browser_sessions``.
 * :data:`NEW_TAB_WAIT_SEC` = 2.0 — fallback blank-tab wait.
 """
@@ -71,16 +71,54 @@ from agent.ec_skills.build_node import (
 # (``node:<name>`` or ``chat:<id>``) so collisions cannot occur.
 
 cached_browser_sessions: dict[str, Any] = {}
+_cached_browser_sessions_insertion_order: list[str] = []  # Track insertion order for FIFO eviction
 last_known_focus_target_ids: dict[str, str] = {}  # survives session recreation per scope
 browser_start_locks: dict[int, Any] = {}  # thread locks keyed by CDP port for cross-worker startup serialization
 # Tunable timeouts for browser session startup (can be overridden via env vars)
 BROWSER_START_LOCK_TIMEOUT = int(os.getenv("EC_BROWSER_START_LOCK_TIMEOUT", "30"))  # was 60s
 BROWSER_SESSION_START_TIMEOUT = int(os.getenv("EC_BROWSER_SESSION_START_TIMEOUT", "20"))  # was 30s
+
+# CRITICAL: cached_bu_agents is a massive memory leak risk!
+# Each browser-use Agent consumes ~860 MB (per comments).
+# Must have strict size limits to prevent runaway memory growth.
+# Can be overridden via ECAN_MAX_BU_AGENTS_CACHE_SIZE env var.
+_MAX_BU_AGENTS_CACHE_SIZE = int(os.environ.get("ECAN_MAX_BU_AGENTS_CACHE_SIZE", "4"))
 cached_bu_agents: dict[str, Any] = {}
+_cached_bu_agents_insertion_order: list[str] = []  # Track insertion order for FIFO eviction
+
 DEFAULT_NODE_SCOPED_SKILL_NAMES = {"customer_front_desk", "飞鸽前台", "飞鸽前台0"}
 
-MAX_BROWSER_CACHE_SIZE = 10  # Limit cache size to prevent unbounded memory growth
+MAX_BROWSER_CACHE_SIZE = 3  # Limit cache size to prevent unbounded memory growth
 NEW_TAB_WAIT_SEC = 2.0  # seconds to wait after creating a fallback blank tab
+
+
+def _evict_bu_agent_if_needed() -> None:
+    """Evict oldest browser-use Agent if cache exceeds size limit.
+    
+    Each cached_bu_agents entry consumes ~860 MB, so we must keep
+    this cache strictly bounded. Uses FIFO eviction based on insertion order.
+    """
+    global _cached_bu_agents_insertion_order
+    
+    if len(cached_bu_agents) <= _MAX_BU_AGENTS_CACHE_SIZE:
+        return
+    
+    # Evict oldest entries until we're under the limit
+    while len(cached_bu_agents) > _MAX_BU_AGENTS_CACHE_SIZE and _cached_bu_agents_insertion_order:
+        oldest_key = _cached_bu_agents_insertion_order.pop(0)
+        if oldest_key in cached_bu_agents:
+            agent = cached_bu_agents.pop(oldest_key, None)
+            logger.warning(
+                f"[build_helpers] EVICTED cached_bu_agents entry '{oldest_key}' "
+                f"to prevent memory leak (cache size: {len(cached_bu_agents)}/{_MAX_BU_AGENTS_CACHE_SIZE})"
+            )
+            # Try to clean up the agent if it has a cleanup method
+            if agent is not None:
+                try:
+                    if hasattr(agent, 'stop'):
+                        agent.stop()
+                except Exception:
+                    pass
 
 
 # ─── Trivial helpers (0-1 closure refs in original) ──────────────────
@@ -376,28 +414,31 @@ def resolve_browser_scope_key(
     """
     # Pin-to-node opt-in: front-desk dispatcher pattern (one shared browser
     # session rotated across customer tabs, vs the default per-chat isolation).
+    # Pinned scopes carry an agent suffix (node:<name>:<agent_id>) so agents
+    # sharing ONE skill don't fight over a single cached session (Phase 3/B6);
+    # falls back to the legacy bare scope when no agent can be determined.
     try:
         if pin_to_node is True:
-            return f"node:{node_name}"
+            return f"node:{node_name}{_agent_pin_suffix(state, node_name)}"
         _attrs_pin = state.get("attributes", {}) if isinstance(state, dict) else {}
         if isinstance(_attrs_pin, dict):
             _v = _attrs_pin.get("pin_browser_scope_to_node")
             if _v is True or (isinstance(_v, str) and _v.strip().lower() in ("1", "true", "yes", "on")):
-                return f"node:{node_name}"
+                return f"node:{node_name}{_agent_pin_suffix(state, node_name)}"
             _params_pin = _attrs_pin.get("params", {}) if isinstance(_attrs_pin, dict) else {}
             if isinstance(_params_pin, dict):
                 _v = _params_pin.get("pinBrowserScopeToNode")
                 if _v is True or (isinstance(_v, str) and _v.strip().lower() in ("1", "true", "yes", "on")):
-                    return f"node:{node_name}"
+                    return f"node:{node_name}{_agent_pin_suffix(state, node_name)}"
             _skill_name = str(
                 skill_name
                 or (_attrs_pin.get("skill_name") if isinstance(_attrs_pin, dict) else "")
                 or ""
             ).strip()
             if _skill_name.lower() in DEFAULT_NODE_SCOPED_SKILL_NAMES:
-                return f"node:{node_name}"
+                return f"node:{node_name}{_agent_pin_suffix(state, node_name)}"
             if _skill_name and _resolve_pin_to_node_from_skill(_skill_name):
-                return f"node:{node_name}"
+                return f"node:{node_name}{_agent_pin_suffix(state, node_name)}"
     except Exception:
         pass
 
@@ -429,6 +470,84 @@ def resolve_browser_scope_key(
     except Exception:
         pass
     return f"node:{node_name}"
+
+
+def _agent_pin_suffix(state, node_name: str) -> str:
+    """Agent suffix for pinned ``node:*`` browser scopes.
+
+    SHARED_SKILL_MULTI_TASK_PLAN Phase 3 (B6): a bare ``node:<name>`` scope
+    collides when multiple agents share ONE skill (identical node names) —
+    two agents would fight over one cached browser session. Suffix the pin
+    scope with the owning agent id, resolved from per-run state with the
+    mt068 sticky-recovery cache keeping the suffix stable on degraded
+    re-entries (state that momentarily lost agent_id). Falls back to ""
+    (legacy shared scope) when no agent can be determined.
+    """
+    try:
+        attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
+        agent_id = attrs.get("agent_id") if isinstance(attrs, dict) else None
+        if not agent_id and isinstance(state, dict):
+            msgs = state.get("messages")
+            if isinstance(msgs, list) and msgs and isinstance(msgs[0], str):
+                agent_id = msgs[0]
+        try:
+            from agent.ec_skills.build_node import _record_or_recover_agent_id
+            agent_id = _record_or_recover_agent_id(node_name, state, agent_id)
+        except Exception:
+            pass
+        if not agent_id:
+            logger.debug(
+                f"[BrowserAutomation] Pinned scope for node={node_name} has no "
+                f"resolvable agent — using legacy shared scope node:{node_name}"
+            )
+        return f":{agent_id}" if agent_id else ""
+    except Exception:
+        return ""
+
+
+def resolve_state_browser_identity(state) -> dict:
+    """Per-run browser identity overrides carried in state.
+
+    SHARED_SKILL_MULTI_TASK_PLAN Phase 3 (B2): tasks sharing ONE skill can
+    each run their own browser identity. Reads the same state locations the
+    runtime browser-slot mechanism already honors — state root, then
+    ``attributes``, then ``attributes.params`` — for:
+    ``browser_profile``, ``cdp_port``, ``browser_slot_id``,
+    ``user_data_dir``, ``headless``.
+
+    Values reach these keys either from the scheduler/BrowserManager slot
+    assignment (pre-existing) or from the task's persisted
+    ``browser_identity`` dict seeded into attributes at run start
+    (``prep_skills_run.apply_task_vars``). Returns only the keys that
+    resolved to a non-empty value; ``headless`` is coerced to bool.
+    """
+    resolved: dict = {}
+    try:
+        st = state if isinstance(state, dict) else {}
+        attrs = st.get("attributes", {}) if isinstance(st.get("attributes"), dict) else {}
+        params = attrs.get("params", {}) if isinstance(attrs.get("params"), dict) else {}
+        for key in ("browser_profile", "cdp_port", "browser_slot_id", "user_data_dir", "headless"):
+            value = st.get(key)
+            if value is None or value == "":
+                value = attrs.get(key)
+            if value is None or value == "":
+                value = params.get(key)
+            if value is None or value == "":
+                continue
+            if key == "headless":
+                if isinstance(value, bool):
+                    resolved[key] = value
+                else:
+                    s = str(value).strip().lower()
+                    if s in ("1", "true", "yes", "on"):
+                        resolved[key] = True
+                    elif s in ("0", "false", "no", "off"):
+                        resolved[key] = False
+            else:
+                resolved[key] = str(value).strip()
+    except Exception as e:
+        logger.debug(f"[resolve_state_browser_identity] failed: {e}")
+    return resolved
 
 
 def cleanup_stale_browser_sessions() -> None:
@@ -666,6 +785,10 @@ async def get_or_create_browser_session(
     """
     from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
 
+    # Auto-cleanup: Remove dead sessions before checking cache
+    # This prevents zombie sessions from being reused
+    cleanup_stale_browser_sessions()
+
     browser_scope_key = resolve_browser_scope_key(
         state,
         node_name=ctx.node_name,
@@ -701,9 +824,19 @@ async def get_or_create_browser_session(
         _cached_passive_agents.pop(old_sid, None)
         cached_browser_sessions.pop(browser_scope_key, None)
 
-    profile_settings = get_browser_profile_settings(ctx.node_profile)
+    # Per-run browser identity (Phase 3/B2): state-carried overrides win
+    # over the node's build-time config so tasks sharing one skill can run
+    # distinct browser identities.
+    _run_identity = resolve_state_browser_identity(state)
+    _effective_profile = _run_identity.get("browser_profile") or ctx.node_profile
+
+    profile_settings = get_browser_profile_settings(_effective_profile)
     if profile_settings:
-        log_msg = f"[BrowserAutomation] Using profile: {profile_settings.get('name', ctx.node_profile)}"
+        _profile_src = "state" if _run_identity.get("browser_profile") else "config"
+        log_msg = (
+            f"[BrowserAutomation] Using profile: "
+            f"{profile_settings.get('name', _effective_profile)} (from={_profile_src})"
+        )
         logger.info(log_msg)
         send_skill_editor_log("log", log_msg)
 
@@ -739,43 +872,19 @@ async def get_or_create_browser_session(
     }
     browser_type = browser_type_map.get(ctx.browser_type_setting, BrowserType.CHROME)
 
-    # Runtime browser-slot resolution: task state (assigned by scheduler
-    # or auto-assigned by BrowserManager) takes priority over skill config.
-    _state_cdp_port = ""
-    _state_browser_profile = ""
-    _state_slot_id = ""
-    try:
-        _slot_state = state if isinstance(state, dict) else {}
-        _slot_attrs = _slot_state.get("attributes", {}) if isinstance(_slot_state, dict) else {}
-        _slot_params = _slot_attrs.get("params", {}) if isinstance(_slot_attrs, dict) else {}
-        # Check state root, then attributes, then params for cdp_port
-        _state_cdp_port = str(
-            _slot_state.get("cdp_port")
-            or _slot_attrs.get("cdp_port")
-            or _slot_params.get("cdp_port")
-            or ""
-        ).strip()
-        _state_browser_profile = str(
-            _slot_state.get("browser_profile")
-            or _slot_attrs.get("browser_profile")
-            or _slot_params.get("browser_profile")
-            or ""
-        ).strip()
-        _state_slot_id = str(
-            _slot_state.get("browser_slot_id")
-            or _slot_attrs.get("browser_slot_id")
-            or _slot_params.get("browser_slot_id")
-            or ""
-        ).strip()
-        if _state_cdp_port or _state_slot_id:
-            logger.info(
-                f"[BrowserAutomation] Runtime browser slot from state: "
-                f"cdp_port={_state_cdp_port or '(auto)'}, "
-                f"slot_id={_state_slot_id or '(none)'}, "
-                f"profile={_state_browser_profile or '(default)'}"
-            )
-    except Exception as _slot_err:
-        logger.debug(f"[BrowserAutomation] Browser slot resolution from state failed: {_slot_err}")
+    # Runtime browser-slot resolution: task state (assigned by scheduler,
+    # auto-assigned by BrowserManager, or carried by the task's persisted
+    # browser_identity) takes priority over skill config.
+    _state_cdp_port = _run_identity.get("cdp_port", "")
+    _state_browser_profile = _run_identity.get("browser_profile", "")
+    _state_slot_id = _run_identity.get("browser_slot_id", "")
+    if _state_cdp_port or _state_slot_id:
+        logger.info(
+            f"[BrowserAutomation] Runtime browser slot from state: "
+            f"cdp_port={_state_cdp_port or '(auto)'}, "
+            f"slot_id={_state_slot_id or '(none)'}, "
+            f"profile={_state_browser_profile or '(default)'}"
+        )
 
     # If we have a slot_id but no cdp_port, resolve port from the slot
     if _state_slot_id and not _state_cdp_port:
@@ -833,7 +942,10 @@ async def get_or_create_browser_session(
         cdp_port=cdp_port,
         webdriver_path=mainwin.getWebDriverPath(),
         downloads_path=ctx.downloads_path,
-        profile=ctx.node_profile or _state_browser_profile,
+        # State-carried profile wins over node config — same precedence as
+        # cdp_port above (Phase 3/B2; the previous config-first order here
+        # contradicted the documented "state takes priority" intent).
+        profile=_state_browser_profile or ctx.node_profile,
         connect_webdriver=_connect_webdriver,
     )
 
@@ -982,11 +1094,19 @@ async def get_or_create_browser_session(
                     if not _key.startswith("chat:"):
                         _old_session = cached_browser_sessions.pop(_key, None)
                         last_known_focus_target_ids.pop(_key, None)
+                        # Remove from insertion order tracking
+                        if _key in _cached_browser_sessions_insertion_order:
+                            _cached_browser_sessions_insertion_order.remove(_key)
                         if _old_session is not None:
                             _cached_passive_agents.pop(id(_old_session), None)
                         evicted += 1
                         if evicted >= 2:  # Remove up to 2 entries per insertion
                             break
+            
+            # Track insertion order for FIFO eviction
+            if browser_scope_key not in _cached_browser_sessions_insertion_order:
+                _cached_browser_sessions_insertion_order.append(browser_scope_key)
+            
             cached_browser_sessions[browser_scope_key] = auto_browser.browser_session
             return auto_browser.browser_session
 

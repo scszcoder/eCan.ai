@@ -1,9 +1,9 @@
 # ============================================================================
 # WEB FRAMEWORKS & API
 # ============================================================================
-fastapi==0.115.11
+fastapi==0.136.1
 flask==3.1.2
-starlette==0.46.1
+starlette==1.3.1
 uvicorn==0.34.0
 sse-starlette==2.2.1
 
@@ -383,7 +383,7 @@ brotli==1.2.0
 # ============================================================================
 # LIGHTRAG CORE DEPENDENCIES
 # ============================================================================
-lightrag-hku==1.4.16
+lightrag-hku==1.5.4
 ascii_colors==0.11.4        # Terminal color output (LightRAG internal)
 configparser==7.2.0         # Configuration file parsing
 future==1.0.0               # Python 2/3 compatibility
@@ -394,7 +394,7 @@ pipmaster==1.0.10           # Package management utility
 pypinyin==0.55.0            # Chinese pinyin conversion
 tiktoken==0.12.0            # Token counting for LLM
 xlsxwriter==3.2.9           # Excel file writing
-python-multipart==0.0.20    # Multipart form data parsing (FastAPI)
+python-multipart==0.0.30    # Multipart form data parsing (FastAPI)
 passlib==1.7.4              # Password hashing (WebUI authentication)
 
 # ============================================================================

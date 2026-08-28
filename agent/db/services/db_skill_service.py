@@ -4,7 +4,7 @@ Skill database service.
 This module provides database service for skill management operations.
 """
 
-from ..models.skill_model import DBAgentSkill
+from ..models.skill_model import DBAgentSkill, DBAgentSkillReview
 from ..models.tool_model import DBAgentTool
 from ..models.knowledge_model import DBAgentKnowledge
 from ..models.association_models import (
@@ -17,8 +17,14 @@ from contextlib import contextmanager
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import and_, or_, func
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import re
+
+
+def _dedupe_logger():
+    """Lazy logger for the dedupe migration methods (see note there)."""
+    from utils.logger_helper import logger_helper
+    return logger_helper
 
 
 class DBSkillService(BaseService):
@@ -108,13 +114,46 @@ class DBSkillService(BaseService):
     # ========== Public CRUD wrappers =================================
     # ---- Skills ----
 
+    @staticmethod
+    def _fold_skill_owner_into_config(data, require_config=False):
+        """Persist the original author (skill_owner) inside the config JSON.
+
+        SHARED_SKILL_MULTI_TASK_PLAN Phase 4 follow-up: DBAgentSkill has no
+        skill_owner column, and the column filter below silently dropped it —
+        so a subscribed/store skill lost its author identity on persist, and
+        prompt resolution fell back to the local row's owner. config IS a
+        column and round-trips, so the author survives there.
+
+        With ``require_config=True`` (partial updates) the fold only happens
+        when the payload already carries a config dict — synthesizing one
+        would overwrite the row's whole config JSON.
+        """
+        try:
+            skill_owner = str(data.get('skill_owner') or '').strip()
+            if not skill_owner:
+                return data
+            config = data.get('config')
+            if not isinstance(config, dict):
+                if require_config:
+                    return data
+                config = {}
+            if config.get('skill_owner') != skill_owner:
+                config = dict(config)
+                config['skill_owner'] = skill_owner
+                data = dict(data)
+                data['config'] = config
+        except Exception:
+            pass
+        return data
+
     def add_skill(self, data):
         """Add a new skill, or update if ID already exists (upsert by ID)
-        
+
         This prevents duplicate skills when the same skill is saved multiple times
         with the same ID (e.g., from cloud sync or multiple save operations).
         """
         try:
+            data = self._fold_skill_owner_into_config(data)
             skill_id = data.get('id')
 
             with self.session_scope() as s:
@@ -198,6 +237,7 @@ class DBSkillService(BaseService):
 
     def update_skill(self, skill_id, fields):
         """Update a skill"""
+        fields = self._fold_skill_owner_into_config(fields, require_config=True)
         return self._update(DBAgentSkill, skill_id, fields)
 
     def update_skill_askid(self, skill_id, askid):
@@ -292,6 +332,121 @@ class DBSkillService(BaseService):
                 return {"success": True, "data": [skill.to_dict() for skill in skills], "error": None}
         except SQLAlchemyError as e:
             return {"success": False, "data": [], "error": str(e)}
+
+    # ========== Duplicate-skill migration (SHARED_SKILL_MULTI_TASK_PLAN Phase 4) ==========
+    # NOTE: this service layer normally does not log (callers do), but the
+    # dedupe migration rewrites cross-table references — keep a durable trace
+    # in the app log so a bad merge can be reconstructed after the fact.
+
+    def find_duplicate_skills(self, owner):
+        """Find groups of duplicated skills (per-agent copies) for *owner*.
+
+        Two skills are duplicates when their ``diagram`` JSON is identical
+        (canonical-JSON comparison). Code-generated skills and skills with
+        no diagram are excluded. In each group the canonical skill is the
+        earliest-created (tie-break: smallest id); the rest are duplicates
+        whose references can be merged via ``merge_skill_references``.
+
+        Returns {"success", "data": [{"canonical": dict, "duplicates":
+        [dict, ...]}], "error"}.
+        """
+        import json as _json
+        try:
+            with self.session_scope() as s:
+                skills = s.query(DBAgentSkill).filter(DBAgentSkill.owner == owner).all()
+                groups = {}
+                for sk in skills:
+                    if (sk.source or '') == 'code':
+                        continue
+                    if not sk.diagram:
+                        continue
+                    try:
+                        fingerprint = _json.dumps(sk.diagram, sort_keys=True, ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        continue
+                    groups.setdefault(fingerprint, []).append(sk)
+
+                result = []
+                for members in groups.values():
+                    if len(members) < 2:
+                        continue
+                    try:
+                        members.sort(key=lambda sk: (sk.created_at is None,
+                                                     sk.created_at or datetime.min,
+                                                     sk.id))
+                    except TypeError:
+                        # naive/aware datetime mix — fall back to id order
+                        members.sort(key=lambda sk: sk.id)
+                    result.append({
+                        "canonical": members[0].to_dict(),
+                        "duplicates": [sk.to_dict() for sk in members[1:]],
+                    })
+                if result:
+                    _dedupe_logger().info(
+                        f"[SkillDedupe] owner={owner}: {len(result)} duplicate "
+                        f"group(s): " + "; ".join(
+                            f"{g['canonical'].get('name')}({g['canonical'].get('id')}) "
+                            f"<- {[d.get('id') for d in g['duplicates']]}"
+                            for g in result
+                        )
+                    )
+                return {"success": True, "data": result, "error": None}
+        except SQLAlchemyError as e:
+            return {"success": False, "data": [], "error": str(e)}
+
+    def merge_skill_references(self, duplicate_id, canonical_id):
+        """Re-point all references from *duplicate_id* to *canonical_id*.
+
+        Covers both association tables: ``agent_skill_rels`` and
+        ``agent_task_skill_rels``. When the target already has an
+        equivalent relationship (unique constraints on (agent_id, skill_id)
+        / (task_id, skill_id)), the duplicate's row is deleted instead of
+        re-pointed. The duplicate skill row itself is NOT deleted — use
+        ``delete_skill`` afterwards once nothing references it.
+
+        Returns {"success", "data": {"agent_rels_moved", "agent_rels_dropped",
+        "task_rels_moved", "task_rels_dropped"}, "error"}.
+        """
+        from ..models.association_models import DBAgentSkillRel, DBAgentTaskSkillRel
+        if not duplicate_id or not canonical_id or duplicate_id == canonical_id:
+            return {"success": False, "data": None, "error": "duplicate_id and canonical_id must differ and be non-empty"}
+        try:
+            counts = {"agent_rels_moved": 0, "agent_rels_dropped": 0,
+                      "task_rels_moved": 0, "task_rels_dropped": 0}
+            with self.session_scope() as s:
+                for rel in s.query(DBAgentSkillRel).filter(DBAgentSkillRel.skill_id == duplicate_id).all():
+                    exists = s.query(DBAgentSkillRel).filter(
+                        DBAgentSkillRel.agent_id == rel.agent_id,
+                        DBAgentSkillRel.skill_id == canonical_id,
+                    ).first()
+                    if exists:
+                        s.delete(rel)
+                        counts["agent_rels_dropped"] += 1
+                    else:
+                        rel.skill_id = canonical_id
+                        counts["agent_rels_moved"] += 1
+
+                for rel in s.query(DBAgentTaskSkillRel).filter(DBAgentTaskSkillRel.skill_id == duplicate_id).all():
+                    exists = s.query(DBAgentTaskSkillRel).filter(
+                        DBAgentTaskSkillRel.task_id == rel.task_id,
+                        DBAgentTaskSkillRel.skill_id == canonical_id,
+                    ).first()
+                    if exists:
+                        s.delete(rel)
+                        counts["task_rels_dropped"] += 1
+                    else:
+                        rel.skill_id = canonical_id
+                        counts["task_rels_moved"] += 1
+                s.flush()
+            _dedupe_logger().info(
+                f"[SkillDedupe] merged references {duplicate_id} -> {canonical_id}: {counts}"
+            )
+            return {"success": True, "data": counts, "error": None}
+        except SQLAlchemyError as e:
+            _dedupe_logger().error(
+                f"[SkillDedupe] merge FAILED {duplicate_id} -> {canonical_id}: {e}"
+            )
+            return {"success": False, "data": None, "error": str(e)}
 
     def get_public_skills(self):
         """Get all public skills"""
@@ -626,5 +781,400 @@ class DBSkillService(BaseService):
                 associations = query.all()
                 return {"success": True, "data": [assoc.to_dict() for assoc in associations], "error": None}
         except Exception as e:
+            return {"success": False, "data": [], "error": str(e)}
+
+    # ========== Reviews / Ratings (DBAgentSkillReview) ==========
+
+    def upsert_skill_review(self, skill_id: str, reviewer_id: str,
+                            rating: int, review_text: str = "") -> Dict[str, Any]:
+        """Create or update a review for a skill. One review per (skill, reviewer)."""
+        try:
+            rating = max(1, min(5, int(rating)))
+            with self.session_scope() as s:
+                existing = s.query(DBAgentSkillReview).filter(
+                    and_(DBAgentSkillReview.skill_id == skill_id,
+                         DBAgentSkillReview.reviewer_id == reviewer_id)
+                ).first()
+                if existing:
+                    existing.rating = rating
+                    existing.review_text = review_text or ""
+                    s.flush()
+                    return {"success": True, "id": existing.id, "action": "updated",
+                            "data": existing.to_dict(), "error": None}
+                review = DBAgentSkillReview(
+                    skill_id=skill_id,
+                    reviewer_id=reviewer_id,
+                    rating=rating,
+                    review_text=review_text or "",
+                    helpful=0,
+                )
+                s.add(review)
+                s.flush()
+                return {"success": True, "id": review.id, "action": "created",
+                        "data": review.to_dict(), "error": None}
+        except SQLAlchemyError as e:
+            return {"success": False, "data": None, "error": str(e)}
+
+    def get_skill_reviews(self, skill_id: str) -> Dict[str, Any]:
+        """Return all reviews for a skill, newest first."""
+        try:
+            with self.session_scope() as s:
+                rows = s.query(DBAgentSkillReview).filter(
+                    DBAgentSkillReview.skill_id == skill_id
+                ).order_by(DBAgentSkillReview.created_at.desc()).all()
+                return {"success": True,
+                        "data": [r.to_dict() for r in rows],
+                        "error": None}
+        except SQLAlchemyError as e:
+            return {"success": False, "data": [], "error": str(e)}
+
+    def delete_skill_review(self, review_id: str, reviewer_id: str) -> Dict[str, Any]:
+        """Delete a review owned by reviewer_id."""
+        try:
+            with self.session_scope() as s:
+                review = s.query(DBAgentSkillReview).filter(
+                    and_(DBAgentSkillReview.id == review_id,
+                         DBAgentSkillReview.reviewer_id == reviewer_id)
+                ).first()
+                if not review:
+                    return {"success": False, "error": "Review not found or not owned by user"}
+                s.delete(review)
+                s.flush()
+                return {"success": True, "id": review_id}
+        except SQLAlchemyError as e:
+            return {"success": False, "error": str(e)}
+
+    def get_skill_rating_stats(self, skill_id: str) -> Dict[str, Any]:
+        """Aggregate rating stats for a skill: total, avg, helpful, distribution."""
+        try:
+            with self.session_scope() as s:
+                rows = s.query(DBAgentSkillReview).filter(
+                    DBAgentSkillReview.skill_id == skill_id
+                ).all()
+                total = len(rows)
+                if total == 0:
+                    return {"total": 0, "avgRating": 5.0, "totalHelpful": 0,
+                            "distribution": {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}}
+                dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+                rating_sum = 0
+                helpful_sum = 0
+                for r in rows:
+                    rating_sum += int(r.rating or 0)
+                    helpful_sum += int(r.helpful or 0)
+                    bucket = max(1, min(5, int(r.rating or 0)))
+                    dist[bucket] += 1
+                return {
+                    "total": total,
+                    "avgRating": round(rating_sum / total, 2),
+                    "totalHelpful": helpful_sum,
+                    "distribution": dist,
+                }
+        except SQLAlchemyError as e:
+            return {"total": 0, "avgRating": 5.0, "totalHelpful": 0,
+                    "distribution": {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}, "error": str(e)}
+
+    def increment_review_helpful(self, review_id: str) -> Dict[str, Any]:
+        """Increment the helpful counter on a review (one-way, no decrement)."""
+        try:
+            with self.session_scope() as s:
+                review = s.get(DBAgentSkillReview, review_id)
+                if not review:
+                    return {"success": False, "error": "Review not found"}
+                review.helpful = (review.helpful or 0) + 1
+                s.flush()
+                return {"success": True, "helpful": review.helpful}
+        except SQLAlchemyError as e:
+            return {"success": False, "error": str(e)}
+
+    # ========== Marketplace statistics (downloads / favorites / proficiency) ==========
+
+    def _ensure_ext(self, skill, key: str, default):
+        """Read a value from skill.ext (auto-init dict), with safe default."""
+        if skill.ext is None or not isinstance(skill.ext, dict):
+            return default
+        return skill.ext.get(key, default)
+
+    def _set_ext(self, skill, key: str, value):
+        if skill.ext is None or not isinstance(skill.ext, dict):
+            skill.ext = {}
+        skill.ext[key] = value
+
+    def increment_skill_download(self, skill_id: str, delta: int = 1) -> Dict[str, Any]:
+        """Increment the download counter (stored in skill.ext.downloadCount)."""
+        try:
+            with self.session_scope() as s:
+                skill = s.get(DBAgentSkill, skill_id)
+                if not skill:
+                    return {"success": False, "error": "Skill not found"}
+                current = int(self._ensure_ext(skill, "downloadCount", 0)) + int(delta)
+                self._set_ext(skill, "downloadCount", max(0, current))
+                s.flush()
+                return {"success": True, "downloadCount": max(0, current)}
+        except SQLAlchemyError as e:
+            return {"success": False, "error": str(e)}
+
+    def get_skill_marketplace_stats(self, skill_id: str) -> Dict[str, Any]:
+        """Return marketplace-level stats for a skill: downloads, favorites, subscribers, rating, reviewCount."""
+        try:
+            with self.session_scope() as s:
+                skill = s.get(DBAgentSkill, skill_id)
+                if not skill:
+                    return {"success": False, "error": "Skill not found"}
+                ext = skill.ext if isinstance(skill.ext, dict) else {}
+
+                # Rating stats from agent_skill_reviews
+                review_rows = s.query(DBAgentSkillReview).filter(
+                    DBAgentSkillReview.skill_id == skill_id
+                ).all()
+                review_count = len(review_rows)
+                rating_sum = sum(int(r.rating or 0) for r in review_rows)
+                avg_rating = round(rating_sum / review_count, 2) if review_count > 0 else 5.0
+
+                return {
+                    "success": True,
+                    "data": {
+                        "skill_id": skill.id,
+                        "downloadCount": int(ext.get("downloadCount", 0) or 0),
+                        "favoriteCount": int(ext.get("favoriteCount", 0) or 0),
+                        "subscriberCount": int(ext.get("subscriberCount", 0) or 0),
+                        "lastUsed": ext.get("lastUsed"),
+                        "trendingScore": float(ext.get("trendingScore", 0.0) or 0.0),
+                        "rating": avg_rating,
+                        "reviewCount": review_count,
+                    },
+                    "error": None,
+                }
+        except SQLAlchemyError as e:
+            return {"success": False, "error": str(e)}
+
+    def get_skill_changelog(self, skill_id: str) -> Dict[str, Any]:
+        """Return the changelog (list of {version, date, notes}) from skill.ext.changelog."""
+        try:
+            with self.session_scope() as s:
+                skill = s.get(DBAgentSkill, skill_id)
+                if not skill:
+                    return {"success": False, "data": [], "error": "Skill not found"}
+                ext = skill.ext if isinstance(skill.ext, dict) else {}
+                changelog = ext.get("changelog") or []
+                if not isinstance(changelog, list):
+                    changelog = []
+                return {"success": True, "data": changelog, "error": None}
+        except SQLAlchemyError as e:
+            return {"success": False, "data": [], "error": str(e)}
+
+    def append_skill_changelog(self, skill_id: str, entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Append a changelog entry {version, date, notes} to skill.ext.changelog."""
+        try:
+            with self.session_scope() as s:
+                skill = s.get(DBAgentSkill, skill_id)
+                if not skill:
+                    return {"success": False, "error": "Skill not found"}
+                ext = skill.ext if isinstance(skill.ext, dict) else {}
+                changelog = ext.get("changelog") or []
+                if not isinstance(changelog, list):
+                    changelog = []
+                changelog.insert(0, entry)
+                ext["changelog"] = changelog[:50]
+                skill.ext = ext
+                s.flush()
+                return {"success": True, "data": ext["changelog"]}
+        except SQLAlchemyError as e:
+            return {"success": False, "error": str(e)}
+
+    def record_skill_usage(self, skill_id: str, user_id: str = "") -> Dict[str, Any]:
+        """Increment usageCount and update lastUsed timestamp for a skill."""
+        try:
+            with self.session_scope() as s:
+                skill = s.get(DBAgentSkill, skill_id)
+                if not skill:
+                    return {"success": False, "error": "Skill not found"}
+                ext = skill.ext if isinstance(skill.ext, dict) else {}
+                ext["usageCount"] = int(ext.get("usageCount", 0) or 0) + 1
+                ext["lastUsed"] = datetime.utcnow().isoformat() + "Z"
+                skill.ext = ext
+                s.flush()
+                return {"success": True, "usageCount": ext["usageCount"], "lastUsed": ext["lastUsed"]}
+        except SQLAlchemyError as e:
+            return {"success": False, "error": str(e)}
+
+    def get_user_skill_proficiency(self, user_id: str, skill_id: str) -> Dict[str, Any]:
+        """Return the user's proficiency with a subscribed skill (level + score).
+
+        Stored at skill.ext.user_proficiency.{user_id} = {score, level, updatedAt}.
+        Falls back to {score: 0, level: 'entry'} when missing.
+        """
+        try:
+            with self.session_scope() as s:
+                skill = s.get(DBAgentSkill, skill_id)
+                if not skill:
+                    return {"success": False, "error": "Skill not found"}
+                ext = skill.ext if isinstance(skill.ext, dict) else {}
+                prof = (ext.get("user_proficiency") or {}).get(user_id) or {}
+                return {
+                    "success": True,
+                    "data": {
+                        "skill_id": skill_id,
+                        "user_id": user_id,
+                        "score": int(prof.get("score", 0) or 0),
+                        "level": prof.get("level", "entry"),
+                        "updatedAt": prof.get("updatedAt"),
+                    },
+                }
+        except SQLAlchemyError as e:
+            return {"success": False, "error": str(e)}
+
+    def update_user_skill_proficiency(self, user_id: str, skill_id: str,
+                                      score: int, level: str) -> Dict[str, Any]:
+        """Update user→skill proficiency record. score is clamped to 0..100."""
+        try:
+            score = max(0, min(100, int(score)))
+            level = (level or "entry").lower()
+            if level not in {"entry", "intermediate", "advanced", "expert"}:
+                level = "entry"
+            with self.session_scope() as s:
+                skill = s.get(DBAgentSkill, skill_id)
+                if not skill:
+                    return {"success": False, "error": "Skill not found"}
+                ext = skill.ext if isinstance(skill.ext, dict) else {}
+                prof = ext.get("user_proficiency") or {}
+                prof[user_id] = {
+                    "score": score,
+                    "level": level,
+                    "updatedAt": datetime.utcnow().isoformat() + "Z",
+                }
+                ext["user_proficiency"] = prof
+                skill.ext = ext
+                s.flush()
+                return {"success": True, "data": prof[user_id]}
+        except SQLAlchemyError as e:
+            return {"success": False, "error": str(e)}
+
+    def list_favorite_skills(self, user_id: str) -> Dict[str, Any]:
+        """Return all favorite skill IDs for a user (stored on each skill.ext.favorited_by)."""
+        try:
+            with self.session_scope() as s:
+                rows = s.query(DBAgentSkill).all()
+                ids = []
+                for r in rows:
+                    ext = r.ext if isinstance(r.ext, dict) else {}
+                    by = ext.get("favorited_by") or []
+                    if user_id in by:
+                        ids.append(r.id)
+                return {"success": True, "data": ids, "error": None}
+        except SQLAlchemyError as e:
+            return {"success": False, "data": [], "error": str(e)}
+
+    def toggle_skill_favorite(self, user_id: str, skill_id: str) -> Dict[str, Any]:
+        """Toggle favorite flag for (user, skill). Returns new favorited state + count."""
+        try:
+            with self.session_scope() as s:
+                skill = s.get(DBAgentSkill, skill_id)
+                if not skill:
+                    return {"success": False, "error": "Skill not found"}
+                ext = skill.ext if isinstance(skill.ext, dict) else {}
+                by = ext.get("favorited_by") or []
+                if not isinstance(by, list):
+                    by = []
+                if user_id in by:
+                    by.remove(user_id)
+                    favorited = False
+                else:
+                    by.append(user_id)
+                    favorited = True
+                ext["favorited_by"] = by
+                ext["favoriteCount"] = len(by)
+                skill.ext = ext
+                s.flush()
+                return {"success": True, "favorited": favorited,
+                        "favoriteCount": len(by), "skill_id": skill_id}
+        except SQLAlchemyError as e:
+            return {"success": False, "error": str(e)}
+
+    def report_skill(self, skill_id: str, reporter_id: str,
+                     reason: str, note: str = "") -> Dict[str, Any]:
+        """Record a user-submitted report against a skill.
+
+        Reports are aggregated on skill.ext.reports = [ {reporter_id, reason, note, ts} ].
+        """
+        try:
+            with self.session_scope() as s:
+                skill = s.get(DBAgentSkill, skill_id)
+                if not skill:
+                    return {"success": False, "error": "Skill not found"}
+                ext = skill.ext if isinstance(skill.ext, dict) else {}
+                reports = ext.get("reports") or []
+                if not isinstance(reports, list):
+                    reports = []
+                reports.append({
+                    "reporter_id": reporter_id,
+                    "reason": reason,
+                    "note": note,
+                    "ts": datetime.utcnow().isoformat() + "Z",
+                })
+                ext["reports"] = reports[-100:]
+                skill.ext = ext
+                s.flush()
+                return {"success": True, "reportCount": len(reports)}
+        except SQLAlchemyError as e:
+            return {"success": False, "error": str(e)}
+
+    def list_similar_skills(self, skill_id: str, limit: int = 6) -> Dict[str, Any]:
+        """Return a list of public skills similar to the given one.
+
+        Similarity heuristic: same category, then overlapping tags, then any public skill.
+        Excludes the source skill and the requesting user's own skills.
+        """
+        try:
+            with self.session_scope() as s:
+                src = s.get(DBAgentSkill, skill_id)
+                if not src:
+                    return {"success": False, "data": [], "error": "Skill not found"}
+                src_category = (src.tags or [None])[0] if False else None
+                # Try by category first
+                candidates = s.query(DBAgentSkill).filter(
+                    DBAgentSkill.id != skill_id,
+                    DBAgentSkill.public == True,
+                ).limit(50).all()
+                src_tags = set(src.tags or [])
+                scored = []
+                for c in candidates:
+                    score = 0
+                    if c.category and src.category and c.category == src.category:
+                        score += 5
+                    overlap = len(src_tags.intersection(set(c.tags or [])))
+                    score += overlap * 2
+                    if c.owner == src.owner:
+                        score += 1
+                    if score > 0:
+                        scored.append((score, c))
+                scored.sort(key=lambda x: x[0], reverse=True)
+                picked = [c.to_dict() for _, c in scored[:limit]]
+                if len(picked) < limit:
+                    for c in candidates:
+                        if c.id == skill_id:
+                            continue
+                        if any(p["id"] == c.id for p in picked):
+                            continue
+                        picked.append(c.to_dict())
+                        if len(picked) >= limit:
+                            break
+                return {"success": True, "data": picked, "error": None}
+        except SQLAlchemyError as e:
+            return {"success": False, "data": [], "error": str(e)}
+
+    def list_skills_by_owner(self, owner: str, exclude_id: str = "",
+                             limit: int = 8) -> Dict[str, Any]:
+        """Public skills by the same author, optionally excluding one id."""
+        try:
+            with self.session_scope() as s:
+                q = s.query(DBAgentSkill).filter(
+                    DBAgentSkill.owner == owner,
+                    DBAgentSkill.public == True,
+                )
+                if exclude_id:
+                    q = q.filter(DBAgentSkill.id != exclude_id)
+                rows = q.order_by(DBAgentSkill.updated_at.desc()).limit(limit).all()
+                return {"success": True, "data": [r.to_dict() for r in rows], "error": None}
+        except SQLAlchemyError as e:
             return {"success": False, "data": [], "error": str(e)}
 

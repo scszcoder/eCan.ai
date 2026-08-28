@@ -2,7 +2,7 @@
 
 The front-desk hot path scrapes raw image URLs from the chat thread (see
 ``dom_assets.FEIGE_LATEST_CUSTOMER_BUBBLE_JS`` and
-``extension_tools_service._FEIGE_GET_THREAD_JS``).  Those URLs are signed
+``site_tools._FEIGE_GET_THREAD_JS``).  Those URLs are signed
 and time-limited (``x-expires=...``) — by the time the Q&A worker is
 actually invoked the URL may be expired.  So the **front-desk** pre-fetches
 them and embeds them as ``data:image/...;base64,...`` URIs in the dispatch
@@ -32,7 +32,11 @@ import base64
 import logging
 from typing import Any
 
-logger = logging.getLogger("eCan")
+# CN builds name the app logger "eCan.cn" (propagate=False) — a bare
+# getLogger("eCan") record never reaches its handlers, silencing this
+# module's entire log output in packaged CN apps (v0.9.95u incident:
+# the WS reader looked dead because none of its lines could land).
+from utils.logger_helper import logger_helper as logger
 
 
 # Default budget tuned for the front-desk hot path.  At 0.3 s per image

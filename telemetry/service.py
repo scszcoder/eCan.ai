@@ -26,10 +26,16 @@ class ProductTelemetry:
 	Service for capturing anonymized telemetry data.
 
 	If the environment variable `ANONYMIZED_TELEMETRY=False`, anonymized telemetry will be disabled.
+
+	The PostHog `project_api_key` is read from the `POSTHOG_PROJECT_API_KEY`
+	environment variable. If unset, telemetry is disabled to avoid sending data
+	to a hard-coded third-party account.
 	"""
 
 	USER_ID_PATH = str(Path.home() / '.cache' / 'browser_use' / 'telemetry_user_id')
-	PROJECT_API_KEY = 'phc_F8JMNjW1i2KbGUTaW1unnDdLSPCoyc52SGRU0JecaUh'
+	# Hard-coded fallback matches upstream browser-use; eCan deployments should
+	# override via the `POSTHOG_PROJECT_API_KEY` env var (or leave unset to disable).
+	DEFAULT_PROJECT_API_KEY = 'phc_F8JMNjW1i2KbGUTaW1unnDdLSPCoyc52SGRU0JecaUh'
 	HOST = 'https://eu.i.posthog.com'
 	UNKNOWN_USER_ID = 'UNKNOWN'
 
@@ -39,14 +45,16 @@ class ProductTelemetry:
 		telemetry_disabled = os.getenv('ANONYMIZED_TELEMETRY', 'true').lower() == 'false'
 		self.debug_logging = os.getenv('BROWSER_USE_LOGGING_LEVEL', 'info').lower() == 'debug'
 
-		if telemetry_disabled:
+		project_api_key = os.getenv('POSTHOG_PROJECT_API_KEY') or self.DEFAULT_PROJECT_API_KEY
+
+		if telemetry_disabled or not project_api_key:
 			self._posthog_client = None
 		else:
 			logger.info(
 				'Anonymized telemetry enabled. See https://docs.browser-use.com/development/telemetry for more information.'
 			)
 			self._posthog_client = Posthog(
-				project_api_key=self.PROJECT_API_KEY,
+				project_api_key=project_api_key,
 				host=self.HOST,
 				disable_geoip=False,
 			)

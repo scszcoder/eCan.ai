@@ -11,7 +11,7 @@ import sys
 import signal
 import io
 import atexit
-from config.constants import APP_NAME
+from config.constants import APP_NAME, APP_LOG_FILE
 from config.app_info import app_info
 import traceback
 
@@ -25,6 +25,61 @@ def trace(self, message, *args, **kws):
         self._log(TRACE_LEVEL_NUM, message, args, **kws)
 logging.Logger.trace = trace
 # ====== END ======
+
+
+def _ws_capture_inline_env() -> str:
+    """Read the live-chat WS-capture inline toggle from the environment.
+
+    Canonical knob: ``ECAN_LIVE_CHAT_WS_CAPTURE_INLINE``.  Falls back to any
+    legacy site-branded spelling still set by operator run-scripts
+    (``ECAN_<SITE>_WS_CAPTURE_INLINE``, single-token site name), so existing
+    configs keep working.  utils/ must not import agent.* (cycle risk),
+    hence this tiny local scan instead of live_chat_env().
+    """
+    import re
+    val = os.environ.get("ECAN_LIVE_CHAT_WS_CAPTURE_INLINE")
+    if val is not None:
+        return val
+    pat = re.compile(r"^ECAN_[A-Z0-9]+_WS_CAPTURE_INLINE$")
+    for key, value in os.environ.items():
+        if pat.match(key):
+            return value
+    return ""
+
+
+def _snapshot_log_on_version_change(log_file):
+    """ws035: when the build tag changes between runs, preserve the PRIOR
+    version's log (rename to ``<name>_<prevtag>_<ts>.log``) BEFORE the rotating
+    handler opens a fresh file — so cross-version comparison isn't silently lost
+    to the 5-slot count rotation. Best-effort; never blocks startup. Returns the
+    current build tag (or ``'unknown'``)."""
+    tag = "unknown"
+    try:
+        from config.build_info import get_version_string
+        tag = (get_version_string() or "unknown").strip() or "unknown"
+    except Exception:
+        pass
+    try:
+        d = os.path.dirname(log_file) or "."
+        base, ext = os.path.splitext(os.path.basename(log_file))
+        sidecar = os.path.join(d, ".last_build_tag")
+        prev = ""
+        if os.path.exists(sidecar):
+            with open(sidecar, "r", encoding="utf-8", errors="replace") as _fh:
+                prev = _fh.read().strip()
+        if prev and prev != tag and os.path.exists(log_file):
+            _safe = "".join(c if (c.isalnum() or c in "._-") else "_" for c in prev)[:40]
+            _dest = os.path.join(
+                d, f"{base}_{_safe}_{time.strftime('%Y%m%d-%H%M%S')}{ext}")
+            try:
+                os.replace(log_file, _dest)
+            except Exception:
+                pass
+        with open(sidecar, "w", encoding="utf-8", errors="replace") as _fh:
+            _fh.write(tag)
+    except Exception:
+        pass
+    return tag
 
 
 class WindowsSafeRotatingFileHandler(RotatingFileHandler):
@@ -178,7 +233,7 @@ class LoggerHelper:
             _log_level = TRACE_LEVEL_NUM
         else:
             _log_level = getattr(logging, _env_level, logging.INFO)
-        self.setup(APP_NAME, appdata_path + "/runlogs/" + APP_NAME + ".log", _log_level)
+        self.setup(APP_NAME, appdata_path + "/runlogs/" + APP_LOG_FILE, _log_level)
 
         # 初始化崩溃日志功能
         self._setup_crash_logging()
@@ -223,6 +278,9 @@ class LoggerHelper:
             console_handler.setFormatter(console_formatter)
             target_handlers.append(console_handler)
 
+        # ws035: preserve the prior build's log before opening the fresh one.
+        self._build_tag = _snapshot_log_on_version_change(log_file)
+
         file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         file_handler = WindowsSafeRotatingFileHandler(
             log_file,
@@ -246,6 +304,50 @@ class LoggerHelper:
         )
         self._log_listener.start()
         atexit.register(self._log_listener.stop)
+
+        # ws035: dedicated async sink for the high-volume live-chat WS frame
+        # capture (the bundle-emitted [*-WS-CAP*] records on the "eCan.wscap"
+        # logger) so it stops drowning the operational log. Same async
+        # queue pattern (non-blocking — the capture runs on the CDP handler loop,
+        # which must NOT block on disk I/O). Its own rotating file with a larger
+        # budget for forensic retention. Reversible: ECAN_LIVE_CHAT_WS_CAPTURE_INLINE=1
+        # (or a legacy site-branded alias) leaves capture unconfigured here so
+        # it propagates back into the main log.
+        if _ws_capture_inline_env() != "1":
+            try:
+                cap_logger = logging.getLogger("eCan.wscap")
+                cap_logger.setLevel(logging.INFO)
+                cap_logger.propagate = False
+                if not any(isinstance(h, QueueHandler) for h in cap_logger.handlers):
+                    cap_file = os.path.splitext(log_file)[0] + ".wscap.log"
+                    cap_handler = WindowsSafeRotatingFileHandler(
+                        cap_file,
+                        maxBytes=1024 * 1024 * 20,
+                        backupCount=5,
+                        encoding='utf-8',
+                        errors='replace'
+                    )
+                    cap_handler.setFormatter(file_formatter)
+                    self._cap_queue = Queue(-1)
+                    cap_logger.addHandler(QueueHandler(self._cap_queue))
+                    self._cap_listener = QueueListener(
+                        self._cap_queue, cap_handler, respect_handler_level=True
+                    )
+                    self._cap_listener.start()
+                    atexit.register(self._cap_listener.stop)
+            except Exception:
+                pass
+
+        # ws035: stamp every fresh log with the build tag so a line's version is
+        # always identifiable (pairs with the version snapshot above).
+        try:
+            self.logger.info(
+                f"[SESSION] build={getattr(self, '_build_tag', 'unknown')} "
+                f"log={os.path.basename(log_file)} "
+                f"level={logging.getLevelName(level)} pid={os.getpid()}"
+            )
+        except Exception:
+            pass
 
     def _safe_encode_message(self, message):
         """Coerce non-string messages. Encoding safety is handled by the
@@ -309,6 +411,14 @@ class LoggerHelper:
         if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.CRITICAL):
             msg = self._join_message_args(message, *args)
             self.logger.critical(msg, **kwargs)
+
+    def exception(self, message, *args, **kwargs):
+        """Log an error with the current exception's traceback (stdlib parity —
+        modules that used a raw logging.Logger call this)."""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.ERROR):
+            msg = self._join_message_args(message, *args)
+            kwargs.setdefault('exc_info', True)
+            self.logger.error(msg, **kwargs)
 
     def isEnabledFor(self, level):
         """Check if the underlying logger is enabled for the specified level.

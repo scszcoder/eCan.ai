@@ -5,9 +5,13 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple, Any
+from typing import Callable, List, Optional, Set, Tuple, Any
 import inspect
 import json
+
+# Module-level task tracking to prevent "Task was destroyed" warnings
+# when event loop closes with orphaned fire-and-forget tasks.
+_tracked_background_tasks: Set[asyncio.Task] = set()
 from agent.cloud_api.constants import SkillSource
 from agent.ec_agents.agent_utils import load_agent_skills_from_cloud
 # from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import create_rpa_helper_chatter_skill
@@ -60,12 +64,11 @@ def _get_skill_pool() -> ThreadPoolExecutor:
     return _SKILL_POOL
 
 
-# Phase E: optional status callback invoked after each skill finishes building.
-# MainGUI registers a callable that forwards to StartupBusyOverlay.set_status.
-# The callback must be safe to invoke from any thread (the executor workers
-# call it); typical implementation uses QMetaObject.invokeMethod with a
-# QueuedConnection to marshal back to the GUI thread. Kept opt-in so cloud
-# workers (no Qt) don't need any of this.
+# Phase E: optional status callback for build progress reporting.
+# Workers call this callback after each skill finishes building.
+# The callback must be thread-safe (typically uses QMetaObject.invokeMethod
+# with QueuedConnection to marshal back to the GUI thread). Kept opt-in so
+# cloud workers (no Qt) don't need any of this.
 _status_callback: Optional[Callable[[str], None]] = None
 
 
@@ -229,6 +232,9 @@ def _create_skill_from_workflow(
         sk.name = core_dict.get("skillName") or core_dict.get("name") or skill_name
         sk.version = str(core_dict.get("version", "1.0.0"))
         sk.description = core_dict.get("description", "")
+        # Ownership is recorded in the skill JSON (top-level "owner"); it is
+        # never defaulted from the logged-in user at load time.
+        sk.owner = str(core_dict.get("owner") or "")
         sk.diagram = core_dict
 
         if isinstance(core_dict.get("config"), dict):
@@ -279,7 +285,7 @@ def _scan_skills_in_dir(skills_root: Path, label: str) -> List[str]:
     ``extern_skills.scan_skills_in_dir`` — but that function does not exist in
     ``extern_skills.py`` (it ships ``scan_all_skills`` with a different
     signature), so the delegation broke resource-skill scanning entirely
-    (``cannot import name 'scan_skills_in_dir'`` → no feige skills compiled →
+    (``cannot import name 'scan_skills_in_dir'`` → no resource skills compiled →
     "nothing works").  Restored the original inline implementation.
 
     Returns:
@@ -570,8 +576,19 @@ async def build_agent_skills(mainwin, skill_path=""):
 
             # Cloud data updates local database asynchronously (non-blocking), but in-memory build
             # must preserve existing local DB-only skills for this session.
-            asyncio.create_task(_update_database_with_cloud_skills(cloud_skills, mainwin))
-            logger.info(f"[build_agent_skills] 🔄 Database update started in background (non-blocking)")
+            async def _update_database_safe():
+                """Wrapper with error handling for fire-and-forget task."""
+                try:
+                    await _update_database_with_cloud_skills(cloud_skills, mainwin)
+                    logger.debug("[build_agent_skills] ✅ Database background update completed")
+                except Exception as e:
+                    logger.error(f"[build_agent_skills] ❌ Database background update failed: {e}")
+
+            background_task = asyncio.create_task(_update_database_safe())
+            # Track the task to prevent "Task was destroyed" warnings on abrupt shutdown
+            _tracked_background_tasks.add(background_task)
+            background_task.add_done_callback(_tracked_background_tasks.discard)
+            logger.info(f"[build_agent_skills] 🔄 Database update started in background (tracked)")
 
             merged_rows = []
             seen_ids = set()
@@ -632,12 +649,14 @@ async def build_agent_skills(mainwin, skill_path=""):
                     logger.error(f"[build_agent_skills] ❌ Invalid: code skill '{db_skill_name}' found in database")
                     continue
 
-                # Skip DB entries that have the same name as a local code skill.
-                # Code skills are loaded from disk and are more authoritative.
-                if db_skill_name in local_code_skill_names:
-                    logger.info(f"[build_agent_skills] ⏭️ Skipping DB skill '{db_skill_name}' - same name exists in local code skills")
-                    skipped_code_skill_conflicts += 1
-                    continue
+                # NOTE (2026-08-22): DB rows are NOT skipped on a name match
+                # with a disk dir any more. Editor-created skills always have
+                # both a DB row (the authoritative record, carrying owner)
+                # and a disk folder — the old skip dropped the DB row and let
+                # the ownerless disk twin win, contradicting the Step-6
+                # design ("DB is authoritative", id-based dedupe handles the
+                # disk duplicate). Genuine code skills in the DB are already
+                # rejected by the source=='code' validation above.
 
                 logger.debug(f"[build_agent_skills] Converting DB skill {i+1}/{len(final_db_skills)}: {db_skill_name}")
                 skill_obj = _convert_db_skill_to_object(db_skill)
@@ -698,6 +717,28 @@ async def build_agent_skills(mainwin, skill_path=""):
         # Convert back to list
         all_skills = list(skills_dict.values())
 
+        # Safety net: if a DB row's object conversion failed (so its disk twin
+        # got loaded instead), the merged skill would silently lose the DB
+        # record's owner. Backfill owner by id, then by name, from the raw DB
+        # rows so ownership survives whichever load path won.
+        try:
+            db_owner_by_id = {str(r.get('id')): r.get('owner') for r in (final_db_skills or [])
+                              if isinstance(r, dict) and r.get('id') and r.get('owner')}
+            db_owner_by_name = {str(r.get('name')): r.get('owner') for r in (final_db_skills or [])
+                                if isinstance(r, dict) and r.get('name') and r.get('owner')}
+            for sk in all_skills:
+                if not getattr(sk, 'owner', ''):
+                    owner = db_owner_by_id.get(str(getattr(sk, 'id', ''))) or \
+                            db_owner_by_name.get(str(getattr(sk, 'name', '')))
+                    if owner:
+                        sk.owner = owner
+                        logger.info(
+                            f"[build_agent_skills] owner backfilled from DB row: "
+                            f"{sk.name} -> {owner}"
+                        )
+        except Exception as e:
+            logger.debug(f"[build_agent_skills] owner backfill skipped: {e}")
+
         # Step 7: Update mainwindow.agent_skills memory
         logger.info("[build_agent_skills] Step 7: Updating mainwindow.agent_skills...")
         mainwin.agent_skills = all_skills
@@ -732,9 +773,19 @@ def _get_skill_service(mainwin):
 
 
 def _get_username(mainwin):
-    """Get username from mainwin - centralized helper"""
+    """Get username from mainwin - centralized helper.
+
+    Returns the canonical (bare) owner name: MainWindow.user carries a
+    synthetic '@local' suffix for CN WeChat logins (wechat_<openid>@local),
+    but local DB rows and cloud records are keyed by the bare username —
+    querying with the suffixed form silently finds 0 rows.
+    """
     if mainwin and hasattr(mainwin, 'user'):
-        return mainwin.user
+        try:
+            from agent.cloud_api.cloud_api import normalize_cloud_owner
+            return normalize_cloud_owner(mainwin.user or '')
+        except Exception:
+            return mainwin.user
     return None
 
 
@@ -751,10 +802,24 @@ async def _load_skills_from_database_async(mainwin):
         logger.info(f"[build_agent_skills] Querying skills for user: {username}")
         skill_service = _get_skill_service(mainwin)
 
-        skills_result = skill_service.get_skills_by_owner(username)
+        # Load ALL rows from the per-user DB, not just owner==username.
+        # SUBSCRIBED skills keep the AUTHOR as owner, so the old owner-scoped
+        # query silently dropped them from the startup pool: agents/tasks
+        # convert at startup against that pool, leaving every subscribed
+        # skill runnable=False ("WILL FAIL") until the Skills page happened
+        # to backfill it (v0.9.95s customer incident — 8 Q&A tasks dead).
+        # The DB is already per-user (its own sqlite file), so every row in
+        # it belongs in this user's pool.
+        skills_result = skill_service.query_skills()
         if skills_result.get('success'):
             db_skills = skills_result.get('data', [])
-            logger.info(f"[build_agent_skills] Found {len(db_skills)} skills in database for user: {username}")
+            own = sum(1 for s in db_skills
+                      if str((s.get('owner') if isinstance(s, dict) else getattr(s, 'owner', '')) or '').lower()
+                      == str(username).lower())
+            logger.info(
+                f"[build_agent_skills] Found {len(db_skills)} skills in database for user: {username} "
+                f"({own} own, {len(db_skills) - own} subscribed/third-party)"
+            )
             return db_skills
         else:
             logger.warning(f"[build_agent_skills] Failed to get skills from database: {skills_result.get('error')}")
@@ -984,8 +1049,16 @@ def _fill_skill_from_db_view(skill_obj: EC_Skill, v: DBAgentSkill) -> None:
     skill_obj.local_helper_skill_id = config.get('local_helper_skill_id', None)
     skill_obj.local_helper_machine = config.get('local_helper_machine', None)
 
-    # skill_owner tracks the original author (for prompt resolution on rented skills)
-    skill_obj.skill_owner = v.str('skill_owner', '') or v.str('owner', '')
+    # skill_owner tracks the original author (for prompt resolution on rented
+    # skills). Persisted inside config JSON (no dedicated DB column — see
+    # DBSkillService._fold_skill_owner_into_config); top-level key wins for
+    # file-loaded skills, then config, then the row owner.
+    _cfg_for_owner = skill_obj.config if isinstance(skill_obj.config, dict) else {}
+    skill_obj.skill_owner = (
+        v.str('skill_owner', '')
+        or str(_cfg_for_owner.get('skill_owner') or '')
+        or v.str('owner', '')
+    )
     skill_obj.cloud_id = v.str('cloud_id', '') or ''
 
     # run_mode: developing / released — stored in config or top-level
@@ -1208,6 +1281,21 @@ def _compile_skill_workflow_from_flow(
         f"[build_agent_skills] Rebuilding workflow diagram: nodes={len(wf_obj.get('nodes') or [])}, edges={len(wf_obj.get('edges') or [])}"
     )
 
+    # SHARED_SKILL_MULTI_TASK_PLAN Phase 4: prompt resolution for nodes uses
+    # the flow's "owner" (flowgram2langgraph → build_llm_node skill_owner).
+    # For a skill authored by someone else (store/rented skill), the local
+    # row's owner is the RUNNER, so prompts would resolve under the wrong
+    # partition. skill_obj.skill_owner tracks the original author — make it
+    # the owner the converter sees. For self-authored skills skill_owner ==
+    # owner, so this is a no-op.
+    _author = str(getattr(skill_obj, "skill_owner", "") or "")
+    if _author and flow_for_convert.get("owner") != _author:
+        flow_for_convert = {**flow_for_convert, "owner": _author}
+        logger.info(
+            f"[build_agent_skills] Compiling '{skill_obj.name}' with author owner "
+            f"'{_author}' for prompt resolution (local row owner differs)"
+        )
+
     bp_mgr = BreakpointManager()
     workflow, bp_list = flowgram2langgraph_v2(flow_for_convert, bundle_json=bundle_dict, enable_subgraph=False, bp_mgr=bp_mgr)
     try:
@@ -1269,9 +1357,30 @@ def _convert_db_skill_to_object(db_skill):
                     if id_match or name_match:
                         # Preserve the canonical DB id
                         local_sk.id = skill_obj.id
+                        # DB row is AUTHORITATIVE for identity + store fields
+                        # (2026-08-25): the skill file never reliably carries
+                        # them — publish decisions (public/rentable/price) are
+                        # saved to the DB only, and file `owner` can be stale
+                        # (previous login identity) or absent. Returning the
+                        # bare file twin silently reverted them on every
+                        # rebuild: ownerless rows hidden from the GUI, and
+                        # public/rentable checkboxes unsetting right after a
+                        # successful save.
+                        if getattr(skill_obj, 'owner', ''):
+                            local_sk.owner = skill_obj.owner
+                        if getattr(skill_obj, 'skill_owner', ''):
+                            local_sk.skill_owner = skill_obj.skill_owner
+                        local_sk.public = skill_obj.public
+                        local_sk.rentable = skill_obj.rentable
+                        local_sk.price = skill_obj.price
+                        local_sk.price_model = skill_obj.price_model
+                        if getattr(skill_obj, 'cloud_id', ''):
+                            local_sk.cloud_id = skill_obj.cloud_id
                         logger.info(
                             f"[build_agent_skills] 📁 Loaded '{skill_obj.name}' from local file "
-                            f"(id_match={id_match}, name_match={name_match})"
+                            f"(id_match={id_match}, name_match={name_match}); DB-authoritative "
+                            f"fields applied (owner={local_sk.owner!r}, public={local_sk.public}, "
+                            f"rentable={local_sk.rentable})"
                         )
                         loaded_from_file = True
                         return local_sk
@@ -1506,16 +1615,15 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                 except Exception as e:
                     logger.warning(f"[build_agent_skills] Failed to load mapping rules from {mapping_file}: {e}")
 
-        owner_username = _get_username(mainwin) or ""
-
         def _apply_owner(sk: EC_Skill) -> None:
-            try:
-                if owner_username and not getattr(sk, "owner", ""):
-                    sk.owner = owner_username
-                if owner_username and not getattr(sk, "skill_owner", ""):
-                    sk.skill_owner = owner_username
-            except Exception:
-                pass
+            # Ownership is NEVER claimed implicitly at load time. A skill's
+            # owner comes from its JSON/DB record, or is stamped once at
+            # explicit creation (_prepare_skill_data on editor save).
+            # Blanket-defaulting to the logged-in user made every legacy
+            # ownerless disk skill appear owned by whichever account was
+            # active (intl-era skills showed as the CN user's and vice
+            # versa). Ownerless skills simply stay ownerless.
+            pass
 
         def finalize_skill(sk: EC_Skill, source: str, path: str, skill_root: Path) -> EC_Skill:
             """Common finalization: set source, path, and load mapping rules
@@ -1796,8 +1904,28 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                     core_dict = json.load(f)
                 bundle_dict = None
                 if bundle_path.exists():
-                    with bundle_path.open("r", encoding="utf-8") as bf:
-                        bundle_dict = json.load(bf)
+                    try:
+                        with bundle_path.open("r", encoding="utf-8") as bf:
+                            bundle_dict = json.load(bf)
+                        # An empty / whitespace-only bundle JSON parses to None;
+                        # treating that as "no bundle" avoids the
+                        # "Expecting value: line 1 column 1" decode error
+                        # that otherwise propagates as a stacktrace.
+                        if bundle_dict is None:
+                            logger.debug(
+                                f"[build_agent_skills] Bundle file is empty or null-content: {bundle_path}"
+                            )
+                            bundle_dict = None
+                    except json.JSONDecodeError as _je:
+                        logger.warning(
+                            f"[build_agent_skills] Bundle file is not valid JSON, ignoring: {bundle_path} ({_je})"
+                        )
+                        bundle_dict = None
+                    except OSError as _oe:
+                        logger.warning(
+                            f"[build_agent_skills] Bundle file unreadable, ignoring: {bundle_path} ({_oe})"
+                        )
+                        bundle_dict = None
 
                 # Read mapping rules once so they can be cached alongside the parsed diagram.
                 mapping_rules: Optional[dict] = None

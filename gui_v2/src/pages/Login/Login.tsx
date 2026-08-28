@@ -7,11 +7,10 @@ import { APIResponse, IPCAPI } from '../../services/ipc/api';
 import { get_ipc_api } from '../../services/ipc_api';
 import { userStorageManager, type LoginSession } from '../../services/storage/UserStorageManager';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
-import { useInitializationProgress, forceCleanupInitializationProgress } from '../../hooks/useInitializationProgress';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
-import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import { isWebPlatform } from '../../config/platform';
 import { cognitoAuth } from '../../services/auth/cognitoAuth';
+import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
 import googleIcon from '../../assets/Google_Icons.png';
 import appleIcon from '../../assets/Apple_Icon3.png';
@@ -28,7 +27,7 @@ interface LoginFormValues {
 	newPassword?: string;
 }
 
-type AuthMode = 'login' | 'signup' | 'forgot';
+type AuthMode = 'login' | 'signup' | 'signup-verify' | 'forgot';
 
 const Login: React.FC = () => {
 	// Hooks
@@ -40,7 +39,6 @@ const Login: React.FC = () => {
 	// State
 	const [mode, setMode] = useState<AuthMode>('login');
 	const [loading, setLoading] = useState(false);
-	const [showInitProgress, setShowInitProgress] = useState(false);
 	const isWeb = isWebPlatform();
 	// 新增Local state 控制Validate码Send
 	const [codeSent, setCodeSent] = useState(false);
@@ -49,6 +47,12 @@ const Login: React.FC = () => {
 	const [hasNavigated, setHasNavigated] = useState(false);
 	// 忘记PasswordOperation的loadingStatus
 	const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+	// Signup pending state (after code sent, waiting for verification)
+	const [signupPending, setSignupPending] = useState<{
+		email: string;
+		password: string;
+		verificationId: string;
+	} | null>(null);
 	// Login进度Status
 	const [loginProgress, setLoginProgress] = useState<'idle' | 'authenticating' | 'success' | 'redirecting'>('idle');
 	// GoogleLogin进度Status
@@ -59,32 +63,30 @@ const Login: React.FC = () => {
 	const lastLoginAttemptRef = useRef<number>(0);
 	const LOGIN_DEBOUNCE_MS = 3000;
 
-	// Poll backend initialization progress during login
-	const { progress: initProgress } = useInitializationProgress(loading || showInitProgress);
-
-	// On mount: reset stale singleton state from previous session so that a cached
-	// fully_ready=true cannot cause an immediate redirect before the user logs in.
+	// Clear login form on mount — last line of defense against "Google 登录后
+	// 再次进入登录页, 邮箱输入框被填充成 Google 邮箱". Even if the backend
+	// gating somehow regresses and returns a non-password username, this
+	// makes sure the form starts blank. role is preserved (it's filled by
+	// initialValues; we don't want to flash empty role during the 100ms
+	// IPC window).
 	useEffect(() => {
-		forceCleanupInitializationProgress();
-	}, []);
+		form.resetFields(['username', 'password', 'confirmPassword', 'confirmCode', 'newPassword']);
+	}, [form]);
 
-	// 标准跳转逻辑：仅当系统初始化就绪且登录成功时才跳转到主页面
+	// 标准跳转逻辑：登录成功后直接跳转
 	useEffect(() => {
-		console.log('[Login] Navigation check:', { 
-			ui_ready: initProgress?.ui_ready, 
-			loginSuccessful, 
-			hasNavigated,
-			initProgress 
+		console.log('[Login] Navigation check:', {
+			loginSuccessful,
+			hasNavigated
 		});
-		
-		if (!initProgress?.ui_ready) return;
+
 		if (!loginSuccessful) return;
 		if (hasNavigated) return;
 
 		setHasNavigated(true);
 		console.log('[Login] ✅ Navigating to /agents');
 		navigate('/agents');
-	}, [initProgress, loginSuccessful, hasNavigated, navigate]);
+	}, [loginSuccessful, hasNavigated, navigate]);
 
 	// Initialize IPC API and load login info and language preference
 	useEffect(() => {
@@ -106,14 +108,45 @@ const Login: React.FC = () => {
 				// api-router 已自动解包 GraphQL 响应，直接访问 last_login
 				const loginData = (response?.data as any)?.last_login;
 				if (loginData) {
-					const { username, password, machine_role, language } = loginData;
+					const { username, password, machine_role, language, login_type, last_identifier } = loginData;
 
 					if (language && i18n.language !== language) {
 						await i18n.changeLanguage(language);
 						localStorage.setItem('i18nextLng', language);
 					}
 
-					updateFormWithRole(username, password, machine_role || 'Commander');
+					// login_type gating (fix for "Google 登录成功后再次进入登录页,
+					// 邮箱输入框被填充成 Google 邮箱,密码为空导致登录必然 401"):
+					//
+					// 后端 ``get_saved_login_info`` 已经只在 login_type=='password'
+					// 时回填 username/password — 这里再做一次前端防御:
+					// 如果 login_type 不是 password(比如 'google' / 'phone' /
+					// 'wechat'),强制把 username/password 清空,只保留 role。
+					// last_identifier 留作日志/调试,绝不进入表单。
+					const isPasswordLogin = !login_type || login_type === 'password';
+					if (isPasswordLogin) {
+						updateFormWithRole(username, password, machine_role || 'Commander');
+					} else {
+						console.log(
+							`[Login] last login was via ${login_type}; skipping autofill ` +
+							`(last_identifier=${last_identifier || ''})`
+						);
+						// 仅保留 role,清空可能残留的 username/password
+						form.resetFields(['username', 'password', 'confirmPassword', 'confirmCode', 'newPassword']);
+						form.setFieldValue('role', machine_role || 'Commander');
+					}
+
+					// Flood-test harness (ECAN_AUTOLOGIN=1): the backend marks the
+					// last-login response with autologin=true. Auto-submit the
+					// prefilled credentials so the app logs in and transitions to
+					// the main view with no human click. Desktop only (web uses the
+					// hosted Cognito flow).
+					if ((loginData as any).autologin && !isWeb) {
+						setTimeout(() => {
+							console.log('[Login] ECAN_AUTOLOGIN — auto-submitting prefilled credentials');
+							form.submit();
+						}, 600);
+					}
 				}
 			} catch (error) {
 				console.warn('[Login] Failed to load last login info:', error);
@@ -171,19 +204,51 @@ const Login: React.FC = () => {
 	}, [i18n]);
 
 	const handleModeChange = useCallback((newMode: AuthMode) => {
+		// 保存公共字段（跨模式保留）
+		const savedRole = form.getFieldValue('role');
+		
 		setMode(newMode);
-		form.resetFields();
+		
+		// 只重置当前模式特有的字段，保留公共字段
+		const fieldsToReset: (keyof LoginFormValues)[] = [];
+		if (newMode === 'signup') {
+			// 注册是"创建新账号"，必须清空登录时残留的 username，避免
+			// "邮箱注册号码直接登录"——用户误以为在注册新账号，
+			// 实际后端收到的是旧账号的邮箱 + 新密码的登录请求。
+			fieldsToReset.push('username', 'password', 'confirmPassword');
+		} else if (newMode === 'forgot') {
+			if (!codeSent) {
+				fieldsToReset.push('confirmCode', 'newPassword');
+			} else {
+				// 保持 codeSent 状态，不重置验证码相关字段
+			}
+		} else if (newMode === 'login') {
+			// 登录失败时保留密码，让用户可以快速重试
+			// 不重置 password 字段
+		} else if (newMode === 'signup-verify') {
+			fieldsToReset.push('confirmCode');
+		}
+		
+		if (fieldsToReset.length > 0) {
+			form.resetFields(fieldsToReset);
+		}
+		
+		// 只恢复 role（跨模式保留），不恢复 username（signup 必须清空）
+		if (savedRole) {
+			form.setFieldValue('role', savedRole);
+		}
+		
 		// Reset all loading states when switching modes
 		setLoading(false);
 		setLoginSuccessful(false);
 		setHasNavigated(false);
 		setForgotPasswordLoading(false);
 		setCodeSent(false);
-		setShowInitProgress(false);
 		setLoginProgress('idle');
 		setGoogleLoginProgress('idle');
 		setLastError(null);
-	}, [form]);
+		setSignupPending(null);
+	}, [form, codeSent]);
 
 	const handleLogin = async (values: LoginFormValues, api: IPCAPI) => {
 		try {
@@ -254,13 +319,13 @@ const Login: React.FC = () => {
 				messageApi.success(t('login.success'));
 				setLoginSuccessful(true);
 
-				// LoginSuccess，Settings跳转Status（showInitProgress已在handleSubmit中Settings）
-				setLoginProgress('redirecting');
+			// Login成功
+			setLoginProgress('redirecting');
 			} else {
 				console.error('Login failed', response.error);
 				setLoginProgress('idle');
 				messageApi.error(response.error?.message || t('login.failed'));
-				throw new Error(response.error?.message || 'Login failed');
+				throw new Error(response.error?.message || t('login.loginFailed'));
 			}
 		} catch (error) {
 			console.error('Login error:', error);
@@ -276,16 +341,119 @@ const Login: React.FC = () => {
 			return;
 		}
 		const response = await api.signup(values.username, values.password, i18n.language);
-		if (response && response.success) {
-			Modal.success({
-				title: t('login.signupSuccess'),
-				content: response.data && typeof response.data === 'object' && 'message' in response.data ? String((response.data as any).message) : t('login.signupSuccessMessage'),
-				onOk: () => {
-					setMode('login');
-				}
+		if (!response || !response.success) {
+			// Check if email already exists
+			const errCode = (response?.error as any)?.code;
+			if (errCode === 'USER_EXISTS') {
+				messageApi.error(t('login.emailAlreadyRegistered'));
+			} else {
+				messageApi.error(response?.error?.message || t('login.failed'));
+			}
+			return;
+		}
+
+		// Signup succeeded but needs email verification
+		if (response.data && (response.data as any).pending_verification) {
+			const data = response.data as any;
+			// Store pending signup data and switch to verification step
+			setSignupPending({
+				email: values.username,
+				password: values.password,
+				verificationId: data.verification_id,
 			});
-		} else {
-			messageApi.error(response?.error?.message || t('login.failed'));
+			setMode('signup-verify');
+			messageApi.info(t('login.verificationCodeSent'));
+			return;
+		}
+
+		// Direct success (shouldn't happen with CloudBase but handle gracefully)
+		Modal.success({
+			title: t('login.signupSuccess'),
+			content: response.data && typeof response.data === 'object' && 'message' in response.data ? String((response.data as any).message) : t('login.signupSuccessMessage'),
+			onOk: () => {
+				setMode('login');
+			}
+		});
+	};
+
+	// Signup step 2: confirm verification code and complete registration
+	const handleSignupVerify = async (values: LoginFormValues, api: IPCAPI) => {
+		if (!signupPending) {
+			messageApi.error(t('login.registrationSessionExpired'));
+			setMode('signup');
+			return;
+		}
+
+		const code = values.confirmCode?.trim();
+		if (!code) {
+			messageApi.error(t('login.confirmCodeRequired'));
+			return;
+		}
+
+		setLoading(true);
+		try {
+			const response = await api.cloudbaseSignupConfirm(
+				signupPending.email,
+				code,
+				signupPending.verificationId,
+				signupPending.password,
+				i18n.language,
+			);
+
+			if (response.success && response.data) {
+				// Registration + login succeeded
+				const { token, user_info } = response.data as any;
+				setLoginSuccessful(true);
+				messageApi.success(t('login.signupSuccess'));
+				setLoginProgress('success');
+
+				// Save session
+				const loginSession = {
+					token,
+					userInfo: {
+						username: user_info?.username || signupPending.email,
+						email: user_info?.email || signupPending.email,
+						role: user_info?.role || 'Commander',
+						name: user_info?.name || '',
+						given_name: user_info?.given_name || '',
+						family_name: user_info?.family_name || '',
+						picture: user_info?.picture || '',
+						email_verified: user_info?.email_verified ?? true,
+						login_type: 'password',
+					},
+					loginTime: Date.now(),
+				};
+				userStorageManager.saveLoginSession(loginSession);
+				pageRefreshManager.enable();
+				sessionStorage.removeItem('token_expired_notification_shown');
+
+				// Start token refresh service
+				tokenRefreshService.start(token, {
+					checkInterval: 30 * 60 * 1000,
+					refreshThreshold: 60 * 60,
+					onTokenRefreshed: (newToken: string) => {
+						userStorageManager.setToken(newToken);
+					},
+					onTokenExpired: () => {
+						messageApi.warning(t('login.sessionExpired'));
+						userStorageManager.logout();
+						navigate('/login');
+					}
+				});
+
+				setLoginProgress('redirecting');
+				return; // Don't let finally block reset loading
+			} else {
+				const errMsg = (response.error as any)?.message || t('login.failed');
+				messageApi.error(errMsg);
+				setLastError(errMsg);
+				setLoading(false);
+			}
+		} catch (error) {
+			const errMsg = error instanceof Error ? error.message : String(error);
+			messageApi.error(errMsg);
+			setLastError(errMsg);
+			setLoading(false);
 		}
 	};
 
@@ -294,7 +462,6 @@ const Login: React.FC = () => {
 
 		if (isWeb) {
 			setLoading(true);
-			setShowInitProgress(true);
 			await cognitoAuth.startHostedLogin({ screenHint: 'login' });
 			return;
 		}
@@ -336,7 +503,6 @@ const Login: React.FC = () => {
 
 		if (isWeb) {
 			setLoading(true);
-			setShowInitProgress(true);
 			await cognitoAuth.startHostedLogin({ screenHint: 'login' });
 			return;
 		}
@@ -378,7 +544,10 @@ const Login: React.FC = () => {
 	};
 
 	const handleSubmit = async (values: LoginFormValues) => {
-		if (loading || loginSuccessful) return; // Prevent double submission
+		if (loading || loginSuccessful) {
+			console.log(`[Login] handleSubmit BLOCKED: loading=${loading}, loginSuccessful=${loginSuccessful}`);
+			return; // Prevent double submission
+		}
 
 		// Time-based debounce: reject if last attempt was less than 3s ago
 		const now = Date.now();
@@ -388,9 +557,11 @@ const Login: React.FC = () => {
 		}
 		lastLoginAttemptRef.current = now;
 
+		// Log current mode to help debug "signup triggers login" issue
+		console.log(`[Login] handleSubmit START: mode=${mode}, isWeb=${isWeb}, values.keys=${Object.keys(values)}`);
+
 		if (isWeb) {
 			setLoading(true);
-			setShowInitProgress(true);
 			sessionStorage.setItem('cognito_login_method', mode === 'signup' ? 'password' : 'password');
 			await cognitoAuth.startHostedLogin({
 				screenHint: mode === 'signup' ? 'signup' : 'login'
@@ -412,13 +583,14 @@ const Login: React.FC = () => {
 				case 'login':
 					loginAttempted = true;
 					setHasNavigated(false); // Reset navigation flag for new login attempt
-					// 立即DisplayLogin进度UI
-					setShowInitProgress(true);
 					await handleLogin(values, api);
 					// Don't reset loading here for successful login - let the navigation effect handle it
 					return;
 				case 'signup':
 					await handleSignup(values, api);
+					break;
+				case 'signup-verify':
+					await handleSignupVerify(values, api);
 					break;
 				case 'forgot':
 					await handleForgotPasswordReset(); // 调用新的ResetPassword逻辑
@@ -440,7 +612,6 @@ const Login: React.FC = () => {
 				setLoading(false);
 				setLoginSuccessful(false);
 				setLoginProgress('idle');
-				setShowInitProgress(false); // Hide进度UI
 			}
 		} finally {
 			// Reset loading for non-login modes or if login wasn't attempted
@@ -456,7 +627,6 @@ const Login: React.FC = () => {
 
 		if (isWeb) {
 			setLoading(true);
-			setShowInitProgress(true);
 	  sessionStorage.setItem('cognito_login_method', 'google');
 			await cognitoAuth.startHostedLogin({ identityProvider: 'Google' });
 			return;
@@ -467,9 +637,6 @@ const Login: React.FC = () => {
     setHasNavigated(false); // Reset navigation flag for new login attempt
     setLastError(null); // Clear previous errors
     setGoogleLoginProgress('opening');
-
-    // 立即DisplayLogin进度UI
-    setShowInitProgress(true);
 
     try {
       const api = get_ipc_api();
@@ -542,14 +709,14 @@ const Login: React.FC = () => {
 			}
 		});
 
-        messageApi.success(message || t('login.googleSuccess') || 'Google login successful');
+        messageApi.success(t('login.googleLoginSuccess'));
         setLoginSuccessful(true);
         setGoogleLoginProgress('redirecting');
 
       } else {
         console.error('Google login failed', response.error);
         setGoogleLoginProgress('idle');
-        const errorMessage = response.error?.message || t('login.googleFailed') || 'Google login failed';
+        const errorMessage = response.error?.message || t('login.googleLoginFailed');
 
         // Recovery path: the OAuth callback port (default 9382) is held by
         // another eCan.exe instance left over from a prior session. Backend
@@ -614,7 +781,6 @@ const Login: React.FC = () => {
     } catch (error) {
       console.error('Google login error:', error);
       setGoogleLoginProgress('idle');
-      setShowInitProgress(false); // Hide进度UI
       const errorMessage = error instanceof Error ? error.message : String(error);
       setLastError(errorMessage);
 
@@ -637,11 +803,11 @@ const Login: React.FC = () => {
 
 	// Render
 	return (
-		<div className="login-container">
-			<div className="login-decoration" />
-			<div className="background-animation" />
+		<div className="intl-login-container">
+			<div className="intl-login-decoration" />
+			<div className="intl-background-animation" />
 
-			<div className="language-selector">
+			<div className="intl-language-selector">
 				<Select
 					value={i18n.language}
 					style={{ width: 120 }}
@@ -659,42 +825,26 @@ const Login: React.FC = () => {
 				</Select>
 			</div>
 
-			{/* Show initialization progress during login process */}
+			{/* Show loading during login process */}
 			<LoadingProgress
-				visible={loading || showInitProgress}
-				progress={initProgress}
-				title={loginProgress === 'redirecting' || googleLoginProgress === 'redirecting'
-					? t('login.redirectingToMain') || 'Redirecting to main page...'
-					: loginProgress === 'success' || googleLoginProgress === 'success'
-						? t('login.loginSuccess') || 'Login successful!'
-						: undefined
-				}
-				onComplete={() => {
-					// 只负责关闭进度UI，跳转由统一的 effect 处理
-					setLoading(false);
-					setShowInitProgress(false);
-				}}
+				visible={loading}
+				message={loginProgress === 'redirecting'
+					? t('login.redirectingToMain')
+					: loginProgress === 'success'
+						? t('login.success')
+						: t('login.verifying')}
 			/>
 
-			<Card className="login-card">
-				{loading ? (
-					<div className="loading-container">
-						<Spin
-							indicator={<LoadingOutlined style={{ fontSize: 48, color: '#1890ff' }} spin />}
-							size="large"
-						/>
-						<div className="loading-text">
-							{t('login.verifying')}
-						</div>
-					</div>
-				) : (
-					<>
+			{/* Hide login card during loading */}
+			{!loading && (
+				<>
+					<Card className="intl-login-card">
 						<div style={{ textAlign: 'center', marginBottom: 24 }}>
-							<div className="logo-container">
+							<div className="intl-logo-container">
 								<img
 									src={logo}
 									alt={t('login.logoAlt')}
-									className="logo-image"
+									className="intl-logo-image"
 								/>
 							</div>
 							<Title level={2} style={{ color: '#fff', margin: 0 }}>{t('login.title')}</Title>
@@ -717,7 +867,8 @@ const Login: React.FC = () => {
 									prefix={<UserOutlined />}
 									placeholder={t('common.email')}
 									size="large"
-									className="form-input"
+									className="intl-form-input"
+									autoComplete="off"
 								/>
 							</Form.Item>
 							{mode === 'login' && (
@@ -729,7 +880,8 @@ const Login: React.FC = () => {
 										prefix={<LockOutlined />}
 										placeholder={t('common.password')}
 										size="large"
-										className="form-input"
+										className="intl-form-input"
+										autoComplete="off"
 									/>
 								</Form.Item>
 							)}
@@ -746,21 +898,22 @@ const Login: React.FC = () => {
 											{ pattern: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/, message: t('login.passwordNeedSpecialChar') },
 										]}
 									>
-										<Input.Password
-											prefix={<LockOutlined />}
-											placeholder={t('common.password')}
-											size="large"
-											className="form-input"
-										/>
-									</Form.Item>
-									<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-										<Text style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)', lineHeight: '18px' }}>
-											<InfoCircleOutlined style={{ marginRight: 6, color: 'rgba(100, 160, 255, 0.8)' }} />
-											{t('login.passwordFormatHint')}
-										</Text>
-									</div>
-									<Form.Item
-										name="confirmPassword"
+									<Input.Password
+										prefix={<LockOutlined />}
+										placeholder={t('common.password')}
+										size="large"
+										className="intl-form-input"
+										autoComplete="new-password"
+									/>
+								</Form.Item>
+								<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+									<Text style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)', lineHeight: '18px' }}>
+										<InfoCircleOutlined style={{ marginRight: 6, color: 'rgba(100, 160, 255, 0.8)' }} />
+										{t('login.passwordFormatHint')}
+									</Text>
+								</div>
+								<Form.Item
+									name="confirmPassword"
 										rules={[
 											{ required: true, message: t('login.confirmPasswordRequired') },
 											({ getFieldValue }) => ({
@@ -777,7 +930,7 @@ const Login: React.FC = () => {
 											prefix={<LockOutlined />}
 											placeholder={t('login.confirmPassword')}
 											size="large"
-											className="form-input"
+											className="intl-form-input"
 										/>
 									</Form.Item>
 								</>
@@ -790,7 +943,7 @@ const Login: React.FC = () => {
 									<Select
 										placeholder={t('login.selectRole')}
 										size="large"
-										className="form-input"
+										className="intl-form-input"
 									>
 										<Select.Option value="Commander">{t('roles.commander')}</Select.Option>
 										<Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
@@ -807,7 +960,7 @@ const Login: React.FC = () => {
 										onClick={handleForgotPasswordSendCode}
 										loading={forgotPasswordLoading}
 										disabled={forgotPasswordLoading}
-										className="login-button"
+										className="intl-login-button"
 									>
 										{forgotPasswordLoading
 											? t('login.sending') || 'Sending...'
@@ -825,7 +978,7 @@ const Login: React.FC = () => {
 										<Input
 											placeholder={t('login.confirmCode')}
 											size="large"
-											className="form-input"
+											className="intl-form-input"
 										/>
 									</Form.Item>
 									<Form.Item
@@ -843,7 +996,8 @@ const Login: React.FC = () => {
 											prefix={<LockOutlined />}
 											placeholder={t('login.newPassword')}
 											size="large"
-											className="form-input"
+											className="intl-form-input"
+											autoComplete="new-password"
 										/>
 									</Form.Item>
 									<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
@@ -860,12 +1014,47 @@ const Login: React.FC = () => {
 											onClick={handleForgotPasswordReset}
 											loading={forgotPasswordLoading}
 											disabled={forgotPasswordLoading}
-											className="login-button"
+											className="intl-login-button"
 										>
 											{forgotPasswordLoading
 												? t('login.resetting') || 'Resetting...'
 												: t('login.resetPassword')
 											}
+										</Button>
+									</Form.Item>
+								</>
+							)}
+							{mode === 'signup-verify' && signupPending && (
+								<>
+									<div style={{ marginBottom: 16, padding: '12px 16px', background: 'rgba(56, 161, 105, 0.1)', border: '1px solid rgba(56, 161, 105, 0.3)', borderRadius: 8, textAlign: 'center' }}>
+										<Text style={{ color: '#73d13d', fontSize: 13 }}>
+											{t('login.signupCodeSent') || 'Verification code sent to your email'}
+										</Text>
+										<br />
+										<Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>
+											{signupPending.email}
+										</Text>
+									</div>
+									<Form.Item
+										name="confirmCode"
+										rules={[{ required: true, message: t('login.confirmCodeRequired') }]}
+									>
+										<Input
+											placeholder={t('login.confirmCode')}
+											size="large"
+											className="intl-form-input"
+										/>
+									</Form.Item>
+									<Form.Item>
+										<Button
+											type="primary"
+											htmlType="submit"
+											size="large"
+											block
+											loading={loading}
+											className="intl-login-button"
+										>
+											{t('login.confirmSignup') || 'Complete Registration'}
 										</Button>
 									</Form.Item>
 								</>
@@ -879,7 +1068,7 @@ const Login: React.FC = () => {
 										block
 										loading={loading}
 										disabled={loading || loginSuccessful}
-										className="login-button"
+										className="intl-login-button"
 									>
 										{mode === 'login' ? (() => {
 											switch (loginProgress) {
@@ -890,13 +1079,9 @@ const Login: React.FC = () => {
 												case 'redirecting':
 													return t('login.redirecting') || 'Redirecting...';
 												default:
-													return loading && showInitProgress
-														? t('login.redirecting') || 'Redirecting...'
-														: loading
-															? t('login.loggingIn') || 'Logging in...'
-															: loginSuccessful
-																? t('login.loginSuccess') || 'Success!'
-																: t('login.loginButton');
+													return loading
+														? t('login.loggingIn') || 'Logging in...'
+														: t('login.loginButton');
 											}
 										})() : loading
 											? t('login.loggingIn') || 'Logging in...'
@@ -913,7 +1098,7 @@ const Login: React.FC = () => {
 										onClick={handleGoogleLogin}
 										loading={loading}
 										disabled={loading || loginSuccessful}
-										className="google-login-button"
+										className="intl-google-login-button"
 										icon={!loading ? <img src={googleIcon} alt="Google" style={{ width: 18, height: 18 }} /> : undefined}
 									>
 										{(() => {
@@ -978,7 +1163,7 @@ const Login: React.FC = () => {
 								<Button
 									type="link"
 									onClick={() => handleModeChange(mode === 'login' ? 'signup' : 'login')}
-									className="link-button"
+									className="intl-link-button"
 								>
 									{mode === 'login' ? t('login.signUp') : t('login.backToLogin')}
 								</Button>
@@ -986,16 +1171,16 @@ const Login: React.FC = () => {
 									<Button
 										type="link"
 										onClick={() => handleModeChange('forgot')}
-										className="link-button"
+										className="intl-link-button"
 									>
 										{t('login.forgotPassword')}
 									</Button>
 								)}
 							</div>
 						</Form>
-					</>
-				)}
-			</Card>
+					</Card>
+				</>
+			)}
 		</div>
 	);
 };

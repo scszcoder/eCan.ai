@@ -57,11 +57,11 @@ contexts together cover the full matrix:
     local_only      | BrowserUseHookContext   | yes | yes       | none
 
 See ``HYBRID_HOOK_AUDIT.md`` for the per-hook tier classification of
-the ``feige_chat`` reference bundle that drove this design.
+the reference live-chat bundle that drove this design.
 
 ``build_node.py`` re-exports the legacy shapes for back-compat so
-external hook bundles (e.g.
-``browser_use_extension/hooks/external/feige_chat``) can continue to
+external hook bundles (under
+``browser_use_extension/hooks/external/``) can continue to
 import them from their historical location.  New tiered contexts are
 imported directly from this module.
 """
@@ -75,7 +75,7 @@ from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
 class BrowserUseHookContext:
     """Data + helpers passed to ``before_browser_use_run`` hooks.
 
-    Site-specific state (e.g. Feige's dispatch dicts) lives in the
+    Site-specific state (e.g. a site bundle's dispatch dicts) lives in the
     hook module itself, not here.  This context carries only the
     generic helpers / shared state that ``build_node`` owns and that
     hook implementations (+ their delegated helpers) need.
@@ -213,7 +213,7 @@ class SessionKV(Protocol):
       via the hook manifest's ``state_dependencies`` declaration.
 
     Methods are intentionally synchronous because all current callers
-    (`feige_quick_reply` cooldown KV, `dispatch_state` dedup) are
+    (the quick-reply cooldown KV, `dispatch_state` dedup) are
     synchronous.  An ``aget`` / ``aset`` async variant can be added
     later if a cloud-only hook needs to read from a slow store.
     """
@@ -297,10 +297,10 @@ class BrowserPrimitives(Protocol):
 class TypingLock(Protocol):
     """Process-local lock preventing typing-action races.
 
-    Mirrors ``feige_chat.typing_lock`` semantics: TTL-based self-heal,
+    Mirrors the live-chat bundle's ``typing_lock`` semantics: TTL-based self-heal,
     empty-customer bypass, single-process scope.  Lives behind a
     Protocol so a hook bundle can request a lock without depending on
-    the Feige-specific implementation; alternative skills can install
+    any one site's implementation; alternative skills can install
     their own backend.
     """
     def try_acquire(self, customer_key: str, *, ttl_s: float | None = None) -> bool: ...
@@ -353,7 +353,7 @@ class SendChatProxy(Protocol):
 class DispatchState(Protocol):
     """Cross-customer dispatch dedup + affinity state.
 
-    Cloud-side equivalent of ``feige_chat.dispatch_state`` + the
+    Cloud-side equivalent of the live-chat bundle's ``dispatch_state`` + the
     inflight-lock trio in ``BrowserUseHookContext``.  Backed by a
     cloud KV in hybrid mode; backed by module-level dicts in
     full_local.
@@ -432,8 +432,8 @@ class LocalReactiveContext:
 
     Hooks classified as ``local_reactive`` in HYBRID_HOOK_AUDIT.md:
 
-    * ``FeigeQuickReplyHook`` (template typer)
-    * ``FeigeCrosstalkGuardHook`` (DOM-eval guard)
+    * the quick-reply hook (template typer)
+    * the crosstalk-guard hook (DOM-eval guard)
     * ``front_desk.before_session_setup_hook`` (HOT-PATH-B; monolithic)
 
     Note on ``dispatch_state``
