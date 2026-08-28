@@ -409,6 +409,66 @@ def _should_use_proxy(node_inputs: dict | None = None) -> bool:
     return False
 
 
+# Hosts that mean "the customer's own private LLM server" — the one case that
+# must NEVER be rerouted to the cloud proxy on CN builds.
+_PRIVATE_LLM_HOST_MARKERS = (
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "192.168.",
+    "10.",
+    "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.30.", "172.31.",
+)
+
+
+def _is_private_llm_host(host_value: str | None) -> bool:
+    host = str(host_value or "").strip().lower()
+    if not host:
+        return False
+    # Compare against the URL's host portion, not the scheme.
+    hostpart = host.split("://", 1)[-1]
+    return any(hostpart.startswith(m) or f"//{m}" in host for m in _PRIVATE_LLM_HOST_MARKERS)
+
+
+def _cn_llm_proxy_by_default(
+    provider_name: str,
+    host_value: str | None = None,
+    node_inputs: dict | None = None,
+) -> bool:
+    """CN routing policy (2026-08-28, user decision): on CN builds, ALL model
+    providers go through the llm-proxy by default — customer installs generally
+    hold no provider keys, and several provider defaults (api.openai.com,
+    api.anthropic.com, Google) are unreachable from the mainland anyway (95z
+    live: openai/gpt-4o-mini direct call, 45s connect timeout, turn died).
+
+    Exceptions that stay DIRECT:
+      - provider ``ollama`` — the customer's own private LLM server;
+      - a localhost/LAN host — the same private-server case behind an
+        openai-compatible provider entry;
+      - an explicit node-level ``useProxy`` value (either way) — a skill that
+        states its routing keeps it (useProxy=true is already honored upstream
+        by _should_use_proxy; =false is an explicit opt-out).
+    Intl builds: always False (behavior unchanged).
+    """
+    try:
+        from utils.app_env import is_cn
+        if not is_cn():
+            return False
+    except Exception:
+        return False
+    if node_inputs:
+        try:
+            if (node_inputs.get("useProxy") or {}).get("content") is not None:
+                return False
+        except Exception:
+            pass
+    if str(provider_name or "").strip().lower() == "ollama":
+        return False
+    if _is_private_llm_host(host_value):
+        return False
+    return True
+
+
 def _get_proxy_config() -> dict:
     """Get Lambda proxy configuration from settings.
 
@@ -3516,6 +3576,15 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
         if _should_use_proxy(inputs):
             _proxy_llm = _make_proxy_llm("proxy routing enabled")
+            if _proxy_llm is not None:
+                return _proxy_llm
+
+        # ── CN default routing (2026-08-28) ──
+        # On CN builds every provider goes through the llm-proxy by default;
+        # only ollama / private-server hosts and explicit node useProxy values
+        # stay direct. See _cn_llm_proxy_by_default for the full policy.
+        if _cn_llm_proxy_by_default(provider_name, host_value, inputs):
+            _proxy_llm = _make_proxy_llm("CN default routing: llm-proxy")
             if _proxy_llm is not None:
                 return _proxy_llm
 

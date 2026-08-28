@@ -3391,6 +3391,21 @@ def build_local_llm(
             auth_token=proxy["auth_token"],
         )
 
+    # ── CN default routing (2026-08-28) ──
+    # On CN builds every provider goes through the llm-proxy by default; only
+    # ollama (the customer's own private LLM server) and explicit node useProxy
+    # values stay direct. Policy: build_node._cn_llm_proxy_by_default.
+    try:
+        from agent.ec_skills.build_node import _cn_llm_proxy_by_default
+        # Only when the node names a provider — the global-default path below
+        # resolves its own provider (which may be the customer's ollama).
+        if llm_provider and _cn_llm_proxy_by_default(llm_provider, None, raw_inputs):
+            llm = _proxy_fallback("CN default routing: llm-proxy")
+            if llm is not None:
+                return llm
+    except Exception as _cn_policy_err:
+        logger.debug(f"[BrowserAutomation] CN default-routing check skipped: {_cn_policy_err}")
+
     # Node-specified provider+model.
     if llm_provider and llm_model_name:
         try:
