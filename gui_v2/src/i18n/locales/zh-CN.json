@@ -1103,7 +1103,14 @@
         "field_verify_token": "验证令牌",
         "field_webhook_port": "Webhook 端口",
         "field_client_id": "客户端 ID",
-        "field_client_secret": "客户端密钥"
+        "field_client_secret": "客户端密钥",
+        "column_channel": "渠道",
+        "column_status": "状态",
+        "column_agent": "默认 Agent",
+        "column_enabled": "启用",
+        "column_actions": "操作",
+        "no_default_agent": "未设置",
+        "enabled_toggle_hint": "通过表格行的「启用」开关修改"
       },
       "profile": "个人资料",
       "system": "系统设置",

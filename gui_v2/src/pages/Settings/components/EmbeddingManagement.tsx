@@ -10,7 +10,6 @@ import {
   Select,
 } from "antd";
 import {
-  EditOutlined,
   DeleteOutlined,
   EyeOutlined,
   EyeInvisibleOutlined,
@@ -34,6 +33,24 @@ interface EmbeddingManagementProps {
   onDefaultEmbeddingChange?: (newDefaultEmbedding: string, newDefaultModel?: string) => void; // Callback to notify parent of default Embedding changes
   onSharedProviderUpdate?: (sharedProviders: Array<{ name: string; type: string }>) => void; // Callback to notify parent of shared provider updates
 }
+
+const getOllamaRootUrl = (host: string) => {
+  try {
+    const u = new URL(host);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return host;
+  }
+};
+
+const getRyoaisRootUrl = (host: string) => {
+  try {
+    const u = new URL(host);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return host;
+  }
+};
 
 type ModelOption = { label: string; value: string; description?: string };
 
@@ -81,20 +98,18 @@ const EmbeddingManagement = React.forwardRef<
   const [editingLoading, setEditingLoading] = useState<boolean>(false);
 
   // Ollama dynamic model state
-  const [ollamaModels, setOllamaModels] = useState<Array<{ name: string; size: number }>>([]);
   const [ollamaLoading, setOllamaLoading] = useState(false);
   const [ollamaHost, setOllamaHost] = useState('http://127.0.0.1:11434');
+  const [ollamaApiKey, setOllamaApiKey] = useState('');
   const [editingOllamaHost, setEditingOllamaHost] = useState(false);
   const [tempOllamaHost, setTempOllamaHost] = useState('');
-  const [ollamaApiKey, setOllamaApiKey] = useState('');
 
   // RyoAIS dynamic model state
-  const [ryoaisModels, setRyoaisModels] = useState<Array<{ name: string; size: number }>>([]);
   const [ryoaisLoading, setRyoaisLoading] = useState(false);
   const [ryoaisHost, setRyoaisHost] = useState('http://localhost/v1');
+  const [ryoaisApiKey, setRyoaisApiKey] = useState('');
   const [editingRyoaisHost, setEditingRyoaisHost] = useState(false);
   const [tempRyoaisHost, setTempRyoaisHost] = useState('');
-  const [ryoaisApiKey, setRyoaisApiKey] = useState('');
   const [ryoaisScanning, setRyoaisScanning] = useState(false);
   const [ryoaisDevices, setRyoaisDevices] = useState<Array<{ name: string; url: string }>>([]);
 
@@ -106,16 +121,13 @@ const EmbeddingManagement = React.forwardRef<
       // Pass username so backend can save to user-specific path
       const response = await get_ipc_api().getOllamaModels<{ models: Array<{ name: string; size: number }>; host: string }>(targetHost, username || undefined);
       if (response.success && response.data) {
-        setOllamaModels(response.data.models || []);
         return true;
       } else {
         message.error(response.error?.message || t('pages.settings.ollama_fetch_error'));
-        setOllamaModels([]);
         return false;
       }
     } catch (error: any) {
       message.error(error.message || t('pages.settings.ollama_fetch_error'));
-      setOllamaModels([]);
       return false;
     } finally {
       setOllamaLoading(false);
@@ -130,16 +142,13 @@ const EmbeddingManagement = React.forwardRef<
       // Pass username so backend can save to user-specific path
       const response = await get_ipc_api().getRyoAISModels<{ models: Array<{ name: string; size: number }>; host: string }>(targetHost, username || undefined);
       if (response.success && response.data) {
-        setRyoaisModels(response.data.models || []);
         return true;
       } else {
         message.error(response.error?.message || t('pages.settings.ryoais_fetch_error'));
-        setRyoaisModels([]);
         return false;
       }
     } catch (error: any) {
       message.error(error.message || t('pages.settings.ryoais_fetch_error'));
-      setRyoaisModels([]);
       return false;
     } finally {
       setRyoaisLoading(false);
@@ -161,24 +170,16 @@ const EmbeddingManagement = React.forwardRef<
 
       if (response && response.success && response.data) {
         const rawDevices = response.data.devices || [];
-        
-        // Generate complete host URLs by appending /v1 if not present
         const devices = rawDevices.map(device => {
           let url = device.url;
           if (!url.endsWith('/v1')) {
             url = url.replace(/\/$/, '') + '/v1';
           }
-          return {
-            ...device,
-            url
-          };
+          return { ...device, url };
         });
-        
         setRyoaisDevices(devices);
-        
         if (devices.length > 0) {
           message.success(t('pages.settings.ryoais.scan_success', { count: devices.length }));
-          
           if (devices.length === 1) {
             setTempRyoaisHost(devices[0].url);
             message.info(t('pages.settings.ryoais.auto_filled'));
@@ -915,29 +916,33 @@ const EmbeddingManagement = React.forwardRef<
       render: (_: any, record: LLMProvider) => {
         const isEditing = editingProvider === record.name;
 
-        // Ollama specific rendering with host and optional API key
+        // Ollama specific rendering with host and optional API key (double-click to edit)
         if (isOllamaProvider(record)) {
           if (editingOllamaHost) {
             return (
-              <Space direction="vertical" style={{ width: "100%" }}>
+              <Space direction="vertical" style={{ width: "100%" }} onKeyDown={(e) => { if (e.key === 'Escape') setEditingOllamaHost(false); }}>
                 <Input
                   value={tempOllamaHost}
                   onChange={(e) => setTempOllamaHost(e.target.value)}
                   placeholder={t("pages.settings.ollama_host_placeholder")}
                   style={{ width: "300px" }}
                   addonBefore="Host"
+                  autoFocus
+                  id={`${record.name}-ollama-host-input`}
                 />
-                <Input
+                <Input.Password
                   value={ollamaApiKey}
                   onChange={(e) => setOllamaApiKey(e.target.value)}
                   placeholder={t("pages.settings.ollama_api_key_placeholder")}
                   style={{ width: "300px" }}
                   addonBefore="API Key"
+                  id={`${record.name}-ollama-apikey-input`}
                 />
                 <Space>
                   <Button
                     size="small"
                     type="primary"
+                    id={`${record.name}-ollama-save`}
                     onClick={async () => {
                       if (tempOllamaHost) {
                         await saveOllamaConfig({
@@ -972,28 +977,38 @@ const EmbeddingManagement = React.forwardRef<
           }
 
           return (
-            <Space direction="vertical" size={2}>
-              <Space>
-                <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
-                <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ollamaHost}</span>
-              </Space>
-              {ollamaApiKey && (
+            <div
+              onDoubleClick={() => {
+                setTempOllamaHost(ollamaHost);
+                setEditingOllamaHost(true);
+              }}
+              style={{ cursor: 'text', userSelect: 'none' }}
+              title="Double-click to edit"
+              id={`${record.name}-ollama-apikey-cell`}
+            >
+              <Space direction="vertical" size={2}>
                 <Space>
-                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
-                  <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
+                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
+                  <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ollamaHost}</span>
                 </Space>
-              )}
-            </Space>
+                {ollamaApiKey && (
+                  <Space>
+                    <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
+                    <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
+                  </Space>
+                )}
+              </Space>
+            </div>
           );
         }
 
-        // RyoAIS specific rendering with host and optional API key
+        // RyoAIS specific rendering with host and optional API key (double-click to edit)
         if (isRyoAISProvider(record)) {
           if (editingRyoaisHost) {
             const hasMultipleDevices = ryoaisDevices.length > 1;
-            
+
             return (
-              <Space direction="vertical" style={{ width: "100%" }}>
+              <Space direction="vertical" style={{ width: "100%" }} onKeyDown={(e) => { if (e.key === 'Escape') setEditingRyoaisHost(false); }}>
                 <Space.Compact style={{ width: "300px" }}>
                   {hasMultipleDevices ? (
                     <Select
@@ -1002,6 +1017,7 @@ const EmbeddingManagement = React.forwardRef<
                       placeholder={t("pages.settings.ryoais_host_placeholder")}
                       style={{ flex: 1 }}
                       optionLabelProp="label"
+                      id={`${record.name}-ryoais-host-select`}
                     >
                       {ryoaisDevices.map(device => (
                         <Select.Option key={device.url} value={device.url} label={device.url}>
@@ -1020,6 +1036,8 @@ const EmbeddingManagement = React.forwardRef<
                       onChange={(e) => setTempRyoaisHost(e.target.value)}
                       placeholder={t("pages.settings.ryoais_host_placeholder")}
                       style={{ flex: 1 }}
+                      autoFocus
+                      id={`${record.name}-ryoais-host-input`}
                     />
                   )}
                   <Tooltip title={t("pages.settings.ryoais.scan_devices")}>
@@ -1027,20 +1045,23 @@ const EmbeddingManagement = React.forwardRef<
                       icon={<ScanOutlined />}
                       loading={ryoaisScanning}
                       onClick={scanRyoAISDevices}
+                      id={`${record.name}-ryoais-scan`}
                     />
                   </Tooltip>
                 </Space.Compact>
-                <Input
+                <Input.Password
                   value={ryoaisApiKey}
                   onChange={(e) => setRyoaisApiKey(e.target.value)}
                   placeholder={t("pages.settings.ryoais_api_key_placeholder")}
                   style={{ width: "300px" }}
                   addonBefore="API Key"
+                  id={`${record.name}-ryoais-apikey-input`}
                 />
                 <Space>
                   <Button
                     size="small"
                     type="primary"
+                    id={`${record.name}-ryoais-save`}
                     onClick={async () => {
                       if (tempRyoaisHost) {
                         await saveRyoAISConfig({
@@ -1075,18 +1096,28 @@ const EmbeddingManagement = React.forwardRef<
           }
 
           return (
-            <Space direction="vertical" size={2}>
-              <Space>
-                <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
-                <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ryoaisHost}</span>
-              </Space>
-              {ryoaisApiKey && (
+            <div
+              onDoubleClick={() => {
+                setTempRyoaisHost(ryoaisHost);
+                setEditingRyoaisHost(true);
+              }}
+              style={{ cursor: 'text', userSelect: 'none' }}
+              title="Double-click to edit"
+              id={`${record.name}-ryoais-apikey-cell`}
+            >
+              <Space direction="vertical" size={2}>
                 <Space>
-                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
-                  <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
+                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
+                  <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ryoaisHost}</span>
                 </Space>
-              )}
-            </Space>
+                {ryoaisApiKey && (
+                  <Space>
+                    <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
+                    <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
+                  </Space>
+                )}
+              </Space>
+            </div>
           );
         }
 
@@ -1167,14 +1198,44 @@ const EmbeddingManagement = React.forwardRef<
 
         return (
           <Space style={{ width: '100%', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span style={{ 
-              fontFamily: "monospace",
-              wordBreak: 'break-all',
-              whiteSpace: 'pre-wrap',
-              lineHeight: 1.4
-            }}>
-              {apiKeyText}
-            </span>
+            {!record.is_local ? (
+              <span
+                role="button"
+                tabIndex={0}
+                title={t("common.edit")}
+                onDoubleClick={() => startEditing(record.name)}
+                style={{
+                  fontFamily: "monospace",
+                  wordBreak: 'break-all',
+                  whiteSpace: 'pre-wrap',
+                  lineHeight: 1.4,
+                  cursor: 'pointer',
+                  borderRadius: 4,
+                  padding: '2px 6px',
+                  border: '1px dashed transparent',
+                  transition: 'border-color 0.15s, background 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor = '#d9d9d9';
+                  (e.currentTarget as HTMLElement).style.background = '#fafafa';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor = 'transparent';
+                  (e.currentTarget as HTMLElement).style.background = 'transparent';
+                }}
+              >
+                {apiKeyText}
+              </span>
+            ) : (
+              <span style={{
+                fontFamily: "monospace",
+                wordBreak: 'break-all',
+                whiteSpace: 'pre-wrap',
+                lineHeight: 1.4
+              }}>
+                {apiKeyText}
+              </span>
+            )}
             {record.api_key_configured && !record.is_local && (
               <Tooltip
                 title={
@@ -1388,23 +1449,13 @@ const EmbeddingManagement = React.forwardRef<
         if (isOllamaProvider(record)) {
           return (
             <Space>
-              <Tooltip title={t("common.edit")}>
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<EditOutlined />}
-                  onClick={() => {
-                    setTempOllamaHost(ollamaHost);
-                    setEditingOllamaHost(true);
-                  }}
-                />
-              </Tooltip>
               <Tooltip title={t("pages.settings.open_ollama")}>
                 <Button
                   size="small"
                   type="text"
                   icon={<GlobalOutlined />}
-                  onClick={() => window.open(ollamaHost, '_blank')}
+                  onClick={() => window.open(getOllamaRootUrl(ollamaHost), '_blank')}
+                  id={`${record.name}-open-host`}
                 />
               </Tooltip>
               <Tooltip title={t("common.delete")}>
@@ -1424,23 +1475,13 @@ const EmbeddingManagement = React.forwardRef<
         if (isRyoAISProvider(record)) {
           return (
             <Space>
-              <Tooltip title={t("common.edit")}>
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<EditOutlined />}
-                  onClick={() => {
-                    setTempRyoaisHost(ryoaisHost);
-                    setEditingRyoaisHost(true);
-                  }}
-                />
-              </Tooltip>
               <Tooltip title={t("pages.settings.open_ryoais")}>
                 <Button
                   size="small"
                   type="text"
                   icon={<GlobalOutlined />}
-                  onClick={() => window.open(ryoaisHost, '_blank')}
+                  onClick={() => window.open(getRyoaisRootUrl(ryoaisHost), '_blank')}
+                  id={`${record.name}-open-host`}
                 />
               </Tooltip>
               <Tooltip title={t("common.delete")}>
@@ -1460,14 +1501,6 @@ const EmbeddingManagement = React.forwardRef<
           <Space>
             {!record.is_local && (
               <>
-                <Tooltip title={t("common.edit")}>
-                  <Button
-                    size="small"
-                    type="text"
-                    icon={<EditOutlined />}
-                    onClick={() => startEditing(record.name)}
-                  />
-                </Tooltip>
                 <Tooltip title={t("pages.settings.open_docs")}>
                   <Button
                     size="small"

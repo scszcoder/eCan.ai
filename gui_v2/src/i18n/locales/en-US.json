@@ -1071,7 +1071,14 @@
         "field_verify_token": "Verify Token",
         "field_webhook_port": "Webhook Port",
         "field_client_id": "Client ID",
-        "field_client_secret": "Client Secret"
+        "field_client_secret": "Client Secret",
+        "column_channel": "Channel",
+        "column_status": "Status",
+        "column_agent": "Default Agent",
+        "column_enabled": "Enabled",
+        "column_actions": "Actions",
+        "no_default_agent": "Not set",
+        "enabled_toggle_hint": "Toggle from the table row's Enabled column"
       },
       "profile": "Profile",
       "system": "System Settings",

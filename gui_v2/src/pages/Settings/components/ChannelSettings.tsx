@@ -1,11 +1,10 @@
 /**
  * ChannelSettings — manage messaging channel configuration.
  *
- * Displays one card per channel with:
- *   - Enable/disable toggle
- *   - Channel-specific credential fields
- *   - Live status badge
- *   - WhatsApp Baileys: QR code display for pairing
+ * Layout: one AntD Table row per channel with an expandable row that
+ * surfaces the per-channel credential form (WaBaileysCard /
+ * GenericChannelCard). Status, enable/disable and start/stop controls
+ * are inline so a user can scan all channels without scrolling.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,7 +13,6 @@ import {
   App,
   Badge,
   Button,
-  Card,
   Checkbox,
   Divider,
   Form,
@@ -23,12 +21,14 @@ import {
   Space,
   Spin,
   Switch,
+  Table,
   Tooltip,
   Typography,
 } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
+  DownOutlined,
   InfoCircleOutlined,
   LoadingOutlined,
   QrcodeOutlined,
@@ -36,6 +36,7 @@ import {
   StopOutlined,
   WifiOutlined,
 } from '@ant-design/icons';
+import type { ExpandableConfig } from 'antd/es/table/interface';
 import { get_ipc_api } from '@/services/ipc_api';
 
 const { Title, Text, Paragraph } = Typography;
@@ -85,18 +86,13 @@ function StatusBadge({ status }: { status: string }) {
 function WaBaileysCard({
   entry,
   onSave,
-  onStart,
-  onStop,
 }: {
   entry: ChannelEntry;
   onSave: (config: Record<string, any>) => Promise<void>;
-  onStart: () => Promise<void>;
-  onStop: () => Promise<void>;
 }) {
   const { t } = useTranslation();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
-  const [starting, setStarting] = useState(false);
   const [qrBase64, setQrBase64] = useState<string | null>(null);
   const [pollingQr, setPollingQr] = useState(false);
   const qrPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -147,6 +143,8 @@ function WaBaileysCard({
     }
   };
 
+  const isRunning = entry.status === 'running' || entry.status === 'connected';
+
   const handleSave = async () => {
     try {
       const vals = await form.validateFields();
@@ -161,21 +159,18 @@ function WaBaileysCard({
     }
   };
 
-  const handleStart = async () => {
-    setStarting(true);
-    try {
-      await onStart();
-    } finally {
-      setStarting(false);
-    }
-  };
-
-  const isRunning = entry.status === 'running' || entry.status === 'connected';
-
   return (
     <Form form={form} layout="vertical">
-      <Form.Item name="enabled" valuePropName="checked" label={t('pages.settings.channel.enable_channel')}>
-        <Switch id="whatsapp_baileys-enabled" />
+      <Form.Item
+        label={t('pages.settings.channel.enable_channel')}
+        style={{ marginBottom: 8 }}
+      >
+        <Space align="center" size={8}>
+          <Switch size="small" checked={!!entry.config.enabled} disabled />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {t('pages.settings.channel.enabled_toggle_hint')}
+          </Text>
+        </Space>
       </Form.Item>
 
       <Divider orientation="left" style={{ fontSize: 13 }}>{t('pages.settings.channel.bridge_connection')}</Divider>
@@ -188,7 +183,7 @@ function WaBaileysCard({
             noStyle
             tooltip={t('pages.settings.channel.bridge_url_tooltip')}
           >
-            <Input placeholder={t('pages.settings.channel.bridge_url_placeholder')} style={{ width: 200 }} id="whatsapp_baileys-bridge_url" />
+            <Input placeholder={t('pages.settings.channel.bridge_url_placeholder')} style={{ width: 240 }} id="whatsapp_baileys-bridge_url" />
           </Form.Item>
           <Button
             icon={<QrcodeOutlined />}
@@ -219,13 +214,13 @@ function WaBaileysCard({
         label={t('pages.settings.channel.inbound_webhook_port')}
         tooltip={t('pages.settings.channel.inbound_webhook_port_tooltip')}
       >
-        <InputNumber min={1024} max={65535} style={{ width: 120 }} id="whatsapp_baileys-webhook_port" />
+        <InputNumber min={1024} max={65535} style={{ width: 140 }} id="whatsapp_baileys-webhook_port" />
       </Form.Item>
       <Form.Item name="auto_start_bridge" valuePropName="checked" label={t('pages.settings.channel.auto_start_bridge')}>
         <Checkbox id="whatsapp_baileys-auto_start_bridge">{t('pages.settings.channel.auto_start_bridge_desc')}</Checkbox>
       </Form.Item>
       <Form.Item name="default_agent_id" label={t('pages.settings.channel.default_agent_id')}>
-        <Input placeholder={t('pages.settings.channel.default_agent_id_placeholder')} id="whatsapp_baileys-default_agent_id" />
+        <Input placeholder={t('pages.settings.channel.default_agent_id_placeholder')} id="whatsapp_baileys-default_agent_id" style={{ maxWidth: 360 }} />
       </Form.Item>
 
       {/* QR code section */}
@@ -272,15 +267,6 @@ function WaBaileysCard({
         <Button type="primary" onClick={handleSave} loading={saving}>
           {t('pages.settings.channel.save')}
         </Button>
-        {!isRunning ? (
-          <Button icon={<WifiOutlined />} onClick={handleStart} loading={starting}>
-            {t('pages.settings.channel.connect')}
-          </Button>
-        ) : (
-          <Button icon={<StopOutlined />} danger onClick={onStop}>
-            {t('pages.settings.channel.disconnect')}
-          </Button>
-        )}
       </Space>
     </Form>
   );
@@ -320,14 +306,10 @@ function GenericChannelCard({
   channelId,
   entry,
   onSave,
-  onStart,
-  onStop,
 }: {
   channelId: string;
   entry: ChannelEntry;
   onSave: (config: Record<string, any>) => Promise<void>;
-  onStart: () => Promise<void>;
-  onStop: () => Promise<void>;
 }) {
   const { t } = useTranslation();
   const [form] = Form.useForm();
@@ -353,21 +335,27 @@ function GenericChannelCard({
     }
   };
 
-  const isRunning = entry.status === 'running' || entry.status === 'connected';
-
   return (
     <Form form={form} layout="vertical">
-      <Form.Item name="enabled" valuePropName="checked" label={t('pages.settings.channel.enable_channel')}>
-        <Switch id={`${channelId}-enabled`} />
+      <Form.Item
+        label={t('pages.settings.channel.enable_channel')}
+        style={{ marginBottom: 8 }}
+      >
+        <Space align="center" size={8}>
+          <Switch size="small" checked={!!entry.config.enabled} disabled />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {t('pages.settings.channel.enabled_toggle_hint')}
+          </Text>
+        </Space>
       </Form.Item>
       {fields.map((f) => (
         <Form.Item key={f.key} name={f.key} label={t(f.i18nKey)}>
           {f.type === 'number' ? (
-            <InputNumber min={1024} max={65535} style={{ width: 120 }} id={`${channelId}-${f.key}`} />
+            <InputNumber min={1024} max={65535} style={{ width: 140 }} id={`${channelId}-${f.key}`} />
           ) : f.secret ? (
-            <Input.Password placeholder={t(f.i18nKey)} id={`${channelId}-${f.key}`} />
+            <Input.Password placeholder={t(f.i18nKey)} id={`${channelId}-${f.key}`} style={{ maxWidth: 360 }} />
           ) : (
-            <Input placeholder={t(f.i18nKey)} id={`${channelId}-${f.key}`} />
+            <Input placeholder={t(f.i18nKey)} id={`${channelId}-${f.key}`} style={{ maxWidth: 360 }} />
           )}
         </Form.Item>
       ))}
@@ -378,15 +366,6 @@ function GenericChannelCard({
         <Button type="primary" onClick={handleSave} loading={saving}>
           {t('pages.settings.channel.save')}
         </Button>
-        {!isRunning ? (
-          <Button icon={<WifiOutlined />} onClick={onStart}>
-            {t('pages.settings.channel.start')}
-          </Button>
-        ) : (
-          <Button icon={<StopOutlined />} danger onClick={onStop}>
-            {t('pages.settings.channel.stop')}
-          </Button>
-        )}
       </Space>
     </Form>
   );
@@ -417,6 +396,8 @@ const CHANNEL_ORDER = [
 export function ChannelSettings() {
   const [channels, setChannels] = useState<ChannelsMap>({});
   const [loading, setLoading] = useState(false);
+  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
+  const [busyChannel, setBusyChannel] = useState<string | null>(null);
   const { t } = useTranslation();
   const { message } = App.useApp();
 
@@ -450,24 +431,56 @@ export function ChannelSettings() {
   }, [loadChannels]);
 
   const handleStart = useCallback(async (channelId: string) => {
-    const resp = await get_ipc_api().startChannel(channelId) as any;
-    if (!resp?.success) {
-      message.error(resp?.error?.message || 'Start failed');
-    } else {
-      message.success(`${t(CHANNEL_LABELS_KEYS[channelId] || channelId)} ${t('pages.settings.channel.status_starting')}`);
+    setBusyChannel(channelId);
+    try {
+      const resp = await get_ipc_api().startChannel(channelId) as any;
+      if (!resp?.success) {
+        message.error(resp?.error?.message || 'Start failed');
+      } else {
+        message.success(`${t(CHANNEL_LABELS_KEYS[channelId] || channelId)} ${t('pages.settings.channel.status_starting')}`);
+      }
+      setTimeout(loadChannels, 1500);
+    } finally {
+      setBusyChannel(null);
     }
-    setTimeout(loadChannels, 1500);
   }, [loadChannels, message, t]);
 
   const handleStop = useCallback(async (channelId: string) => {
-    const resp = await get_ipc_api().stopChannel(channelId) as any;
-    if (!resp?.success) {
-      message.error(resp?.error?.message || 'Stop failed');
-    } else {
-      message.success(`${t(CHANNEL_LABELS_KEYS[channelId] || channelId)} ${t('pages.settings.channel.status_stopped')}`);
+    setBusyChannel(channelId);
+    try {
+      const resp = await get_ipc_api().stopChannel(channelId) as any;
+      if (!resp?.success) {
+        message.error(resp?.error?.message || 'Stop failed');
+      } else {
+        message.success(`${t(CHANNEL_LABELS_KEYS[channelId] || channelId)} ${t('pages.settings.channel.status_stopped')}`);
+      }
+      setTimeout(loadChannels, 1500);
+    } finally {
+      setBusyChannel(null);
     }
-    setTimeout(loadChannels, 1500);
   }, [loadChannels, message, t]);
+
+  const handleEnabledChange = useCallback(async (channelId: string, enabled: boolean) => {
+    setBusyChannel(channelId);
+    try {
+      const resp = await get_ipc_api().saveChannelConfig(channelId, { enabled }) as any;
+      if (!resp?.success) {
+        message.error(resp?.error?.message || 'Save failed');
+        return;
+      }
+      // Optimistic update so the switch reflects instantly
+      setChannels((prev) => ({
+        ...prev,
+        [channelId]: {
+          ...prev[channelId],
+          config: { ...prev[channelId]?.config, enabled },
+        },
+      }));
+      setTimeout(loadChannels, 800);
+    } finally {
+      setBusyChannel(null);
+    }
+  }, [loadChannels, message]);
 
   // Determine display order: preferred order first, then any remaining keys
   const channelIds = [
@@ -475,8 +488,134 @@ export function ChannelSettings() {
     ...Object.keys(channels).filter((id) => !CHANNEL_ORDER.includes(id)),
   ];
 
+  const isRunning = (status: string) => status === 'running' || status === 'connected';
+
+  const columns = [
+    {
+      title: t('pages.settings.channel.column_channel'),
+      dataIndex: 'channelId',
+      key: 'channel',
+      width: 220,
+      render: (cid: string) => (
+        <Text strong>{t(CHANNEL_LABELS_KEYS[cid] || cid)}</Text>
+      ),
+    },
+    {
+      title: t('pages.settings.channel.column_status'),
+      dataIndex: 'status',
+      key: 'status',
+      width: 160,
+      render: (status: string) => <StatusBadge status={status} />,
+    },
+    {
+      title: t('pages.settings.channel.column_agent'),
+      dataIndex: ['config', 'default_agent_id'],
+      key: 'agent',
+      ellipsis: true,
+      render: (agentId?: string) =>
+        agentId ? (
+          <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{agentId}</Text>
+        ) : (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {t('pages.settings.channel.no_default_agent')}
+          </Text>
+        ),
+    },
+    {
+      title: t('pages.settings.channel.column_enabled'),
+      key: 'enabled',
+      width: 90,
+      render: (_: any, row: { channelId: string; config: Record<string, any> }) => (
+        <Switch
+          size="small"
+          checked={!!row.config.enabled}
+          disabled={busyChannel === row.channelId}
+          onChange={(checked) => handleEnabledChange(row.channelId, checked)}
+          id={`${row.channelId}-enabled`}
+        />
+      ),
+    },
+    {
+      title: t('pages.settings.channel.column_actions'),
+      key: 'actions',
+      width: 160,
+      render: (_: any, row: { channelId: string; status: string }) => {
+        const running = isRunning(row.status);
+        return (
+          <Space size={4}>
+            {!running ? (
+              <Button
+                size="small"
+                type="primary"
+                icon={<WifiOutlined />}
+                loading={busyChannel === row.channelId}
+                onClick={() => handleStart(row.channelId)}
+                id={`${row.channelId}-connect`}
+              >
+                {t('pages.settings.channel.connect')}
+              </Button>
+            ) : (
+              <Button
+                size="small"
+                danger
+                icon={<StopOutlined />}
+                loading={busyChannel === row.channelId}
+                onClick={() => handleStop(row.channelId)}
+                id={`${row.channelId}-disconnect`}
+              >
+                {t('pages.settings.channel.disconnect')}
+              </Button>
+            )}
+          </Space>
+        );
+      },
+    },
+  ];
+
+  const dataSource = channelIds.map((cid) => ({
+    key: cid,
+    channelId: cid,
+    status: channels[cid].status,
+    config: channels[cid].config,
+  }));
+
+  const expandable: ExpandableConfig<typeof dataSource[number]> = {
+    expandedRowKeys: expandedKeys,
+    onExpand: (expanded, row) => {
+      setExpandedKeys((prev) =>
+        expanded ? [...prev, row.key] : prev.filter((k) => k !== row.key),
+      );
+    },
+    expandRowByClick: true,
+    expandIcon: ({ expanded }) => (
+      <DownOutlined
+        rotate={expanded ? 180 : 0}
+        style={{ transition: 'transform 0.2s', color: '#999', fontSize: 12 }}
+      />
+    ),
+    expandedRowRender: (row) => {
+      const entry = channels[row.channelId];
+      return (
+        <div style={{ padding: '4px 0 4px 32px', maxWidth: 720 }}>
+          {row.channelId === 'whatsapp_baileys' ? (
+            <WaBaileysCard
+              entry={entry}
+              onSave={(cfg) => handleSave(row.channelId, cfg)}
+            />
+          ) : (
+            <GenericChannelCard
+              channelId={row.channelId}
+              entry={entry}
+              onSave={(cfg) => handleSave(row.channelId, cfg)}
+            />
+          )}
+        </div>
+      );
+    },
+  };
+
   return (
-    <div style={{ padding: '24px', maxWidth: 800 }}>
+    <div style={{ padding: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>{t('pages.settings.channel.title')}</Title>
         <Button icon={<ReloadOutlined />} onClick={loadChannels} loading={loading} size="small">
@@ -484,7 +623,7 @@ export function ChannelSettings() {
         </Button>
       </div>
 
-      <Paragraph type="secondary" style={{ marginBottom: 24 }}>
+      <Paragraph type="secondary" style={{ marginBottom: 16 }}>
         {t('pages.settings.channel.description')}
       </Paragraph>
 
@@ -497,42 +636,18 @@ export function ChannelSettings() {
           description={t('pages.settings.channel.no_channels_desc')}
         />
       ) : (
-        <Space direction="vertical" style={{ width: '100%' }} size={16}>
-          {channelIds.map((cid) => {
-            const entry = channels[cid];
-            const labelKey = CHANNEL_LABELS_KEYS[cid] || cid;
-            return (
-              <Card
-                key={cid}
-                title={
-                  <Space>
-                    <Text strong>{t(labelKey)}</Text>
-                    <StatusBadge status={entry.status} />
-                  </Space>
-                }
-                size="small"
-                style={{ width: '100%' }}
-              >
-                {cid === 'whatsapp_baileys' ? (
-                  <WaBaileysCard
-                    entry={entry}
-                    onSave={(cfg) => handleSave(cid, cfg)}
-                    onStart={() => handleStart(cid)}
-                    onStop={() => handleStop(cid)}
-                  />
-                ) : (
-                  <GenericChannelCard
-                    channelId={cid}
-                    entry={entry}
-                    onSave={(cfg) => handleSave(cid, cfg)}
-                    onStart={() => handleStart(cid)}
-                    onStop={() => handleStop(cid)}
-                  />
-                )}
-              </Card>
-            );
-          })}
-        </Space>
+        <Table
+          size="small"
+          rowKey="key"
+          columns={columns as any}
+          dataSource={dataSource}
+          expandable={expandable}
+          pagination={false}
+          loading={loading && channelIds.length > 0}
+          locale={{
+            emptyText: t('pages.settings.channel.no_channels'),
+          }}
+        />
       )}
     </div>
   );
