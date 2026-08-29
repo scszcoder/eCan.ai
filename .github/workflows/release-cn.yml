@@ -939,8 +939,10 @@ jobs:
         # inline pwsh port hung at 30 minutes when HTTPS to gitee.com stalled:
         # the in-script SSH fallback never fired ($useSsh was undefined), so the
         # retry ran the same HTTPS path with no timeout wrapper and waited out
-        # the step cap. Logic now lives in build_system/scripts/checkout-gitee.ps1
-        # which caps ls-remote/fetch at 30s each via Process.Start +
+        # the step cap. Because the repository does not exist locally before
+        # checkout, bootstrap the helper from the same Gitee commit into
+        # RUNNER_TEMP, then execute it. The helper caps ls-remote/fetch at 30s
+        # each via Process.Start +
         # WaitForExit + http.timeout, and fails fast with a clear ::error::
         # when gitee.com is unreachable.
         if: github.event.inputs.runner_group != 'github-hosted'
@@ -949,7 +951,12 @@ jobs:
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          . build_system/scripts/checkout-gitee.ps1
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("oauth2:$clean"))
+          $helper = Join-Path $env:RUNNER_TEMP 'checkout-gitee.ps1'
+          $uri = 'https://gitee.com/songszchen/eCan.ai/raw/${{ github.sha }}/build_system/scripts/checkout-gitee.ps1'
+          Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Basic $basic" } -OutFile $helper -TimeoutSec 60
+          . $helper
           Invoke-CheckoutGitee -Ref "${{ github.event.inputs.ref || github.ref }}" -Token $env:GITEE_TOKEN
 
       - name: Prepare Gitee credential helper
@@ -1662,8 +1669,10 @@ jobs:
         # inline pwsh port hung at 30 minutes when HTTPS to gitee.com stalled:
         # the in-script SSH fallback never fired ($useSsh was undefined), so the
         # retry ran the same HTTPS path with no timeout wrapper and waited out
-        # the step cap. Logic now lives in build_system/scripts/checkout-gitee.ps1
-        # which caps ls-remote/fetch at 30s each via Process.Start +
+        # the step cap. Because the repository does not exist locally before
+        # checkout, bootstrap the helper from the same Gitee commit into
+        # RUNNER_TEMP, then execute it. The helper caps ls-remote/fetch at 30s
+        # each via Process.Start +
         # WaitForExit + http.timeout, and fails fast with a clear ::error::
         # when gitee.com is unreachable.
         if: github.event.inputs.runner_group != 'github-hosted'
@@ -1672,7 +1681,12 @@ jobs:
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          . build_system/scripts/checkout-gitee.ps1
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("oauth2:$clean"))
+          $helper = Join-Path $env:RUNNER_TEMP 'checkout-gitee.ps1'
+          $uri = 'https://gitee.com/songszchen/eCan.ai/raw/${{ github.sha }}/build_system/scripts/checkout-gitee.ps1'
+          Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Basic $basic" } -OutFile $helper -TimeoutSec 60
+          . $helper
           Invoke-CheckoutGitee -Ref "${{ github.event.inputs.ref || github.ref }}" -Token $env:GITEE_TOKEN
 
       - name: Prepare Gitee credential helper
@@ -2178,8 +2192,10 @@ jobs:
         # inline pwsh port hung at 30 minutes when HTTPS to gitee.com stalled:
         # the in-script SSH fallback never fired ($useSsh was undefined), so the
         # retry ran the same HTTPS path with no timeout wrapper and waited out
-        # the step cap. Logic now lives in build_system/scripts/checkout-gitee.ps1
-        # which caps ls-remote/fetch at 30s each via Process.Start +
+        # the step cap. Because the repository does not exist locally before
+        # checkout, bootstrap the helper from the same Gitee commit into
+        # RUNNER_TEMP, then execute it. The helper caps ls-remote/fetch at 30s
+        # each via Process.Start +
         # WaitForExit + http.timeout, and fails fast with a clear ::error::
         # when gitee.com is unreachable.
         if: github.event.inputs.runner_group != 'github-hosted'
@@ -2188,7 +2204,12 @@ jobs:
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          . build_system/scripts/checkout-gitee.ps1
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("oauth2:$clean"))
+          $helper = Join-Path $env:RUNNER_TEMP 'checkout-gitee.ps1'
+          $uri = 'https://gitee.com/songszchen/eCan.ai/raw/${{ github.sha }}/build_system/scripts/checkout-gitee.ps1'
+          Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Basic $basic" } -OutFile $helper -TimeoutSec 60
+          . $helper
           Invoke-CheckoutGitee -Ref "${{ github.event.inputs.ref || github.ref }}" -Token $env:GITEE_TOKEN
 
       - name: Prepare Gitee credential helper
@@ -2684,8 +2705,10 @@ jobs:
         # inline pwsh port hung at 30 minutes when HTTPS to gitee.com stalled:
         # the in-script SSH fallback never fired ($useSsh was undefined), so the
         # retry ran the same HTTPS path with no timeout wrapper and waited out
-        # the step cap. Logic now lives in build_system/scripts/checkout-gitee.ps1
-        # which caps ls-remote/fetch at 30s each via Process.Start +
+        # the step cap. Because the repository does not exist locally before
+        # checkout, bootstrap the helper from the same Gitee commit into
+        # RUNNER_TEMP, then execute it. The helper caps ls-remote/fetch at 30s
+        # each via Process.Start +
         # WaitForExit + http.timeout, and fails fast with a clear ::error::
         # when gitee.com is unreachable.
         if: github.event.inputs.runner_group != 'github-hosted'
@@ -2694,7 +2717,12 @@ jobs:
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          . build_system/scripts/checkout-gitee.ps1
+          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("oauth2:$clean"))
+          $helper = Join-Path $env:RUNNER_TEMP 'checkout-gitee.ps1'
+          $uri = 'https://gitee.com/songszchen/eCan.ai/raw/${{ github.sha }}/build_system/scripts/checkout-gitee.ps1'
+          Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Basic $basic" } -OutFile $helper -TimeoutSec 60
+          . $helper
           Invoke-CheckoutGitee -Ref "${{ github.event.inputs.ref || github.ref }}" -Token $env:GITEE_TOKEN
 
       - name: Prepare Gitee credential helper

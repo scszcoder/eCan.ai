@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { AutoComplete, Tooltip } from 'antd';
-import { AppstoreOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import React, { useEffect, useState } from 'react';
+import { Select, Tooltip, theme } from 'antd';
+import { AppstoreOutlined, CheckOutlined, FolderOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 
@@ -9,9 +9,9 @@ import { get_ipc_api } from '@/services/ipc_api';
  *
  * - Persists the chosen workspace name in sessionStorage under `storageKey`.
  * - Empty / missing value means "use server default workspace" (backward-compat).
- * - Populates suggestions from `lightrag.getWorkspaces` but also allows free
- *   text so users can start a new workspace on the fly (the first
- *   ingest/query using a brand-new name will make the server create it).
+ * - Populates existing workspaces from `lightrag.getWorkspaces`. Creation is
+ *   intentionally kept in Settings so a typo cannot silently select a new
+ *   empty tenant from the global header.
  *
  * Recommended category names for `eCan.ai`:
  *   - customer_service
@@ -44,12 +44,6 @@ interface WorkspaceInfo {
   is_valid?: boolean;
 }
 
-const DEFAULT_SUGGESTIONS = [
-  'customer_service',
-  'product_details',
-  'general_faq',
-];
-
 const WorkspacePicker: React.FC<WorkspacePickerProps> = ({
   value,
   onChange,
@@ -59,7 +53,9 @@ const WorkspacePicker: React.FC<WorkspacePickerProps> = ({
   block,
   onRestored,
 }) => {
-  const [options, setOptions] = useState<{ value: string; label: React.ReactNode }[]>([]);
+  const [workspaceNames, setWorkspaceNames] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { token } = theme.useToken();
 
   // Restore from sessionStorage on first mount, only if the current value
   // is empty AND a storageKey was supplied. When the picker is driven by
@@ -93,6 +89,7 @@ const WorkspacePicker: React.FC<WorkspacePickerProps> = ({
   useEffect(() => {
     let mounted = true;
     (async () => {
+      setLoading(true);
       try {
         const resp = await get_ipc_api().lightragApi.getWorkspaces<{
           workspaces: WorkspaceInfo[];
@@ -103,18 +100,20 @@ const WorkspacePicker: React.FC<WorkspacePickerProps> = ({
         existing.forEach((w) => {
           if (w && typeof w.name === 'string' && w.name.trim()) names.add(w.name.trim());
         });
-        DEFAULT_SUGGESTIONS.forEach((n) => names.add(n));
-        const opts = Array.from(names).sort().map((n) => ({
-          value: n,
-          label: n,
-        }));
-        if (mounted) setOptions(opts);
-      } catch {
+        const serverCurrent = (resp.success && resp.data?.current || '').trim();
+        if (serverCurrent) names.add(serverCurrent);
+        const opts = Array.from(names).sort();
         if (mounted) {
-          setOptions(
-            DEFAULT_SUGGESTIONS.map((n) => ({ value: n, label: n })),
-          );
+          setWorkspaceNames(opts);
+          // The shared workspace state starts empty in a fresh browser
+          // session. Show the server's configured workspace instead of the
+          // misleading "server default" placeholder.
+          if (!value && serverCurrent) onChange(serverCurrent);
         }
+      } catch {
+        if (mounted) setWorkspaceNames([]);
+      } finally {
+        if (mounted) setLoading(false);
       }
     })();
     return () => {
@@ -122,36 +121,44 @@ const WorkspacePicker: React.FC<WorkspacePickerProps> = ({
     };
   }, []);
 
-  const filteredOptions = useMemo(() => {
-    const q = (value || '');
-    if (!q) return options;
-    const qLower = q.toLowerCase();
-    return options.filter((o) => o.value.toLowerCase().includes(qLower) || o.value.includes(q));
-  }, [options, value]);
-
   const { t } = useTranslation();
 
   return (
-    <div style={{ display: block ? 'block' : 'inline-flex', alignItems: 'center', gap: 8 }}>
+    <div style={{
+      display: block ? 'flex' : 'inline-flex',
+      width: block ? '100%' : 'auto',
+      alignItems: 'center',
+      gap: 10,
+    }}>
       {label ? (
-        <span style={{ fontSize: 12, opacity: 0.75, whiteSpace: 'nowrap' }}>
-          <AppstoreOutlined style={{ marginRight: 4 }} />
-          {label}
+        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
+          <AppstoreOutlined style={{ marginRight: 5, color: token.colorPrimary }} />
+          <span style={{ fontWeight: 500 }}>{label}</span>
           <Tooltip title={t('pages.knowledge.lightrag.workspacePicker.tooltip')}>
-            <InfoCircleOutlined style={{ marginLeft: 4, opacity: 0.55 }} />
+            <InfoCircleOutlined style={{ marginLeft: 5, color: token.colorTextTertiary }} />
           </Tooltip>
         </span>
       ) : null}
-      <AutoComplete
-        value={value}
-        onChange={(v) => {
-          onChange((v || '').trim());
-        }}
-        options={filteredOptions}
+      <Select
+        value={value || undefined}
+        onChange={(v) => onChange((v || '').trim())}
+        options={workspaceNames.map((name) => ({
+          value: name,
+          label: (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <FolderOutlined style={{ color: name === value ? token.colorPrimary : token.colorTextTertiary }} />
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
+              {name === value && <CheckOutlined style={{ color: token.colorPrimary, fontSize: 12 }} />}
+            </span>
+          ),
+        }))}
         placeholder={placeholder || t('pages.knowledge.lightrag.workspacePicker.placeholder')}
-        allowClear
-        size="small"
-        style={{ width: 220 }}
+        loading={loading}
+        showSearch
+        optionFilterProp="value"
+        size="middle"
+        style={{ width: block ? '100%' : 210, minWidth: 0 }}
+        popupMatchSelectWidth={240}
         getPopupContainer={() => document.body}
       />
     </div>

@@ -1248,6 +1248,12 @@
       "not_configured": "Not_configured",
       "path_settings": "Path_settings",
       "provider_not_configured": "Provider_not_configured",
+      "provider_status_available": "Available",
+      "provider_status_unavailable": "Unavailable",
+      "provider_status_testing": "Testing",
+      "provider_status_not_configured": "Not configured / unavailable",
+      "provider_status_retest": "Test again",
+      "provider_status_unavailable_title": "{{provider}} is unavailable",
       "restart_required_options": "Restart_required_options",
       "restart_required_title": "Restart_required_title",
       "schedule_engine": "Schedule_engine",
@@ -2480,8 +2486,8 @@
       "settings": {
         "title": "eCan.ai RAG Configuration",
         "subtitle": "Manage all eCan.ai RAG configuration parameters",
-        "saveSettings": "Save Settings",
-        "saving": "Saving...",
+        "saveSettings": "Apply",
+        "saving": "Applying...",
         "saveSuccess": "Settings saved successfully",
         "saveError": "Failed to save settings",
         "loadError": "Failed to load settings",
@@ -2518,6 +2524,7 @@
         "tabs": {
           "basic": "Basic Config",
           "rag": "RAG Parameters",
+          "parsing": "Document Parsing",
           "reranking": "Reranking Config",
           "llm": "LLM Config",
           "embedding": "Embedding Config",
@@ -2603,7 +2610,52 @@
           "postgresUser": "PostgreSQL User",
           "postgresPassword": "PostgreSQL Password",
           "postgresDatabase": "PostgreSQL Database",
-          "postgresMaxConnections": "PostgreSQL Max Connections"
+          "postgresMaxConnections": "PostgreSQL Max Connections",
+          "parserRouting": "Parser Routing Rules (LIGHTRAG_PARSER)",
+          "parserImageAnalysis": "Document Image Analysis",
+          "mineruProvider": "MinerU API Protocol",
+          "providerOfficial": "Official / API-compatible (API key)",
+          "providerLocal": "Local / custom service (API key)",
+          "providerCustom": "Custom",
+          "mineruEndpoint": "MinerU Endpoint",
+          "mineruLocalEndpoint": "Local MinerU Endpoint",
+          "mineruApiKey": "MinerU API Key",
+          "mineruModelVersion": "Model Version",
+          "mineruModelPipeline": "Pipeline",
+          "mineruModelVlm": "VLM",
+          "mineruIsOcr": "Force OCR",
+          "mineruLanguage": "Document Language",
+          "languageChinese": "Chinese",
+          "languageEnglish": "English",
+          "languageChineseMixed": "Chinese, English, Japanese, Traditional Chinese & Latin (ch, recommended)",
+          "languageChineseMixedServer": "Chinese, English, Japanese, Traditional Chinese & Latin (ch_server)",
+          "languageKorean": "Korean & English (korean)",
+          "languageTamil": "Tamil & English (ta)",
+          "languageTelugu": "Telugu & English (te)",
+          "languageKannada": "Kannada (ka)",
+          "languageThai": "Thai & English (th)",
+          "languageGreek": "Greek & English (el)",
+          "languageArabic": "Arabic-script languages & English (arabic)",
+          "languageEastSlavic": "East Slavic languages & English (east_slavic)",
+          "languageCyrillic": "Cyrillic languages & English (cyrillic)",
+          "languageDevanagari": "Devanagari languages & English (devanagari)",
+          "mineruBackend": "Local Backend",
+          "mineruBackendHybrid": "Hybrid Auto Engine",
+          "mineruBackendPipeline": "Pipeline (CPU)",
+          "mineruBackendVlm": "VLM Auto Engine",
+          "mineruParseMethod": "Local Parse Method",
+          "parseMethodAuto": "Auto",
+          "parseMethodText": "Text",
+          "parseMethodOcr": "OCR",
+          "mineruImageAnalysis": "Local Image Analysis",
+          "mineruServerImageProcessing": "MinerU Server Image Processing",
+          "mineruEnableTable": "Enable Table Parsing",
+          "mineruEnableFormula": "Enable Formula Parsing",
+          "mineruAdditionalSuffixes": "Additional Suffixes",
+          "doclingEndpoint": "Docling Endpoint",
+          "doclingApiKey": "Docling API Key",
+          "doclingAdditionalSuffixes": "Additional Suffixes",
+          "maxParallelParse": "Max Parallel Parse"
         },
         "placeholders": {
           "minimal": "Minimal",
@@ -2716,7 +2768,24 @@
           "connectionRetries": "Number of retry attempts for database connections (1-10)",
           "retryBackoff": "Initial backoff time between retries in seconds (0.1-5.0)",
           "redisUri": "Full Redis URI (e.g., redis://:password@localhost:6379/0)",
-          "embeddingTimeout": "Embedding request timeout in seconds"
+          "embeddingTimeout": "Embedding request timeout in seconds",
+          "parserRouting": "Routes each file suffix to a parser engine; rules are evaluated left to right and the first match wins. MinerU requires its endpoint and API key; Docling requires DOCLING_ENDPOINT and DOCLING_API_KEY.",
+          "parserImageAnalysis": "Use a vision model to understand images, charts, and screenshots in documents. Disabled by default; a working VLM is required when enabled.",
+          "mineruServerImageProcessing": "Passes the image_analysis option to the local MinerU service so MinerU processes images server-side. This is separate from LightRAG VLM document image analysis.",
+          "mineruProvider": "official uses the MinerU v4 protocol; local uses the /tasks protocol. Both modes use MINERU_API_TOKEN for Bearer authentication.",
+          "mineruEndpoint": "MINERU_OFFICIAL_ENDPOINT. You may replace its value with a compatible custom official-API address; the variable name remains unchanged.",
+          "mineruLocalEndpoint": "MINERU_LOCAL_ENDPOINT for a self-hosted mineru-api service.",
+          "mineruApiKey": "MINERU_API_TOKEN used by official and local/custom services as Bearer authentication.",
+          "mineruModelVersion": "MinerU official API supports pipeline and vlm. The default is pipeline.",
+          "mineruBackend": "MINERU_LOCAL_BACKEND used in local mode.",
+          "mineruIsOcr": "Official API mode only: sends is_ocr for the file. In local mode, select OCR under Local Parse Method.",
+          "mineruLanguage": "OCR language model. Select ch for mixed Chinese and English; MinerU does not accept zh,us as a multi-select value for one document.",
+          "mineruEnableTable": "Whether to extract tables.",
+          "mineruEnableFormula": "Whether to extract formulas.",
+          "additionalSuffixes": "Extra file suffixes this service can handle (comma-separated); declare them in the parser routing rules too.",
+          "doclingEndpoint": "Base URL of the Docling service; the client appends /v1/convert/file/async and other paths. Official provider pre-fills http://localhost:5001.",
+          "doclingApiKey": "Access key sent as Bearer authentication for health checks, uploads, task polling, and result downloads.",
+          "maxParallelParse": "Number of parallel parse tasks for this engine."
         },
         "sections": {
           "server": "Server Settings",
@@ -2752,7 +2821,10 @@
           "jsonDocStatusStorage": "JSON Document Status Storage (Default, File)",
           "redisDocStatusStorage": "Redis Document Status Storage (Recommended for Production)",
           "pgDocStatusStorage": "PostgreSQL Document Status Storage (Shared with PG Common Settings)",
-          "mongoDocStatusStorage": "MongoDB Document Status Storage"
+          "mongoDocStatusStorage": "MongoDB Document Status Storage",
+          "parserNative": "Default (Native Parser)",
+          "parserMineru": "MinerU",
+          "parserDocling": "Docling"
         },
         "ollama": {
           "loading": "Loading models...",
@@ -2760,6 +2832,69 @@
           "fetchError": "Failed to fetch models",
           "refresh": "Refresh model list",
           "openWebsite": "Open Ollama"
+        },
+        "parserProbe": {
+          "test": "Test Connection",
+          "testShort": "Test",
+          "success": "Parser connection test passed",
+          "failed": "Parser connection test failed",
+          "successTitle": "{{provider}} configuration is valid",
+          "failedTitle": "{{provider}} connection test failed",
+          "reasonLabel": "Reason",
+          "suggestionLabel": "Suggested action",
+          "technicalDetails": "Technical details",
+          "errors": {
+            "missing_config": {
+              "reason": "Some required service settings are missing.",
+              "suggestion": "Complete the required endpoint and access-token fields, then test again."
+            },
+            "invalid_config": {
+              "reason": "The service endpoint or operating mode is invalid.",
+              "suggestion": "Use an endpoint beginning with http:// or https:// and verify the selected mode."
+            },
+            "authentication": {
+              "reason": "The service rejected the supplied credentials.",
+              "suggestion": "Check that the access token is correct, active, and permitted to use the API."
+            },
+            "timeout": {
+              "reason": "The service did not respond in time.",
+              "suggestion": "Check that the service is running and that the network or proxy is available, then retry."
+            },
+            "connection": {
+              "reason": "This device could not connect to the configured service endpoint.",
+              "suggestion": "Check the service status, host, port, and firewall settings."
+            },
+            "wrong_service": {
+              "reason": "The endpoint is reachable but does not appear to be a MinerU API.",
+              "suggestion": "Enter the MinerU API root endpoint rather than an admin or website URL."
+            },
+            "service_error": {
+              "reason": "The parser service responded, but its health check failed.",
+              "suggestion": "Inspect the server status and logs, and verify that its health endpoint is available."
+            },
+            "unknown": {
+              "reason": "An unexpected problem occurred during the test.",
+              "suggestion": "Verify the configuration and retry. Expand the technical details if the problem continues."
+            }
+          }
+        },
+        "rerankProxy": {
+          "realAddress": "Provider address",
+          "runtimeAddress": "Internal proxy address",
+          "hint": "The UI edits and tests the provider address; LightRAG forwards runtime requests through the compatibility proxy."
+        },
+        "serviceStatus": {
+          "unchecked": "Not tested",
+          "testing": "Testing",
+          "available": "Available",
+          "unavailable": "Unavailable",
+          "successTitle": "{{provider}} is available",
+          "failedTitle": "{{provider}} is unavailable"
+        },
+        "parserLayout": {
+          "connection": "Service Connection",
+          "options": "Parsing Options",
+          "advanced": "Advanced Settings"
         }
       },
       "documents": {
@@ -2777,7 +2912,10 @@
         "uploadedDocuments": "Uploaded Documents",
         "all": "All",
         "completed": "Completed",
+        "parsing": "Parsing",
+        "analyzing": "Analyzing",
         "processing": "Processing",
+        "preprocessed": "Preprocessed",
         "pending": "Pending",
         "failed": "Failed",
         "fileName": "File Name",
@@ -2829,9 +2967,16 @@
         "ingestingFiles": "Ingesting {{count}} file(s)...",
         "ingestingFilesFromDirs": "Ingesting {{fileCount}} file(s) from {{dirCount}} directory(ies)...",
         "ingestError": "Ingest Error",
+        "mineruUnsupportedFormat": "MinerU 3.4.4 does not support: {{files}}. It only accepts PDF, DOCX, PPTX, XLSX, PNG, JPEG, JP2, WebP, GIF, BMP, and TIFF (.tiff only; .tif is unsupported). Switch to Docling or Native and try again.",
         "clearCacheConfirm": "Clear all cache? This will remove processed data from the knowledge base.",
         "deleteDocument": "Delete Document",
+        "deleteDocumentTooltip": "Delete the document and its generated index data",
         "deleteDocumentConfirm": "Delete document: {{filePath}}?",
+        "replaceDocument": "Upload replacement",
+        "replaceDocumentTooltip": "Choose and upload a file to replace documents with the same filename, then process it again",
+        "replaceDocumentConfirm": "This removes all documents with the same filename from this workspace and ingests the selected version again. Continue?",
+        "replaceDocumentStarted": "The new version was uploaded; the old version is being removed and reprocessed.",
+        "stopTooltip": "Stop processing this document",
         "selectDirectoryFirst": "Please select a directory first",
         "startingScan": "Starting scan for new documents...",
         "scanStarted": "Scan started: ",
@@ -2887,6 +3032,8 @@
         "emptyResponse": "Empty response",
         "confidenceLabel": "Confidence",
         "refsShort": "{{count}} refs",
+        "totalDuration": "Total {{duration}}s",
+        "firstTokenDuration": "First token {{duration}}s",
         "noAnswerHint": "No reliable answer found ({{reason}}). top1={{top1}}, supporting_refs={{supporting_refs}}.",
         "rawAnswer": "Raw answer",
         "modes": {

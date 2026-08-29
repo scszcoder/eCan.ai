@@ -14,6 +14,7 @@ from typing import Any, Dict, Tuple, TYPE_CHECKING
 
 # Third-party library imports
 import requests
+import httpx
 from langchain_community.chat_models import ChatAnthropic
 from langchain_community.chat_models import ChatOllama
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -1324,7 +1325,12 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
                 model=model_name,
                 api_key=ryoais_api_key,
                 base_url=base_url,
-                temperature=0
+                temperature=0,
+                # RyoAIS may be deployed on a LAN/private endpoint with a
+                # self-signed certificate. This matches its model discovery,
+                # provider probe and LightRAG runtime behaviour.
+                http_client=httpx.Client(verify=False),
+                http_async_client=httpx.AsyncClient(verify=False),
             )
             
             logger.info(f"[RyoAIS] Successfully created RyoAIS LLM instance")

@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { theme } from 'antd';
+import { App, theme } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { SendOutlined, ClearOutlined } from '@ant-design/icons';
@@ -18,6 +18,10 @@ type MessageState = {
   thinkingTime?: number | null;
   confidence?: any; // Confidence score data from backend
   rawContent?: string;
+  retrievalMetrics?: {
+    elapsedMs?: number | null;
+    firstTokenMs?: number | null;
+  };
 };
 
 const RetrievalTab: React.FC = () => {
@@ -30,6 +34,7 @@ const RetrievalTab: React.FC = () => {
   // Empty = server default.
   const [workspace, setWorkspace] = useWorkspace();
   const { t } = useTranslation();
+  const { message: messageApi } = App.useApp();
   const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
   const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -169,6 +174,8 @@ const RetrievalTab: React.FC = () => {
   const thinkingStartTimeRef = useRef<number | null>(null);
   // Map stream_id (from backend) to message_id (frontend)
   const streamMapRef = useRef<Map<string, string>>(new Map());
+  const streamTextRef = useRef<Record<string, string>>({});
+  const streamFlushTimerRef = useRef<Record<string, number>>({});
 
   // Initialize file download protocol for LightRAG
   useEffect(() => {
@@ -184,7 +191,8 @@ const RetrievalTab: React.FC = () => {
         }
         return result.data;
       },
-      t
+      t,
+      message: messageApi,
     });
     
     // 初始化协议处理器
@@ -193,7 +201,7 @@ const RetrievalTab: React.FC = () => {
     return () => {
       fileDownloadProtocol.cleanup();
     };
-  }, []);
+  }, [messageApi, t]);
 
   // Load history on mount
   useEffect(() => {
@@ -334,6 +342,17 @@ const RetrievalTab: React.FC = () => {
       
       console.log('[RetrievalTab] 💬 handleChunk received:', { streamId, hasChunk: !!chunk, chunkType: typeof chunk });
 
+      if (chunk?.metrics) {
+        setMessages(prev => prev.map(m => m.id === messageId ? {
+          ...m,
+          retrievalMetrics: {
+            elapsedMs: chunk.metrics.elapsed_ms ?? null,
+            firstTokenMs: chunk.metrics.time_to_first_token_ms ?? null,
+          },
+        } : m));
+        return;
+      }
+
       // Handle confidence data (can come with or without references)
       if (chunk?.confidence) {
         console.log('[RetrievalTab] 🎯 Received confidence data:', chunk.confidence);
@@ -383,120 +402,24 @@ const RetrievalTab: React.FC = () => {
 
       const textChunk = chunk?.response || '';
 
-      // Track the full text we should show for this message. The backend may send
-      // the whole response in a single chunk (no real streaming) or in many small
-      // chunks; either way we expose ``__retrievalTargetText`` as the authoritative
-      // source so the typewriter effect below can animate the reveal.
-      const targetTextMap: Record<string, string> = (window as any).__retrievalTargetText || {};
-      const prevTarget = targetTextMap[messageId] || '';
+      // Accumulate tiny upstream token chunks outside React and flush them in
+      // batches. Re-rendering Markdown for every token causes visible reflow.
+      const prevTarget = streamTextRef.current[messageId] || '';
       const nextTarget = !prevTarget || textChunk.startsWith(prevTarget)
         ? textChunk
         : (prevTarget + textChunk);
-      targetTextMap[messageId] = nextTarget;
-      (window as any).__retrievalTargetText = targetTextMap;
+      streamTextRef.current[messageId] = nextTarget;
 
-      setMessages(prev => prev.map(m => {
-        if (m.id !== messageId) return m;
-
-        // Track typewriter animation state per message. The backend may stream
-        // real incremental chunks or send the whole response in one shot; in
-        // either case we want to reveal text gradually for the user.
-        const animStateMap: Record<string, { finalText: string; intervalId: number | null; idx: number }> = (window as any).__retrievalAnimState || {};
-        const animState = animStateMap[messageId] || { finalText: '', intervalId: null, idx: 0 };
-
-        const prevContent = m.content || '';
-        let mergedContent: string;
-        if (!prevContent) {
-          mergedContent = nextTarget;
-        } else if (nextTarget.startsWith(prevContent)) {
-          mergedContent = nextTarget;
-        } else if (prevContent.startsWith(nextTarget)) {
-          mergedContent = prevContent;
-        } else {
-          mergedContent = prevContent + nextTarget;
-        }
-
-        // Update the typewriter target; if it changed (more text arrived)
-        // and an animation is already running, reset the cursor so the new
-        // tail gets revealed too.
-        const finalTextChanged = animState.finalText !== mergedContent;
-        animState.finalText = mergedContent;
-        if (animState.intervalId !== null && finalTextChanged) {
-          // Don't reset if it's a tail-extension; just continue.
-        }
-
-        // Decide whether to start the animation now.
-        // Start when:
-        //  - the response text is at least 40 chars, and
-        //  - no animation is in progress
-        // Only start when this chunk actually contains response text; chunks
-        // that only carry references/confidence do not need animation.
-        const alreadyAnimated = animState.intervalId !== null;
-        const shouldAnimate =
-          !alreadyAnimated &&
-          typeof window !== 'undefined' &&
-          mergedContent.length > 40 &&
-          textChunk.length > 0;
-
-        console.log('[RetrievalTab] 🎬 typewriter check:', {
-          alreadyAnimated,
-          textChunkLen: textChunk.length,
-          mergedLen: mergedContent.length,
-          shouldAnimate,
-        });
-
-        if (shouldAnimate) {
-          animState.idx = 0;
-          animStateMap[messageId] = animState;
-          (window as any).__retrievalAnimState = animStateMap;
-
-          // Immediately reset displayed content to empty so the typewriter
-          // effect visibly fills it in. (The previous behaviour rendered the
-          // full text in one shot, which made the animation invisible.)
-          const next: any = { ...m, content: '', isThinking: false };
-
-          const intervalId = window.setInterval(() => {
-            const cur = animStateMap[messageId];
-            if (!cur) return;
-            cur.idx = Math.min(cur.idx + 4, cur.finalText.length);
-            const shown = cur.finalText.slice(0, cur.idx);
-            setMessages(prev2 => prev2.map(mm =>
-              mm.id === messageId ? { ...mm, content: shown } : mm
-            ));
-            if (cur.idx >= cur.finalText.length) {
-              window.clearInterval(cur.intervalId ?? 0);
-              cur.intervalId = null;
-              setMessages(prev3 => prev3.map(mm =>
-                mm.id === messageId ? { ...mm, content: cur.finalText } : mm
-              ));
-              scrollToEnd();
-            }
-          }, 20);
-          animState.intervalId = intervalId;
-          animStateMap[messageId] = animState;
-          (window as any).__retrievalAnimState = animStateMap;
-          return next;
-        }
-
-        // Thinking timing based on merged content (robust for cumulative streams)
-        let thinkingTime: number | null = m.thinkingTime ?? null;
-        if (thinkingStartTimeRef.current === null && mergedContent.includes('<think>')) {
-          thinkingStartTimeRef.current = Date.now();
-        }
-        if (thinkingStartTimeRef.current !== null && mergedContent.includes('</think>')) {
-          thinkingTime = parseFloat(((Date.now() - thinkingStartTimeRef.current) / 1000).toFixed(2));
-          thinkingStartTimeRef.current = null;
-        }
-        const currentIsThinking = thinkingStartTimeRef.current !== null;
-
-        return {
-          ...m,
-          content: mergedContent,
-          isThinking: currentIsThinking,
-          thinkingTime,
-        };
-      }));
-      scrollToEnd();
+      if (!streamFlushTimerRef.current[messageId]) {
+        streamFlushTimerRef.current[messageId] = window.setTimeout(() => {
+          delete streamFlushTimerRef.current[messageId];
+          const content = streamTextRef.current[messageId] || '';
+          setMessages(prev => prev.map(m =>
+            m.id === messageId ? { ...m, content, isThinking: false } : m
+          ));
+          scrollToEnd();
+        }, 50);
+      }
     };
 
     const handleDone = (data: any) => {
@@ -505,25 +428,27 @@ const RetrievalTab: React.FC = () => {
       console.log('[RetrievalTab] ✅ handleDone called:', { streamId, messageId, messagesCount: 'see below' });
       if (messageId) {
         console.log('[RetrievalTab] ✅ Stream done, processing references...');
-        // If a typewriter animation is still running for this message, let it
-        // finish before we splice in the reference list. The interval has
-        // already scheduled the final-text update; we just defer our reference
-        // append by waiting until idx reaches finalText.length.
-        const animStateMap: Record<string, { finalText: string; intervalId: number | null; idx: number }> = (window as any).__retrievalAnimState || {};
-        const anim = animStateMap[messageId];
-
         const finalize = () => {
+          const pendingTimer = streamFlushTimerRef.current[messageId];
+          if (pendingTimer) {
+            window.clearTimeout(pendingTimer);
+            delete streamFlushTimerRef.current[messageId];
+          }
+          const finalStreamText = streamTextRef.current[messageId];
+
           // Append references to content when streaming is done
           setMessages(prev => prev.map(m => {
             if (m.id !== messageId) return m;
 
-            console.log('[RetrievalTab] 📄 Final message content length:', m.content?.length);
-            console.log('[RetrievalTab] 📄 Final message content preview:', m.content?.substring(0, 200));
+            const finalMessage = finalStreamText ? { ...m, content: finalStreamText } : m;
 
-            const refs = (m as any).references;
+            console.log('[RetrievalTab] 📄 Final message content length:', finalMessage.content?.length);
+            console.log('[RetrievalTab] 📄 Final message content preview:', finalMessage.content?.substring(0, 200));
+
+            const refs = (finalMessage as any).references;
             if (!refs || !Array.isArray(refs) || refs.length === 0) {
               console.log('[RetrievalTab] ⚠️ No references found in message, keeping original content');
-              return m;
+              return finalMessage;
             }
 
             console.log('[RetrievalTab] 📚 Processing', refs.length, 'references');
@@ -572,42 +497,30 @@ const RetrievalTab: React.FC = () => {
             // Match from the heading to the end of content
             const referenceSectionRegex = /(\n+|^)(#{1,3}\s*)?(参考文献|参考文档|参考资料|References?)\s*([:：])?\s*\n[\s\S]*$/i;
 
-            console.log('[RetrievalTab] 📝 Original content length:', m.content?.length);
-            console.log('[RetrievalTab] 📝 Content has </think>:', m.content?.includes('</think>'));
+            console.log('[RetrievalTab] 📝 Original content length:', finalMessage.content?.length);
+            console.log('[RetrievalTab] 📝 Content has </think>:', finalMessage.content?.includes('</think>'));
 
             // Remove LLM-generated duplicate words (e.g., "References References" → "References")
             const deduplicateWords = (text: string): string => {
               return text.replace(/\b(\w+)\s+\1\b/gi, '$1');
             };
 
-            let baseContent = deduplicateWords((m.content || '')).replace(referenceSectionRegex, '').trim();
+            let baseContent = deduplicateWords((finalMessage.content || '')).replace(referenceSectionRegex, '').trim();
 
             console.log('[RetrievalTab] 📝 After regex, content length:', baseContent.length);
             console.log('[RetrievalTab] 📝 After regex, has </think>:', baseContent.includes('</think>'));
 
             const newContent = `${baseContent}\n\n${t('pages.knowledge.retrieval.referenceDocs')}\n${refLines.join('\n')}`;
-            return { ...m, content: newContent };
+            return { ...finalMessage, content: newContent };
           }));
 
+          delete streamTextRef.current[messageId];
           streamMapRef.current.delete(streamId);
           setLoading(false);
           thinkingStartTimeRef.current = null;
         };
 
-        if (anim && anim.intervalId !== null) {
-          // Wait until the typewriter reaches the end of finalText, then
-          // finalize. Poll on a short timer (faster than the interval step so
-          // we don't add visible lag).
-          const wait = window.setInterval(() => {
-            const cur = animStateMap[messageId];
-            if (!cur || cur.intervalId === null || cur.idx >= cur.finalText.length) {
-              window.clearInterval(wait);
-              finalize();
-            }
-          }, 40);
-        } else {
-          finalize();
-        }
+        finalize();
       }
     };
 
@@ -615,6 +528,12 @@ const RetrievalTab: React.FC = () => {
       const { id: streamId, error } = data;
       const messageId = streamMapRef.current.get(streamId);
       if (messageId) {
+        const pendingTimer = streamFlushTimerRef.current[messageId];
+        if (pendingTimer) {
+          window.clearTimeout(pendingTimer);
+          delete streamFlushTimerRef.current[messageId];
+        }
+        delete streamTextRef.current[messageId];
         setMessages(prev => prev.map(m => 
           m.id === messageId ? { ...m, content: m.content + `\n\n[Error: ${error}]` } : m
         ));
@@ -629,6 +548,9 @@ const RetrievalTab: React.FC = () => {
     eventBus.on('lightrag:queryStream:error', handleError);
 
     return () => {
+      Object.values(streamFlushTimerRef.current).forEach(timer => window.clearTimeout(timer));
+      streamFlushTimerRef.current = {};
+      streamTextRef.current = {};
       eventBus.off('lightrag:queryStream:chunk', handleChunk);
       eventBus.off('lightrag:queryStream:done', handleDone);
       eventBus.off('lightrag:queryStream:error', handleError);
@@ -696,6 +618,7 @@ const RetrievalTab: React.FC = () => {
         thinkingTime: null
     };
     setMessages(prev => [...prev, assistantMsg]);
+    const queryStartedAt = performance.now();
     
     const options = buildOptions();
     
@@ -822,8 +745,17 @@ const RetrievalTab: React.FC = () => {
 
             const shouldAnswer = confidence?.decision?.should_answer;
             const rawResponse = resultData?.raw_response;
+            const responseTimeMs = typeof resultData?.response_time === 'number'
+              ? resultData.response_time * 1000
+              : performance.now() - queryStartedAt;
             setMessages(prev => prev.map(m => 
-              m.id === assistantId ? { ...m, content, confidence, rawContent: shouldAnswer === false ? rawResponse : undefined } : m
+              m.id === assistantId ? {
+                ...m,
+                content,
+                confidence,
+                rawContent: shouldAnswer === false ? rawResponse : undefined,
+                retrievalMetrics: { elapsedMs: responseTimeMs },
+              } : m
             ));
             setLoading(false); // Stop loading for normal request
         } else {
@@ -896,6 +828,7 @@ const RetrievalTab: React.FC = () => {
                     loading={loading && idx === messages.length - 1 && m.role === 'assistant'}
                     confidence={m.confidence}
                     rawContent={m.rawContent}
+                    retrievalMetrics={m.retrievalMetrics}
                 />
               ))}
               <div ref={endRef} />

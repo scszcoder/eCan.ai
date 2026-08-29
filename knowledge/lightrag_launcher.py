@@ -28,20 +28,24 @@ small set of surfaces where LightRAG has a gap eCan needs filled:
    Disabled via ``LIGHTRAG_LLM_RETRY=0``.
 7. Health monitoring — registers ``/health/status``, ``/health/workers``,
    ``/health/circuits`` (logic in ``knowledge/lightrag_health.py``).
+8. Parser retry reset — FAILED documents are reparsed with the current routing
+   after removing artifacts, chunks and KG contributions from the old engine.
 
 All patches degrade gracefully: on failure they emit a WARNING and let the
 server continue with reduced functionality.  Only ``patch_rerank_binding``
 has no fallback (a missing provider is a configuration error).
 
 LightRAG ≥ 1.5 owns routing, cancellation, bounded scheduling, capability
-discovery and crash recovery natively, so no router / extraction /
-auto-retry patches are needed.
+discovery and crash recovery natively; eCan only changes the explicit manual
+retry semantics to match the UI's “reprocess with current configuration”.
 """
 
 import sys
 import os
 import ssl
 import aiohttp
+import shutil
+from pathlib import Path
 
 # Handle __file__ not defined in PyInstaller frozen environment (worker process)
 if '__file__' not in dir():
@@ -279,6 +283,229 @@ def patch_httpx_timeout_compat():
         logger.info("[Launcher] ✅ httpx.TimeoutError alias added (compat shim for browser-use)")
     else:
         logger.debug("[Launcher] httpx.TimeoutError already exists, no shim needed")
+
+
+def patch_mineru_local_bearer_auth():
+    """Attach ``MINERU_API_TOKEN`` to local/custom MinerU requests."""
+    try:
+        from lightrag.parser.external.mineru.client import MinerURawClient
+
+        original = MinerURawClient._download_local
+        if getattr(original, '_ecan_bearer_auth_patch', False):
+            return
+
+        class _BearerClient:
+            def __init__(self, client, token):
+                self._client = client
+                self._authorization = f'Bearer {token}'
+
+            def _with_auth(self, kwargs):
+                merged = dict(kwargs)
+                headers = dict(merged.get('headers') or {})
+                headers.setdefault('Authorization', self._authorization)
+                merged['headers'] = headers
+                return merged
+
+            async def get(self, *args, **kwargs):
+                return await self._client.get(*args, **self._with_auth(kwargs))
+
+            async def post(self, *args, **kwargs):
+                return await self._client.post(*args, **self._with_auth(kwargs))
+
+            def __getattr__(self, name):
+                return getattr(self._client, name)
+
+        async def authenticated_download_local(self, client, *args, **kwargs):
+            token = str(self.api_token or '').strip()
+            if not token:
+                raise ValueError(
+                    'MINERU_API_TOKEN is required when MINERU_API_MODE=local'
+                )
+            return await original(
+                self, _BearerClient(client, token), *args, **kwargs
+            )
+
+        authenticated_download_local._ecan_bearer_auth_patch = True
+        MinerURawClient._download_local = authenticated_download_local
+        logger.info('[Launcher] ✅ Enabled Bearer authentication for local MinerU')
+    except Exception as e:
+        logger.warning(f'[Launcher] Failed to patch local MinerU authentication: {e}')
+
+
+def patch_docling_bearer_auth():
+    """Attach ``DOCLING_API_KEY`` to every Docling HTTP request."""
+    try:
+        from lightrag.parser.external.docling.client import DoclingRawClient
+
+        if getattr(DoclingRawClient, '_ecan_bearer_auth_patch', False):
+            return
+
+        class _BearerClient:
+            def __init__(self, client, token):
+                self._client = client
+                self._authorization = f'Bearer {token}'
+
+            def _with_auth(self, kwargs):
+                merged = dict(kwargs)
+                headers = dict(merged.get('headers') or {})
+                headers.setdefault('Authorization', self._authorization)
+                merged['headers'] = headers
+                return merged
+
+            async def get(self, *args, **kwargs):
+                return await self._client.get(*args, **self._with_auth(kwargs))
+
+            async def post(self, *args, **kwargs):
+                return await self._client.post(*args, **self._with_auth(kwargs))
+
+            def __getattr__(self, name):
+                return getattr(self._client, name)
+
+        for method_name in ('_submit', '_poll_until_done', '_download_result_into'):
+            original = getattr(DoclingRawClient, method_name)
+
+            async def authenticated_request(self, client, *args, _original=original, **kwargs):
+                token = os.environ.get('DOCLING_API_KEY', '').strip()
+                if not token:
+                    raise ValueError('DOCLING_API_KEY is required for Docling')
+                return await _original(
+                    self, _BearerClient(client, token), *args, **kwargs
+                )
+
+            setattr(DoclingRawClient, method_name, authenticated_request)
+
+        DoclingRawClient._ecan_bearer_auth_patch = True
+        logger.info('[Launcher] ✅ Enabled Bearer authentication for Docling')
+    except Exception as e:
+        logger.warning(f'[Launcher] Failed to patch Docling authentication: {e}')
+
+
+def patch_manual_retry_to_use_current_parser():
+    """Make FAILED-document retries reparse from scratch with current routing.
+
+    LightRAG 1.5.6 intentionally preserves ``full_docs.parse_engine`` and raw
+    parser bundles during FAILED→PENDING reset. For the eCan UI, “scan/retry”
+    means applying the currently selected parser, so retaining those values
+    can silently run an obsolete engine after the user switches providers.
+    """
+    try:
+        from lightrag.constants import (
+            FULL_DOCS_FORMAT_PENDING_PARSE,
+            PARSED_ARTIFACT_DIR_SUFFIXES,
+            PARSED_DIR_NAME,
+        )
+        from lightrag.parser.routing import resolve_file_parser_directives
+        from lightrag.pipeline import _PipelineMixin
+        from lightrag.utils_pipeline import doc_status_custom_chunk_patch
+
+        original = _PipelineMixin._reset_failed_page
+        if getattr(original, '_ecan_current_parser_retry_patch', False):
+            return
+
+        async def reset_with_current_parser(
+            self, docs, token, pipeline_status, pipeline_status_lock
+        ):
+            # Match upstream's ownership fence before mutating full_docs or
+            # deleting artifacts. A stale retry owner must write nothing.
+            if not await self._still_freeze_owner(
+                token, pipeline_status, pipeline_status_lock
+            ):
+                return await original(
+                    self, docs, token, pipeline_status, pipeline_status_lock
+                )
+
+            parsed_root = (
+                Path(os.environ.get('INPUT_DIR', './inputs'))
+                / (str(getattr(self, 'workspace', '') or '').strip())
+                / PARSED_DIR_NAME
+            )
+
+            full_doc_updates = {}
+            for doc_id, status_doc in docs.items():
+                if doc_status_custom_chunk_patch(status_doc) is not None:
+                    continue
+                content_data = await self.full_docs.get_by_id(doc_id)
+                if not isinstance(content_data, dict):
+                    continue
+                file_path = str(
+                    getattr(status_doc, 'file_path', '')
+                    or content_data.get('file_path')
+                    or ''
+                ).strip()
+                if not file_path:
+                    continue
+
+                engine, process_options = resolve_file_parser_directives(file_path)
+
+                old_chunk_ids = list(dict.fromkeys(
+                    chunk_id
+                    for chunk_id in (getattr(status_doc, 'chunks_list', None) or [])
+                    if isinstance(chunk_id, str) and chunk_id
+                ))
+                if old_chunk_ids:
+                    await self._purge_doc_chunks_and_kg(
+                        doc_id,
+                        old_chunk_ids,
+                        pipeline_status=pipeline_status,
+                        pipeline_status_lock=pipeline_status_lock,
+                    )
+                    status_doc.chunks_list = []
+                    status_doc.chunks_count = 0
+
+                fresh = dict(content_data)
+                fresh.update({
+                    'content': '',
+                    'parse_format': FULL_DOCS_FORMAT_PENDING_PARSE,
+                    'parse_engine': engine,
+                    'process_options': process_options,
+                })
+                for stale_key in (
+                    'sidecar_location', 'content_hash', 'parse_start_time',
+                    'parse_end_time', 'analyzing_start_time', 'analyzing_end_time',
+                    'chunks_list', 'chunks_count',
+                ):
+                    fresh.pop(stale_key, None)
+                full_doc_updates[doc_id] = fresh
+
+                if not isinstance(status_doc.metadata, dict):
+                    status_doc.metadata = {}
+                status_doc.metadata['process_options'] = process_options
+                status_doc.metadata.pop('parse_engine', None)
+
+                basename = Path(file_path).name
+                if parsed_root.is_dir():
+                    for candidate in parsed_root.iterdir():
+                        if not candidate.is_dir():
+                            continue
+                        if any(
+                            candidate.name == f'{basename}{suffix}'
+                            or candidate.name.startswith(f'{basename}{suffix}_')
+                            for suffix in PARSED_ARTIFACT_DIR_SUFFIXES
+                        ):
+                            shutil.rmtree(candidate)
+                            logger.info(
+                                '[retry] Removed stale parser artifact: %s', candidate
+                            )
+
+                logger.info(
+                    '[retry] %s will be reparsed from scratch with current engine=%s',
+                    file_path,
+                    engine,
+                )
+
+            if full_doc_updates:
+                await self.full_docs.upsert(full_doc_updates)
+                await self.full_docs.index_done_callback()
+
+            return await original(
+                self, docs, token, pipeline_status, pipeline_status_lock
+            )
+
+        reset_with_current_parser._ecan_current_parser_retry_patch = True
+        _PipelineMixin._reset_failed_page = reset_with_current_parser
+        logger.info('[Launcher] ✅ FAILED retries now use the current parser')
+    except Exception as e:
+        logger.warning(f'[Launcher] Failed to patch parser retry reset: {e}')
 
 
 def patch_utils_for_confidence_scoring():
@@ -611,6 +838,11 @@ def apply_all_patches():
 
     # 4. httpx compat shim for browser-use (independent of LightRAG version).
     patch_httpx_timeout_compat()
+
+    # 4.5. Local/custom MinerU services also require the configured API key.
+    patch_mineru_local_bearer_auth()
+    patch_docling_bearer_auth()
+    patch_manual_retry_to_use_current_parser()
 
     # 5. Confidence scoring support.
     patch_utils_for_confidence_scoring()

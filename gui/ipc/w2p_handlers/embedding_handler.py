@@ -113,9 +113,20 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
 
         # Store API keys based on provider type
         api_key_stored = False
+
+        if api_key is not None and not str(api_key).strip():
+            key_env = 'AZURE_OPENAI_API_KEY' if provider_identifier == 'azure_openai' else (env_vars[0] if env_vars else None)
+            if key_env:
+                if not embedding_manager.delete_api_key(key_env):
+                    return create_error_response(request, 'EMBEDDING_ERROR', f"Failed to delete API key: {key_env}")
+                api_key_stored = True
         
         # Handle special cases requiring multiple credentials
         if provider_identifier == 'azure_openai':
+            if azure_endpoint is not None and not str(azure_endpoint).strip() and 'AZURE_ENDPOINT' in env_vars:
+                if not embedding_manager.delete_api_key('AZURE_ENDPOINT'):
+                    return create_error_response(request, 'EMBEDDING_ERROR', "Failed to delete Azure endpoint")
+                api_key_stored = True
             if azure_endpoint:
                 # Store Azure endpoint
                 if 'AZURE_ENDPOINT' in env_vars:
@@ -144,7 +155,7 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
         # Update base_url for local providers (e.g., Ollama)
         # Note: We don't save here, will save together with other settings below
         base_url_updated = False
-        if base_url and provider.get('is_local', False):
+        if 'base_url' in data and provider.get('is_local', False):
             from gui.manager.provider_settings_helper import update_ollama_base_url
             success, error_msg = update_ollama_base_url(provider_identifier, base_url, 'embedding')
             if success:
@@ -702,6 +713,5 @@ def handle_get_embedding_provider_api_key(request: IPCRequest, params: Optional[
     except Exception as e:
         logger.error(f"Error getting Embedding provider API key: {e}")
         return create_error_response(request, 'EMBEDDING_ERROR', f"Failed to get API key: {str(e)}")
-
 
 

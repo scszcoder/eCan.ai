@@ -466,7 +466,26 @@ class LightRAGConfigManager:
                             logger.info(f"[LightRAG Config] Using Embedding base URL: {base_url}")
                         
                         # Extract model parameters (dimensions, max_tokens) from current model
-                        embedding_model = current_config.get('EMBEDDING_MODEL')
+                        embedding_model = (current_config.get('EMBEDDING_MODEL') or '').strip()
+                        if not embedding_model:
+                            # An empty value in an older lightrag.env must not
+                            # erase the model selected in the global provider
+                            # settings.  Provider managers expose that choice
+                            # as preferred_model (including provider-specific
+                            # choices such as ryoais_embedding_model).
+                            embedding_model = (
+                                embed_provider.get('preferred_model')
+                                or getattr(main_window.config_manager.general_settings, 'default_embedding_model', '')
+                                or embed_provider.get('default_model')
+                                or ''
+                            ).strip()
+                            if embedding_model:
+                                logger.warning(
+                                    f"[LightRAG Config] EMBEDDING_MODEL is empty; "
+                                    f"using selected provider model: {embedding_model}"
+                                )
+                        if embedding_model:
+                            keys['EMBEDDING_MODEL'] = embedding_model
                         if embedding_model and embed_provider.get('supported_models'):
                             for model in embed_provider.get('supported_models', []):
                                 if model.get('model_id') == embedding_model or model.get('name') == embedding_model:

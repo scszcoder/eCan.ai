@@ -1197,10 +1197,10 @@ export class IPCAPI {
                 if (p && (p.provider === name || p.name === name || key === name)) {
                     p.api_key = apiKey;
                     p.api_key_configured = !!apiKey && apiKey.length > 0;
-                    if (azureEndpoint) p.azure_endpoint = azureEndpoint;
-                    if (awsAccessKeyId) p.aws_access_key_id = awsAccessKeyId;
-                    if (awsSecretAccessKey) p.aws_secret_access_key = awsSecretAccessKey;
-                    if (baseUrl) p.base_url = baseUrl;
+                    if (azureEndpoint !== undefined) p.azure_endpoint = azureEndpoint;
+                    if (awsAccessKeyId !== undefined) p.aws_access_key_id = awsAccessKeyId;
+                    if (awsSecretAccessKey !== undefined) p.aws_secret_access_key = awsSecretAccessKey;
+                    if (baseUrl !== undefined) p.base_url = baseUrl;
                     found = true;
                     break;
                 }
@@ -1228,16 +1228,16 @@ export class IPCAPI {
 
         // Fallback to original IPC/local backend path
         const params: any = { name, api_key: apiKey };
-        if (azureEndpoint) {
+        if (azureEndpoint !== undefined) {
             params.azure_endpoint = azureEndpoint;
         }
-        if (awsAccessKeyId) {
+        if (awsAccessKeyId !== undefined) {
             params.aws_access_key_id = awsAccessKeyId;
         }
-        if (awsSecretAccessKey) {
+        if (awsSecretAccessKey !== undefined) {
             params.aws_secret_access_key = awsSecretAccessKey;
         }
-        if (baseUrl) {
+        if (baseUrl !== undefined) {
             params.base_url = baseUrl;
         }
         return apiRouter.execute({ method: 'update_llm_provider' }, params);
@@ -1404,8 +1404,8 @@ export class IPCAPI {
                 if (p && (p.provider === name || p.name === name || key === name)) {
                     p.api_key = apiKey;
                     p.api_key_configured = !!apiKey && apiKey.length > 0;
-                    if (azureEndpoint) p.azure_endpoint = azureEndpoint;
-                    if (baseUrl) p.base_url = baseUrl;
+                    if (azureEndpoint !== undefined) p.azure_endpoint = azureEndpoint;
+                    if (baseUrl !== undefined) p.base_url = baseUrl;
                     found = true;
                     break;
                 }
@@ -1426,10 +1426,10 @@ export class IPCAPI {
             }
         }
         const params: any = { name, api_key: apiKey };
-        if (azureEndpoint) {
+        if (azureEndpoint !== undefined) {
             params.azure_endpoint = azureEndpoint;
         }
-        if (baseUrl) {
+        if (baseUrl !== undefined) {
             params.base_url = baseUrl;
         }
         return apiRouter.execute({ method: 'update_embedding_provider' }, params);
@@ -1539,8 +1539,8 @@ export class IPCAPI {
                 if (p && (p.provider === name || p.name === name || key === name)) {
                     p.api_key = apiKey;
                     p.api_key_configured = !!apiKey && apiKey.length > 0;
-                    if (azureEndpoint) p.azure_endpoint = azureEndpoint;
-                    if (baseUrl) p.base_url = baseUrl;
+                    if (azureEndpoint !== undefined) p.azure_endpoint = azureEndpoint;
+                    if (baseUrl !== undefined) p.base_url = baseUrl;
                     found = true;
                     break;
                 }
@@ -1561,10 +1561,10 @@ export class IPCAPI {
             }
         }
         const params: any = { name, api_key: apiKey };
-        if (azureEndpoint) {
+        if (azureEndpoint !== undefined) {
             params.azure_endpoint = azureEndpoint;
         }
-        if (baseUrl) {
+        if (baseUrl !== undefined) {
             params.base_url = baseUrl;
         }
         return apiRouter.execute({ method: 'update_rerank_provider' }, params);

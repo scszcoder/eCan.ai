@@ -9,6 +9,8 @@ and configuration.
 import os
 from typing import Optional
 
+import httpx
+
 from langchain_core.embeddings import Embeddings, FakeEmbeddings
 from langchain_community.embeddings import (
     AzureOpenAIEmbeddings,
@@ -311,7 +313,9 @@ class EmbeddingFactory:
                     return OpenAIEmbeddings(
                         model=model_name,
                         api_key=ryoais_api_key,
-                        base_url=base_url
+                        base_url=base_url,
+                        http_client=httpx.Client(verify=False),
+                        http_async_client=httpx.AsyncClient(verify=False),
                     )
                 except Exception as e:
                     logger.error(f"[EmbeddingFactory] RyoAIS embeddings failed: {e}")
@@ -326,4 +330,3 @@ class EmbeddingFactory:
             logger.error(f"[EmbeddingFactory] Error creating embeddings: {e}", exc_info=True)
             # Fallback to FakeEmbeddings to ensure system continues working
             return FakeEmbeddings(size=1536)
-

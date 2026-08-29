@@ -303,6 +303,18 @@ class LightragServer:
         else:
             logger.warning("[LightragServer] No effective configuration loaded")
 
+        # Heal legacy values such as the literal string "None" before
+        # LightRAG validates the parser rule table during create_app().
+        from knowledge.lightrag_parser_config import normalize_parser_routing
+        env['LIGHTRAG_PARSER'] = normalize_parser_routing(env.get('LIGHTRAG_PARSER'))
+
+        # LOG_DIR is now known, so load the real deployment limit before any
+        # token budgets are calculated.  Loading this at the end of build_env
+        # made the first (and actually launched) environment trust an
+        # over-reported /models value; only a later, discarded build saw the
+        # cached limit learned from vLLM's 400 response.
+        self._load_vllm_max_model_len_cache(env)
+
         # 3. Python runtime environment
         env['PYTHONIOENCODING'] = 'utf-8'
         env['PYTHONUTF8'] = '1'
@@ -486,9 +498,6 @@ class LightragServer:
             logger.debug(f"[LightragServer] Could not set proxy metadata env vars: {e}")
 
         self._sync_restart_settings(env)
-
-        # Load persistent vLLM max_model_len cache now that LOG_DIR is set in env
-        self._load_vllm_max_model_len_cache(env)
 
         return env
 
@@ -683,27 +692,27 @@ class LightragServer:
         max_model_len to a tier-appropriate output budget so 8K models stop
         colliding with their own prompt.
 
-        Output budget: 25% of the window, floored at 512 so a tiny model
+        Output budget: one third of the window, floored at 512 so a tiny model
         still gets a usable answer, and capped so we always keep ≥500 tokens
         for system prompt + at least one chunk.
 
         Retrieval share: the remaining window after output and 500 tokens of
         system-prompt overhead. Used by _apply_retrieval_token_limits to cap
-        entity+relation combined budget. For 8K this yields 8192-2048-500=5644.
+        entity+relation combined budget. For an 8196-token deployment this
+        yields 8196-2732-500=4964.
 
         Replaces the old formula `max_model_len - max(2000, 0.5*max_model_len)`
         which produced output=4096 on 8K models and collided with the
         ~4000-token system+entity+chunks prompt.
         """
-        # Output budget: 25% of the window, floored at 512 so a tiny model
-        # still gets a usable answer, and capped so we always keep ≥500 tokens
-        # for system prompt + at least one chunk.
-        #
-        # Rationale: 12.5% (1024 on 8K) is too small for entity extraction
-        # which produces structured JSON. 25% (2048 on 8K) accommodates most
-        # single-chunk extractions without truncation while leaving the majority
-        # of the context window for the retrieval share (entity+relation+cold_chunks).
-        output = max(512, int(max_model_len * 0.25))
+        # Entity/relation extraction produces verbose structured output. The
+        # former 25% cap (2049 on the deployed 8196-token model) repeatedly
+        # ended with finish_reason=length and an incomplete record delimiter.
+        # One third leaves most of the window for the prompt while giving the
+        # extractor enough room to finish a normal 2K-token source chunk. The
+        # floor keeps tiny models usable, while the cap always reserves at
+        # least 500 tokens for system prompt and source content.
+        output = max(512, max_model_len // 3)
         if output > max_model_len - 500:
             # Window too small to fit 500 overhead AND 512 output: prefer
             # the floor (drop the overhead floor) rather than returning
@@ -721,7 +730,7 @@ class LightragServer:
           1. If the deployment exposes max_model_len (vLLM /v1/models) or a
              ryoais_models.json snapshot has context_length — use that value
              as MAX_TOTAL_TOKENS, and derive OPENAI_LLM_MAX_COMPLETION_TOKENS
-             as 25% of the window (see _compute_llm_budget).  This is
+             as one third of the window (see _compute_llm_budget).  This is
              universal across 8K/16K/32K/64K deployments and replaces the old
              formula `max_model_len - max(2000, 0.5*max_model_len)` which was
              too generous on small-context models (output=4096 on an 8K model
@@ -747,11 +756,27 @@ class LightragServer:
             previous_output = env.get('OPENAI_LLM_MAX_COMPLETION_TOKENS')
             env['MAX_TOTAL_TOKENS'] = str(max_model_len)
             env['OPENAI_LLM_MAX_COMPLETION_TOKENS'] = str(output_tokens)
+            # Extraction needs a relatively large structured response, while
+            # retrieval queries spend substantially more tokens on graph and
+            # chunk context. Keep the role-specific query response small enough
+            # that an 8K deployment cannot overflow after context assembly.
+            query_output_tokens = max(512, min(4096, max_model_len // 8))
+            env['QUERY_OPENAI_LLM_MAX_COMPLETION_TOKENS'] = str(query_output_tokens)
+            # LightRAG's extraction prompt itself occupies most of an 8K
+            # context window. Its upstream paragraph defaults (2000 tokens +
+            # one gleaning pass) can therefore overflow even for a short DOCX.
+            # Apply safe defaults/caps only to small-context deployments.
+            if max_model_len <= 8196:
+                env.setdefault('CHUNK_P_SIZE', '800')
+                gleaning = self._coerce_int(env.get('MAX_GLEANING'))
+                if gleaning is None or gleaning > 0:
+                    env['MAX_GLEANING'] = '0'
             logger.info(
                 f"[LightragServer] LLM token limits derived from deployment: "
                 f"max_model_len={max_model_len} "
                 f"MAX_TOTAL_TOKENS={previous_total}->{env['MAX_TOTAL_TOKENS']} "
                 f"OPENAI_LLM_MAX_COMPLETION_TOKENS={previous_output}->{env['OPENAI_LLM_MAX_COMPLETION_TOKENS']} "
+                f"QUERY_OPENAI_LLM_MAX_COMPLETION_TOKENS={env['QUERY_OPENAI_LLM_MAX_COMPLETION_TOKENS']} "
                 f"(proportional budget; retrieval share ~ {retrieval_share} "
                 f"for downstream entity/relation cap)"
             )
@@ -1303,14 +1328,17 @@ class LightragServer:
         if stdout_lines:
             logger.error(f"[LightragServer] Stdout tail:\n{''.join(stdout_lines)}")
 
-    def _create_log_files(self):
+    def _create_log_files(self, env=None):
         """
         Create log file handles for LightRAG server subprocess output.
         Uses fixed filenames (lightrag_server.log) instead of timestamped files
         to avoid accumulating many log files. Implements simple log rotation
         when files exceed 10MB.
         """
-        env = self.build_env()
+        # Reuse the exact environment that will be passed to the subprocess.
+        # Rebuilding here can perform remote model discovery a second time and
+        # produce token limits different from the environment being launched.
+        env = env or self.build_env()
         log_dir = env.get('LOG_DIR', '')
         if not log_dir:
             log_dir = os.path.join(str(Path.cwd()), 'lightrag_data', 'runlogs')
@@ -1355,7 +1383,7 @@ class LightragServer:
         try:
             env = self.build_env()
             self._close_log_files()
-            stdout_log, stderr_log, stdout_log_path, stderr_log_path = self._create_log_files()
+            stdout_log, stderr_log, stdout_log_path, stderr_log_path = self._create_log_files(env)
             self._stdout_log_handle = stdout_log
             self._stderr_log_handle = stderr_log
             self._last_log_paths = (stdout_log_path, stderr_log_path)
