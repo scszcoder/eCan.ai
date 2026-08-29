@@ -818,33 +818,8 @@ class LightragClient:
             'Accept': 'application/x-ndjson',
         })
 
-        # For streaming, LightRAG 1.5 returns text tokens only via /query/stream.
-        # Get references from non-streaming /query endpoint first, then stream text.
-        # This is more efficient than two sequential streaming requests.
-        initial_references: List[Dict] = []
-        initial_chunks: List[Dict] = []
-        try:
-            # Build non-streaming request for references
-            refs_payload = {**payload, 'stream': False}
-            refs_headers = _ws_headers(workspace, {'Content-Type': 'application/json'})
-            refs_response = self.session.post(
-                f"{self.base_url}/query",
-                json=refs_payload,
-                headers=refs_headers,
-                timeout=90
-            )
-            if refs_response.status_code == 200:
-                refs_result = refs_response.json()
-                initial_references = refs_result.get('references') or []
-                initial_chunks = (refs_result.get('data') or {}).get('chunks') or []
-                logger.info(f"[Stream] Pre-fetched {len(initial_references)} references from non-stream query")
-            else:
-                logger.warning(f"[Stream] Pre-fetch references failed: {refs_response.status_code}")
-        except Exception as e:
-            logger.warning(f"[Stream] Failed to pre-fetch references: {e}")
-
         # Accumulate response for confidence calculation
-        accumulated_response = {'response': '', 'references': initial_references, 'data': {'chunks': initial_chunks}}
+        accumulated_response = {'response': '', 'references': [], 'data': {'chunks': []}}
         # LightRAG 1.5 progress events: ``progress`` is an optional string field
         # emitted mid-stream (see docs/lightrag-1.5-upgrade-analysis.md §5).
         # We track the latest phase and the wall-clock time it was observed so
@@ -885,11 +860,6 @@ class LightragClient:
                         line_str = line.decode('utf-8')
                         # /query/stream returns pure NDJSON lines, no 'data: ' prefix
 
-                        # Mark first-token arrival before yielding so the
-                        # metric reflects the moment the first chunk reached us.
-                        if first_token_at is None:
-                            first_token_at = time.monotonic()
-
                         # Accumulate response for confidence calculation
                         try:
                             import json
@@ -897,14 +867,29 @@ class LightragClient:
                             # Debug: log first chunk structure
                             if line_count == 1:
                                 logger.info(f"[Stream] First chunk keys: {list(chunk_data.keys())}")
+                            if chunk_data.get('error'):
+                                raise RuntimeError(str(chunk_data['error']))
                             if 'response' in chunk_data and chunk_data.get('response'):
-                                accumulated_response['response'] += chunk_data.get('response', '')
+                                # Reference/progress packets can arrive earlier;
+                                # TTFT specifically measures visible answer text.
+                                if first_token_at is None:
+                                    first_token_at = time.monotonic()
+                                response_piece = str(chunk_data['response'])
+                                if (
+                                    response_piece.strip() == 'No relevant context found for the query.'
+                                    and accumulated_response.get('references')
+                                ):
+                                    raise RuntimeError(
+                                        '检索已命中文档，但答案生成失败。请检查 LLM 服务日志和模型上下文限制。'
+                                    )
+                                accumulated_response['response'] += response_piece
                                 # Yield immediately for streaming animation
                                 yield line_str
                             elif 'references' in chunk_data or 'data' in chunk_data:
-                                # Don't yield references-only chunks here to avoid duplicates;
-                                # we will yield references with the final confidence chunk
-                                pass
+                                # LightRAG's stream already carries references;
+                                # forward them directly instead of issuing a duplicate
+                                # non-streaming LLM query just to pre-fetch citations.
+                                yield line_str
                             else:
                                 # Yield other chunks (progress, metrics, etc.) as-is
                                 yield line_str

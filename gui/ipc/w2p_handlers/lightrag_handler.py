@@ -518,6 +518,9 @@ def handle_query_stream(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                     try:
                         # Parse JSON chunk
                         chunk_data = json.loads(chunk_str)
+
+                        if chunk_data.get('error'):
+                            raise RuntimeError(str(chunk_data['error']))
                         
                         # Send chunk event
                         ipc_api.push_lightrag_chunk(stream_id, chunk_data)
@@ -1238,6 +1241,18 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
             
             if result.get('status') == 'error':
                 error_msg = result.get('message', 'Failed to get status counts')
+                if 'connection refused' in error_msg.lower() or 'failed to establish a new connection' in error_msg.lower():
+                    logger.debug("[lightrag_handler] LightRAG is not ready; returning idle progress")
+                    return create_success_response(request, {
+                        'status': 'idle',
+                        'processing_count': 0,
+                        'pending_count': 0,
+                        'processed_count': 0,
+                        'failed_count': 0,
+                        'total_count': 0,
+                        'progress_percentage': 0,
+                        'server_ready': False,
+                    })
                 logger.error(f"Get status counts failed: {error_msg}")
                 return create_error_response(request, 'STATUS_COUNTS_ERROR', error_msg)
             
@@ -1254,6 +1269,7 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
             # Try to get more detailed progress from pipeline status
             pipeline_result = client.get_pipeline_status()
             pipeline_data = pipeline_result.get('data', {}) if pipeline_result.get('status') == 'success' else {}
+            pipeline_busy = bool(pipeline_data.get('busy'))
             
             logger.info(f"[lightrag_handler] Pipeline status: busy={pipeline_data.get('busy')}, cur_batch={pipeline_data.get('cur_batch')}, total_batches={pipeline_data.get('batchs')}")
             
@@ -1278,13 +1294,15 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
                 
                 progress_percentage = int(min(100, base_progress * 100))
                 
-                if processing > 0 or pending > 0:
+                if pipeline_busy or processing > 0 or pending > 0:
                     status = 'processing'
                 else:
                     status = 'completed'
             else:
                 progress_percentage = 0
-                status = 'idle'
+                # Parsing/analyzing can make the pipeline busy before the
+                # document appears in the PROCESSING status count.
+                status = 'processing' if pipeline_busy else 'idle'
             
             response_data = {
                 'status': status,
@@ -1293,7 +1311,8 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
                 'processed_count': processed,
                 'failed_count': failed,
                 'total_count': total,
-                'progress_percentage': progress_percentage
+                'progress_percentage': progress_percentage,
+                'pipeline_busy': pipeline_busy,
             }
             
             # Include pipeline details if available
@@ -1311,6 +1330,7 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
                 current_chunk_file = pipeline_data.get('current_chunk_file', None)
 
                 pipeline_info = {
+                    'busy': pipeline_busy,
                     'job_name': pipeline_data.get('job_name'),
                     'current_batch': pipeline_data.get('cur_batch', 0),
                     'total_batches': pipeline_data.get('batchs', 0),
@@ -1404,9 +1424,16 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
                     logger.info(f"[LightRAG]   - Proxy URL: {proxy_url}")
                     logger.info(f"[LightRAG]   - Note: Will be converted to jina format at runtime")
         
-        # Filter out system-managed keys to avoid saving them to local env file
-        # This ensures the file remains clean and system settings remain authoritative
-        keys_to_exclude = ['_SYSTEM_LLM_KEY_SOURCE', '_SYSTEM_EMBED_KEY_SOURCE', '_SYSTEM_RERANK_KEY_SOURCE']
+        # Filter out system-managed keys and the UI-only parsing engine
+        # selection to avoid saving them to the local env file. The engine
+        # selection is derived from LIGHTRAG_PARSER and never persisted;
+        # PARSING_ENGINE is only kept for backward compatibility with older
+        # frontends that still send it.
+        keys_to_exclude = [
+            '_SYSTEM_LLM_KEY_SOURCE', '_SYSTEM_EMBED_KEY_SOURCE',
+            '_SYSTEM_RERANK_KEY_SOURCE', 'PARSING_ENGINE',
+            '_RERANK_RUNTIME_HOST', '_RERANK_USES_PROXY',
+        ]
         
         # Also exclude the actual API key fields if they are system managed
         # The frontend sends back the system key value (masked or raw), but we must NOT save it
@@ -1420,8 +1447,24 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
             keys_to_exclude.append('RERANK_BINDING_API_KEY')
         
         settings_to_save = {k: v for k, v in params.items() if k not in keys_to_exclude}
+
+        from knowledge.lightrag_parser_config import LIGHTRAG_PARSER_KEY, normalize_parser_routing
+        settings_to_save[LIGHTRAG_PARSER_KEY] = normalize_parser_routing(
+            settings_to_save.get(LIGHTRAG_PARSER_KEY)
+        )
         
         logger.info(f"[LightRAG] Saving {len(settings_to_save)} settings after filtering")
+
+        # Reject saves that would make LightRAG fail its startup validation
+        # (a LIGHTRAG_PARSER rule referencing mineru/docling requires the
+        # corresponding endpoint to be configured).
+        from knowledge.lightrag_parser_config import validate_parser_endpoints
+        parser_errors = validate_parser_endpoints(settings_to_save)
+        if parser_errors:
+            logger.error(f"[LightRAG] Parser config invalid: {parser_errors}")
+            return create_error_response(
+                request, 'PARSER_CONFIG_ERROR', '; '.join(parser_errors)
+            )
         
         config_manager = get_config_manager()
         success = config_manager.update_config(settings_to_save)
@@ -1594,12 +1637,18 @@ def handle_get_workspaces(request: IPCRequest, params: Optional[Dict[str, Any]])
         # Get current workspace from config
         current_workspace = config_manager.get_value('WORKSPACE', 'default')
         
-        # If no workspaces found, add the current workspace as default
-        if not workspaces:
+        # Always include the configured workspace. It may be new/empty and
+        # therefore not have a storage directory yet; omitting it makes the
+        # UI selector unable to display the workspace that is actually in
+        # use whenever other workspace directories already exist.
+        known_workspace_names = {item['name'] for item in workspaces}
+        if current_workspace and current_workspace not in known_workspace_names:
             workspaces.append({
                 'name': current_workspace,
-                'is_valid': True
+                'is_valid': os.path.isdir(os.path.join(rag_storage_dir, current_workspace))
             })
+
+        workspaces.sort(key=lambda item: item['name'].lower())
         
         return create_success_response(request, {
             'workspaces': workspaces,
@@ -1672,6 +1721,40 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         config_manager = get_config_manager()
         # Use effective config which includes overlaid system API keys
         settings = config_manager.get_effective_config()
+        from knowledge.lightrag_parser_config import LIGHTRAG_PARSER_KEY, normalize_parser_routing
+        settings[LIGHTRAG_PARSER_KEY] = normalize_parser_routing(settings.get(LIGHTRAG_PARSER_KEY))
+
+        # System Settings is the source of truth for shared local providers.
+        # Overlay their real addresses so LightRAG never displays/tests a
+        # stale copy left in lightrag.env.
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        if main_window:
+            for kind, prefix in (('llm', 'LLM'), ('embedding', 'EMBEDDING')):
+                binding = str(settings.get(f'{prefix}_BINDING') or '').strip()
+                manager = getattr(main_window.config_manager, f'{kind}_manager', None)
+                provider = manager.get_provider(binding) if manager and binding else None
+                real_host = str((provider or {}).get('base_url') or '').strip()
+                if provider and provider.get('is_local') and real_host:
+                    settings[f'{prefix}_BINDING_HOST'] = real_host
+
+        # Keep the UI-facing provider address separate from LightRAG's
+        # effective compatibility-proxy address.
+        from knowledge.lightrag_constants import is_native_rerank_provider
+        rerank_binding = str(settings.get('RERANK_BINDING') or '').strip().lower()
+        if rerank_binding and not is_native_rerank_provider(rerank_binding):
+            try:
+                manager = main_window.config_manager.rerank_manager if main_window else None
+                provider = manager.get_provider(rerank_binding) if manager else None
+                real_host = str((provider or {}).get('base_url') or '').strip()
+                runtime_host = str(settings.get('RERANK_BINDING_HOST') or '').strip()
+                if real_host:
+                    settings['RERANK_BINDING_HOST'] = real_host
+                if runtime_host:
+                    settings['_RERANK_RUNTIME_HOST'] = runtime_host
+                    settings['_RERANK_USES_PROXY'] = 'true'
+            except Exception as overlay_error:
+                logger.warning(f"[GetSettings] Could not overlay real rerank host: {overlay_error}")
         
         # Log specific keys for debugging
         debug_keys = ['TOP_K', 'CHUNK_TOP_K', 'MAX_ENTITY_TOKENS', 'RERANK_BY_DEFAULT']
@@ -1682,6 +1765,217 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
     except Exception as e:
         logger.error(f"Error getting settings: {e}")
         return create_error_response(request, 'GET_SETTINGS_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.getParserEngines')
+def handle_get_parser_engines(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """
+    Get document parsing engine definitions and current values for the
+    LightRAG settings UI.
+
+    Returns:
+        engines: list of parser engine definitions (id, name, description,
+                 fields with env var names, defaults, options, tooltips).
+        current: current values of every parser-related env var.
+        engine:  UI engine selection derived from LIGHTRAG_PARSER
+                 ('native' | 'mineru' | 'docling') — never persisted.
+    """
+    try:
+        from knowledge.lightrag_parser_config import (
+            LIGHTRAG_PARSER_KEY,
+            PARSER_ENGINE_DEFINITIONS,
+            PARSER_SETTINGS_KEYS,
+            derive_parsing_engine,
+            normalize_parser_routing,
+        )
+
+        config_manager = get_config_manager()
+        settings = config_manager.get_effective_config()
+        settings[LIGHTRAG_PARSER_KEY] = normalize_parser_routing(settings.get(LIGHTRAG_PARSER_KEY))
+        current = {key: settings.get(key) for key in PARSER_SETTINGS_KEYS}
+
+        return create_success_response(request, {
+            'engines': PARSER_ENGINE_DEFINITIONS,
+            'current': current,
+            'engine': derive_parsing_engine(settings),
+        })
+    except Exception as e:
+        logger.error(f"Error getting parser engines: {e}", exc_info=True)
+        return create_error_response(request, 'GET_PARSER_ENGINES_ERROR', str(e))
+
+
+@IPCHandlerRegistry.background_handler('lightrag.testParserConfig')
+def handle_test_parser_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Probe an external parser using the current, possibly unsaved UI values."""
+    try:
+        is_valid, data, error = validate_params(params, ['engine', 'settings'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+        engine = str(data.get('engine') or '').strip().lower()
+        settings = data.get('settings')
+        if not isinstance(settings, dict):
+            return create_error_response(request, 'INVALID_PARAMS', 'settings must be an object')
+
+        from knowledge.lightrag_parser_probe import probe_parser
+
+        result = probe_parser(engine, settings)
+        logger.info(f"[LightRAG] Parser probe succeeded: engine={engine}, url={result.get('url')}")
+        return create_success_response(request, result)
+    except (ValueError, RuntimeError) as e:
+        logger.warning(f"[LightRAG] Parser probe failed: {e}")
+        technical_detail = str(e)
+        detail_lower = technical_detail.lower()
+        if '未配置' in technical_detail:
+            category = 'missing_config'
+        elif '有效的 http' in detail_lower or '只能是 local' in detail_lower:
+            category = 'invalid_config'
+        elif '鉴权失败' in technical_detail or '401' in technical_detail or '403' in technical_detail:
+            category = 'authentication'
+        elif '超时' in technical_detail:
+            category = 'timeout'
+        elif '无法连接' in technical_detail:
+            category = 'connection'
+        elif '不像 mineru' in detail_lower:
+            category = 'wrong_service'
+        elif 'http ' in detail_lower or '服务异常' in technical_detail:
+            category = 'service_error'
+        else:
+            category = 'unknown'
+        return create_error_response(
+            request,
+            'PARSER_PROBE_FAILED',
+            'Parser configuration test failed',
+            {'category': category, 'technical_detail': technical_detail},
+        )
+    except Exception as e:
+        logger.error(f"[LightRAG] Parser probe error: {e}", exc_info=True)
+        return create_error_response(
+            request,
+            'PARSER_PROBE_ERROR',
+            'Parser configuration test failed',
+            {'category': 'unknown', 'technical_detail': str(e)},
+        )
+
+
+@IPCHandlerRegistry.background_handler('lightrag.testModelServiceConfig')
+def handle_test_model_service_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Run a minimal real request against the selected LLM/embed/rerank service."""
+    try:
+        is_valid, data, error = validate_params(params, ['kind', 'settings'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+        settings = data.get('settings')
+        if not isinstance(settings, dict):
+            return create_error_response(request, 'INVALID_PARAMS', 'settings must be an object')
+        kind = str(data.get('kind') or '').strip().lower()
+        prefix = {'llm': 'LLM', 'embedding': 'EMBEDDING', 'rerank': 'RERANK'}.get(kind)
+        if not prefix:
+            return create_error_response(request, 'INVALID_PARAMS', 'Unsupported provider kind')
+
+        # Resolve the same provider configuration used by System Settings.
+        # Browser state may contain masked keys and rerank's internal proxy
+        # URL, neither of which should be used to probe the upstream service.
+        resolved_settings = dict(settings)
+        provider_id = str(settings.get(f'{prefix}_BINDING') or '').strip()
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        manager = getattr(main_window.config_manager, f'{kind}_manager', None) if main_window else None
+        provider = manager.get_provider(provider_id) if manager and provider_id else None
+        if provider:
+            system_host = str(provider.get('base_url') or '').strip()
+            ui_host = str(settings.get(f'{prefix}_BINDING_HOST') or '').strip()
+            if kind == 'rerank':
+                from knowledge.lightrag_constants import is_native_rerank_provider
+                host = system_host if not is_native_rerank_provider(provider_id) else (ui_host or system_host)
+            elif provider.get('is_local'):
+                # Ollama/RyoAIS addresses are managed centrally in System
+                # Settings and shared by LightRAG.
+                host = system_host or ui_host
+            else:
+                host = ui_host or system_host
+            resolved_settings[f'{prefix}_BINDING_HOST'] = host
+            resolved_settings[f'{prefix}_MODEL'] = str(
+                settings.get(f'{prefix}_MODEL') or provider.get('preferred_model') or provider.get('default_model') or ''
+            ).strip()
+            api_key = ''
+            for env_name in provider.get('api_key_env_vars', []) or []:
+                api_key = manager.retrieve_api_key(env_name) or ''
+                if api_key:
+                    break
+            resolved_settings[f'{prefix}_BINDING_API_KEY'] = api_key
+        resolved_settings.setdefault('SSL_VERIFY', False)
+        from knowledge.lightrag_service_probe import probe_model_service
+        return create_success_response(request, probe_model_service(kind, resolved_settings))
+    except Exception as e:
+        from knowledge.lightrag_service_probe import ServiceProbeError
+        category = e.category if isinstance(e, ServiceProbeError) else 'unknown'
+        logger.warning(f"[LightRAG] Model service probe failed: kind={(params or {}).get('kind')}, error={e}")
+        # Unavailable is an expected probe result, not a GraphQL transport
+        # failure. Returning it as normal data prevents noisy console errors
+        # and lets the UI render the categorized reason.
+        return create_success_response(request, {
+            'available': False,
+            'category': category,
+            'technical_detail': str(e),
+        })
+
+
+@IPCHandlerRegistry.background_handler('lightrag.testSystemProvider')
+def handle_test_system_provider(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Probe one provider from System Settings without exposing its stored key."""
+    try:
+        is_valid, data, error = validate_params(params, ['kind', 'provider'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+        kind = str(data.get('kind') or '').lower()
+        provider_id = str(data.get('provider') or '').strip()
+        prefix = {'llm': 'LLM', 'embedding': 'EMBEDDING', 'rerank': 'RERANK'}.get(kind)
+        if not prefix:
+            return create_error_response(request, 'INVALID_PARAMS', 'Unsupported provider kind')
+
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        if not main_window:
+            return create_error_response(request, 'APP_NOT_READY', 'Application is not ready')
+        manager = getattr(main_window.config_manager, f'{kind}_manager')
+        provider = manager.get_provider(provider_id)
+        if not provider:
+            return create_error_response(request, 'PROVIDER_NOT_FOUND', 'Provider not found')
+
+        model = str(data.get('model') or provider.get('preferred_model') or provider.get('default_model') or '').strip()
+        host = str(data.get('host') or provider.get('base_url') or '').strip()
+        api_key = ''
+        for env_name in provider.get('api_key_env_vars', []) or []:
+            api_key = manager.retrieve_api_key(env_name) or ''
+            if api_key:
+                break
+        if provider.get('api_key_env_vars') and not api_key and not provider.get('is_local'):
+            return create_success_response(request, {
+                'available': False,
+                'category': 'missing_config',
+                'technical_detail': 'API key is not configured',
+            })
+
+        from knowledge.lightrag_service_probe import probe_model_service
+        result = probe_model_service(kind, {
+            f'{prefix}_BINDING': provider_id,
+            f'{prefix}_BINDING_HOST': host,
+            f'{prefix}_MODEL': model,
+            f'{prefix}_BINDING_API_KEY': api_key,
+            # System provider custom endpoints commonly use private/self-
+            # signed certificates. Match the LightRAG runtime default.
+            'SSL_VERIFY': False,
+        })
+        return create_success_response(request, result)
+    except Exception as e:
+        from knowledge.lightrag_service_probe import ServiceProbeError
+        category = e.category if isinstance(e, ServiceProbeError) else 'unknown'
+        logger.warning(f"[SystemSettings] Provider probe failed: {e}")
+        return create_success_response(request, {
+            'available': False,
+            'category': category,
+            'technical_detail': str(e),
+        })
 
 
 @IPCHandlerRegistry.background_handler('lightrag.queryGraphs')
@@ -2207,23 +2501,69 @@ def handle_download_file(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
         
-        file_name = data['fileName']
-        
-        # Get LightRAG server base URL
-        client = get_client()
-        base_url = client.base_url
-        
-        # Construct download URL
-        import urllib.parse
-        download_url = f"{base_url}/documents/download/{urllib.parse.quote(file_name)}"
-        
-        logger.info(f"Downloading file from: {download_url}")
-        
-        # Download file
-        import requests
-        response = requests.get(download_url, timeout=60)
-        if response.status_code != 200:
-            return create_error_response(request, 'DOWNLOAD_ERROR', f'下载失败: {response.status_code}')
+        file_reference = str(data['fileName']).strip()
+        if not file_reference:
+            return create_error_response(request, 'INVALID_PARAMS', 'fileName must not be empty')
+
+        # LightRAG does not expose a document-download API. Uploaded source
+        # files are retained beneath INPUT_DIR, so resolve the reference there
+        # instead of calling the non-existent /documents/download route.
+        import shutil
+        from pathlib import Path
+        from knowledge.lightrag_config_manager import get_config_manager
+
+        input_dir_value = get_config_manager().get_value('INPUT_DIR')
+        if not input_dir_value:
+            return create_error_response(
+                request,
+                'DOWNLOAD_CONFIG_ERROR',
+                '下载失败：LightRAG 未配置 INPUT_DIR'
+            )
+
+        input_dir = Path(os.path.expandvars(os.path.expanduser(input_dir_value))).resolve()
+        if not input_dir.is_dir():
+            return create_error_response(
+                request,
+                'DOWNLOAD_CONFIG_ERROR',
+                f'下载失败：LightRAG 文档目录不存在 ({input_dir})'
+            )
+
+        normalized_reference = file_reference.replace('\\', '/')
+        reference_path = Path(normalized_reference)
+        candidates = []
+
+        # Prefer the exact relative path when the reference contains folders.
+        if not reference_path.is_absolute():
+            relative_candidate = (input_dir / reference_path).resolve()
+            try:
+                relative_candidate.relative_to(input_dir)
+                candidates.append(relative_candidate)
+            except ValueError:
+                pass
+
+        # Query references can contain an old absolute path or just a basename.
+        # Resolve those by basename, but only inside INPUT_DIR.
+        basename = reference_path.name
+        if basename:
+            candidates.extend(input_dir.rglob(basename))
+
+        source_file = next(
+            (candidate for candidate in candidates if candidate.is_file()),
+            None,
+        )
+        if source_file is None:
+            logger.warning(
+                "[LightRAG] Download source not found: reference=%s input_dir=%s",
+                file_reference,
+                input_dir,
+            )
+            return create_error_response(
+                request,
+                'DOWNLOAD_FILE_NOT_FOUND',
+                f'下载失败：在 LightRAG 文档目录中找不到“{basename or file_reference}”'
+            )
+
+        logger.info(f"Downloading LightRAG source file: {source_file}")
         
         # Get Downloads folder
         downloads_dir = os.path.expanduser('~/Downloads')
@@ -2231,6 +2571,7 @@ def handle_download_file(request: IPCRequest, params: Optional[Dict[str, Any]]) 
             os.makedirs(downloads_dir, exist_ok=True)
         
         # Handle duplicate filenames
+        file_name = source_file.name
         dest_file = os.path.join(downloads_dir, file_name)
         if os.path.exists(dest_file):
             base_name = os.path.splitext(file_name)[0]
@@ -2240,9 +2581,7 @@ def handle_download_file(request: IPCRequest, params: Optional[Dict[str, Any]]) 
                 dest_file = os.path.join(downloads_dir, f"{base_name}_{counter}{extension}")
                 counter += 1
         
-        # Write file
-        with open(dest_file, 'wb') as f:
-            f.write(response.content)
+        shutil.copy2(source_file, dest_file)
         
         logger.info(f"File saved to: {dest_file}")
         
@@ -2255,5 +2594,3 @@ def handle_download_file(request: IPCRequest, params: Optional[Dict[str, Any]]) 
     except Exception as e:
         logger.error(f"Error downloading file: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'DOWNLOAD_ERROR', str(e))
-
-

@@ -24,6 +24,7 @@ import { isOllamaProvider, validateOllamaProvider } from "../utils/ollamaValidat
 import { saveOllamaConfig } from "../utils/ollamaConfigUtils";
 import { isRyoAISProvider, validateRyoAISProvider } from "../utils/ryoaisValidation";
 import { saveRyoAISConfig } from "../utils/ryoaisConfigUtils";
+import ProviderStatus from "./ProviderStatus";
 
 interface RerankManagementProps {
   username: string | null;
@@ -879,12 +880,12 @@ const RerankManagement = React.forwardRef<
       dataIndex: "api_key_configured",
       key: "status",
       width: 120,
-      render: (isConfigured: boolean) => (
-        <span style={{ color: isConfigured ? "#52c41a" : "#ff4d4f" }}>
-          {isConfigured
-            ? `✅ ${t("pages.settings.configured")}`
-            : `❌ ${t("pages.settings.not_configured")}`}
-        </span>
+      render: (_: boolean, record: LLMProvider) => (
+        <ProviderStatus
+          kind="rerank"
+          provider={record}
+          model={currentModelSelections[record.name] || record.preferred_model || record.default_model || undefined}
+        />
       ),
     },
     {
@@ -924,7 +925,7 @@ const RerankManagement = React.forwardRef<
                     type="primary"
                     id={`${record.name}-ollama-save`}
                     onClick={async () => {
-                      if (tempOllamaHost) {
+                      if (tempOllamaHost !== undefined) {
                         await saveOllamaConfig({
                           providerType: 'rerank',
                           host: tempOllamaHost,
@@ -1043,7 +1044,7 @@ const RerankManagement = React.forwardRef<
                     type="primary"
                     id={`${record.name}-ryoais-save`}
                     onClick={async () => {
-                      if (tempRyoaisHost) {
+                      if (tempRyoaisHost !== undefined) {
                         await saveRyoAISConfig({
                           providerType: 'rerank',
                           host: tempRyoaisHost,
@@ -1550,4 +1551,3 @@ const RerankManagement = React.forwardRef<
 RerankManagement.displayName = 'RerankManagement';
 
 export default RerankManagement;
-

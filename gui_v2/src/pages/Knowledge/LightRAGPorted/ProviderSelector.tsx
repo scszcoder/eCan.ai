@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { theme, Select, Input, InputNumber, Switch, Card, Tooltip, Button } from 'antd';
-import { QuestionCircleOutlined, SettingOutlined, ReloadOutlined, GlobalOutlined } from '@ant-design/icons';
+import { theme, Select, Input, InputNumber, Switch, Card, Tooltip, Button, Badge } from 'antd';
+import { QuestionCircleOutlined, SettingOutlined, ReloadOutlined, GlobalOutlined, ApiOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { ProviderConfig, ProviderFieldConfig } from './providerConfig';
 import { IPCAPI } from '../../../services/ipc/api';
@@ -19,6 +19,7 @@ interface ProviderSelectorProps {
   commonFields?: ProviderFieldConfig[];
   settings: Record<string, string>;
   onSettingChange: (key: string, value: string) => void;
+  onTestProvider?: (providerId: string, silent?: boolean) => Promise<boolean | { ok: boolean; category?: string; technical?: string }>;
 }
 
 const ProviderSelector: React.FC<ProviderSelectorProps> = ({
@@ -26,7 +27,8 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   providers,
   commonFields = [],
   settings,
-  onSettingChange
+  onSettingChange,
+  onTestProvider
 }) => {
   const { t } = useTranslation();
   const { token } = theme.useToken();
@@ -42,6 +44,52 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
   const [ollamaLoading, setOllamaLoading] = useState(false);
   const [ollamaError, setOllamaError] = useState<string | null>(null);
+  const [testingProvider, setTestingProvider] = useState(false);
+  const [providerStatus, setProviderStatus] = useState<'unchecked' | 'testing' | 'available' | 'unavailable'>('unchecked');
+  const [providerError, setProviderError] = useState<{ category?: string; technical?: string }>({});
+  const lastAutoProbeRef = React.useRef('');
+
+  const probeFingerprint = currentProvider
+    ? JSON.stringify([currentProvider.id, ...currentProvider.fields.map(field => settings[field.key] ?? field.defaultValue ?? '')])
+    : '';
+
+  useEffect(() => {
+    setProviderStatus('unchecked');
+    setProviderError({});
+    if (!currentProvider || !onTestProvider || !probeFingerprint || lastAutoProbeRef.current === probeFingerprint) return;
+    lastAutoProbeRef.current = probeFingerprint;
+    const timer = window.setTimeout(async () => {
+      setProviderStatus('testing');
+      try {
+        const result = await onTestProvider(currentProvider.id, true);
+        const ok = typeof result === 'boolean' ? result : result.ok;
+        setProviderError(typeof result === 'boolean' ? {} : result);
+        setProviderStatus(ok ? 'available' : 'unavailable');
+      } catch (error: any) {
+        setProviderError({ category: 'unknown', technical: error?.message || String(error) });
+        setProviderStatus('unavailable');
+      }
+    }, 500);
+    return () => window.clearTimeout(timer);
+    // onTestProvider is intentionally excluded: callers create it during render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [probeFingerprint, currentProvider?.id]);
+
+  const handleTestProvider = async () => {
+    if (!currentProvider || !onTestProvider) return;
+    setTestingProvider(true);
+    setProviderStatus('testing');
+    try {
+      const result = await onTestProvider(currentProvider.id, false);
+      const ok = typeof result === 'boolean' ? result : result.ok;
+      setProviderError(typeof result === 'boolean' ? {} : result);
+      setProviderStatus(ok ? 'available' : 'unavailable');
+    } catch {
+      setProviderStatus('unavailable');
+    } finally {
+      setTestingProvider(false);
+    }
+  };
 
   // Get the Ollama host from settings based on binding type
   const getOllamaHost = useCallback(() => {
@@ -382,8 +430,53 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
         <Card
           size="small"
           title={
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>{`${currentProvider.name.includes('.') ? t(`pages.knowledge.settings.${currentProvider.name}`) : currentProvider.name} ${t('pages.knowledge.settings.provider.configuration')}`}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {`${currentProvider.name.includes('.') ? t(`pages.knowledge.settings.${currentProvider.name}`) : currentProvider.name} ${t('pages.knowledge.settings.provider.configuration')}`}
+              {bindingKey === 'RERANK_BINDING' && settings['_RERANK_USES_PROXY'] === 'true' && settings['_RERANK_RUNTIME_HOST'] && (
+                <Tooltip
+                  title={
+                    <div style={{ lineHeight: 1.6 }}>
+                      <div>{t('pages.knowledge.settings.rerankProxy.realAddress')}: {settings['RERANK_BINDING_HOST']}</div>
+                      <div>{t('pages.knowledge.settings.rerankProxy.runtimeAddress')}: {settings['_RERANK_RUNTIME_HOST']}</div>
+                      <div style={{ marginTop: 4 }}>{t('pages.knowledge.settings.rerankProxy.hint')}</div>
+                    </div>
+                  }
+                >
+                  <QuestionCircleOutlined style={{ color: token.colorTextSecondary, fontSize: 14 }} />
+                </Tooltip>
+              )}
+            </span>
+          }
+          extra={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              {onTestProvider && (
+                <Tooltip title={providerStatus === 'unavailable' ? (
+                  <div>
+                    <div>{t(`pages.knowledge.settings.parserProbe.errors.${providerError.category || 'unknown'}.reason`)}</div>
+                    {providerError.technical && <div style={{ marginTop: 4, wordBreak: 'break-word' }}>{providerError.technical}</div>}
+                  </div>
+                ) : undefined}>
+                  <Badge
+                    status={providerStatus === 'testing' ? 'processing' : providerStatus === 'available' ? 'success' : providerStatus === 'unavailable' ? 'error' : 'default'}
+                    text={t(`pages.knowledge.settings.serviceStatus.${providerStatus}`)}
+                    style={{ marginRight: 6, color: token.colorTextSecondary, fontSize: 12 }}
+                  />
+                </Tooltip>
+              )}
+              {onTestProvider && (
+                <Tooltip title={t('pages.knowledge.settings.parserProbe.test')}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<ApiOutlined />}
+                    loading={testingProvider}
+                    onClick={handleTestProvider}
+                    style={{ height: 28, padding: '0 8px', color: token.colorPrimary, fontWeight: 500 }}
+                  >
+                    {t('pages.knowledge.settings.parserProbe.testShort')}
+                  </Button>
+                </Tooltip>
+              )}
               {currentProvider.isOllama && (
                 <Tooltip title={t('pages.knowledge.settings.ollama.openWebsite', { defaultValue: 'Open Ollama' })}>
                   <Button

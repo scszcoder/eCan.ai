@@ -207,6 +207,7 @@ function buildEmbeddingFields(raw: RawProvider): ProviderFieldConfig[] {
 
 function buildRerankFields(raw: RawProvider): ProviderFieldConfig[] {
   const fields: ProviderFieldConfig[] = [];
+  const usesCompatibilityProxy = !['cohere', 'jina', 'aliyun'].includes(raw.provider.toLowerCase());
 
   // Model field
   if (raw.supported_models?.length) {
@@ -240,6 +241,10 @@ function buildRerankFields(raw: RawProvider): ProviderFieldConfig[] {
       label: 'fields.apiHost',
       type: 'text',
       defaultValue: raw.base_url,
+      // Proxy-backed providers get their real endpoint from System Settings.
+      // LightRAG only displays it; runtime uses the local compatibility proxy.
+      disabled: usesCompatibilityProxy,
+      isSystemManaged: usesCompatibilityProxy,
     });
   }
 

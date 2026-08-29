@@ -1306,6 +1306,12 @@
       "not_configured": "未配置",
       "path_settings": "路径设置",
       "provider_not_configured": "提供商未配置",
+      "provider_status_available": "可用",
+      "provider_status_unavailable": "不可用",
+      "provider_status_testing": "检测中",
+      "provider_status_not_configured": "未配置 / 不可用",
+      "provider_status_retest": "重新检测",
+      "provider_status_unavailable_title": "{{provider}} 服务不可用",
       "restart_required_options": "需要重启选项",
       "restart_required_title": "需要重启标题",
       "schedule_engine": "调度引擎",
@@ -2577,6 +2583,7 @@
         "tabs": {
           "basic": "基础配置",
           "rag": "RAG参数",
+          "parsing": "文档解析",
           "reranking": "重排序配置",
           "llm": "LLM配置",
           "embedding": "向量配置",
@@ -2662,7 +2669,37 @@
           "postgresUser": "PostgreSQL 用户名",
           "postgresPassword": "PostgreSQL 密码",
           "postgresDatabase": "PostgreSQL 数据库名",
-          "postgresMaxConnections": "PostgreSQL 最大连接数"
+          "postgresMaxConnections": "PostgreSQL 最大连接数",
+          "parserRouting": "解析路由规则 (LIGHTRAG_PARSER)",
+          "mineruProvider": "MinerU 服务商",
+          "providerOfficial": "官网 (Official)",
+          "providerLocal": "本地 / 自定义",
+          "providerCustom": "自定义 (Custom)",
+          "mineruEndpoint": "MinerU 服务地址",
+          "mineruLocalEndpoint": "本地 MinerU 地址",
+          "mineruApiKey": "MinerU API Key",
+          "mineruModelVersion": "模型版本",
+          "mineruModelPipeline": "Pipeline（默认）",
+          "mineruModelVlm": "VLM",
+          "mineruIsOcr": "强制 OCR",
+          "mineruLanguage": "文档语言",
+          "languageChinese": "中文",
+          "languageEnglish": "英文",
+          "mineruBackend": "本地 Backend",
+          "mineruBackendHybrid": "Hybrid Auto Engine",
+          "mineruBackendPipeline": "Pipeline（CPU）",
+          "mineruBackendVlm": "VLM Auto Engine",
+          "mineruParseMethod": "本地解析方式",
+          "parseMethodAuto": "自动",
+          "parseMethodText": "文本",
+          "parseMethodOcr": "OCR",
+          "mineruImageAnalysis": "本地图像分析",
+          "mineruEnableTable": "表格解析",
+          "mineruEnableFormula": "公式解析",
+          "mineruAdditionalSuffixes": "附加文件后缀",
+          "doclingEndpoint": "Docling 端点",
+          "doclingAdditionalSuffixes": "附加文件后缀",
+          "maxParallelParse": "并行解析数"
         },
         "placeholders": {
           "minimal": "最低",
@@ -2715,7 +2752,21 @@
           "connectionRetries": "数据库连接重试次数 (1-10)",
           "retryBackoff": "重试之间的初始退避时间，单位秒 (0.1-5.0)",
           "redisUri": "完整的 Redis URI (例如 redis://:password@localhost:6379/0)",
-          "embeddingTimeout": "Embedding 请求超时（秒）"
+          "embeddingTimeout": "Embedding 请求超时（秒）",
+          "parserRouting": "按文件后缀路由到解析引擎，规则从左到右、首个匹配生效。MinerU 的 local 模式需配置 MINERU_LOCAL_ENDPOINT，official 模式需配置 MINERU_API_TOKEN；Docling 需配置 DOCLING_ENDPOINT。",
+          "mineruProvider": "LightRAG 原生 MinerU API 模式：local 或 official。",
+          "mineruEndpoint": "对应 MINERU_OFFICIAL_ENDPOINT；可改成兼容官方 API 的自定义地址，但变量名保持不变。",
+          "mineruLocalEndpoint": "自建 mineru-api 使用的 MINERU_LOCAL_ENDPOINT。",
+          "mineruApiKey": "official 模式要求的 MINERU_API_TOKEN。",
+          "mineruModelVersion": "服务使用的模型版本，LightRAG 默认值为 vlm。",
+          "mineruBackend": "local 模式使用的 MINERU_LOCAL_BACKEND。",
+          "mineruIsOcr": "对扫描文档强制启用 OCR。",
+          "mineruLanguage": "文档语言，可选择中文或英文。",
+          "mineruEnableTable": "是否提取表格。",
+          "mineruEnableFormula": "是否提取公式。",
+          "additionalSuffixes": "该服务额外支持的文件后缀（逗号分隔），需同时在解析路由规则中声明对应后缀。",
+          "doclingEndpoint": "Docling 服务的基础地址，客户端会自动追加 /v1/convert/file/async 等路径。官网服务商预填 http://localhost:5001。",
+          "maxParallelParse": "该引擎的并行解析任务数。"
         },
         "options": {
           "minimal": "最低",
@@ -2742,7 +2793,10 @@
           "jsonDocStatusStorage": "Json 文档状态存储（默认，文件）",
           "redisDocStatusStorage": "Redis 文档状态存储（生产推荐）",
           "pgDocStatusStorage": "PostgreSQL 文档状态存储（共享 PG 公共设置）",
-          "mongoDocStatusStorage": "MongoDB 文档状态存储"
+          "mongoDocStatusStorage": "MongoDB 文档状态存储",
+          "parserNative": "默认（原生解析）",
+          "parserMineru": "MinerU",
+          "parserDocling": "Docling"
         },
         "ollama": {
           "loading": "加载模型中...",
@@ -2750,6 +2804,64 @@
           "fetchError": "获取模型列表失败",
           "refresh": "刷新模型列表",
           "openWebsite": "打开 Ollama"
+        },
+        "parserProbe": {
+          "test": "测试连接",
+          "testShort": "测试",
+          "success": "解析服务连接测试通过",
+          "failed": "解析服务连接测试失败",
+          "successTitle": "{{provider}} 配置有效",
+          "failedTitle": "{{provider}} 连接测试失败",
+          "reasonLabel": "失败原因",
+          "suggestionLabel": "处理建议",
+          "technicalDetails": "技术详情",
+          "errors": {
+            "missing_config": {
+              "reason": "必填的服务配置尚未填写完整。",
+              "suggestion": "请补全当前解析服务的地址、访问令牌等必填项后重新测试。"
+            },
+            "invalid_config": {
+              "reason": "服务地址或运行模式的格式不正确。",
+              "suggestion": "请确认地址以 http:// 或 https:// 开头，并检查所选运行模式。"
+            },
+            "authentication": {
+              "reason": "服务拒绝了身份验证。",
+              "suggestion": "请检查访问令牌是否正确、是否已过期，以及账号是否有 API 访问权限。"
+            },
+            "timeout": {
+              "reason": "服务在规定时间内没有响应。",
+              "suggestion": "请检查服务是否启动、网络或代理是否可用，然后重试。"
+            },
+            "connection": {
+              "reason": "当前设备无法连接到配置的服务地址。",
+              "suggestion": "请检查服务是否启动、主机名和端口是否正确，以及防火墙设置。"
+            },
+            "wrong_service": {
+              "reason": "该地址可以访问，但返回的不是预期的 MinerU 服务。",
+              "suggestion": "请填写 MinerU API 的根地址，不要填写管理后台或其他网页地址。"
+            },
+            "service_error": {
+              "reason": "解析服务已响应，但健康检查未通过。",
+              "suggestion": "请检查服务端运行状态和日志，确认健康检查接口可用。"
+            },
+            "unknown": {
+              "reason": "测试过程中发生了未预期的问题。",
+              "suggestion": "请确认配置后重试；如果问题持续存在，可展开技术详情进行排查。"
+            }
+          }
+        },
+        "rerankProxy": {
+          "realAddress": "真实服务地址",
+          "runtimeAddress": "内部代理地址",
+          "hint": "界面编辑和测试使用真实地址；LightRAG 运行时通过内部兼容代理转发。"
+        },
+        "serviceStatus": {
+          "unchecked": "未检测",
+          "testing": "检测中",
+          "available": "服务可用",
+          "unavailable": "服务不可用",
+          "successTitle": "{{provider}} 服务可用",
+          "failedTitle": "{{provider}} 服务不可用"
         },
         "basic": {
           "host": "服务器地址",
@@ -2946,6 +3058,8 @@
         "emptyResponse": "无响应内容",
         "confidenceLabel": "置信度",
         "refsShort": "{{count}} 个引用",
+        "totalDuration": "总耗时 {{duration}} 秒",
+        "firstTokenDuration": "首字 {{duration}} 秒",
         "noAnswerHint": "未找到可靠答案（{{reason}}）。top1={{top1}}，支持引用={{supporting_refs}}。",
         "rawAnswer": "原始回答",
         "modes": {

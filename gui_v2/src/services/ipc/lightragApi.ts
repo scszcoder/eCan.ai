@@ -82,9 +82,11 @@ export type ProcessingProgress = {
   failed_count: number;
   total_count: number;
   progress_percentage: number;
+  pipeline_busy?: boolean;
   track_id?: string;
   documents?: any[];
   pipeline?: {
+    busy?: boolean;
     job_name?: string;
     current_batch?: number;
     total_batches?: number;
@@ -217,6 +219,22 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
       return apiInstance.executeRequest<T>('lightrag.getSettings', {});
     },
 
+    async getParserEngines<T>(): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.getParserEngines', {});
+    },
+
+    async testParserConfig<T>(payload: { engine: string; settings: Record<string, string> }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.testParserConfig', payload);
+    },
+
+    async testModelServiceConfig<T>(payload: { kind: 'llm' | 'embedding' | 'rerank'; settings: Record<string, string> }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.testModelServiceConfig', payload);
+    },
+
+    async testSystemProvider<T>(payload: { kind: 'llm' | 'embedding' | 'rerank'; provider: string; model?: string; host?: string }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.testSystemProvider', payload);
+    },
+
     async queryGraphs<T>(payload: { label: string; maxDepth: number; maxNodes: number }): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.queryGraphs', payload);
     },
@@ -270,4 +288,3 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
     }
   };
 }
-

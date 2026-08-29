@@ -15,6 +15,10 @@ interface ChatMessageProps {
   loading?: boolean;
   confidence?: any; // Confidence score data
   rawContent?: string;
+  retrievalMetrics?: {
+    elapsedMs?: number | null;
+    firstTokenMs?: number | null;
+  };
 }
 
 // Helper to parse COT content
@@ -58,7 +62,7 @@ const parseCOTContent = (content: string) => {
   };
 };
 
-const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: isThinkingProp, thinkingTime, loading, confidence, rawContent }) => {
+const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: isThinkingProp, thinkingTime, loading, confidence, rawContent, retrievalMetrics }) => {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
@@ -281,6 +285,26 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: is
           )}
         </div>
       </div>
+
+      {role === 'assistant' && retrievalMetrics?.elapsedMs != null && !isThinking && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          paddingLeft: 4,
+          color: token.colorTextTertiary,
+          fontSize: 11,
+        }}>
+          <span>⏱ {t('pages.knowledge.retrieval.totalDuration', {
+            duration: (retrievalMetrics.elapsedMs / 1000).toFixed(2),
+          })}</span>
+          {retrievalMetrics.firstTokenMs != null && (
+            <span>{t('pages.knowledge.retrieval.firstTokenDuration', {
+              duration: (retrievalMetrics.firstTokenMs / 1000).toFixed(2),
+            })}</span>
+          )}
+        </div>
+      )}
       
       {/* Confidence Score Display (Assistant only) */}
       {role === 'assistant' && confidence && !isThinking && (

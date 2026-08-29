@@ -361,13 +361,18 @@ const DocumentsTab: React.FC = () => {
 
       statusCountsInFlightRef.current = true;
       try {
-        const statusResponse = await get_ipc_api().lightragApi.getStatusCounts({ workspace: workspace || undefined });
+        // Counts can be zero while LightRAG is parsing or analyzing. Progress
+        // also includes the authoritative pipeline busy flag.
+        const statusResponse = await get_ipc_api().lightragApi.getProcessingProgress(undefined, workspace || undefined);
         if (statusResponse.success && statusResponse.data) {
           const statusData = statusResponse.data as any;
-          const currentStatusCounts = statusData?.data?.status_counts || statusData?.status_counts || {};
-          const newFailedCount = currentStatusCounts?.FAILED || currentStatusCounts?.failed || 0;
-          const processingCount = currentStatusCounts?.PROCESSING || currentStatusCounts?.processing || 0;
-          const pendingCount = currentStatusCounts?.PENDING || currentStatusCounts?.pending || 0;
+          const currentStatusCounts = statusData?.data || statusData;
+          const newFailedCount = currentStatusCounts?.failed_count || 0;
+          const processingCount = currentStatusCounts?.processing_count || 0;
+          const pendingCount = currentStatusCounts?.pending_count || 0;
+          const pipelineBusy = Boolean(
+            currentStatusCounts?.pipeline_busy || currentStatusCounts?.pipeline?.busy
+          );
 
           console.log(`[DocumentsTab] Poll #${pollCount}: FAILED=${newFailedCount} (was ${previousFailedCount}), PROCESSING=${processingCount}, PENDING=${pendingCount}`);
           console.log(`[DocumentsTab] Full status counts:`, currentStatusCounts);
@@ -448,7 +453,7 @@ const DocumentsTab: React.FC = () => {
             return;
           }
 
-          if (processingCount === 0 && pendingCount === 0 && pollCount >= 2) {
+          if (!pipelineBusy && processingCount === 0 && pendingCount === 0 && pollCount >= 2) {
             console.log(`[DocumentsTab] No documents pending or processing, stopping polling early`);
             appendLog('✅ 当前没有待处理或处理中任务，结束失败检测轮询');
 
@@ -670,6 +675,7 @@ const DocumentsTab: React.FC = () => {
 
       setSelectedFiles([]);
       appendLog(t('pages.knowledge.documents.scanStarted'));
+      startProgressPolling();
       setTimeout(async () => {
         await loadDocuments();
         startFailureDetectionPolling(statusCounts.FAILED);
@@ -709,6 +715,7 @@ const DocumentsTab: React.FC = () => {
 
       setSelectedDirs([]);
       appendLog(t('pages.knowledge.documents.scanStarted'));
+      startProgressPolling();
       setTimeout(async () => {
         await loadDocuments();
         startFailureDetectionPolling(statusCounts.FAILED);

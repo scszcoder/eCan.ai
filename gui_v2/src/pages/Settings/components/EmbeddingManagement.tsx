@@ -25,6 +25,7 @@ import { saveOllamaConfig } from "../utils/ollamaConfigUtils";
 import { isRyoAISProvider, validateRyoAISProvider } from "../utils/ryoaisValidation";
 import { saveRyoAISConfig } from "../utils/ryoaisConfigUtils";
 import { useIsCN } from "../../../contexts/AppConfigContext";
+import ProviderStatus from "./ProviderStatus";
 
 interface EmbeddingManagementProps {
   username: string | null;
@@ -899,12 +900,12 @@ const EmbeddingManagement = React.forwardRef<
       dataIndex: "api_key_configured",
       key: "status",
       width: 120,
-      render: (isConfigured: boolean) => (
-        <span style={{ color: isConfigured ? "#52c41a" : "#ff4d4f" }}>
-          {isConfigured
-            ? `✅ ${t("pages.settings.configured")}`
-            : `❌ ${t("pages.settings.not_configured")}`}
-        </span>
+      render: (_: boolean, record: LLMProvider) => (
+        <ProviderStatus
+          kind="embedding"
+          provider={record}
+          model={currentModelSelections[record.name] || record.preferred_model || record.default_model || undefined}
+        />
       ),
     },
     {
@@ -944,7 +945,7 @@ const EmbeddingManagement = React.forwardRef<
                     type="primary"
                     id={`${record.name}-ollama-save`}
                     onClick={async () => {
-                      if (tempOllamaHost) {
+                      if (tempOllamaHost !== undefined) {
                         await saveOllamaConfig({
                           providerType: 'embedding',
                           host: tempOllamaHost,
@@ -1063,7 +1064,7 @@ const EmbeddingManagement = React.forwardRef<
                     type="primary"
                     id={`${record.name}-ryoais-save`}
                     onClick={async () => {
-                      if (tempRyoaisHost) {
+                      if (tempRyoaisHost !== undefined) {
                         await saveRyoAISConfig({
                           providerType: 'embedding',
                           host: tempRyoaisHost,
@@ -1552,4 +1553,3 @@ const EmbeddingManagement = React.forwardRef<
 EmbeddingManagement.displayName = 'EmbeddingManagement';
 
 export default EmbeddingManagement;
-

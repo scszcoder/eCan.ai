@@ -24,19 +24,19 @@ export const saveRyoAISConfig = async (params: SaveRyoAISConfigParams): Promise<
 
   try {
     // Validate host format
-    if (!host || (!host.startsWith('http://') && !host.startsWith('https://'))) {
+    if (host && !host.startsWith('http://') && !host.startsWith('https://')) {
       onError?.('Invalid host URL. Must start with http:// or https://');
       return;
     }
 
-    const dummyApiKey = apiKey && apiKey.trim() ? apiKey : 'ryoais';
+    const submittedApiKey = apiKey ?? '';
     let response;
     
     // Call the appropriate API method based on provider type
     if (providerType === 'llm') {
       response = await get_ipc_api().updateLLMProvider<{ message: string }>(
         'ryoais',
-        dummyApiKey,
+        submittedApiKey,
         undefined, // azureEndpoint
         undefined, // awsAccessKeyId
         undefined, // awsSecretAccessKey
@@ -45,14 +45,14 @@ export const saveRyoAISConfig = async (params: SaveRyoAISConfigParams): Promise<
     } else if (providerType === 'embedding') {
       response = await get_ipc_api().updateEmbeddingProvider<{ message: string }>(
         'ryoais',
-        dummyApiKey,
+        submittedApiKey,
         undefined, // azureEndpoint
         host       // baseUrl
       );
     } else if (providerType === 'rerank') {
       response = await get_ipc_api().updateRerankProvider<{ message: string }>(
         'ryoais',
-        dummyApiKey,
+        submittedApiKey,
         undefined, // azureEndpoint
         host       // baseUrl
       );
