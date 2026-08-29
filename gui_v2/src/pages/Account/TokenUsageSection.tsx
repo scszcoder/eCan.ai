@@ -11,12 +11,16 @@ const { Title, Text } = Typography;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+type DisplayCurrency = 'CNY' | 'USD';
+
 interface TimeSeriesPoint {
     period: string;
     input_tokens: number;
     output_tokens: number;
     total_tokens: number;
     cost_usd: number;
+    /** Cost in the app variant's display currency (CN builds: RMB). */
+    cost?: number;
     invocation_count: number;
 }
 
@@ -46,8 +50,8 @@ interface BreakdownData {
 }
 
 interface AlarmData {
-    daily: { input_tokens: number; output_tokens: number; total_tokens: number; cost_usd: number };
-    monthly: { input_tokens: number; output_tokens: number; total_tokens: number; cost_usd: number; month: number; year: number };
+    daily: { input_tokens: number; output_tokens: number; total_tokens: number; cost_usd: number; cost?: number; currency?: DisplayCurrency };
+    monthly: { input_tokens: number; output_tokens: number; total_tokens: number; cost_usd: number; cost?: number; currency?: DisplayCurrency; month: number; year: number };
     alarm_levels: { daily_token_limit: number; monthly_token_limit: number };
 }
 
@@ -197,10 +201,11 @@ function formatTokenCount(n: number): string {
     return String(n);
 }
 
-function formatCurrency(n: number): string {
-    if (n < 0.01) return '$0.00';
-    if (n < 1) return `$${n.toFixed(3)}`;
-    return `$${n.toFixed(2)}`;
+function formatCurrency(n: number, currency: DisplayCurrency = 'USD'): string {
+    const symbol = currency === 'CNY' ? '¥' : '$';
+    if (n < 0.01) return `${symbol}0.00`;
+    if (n < 1) return `${symbol}${n.toFixed(3)}`;
+    return `${symbol}${n.toFixed(2)}`;
 }
 
 function seriesToCSV(series: TimeSeriesPoint[]): string {
@@ -229,6 +234,7 @@ const TokenUsageSection: React.FC = () => {
     // === State ===
     const [period, setPeriod] = useState<PeriodKey>('1m');
     const [series, setSeries] = useState<TimeSeriesPoint[]>([]);
+    const [currency, setCurrency] = useState<DisplayCurrency>('USD');
     const [granularity, setGranularity] = useState<string>('day');
     const [loadingSeries, setLoadingSeries] = useState(false);
 
@@ -249,10 +255,11 @@ const TokenUsageSection: React.FC = () => {
     const fetchTimeSeries = useCallback(async (p: PeriodKey) => {
         setLoadingSeries(true);
         try {
-            const res = await ipcApi.getTokenUsageTimeSeries<{ series: TimeSeriesPoint[]; granularity: string }>(p);
+            const res = await ipcApi.getTokenUsageTimeSeries<{ series: TimeSeriesPoint[]; granularity: string; currency?: DisplayCurrency }>(p);
             if (res.success && res.data) {
                 setSeries(res.data.series);
                 setGranularity(res.data.granularity);
+                if (res.data.currency) setCurrency(res.data.currency);
             }
         } catch (e) {
             console.error('[TokenUsageSection] fetchTimeSeries error:', e);
@@ -368,7 +375,7 @@ const TokenUsageSection: React.FC = () => {
 
     // === Stats ===
     const totalTokens = series.reduce((sum, p) => sum + p.total_tokens, 0);
-    const totalCost = series.reduce((sum, p) => sum + p.cost_usd, 0);
+    const totalCost = series.reduce((sum, p) => sum + (p.cost ?? p.cost_usd), 0);
     const totalInvocations = series.reduce((sum, p) => sum + p.invocation_count, 0);
 
     // === Chart Data ===
@@ -529,7 +536,7 @@ const TokenUsageSection: React.FC = () => {
                                     <Statistic
                                         title={t('tokenUsage.estimatedCost', 'Est. Cost')}
                                         value={totalCost}
-                                        formatter={(val) => formatCurrency(Number(val))}
+                                        formatter={(val) => formatCurrency(Number(val), currency)}
                                         valueStyle={{ color: '#22c55e', fontFamily: "'SF Mono', 'Fira Code', monospace" }}
                                     />
                                 </StatCard>
@@ -659,7 +666,7 @@ const TokenUsageSection: React.FC = () => {
                                                     </ProgressWrapper>
                                                     <AlarmMeta>
                                                         <span>{t('tokenUsage.costToday', 'Cost today')}</span>
-                                                        <span style={{ color: '#22c55e' }}>{formatCurrency(alarmData.daily.cost_usd)}</span>
+                                                        <span style={{ color: '#22c55e' }}>{formatCurrency(alarmData.daily.cost ?? alarmData.daily.cost_usd, alarmData.daily.currency ?? currency)}</span>
                                                     </AlarmMeta>
                                                 </AlarmItem>
                                             </div>
@@ -676,7 +683,7 @@ const TokenUsageSection: React.FC = () => {
                                                     </ProgressWrapper>
                                                     <AlarmMeta>
                                                         <span>{t('tokenUsage.costThisMonth', 'Cost this month')}</span>
-                                                        <span style={{ color: '#22c55e' }}>{formatCurrency(alarmData.monthly.cost_usd)}</span>
+                                                        <span style={{ color: '#22c55e' }}>{formatCurrency(alarmData.monthly.cost ?? alarmData.monthly.cost_usd, alarmData.monthly.currency ?? currency)}</span>
                                                     </AlarmMeta>
                                                 </AlarmItem>
                                             </div>

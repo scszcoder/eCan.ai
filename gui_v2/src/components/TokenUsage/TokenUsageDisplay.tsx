@@ -12,6 +12,9 @@ export interface TokenUsageData {
   output_tokens: number;
   total_tokens: number;
   cost_usd: number;
+  /** Cost in the app variant's display currency (CN builds: RMB). */
+  cost?: number;
+  currency?: 'CNY' | 'USD';
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -32,9 +35,10 @@ const formatNumber = (num: number): string => {
   return num.toLocaleString();
 };
 
-const formatCurrency = (num: number): string => {
-  if (num < 0.01) return '$0';
-  return `$${num.toFixed(2)}`;
+const formatCurrency = (num: number, currency: 'CNY' | 'USD' = 'USD'): string => {
+  const symbol = currency === 'CNY' ? '¥' : '$';
+  if (num < 0.01) return `${symbol}0`;
+  return `${symbol}${num.toFixed(2)}`;
 };
 
 const getUsageLevel = (percentage: number): 'safe' | 'warning' | 'danger' => {
@@ -216,7 +220,8 @@ export const TokenUsageDisplay: React.FC = () => {
   const inputTokens = data?.input_tokens ?? 0;
   const outputTokens = data?.output_tokens ?? 0;
   const totalTokens = data?.total_tokens ?? inputTokens + outputTokens;
-  const totalCost = data?.cost_usd ?? calculateCost(inputTokens, outputTokens);
+  const currency = data?.currency ?? 'USD';
+  const totalCost = data?.cost ?? data?.cost_usd ?? calculateCost(inputTokens, outputTokens);
 
   const usagePercentage = (totalTokens / MONTHLY_TOKEN_LIMIT) * 100;
   const usageLevel = getUsageLevel(usagePercentage);
@@ -227,8 +232,8 @@ export const TokenUsageDisplay: React.FC = () => {
   const progressOffset = circumference - (circumference * Math.min(usagePercentage, 100)) / 100;
 
   const titleHint = isCN
-    ? `本月至今：输入 ${inputTokens.toLocaleString()} / 输出 ${outputTokens.toLocaleString()} 词元，费用 ${formatCurrency(totalCost)}。点击查看详情`
-    : `Month to date: ${inputTokens.toLocaleString()} in / ${outputTokens.toLocaleString()} out tokens, ${formatCurrency(totalCost)}. Click for details`;
+    ? `本月至今：输入 ${inputTokens.toLocaleString()} / 输出 ${outputTokens.toLocaleString()} 词元，费用 ${formatCurrency(totalCost, currency)}。点击查看详情`
+    : `Month to date: ${inputTokens.toLocaleString()} in / ${outputTokens.toLocaleString()} out tokens, ${formatCurrency(totalCost, currency)}. Click for details`;
 
   if (loading) {
     return (
@@ -272,7 +277,7 @@ export const TokenUsageDisplay: React.FC = () => {
             {formatNumber(outputTokens)}
           </TokenRow>
         </TokenColumn>
-        <CostValue>{formatCurrency(totalCost)}</CostValue>
+        <CostValue>{formatCurrency(totalCost, currency)}</CostValue>
       </Content>
     </Wrapper>
   );
