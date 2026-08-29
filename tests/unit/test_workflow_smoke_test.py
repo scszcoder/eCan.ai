@@ -970,15 +970,24 @@ def test_release_cn_has_validate_gitee_credentials_per_job():
 
     checkout_count = text.count("- name: Checkout from Gitee mirror")
     validate_count = text.count("- name: Validate Gitee credentials")
-    assert checkout_count == validate_count == 5, (
-        f"release-cn.yml must have 5 'Validate Gitee credentials' "
-        f"steps paired with 5 'Checkout from Gitee mirror' steps; "
+    # validate-tag runs on GitHub-hosted Ubuntu and has its own early token
+    # validator, but checks out from GitHub. The four platform build jobs are
+    # the only jobs that conditionally check out from Gitee.
+    assert checkout_count == 4 and validate_count == 5, (
+        f"release-cn.yml must have 4 Gitee checkout steps and 5 token "
+        f"validators (validate-tag plus the 4 build jobs); "
         f"found checkout={checkout_count}, validate={validate_count}. "
-        f"Each platform's build job needs its own validator so a "
+        f"Each platform build job needs its own validator so a "
         f"missing GITEE_TOKEN fails fast with a precise message "
         f"instead of the opaque 'could not read Username for "
         f"https://gitee.com' exit-128."
     )
+
+    # Checkout runs before repository files exist. It must also avoid Gitee's
+    # /raw route, which the China self-hosted runner gateway rejects even when
+    # Git Smart-HTTP is reachable.
+    assert "/raw/" not in text
+    assert ". build_system/scripts/checkout-gitee.ps1" not in text
 
     # The validator step must appear in each job BEFORE the checkout
     # step. If a future refactor moves it after, the early-fail
@@ -986,7 +995,7 @@ def test_release_cn_has_validate_gitee_credentials_per_job():
     # opaque error first.
     job_blocks = re.split(r"^\s{4}steps:\s*$", text, flags=re.MULTILINE)
     for block in job_blocks:
-        if "Checkout from Gitee mirror" not in block:
+        if "- name: Checkout from Gitee mirror" not in block:
             continue
         # Find the relative positions of the two step names within
         # this job's step list.
