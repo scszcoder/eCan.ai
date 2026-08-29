@@ -100,6 +100,18 @@ user-managed display name alongside it; never infer a `wxid_*` value.
   ```
 - PHP callback syntax validation passed.
 
+## Desktop Callback Compatibility Follow-Up
+
+**Date:** 2026-08-29
+
+The desktop QR dialog depends on same-origin local storage after the OAuth
+callback. The callback now always writes the durable application session token,
+`isAuthenticated=true`, and `username=wechat_<raw-openid>` before selecting the
+post-login page. Web QR login continues to redirect using its CloudBase ticket;
+desktop QR login remains on a success page so the embedded dialog can read the
+stored values. The provisioner's legacy hashed `accounts.user_name` is not used
+as the desktop/web identity because the raw OAuth OpenID is canonical.
+
 ## Web Recovery Follow-Up
 
 **Date:** 2026-08-28
