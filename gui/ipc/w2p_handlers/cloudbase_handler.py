@@ -130,12 +130,17 @@ def _ensure_cloud_account(access_token: str, user_info: "CloudBaseUserInfo",
     ``public.accounts.subs``, so an email/phone login whose account row is
     missing must get one created at login time. POSTs an ``ensure_account``
     event to the ``ecbAccountManager`` SCF route (same TCB origin as the
-    GraphQL endpoint) with the fresh CloudBase access token as bearer — the
-    server verifies the token itself and creates/links the row idempotently.
+    GraphQL endpoint).
+
+    Contract (deployed server, 2026-08-29): the CloudBase public Event
+    gateway STRIPS the Authorization header on this route, so the fresh
+    CloudBase access token travels in the JSON body as ``accessToken``. The
+    server verifies it directly with CloudBase ``/auth/v1/user/me`` and
+    derives the real subject/email/phone from there — it does not trust any
+    caller-provided identity fields, so none are sent.
 
     Fire-and-forget in a daemon thread: login must never block or fail on
-    this. Any non-200 is logged as WARNING (expected until the matching
-    server-side handler is deployed).
+    this. Any non-200 is logged as WARNING.
     """
     def _do():
         try:
@@ -154,33 +159,30 @@ def _ensure_cloud_account(access_token: str, user_info: "CloudBaseUserInfo",
 
             body = {
                 "action": "ensure_account",
-                "email": user_info.email or "",
-                "phone": user_info.phone_number or "",
-                "sub": user_info.sub or "",
-                "username": user_info.username or user_info.email
-                            or user_info.phone_number or "",
-                "login_type": login_type,
+                "provider": login_type,
+                "accessToken": access_token,
             }
             req = _rq.Request(
                 url,
                 data=_json.dumps(body).encode("utf-8"),
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {access_token}",
-                },
+                headers={"Content-Type": "application/json"},
                 method="POST",
             )
+            # Local identifier for log correlation only — never sent to the
+            # server (it derives identity from the verified token).
+            who = user_info.email or user_info.phone_number or user_info.sub or "?"
             try:
                 with _rq.urlopen(req, timeout=15) as resp:
                     raw = resp.read(2048).decode("utf-8", "replace")
                     logger.info(
-                        f"[EnsureAccount] ensure_account status={resp.status} "
-                        f"resp={raw[:300]}"
+                        f"[EnsureAccount] ensure_account user={who!r} "
+                        f"status={resp.status} resp={raw[:300]}"
                     )
             except _err.HTTPError as he:
                 raw = he.read(1024).decode("utf-8", "replace")
                 logger.warning(
-                    f"[EnsureAccount] ensure_account HTTP {he.code}: {raw[:300]}"
+                    f"[EnsureAccount] ensure_account user={who!r} "
+                    f"HTTP {he.code}: {raw[:300]}"
                 )
         except Exception as exc:
             logger.warning(f"[EnsureAccount] ensure_account skipped: {exc}")
