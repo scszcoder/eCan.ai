@@ -120,16 +120,33 @@ const RingDot = styled.div<{ $level: 'safe' | 'warning' | 'danger' }>`
 const Content = styled.div`
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   line-height: 1;
 `;
 
-const MainValue = styled.span<{ $level: 'safe' | 'warning' | 'danger' }>`
-  font-size: 13px;
+// Two stacked rows: input tokens on top, output tokens below (MTD).
+const TokenColumn = styled.div`
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+`;
+
+const TokenRow = styled.span<{ $level: 'safe' | 'warning' | 'danger' }>`
+  font-size: 10px;
   font-weight: 600;
   font-family: 'SF Mono', 'Fira Code', monospace;
   color: ${props => getUsageColor(props.$level)};
   letter-spacing: -0.02em;
+  line-height: 1.1;
+  white-space: nowrap;
+`;
+
+const RowLabel = styled.span`
+  display: inline-block;
+  width: 10px;
+  color: rgba(148, 163, 184, 0.55);
+  font-weight: 500;
 `;
 
 const CostValue = styled.span`
@@ -137,11 +154,7 @@ const CostValue = styled.span`
   font-weight: 500;
   font-family: 'SF Mono', 'Fira Code', monospace;
   color: rgba(148, 163, 184, 0.6);
-`;
-
-const Dot = styled.span`
-  color: rgba(148, 163, 184, 0.3);
-  font-size: 10px;
+  white-space: nowrap;
 `;
 
 const LoadingWrapper = styled.div`
@@ -200,8 +213,10 @@ export const TokenUsageDisplay: React.FC = () => {
   const language = i18n.language;
   const isCN = language === 'zh-CN';
 
-  const totalTokens = data?.total_tokens ?? 0;
-  const totalCost = data?.cost_usd ?? calculateCost(data?.input_tokens ?? 0, data?.output_tokens ?? 0);
+  const inputTokens = data?.input_tokens ?? 0;
+  const outputTokens = data?.output_tokens ?? 0;
+  const totalTokens = data?.total_tokens ?? inputTokens + outputTokens;
+  const totalCost = data?.cost_usd ?? calculateCost(inputTokens, outputTokens);
 
   const usagePercentage = (totalTokens / MONTHLY_TOKEN_LIMIT) * 100;
   const usageLevel = getUsageLevel(usagePercentage);
@@ -211,7 +226,9 @@ export const TokenUsageDisplay: React.FC = () => {
   const circumference = 2 * Math.PI * radius;
   const progressOffset = circumference - (circumference * Math.min(usagePercentage, 100)) / 100;
 
-  const titleHint = isCN ? '点击查看词元使用详情' : 'Click to view token usage details';
+  const titleHint = isCN
+    ? `本月至今：输入 ${inputTokens.toLocaleString()} / 输出 ${outputTokens.toLocaleString()} 词元，费用 ${formatCurrency(totalCost)}。点击查看详情`
+    : `Month to date: ${inputTokens.toLocaleString()} in / ${outputTokens.toLocaleString()} out tokens, ${formatCurrency(totalCost)}. Click for details`;
 
   if (loading) {
     return (
@@ -243,12 +260,18 @@ export const TokenUsageDisplay: React.FC = () => {
         </RingCenter>
       </RingContainer>
 
-      {/* Compact Stats */}
+      {/* Month-to-date stats: input / output token lines + fee */}
       <Content>
-        <MainValue $level={usageLevel}>
-          {formatNumber(totalTokens)}
-        </MainValue>
-        <Dot>·</Dot>
+        <TokenColumn>
+          <TokenRow $level={usageLevel}>
+            <RowLabel>↑</RowLabel>
+            {formatNumber(inputTokens)}
+          </TokenRow>
+          <TokenRow $level={usageLevel}>
+            <RowLabel>↓</RowLabel>
+            {formatNumber(outputTokens)}
+          </TokenRow>
+        </TokenColumn>
         <CostValue>{formatCurrency(totalCost)}</CostValue>
       </Content>
     </Wrapper>
