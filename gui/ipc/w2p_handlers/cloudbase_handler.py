@@ -122,6 +122,76 @@ def _apply_endpoints_to_general_settings(gs, cfg_ep: Dict[str, str]) -> bool:
     return changed
 
 
+def _ensure_cloud_account(access_token: str, user_info: "CloudBaseUserInfo",
+                          login_type: str) -> None:
+    """Best-effort: make sure the CN ``accounts`` table has a row for this user.
+
+    2026-08-29: the CN ``llm_proxy`` authorizes proxied LLM calls against
+    ``public.accounts.subs``, so an email/phone login whose account row is
+    missing must get one created at login time. POSTs an ``ensure_account``
+    event to the ``ecbAccountManager`` SCF route (same TCB origin as the
+    GraphQL endpoint) with the fresh CloudBase access token as bearer — the
+    server verifies the token itself and creates/links the row idempotently.
+
+    Fire-and-forget in a daemon thread: login must never block or fail on
+    this. Any non-200 is logged as WARNING (expected until the matching
+    server-side handler is deployed).
+    """
+    def _do():
+        try:
+            import json as _json
+            import urllib.request as _rq
+            import urllib.error as _err
+            from urllib.parse import urlsplit
+
+            from agent.cloud_api.endpoints import get_endpoint_config
+            gql = (get_endpoint_config().graphql_endpoint or "").strip()
+            if not gql:
+                logger.warning("[EnsureAccount] no GraphQL endpoint configured — skipped")
+                return
+            parts = urlsplit(gql)
+            url = f"{parts.scheme}://{parts.netloc}/ecbAccountManager"
+
+            body = {
+                "action": "ensure_account",
+                "email": user_info.email or "",
+                "phone": user_info.phone_number or "",
+                "sub": user_info.sub or "",
+                "username": user_info.username or user_info.email
+                            or user_info.phone_number or "",
+                "login_type": login_type,
+            }
+            req = _rq.Request(
+                url,
+                data=_json.dumps(body).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {access_token}",
+                },
+                method="POST",
+            )
+            try:
+                with _rq.urlopen(req, timeout=15) as resp:
+                    raw = resp.read(2048).decode("utf-8", "replace")
+                    logger.info(
+                        f"[EnsureAccount] ensure_account status={resp.status} "
+                        f"resp={raw[:300]}"
+                    )
+            except _err.HTTPError as he:
+                raw = he.read(1024).decode("utf-8", "replace")
+                logger.warning(
+                    f"[EnsureAccount] ensure_account HTTP {he.code}: {raw[:300]}"
+                )
+        except Exception as exc:
+            logger.warning(f"[EnsureAccount] ensure_account skipped: {exc}")
+
+    try:
+        import threading
+        threading.Thread(target=_do, daemon=True, name="cn-ensure-account").start()
+    except Exception as exc:
+        logger.warning(f"[EnsureAccount] thread start failed: {exc}")
+
+
 def _build_login_response(request: IPCRequest, token: str,
                           refresh_token: str,
                           user_info: CloudBaseUserInfo,
@@ -236,6 +306,14 @@ def _build_login_response(request: IPCRequest, token: str,
                 f"[CloudBaseLogin] complete_login_from_provider failed: {e}",
                 exc_info=True,
             )
+
+    # Step 1.25: server-side account provisioning. WeChat logins get their
+    # accounts row from the PHP-callback/wechat provision path; email/phone
+    # logins had NO creation path, leaving llm_proxy authorization (which
+    # reads public.accounts.subs) to fail for fresh accounts. Best-effort,
+    # background — see _ensure_cloud_account.
+    if login_type in ("password", "phone") and token:
+        _ensure_cloud_account(token, user_info, login_type)
 
     # Step 1.5: tell SessionSupervisor the fresh token is installed.
     #
