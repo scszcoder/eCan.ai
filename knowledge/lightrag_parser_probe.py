@@ -50,9 +50,14 @@ def _error_detail(response: requests.Response) -> str:
     return (response.text or response.reason or "未知错误").strip()[:500]
 
 
-def _probe_health(engine: str, endpoint: str) -> Dict[str, Any]:
+def _probe_health(
+    engine: str,
+    endpoint: str,
+    headers: Dict[str, str] | None = None,
+    verify_ssl: bool = False,
+) -> Dict[str, Any]:
     url = f"{endpoint}/health"
-    response = _request("GET", url)
+    response = _request("GET", url, headers=headers or {}, verify=verify_ssl)
     if not response.ok:
         raise RuntimeError(
             f"{engine} 健康检查返回 HTTP {response.status_code}：{_error_detail(response)}"
@@ -62,15 +67,26 @@ def _probe_health(engine: str, endpoint: str) -> Dict[str, Any]:
         "engine": engine.lower(),
         "url": url,
         "status_code": response.status_code,
+        "ssl_verify": verify_ssl,
         "message": f"{engine} 连接成功，健康检查通过",
     }
 
 
 def probe_mineru(settings: Dict[str, Any]) -> Dict[str, Any]:
     mode = str(settings.get("MINERU_API_MODE") or "local").strip().lower()
+    ssl_value = str(settings.get("SSL_VERIFY", "false")).strip().lower()
+    verify_ssl = ssl_value in {"1", "true", "yes", "on"}
     if mode == "local":
         endpoint = _base_url(settings.get("MINERU_LOCAL_ENDPOINT"), "MINERU_LOCAL_ENDPOINT")
-        result = _probe_health("MinerU local", endpoint)
+        token = str(settings.get("MINERU_API_TOKEN") or "").strip()
+        if not token:
+            raise ValueError("local 模式未配置 MINERU_API_TOKEN")
+        result = _probe_health(
+            "MinerU local",
+            endpoint,
+            headers={"Authorization": f"Bearer {token}"},
+            verify_ssl=verify_ssl,
+        )
         result["mode"] = mode
         return result
     if mode != "official":
@@ -89,7 +105,12 @@ def probe_mineru(settings: Dict[str, Any]) -> Dict[str, Any]:
     # invalid. Generic 404 pages are rejected to avoid false positives.
     probe_id = quote("ecan-configuration-probe", safe="")
     url = f"{endpoint}/api/v4/extract/task/{probe_id}"
-    response = _request("GET", url, headers={"Authorization": f"Bearer {token}"})
+    response = _request(
+        "GET",
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+        verify=verify_ssl,
+    )
     if response.status_code in (401, 403):
         raise RuntimeError(f"MinerU official 鉴权失败（HTTP {response.status_code}），请检查 MINERU_API_TOKEN")
     content_type = response.headers.get("content-type", "").lower()
@@ -105,13 +126,24 @@ def probe_mineru(settings: Dict[str, Any]) -> Dict[str, Any]:
         "mode": mode,
         "url": url,
         "status_code": response.status_code,
+        "ssl_verify": verify_ssl,
         "message": "MinerU official 地址可用，API 鉴权已通过",
     }
 
 
 def probe_docling(settings: Dict[str, Any]) -> Dict[str, Any]:
     endpoint = _base_url(settings.get("DOCLING_ENDPOINT"), "DOCLING_ENDPOINT")
-    return _probe_health("Docling", endpoint)
+    api_key = str(settings.get("DOCLING_API_KEY") or "").strip()
+    if not api_key:
+        raise ValueError("未配置 DOCLING_API_KEY")
+    ssl_value = str(settings.get("SSL_VERIFY", "false")).strip().lower()
+    verify_ssl = ssl_value in {"1", "true", "yes", "on"}
+    return _probe_health(
+        "Docling",
+        endpoint,
+        headers={"Authorization": f"Bearer {api_key}"},
+        verify_ssl=verify_ssl,
+    )
 
 
 def probe_parser(engine: str, settings: Dict[str, Any]) -> Dict[str, Any]:

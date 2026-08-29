@@ -1336,12 +1336,27 @@ class LightragClient:
             logger.info(f"[LightragClient] get_documents_paginated called with params: {params} (workspace={workspace!r})")
             logger.info(f"[LightragClient] Calling LightRAG API: POST {self.base_url}/documents/paginated")
             
-            r = self.session.post(
-                f"{self.base_url}/documents/paginated",
-                json=params,
-                headers=_ws_headers(workspace),
-                timeout=30,
-            )
+            # The settings page reloads this list immediately after requesting
+            # a LightRAG restart. There is a short window after the old process
+            # exits and before the new one binds the port. Absorb that expected
+            # startup race here instead of returning a noisy GraphQL error.
+            for attempt in range(4):
+                try:
+                    r = self.session.post(
+                        f"{self.base_url}/documents/paginated",
+                        json=params,
+                        headers=_ws_headers(workspace),
+                        timeout=30,
+                    )
+                    break
+                except requests.exceptions.ConnectionError:
+                    if attempt == 3:
+                        raise
+                    logger.debug(
+                        "[LightragClient] Server is restarting; retrying document "
+                        f"list request ({attempt + 1}/3)"
+                    )
+                    time.sleep(0.5)
             
             logger.info(f"[LightragClient] LightRAG API response status: {r.status_code}")
             

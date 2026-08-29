@@ -251,13 +251,11 @@ export const STORAGE_DOC_STATUS_PROVIDERS: ProviderConfig[] = [
 // filtered out on the backend before persisting to lightrag.env.
 export const PARSER_PRESETS = {
   native: '*:native-teP,*:legacy-R',
-  // Canonical upstream rules (docs/FileProcessingPipeline.md §1.3):
-  // native handles docx/md/textpack; mineru/docling pick up everything else
-  // they support (pdf / office / images) because native is skipped for those
-  // suffixes; legacy is the final fallback. A rule for an external engine
-  // requires its endpoint to be configured or LightRAG refuses to start.
-  mineru: '*:native-iteP,*:mineru-iteP,*:legacy-R',
-  docling: '*:native-iteP,*:docling-iteP,*:legacy-R'
+  // Rules are first-match-wins. Keep the selected external engine first;
+  // otherwise native consumes DOCX before MinerU/Docling can handle it.
+  // Native and legacy remain capability-based fallbacks.
+  mineru: '*:mineru-teP,*:native-teP,*:legacy-R',
+  docling: '*:docling-teP,*:native-teP,*:legacy-R'
 } as const;
 
 export const PARSER_PROVIDERS: ProviderConfig[] = [
@@ -266,6 +264,7 @@ export const PARSER_PROVIDERS: ProviderConfig[] = [
     name: 'providers.parserNative',
     description: 'LightRAG built-in native parser (default, no external service required)',
     fields: [
+      { key: 'PARSER_IMAGE_ANALYSIS', label: 'fields.parserImageAnalysis', type: 'boolean', defaultValue: 'false', tooltip: 'tooltips.parserImageAnalysis' },
       { key: 'LIGHTRAG_PARSER', label: 'fields.parserRouting', type: 'textarea', defaultValue: PARSER_PRESETS.native, tooltip: 'tooltips.parserRouting' }
     ]
   },
@@ -274,21 +273,32 @@ export const PARSER_PROVIDERS: ProviderConfig[] = [
     name: 'providers.parserMineru',
     description: 'MinerU multimodal parser service (PDF / Office / images)',
     fields: [
+      { key: 'PARSER_IMAGE_ANALYSIS', label: 'fields.parserImageAnalysis', type: 'boolean', defaultValue: 'false', tooltip: 'tooltips.parserImageAnalysis' },
       { key: 'MINERU_API_MODE', label: 'fields.mineruProvider', type: 'select', defaultValue: 'local', options: [
         { value: 'local', label: 'fields.providerLocal' },
         { value: 'official', label: 'fields.providerOfficial' }
       ], tooltip: 'tooltips.mineruProvider' },
       { key: 'MINERU_OFFICIAL_ENDPOINT', label: 'fields.mineruEndpoint', type: 'text', defaultValue: 'https://mineru.net', placeholder: 'https://mineru.net', tooltip: 'tooltips.mineruEndpoint' },
-      { key: 'MINERU_LOCAL_ENDPOINT', label: 'fields.mineruLocalEndpoint', type: 'text', defaultValue: 'http://127.0.0.1:8000', placeholder: 'http://127.0.0.1:8000', tooltip: 'tooltips.mineruLocalEndpoint' },
-      { key: 'MINERU_API_TOKEN', label: 'fields.mineruApiKey', type: 'password', tooltip: 'tooltips.mineruApiKey' },
-      { key: 'MINERU_MODEL_VERSION', label: 'fields.mineruModelVersion', type: 'select', defaultValue: 'vlm', options: [
+      { key: 'MINERU_LOCAL_ENDPOINT', label: 'fields.mineruEndpoint', type: 'text', defaultValue: 'http://127.0.0.1:8000', placeholder: 'http://127.0.0.1:8000', tooltip: 'tooltips.mineruLocalEndpoint' },
+      { key: 'MINERU_API_TOKEN', label: 'fields.mineruApiKey', type: 'password', required: true, tooltip: 'tooltips.mineruApiKey' },
+      { key: 'MINERU_MODEL_VERSION', label: 'fields.mineruModelVersion', type: 'select', defaultValue: 'pipeline', options: [
         { value: 'pipeline', label: 'fields.mineruModelPipeline' },
         { value: 'vlm', label: 'fields.mineruModelVlm' }
       ], tooltip: 'tooltips.mineruModelVersion' },
       { key: 'MINERU_IS_OCR', label: 'fields.mineruIsOcr', type: 'boolean', defaultValue: 'false', tooltip: 'tooltips.mineruIsOcr' },
       { key: 'MINERU_LANGUAGE', label: 'fields.mineruLanguage', type: 'select', defaultValue: 'ch', options: [
-        { value: 'ch', label: 'fields.languageChinese' },
-        { value: 'en', label: 'fields.languageEnglish' }
+        { value: 'ch', label: 'fields.languageChineseMixed' },
+        { value: 'ch_server', label: 'fields.languageChineseMixedServer' },
+        { value: 'korean', label: 'fields.languageKorean' },
+        { value: 'ta', label: 'fields.languageTamil' },
+        { value: 'te', label: 'fields.languageTelugu' },
+        { value: 'ka', label: 'fields.languageKannada' },
+        { value: 'th', label: 'fields.languageThai' },
+        { value: 'el', label: 'fields.languageGreek' },
+        { value: 'arabic', label: 'fields.languageArabic' },
+        { value: 'east_slavic', label: 'fields.languageEastSlavic' },
+        { value: 'cyrillic', label: 'fields.languageCyrillic' },
+        { value: 'devanagari', label: 'fields.languageDevanagari' }
       ], tooltip: 'tooltips.mineruLanguage' },
       { key: 'MINERU_ENABLE_TABLE', label: 'fields.mineruEnableTable', type: 'boolean', defaultValue: 'true', tooltip: 'tooltips.mineruEnableTable' },
       { key: 'MINERU_ENABLE_FORMULA', label: 'fields.mineruEnableFormula', type: 'boolean', defaultValue: 'true', tooltip: 'tooltips.mineruEnableFormula' },
@@ -302,7 +312,7 @@ export const PARSER_PROVIDERS: ProviderConfig[] = [
         { value: 'txt', label: 'fields.parseMethodText' },
         { value: 'ocr', label: 'fields.parseMethodOcr' }
       ] },
-      { key: 'MINERU_LOCAL_IMAGE_ANALYSIS', label: 'fields.mineruImageAnalysis', type: 'boolean', defaultValue: 'false' },
+      { key: 'MINERU_LOCAL_IMAGE_ANALYSIS', label: 'fields.mineruServerImageProcessing', type: 'boolean', defaultValue: 'false', tooltip: 'tooltips.mineruServerImageProcessing' },
       { key: 'MINERU_ADDITIONAL_SUFFIXES', label: 'fields.mineruAdditionalSuffixes', type: 'text', placeholder: 'doc,xls,ppt', tooltip: 'tooltips.additionalSuffixes' },
       { key: 'MAX_PARALLEL_PARSE_MINERU', label: 'fields.maxParallelParse', type: 'number', defaultValue: '2', tooltip: 'tooltips.maxParallelParse' },
       { key: 'LIGHTRAG_PARSER', label: 'fields.parserRouting', type: 'textarea', defaultValue: PARSER_PRESETS.mineru, tooltip: 'tooltips.parserRouting' }
@@ -313,7 +323,9 @@ export const PARSER_PROVIDERS: ProviderConfig[] = [
     name: 'providers.parserDocling',
     description: 'Docling document parsing service, alternative to MinerU (PDF / Office / images)',
     fields: [
+      { key: 'PARSER_IMAGE_ANALYSIS', label: 'fields.parserImageAnalysis', type: 'boolean', defaultValue: 'false', tooltip: 'tooltips.parserImageAnalysis' },
       { key: 'DOCLING_ENDPOINT', label: 'fields.doclingEndpoint', type: 'text', defaultValue: 'http://localhost:5001', placeholder: 'http://localhost:5001', required: true, tooltip: 'tooltips.doclingEndpoint' },
+      { key: 'DOCLING_API_KEY', label: 'fields.doclingApiKey', type: 'password', required: true, tooltip: 'tooltips.doclingApiKey' },
       { key: 'DOCLING_ADDITIONAL_SUFFIXES', label: 'fields.doclingAdditionalSuffixes', type: 'text', placeholder: 'doc,ppt,xls', tooltip: 'tooltips.additionalSuffixes' },
       { key: 'MAX_PARALLEL_PARSE_DOCLING', label: 'fields.maxParallelParse', type: 'number', defaultValue: '2', tooltip: 'tooltips.maxParallelParse' },
       { key: 'LIGHTRAG_PARSER', label: 'fields.parserRouting', type: 'textarea', defaultValue: PARSER_PRESETS.docling, tooltip: 'tooltips.parserRouting' }

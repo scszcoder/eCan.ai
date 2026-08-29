@@ -39,6 +39,7 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   const isCurrentProviderValid = providers.some(p => p.id === currentProviderId);
   const effectiveProviderId = currentProviderId && isCurrentProviderValid ? currentProviderId : undefined;
   const currentProvider = providers.find(p => p.id === (effectiveProviderId || currentProviderId));
+  const isParserSelector = bindingKey === 'PARSING_ENGINE';
   
   // Ollama models state
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
@@ -373,6 +374,29 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
         );
       
       case 'boolean':
+        if (isParserSelector) {
+          return (
+            <div key={field.key} style={{
+              minHeight: 58,
+              padding: '10px 12px',
+              border: `1px solid ${token.colorBorderSecondary}`,
+              borderRadius: token.borderRadiusLG,
+              background: token.colorFillQuaternary,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12
+            }}>
+              <div style={{ minWidth: 0 }}>{label}</div>
+              <Switch
+                checked={value === 'true' || value === 'True'}
+                onChange={(checked) => onSettingChange(field.key, checked ? 'true' : 'false')}
+                size="small"
+                disabled={field.disabled}
+              />
+            </div>
+          );
+        }
         return (
           <div key={field.key} style={{ marginBottom: 12 }}>
             {label}
@@ -389,6 +413,50 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
         return null;
     }
   };
+
+  const visibleFields = currentProvider?.fields.filter(field => {
+    if (currentProvider.id !== 'mineru') return true;
+
+    const mineruMode = settings.MINERU_API_MODE || 'local';
+    const isOfficial = mineruMode === 'official';
+    const localBackend = settings.MINERU_LOCAL_BACKEND || 'hybrid-auto-engine';
+
+    // These are two different LightRAG protocols. Only expose fields that
+    // are actually included in the active protocol's request payload.
+    if (['MINERU_OFFICIAL_ENDPOINT', 'MINERU_MODEL_VERSION', 'MINERU_IS_OCR'].includes(field.key)) {
+      return isOfficial;
+    }
+    if (field.key === 'MINERU_API_TOKEN') return true;
+    if (['MINERU_LOCAL_ENDPOINT', 'MINERU_LOCAL_BACKEND'].includes(field.key)) {
+      return !isOfficial;
+    }
+    if (field.key === 'MINERU_LOCAL_PARSE_METHOD') {
+      return !isOfficial && !localBackend.startsWith('vlm');
+    }
+    if (field.key === 'MINERU_LOCAL_IMAGE_ANALYSIS') {
+      return !isOfficial && (localBackend.startsWith('vlm') || localBackend.startsWith('hybrid'));
+    }
+    return true;
+  }) || [];
+
+  const parserFieldGroups = isParserSelector ? [
+    {
+      key: 'connection',
+      title: t('pages.knowledge.settings.parserLayout.connection'),
+      keys: ['MINERU_API_MODE', 'MINERU_OFFICIAL_ENDPOINT', 'MINERU_LOCAL_ENDPOINT', 'MINERU_API_TOKEN', 'DOCLING_ENDPOINT', 'DOCLING_API_KEY']
+    },
+    {
+      key: 'options',
+      title: t('pages.knowledge.settings.parserLayout.options'),
+      keys: ['PARSER_IMAGE_ANALYSIS', 'MINERU_MODEL_VERSION', 'MINERU_IS_OCR', 'MINERU_LANGUAGE', 'MINERU_ENABLE_TABLE', 'MINERU_ENABLE_FORMULA', 'MINERU_LOCAL_BACKEND', 'MINERU_LOCAL_PARSE_METHOD']
+    },
+    {
+      key: 'advanced',
+      title: t('pages.knowledge.settings.parserLayout.advanced'),
+      keys: ['MINERU_LOCAL_IMAGE_ANALYSIS', 'MINERU_ADDITIONAL_SUFFIXES', 'DOCLING_ADDITIONAL_SUFFIXES', 'MAX_PARALLEL_PARSE_MINERU', 'MAX_PARALLEL_PARSE_DOCLING', 'LIGHTRAG_PARSER']
+    }
+  ].map(group => ({ ...group, fields: visibleFields.filter(field => group.keys.includes(field.key)) }))
+    .filter(group => group.fields.length > 0) : [];
 
   return (
     <div style={{ padding: '16px 0' }}>
@@ -426,7 +494,7 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
         </Select>
       </div>
 
-      {currentProvider && currentProvider.fields.length > 0 && (
+      {currentProvider && visibleFields.length > 0 && (
         <Card
           size="small"
           title={
@@ -495,13 +563,43 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
             borderColor: token.colorBorder
           }}
         >
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: 12
-          }}>
-            {currentProvider.fields.map(field => renderField(field))}
-          </div>
+          {isParserSelector ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              {parserFieldGroups.map(group => (
+                <section key={group.key}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+                    color: token.colorTextSecondary, fontSize: 12, fontWeight: 600
+                  }}>
+                    <span>{group.title}</span>
+                    <span style={{ height: 1, flex: 1, background: token.colorBorderSecondary }} />
+                  </div>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                    gap: '10px 14px'
+                  }}>
+                    {group.fields.map(field => (
+                      <div key={field.key} style={{
+                        minWidth: 0,
+                        gridColumn: field.key === 'LIGHTRAG_PARSER' ? '1 / -1' : undefined
+                      }}>
+                        {renderField(field)}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+              gap: 12
+            }}>
+              {visibleFields.map(field => renderField(field))}
+            </div>
+          )}
         </Card>
       )}
 

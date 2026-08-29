@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { 
   FolderOpenOutlined, 
-  SaveOutlined, 
+  CheckOutlined,
   DatabaseOutlined, 
   ApiOutlined, 
   CloudServerOutlined,
@@ -54,6 +54,21 @@ interface StartupStatus {
   error_type: string;
   timestamp: number;
 }
+
+const parserImageAnalysisEnabled = (routing = ''): boolean => {
+  const firstActiveRule = routing.split(',').find(rule => /:(native|mineru|docling)(?:\([^)]*\))?-/i.test(rule));
+  const modifiers = firstActiveRule?.match(/:(?:native|mineru|docling)(?:\([^)]*\))?-([A-Za-z]+)/i)?.[1] || '';
+  return modifiers.includes('i');
+};
+
+const setParserImageAnalysis = (routing: string, enabled: boolean): string =>
+  routing.replace(
+    /:(native|mineru|docling)(\([^)]*\))?-([A-Za-z]+)/gi,
+    (_match, engine: string, args: string = '', modifiers: string) => {
+      const withoutImages = modifiers.replace(/i/g, '');
+      return `:${engine}${args || ''}-${enabled ? `i${withoutImages}` : withoutImages}`;
+    }
+  );
 
 const SettingsTab: React.FC = () => {
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -211,7 +226,10 @@ const SettingsTab: React.FC = () => {
     });
   };
 
-  const testParserConfig = async (engine: string, silent = false): Promise<boolean> => {
+  const testParserConfig = async (
+    engine: string,
+    silent = false,
+  ): Promise<{ ok: boolean; category?: string; technical?: string }> => {
     const provider = parserProviders.find(item => item.id === engine);
     const providerName = provider
       ? (provider.name.includes('.') ? t(`pages.knowledge.settings.${provider.name}`) : provider.name)
@@ -223,17 +241,23 @@ const SettingsTab: React.FC = () => {
           settings[field.key] ?? field.defaultValue ?? '',
         ])
       );
+      parserSettings.SSL_VERIFY = settings.SSL_VERIFY ?? 'false';
       const response = await get_ipc_api().lightragApi.testParserConfig<{
+        available?: boolean;
+        category?: string;
+        technical_detail?: string;
         message?: string;
         url?: string;
         status_code?: number;
       }>({ engine, settings: parserSettings });
-      if (!response.success) {
+      const probeResult = response.data || {};
+      if (!response.success || probeResult.available === false) {
         const details = (response.error?.details || {}) as {
           category?: string;
           technical_detail?: string;
         };
-        const category = details.category || 'unknown';
+        const category = probeResult.category || details.category || 'unknown';
+        const technicalDetail = probeResult.technical_detail || details.technical_detail;
         if (!silent) modal.error({
           title: t('pages.knowledge.settings.parserProbe.failedTitle', { provider: providerName }),
           width: 520,
@@ -248,20 +272,20 @@ const SettingsTab: React.FC = () => {
                 <strong>{t('pages.knowledge.settings.parserProbe.suggestionLabel')}</strong>
                 <div>{t(`pages.knowledge.settings.parserProbe.errors.${category}.suggestion`)}</div>
               </div>
-              {details.technical_detail && (
+              {technicalDetail && (
                 <details style={{ marginTop: 14, color: token.colorTextSecondary }}>
                   <summary style={{ cursor: 'pointer' }}>
                     {t('pages.knowledge.settings.parserProbe.technicalDetails')}
                   </summary>
                   <div style={{ marginTop: 8, padding: 10, borderRadius: 6, background: token.colorFillTertiary, wordBreak: 'break-word' }}>
-                    {details.technical_detail}
+                    {technicalDetail}
                   </div>
                 </details>
               )}
             </div>
           ),
         });
-        return false;
+        return { ok: false, category, technical: technicalDetail };
       }
       if (!silent) modal.success({
         title: t('pages.knowledge.settings.parserProbe.successTitle', { provider: providerName }),
@@ -273,7 +297,7 @@ const SettingsTab: React.FC = () => {
           </div>
         ),
       });
-      return true;
+      return { ok: true };
     } catch (error: any) {
       if (!silent) modal.error({
         title: t('pages.knowledge.settings.parserProbe.failedTitle', { provider: providerName }),
@@ -290,7 +314,7 @@ const SettingsTab: React.FC = () => {
           </div>
         ),
       });
-      return false;
+      return { ok: false, category: 'unknown', technical: error?.message || String(error) };
     }
   };
 
@@ -897,6 +921,7 @@ const SettingsTab: React.FC = () => {
         } else {
           loadedSettings['PARSING_ENGINE'] = 'native';
         }
+        loadedSettings['PARSER_IMAGE_ANALYSIS'] = parserImageAnalysisEnabled(parserValue) ? 'true' : 'false';
         
         setSettings(loadedSettings);
       }
@@ -939,7 +964,13 @@ const SettingsTab: React.FC = () => {
         const parserData = parserResponse.data;
         setParserProviders(buildParserProviders(parserData.engines));
         if (parserData.current) {
-          const current = parserData.current;
+          // Older running backends can omit newly introduced parser keys or
+          // serialize them as null. Do not let that partial response erase a
+          // value already loaded from lightrag.getSettings (notably parser
+          // API keys) when both requests finish concurrently.
+          const current = Object.fromEntries(
+            Object.entries(parserData.current).filter(([, value]) => value !== null && value !== undefined)
+          ) as Record<string, string>;
           setSettings(prev => ({
             ...prev,
             ...current,
@@ -957,6 +988,13 @@ const SettingsTab: React.FC = () => {
   const updateSetting = (key: string, value: string) => {
     setSettings(prev => {
       const newSettings = { ...prev, [key]: value };
+
+      if (key === 'PARSER_IMAGE_ANALYSIS') {
+        newSettings.LIGHTRAG_PARSER = setParserImageAnalysis(
+          prev.LIGHTRAG_PARSER || '',
+          value === 'true'
+        );
+      }
       
       // Rerank linkage logic
       if (key === 'RERANK_BINDING') {
@@ -1146,6 +1184,7 @@ const SettingsTab: React.FC = () => {
       // to lightrag.env as a fake variable.
       const savePayload = { ...settings };
       delete savePayload.PARSING_ENGINE;
+      delete savePayload.PARSER_IMAGE_ANALYSIS;
 
       const response = await get_ipc_api().lightragApi.saveSettings(savePayload);
       if (response.success) {
@@ -1473,6 +1512,27 @@ const SettingsTab: React.FC = () => {
   // Helper to handle setting changes, including auto-filling defaults when provider changes
   const createSettingChangeHandler = (bindingKey: string, providers: ProviderConfig[]) => {
     return (key: string, value: string) => {
+      // Parser engines own separate env keys (MINERU_* and DOCLING_*).
+      // Switching the visible engine must preserve both configurations so a
+      // user can compare/test them and switch back without re-entering URLs
+      // or secrets. Only the UI selection and active routing rule change.
+      if (key === bindingKey && bindingKey === 'PARSING_ENGINE') {
+        const newProvider = providers.find(provider => provider.id === value);
+        setSettings(prev => {
+          const next: Record<string, string> = { ...prev, [bindingKey]: value };
+          for (const field of newProvider?.fields || []) {
+            if (field.key === 'LIGHTRAG_PARSER') {
+              next[field.key] = field.defaultValue || '';
+            } else if (!(field.key in next) && field.defaultValue !== undefined) {
+              next[field.key] = field.defaultValue;
+            }
+          }
+          next.PARSER_IMAGE_ANALYSIS = 'false';
+          return next;
+        });
+        return;
+      }
+
       updateSetting(key, value);
 
       // If the changed key matches the binding key, it means the provider selection changed
@@ -1808,7 +1868,7 @@ const SettingsTab: React.FC = () => {
               </button>
             </Tooltip>
             <button className="ec-btn ec-btn-primary" onClick={handleSave} disabled={loading}>
-              <SaveOutlined /> {loading ? t('pages.knowledge.settings.saving') : t('pages.knowledge.settings.saveSettings')}
+              <CheckOutlined /> {loading ? t('pages.knowledge.settings.saving') : t('pages.knowledge.settings.saveSettings')}
             </button>
           </div>
         </div>

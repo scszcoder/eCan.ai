@@ -12,7 +12,8 @@ content-extraction engine through the ``LIGHTRAG_PARSER`` rule table
                      LightRAG's native ``official`` / ``local`` API modes and
                      environment variable names without translation.
     - ``docling``  : external docling-serve service (PDF / Office / images),
-                     configured with LightRAG's native ``DOCLING_ENDPOINT``.
+                     configured with ``DOCLING_ENDPOINT`` and eCan's runtime
+                     Bearer-auth adapter for ``DOCLING_API_KEY``.
 
 There is no separate "engine" env var: the engine selection is UI-only and is
 derived from the persisted ``LIGHTRAG_PARSER`` value (never written to
@@ -29,8 +30,9 @@ MinerU fields use the exact names consumed by LightRAG. A compatible custom
 endpoint changes only the appropriate endpoint value; it does not introduce
 a new environment-variable name.
 
-Docling likewise keeps ``DOCLING_ENDPOINT`` unchanged; a custom deployment
-changes only that variable's value.
+Docling keeps upstream's ``DOCLING_ENDPOINT`` unchanged. LightRAG 1.5.6 has
+no authentication option for Docling, so eCan adds ``DOCLING_API_KEY`` and
+injects it into all Docling requests in ``lightrag_launcher``.
 """
 
 from __future__ import annotations
@@ -67,6 +69,7 @@ PARSER_SETTINGS_KEYS: Tuple[str, ...] = (
     "MINERU_ADDITIONAL_SUFFIXES",
     "MAX_PARALLEL_PARSE_MINERU",
     "DOCLING_ENDPOINT",
+    "DOCLING_API_KEY",
     "DOCLING_ADDITIONAL_SUFFIXES",
     "MAX_PARALLEL_PARSE_DOCLING",
 )
@@ -78,11 +81,11 @@ PARSER_SETTINGS_KEYS: Tuple[str, ...] = (
 PARSER_PRESETS: Dict[str, str] = {
     # Recommended starting behavior, no external services (§1.2)
     "native": "*:native-teP,*:legacy-R",
-    # Multimodal: native handles docx/md/textpack, MinerU picks up
-    # pdf/office/images because native is skipped for those suffixes (§1.3)
-    "mineru": "*:native-iteP,*:mineru-iteP,*:legacy-R",
-    # Same shape with Docling as the external engine
-    "docling": "*:native-iteP,*:docling-iteP,*:legacy-R",
+    # The selected external engine must come first: rules are evaluated from
+    # left to right and native can also parse DOCX, so a native-first wildcard
+    # silently prevents MinerU/Docling from ever seeing those documents.
+    "mineru": "*:mineru-teP,*:native-teP,*:legacy-R",
+    "docling": "*:docling-teP,*:native-teP,*:legacy-R",
 }
 
 PARSER_ENGINE_IDS = tuple(PARSER_PRESETS.keys())
@@ -107,7 +110,7 @@ def normalize_parser_routing(value: Any) -> str:
 # Required variables are the exact names consumed by LightRAG.
 _MINERU_MODE_REQUIREMENTS = {
     "official": ("MINERU_API_TOKEN",),
-    "local": ("MINERU_LOCAL_ENDPOINT",),
+    "local": ("MINERU_LOCAL_ENDPOINT", "MINERU_API_TOKEN"),
 }
 
 
@@ -123,6 +126,13 @@ PARSER_ENGINE_DEFINITIONS: List[Dict[str, Any]] = [
         "description": "LightRAG built-in native parser (default, no external service required)",
         "fields": [
             {
+                "key": "PARSER_IMAGE_ANALYSIS",
+                "label": "fields.parserImageAnalysis",
+                "type": "boolean",
+                "defaultValue": "false",
+                "tooltip": "tooltips.parserImageAnalysis",
+            },
+            {
                 "key": LIGHTRAG_PARSER_KEY,
                 "label": "fields.parserRouting",
                 "type": "textarea",
@@ -136,6 +146,13 @@ PARSER_ENGINE_DEFINITIONS: List[Dict[str, Any]] = [
         "name": "providers.parserMineru",
         "description": "MinerU multimodal parser service (PDF / Office / images)",
         "fields": [
+            {
+                "key": "PARSER_IMAGE_ANALYSIS",
+                "label": "fields.parserImageAnalysis",
+                "type": "boolean",
+                "defaultValue": "false",
+                "tooltip": "tooltips.parserImageAnalysis",
+            },
             {
                 "key": "MINERU_API_MODE",
                 "label": "fields.mineruProvider",
@@ -157,7 +174,7 @@ PARSER_ENGINE_DEFINITIONS: List[Dict[str, Any]] = [
             },
             {
                 "key": "MINERU_LOCAL_ENDPOINT",
-                "label": "fields.mineruLocalEndpoint",
+                "label": "fields.mineruEndpoint",
                 "type": "text",
                 "defaultValue": DEFAULT_MINERU_LOCAL_ENDPOINT,
                 "placeholder": DEFAULT_MINERU_LOCAL_ENDPOINT,
@@ -167,13 +184,14 @@ PARSER_ENGINE_DEFINITIONS: List[Dict[str, Any]] = [
                 "key": "MINERU_API_TOKEN",
                 "label": "fields.mineruApiKey",
                 "type": "password",
+                "required": True,
                 "tooltip": "tooltips.mineruApiKey",
             },
             {
                 "key": "MINERU_MODEL_VERSION",
                 "label": "fields.mineruModelVersion",
                 "type": "select",
-                "defaultValue": "vlm",
+                "defaultValue": "pipeline",
                 "tooltip": "tooltips.mineruModelVersion",
                 "options": [
                     {"value": "pipeline", "label": "fields.mineruModelPipeline"},
@@ -194,8 +212,18 @@ PARSER_ENGINE_DEFINITIONS: List[Dict[str, Any]] = [
                 "defaultValue": "ch",
                 "tooltip": "tooltips.mineruLanguage",
                 "options": [
-                    {"value": "ch", "label": "fields.languageChinese"},
-                    {"value": "en", "label": "fields.languageEnglish"},
+                    {"value": "ch", "label": "fields.languageChineseMixed"},
+                    {"value": "ch_server", "label": "fields.languageChineseMixedServer"},
+                    {"value": "korean", "label": "fields.languageKorean"},
+                    {"value": "ta", "label": "fields.languageTamil"},
+                    {"value": "te", "label": "fields.languageTelugu"},
+                    {"value": "ka", "label": "fields.languageKannada"},
+                    {"value": "th", "label": "fields.languageThai"},
+                    {"value": "el", "label": "fields.languageGreek"},
+                    {"value": "arabic", "label": "fields.languageArabic"},
+                    {"value": "east_slavic", "label": "fields.languageEastSlavic"},
+                    {"value": "cyrillic", "label": "fields.languageCyrillic"},
+                    {"value": "devanagari", "label": "fields.languageDevanagari"},
                 ],
             },
             {
@@ -237,9 +265,10 @@ PARSER_ENGINE_DEFINITIONS: List[Dict[str, Any]] = [
             },
             {
                 "key": "MINERU_LOCAL_IMAGE_ANALYSIS",
-                "label": "fields.mineruImageAnalysis",
+                "label": "fields.mineruServerImageProcessing",
                 "type": "boolean",
                 "defaultValue": "false",
+                "tooltip": "tooltips.mineruServerImageProcessing",
             },
             {
                 "key": "MINERU_ADDITIONAL_SUFFIXES",
@@ -270,6 +299,13 @@ PARSER_ENGINE_DEFINITIONS: List[Dict[str, Any]] = [
         "description": "Docling document parsing service, alternative to MinerU (PDF / Office / images)",
         "fields": [
             {
+                "key": "PARSER_IMAGE_ANALYSIS",
+                "label": "fields.parserImageAnalysis",
+                "type": "boolean",
+                "defaultValue": "false",
+                "tooltip": "tooltips.parserImageAnalysis",
+            },
+            {
                 "key": "DOCLING_ENDPOINT",
                 "label": "fields.doclingEndpoint",
                 "type": "text",
@@ -277,6 +313,13 @@ PARSER_ENGINE_DEFINITIONS: List[Dict[str, Any]] = [
                 "placeholder": "http://localhost:5001",
                 "required": True,
                 "tooltip": "tooltips.doclingEndpoint",
+            },
+            {
+                "key": "DOCLING_API_KEY",
+                "label": "fields.doclingApiKey",
+                "type": "password",
+                "required": True,
+                "tooltip": "tooltips.doclingApiKey",
             },
             {
                 "key": "DOCLING_ADDITIONAL_SUFFIXES",
@@ -334,6 +377,38 @@ def derive_mineru_provider(settings: Dict[str, Any]) -> str:
     return mode if mode in _MINERU_MODE_REQUIREMENTS else "local"
 
 
+def unsupported_parser_files(settings: Dict[str, Any], paths: List[Any]) -> List[str]:
+    """Return files unsupported by the currently selected parser.
+
+    MinerU 3.4.4 is restricted to its documented Office/PDF/image formats.
+    Notably, ``.tiff`` is accepted while the ``.tif`` alias is not.
+    """
+    if derive_parsing_engine(settings) != "mineru":
+        return []
+    supported_suffixes = {
+        ".pdf",
+        ".docx",
+        ".pptx",
+        ".xlsx",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".jp2",
+        ".webp",
+        ".gif",
+        ".bmp",
+        ".tiff",
+    }
+    return [
+        str(path)
+        for path in paths
+        if not any(
+            str(path).strip().lower().endswith(suffix)
+            for suffix in supported_suffixes
+        )
+    ]
+
+
 def validate_parser_endpoints(settings: Dict[str, Any]) -> List[str]:
     """
     Validate that external parser engines referenced by ``LIGHTRAG_PARSER``
@@ -366,8 +441,14 @@ def validate_parser_endpoints(settings: Dict[str, Any]) -> List[str]:
             )
 
     if "docling" in routing:
-        endpoint = str(settings.get("DOCLING_ENDPOINT") or "").strip()
-        if not endpoint:
-            errors.append("LIGHTRAG_PARSER 引用了 docling，但未配置 DOCLING_ENDPOINT")
+        missing = [
+            key
+            for key in ("DOCLING_ENDPOINT", "DOCLING_API_KEY")
+            if not str(settings.get(key) or "").strip()
+        ]
+        if missing:
+            errors.append(
+                "LIGHTRAG_PARSER 引用了 docling，但未配置 " + ", ".join(missing)
+            )
 
     return errors

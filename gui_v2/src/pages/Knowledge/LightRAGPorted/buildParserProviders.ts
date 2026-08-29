@@ -35,7 +35,7 @@ export function buildParserProviders(
   }
 
   return raw.map(engine => {
-    const fields: ProviderFieldConfig[] = (engine.fields || []).map(f => ({
+    const backendFields: ProviderFieldConfig[] = (engine.fields || []).map(f => ({
       key: f.key,
       label: f.label,
       type: f.type || 'text',
@@ -45,6 +45,22 @@ export function buildParserProviders(
       required: f.required,
       options: f.options,
     }));
+
+    // A running desktop backend can be one process/version behind the Vite
+    // UI during development. Merge its values into the current static schema
+    // instead of replacing that schema wholesale, otherwise newly introduced
+    // fields (for example DOCLING_API_KEY) remain invisible until a full app
+    // restart. Backend definitions still win for matching fields.
+    const fallback = PARSER_PROVIDERS.find(provider => provider.id === engine.id);
+    const backendByKey = new Map(backendFields.map(field => [field.key, field]));
+    const fallbackKeys = new Set((fallback?.fields || []).map(field => field.key));
+    const fields: ProviderFieldConfig[] = [
+      ...(fallback?.fields || []).map(field => ({
+        ...field,
+        ...backendByKey.get(field.key),
+      })),
+      ...backendFields.filter(field => !fallbackKeys.has(field.key)),
+    ];
 
     return {
       id: engine.id,

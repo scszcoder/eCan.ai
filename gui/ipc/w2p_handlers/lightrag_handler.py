@@ -36,6 +36,24 @@ def handle_ingest_files(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         
         if not isinstance(paths, list) or len(paths) == 0:
             return create_error_response(request, 'INVALID_PARAMS', 'paths must be a non-empty list')
+
+        from knowledge.lightrag_config_manager import get_config_manager
+        from knowledge.lightrag_parser_config import unsupported_parser_files
+        unsupported = unsupported_parser_files(
+            get_config_manager().get_effective_config(), paths
+        )
+        if unsupported:
+            names = ', '.join(os.path.basename(path) for path in unsupported[:5])
+            if len(unsupported) > 5:
+                names += f' 等 {len(unsupported)} 个文件'
+            return create_error_response(
+                request,
+                'UNSUPPORTED_PARSER_FORMAT',
+                f'MinerU 3.4.4 不支持这些文件：{names}。支持 PDF、DOCX、PPTX、'
+                'XLSX，以及 PNG、JPEG、JP2、WebP、GIF、BMP、TIFF（仅 .tiff）。'
+                '请选择 Docling 或 Native 解析引擎后再上传。',
+                {'engine': 'mineru', 'files': unsupported},
+            )
         
         # Get LightRAG client
         client = get_client()
@@ -1432,6 +1450,7 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         keys_to_exclude = [
             '_SYSTEM_LLM_KEY_SOURCE', '_SYSTEM_EMBED_KEY_SOURCE',
             '_SYSTEM_RERANK_KEY_SOURCE', 'PARSING_ENGINE',
+            'PARSER_IMAGE_ANALYSIS',
             '_RERANK_RUNTIME_HOST', '_RERANK_USES_PROXY',
         ]
         
@@ -1820,7 +1839,7 @@ def handle_test_parser_config(request: IPCRequest, params: Optional[Dict[str, An
 
         result = probe_parser(engine, settings)
         logger.info(f"[LightRAG] Parser probe succeeded: engine={engine}, url={result.get('url')}")
-        return create_success_response(request, result)
+        return create_success_response(request, {'available': True, **result})
     except (ValueError, RuntimeError) as e:
         logger.warning(f"[LightRAG] Parser probe failed: {e}")
         technical_detail = str(e)
@@ -1841,12 +1860,14 @@ def handle_test_parser_config(request: IPCRequest, params: Optional[Dict[str, An
             category = 'service_error'
         else:
             category = 'unknown'
-        return create_error_response(
-            request,
-            'PARSER_PROBE_FAILED',
-            'Parser configuration test failed',
-            {'category': category, 'technical_detail': technical_detail},
-        )
+        # An unavailable provider is an expected probe result, not a GraphQL
+        # transport/handler failure. Returning structured data avoids noisy
+        # registry tracebacks while preserving the exact diagnostic for UI.
+        return create_success_response(request, {
+            'available': False,
+            'category': category,
+            'technical_detail': technical_detail,
+        })
     except Exception as e:
         logger.error(f"[LightRAG] Parser probe error: {e}", exc_info=True)
         return create_error_response(

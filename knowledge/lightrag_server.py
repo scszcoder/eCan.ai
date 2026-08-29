@@ -762,6 +762,15 @@ class LightragServer:
             # that an 8K deployment cannot overflow after context assembly.
             query_output_tokens = max(512, min(4096, max_model_len // 8))
             env['QUERY_OPENAI_LLM_MAX_COMPLETION_TOKENS'] = str(query_output_tokens)
+            # LightRAG's extraction prompt itself occupies most of an 8K
+            # context window. Its upstream paragraph defaults (2000 tokens +
+            # one gleaning pass) can therefore overflow even for a short DOCX.
+            # Apply safe defaults/caps only to small-context deployments.
+            if max_model_len <= 8196:
+                env.setdefault('CHUNK_P_SIZE', '800')
+                gleaning = self._coerce_int(env.get('MAX_GLEANING'))
+                if gleaning is None or gleaning > 0:
+                    env['MAX_GLEANING'] = '0'
             logger.info(
                 f"[LightragServer] LLM token limits derived from deployment: "
                 f"max_model_len={max_model_len} "

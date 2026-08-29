@@ -1,7 +1,7 @@
 import { theme, Pagination, Select, Modal, App, Tooltip, Progress, Switch } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
-import { ScanOutlined, UnorderedListOutlined, ClearOutlined, FolderOpenOutlined, UploadOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { ScanOutlined, UnorderedListOutlined, ClearOutlined, FolderOpenOutlined, UploadOutlined, InfoCircleOutlined, DeleteOutlined, StopOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import React, { useState, useEffect, useRef } from 'react';
 import type { ProcessingProgress } from '@/services/ipc/lightragApi';
@@ -196,6 +196,32 @@ const DocumentsTab: React.FC = () => {
     const sanitizedPaths = paths.filter(Boolean);
     if (sanitizedPaths.length === 0) {
       return false;
+    }
+
+    // Validate against the parser configuration that is actually persisted
+    // and used by LightRAG. MinerU 3.4.4 uses a strict format allowlist.
+    try {
+      const settingsResponse = await get_ipc_api().lightragApi.getSettings();
+      const persisted = (settingsResponse.data || {}) as Record<string, string>;
+      const routing = (persisted.LIGHTRAG_PARSER || '').toLowerCase();
+      if (routing.includes('mineru')) {
+        const mineruSupported = /\.(pdf|docx|pptx|xlsx|png|jpe?g|jp2|webp|gif|bmp|tiff)$/i;
+        const unsupported = sanitizedPaths.filter(path => !mineruSupported.test(path));
+        if (unsupported.length > 0) {
+          const names = unsupported.slice(0, 5).map(getFileName).join('、');
+          const suffix = unsupported.length > 5 ? ` 等 ${unsupported.length} 个文件` : '';
+          const detail = t('pages.knowledge.documents.mineruUnsupportedFormat', {
+            files: `${names}${suffix}`,
+          });
+          appendLog(`⚠️ ${detail}`);
+          message.warning({ content: detail, duration: 8 });
+          return false;
+        }
+      }
+    } catch (error) {
+      console.warn('[DocumentsTab] Could not preflight parser file formats:', error);
+      // The backend performs the same validation, so a settings-read failure
+      // cannot bypass the protection.
     }
 
     if (batchSubmittingRef.current) {
@@ -574,10 +600,11 @@ const DocumentsTab: React.FC = () => {
 
   // 支持的文件类型（与后端保持一致）
   const SUPPORTED_FILE_EXTENSIONS = [
-    'txt', 'md', 'pdf', 'docx', 'pptx', 'xlsx', 'rtf', 'odt', 'tex', 'epub',
+    'txt', 'md', 'markdown', 'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'rtf', 'odt', 'tex', 'epub',
     'html', 'htm', 'csv', 'json', 'xml', 'yaml', 'yml', 'log', 'conf', 'ini',
     'properties', 'sql', 'bat', 'sh', 'c', 'cpp', 'py', 'java', 'js', 'ts',
-    'swift', 'go', 'rb', 'php', 'css', 'scss', 'less'
+    'swift', 'go', 'rb', 'php', 'css', 'scss', 'less', 'png', 'jpg', 'jpeg',
+    'jp2', 'webp', 'gif', 'bmp', 'tif', 'tiff'
   ];
 
   const handleSelectFiles = async () => {
@@ -779,15 +806,6 @@ const DocumentsTab: React.FC = () => {
 
       console.log('[DocumentsTab] Raw API response:', response);
       
-      // Log error details if failed
-      if (!response.success) {
-        console.error('[DocumentsTab] API call failed with error:', {
-          code: response.error?.code,
-          message: response.error?.message,
-          details: response.error?.details
-        });
-      }
-      
       // Check if server is not ready (connection refused) and retry
       if (!response.success && retryCount < MAX_RETRIES) {
         const errorMsg = response.error?.message || '';
@@ -803,6 +821,16 @@ const DocumentsTab: React.FC = () => {
           await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
           return loadDocuments(silentRefresh, retryCount + 1);
         }
+      }
+
+      // Only log a real terminal error. A connection refusal handled above is
+      // normal while LightRAG is restarting and should not pollute the console.
+      if (!response.success) {
+        console.error('[DocumentsTab] API call failed with error:', {
+          code: response.error?.code,
+          message: response.error?.message,
+          details: response.error?.details
+        });
       }
 
       if (response.success && response.data) {
@@ -1390,7 +1418,10 @@ const DocumentsTab: React.FC = () => {
   const getStatusColor = (status: string) => {
     switch (status?.toUpperCase()) {
       case 'PROCESSED': return token.colorSuccess;
+      case 'PARSING':
+      case 'ANALYZING':
       case 'PROCESSING': return token.colorWarning;
+      case 'PREPROCESSED': return token.colorInfo;
       case 'PENDING': return token.colorTextTertiary;
       case 'FAILED': return token.colorError;
       default: return token.colorText;
@@ -1400,7 +1431,10 @@ const DocumentsTab: React.FC = () => {
   const getStatusText = (status: string) => {
     switch (status?.toUpperCase()) {
       case 'PROCESSED': return t('pages.knowledge.documents.completed');
+      case 'PARSING': return t('pages.knowledge.documents.parsing');
+      case 'ANALYZING': return t('pages.knowledge.documents.analyzing');
       case 'PROCESSING': return t('pages.knowledge.documents.processing');
+      case 'PREPROCESSED': return t('pages.knowledge.documents.preprocessed');
       case 'PENDING': return t('pages.knowledge.documents.pending');
       case 'FAILED': return t('pages.knowledge.documents.failed');
       default: return status;
@@ -1856,7 +1890,7 @@ const DocumentsTab: React.FC = () => {
                     color: getStatusColor(doc.status),
                     fontWeight: 600
                   }}>
-                    {(doc.status?.toUpperCase() === 'PROCESSING' || doc.status?.toUpperCase() === 'PENDING') ? (
+                    {(['PARSING', 'ANALYZING', 'PROCESSING', 'PENDING'].includes(doc.status?.toUpperCase())) ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
                         <span style={{ fontSize: 11 }}>{getStatusText(doc.status)}</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1937,62 +1971,86 @@ const DocumentsTab: React.FC = () => {
                       second: '2-digit'
                     }) : '-'}
                   </div>
-                  <div style={{ textAlign: 'center' }}>
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                     {doc.status?.toUpperCase() === 'PROCESSING' ? (
-                      <button 
-                        className="ec-btn-small"
-                        onClick={() => handleAbortDocument(doc)}
-                        style={{
-                          padding: '4px 12px',
-                          fontSize: 12,
-                          background: token.colorWarningBg,
-                          color: token.colorWarning,
-                          border: `1px solid ${token.colorWarningBorder}`,
-                          borderRadius: 6,
-                          cursor: 'pointer',
-                          transition: 'all 0.2s'
-                        }}
-                      >
-                        {t('pages.knowledge.documents.stop')}
-                      </button>
+                      <Tooltip title={t('pages.knowledge.documents.stopTooltip')}>
+                        <button
+                          type="button"
+                          aria-label={t('pages.knowledge.documents.stop')}
+                          onClick={() => handleAbortDocument(doc)}
+                          style={{
+                            width: 32,
+                            height: 32,
+                            padding: 0,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: token.colorWarning,
+                            background: token.colorWarningBg,
+                            border: `1px solid ${token.colorWarningBorder}`,
+                            borderRadius: 8,
+                            cursor: 'pointer',
+                            fontSize: 15,
+                          }}
+                        >
+                          <StopOutlined />
+                        </button>
+                      </Tooltip>
                     ) : (
-                      <div style={{ display: 'inline-flex', gap: 6, justifyContent: 'center' }}>
-                        <button
-                          className="ec-btn-small"
-                          onClick={() => handleReplaceDocument(doc)}
-                          title={t(
-                            'pages.knowledge.documents.replaceDocumentTooltip',
-                            'Replace with a newer version on disk (delete + re-ingest)',
-                          )}
-                          style={{
-                            padding: '4px 12px',
-                            fontSize: 12,
-                            background: token.colorPrimaryBg,
-                            color: token.colorPrimary,
-                            border: `1px solid ${token.colorPrimaryBorder}`,
-                            borderRadius: 6,
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                          }}
-                        >
-                          {t('pages.knowledge.documents.replace', 'Replace')}
-                        </button>
-                        <button
-                          className="ec-btn-small"
-                          onClick={() => handleDeleteDocument(doc)}
-                          style={{
-                            padding: '4px 12px',
-                            fontSize: 12,
-                            background: token.colorErrorBg,
-                            color: token.colorError,
-                            border: `1px solid ${token.colorErrorBorder}`,
-                            borderRadius: 6,
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                          }}
-                        >
-                          {t('common.delete')}
-                        </button>
+                      <div style={{
+                        width: 72,
+                        display: 'grid',
+                        gridTemplateColumns: '32px 32px',
+                        gap: 8,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                      }}>
+                        <Tooltip title={t('pages.knowledge.documents.replaceDocumentTooltip')}>
+                          <button
+                            type="button"
+                            aria-label={t('pages.knowledge.documents.replaceDocument')}
+                            onClick={() => handleReplaceDocument(doc)}
+                            style={{
+                              width: 32,
+                              height: 32,
+                              padding: 0,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: token.colorPrimary,
+                              background: token.colorPrimaryBg,
+                              border: `1px solid ${token.colorPrimaryBorder}`,
+                              borderRadius: 8,
+                              cursor: 'pointer',
+                              fontSize: 15,
+                            }}
+                          >
+                            <UploadOutlined />
+                          </button>
+                        </Tooltip>
+                        <Tooltip title={t('pages.knowledge.documents.deleteDocumentTooltip')}>
+                          <button
+                            type="button"
+                            aria-label={t('pages.knowledge.documents.deleteDocument')}
+                            onClick={() => handleDeleteDocument(doc)}
+                            style={{
+                              width: 32,
+                              height: 32,
+                              padding: 0,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: token.colorError,
+                              background: token.colorErrorBg,
+                              border: `1px solid ${token.colorErrorBorder}`,
+                              borderRadius: 8,
+                              cursor: 'pointer',
+                              fontSize: 15,
+                            }}
+                          >
+                            <DeleteOutlined />
+                          </button>
+                        </Tooltip>
                       </div>
                     )}
                   </div>
