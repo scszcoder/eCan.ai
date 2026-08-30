@@ -1038,13 +1038,18 @@ def handle_get_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
 
 
 @IPCHandlerRegistry.handler('test_api_key')
+@IPCHandlerRegistry.handler('query_api_keys')
 def handle_test_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Validate an API key against the CN store (myAPIKeygen queryApiKey)."""
+    """Validate an API key against the CN store (myAPIKeygen queryApiKey).
+
+    Registered under both names: 'test_api_key' (CLI/tests naming) and
+    'query_api_keys' (the Account page's validate button).
+    """
     try:
         mainwin = AppContext.get_main_window()
         if not mainwin:
             return create_error_response(request, 'NOT_INITIALIZED', 'Main window not initialized')
-        api_key = (params or {}).get('api_key', '')
+        api_key = (params or {}).get('api_key', '') or (params or {}).get('apiKey', '')
         if not api_key:
             return create_error_response(request, 'INVALID_PARAMS', 'api_key is required')
         from utils.app_env import is_cn
