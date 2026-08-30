@@ -69,10 +69,10 @@ def _mint_access_token_from_refresh() -> str:
         username = (os.environ.get("ECAN_CLI_USER") or "").strip()
         if not username:
             try:
-                from utils.path_manager import path_manager
-                uli = json.loads(
-                    (path_manager.get_appdata_path() / "uli.json").read_text(encoding="utf-8"))
-                username = str(uli.get("username") or uli.get("user") or "").strip()
+                from config.envi import getECBotDataHome
+                with open(getECBotDataHome() + "/uli.json", encoding="utf-8") as fh:
+                    uli = json.load(fh)
+                username = str(uli.get("user") or uli.get("username") or "").strip()
             except Exception:
                 username = ""
         if not username:
@@ -105,19 +105,41 @@ def _mint_access_token_from_refresh() -> str:
 
 
 def _candidate_tokens(given: str) -> List[str]:
+    """Bearer candidates for the gateway, most-likely-valid first.
+
+    NOTE: on CN, ``mainwin.get_auth_token()`` intentionally returns the eCan
+    30-day HS256 session token — which the CloudBase gateway REJECTS
+    (INVALID_CREDENTIALS). The gateway needs the raw CloudBase AccessToken,
+    so pull it from the auth manager's token dict after letting the app's
+    own refresh flow validate it (no keyring races)."""
     tokens: List[str] = []
-    given = _strip_bearer(given)
-    if given:
-        tokens.append(given)
+
+    def _add(value: Optional[str]) -> None:
+        value = _strip_bearer(value or "")
+        if value and value not in tokens:
+            tokens.append(value)
+
     try:
         from app_context import AppContext
         mainwin = AppContext.get_main_window()
-        if mainwin is not None:
-            app_tok = _strip_bearer(mainwin.get_auth_token() or "")
-            if app_tok and app_tok not in tokens:
-                tokens.append(app_tok)
+        am = getattr(mainwin, "auth_manager", None) if mainwin is not None else None
+        if am is not None:
+            try:
+                am.ensure_valid_tokens()
+            except Exception:
+                pass
+            raw = am.get_tokens() or {}
+            if isinstance(raw, dict):
+                for k in ("AccessToken", "access_token"):
+                    _add(raw.get(k))
+                ar = raw.get("AuthenticationResult")
+                if isinstance(ar, dict):
+                    _add(ar.get("AccessToken"))
     except Exception:
         pass
+    # The caller-provided token last: on CN it is usually the session token
+    # (useless here), but intl/other contexts may pass a real bearer.
+    _add(given)
     return tokens
 
 
