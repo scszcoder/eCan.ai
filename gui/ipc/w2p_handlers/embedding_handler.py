@@ -52,6 +52,10 @@ def handle_get_embedding_providers(request: IPCRequest, params: Optional[Dict[st
 
         # Merge RyoAIS models using shared utility
         providers = merge_ryoais_models_to_providers(providers, ryoais_models=ryoais_models, provider_type='embedding')
+
+        # Merge eCanAI dynamic models (live GET <llm-proxy>/v1/models)
+        from gui.ecanai_utils import merge_ecanai_models_to_providers
+        providers = merge_ecanai_models_to_providers(providers, provider_type='embedding')
         
         logger.info(f"Retrieved {len(providers)} Embedding providers")
 

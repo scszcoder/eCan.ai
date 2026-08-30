@@ -124,6 +124,10 @@ def handle_get_llm_providers(request: IPCRequest, params: Optional[Dict[str, Any
         # Merge RyoAIS models using shared utility
         providers = merge_ryoais_models_to_providers(providers, ryoais_models=ryoais_models, provider_type='llm')
 
+        # Merge eCanAI dynamic models (live GET <llm-proxy>/v1/models)
+        from gui.ecanai_utils import merge_ecanai_models_to_providers
+        providers = merge_ecanai_models_to_providers(providers, provider_type='llm')
+
         logger.info(f"Retrieved {len(providers)} LLM providers")
 
         return create_success_response(request, {

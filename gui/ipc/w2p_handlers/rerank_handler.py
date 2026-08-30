@@ -52,6 +52,10 @@ def handle_get_rerank_providers(request: IPCRequest, params: Optional[Dict[str, 
 
         # Merge RyoAIS models using shared utility
         providers = merge_ryoais_models_to_providers(providers, ryoais_models=ryoais_models, provider_type='rerank')
+
+        # Merge eCanAI dynamic models (live GET <llm-proxy>/v1/models)
+        from gui.ecanai_utils import merge_ecanai_models_to_providers
+        providers = merge_ecanai_models_to_providers(providers, provider_type='rerank')
         
         logger.info(f"Retrieved {len(providers)} Rerank providers")
 
