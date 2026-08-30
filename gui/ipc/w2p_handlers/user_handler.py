@@ -908,6 +908,27 @@ def _cn_session_token(mainwin) -> str:
     return value[7:] if value.lower().startswith("bearer ") else value
 
 
+@IPCHandlerRegistry.handler('sync_ecanai_account_api_key')
+def handle_sync_ecanai_account_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Synchronize the signed-in account key to all local eCanAI providers."""
+    try:
+        mainwin = AppContext.get_main_window()
+        if not mainwin:
+            return create_error_response(request, 'NOT_INITIALIZED', 'Main window not initialized')
+        api_key = str((params or {}).get('api_key') or '').strip()
+        if not api_key:
+            return create_error_response(request, 'INVALID_PARAMS', 'api_key is required')
+
+        from gui.manager.provider_settings_helper import sync_account_api_key_to_ecanai
+        success, error = sync_account_api_key_to_ecanai(api_key, main_window=mainwin)
+        if not success:
+            return create_error_response(request, 'ECANAI_KEY_SYNC_ERROR', error or 'Key sync failed')
+        return create_success_response(request, {'synchronized': True})
+    except Exception as exc:
+        logger.error(f'[SyncECanAIKey] Error: {exc}')
+        return create_error_response(request, 'ECANAI_KEY_SYNC_ERROR', str(exc))
+
+
 @IPCHandlerRegistry.handler('req_api_key')
 def handle_req_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Request a new API key from cloud."""

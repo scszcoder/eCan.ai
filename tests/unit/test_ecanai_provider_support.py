@@ -11,6 +11,7 @@ from gui.config.llm_config import LLMConfig, LLMModelConfig, LLMProvider, LLMPro
 from gui.config.embedding_config import EmbeddingModelConfig, EmbeddingProviderConfig
 from gui.config.rerank_config import RerankModelConfig, RerankProviderConfig
 from knowledge.lightrag_config_manager import LightRAGConfigManager
+from gui.manager import provider_settings_helper
 
 
 ECANAI_URL = "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1"
@@ -164,3 +165,44 @@ def test_lightrag_effective_env_follows_system_ecanai_defaults_and_keys():
     assert env["RERANK_MODEL"] == "rerank-model"
     assert env["RERANK_BINDING_HOST"] == ECANAI_URL
     assert env["RERANK_BINDING_API_KEY"] == "secret-ecanai_rerank_api_key"
+
+
+def test_account_api_key_syncs_all_ecanai_roles_and_invalidates_lightrag():
+    stored = {}
+
+    def manager():
+        return SimpleNamespace(
+            store_api_key=lambda env_var, value: (stored.__setitem__(env_var, value) is None, None),
+        )
+
+    config_manager = SimpleNamespace(
+        llm_manager=manager(),
+        embedding_manager=manager(),
+        rerank_manager=manager(),
+        general_settings=SimpleNamespace(
+            default_llm="ecanai",
+            default_llm_model="chat-model",
+            default_embedding="ecanai",
+            default_embedding_model="text-embedding-v3",
+            default_rerank="ecanai",
+            default_rerank_model="gte-rerank",
+        ),
+    )
+    main_window = SimpleNamespace(
+        config_manager=config_manager,
+        agents=[],
+        update_all_llms=lambda **_kwargs: True,
+    )
+
+    with patch.object(provider_settings_helper, "invalidate_lightrag_provider_cache") as invalidate:
+        success, error = provider_settings_helper.sync_account_api_key_to_ecanai(
+            "account-api-key-1234567890", main_window=main_window
+        )
+
+    assert success and error is None
+    assert stored == {
+        "ECANAI_LLM_API_KEY": "account-api-key-1234567890",
+        "ECANAI_EMBEDDING_API_KEY": "account-api-key-1234567890",
+        "ECANAI_RERANK_API_KEY": "account-api-key-1234567890",
+    }
+    invalidate.assert_called_once_with("llm", "ecanai")
