@@ -22,6 +22,8 @@ INVOKE_URL = f"https://{ENV}.api.tcloudbasegateway.com/v1/functions/myAPIKeygen"
 
 
 class _FakeResp:
+    status = 200
+
     def __init__(self, payload):
         self._raw = json.dumps(payload).encode()
 
@@ -154,3 +156,32 @@ def test_local_fallback_prefers_synced_key():
         result = ak.get_api_key_with_local_fallback("tok")
     assert result["apiKey"] == "LOCALKEY" and result["source"] == "local"
     cloud.assert_not_called()
+
+
+def test_live_key_test_hits_models_route():
+    def fake_urlopen(req, timeout=None):
+        assert req.full_url.endswith("/v1/models")
+        assert req.headers.get("Authorization") == "Bearer THEKEY"
+        return _FakeResp({"data": [{"id": "qwen-plus"}, {"id": "qwen-max"}]})
+
+    with patch.object(ak, "_llm_proxy_base",
+                      return_value="https://x.example/api/llm-proxy"), \
+         patch("urllib.request.urlopen", fake_urlopen):
+        result = ak.test_api_key_live("THEKEY")
+    assert result["valid"] and result["status"] == "active"
+    assert result["models"] == ["qwen-plus", "qwen-max"]
+
+
+def test_live_key_test_invalid_key_reports_http_status():
+    import io
+    import urllib.error
+
+    def fake_urlopen(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 401, "unauth", None,
+                                     io.BytesIO(b'{"error":{"message":"invalid bearer token"}}'))
+
+    with patch.object(ak, "_llm_proxy_base",
+                      return_value="https://x.example/api/llm-proxy"), \
+         patch("urllib.request.urlopen", fake_urlopen):
+        result = ak.test_api_key_live("BADKEY")
+    assert not result["valid"] and result["http_status"] == 401

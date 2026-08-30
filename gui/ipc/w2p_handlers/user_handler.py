@@ -1055,11 +1055,11 @@ def handle_test_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         from utils.app_env import is_cn
         if not is_cn():
             return create_error_response(request, 'NOT_SUPPORTED', 'test_api_key is CN-only')
-        from agent.cloud_api.api_keys import test_api_key
-        response = test_api_key(_cn_session_token(mainwin), api_key)
-        valid = bool(response.get('apiKey') or response.get('customer')
-                     or response.get('status') == 'active')
-        return create_success_response(request, {**response, 'valid': valid})
+        # REAL end-to-end test: the key in an actual llm-proxy v1 request
+        # (GET /v1/models) — the same surface the web app consumes it on.
+        from agent.cloud_api.api_keys import test_api_key_live
+        response = test_api_key_live(api_key)
+        return create_success_response(request, response)
     except Exception as e:
         logger.error(f"[TestApiKey] Error: {e}")
         logger.error(traceback.format_exc())

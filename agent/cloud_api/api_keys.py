@@ -222,6 +222,84 @@ def test_api_key(session_token: str, api_key: str) -> Dict[str, Any]:
     return _post("queryApiKey", session_token, {"apiKey": api_key})
 
 
+def _llm_proxy_base() -> str:
+    """The llm-proxy public base. GUI: the configured endpoint; headless:
+    derived from the GraphQL origin (same TCB origin, /api/llm-proxy)."""
+    try:
+        from app_context import AppContext
+        mainwin = AppContext.get_main_window()
+        gs = getattr(getattr(mainwin, "config_manager", None), "general_settings", None)
+        endpoint = str(getattr(gs, "lambda_proxy_endpoint", "") or "").strip()
+        if endpoint:
+            return endpoint.rstrip("/")
+    except Exception:
+        pass
+    try:
+        from urllib.parse import urlsplit
+        from agent.cloud_api.endpoints import get_endpoint_config
+        gql = (get_endpoint_config().graphql_endpoint or "").strip()
+        if gql:
+            parts = urlsplit(gql)
+            return f"{parts.scheme}://{parts.netloc}/api/llm-proxy"
+    except Exception:
+        pass
+    return ""
+
+
+def test_api_key_live(api_key: str) -> Dict[str, Any]:
+    """REAL end-to-end test: use the key in an actual API request — the same
+    surface the web app consumes it on — GET <llm-proxy>/v1/models with
+    ``Authorization: Bearer <api_key>``. 200 proves route + key + registry.
+
+    Returns {'valid', 'status' ('active' on 200, for UI parity with the
+    store-lookup shape), 'http_status', 'latency_ms', 'url', 'models'|...}.
+    """
+    import time
+    import urllib.request as _rq
+    import urllib.error as _err
+
+    key = str(api_key or "").strip()
+    if not key:
+        return {"success": False, "valid": False, "error": "no_key",
+                "message": "api_key is required"}
+    base = _llm_proxy_base()
+    if not base:
+        return {"success": False, "valid": False, "error": "no_endpoint",
+                "message": "llm-proxy endpoint not configured"}
+    url = base + "/v1/models"
+    req = _rq.Request(url, headers={"Authorization": f"Bearer {key}"})
+    t0 = time.time()
+    try:
+        with _rq.urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+            http_status = resp.status
+    except _err.HTTPError as he:
+        raw = he.read().decode("utf-8", "replace")
+        http_status = he.code
+    except Exception as exc:
+        return {"success": False, "valid": False, "error": "request_failed",
+                "message": str(exc), "url": url}
+    latency_ms = int((time.time() - t0) * 1000)
+    result: Dict[str, Any] = {
+        "success": True,
+        "valid": http_status == 200,
+        "status": "active" if http_status == 200 else "invalid",
+        "http_status": http_status,
+        "latency_ms": latency_ms,
+        "url": url,
+    }
+    try:
+        body = json.loads(raw)
+        if http_status == 200 and isinstance(body, dict):
+            result["models"] = [m.get("id") for m in (body.get("data") or [])
+                                if isinstance(m, dict)]
+        else:
+            result["body"] = body
+    except Exception:
+        result["body"] = raw[:300]
+    return result
+
+
 def get_local_synced_api_key() -> str:
     """The account API key previously synced into local provider settings
     (Account page → sync_ecanai_account_api_key stores it as

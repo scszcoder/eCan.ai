@@ -99,28 +99,31 @@ def query_key(as_json, reveal):
 @click.argument('key', required=False)
 @click.option('--json', 'as_json', is_flag=True, help='Raw JSON output')
 def test_key(key, as_json):
-    """Validate an API key against the store (defaults to the account's key)."""
-    from agent.cloud_api.api_keys import get_api_key, test_api_key
-    token = _session_token()
+    """Test an API key with a REAL request (llm-proxy GET /v1/models).
+
+    Defaults to the account's current key.
+    """
+    from agent.cloud_api.api_keys import get_api_key, test_api_key_live
     if not key:
-        current = get_api_key(token)
+        current = get_api_key(_session_token())
         key = current.get("apiKey")
         if not key:
             click.echo("No API key to test — run `ecan apikey add` first.")
             raise SystemExit(1)
-    result = test_api_key(token, key)
+    result = test_api_key_live(key)
     if as_json:
         _emit(result, True)
         return
-    if result.get("apiKey") or result.get("customer") or result.get("status") == "active":
-        click.echo("VALID")
-        if result.get("status"):
-            click.echo(f"status: {result['status']}")
-    elif result.get("success", True):
-        click.echo("INVALID (not found)")
-        raise SystemExit(1)
+    if result.get("valid"):
+        models = result.get("models") or []
+        click.echo(f"VALID — HTTP 200 in {result.get('latency_ms')}ms, "
+                   f"{len(models)} model(s) served")
+        if models:
+            click.echo("models: " + ", ".join(str(m) for m in models[:10]))
     else:
-        _emit(result, False)
+        click.echo(f"INVALID — HTTP {result.get('http_status', '?')} "
+                   f"{result.get('message') or result.get('body') or ''}")
+        raise SystemExit(1)
 
 
 @apikey.command('delete')
