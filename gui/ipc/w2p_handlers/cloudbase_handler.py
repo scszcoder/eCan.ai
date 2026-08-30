@@ -10,6 +10,8 @@ import traceback
 import uuid
 from typing import Any, Dict, Optional
 
+import requests
+
 from utils.app_env import is_cn, get_app_id
 from auth.tencent import (
     get_cloudbase_service,
