@@ -552,6 +552,38 @@ class LightRAGConfigManager:
                                 keys['_SYSTEM_EMBED_KEY_SOURCE'] = env_var
                                 logger.info(f"[LightRAG Config] Using Embedding API key from {env_var}")
                                 break
+
+                        # Dimension safety net (2026-08-30 DashScope 400
+                        # incident): on-demand detection above only runs when
+                        # the model is found in supported_models — providers
+                        # with dynamic models (eCanAI) never enter that loop,
+                        # so a stale EMBEDDING_DIM in lightrag.env (1536 from
+                        # text-embedding-3-small) survived a model change and
+                        # DashScope rejected it (valid: 64..1024). Whenever the
+                        # resolved model differs from the .env model and no dim
+                        # was resolved, detect it live so dim always matches
+                        # the model actually used.
+                        _env_model = (current_config.get('EMBEDDING_MODEL') or '').strip()
+                        if (embedding_model and 'EMBEDDING_DIM' not in keys
+                                and _env_model != embedding_model):
+                            detected_dim = self._detect_embedding_on_demand(
+                                host=keys.get('EMBEDDING_BINDING_HOST') or base_url,
+                                model_id=embedding_model,
+                                api_key=keys.get('EMBEDDING_BINDING_API_KEY')
+                            )
+                            if detected_dim:
+                                keys['EMBEDDING_DIM'] = str(detected_dim)
+                                logger.info(
+                                    f"[LightRAG Config] Model changed "
+                                    f"({_env_model!r} -> {embedding_model!r}); "
+                                    f"detected dimensions: {detected_dim}"
+                                )
+                            else:
+                                logger.warning(
+                                    f"[LightRAG Config] Model changed but dimension "
+                                    f"detection failed for '{embedding_model}' — the "
+                                    f"stale EMBEDDING_DIM may be wrong"
+                                )
                     else:
                         logger.warning(f"[LightRAG Config] Provider '{embedding_binding}' not found in embedding_manager")
             except Exception as e:
