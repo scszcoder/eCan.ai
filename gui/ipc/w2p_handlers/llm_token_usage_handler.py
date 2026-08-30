@@ -11,6 +11,24 @@ from pathlib import Path
 import json
 
 
+# Display currency (2026-08-30): costs are STORED in USD (token_tracker's
+# pricing table); CN builds display RMB. Conversion happens here at the API
+# boundary so every usage endpoint reports the same currency and the frontend
+# just renders what it gets.
+_USD_TO_CNY = 7.25
+
+
+def _display_currency_fields(cost_usd: float) -> Dict[str, Any]:
+    """{'cost', 'currency'} in the app variant's display currency."""
+    try:
+        from utils.app_env import is_cn
+        if is_cn():
+            return {'cost': round(float(cost_usd or 0.0) * _USD_TO_CNY, 4), 'currency': 'CNY'}
+    except Exception:
+        pass
+    return {'cost': round(float(cost_usd or 0.0), 4), 'currency': 'USD'}
+
+
 # Placeholder pricing (per 1K tokens)
 DEFAULT_PRICING = {
     'gpt-4': {'input': 0.03, 'output': 0.06},
@@ -75,10 +93,12 @@ def handle_get_monthly_token_usage(request: IPCRequest, params: Optional[Dict[st
         # Query database for monthly usage
         token_service = ec_db_mgr.token_usage_service
         usage_data = token_service.get_monthly_usage(year, month)
-        
+        usage_data.update(_display_currency_fields(usage_data.get('cost_usd', 0.0)))
+
         logger.info(f"[llm_token_usage] Monthly usage for {year}-{month:02d}: "
-                   f"{usage_data['total_tokens']:,} tokens (${usage_data['cost_usd']:.2f})")
-        
+                   f"{usage_data['total_tokens']:,} tokens "
+                   f"({usage_data['cost']:.2f} {usage_data['currency']})")
+
         return create_success_response(request, usage_data)
         
     except Exception as e:
@@ -158,13 +178,16 @@ def handle_get_token_usage_time_series(request: IPCRequest, params: Optional[Dic
 
         token_service = ec_db_mgr.token_usage_service
         series = token_service.get_time_series_usage(start, end, granularity)
+        for point in series:
+            point.update(_display_currency_fields(point.get('cost_usd', 0.0)))
 
         logger.info(f"[llm_token_usage] Time series for period={period}, granularity={granularity}: "
                     f"{len(series)} data points")
 
         return create_success_response(request, {
             'series': series,
-            'granularity': granularity
+            'granularity': granularity,
+            'currency': _display_currency_fields(0.0)['currency'],
         })
 
     except Exception as e:
@@ -212,6 +235,9 @@ def handle_get_token_usage_breakdown(request: IPCRequest, params: Optional[Dict[
 
         token_service = ec_db_mgr.token_usage_service
         breakdown = token_service.get_breakdown_for_period(start, end)
+        for row in breakdown.get('by_model', []) + breakdown.get('by_skill', []):
+            row.update(_display_currency_fields(row.get('cost_usd', 0.0)))
+        breakdown['currency'] = _display_currency_fields(0.0)['currency']
 
         logger.info(f"[llm_token_usage] Breakdown for {start.isoformat()} to {end.isoformat()}: "
                     f"{breakdown.get('total_invocations', 0)} invocations")
@@ -253,6 +279,8 @@ def handle_get_token_usage_alarms(request: IPCRequest, params: Optional[Dict[str
         token_service = ec_db_mgr.token_usage_service
         daily = token_service.get_daily_usage()
         monthly = token_service.get_monthly_usage(now.year, now.month)
+        daily.update(_display_currency_fields(daily.get('cost_usd', 0.0)))
+        monthly.update(_display_currency_fields(monthly.get('cost_usd', 0.0)))
         alarm_levels = _load_alarm_config()
 
         logger.info(f"[llm_token_usage] Alarms - daily: {daily.get('total_tokens', 0):,} tokens, "
