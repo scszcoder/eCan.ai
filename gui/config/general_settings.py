@@ -562,6 +562,28 @@ class GeneralSettings:
         """Cloud LLM proxy URL (Lambda Function URL / TCB llm-proxy service)"""
         value = str(self._data.get("lambda_proxy_endpoint", "") or "").strip()
         if value:
+            # CN guard (2026-08-30 incident): a profile that once tested intl can
+            # carry a stale AWS Lambda URL here. On CN builds that endpoint is
+            # both wrong (different auth/keys) and mainland-unreachable, and it
+            # silently hijacked every proxy call incl. the api-key validator —
+            # ignore it and use the CN default instead of failing mysteriously.
+            try:
+                from utils.app_env import is_cn as _is_cn
+                if _is_cn() and (".on.aws" in value or "amazonaws.com" in value):
+                    if not getattr(GeneralSettings, "_cn_aws_endpoint_warned", False):
+                        GeneralSettings._cn_aws_endpoint_warned = True
+                        try:
+                            from utils.logger_helper import logger_helper as _log
+                            _log.warning(
+                                "[GeneralSettings] lambda_proxy_endpoint points at an "
+                                f"AWS Lambda URL ({value}) on a CN build — ignoring it "
+                                f"and using {self._CN_DEFAULT_LLM_PROXY_ENDPOINT}"
+                            )
+                        except Exception:
+                            pass
+                    return self._CN_DEFAULT_LLM_PROXY_ENDPOINT
+            except Exception:
+                pass
             return value
         try:
             from utils.app_env import is_cn

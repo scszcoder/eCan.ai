@@ -239,3 +239,28 @@ class TestBuildNodeSourceContract:
         assert proxy_pos != -1, "missing-key branch no longer tries the proxy"
         assert raise_pos != -1 and proxy_pos < raise_pos, \
             "proxy fallback must be attempted BEFORE raising the missing-key error"
+
+
+class TestCnAwsEndpointGuard:
+    def _gs(self, data):
+        from gui.config.general_settings import GeneralSettings
+        gs = object.__new__(GeneralSettings)
+        gs._data = data
+        return gs
+
+    def test_stale_aws_url_ignored_on_cn(self):
+        gs = self._gs({"lambda_proxy_endpoint":
+                       "https://abc.lambda-url.us-east-1.on.aws"})
+        with patch("utils.app_env.is_cn", return_value=True):
+            assert "tcloudbase.com" in gs.lambda_proxy_endpoint
+
+    def test_custom_tcb_url_kept_on_cn(self):
+        gs = self._gs({"lambda_proxy_endpoint": "https://my.tcb.example/llm"})
+        with patch("utils.app_env.is_cn", return_value=True):
+            assert gs.lambda_proxy_endpoint == "https://my.tcb.example/llm"
+
+    def test_aws_url_kept_on_intl(self):
+        gs = self._gs({"lambda_proxy_endpoint":
+                       "https://abc.lambda-url.us-east-1.on.aws"})
+        with patch("utils.app_env.is_cn", return_value=False):
+            assert gs.lambda_proxy_endpoint == "https://abc.lambda-url.us-east-1.on.aws"
