@@ -196,6 +196,16 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
 
         # Store API keys based on provider type
         api_key_stored = False
+
+        # An explicitly submitted empty value means delete. Previously the
+        # truthy checks below silently ignored it, so users could replace a
+        # key but could not clear one from the edit dialog.
+        if api_key is not None and not str(api_key).strip() and provider_identifier != 'bedrock':
+            key_env = 'AZURE_OPENAI_API_KEY' if provider_identifier == 'azure_openai' else (env_vars[0] if env_vars else None)
+            if key_env:
+                if not llm_manager.delete_api_key(key_env):
+                    return create_error_response(request, 'LLM_ERROR', f"Failed to delete API key: {key_env}")
+                api_key_stored = True
         
         # Handle special cases requiring multiple credentials
         if provider_identifier == 'baidu_qianfan':
@@ -209,6 +219,10 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                 api_key_stored = True
         
         elif provider_identifier == 'azure_openai':
+            if azure_endpoint is not None and not str(azure_endpoint).strip() and 'AZURE_ENDPOINT' in env_vars:
+                if not llm_manager.delete_api_key('AZURE_ENDPOINT'):
+                    return create_error_response(request, 'LLM_ERROR', "Failed to delete Azure endpoint")
+                api_key_stored = True
             if azure_endpoint:
                 # Store Azure endpoint
                 if 'AZURE_ENDPOINT' in env_vars:
@@ -229,6 +243,15 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
             # AWS Bedrock requires two credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
             aws_access_key_id = data.get('aws_access_key_id')
             aws_secret_access_key = data.get('aws_secret_access_key')
+
+            for field_name, env_name in (
+                ('aws_access_key_id', 'AWS_ACCESS_KEY_ID'),
+                ('aws_secret_access_key', 'AWS_SECRET_ACCESS_KEY'),
+            ):
+                if field_name in data and not str(data.get(field_name) or '').strip() and env_name in env_vars:
+                    if not llm_manager.delete_api_key(env_name):
+                        return create_error_response(request, 'LLM_ERROR', f"Failed to delete credential: {env_name}")
+                    api_key_stored = True
 
             if aws_access_key_id:
                 if 'AWS_ACCESS_KEY_ID' in env_vars:
@@ -256,7 +279,7 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
         # Update base_url for local providers (e.g., Ollama)
         # Note: We don't save here, will save together with other settings below
         base_url_updated = False
-        if base_url and provider.get('is_local', False):
+        if 'base_url' in data and provider.get('is_local', False):
             from gui.manager.provider_settings_helper import update_ollama_base_url
             success, error_msg = update_ollama_base_url(provider_identifier, base_url, 'llm')
             if success:

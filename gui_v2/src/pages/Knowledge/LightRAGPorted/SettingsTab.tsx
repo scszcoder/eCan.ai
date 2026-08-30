@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { 
   FolderOpenOutlined, 
-  SaveOutlined, 
+  CheckOutlined,
   DatabaseOutlined, 
   ApiOutlined, 
   CloudServerOutlined,
@@ -12,6 +12,7 @@ import {
   BlockOutlined,
   SortAscendingOutlined,
   ExperimentOutlined,
+  FileTextOutlined,
   QuestionCircleOutlined,
   ExclamationCircleOutlined
 } from '@ant-design/icons';
@@ -25,13 +26,16 @@ import {
   RERANKING_COMMON_FIELDS,
   LLM_COMMON_FIELDS,
   EMBEDDING_COMMON_FIELDS,
+  PARSER_PROVIDERS,
   ProviderConfig, getProvidersByRegion
 } from './providerConfig';
 import { buildProviderConfig, type RawProvider } from './buildProviderFields';
+import { buildParserProviders, type ParserEngineDefinition } from './buildParserProviders';
 import { useIsCN } from '@/contexts/AppConfigContext';
 import { Card } from 'antd';
 import HelpDialog from './HelpDialog';
 import { useLightRAGSettingsStore } from '@/stores/ragStore';
+import { useWorkspace } from './useWorkspace';
 
 // Helper to build ProviderConfig from raw backend data
 // (defined in buildProviderFields.ts)
@@ -51,12 +55,28 @@ interface StartupStatus {
   timestamp: number;
 }
 
+const parserImageAnalysisEnabled = (routing = ''): boolean => {
+  const firstActiveRule = routing.split(',').find(rule => /:(native|mineru|docling)(?:\([^)]*\))?-/i.test(rule));
+  const modifiers = firstActiveRule?.match(/:(?:native|mineru|docling)(?:\([^)]*\))?-([A-Za-z]+)/i)?.[1] || '';
+  return modifiers.includes('i');
+};
+
+const setParserImageAnalysis = (routing: string, enabled: boolean): string =>
+  routing.replace(
+    /:(native|mineru|docling)(\([^)]*\))?-([A-Za-z]+)/gi,
+    (_match, engine: string, args: string = '', modifiers: string) => {
+      const withoutImages = modifiers.replace(/i/g, '');
+      return `:${engine}${args || ''}-${enabled ? `i${withoutImages}` : withoutImages}`;
+    }
+  );
+
 const SettingsTab: React.FC = () => {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [startupStatus, setStartupStatus] = useState<StartupStatus | null>(null);
+  const [activeWorkspace, setActiveWorkspace] = useWorkspace();
   const [helpDialogVisible, setHelpDialogVisible] = useState(false);
   const savedScrollPosition = useRef<number>(0);
   const restoringRef = useRef(false);
@@ -206,6 +226,146 @@ const SettingsTab: React.FC = () => {
     });
   };
 
+  const testParserConfig = async (
+    engine: string,
+    silent = false,
+  ): Promise<{ ok: boolean; category?: string; technical?: string }> => {
+    const provider = parserProviders.find(item => item.id === engine);
+    const providerName = provider
+      ? (provider.name.includes('.') ? t(`pages.knowledge.settings.${provider.name}`) : provider.name)
+      : engine;
+    try {
+      const parserSettings = Object.fromEntries(
+        (provider?.fields || []).map(field => [
+          field.key,
+          settings[field.key] ?? field.defaultValue ?? '',
+        ])
+      );
+      parserSettings.SSL_VERIFY = settings.SSL_VERIFY ?? 'false';
+      const response = await get_ipc_api().lightragApi.testParserConfig<{
+        available?: boolean;
+        category?: string;
+        technical_detail?: string;
+        message?: string;
+        url?: string;
+        status_code?: number;
+      }>({ engine, settings: parserSettings });
+      const probeResult = response.data || {};
+      if (!response.success || probeResult.available === false) {
+        const details = (response.error?.details || {}) as {
+          category?: string;
+          technical_detail?: string;
+        };
+        const category = probeResult.category || details.category || 'unknown';
+        const technicalDetail = probeResult.technical_detail || details.technical_detail;
+        if (!silent) modal.error({
+          title: t('pages.knowledge.settings.parserProbe.failedTitle', { provider: providerName }),
+          width: 520,
+          okText: t('common.confirm'),
+          content: (
+            <div style={{ lineHeight: 1.65 }}>
+              <div style={{ marginTop: 12 }}>
+                <strong>{t('pages.knowledge.settings.parserProbe.reasonLabel')}</strong>
+                <div>{t(`pages.knowledge.settings.parserProbe.errors.${category}.reason`)}</div>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <strong>{t('pages.knowledge.settings.parserProbe.suggestionLabel')}</strong>
+                <div>{t(`pages.knowledge.settings.parserProbe.errors.${category}.suggestion`)}</div>
+              </div>
+              {technicalDetail && (
+                <details style={{ marginTop: 14, color: token.colorTextSecondary }}>
+                  <summary style={{ cursor: 'pointer' }}>
+                    {t('pages.knowledge.settings.parserProbe.technicalDetails')}
+                  </summary>
+                  <div style={{ marginTop: 8, padding: 10, borderRadius: 6, background: token.colorFillTertiary, wordBreak: 'break-word' }}>
+                    {technicalDetail}
+                  </div>
+                </details>
+              )}
+            </div>
+          ),
+        });
+        return { ok: false, category, technical: technicalDetail };
+      }
+      if (!silent) modal.success({
+        title: t('pages.knowledge.settings.parserProbe.successTitle', { provider: providerName }),
+        okText: t('common.confirm'),
+        content: (
+          <div style={{ lineHeight: 1.65 }}>
+            <div>{t('pages.knowledge.settings.parserProbe.success')}</div>
+            {response.data?.url && <div style={{ marginTop: 8, color: token.colorTextSecondary, wordBreak: 'break-all' }}>{response.data.url}</div>}
+          </div>
+        ),
+      });
+      return { ok: true };
+    } catch (error: any) {
+      if (!silent) modal.error({
+        title: t('pages.knowledge.settings.parserProbe.failedTitle', { provider: providerName }),
+        width: 520,
+        okText: t('common.confirm'),
+        content: (
+          <div style={{ lineHeight: 1.65 }}>
+            <div>{t('pages.knowledge.settings.parserProbe.errors.unknown.reason')}</div>
+            <div style={{ marginTop: 8 }}>{t('pages.knowledge.settings.parserProbe.errors.unknown.suggestion')}</div>
+            <details style={{ marginTop: 14, color: token.colorTextSecondary }}>
+              <summary style={{ cursor: 'pointer' }}>{t('pages.knowledge.settings.parserProbe.technicalDetails')}</summary>
+              <div style={{ marginTop: 8, wordBreak: 'break-word' }}>{error?.message || String(error)}</div>
+            </details>
+          </div>
+        ),
+      });
+      return { ok: false, category: 'unknown', technical: error?.message || String(error) };
+    }
+  };
+
+  const testModelServiceConfig = async (
+    kind: 'llm' | 'embedding' | 'rerank',
+    providerId: string,
+    silent = false,
+  ): Promise<{ ok: boolean; category?: string; technical?: string }> => {
+    const providerList = kind === 'llm' ? llmProviders : kind === 'embedding' ? embeddingProviders : rerankingProviders;
+    const provider = providerList.find(item => item.id === providerId);
+    const providerName = provider
+      ? (provider.name.includes('.') ? t(`pages.knowledge.settings.${provider.name}`) : provider.name)
+      : providerId;
+    try {
+      const response = await get_ipc_api().lightragApi.testModelServiceConfig({ kind, settings });
+      const probeResult = (response.data || {}) as { available?: boolean; category?: string; technical_detail?: string };
+      if (!response.success || probeResult.available === false) {
+        const details = (response.error?.details || {}) as { category?: string; technical_detail?: string };
+        const category = probeResult.category || details.category || 'unknown';
+        const technicalDetail = probeResult.technical_detail || details.technical_detail;
+        if (!silent) modal.error({
+          title: t('pages.knowledge.settings.serviceStatus.failedTitle', { provider: providerName }),
+          width: 520,
+          okText: t('common.confirm'),
+          content: (
+            <div style={{ lineHeight: 1.65 }}>
+              <strong>{t('pages.knowledge.settings.parserProbe.reasonLabel')}</strong>
+              <div>{t(`pages.knowledge.settings.parserProbe.errors.${category}.reason`)}</div>
+              <div style={{ marginTop: 12 }}><strong>{t('pages.knowledge.settings.parserProbe.suggestionLabel')}</strong></div>
+              <div>{t(`pages.knowledge.settings.parserProbe.errors.${category}.suggestion`)}</div>
+              {technicalDetail && <><div style={{ marginTop: 12 }}><strong>{t('pages.knowledge.settings.parserProbe.technicalDetails')}</strong></div><div style={{ marginTop: 6, padding: 10, borderRadius: 6, background: token.colorFillTertiary, wordBreak: 'break-word' }}>{technicalDetail}</div></>}
+            </div>
+          ),
+        });
+        return { ok: false, category, technical: technicalDetail };
+      }
+      if (!silent) modal.success({
+        title: t('pages.knowledge.settings.serviceStatus.successTitle', { provider: providerName }),
+        okText: t('common.confirm'),
+        content: t('pages.knowledge.settings.serviceStatus.available'),
+      });
+      return { ok: true };
+    } catch (error: any) {
+      if (!silent) modal.error({
+        title: t('pages.knowledge.settings.serviceStatus.failedTitle', { provider: providerName }),
+        content: t('pages.knowledge.settings.parserProbe.errors.unknown.suggestion'),
+      });
+      return { ok: false, category: 'unknown', technical: error?.message || String(error) };
+    }
+  };
+
   // Show create new workspace modal
   const showCreateWorkspaceModal = (newDimension: number) => {
     let workspaceName = '';
@@ -307,13 +467,17 @@ const SettingsTab: React.FC = () => {
       const response = await get_ipc_api().lightragApi.saveSettings(newSettings);
       
       if (!response.success) {
-        throw new Error('Failed to save settings');
+        throw new Error(response.error?.message || 'Failed to save settings');
       }
       
       console.log('[Workspace Switch] Settings saved successfully');
       
       // Update local state
       setSettings(newSettings);
+      // Keep the header, document list and retrieval tab in sync with the
+      // workspace selected here. Previously only the env file changed, so
+      // the rest of the page continued displaying and querying the old one.
+      setActiveWorkspace(workspaceName);
       
       // Restart LightRAG server to apply new workspace settings
       console.log('[Workspace Switch] Restarting LightRAG server...');
@@ -322,11 +486,11 @@ const SettingsTab: React.FC = () => {
         if (restartResponse.success) {
           console.log('[Workspace Switch] ✅ LightRAG server restarted successfully');
         } else {
-          console.warn('[Workspace Switch] ⚠️ Server restart failed, but continuing');
+          throw new Error(restartResponse.error?.message || 'LightRAG server restart failed');
         }
       } catch (restartError) {
         console.error('[Workspace Switch] ❌ Error restarting server:', restartError);
-        // Don't fail the workspace switch if restart fails
+        throw restartError;
       }
       
       // Reload workspaces list
@@ -480,6 +644,7 @@ const SettingsTab: React.FC = () => {
   const [llmProviders, setLlmProviders] = useState<ProviderConfig[]>([]);
   const [embeddingProviders, setEmbeddingProviders] = useState<ProviderConfig[]>([]);
   const [rerankingProviders, setRerankingProviders] = useState<ProviderConfig[]>([]);
+  const [parserProviders, setParserProviders] = useState<ProviderConfig[]>(PARSER_PROVIDERS);
   
   const { t, ready } = useTranslation();
   const { token } = theme.useToken();
@@ -746,6 +911,17 @@ const SettingsTab: React.FC = () => {
           const rerankBinding = loadedSettings['RERANK_BINDING'];
           loadedSettings['RERANK_BY_DEFAULT'] = (rerankBinding && rerankBinding !== 'null') ? 'true' : 'false';
         }
+
+        // Derive the UI-only parsing engine selection from LIGHTRAG_PARSER
+        const parserValue = (loadedSettings['LIGHTRAG_PARSER'] || '').toLowerCase();
+        if (parserValue.includes('mineru')) {
+          loadedSettings['PARSING_ENGINE'] = 'mineru';
+        } else if (parserValue.includes('docling')) {
+          loadedSettings['PARSING_ENGINE'] = 'docling';
+        } else {
+          loadedSettings['PARSING_ENGINE'] = 'native';
+        }
+        loadedSettings['PARSER_IMAGE_ANALYSIS'] = parserImageAnalysisEnabled(parserValue) ? 'true' : 'false';
         
         setSettings(loadedSettings);
       }
@@ -774,11 +950,51 @@ const SettingsTab: React.FC = () => {
     } catch (e) {
       console.error('Failed to load system providers:', e);
     }
+
+    // Document parsing engines are defined and served by the backend
+    // (knowledge/lightrag_parser_config.py); fall back to the static list
+    // when the handler is unavailable (older backend).
+    try {
+      const parserResponse = await get_ipc_api().lightragApi.getParserEngines<{
+        engines?: ParserEngineDefinition[];
+        current?: Record<string, string>;
+        engine?: string;
+      }>();
+      if (parserResponse.success && parserResponse.data) {
+        const parserData = parserResponse.data;
+        setParserProviders(buildParserProviders(parserData.engines));
+        if (parserData.current) {
+          // Older running backends can omit newly introduced parser keys or
+          // serialize them as null. Do not let that partial response erase a
+          // value already loaded from lightrag.getSettings (notably parser
+          // API keys) when both requests finish concurrently.
+          const current = Object.fromEntries(
+            Object.entries(parserData.current).filter(([, value]) => value !== null && value !== undefined)
+          ) as Record<string, string>;
+          setSettings(prev => ({
+            ...prev,
+            ...current,
+            // The engine selection is UI-only (never persisted); it is
+            // derived from LIGHTRAG_PARSER on the backend.
+            PARSING_ENGINE: parserData.engine || prev.PARSING_ENGINE || 'native'
+          }));
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load parser engines:', e);
+    }
   };
 
   const updateSetting = (key: string, value: string) => {
     setSettings(prev => {
       const newSettings = { ...prev, [key]: value };
+
+      if (key === 'PARSER_IMAGE_ANALYSIS') {
+        newSettings.LIGHTRAG_PARSER = setParserImageAnalysis(
+          prev.LIGHTRAG_PARSER || '',
+          value === 'true'
+        );
+      }
       
       // Rerank linkage logic
       if (key === 'RERANK_BINDING') {
@@ -793,6 +1009,10 @@ const SettingsTab: React.FC = () => {
         if (value === 'false') {
           // Disabling default rerank -> Clear provider
           newSettings['RERANK_BINDING'] = 'null';
+        }
+      } else if (key === 'MINERU_API_MODE') {
+        if (value === 'official') {
+          newSettings['MINERU_OFFICIAL_ENDPOINT'] ||= 'https://mineru.net';
         }
       }
       
@@ -959,7 +1179,14 @@ const SettingsTab: React.FC = () => {
         }
       }
       
-      const response = await get_ipc_api().lightragApi.saveSettings(settings);
+      // Strip the UI-only engine selection from the payload — the engine is
+      // persisted through LIGHTRAG_PARSER itself and must never be written
+      // to lightrag.env as a fake variable.
+      const savePayload = { ...settings };
+      delete savePayload.PARSING_ENGINE;
+      delete savePayload.PARSER_IMAGE_ANALYSIS;
+
+      const response = await get_ipc_api().lightragApi.saveSettings(savePayload);
       if (response.success) {
         message.success(t('pages.knowledge.settings.saveSuccess'));
         
@@ -1217,14 +1444,14 @@ const SettingsTab: React.FC = () => {
             </h3>
             <WorkspaceSelector
               workspaces={workspaces}
-              currentWorkspace={(() => {
+              currentWorkspace={activeWorkspace || (() => {
                 const val = settings['WORKSPACE'];
                 if (Array.isArray(val)) {
                   return val[0] || 'default';
                 }
                 return val || 'default';
               })()}
-              loading={workspaceLoading}
+              loading={workspaceLoading || loading}
               onSwitch={async (workspaceName: string) => {
                 await switchToWorkspace(workspaceName);
               }}
@@ -1272,6 +1499,7 @@ const SettingsTab: React.FC = () => {
     const icons: Record<string, React.ReactNode> = {
       basic: <CloudServerOutlined />,
       rag: <ApiOutlined />,
+      parsing: <FileTextOutlined />,
       reranking: <SortAscendingOutlined />,
       llm: <RobotOutlined />,
       embedding: <BlockOutlined />,
@@ -1284,6 +1512,27 @@ const SettingsTab: React.FC = () => {
   // Helper to handle setting changes, including auto-filling defaults when provider changes
   const createSettingChangeHandler = (bindingKey: string, providers: ProviderConfig[]) => {
     return (key: string, value: string) => {
+      // Parser engines own separate env keys (MINERU_* and DOCLING_*).
+      // Switching the visible engine must preserve both configurations so a
+      // user can compare/test them and switch back without re-entering URLs
+      // or secrets. Only the UI selection and active routing rule change.
+      if (key === bindingKey && bindingKey === 'PARSING_ENGINE') {
+        const newProvider = providers.find(provider => provider.id === value);
+        setSettings(prev => {
+          const next: Record<string, string> = { ...prev, [bindingKey]: value };
+          for (const field of newProvider?.fields || []) {
+            if (field.key === 'LIGHTRAG_PARSER') {
+              next[field.key] = field.defaultValue || '';
+            } else if (!(field.key in next) && field.defaultValue !== undefined) {
+              next[field.key] = field.defaultValue;
+            }
+          }
+          next.PARSER_IMAGE_ANALYSIS = 'false';
+          return next;
+        });
+        return;
+      }
+
       updateSetting(key, value);
 
       // If the changed key matches the binding key, it means the provider selection changed
@@ -1423,6 +1672,16 @@ const SettingsTab: React.FC = () => {
   // Render provider-based configuration tabs
   const renderProviderTab = (tabKey: string) => {
     switch (tabKey) {
+      case 'parsing':
+        return (
+          <ProviderSelector
+            bindingKey="PARSING_ENGINE"
+            providers={parserProviders}
+            settings={settings}
+            onSettingChange={createSettingChangeHandler("PARSING_ENGINE", parserProviders)}
+            onTestProvider={settings.PARSING_ENGINE === 'mineru' || settings.PARSING_ENGINE === 'docling' ? testParserConfig : undefined}
+          />
+        );
       case 'reranking':
         return (
           <ProviderSelector
@@ -1431,6 +1690,7 @@ const SettingsTab: React.FC = () => {
             commonFields={RERANKING_COMMON_FIELDS}
             settings={settings}
             onSettingChange={createSettingChangeHandler("RERANK_BINDING", rerankingProviders)}
+            onTestProvider={(providerId, silent) => testModelServiceConfig('rerank', providerId, silent)}
           />
         );
       case 'llm':
@@ -1441,6 +1701,7 @@ const SettingsTab: React.FC = () => {
             commonFields={LLM_COMMON_FIELDS}
             settings={settings}
             onSettingChange={createSettingChangeHandler("LLM_BINDING", llmProviders)}
+            onTestProvider={(providerId, silent) => testModelServiceConfig('llm', providerId, silent)}
           />
         );
       case 'embedding':
@@ -1451,6 +1712,7 @@ const SettingsTab: React.FC = () => {
             commonFields={EMBEDDING_COMMON_FIELDS}
             settings={settings}
             onSettingChange={createSettingChangeHandler("EMBEDDING_BINDING", embeddingProviders)}
+            onTestProvider={(providerId, silent) => testModelServiceConfig('embedding', providerId, silent)}
           />
         );
       case 'storage':
@@ -1606,7 +1868,7 @@ const SettingsTab: React.FC = () => {
               </button>
             </Tooltip>
             <button className="ec-btn ec-btn-primary" onClick={handleSave} disabled={loading}>
-              <SaveOutlined /> {loading ? t('pages.knowledge.settings.saving') : t('pages.knowledge.settings.saveSettings')}
+              <CheckOutlined /> {loading ? t('pages.knowledge.settings.saving') : t('pages.knowledge.settings.saveSettings')}
             </button>
           </div>
         </div>

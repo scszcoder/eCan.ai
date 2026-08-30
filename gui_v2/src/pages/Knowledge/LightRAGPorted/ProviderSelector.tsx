@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { theme, Select, Input, InputNumber, Switch, Card, Tooltip, Button } from 'antd';
-import { QuestionCircleOutlined, SettingOutlined, ReloadOutlined, GlobalOutlined } from '@ant-design/icons';
+import { theme, Select, Input, InputNumber, Switch, Card, Tooltip, Button, Badge } from 'antd';
+import { QuestionCircleOutlined, SettingOutlined, ReloadOutlined, GlobalOutlined, ApiOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { ProviderConfig, ProviderFieldConfig } from './providerConfig';
 import { IPCAPI } from '../../../services/ipc/api';
@@ -19,6 +19,7 @@ interface ProviderSelectorProps {
   commonFields?: ProviderFieldConfig[];
   settings: Record<string, string>;
   onSettingChange: (key: string, value: string) => void;
+  onTestProvider?: (providerId: string, silent?: boolean) => Promise<boolean | { ok: boolean; category?: string; technical?: string }>;
 }
 
 const ProviderSelector: React.FC<ProviderSelectorProps> = ({
@@ -26,7 +27,8 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   providers,
   commonFields = [],
   settings,
-  onSettingChange
+  onSettingChange,
+  onTestProvider
 }) => {
   const { t } = useTranslation();
   const { token } = theme.useToken();
@@ -37,11 +39,58 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   const isCurrentProviderValid = providers.some(p => p.id === currentProviderId);
   const effectiveProviderId = currentProviderId && isCurrentProviderValid ? currentProviderId : undefined;
   const currentProvider = providers.find(p => p.id === (effectiveProviderId || currentProviderId));
+  const isParserSelector = bindingKey === 'PARSING_ENGINE';
   
   // Ollama models state
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
   const [ollamaLoading, setOllamaLoading] = useState(false);
   const [ollamaError, setOllamaError] = useState<string | null>(null);
+  const [testingProvider, setTestingProvider] = useState(false);
+  const [providerStatus, setProviderStatus] = useState<'unchecked' | 'testing' | 'available' | 'unavailable'>('unchecked');
+  const [providerError, setProviderError] = useState<{ category?: string; technical?: string }>({});
+  const lastAutoProbeRef = React.useRef('');
+
+  const probeFingerprint = currentProvider
+    ? JSON.stringify([currentProvider.id, ...currentProvider.fields.map(field => settings[field.key] ?? field.defaultValue ?? '')])
+    : '';
+
+  useEffect(() => {
+    setProviderStatus('unchecked');
+    setProviderError({});
+    if (!currentProvider || !onTestProvider || !probeFingerprint || lastAutoProbeRef.current === probeFingerprint) return;
+    lastAutoProbeRef.current = probeFingerprint;
+    const timer = window.setTimeout(async () => {
+      setProviderStatus('testing');
+      try {
+        const result = await onTestProvider(currentProvider.id, true);
+        const ok = typeof result === 'boolean' ? result : result.ok;
+        setProviderError(typeof result === 'boolean' ? {} : result);
+        setProviderStatus(ok ? 'available' : 'unavailable');
+      } catch (error: any) {
+        setProviderError({ category: 'unknown', technical: error?.message || String(error) });
+        setProviderStatus('unavailable');
+      }
+    }, 500);
+    return () => window.clearTimeout(timer);
+    // onTestProvider is intentionally excluded: callers create it during render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [probeFingerprint, currentProvider?.id]);
+
+  const handleTestProvider = async () => {
+    if (!currentProvider || !onTestProvider) return;
+    setTestingProvider(true);
+    setProviderStatus('testing');
+    try {
+      const result = await onTestProvider(currentProvider.id, false);
+      const ok = typeof result === 'boolean' ? result : result.ok;
+      setProviderError(typeof result === 'boolean' ? {} : result);
+      setProviderStatus(ok ? 'available' : 'unavailable');
+    } catch {
+      setProviderStatus('unavailable');
+    } finally {
+      setTestingProvider(false);
+    }
+  };
 
   // Get the Ollama host from settings based on binding type
   const getOllamaHost = useCallback(() => {
@@ -325,6 +374,29 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
         );
       
       case 'boolean':
+        if (isParserSelector) {
+          return (
+            <div key={field.key} style={{
+              minHeight: 58,
+              padding: '10px 12px',
+              border: `1px solid ${token.colorBorderSecondary}`,
+              borderRadius: token.borderRadiusLG,
+              background: token.colorFillQuaternary,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12
+            }}>
+              <div style={{ minWidth: 0 }}>{label}</div>
+              <Switch
+                checked={value === 'true' || value === 'True'}
+                onChange={(checked) => onSettingChange(field.key, checked ? 'true' : 'false')}
+                size="small"
+                disabled={field.disabled}
+              />
+            </div>
+          );
+        }
         return (
           <div key={field.key} style={{ marginBottom: 12 }}>
             {label}
@@ -341,6 +413,50 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
         return null;
     }
   };
+
+  const visibleFields = currentProvider?.fields.filter(field => {
+    if (currentProvider.id !== 'mineru') return true;
+
+    const mineruMode = settings.MINERU_API_MODE || 'local';
+    const isOfficial = mineruMode === 'official';
+    const localBackend = settings.MINERU_LOCAL_BACKEND || 'hybrid-auto-engine';
+
+    // These are two different LightRAG protocols. Only expose fields that
+    // are actually included in the active protocol's request payload.
+    if (['MINERU_OFFICIAL_ENDPOINT', 'MINERU_MODEL_VERSION', 'MINERU_IS_OCR'].includes(field.key)) {
+      return isOfficial;
+    }
+    if (field.key === 'MINERU_API_TOKEN') return true;
+    if (['MINERU_LOCAL_ENDPOINT', 'MINERU_LOCAL_BACKEND'].includes(field.key)) {
+      return !isOfficial;
+    }
+    if (field.key === 'MINERU_LOCAL_PARSE_METHOD') {
+      return !isOfficial && !localBackend.startsWith('vlm');
+    }
+    if (field.key === 'MINERU_LOCAL_IMAGE_ANALYSIS') {
+      return !isOfficial && (localBackend.startsWith('vlm') || localBackend.startsWith('hybrid'));
+    }
+    return true;
+  }) || [];
+
+  const parserFieldGroups = isParserSelector ? [
+    {
+      key: 'connection',
+      title: t('pages.knowledge.settings.parserLayout.connection'),
+      keys: ['MINERU_API_MODE', 'MINERU_OFFICIAL_ENDPOINT', 'MINERU_LOCAL_ENDPOINT', 'MINERU_API_TOKEN', 'DOCLING_ENDPOINT', 'DOCLING_API_KEY']
+    },
+    {
+      key: 'options',
+      title: t('pages.knowledge.settings.parserLayout.options'),
+      keys: ['PARSER_IMAGE_ANALYSIS', 'MINERU_MODEL_VERSION', 'MINERU_IS_OCR', 'MINERU_LANGUAGE', 'MINERU_ENABLE_TABLE', 'MINERU_ENABLE_FORMULA', 'MINERU_LOCAL_BACKEND', 'MINERU_LOCAL_PARSE_METHOD']
+    },
+    {
+      key: 'advanced',
+      title: t('pages.knowledge.settings.parserLayout.advanced'),
+      keys: ['MINERU_LOCAL_IMAGE_ANALYSIS', 'MINERU_ADDITIONAL_SUFFIXES', 'DOCLING_ADDITIONAL_SUFFIXES', 'MAX_PARALLEL_PARSE_MINERU', 'MAX_PARALLEL_PARSE_DOCLING', 'LIGHTRAG_PARSER']
+    }
+  ].map(group => ({ ...group, fields: visibleFields.filter(field => group.keys.includes(field.key)) }))
+    .filter(group => group.fields.length > 0) : [];
 
   return (
     <div style={{ padding: '16px 0' }}>
@@ -378,12 +494,57 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
         </Select>
       </div>
 
-      {currentProvider && currentProvider.fields.length > 0 && (
+      {currentProvider && visibleFields.length > 0 && (
         <Card
           size="small"
           title={
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>{`${currentProvider.name.includes('.') ? t(`pages.knowledge.settings.${currentProvider.name}`) : currentProvider.name} ${t('pages.knowledge.settings.provider.configuration')}`}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {`${currentProvider.name.includes('.') ? t(`pages.knowledge.settings.${currentProvider.name}`) : currentProvider.name} ${t('pages.knowledge.settings.provider.configuration')}`}
+              {bindingKey === 'RERANK_BINDING' && settings['_RERANK_USES_PROXY'] === 'true' && settings['_RERANK_RUNTIME_HOST'] && (
+                <Tooltip
+                  title={
+                    <div style={{ lineHeight: 1.6 }}>
+                      <div>{t('pages.knowledge.settings.rerankProxy.realAddress')}: {settings['RERANK_BINDING_HOST']}</div>
+                      <div>{t('pages.knowledge.settings.rerankProxy.runtimeAddress')}: {settings['_RERANK_RUNTIME_HOST']}</div>
+                      <div style={{ marginTop: 4 }}>{t('pages.knowledge.settings.rerankProxy.hint')}</div>
+                    </div>
+                  }
+                >
+                  <QuestionCircleOutlined style={{ color: token.colorTextSecondary, fontSize: 14 }} />
+                </Tooltip>
+              )}
+            </span>
+          }
+          extra={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              {onTestProvider && (
+                <Tooltip title={providerStatus === 'unavailable' ? (
+                  <div>
+                    <div>{t(`pages.knowledge.settings.parserProbe.errors.${providerError.category || 'unknown'}.reason`)}</div>
+                    {providerError.technical && <div style={{ marginTop: 4, wordBreak: 'break-word' }}>{providerError.technical}</div>}
+                  </div>
+                ) : undefined}>
+                  <Badge
+                    status={providerStatus === 'testing' ? 'processing' : providerStatus === 'available' ? 'success' : providerStatus === 'unavailable' ? 'error' : 'default'}
+                    text={t(`pages.knowledge.settings.serviceStatus.${providerStatus}`)}
+                    style={{ marginRight: 6, color: token.colorTextSecondary, fontSize: 12 }}
+                  />
+                </Tooltip>
+              )}
+              {onTestProvider && (
+                <Tooltip title={t('pages.knowledge.settings.parserProbe.test')}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<ApiOutlined />}
+                    loading={testingProvider}
+                    onClick={handleTestProvider}
+                    style={{ height: 28, padding: '0 8px', color: token.colorPrimary, fontWeight: 500 }}
+                  >
+                    {t('pages.knowledge.settings.parserProbe.testShort')}
+                  </Button>
+                </Tooltip>
+              )}
               {currentProvider.isOllama && (
                 <Tooltip title={t('pages.knowledge.settings.ollama.openWebsite', { defaultValue: 'Open Ollama' })}>
                   <Button
@@ -402,13 +563,43 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
             borderColor: token.colorBorder
           }}
         >
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: 12
-          }}>
-            {currentProvider.fields.map(field => renderField(field))}
-          </div>
+          {isParserSelector ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              {parserFieldGroups.map(group => (
+                <section key={group.key}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+                    color: token.colorTextSecondary, fontSize: 12, fontWeight: 600
+                  }}>
+                    <span>{group.title}</span>
+                    <span style={{ height: 1, flex: 1, background: token.colorBorderSecondary }} />
+                  </div>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                    gap: '10px 14px'
+                  }}>
+                    {group.fields.map(field => (
+                      <div key={field.key} style={{
+                        minWidth: 0,
+                        gridColumn: field.key === 'LIGHTRAG_PARSER' ? '1 / -1' : undefined
+                      }}>
+                        {renderField(field)}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+              gap: 12
+            }}>
+              {visibleFields.map(field => renderField(field))}
+            </div>
+          )}
         </Card>
       )}
 

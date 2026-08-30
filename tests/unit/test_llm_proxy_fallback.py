@@ -150,7 +150,6 @@ class TestLightragMissingKeyFallback:
         keys = self._compute({"LLM_BINDING": "deepseek"}, proxy_endpoint="")
         assert "LLM_BINDING_HOST" not in keys
 
-
 class TestCnDefaultProxyEndpoint:
     def _gs(self, data):
         from gui.config.general_settings import GeneralSettings

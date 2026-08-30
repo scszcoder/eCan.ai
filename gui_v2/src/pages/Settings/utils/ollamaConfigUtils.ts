@@ -24,14 +24,14 @@ export async function saveOllamaConfig(params: SaveOllamaConfigParams): Promise<
   const { providerType, host, apiKey, onSuccess, onError } = params;
   
   try {
-    const dummyApiKey = apiKey && apiKey.trim() ? apiKey : 'ollama';
+    const submittedApiKey = apiKey ?? '';
     let response;
     
     // Call the appropriate API method based on provider type
     if (providerType === 'llm') {
       response = await get_ipc_api().updateLLMProvider<{ message: string }>(
         'ollama',
-        dummyApiKey,
+        submittedApiKey,
         undefined, // azureEndpoint
         undefined, // awsAccessKeyId
         undefined, // awsSecretAccessKey
@@ -40,14 +40,14 @@ export async function saveOllamaConfig(params: SaveOllamaConfigParams): Promise<
     } else if (providerType === 'embedding') {
       response = await get_ipc_api().updateEmbeddingProvider<{ message: string }>(
         'ollama',
-        dummyApiKey,
+        submittedApiKey,
         undefined, // azureEndpoint
         host       // baseUrl
       );
     } else if (providerType === 'rerank') {
       response = await get_ipc_api().updateRerankProvider<{ message: string }>(
         'ollama',
-        dummyApiKey,
+        submittedApiKey,
         undefined, // azureEndpoint
         host       // baseUrl
       );

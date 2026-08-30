@@ -3,17 +3,21 @@
  * 拦截 #download: 链接并通过 IPC 调用后端下载文件
  */
 
-import { message as antMessage } from 'antd';
-
 export interface DownloadHandler {
   downloadFile: (fileName: string) => Promise<{ filePath: string; fileName: string }>;
   t: (key: string, options?: any) => string; // i18n translate function
+  message: {
+    loading: (config: any) => unknown;
+    success: (config: any) => unknown;
+    error: (config: any) => unknown;
+  };
 }
 
 class FileDownloadProtocol {
   private static instance: FileDownloadProtocol;
   private downloadHandler: DownloadHandler | null = null;
   private isInitialized = false;
+  private readonly boundHandleClick = this.handleClick.bind(this);
 
   private constructor() {}
 
@@ -39,7 +43,7 @@ class FileDownloadProtocol {
       return;
     }
 
-    document.addEventListener('click', this.handleClick.bind(this), true);
+    document.addEventListener('click', this.boundHandleClick, true);
     this.isInitialized = true;
   }
 
@@ -51,7 +55,7 @@ class FileDownloadProtocol {
       return;
     }
 
-    document.removeEventListener('click', this.handleClick.bind(this), true);
+    document.removeEventListener('click', this.boundHandleClick, true);
     this.isInitialized = false;
   }
 
@@ -81,8 +85,10 @@ class FileDownloadProtocol {
    */
   private async handleDownload(filePath: string): Promise<void> {
     try {
-      // 提取文件名（去掉路径部分）
-      const fileName = filePath.split('/').pop() || filePath;
+      // Keep the reference path intact. LightRAG may return a relative path
+      // beneath INPUT_DIR; reducing it to a basename makes nested files
+      // impossible to locate and can select the wrong file on name clashes.
+      const fileName = filePath.split(/[\\/]/).pop() || filePath;
       
       if (!this.downloadHandler) {
         throw new Error('Download handler not initialized');
@@ -90,12 +96,12 @@ class FileDownloadProtocol {
       
       const { t } = this.downloadHandler;
       
-      antMessage.loading({ content: t('pages.knowledge.retrieval.downloading', { fileName }), key: 'file-download' });
+      this.downloadHandler.message.loading({ content: t('pages.knowledge.retrieval.downloading', { fileName }), key: 'file-download' });
       
       // 通过 IPC 调用后端下载文件
-      const result = await this.downloadHandler.downloadFile(fileName);
+      const result = await this.downloadHandler.downloadFile(filePath);
       
-      antMessage.success({ 
+      this.downloadHandler.message.success({
         content: t('pages.knowledge.retrieval.downloadSuccess', { filePath: result.filePath }), 
         key: 'file-download',
         duration: 3
@@ -103,7 +109,7 @@ class FileDownloadProtocol {
     } catch (err: any) {
       console.error('[FileDownloadProtocol] Download error:', err);
       const t = this.downloadHandler?.t;
-      antMessage.error({ 
+      this.downloadHandler?.message.error({
         content: t ? t('pages.knowledge.retrieval.downloadFailed', { error: err.message }) : `Download failed: ${err.message}`, 
         key: 'file-download' 
       });

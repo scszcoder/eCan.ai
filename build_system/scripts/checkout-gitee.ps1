@@ -39,7 +39,9 @@
 #     env:
 #       GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
 #     run: |
-#       . build_system/scripts/checkout-gitee.ps1
+#       # Before checkout this repository file must first be downloaded to
+#       # RUNNER_TEMP from Gitee; dot-source that temporary copy here.
+#       . $helper
 #       Invoke-CheckoutGitee -Ref "${{ github.event.inputs.ref || github.ref }}" -Token $env:GITEE_TOKEN
 
 [CmdletBinding()]

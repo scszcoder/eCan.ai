@@ -104,7 +104,7 @@ const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({
         ]}
         block
         size="middle"
-        style={{ minHeight: CONTROL_HEIGHT }}
+        style={{ minHeight: CONTROL_HEIGHT, padding: 3, borderRadius: 10, background: token.colorFillTertiary }}
       />
 
       {/* Switch Mode */}
@@ -119,11 +119,13 @@ const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({
             showSearch
             allowClear={false}
             placeholder={t('pages.knowledge.settings.workspace.selectPlaceholder')}
+            popupMatchSelectWidth
+            styles={{ popup: { root: { borderRadius: 10, padding: 4 } } }}
             options={workspaces.map(ws => ({
               label: (
                 <Space>
                   <FolderOutlined style={{ color: ws.is_valid ? token.colorPrimary : token.colorTextTertiary }} />
-                  <span>{ws.name}</span>
+                  <span style={{ fontWeight: ws.name === currentWorkspace ? 600 : 400 }}>{ws.name}</span>
                   {!ws.is_valid && (
                     <span style={{ fontSize: 11, color: token.colorTextTertiary }}>
                       ({t('pages.knowledge.settings.workspace.empty')})
@@ -143,6 +145,7 @@ const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({
               style={{
                 height: CONTROL_HEIGHT,
                 minWidth: ICON_BUTTON_WIDTH,
+                borderRadius: 9,
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center'
@@ -156,9 +159,10 @@ const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({
                 onClick={() => onDelete(currentWorkspace)}
                 danger
                 size="middle"
-                style={{
+              style={{
                   height: CONTROL_HEIGHT,
                   minWidth: ICON_BUTTON_WIDTH,
+                  borderRadius: 9,
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center'

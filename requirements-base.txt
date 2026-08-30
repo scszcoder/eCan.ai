@@ -387,7 +387,7 @@ ascii_colors==0.11.4        # Terminal color output (LightRAG internal)
 configparser==7.2.0         # Configuration file parsing
 future==1.0.0               # Python 2/3 compatibility
 google-genai>=1.0.0,<2.0.0  # Google Gemini support
-json_repair==0.53.0         # JSON repair utility
+json_repair==0.59.9         # JSON repair utility
 nano-vectordb==0.0.4.3      # Lightweight vector database
 pipmaster==1.0.10           # Package management utility
 pypinyin==0.55.0            # Chinese pinyin conversion

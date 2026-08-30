@@ -122,6 +122,78 @@ def _apply_endpoints_to_general_settings(gs, cfg_ep: Dict[str, str]) -> bool:
     return changed
 
 
+def _ensure_cloud_account(access_token: str, user_info: "CloudBaseUserInfo",
+                          login_type: str) -> None:
+    """Best-effort: make sure the CN ``accounts`` table has a row for this user.
+
+    2026-08-29: the CN ``llm_proxy`` authorizes proxied LLM calls against
+    ``public.accounts.subs``, so an email/phone login whose account row is
+    missing must get one created at login time. POSTs an ``ensure_account``
+    event to the ``ecbAccountManager`` SCF route (same TCB origin as the
+    GraphQL endpoint).
+
+    Contract (deployed server, 2026-08-29): the CloudBase public Event
+    gateway STRIPS the Authorization header on this route, so the fresh
+    CloudBase access token travels in the JSON body as ``accessToken``. The
+    server verifies it directly with CloudBase ``/auth/v1/user/me`` and
+    derives the real subject/email/phone from there — it does not trust any
+    caller-provided identity fields, so none are sent.
+
+    Fire-and-forget in a daemon thread: login must never block or fail on
+    this. Any non-200 is logged as WARNING.
+    """
+    def _do():
+        try:
+            import json as _json
+            import urllib.request as _rq
+            import urllib.error as _err
+            from urllib.parse import urlsplit
+
+            from agent.cloud_api.endpoints import get_endpoint_config
+            gql = (get_endpoint_config().graphql_endpoint or "").strip()
+            if not gql:
+                logger.warning("[EnsureAccount] no GraphQL endpoint configured — skipped")
+                return
+            parts = urlsplit(gql)
+            url = f"{parts.scheme}://{parts.netloc}/ecbAccountManager"
+
+            body = {
+                "action": "ensure_account",
+                "provider": login_type,
+                "accessToken": access_token,
+            }
+            req = _rq.Request(
+                url,
+                data=_json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            # Local identifier for log correlation only — never sent to the
+            # server (it derives identity from the verified token).
+            who = user_info.email or user_info.phone_number or user_info.sub or "?"
+            try:
+                with _rq.urlopen(req, timeout=15) as resp:
+                    raw = resp.read(2048).decode("utf-8", "replace")
+                    logger.info(
+                        f"[EnsureAccount] ensure_account user={who!r} "
+                        f"status={resp.status} resp={raw[:300]}"
+                    )
+            except _err.HTTPError as he:
+                raw = he.read(1024).decode("utf-8", "replace")
+                logger.warning(
+                    f"[EnsureAccount] ensure_account user={who!r} "
+                    f"HTTP {he.code}: {raw[:300]}"
+                )
+        except Exception as exc:
+            logger.warning(f"[EnsureAccount] ensure_account skipped: {exc}")
+
+    try:
+        import threading
+        threading.Thread(target=_do, daemon=True, name="cn-ensure-account").start()
+    except Exception as exc:
+        logger.warning(f"[EnsureAccount] thread start failed: {exc}")
+
+
 def _build_login_response(request: IPCRequest, token: str,
                           refresh_token: str,
                           user_info: CloudBaseUserInfo,
@@ -236,6 +308,14 @@ def _build_login_response(request: IPCRequest, token: str,
                 f"[CloudBaseLogin] complete_login_from_provider failed: {e}",
                 exc_info=True,
             )
+
+    # Step 1.25: server-side account provisioning. WeChat logins get their
+    # accounts row from the PHP-callback/wechat provision path; email/phone
+    # logins had NO creation path, leaving llm_proxy authorization (which
+    # reads public.accounts.subs) to fail for fresh accounts. Best-effort,
+    # background — see _ensure_cloud_account.
+    if login_type in ("password", "phone") and token:
+        _ensure_cloud_account(token, user_info, login_type)
 
     # Step 1.5: tell SessionSupervisor the fresh token is installed.
     #

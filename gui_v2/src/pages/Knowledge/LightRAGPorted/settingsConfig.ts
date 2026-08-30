@@ -27,6 +27,12 @@ export const SETTINGS_TABS: TabConfig[] = [
     fields: []
   },
   {
+    key: 'parsing',
+    label: 'pages.knowledge.settings.tabs.parsing',
+    icon: 'FileTextOutlined',
+    fields: []
+  },
+  {
     key: 'reranking',
     label: 'pages.knowledge.settings.tabs.reranking',
     icon: 'SortAscendingOutlined',
@@ -271,6 +277,7 @@ export const EVALUATION_FIELDS: FieldConfig[] = [
 export const FIELDS_BY_TAB: Record<string, FieldConfig[]> = {
   basic: BASIC_FIELDS,
   rag: RAG_FIELDS,
+  parsing: [], // Uses ProviderSelector
   reranking: [], // Now uses ProviderSelector
   llm: [], // Now uses ProviderSelector
   embedding: [], // Now uses ProviderSelector
@@ -279,4 +286,4 @@ export const FIELDS_BY_TAB: Record<string, FieldConfig[]> = {
 };
 
 // Mark which tabs use provider-based configuration
-export const PROVIDER_BASED_TABS = ['reranking', 'llm', 'embedding', 'storage'];
+export const PROVIDER_BASED_TABS = ['parsing', 'reranking', 'llm', 'embedding', 'storage'];

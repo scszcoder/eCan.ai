@@ -130,7 +130,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab }) => {
     <header
       style={{
         background: headerBg,
-        padding: '8px 48px 20px',
+        padding: '8px 48px 14px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between'

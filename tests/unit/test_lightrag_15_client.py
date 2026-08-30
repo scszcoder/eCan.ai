@@ -408,6 +408,36 @@ def test_query_stream_metrics_handle_missing_progress(stub_confidence) -> None:
     assert metrics_events[0]["metrics"]["time_to_first_token_ms"] is not None
 
 
+def test_query_stream_uses_single_request_and_forwards_references(stub_confidence) -> None:
+    lines = [
+        b'{"references": [{"reference_id": "1", "file_path": "invoice.pdf"}]}',
+        b'{"response": "answer"}',
+    ]
+    client = _stream_client(lines)
+
+    decoded = [json.loads(c) for c in client.query_stream("query")]
+
+    assert client.session.post.call_count == 1
+    assert any(item.get("references", [{}])[0].get("file_path") == "invoice.pdf" for item in decoded if item.get("references"))
+
+
+def test_query_stream_surfaces_ndjson_error(stub_confidence) -> None:
+    client = _stream_client([b'{"error": "context length exceeded"}'])
+
+    with pytest.raises(RuntimeError, match="context length exceeded"):
+        list(client.query_stream("query"))
+
+
+def test_query_stream_does_not_mask_generation_failure_as_no_context(stub_confidence) -> None:
+    client = _stream_client([
+        b'{"references": [{"reference_id": "1", "file_path": "invoice.pdf"}]}',
+        b'{"response": "No relevant context found for the query."}',
+    ])
+
+    with pytest.raises(RuntimeError, match="答案生成失败"):
+        list(client.query_stream("query"))
+
+
 def test_query_stream_first_token_is_recorded(stub_confidence) -> None:
     """time_to_first_token_ms must be > 0 once at least one chunk has arrived."""
     lines = [b'{"response": "a"}', b'{"response": "b"}']
