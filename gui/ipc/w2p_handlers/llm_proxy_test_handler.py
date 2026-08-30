@@ -63,10 +63,10 @@ def _cn_v1_config() -> Dict[str, str]:
     config = _get_proxy_config()
     base = config['endpoint'].rstrip('/') + '/v1'
     from agent.cloud_api.cloud_api import _http_auth_header
-    from agent.cloud_api.api_keys import get_api_key
+    from agent.cloud_api.api_keys import get_api_key_with_local_fallback
     bearer = _http_auth_header(config['auth_token'] or '')
     session_token = bearer[7:] if bearer.lower().startswith('bearer ') else bearer
-    key_resp = get_api_key(session_token)
+    key_resp = get_api_key_with_local_fallback(session_token)
     api_key = key_resp.get('apiKey') or ''
     if not api_key:
         raise ValueError(
