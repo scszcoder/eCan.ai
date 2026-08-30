@@ -135,6 +135,8 @@ export interface Skill {
   // Basic information
   name: string;
   owner: string;
+  /** Optional author display name returned by marketplace APIs. */
+  owner_name?: string;
   description?: string;
 
   // Version and path
@@ -368,4 +370,3 @@ export interface SubscribedSkill extends Skill {
   subscribedAt?: string;
   subscribedBy?: string;
 }
-

@@ -17,41 +17,34 @@ runs:
   using: 'composite'
   steps:
     - name: Cache Playwright browsers (Windows)
-      # Skip on self-hosted: workspace is a fresh per-job dir under _work/,
-      # so $env:USERPROFILE\AppData\Local\ms-playwright and the third_party
-      # mirror are not populated by the previous job. Cache lookup is
-      # pure overhead (upload key + network round-trip + 'miss' fallback).
-      if: ${{ inputs.platform == 'windows' && startsWith(runner.name, 'GitHub Actions') }}
+      if: ${{ inputs.platform == 'windows' }}
       uses: actions/cache@v5
       with:
         path: |
           ~\AppData\Local\ms-playwright
-          third_party\ms-playwright
-        key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('requirements-base.txt') }}
+        key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ inputs.browsers }}-${{ hashFiles('requirements-base.txt') }}
         restore-keys: |
-          ${{ runner.os }}-${{ runner.arch }}-playwright-
+          ${{ runner.os }}-${{ runner.arch }}-playwright-${{ inputs.browsers }}-
 
     - name: Cache Playwright browsers (macOS)
-      if: ${{ inputs.platform == 'macos' && startsWith(runner.name, 'GitHub Actions') }}
+      if: ${{ inputs.platform == 'macos' }}
       uses: actions/cache@v5
       with:
         path: |
           ~/Library/Caches/ms-playwright
-          third_party/ms-playwright
-        key: ${{ runner.os }}-${{ inputs.arch }}-playwright-${{ hashFiles('requirements-base.txt') }}
+        key: ${{ runner.os }}-${{ inputs.arch }}-playwright-${{ inputs.browsers }}-${{ hashFiles('requirements-base.txt') }}
         restore-keys: |
-          ${{ runner.os }}-${{ inputs.arch }}-playwright-
+          ${{ runner.os }}-${{ inputs.arch }}-playwright-${{ inputs.browsers }}-
 
     - name: Cache Playwright browsers (Linux)
-      if: ${{ inputs.platform == 'linux' && startsWith(runner.name, 'GitHub Actions') }}
+      if: ${{ inputs.platform == 'linux' }}
       uses: actions/cache@v5
       with:
         path: |
           ~/.cache/ms-playwright
-          third_party/ms-playwright
-        key: ${{ runner.os }}-${{ inputs.arch }}-playwright-${{ hashFiles('requirements-base.txt') }}
+        key: ${{ runner.os }}-${{ inputs.arch }}-playwright-${{ inputs.browsers }}-${{ hashFiles('requirements-base.txt') }}
         restore-keys: |
-          ${{ runner.os }}-${{ inputs.arch }}-playwright-
+          ${{ runner.os }}-${{ inputs.arch }}-playwright-${{ inputs.browsers }}-
 
     - name: Install Playwright browsers (Windows)
       if: ${{ inputs.platform == 'windows' }}
@@ -110,26 +103,24 @@ runs:
         # Copy browsers to third_party for packaging
         Write-Host "Copying browsers to third_party/ms-playwright for packaging..." -ForegroundColor Cyan
         $thirdPartyDir = "third_party\ms-playwright"
-        
+
         if (Test-Path $playwrightCache) {
           # Remove existing third_party directory if it exists
           if (Test-Path $thirdPartyDir) {
             Write-Host "Removing existing third_party/ms-playwright..."
             Remove-Item -Path $thirdPartyDir -Recurse -Force -ErrorAction SilentlyContinue
           }
-          
           # Create parent directory
           $null = New-Item -ItemType Directory -Path "third_party" -Force -ErrorAction SilentlyContinue
-          
           # Copy browsers
           Write-Host "Copying from: $playwrightCache"
           Write-Host "Copying to: $thirdPartyDir"
           Copy-Item -Path $playwrightCache -Destination $thirdPartyDir -Recurse -Force
-          
+
           # Verify copy
           if (Test-Path $thirdPartyDir) {
-            $copiedBrowsers = Get-ChildItem -Path $thirdPartyDir -Directory | Where-Object { 
-              $_.Name -like "chromium-*" -or $_.Name -like "firefox-*" -or $_.Name -like "webkit-*" 
+            $copiedBrowsers = Get-ChildItem -Path $thirdPartyDir -Directory | Where-Object {
+              $_.Name -like "chromium-*" -or $_.Name -like "firefox-*" -or $_.Name -like "webkit-*"
             }
             if ($copiedBrowsers) {
               Write-Host "[OK] Successfully copied browsers to third_party:" -ForegroundColor Green
@@ -269,22 +260,20 @@ runs:
         # Copy browsers to third_party for packaging
         echo "Copying browsers to third_party/ms-playwright for packaging..."
         third_party_dir="third_party/ms-playwright"
-        
+
         if [ -d "$playwright_cache" ]; then
           # Remove existing third_party directory if it exists
           if [ -d "$third_party_dir" ]; then
             echo "Removing existing third_party/ms-playwright..."
             rm -rf "$third_party_dir"
           fi
-          
           # Create parent directory
           mkdir -p "third_party"
-          
           # Copy browsers (preserve symlinks on macOS/Linux)
           echo "Copying from: $playwright_cache"
           echo "Copying to: $third_party_dir"
           cp -R "$playwright_cache" "$third_party_dir"
-          
+
           # Verify copy
           if [ -d "$third_party_dir" ]; then
             copied_browsers=$(ls -d "$third_party_dir"/{chromium,firefox,webkit}-* 2>/dev/null || true)
@@ -317,4 +306,3 @@ runs:
         else
           echo "[WARN] Extension download failed"
         fi
-
