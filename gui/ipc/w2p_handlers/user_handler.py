@@ -901,6 +901,13 @@ def handle_get_account_info(request: IPCRequest, params: Optional[Dict[str, Any]
         return create_error_response(request, 'GET_ACCOUNT_INFO_ERROR', str(e))
 
 
+def _cn_session_token(mainwin) -> str:
+    """The CN HTTP bearer (30-day session token preferred) for api-key calls."""
+    from agent.cloud_api.cloud_api import _http_auth_header
+    value = _http_auth_header(mainwin.get_auth_token() or "")
+    return value[7:] if value.lower().startswith("bearer ") else value
+
+
 @IPCHandlerRegistry.handler('req_api_key')
 def handle_req_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Request a new API key from cloud."""
@@ -909,9 +916,20 @@ def handle_req_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         if not mainwin:
             return create_error_response(request, 'NOT_INITIALIZED', 'Main window not initialized')
 
-        from agent.cloud_api.cloud_api import req_api_key
-
         customer = (params or {}).get('customer', 'guest')
+        from utils.app_env import is_cn
+        if is_cn():
+            # CN: same myAPIKeygen backend the web Account page uses, so the
+            # web and desktop manage ONE key. (The AWS-shaped reqApiKey
+            # mutation below doesn't validate against the CN SDL.)
+            from agent.cloud_api.api_keys import create_api_key
+            response = create_api_key(_cn_session_token(mainwin), customer=customer)
+            if response.get('apiKey'):
+                return create_success_response(request, response)
+            return create_error_response(request, 'API_KEY_ERROR',
+                                         response.get('message', str(response)))
+
+        from agent.cloud_api.cloud_api import req_api_key
         response = req_api_key(
             mainwin.session,
             mainwin.get_auth_token(),
@@ -939,12 +957,20 @@ def handle_remove_api_key(request: IPCRequest, params: Optional[Dict[str, Any]])
         if not mainwin:
             return create_error_response(request, 'NOT_INITIALIZED', 'Main window not initialized')
 
-        from agent.cloud_api.cloud_api import remove_api_key
-
         masked_keys = (params or {}).get('masked_keys', [])
         if not masked_keys:
             return create_error_response(request, 'INVALID_PARAMS', 'masked_keys is required')
 
+        from utils.app_env import is_cn
+        if is_cn():
+            from agent.cloud_api.api_keys import remove_api_keys
+            response = remove_api_keys(_cn_session_token(mainwin), masked_keys)
+            if response.get('success') and not response.get('error'):
+                return create_success_response(request, response)
+            return create_error_response(request, 'API_KEY_ERROR',
+                                         response.get('message', str(response)))
+
+        from agent.cloud_api.cloud_api import remove_api_key
         response = remove_api_key(
             mainwin.session,
             mainwin.get_auth_token(),
@@ -962,6 +988,56 @@ def handle_remove_api_key(request: IPCRequest, params: Optional[Dict[str, Any]])
         logger.error(f"[RemoveApiKey] Error: {e}")
         logger.error(traceback.format_exc())
         return create_error_response(request, 'REMOVE_API_KEY_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('get_api_key')
+def handle_get_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Fetch the account's existing API key (CN: myAPIKeygen getApiKey).
+
+    An absent key is a SUCCESS with apiKey=None — the Account page uses it
+    to decide whether to show the generate button.
+    """
+    try:
+        mainwin = AppContext.get_main_window()
+        if not mainwin:
+            return create_error_response(request, 'NOT_INITIALIZED', 'Main window not initialized')
+        from utils.app_env import is_cn
+        if not is_cn():
+            return create_success_response(request, {'apiKey': None, 'status': 'not_supported'})
+        from agent.cloud_api.api_keys import get_api_key
+        response = get_api_key(_cn_session_token(mainwin))
+        if response.get('success', True) and not response.get('error'):
+            return create_success_response(request, response)
+        return create_error_response(request, 'API_KEY_ERROR',
+                                     response.get('message', str(response)))
+    except Exception as e:
+        logger.error(f"[GetApiKey] Error: {e}")
+        logger.error(traceback.format_exc())
+        return create_error_response(request, 'GET_API_KEY_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('test_api_key')
+def handle_test_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Validate an API key against the CN store (myAPIKeygen queryApiKey)."""
+    try:
+        mainwin = AppContext.get_main_window()
+        if not mainwin:
+            return create_error_response(request, 'NOT_INITIALIZED', 'Main window not initialized')
+        api_key = (params or {}).get('api_key', '')
+        if not api_key:
+            return create_error_response(request, 'INVALID_PARAMS', 'api_key is required')
+        from utils.app_env import is_cn
+        if not is_cn():
+            return create_error_response(request, 'NOT_SUPPORTED', 'test_api_key is CN-only')
+        from agent.cloud_api.api_keys import test_api_key
+        response = test_api_key(_cn_session_token(mainwin), api_key)
+        valid = bool(response.get('apiKey') or response.get('customer')
+                     or response.get('status') == 'active')
+        return create_success_response(request, {**response, 'valid': valid})
+    except Exception as e:
+        logger.error(f"[TestApiKey] Error: {e}")
+        logger.error(traceback.format_exc())
+        return create_error_response(request, 'TEST_API_KEY_ERROR', str(e))
 
 
 @IPCHandlerRegistry.handler('get_auth_token')

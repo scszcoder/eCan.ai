@@ -394,6 +394,30 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
                f"飞鸽RAG路由分类0 ({_DDCS_QA_RAG_PROMPT_ID}), "
                f"飞鸽客服前台0 ({_DDCS_FD_PROMPT_ID})")
 
+    # ── Account API key: make sure the account has one (create when absent).
+    #    Same key the web app's Account page manages (myAPIKeygen store).
+    #    Best-effort: the douyin_cs runtime doesn't hard-require it yet, so
+    #    a failure here logs a warning instead of failing the deployment.
+    try:
+        _cli_token = (os.environ.get("ECAN_CLI_AUTH_TOKEN") or "").strip()
+        if _cli_token:
+            from agent.cloud_api.api_keys import ensure_api_key, mask_api_key
+            _key_result = ensure_api_key(_cli_token)
+            _key = _key_result.get("apiKey")
+            if _key:
+                log.append(
+                    f"API key {'created' if _key_result.get('created') else 'exists'}: "
+                    f"{mask_api_key(_key)}"
+                )
+            else:
+                log.append(f"API key check failed (non-fatal): "
+                           f"{_key_result.get('message') or _key_result.get('error')}")
+        else:
+            log.append("API key check skipped: no ECAN_CLI_AUTH_TOKEN in environment")
+    except Exception as _key_err:
+        logger.warning(f"[FastDeploy][douyin_cs] API key ensure failed (non-fatal): {_key_err}")
+        log.append(f"API key check failed (non-fatal): {_key_err}")
+
     # ── Store URL propagation: per-task variables. apply_task_vars seeds
     #    these into every run's prompt variables, so the skills' prompts can
     #    reference {{store_url}} / {{store_urls}}.
