@@ -475,10 +475,27 @@ class GeneralSettings:
 
     # ==================== LLM Settings ====================
     
+    # eCanAI is the out-of-the-box provider for every role (2026-08-30 user
+    # decision): fresh installs get it from settings_template.json, and these
+    # getter fallbacks upgrade EXISTING profiles whose value is unset — an
+    # explicit user choice (any non-empty stored value) always wins.
+    _ECANAI_ROLE_MODEL_DEFAULTS = {
+        "llm": "qwen-plus",
+        "embedding": "text-embedding-v3",
+        "rerank": "gte-rerank",
+    }
+
+    def _default_role_model(self, role: str) -> str:
+        """Role model fallback, only when the resolved provider is ecanai."""
+        provider = str(self._data.get(f"default_{role}", "") or "").strip()
+        if provider and provider.lower() != "ecanai":
+            return ""
+        return self._ECANAI_ROLE_MODEL_DEFAULTS.get(role, "")
+
     @property
     def default_llm(self) -> str:
         """Default LLM provider to use"""
-        return self._data.get("default_llm", "")
+        return self._data.get("default_llm", "") or "ecanai"
 
     @default_llm.setter
     def default_llm(self, value: str):
@@ -487,7 +504,7 @@ class GeneralSettings:
     @property
     def default_llm_model(self) -> str:
         """Default LLM model for the current default provider"""
-        return self._data.get("default_llm_model", "")
+        return self._data.get("default_llm_model", "") or self._default_role_model("llm")
 
     @default_llm_model.setter
     def default_llm_model(self, value: str):
@@ -614,7 +631,7 @@ class GeneralSettings:
     @property
     def default_embedding(self) -> str:
         """Default Embedding provider to use"""
-        return self._data.get("default_embedding", "")
+        return self._data.get("default_embedding", "") or "ecanai"
 
     @default_embedding.setter
     def default_embedding(self, value: str):
@@ -623,7 +640,7 @@ class GeneralSettings:
     @property
     def default_embedding_model(self) -> str:
         """Default Embedding model for the current default provider"""
-        return self._data.get("default_embedding_model", "")
+        return self._data.get("default_embedding_model", "") or self._default_role_model("embedding")
 
     @default_embedding_model.setter
     def default_embedding_model(self, value: str):
@@ -670,7 +687,7 @@ class GeneralSettings:
     @property
     def default_rerank(self) -> str:
         """Default Rerank provider to use"""
-        return self._data.get("default_rerank", "")
+        return self._data.get("default_rerank", "") or "ecanai"
 
     @default_rerank.setter
     def default_rerank(self, value: str):
@@ -679,7 +696,7 @@ class GeneralSettings:
     @property
     def default_rerank_model(self) -> str:
         """Default Rerank model for the current default provider"""
-        return self._data.get("default_rerank_model", "")
+        return self._data.get("default_rerank_model", "") or self._default_role_model("rerank")
 
     @default_rerank_model.setter
     def default_rerank_model(self, value: str):

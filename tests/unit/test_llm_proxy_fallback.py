@@ -264,3 +264,31 @@ class TestCnAwsEndpointGuard:
                        "https://abc.lambda-url.us-east-1.on.aws"})
         with patch("utils.app_env.is_cn", return_value=False):
             assert gs.lambda_proxy_endpoint == "https://abc.lambda-url.us-east-1.on.aws"
+
+
+class TestEcanaiDefaultProvider:
+    """eCanAI is the out-of-the-box provider for llm/embedding/rerank
+    (2026-08-30): unset profiles resolve to ecanai + role model defaults;
+    an explicit stored choice always wins."""
+
+    def _gs(self, data):
+        from gui.config.general_settings import GeneralSettings
+        gs = object.__new__(GeneralSettings)
+        gs._data = data
+        return gs
+
+    def test_unset_profile_defaults_to_ecanai(self):
+        gs = self._gs({})
+        assert gs.default_llm == "ecanai" and gs.default_llm_model == "qwen-plus"
+        assert gs.default_embedding == "ecanai"
+        assert gs.default_embedding_model == "text-embedding-v3"
+        assert gs.default_rerank == "ecanai" and gs.default_rerank_model == "gte-rerank"
+
+    def test_explicit_choice_wins_and_model_not_polluted(self):
+        gs = self._gs({"default_llm": "deepseek", "default_llm_model": ""})
+        assert gs.default_llm == "deepseek"
+        assert gs.default_llm_model == ""
+
+    def test_ecanai_with_empty_model_gets_role_default(self):
+        gs = self._gs({"default_embedding": "ecanai", "default_embedding_model": ""})
+        assert gs.default_embedding_model == "text-embedding-v3"
