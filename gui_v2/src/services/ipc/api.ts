@@ -1666,6 +1666,10 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'test_lambda_proxy_ping' }, {});
     }
 
+    public async testLlmProxyModels<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'test_llm_proxy_models' }, {});
+    }
+
     public async testLambdaProxyLlm<T>(params?: { prompt?: string; provider?: string; model?: string }): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'test_lambda_proxy_llm' }, params || {});
     }
