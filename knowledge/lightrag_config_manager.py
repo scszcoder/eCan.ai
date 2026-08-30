@@ -175,6 +175,10 @@ class LightRAGConfigManager:
         self._effective_config_cache = None
         self._effective_config_cache_time = None
         self._effective_config_cache_mtime = None
+
+    def invalidate_caches(self) -> None:
+        """Make provider/key changes visible to the next LightRAG env build."""
+        self._invalidate_derived_caches()
     
     def update_config(self, updates: Dict[str, str]) -> bool:
         """
@@ -390,6 +394,8 @@ class LightRAGConfigManager:
             if not main_window:
                 return keys
 
+            general_settings = main_window.config_manager.general_settings
+
             # 1. LLM API Key
             # Use LLM_BINDING from .env file instead of system default_llm
             try:
@@ -397,7 +403,13 @@ class LightRAGConfigManager:
                 
                 # Read current .env file to get LLM_BINDING
                 current_config = self.read_config()
-                llm_binding = current_config.get('LLM_BINDING')
+                system_llm = str(getattr(general_settings, 'default_llm', '') or '').strip().lower()
+                llm_binding = 'ecanai' if system_llm == 'ecanai' else current_config.get('LLM_BINDING')
+                if system_llm == 'ecanai':
+                    keys['LLM_BINDING'] = 'ecanai'
+                    system_model = str(getattr(general_settings, 'default_llm_model', '') or '').strip()
+                    if system_model:
+                        keys['LLM_MODEL'] = system_model
                 logger.info(f"[LightRAG Config] LLM_BINDING from .env = {llm_binding}")
                 
                 if llm_binding:
@@ -430,6 +442,11 @@ class LightRAGConfigManager:
                             logger.info(f"[LightRAG Config] Checking LLM {env_var}: {'Found' if key_val else 'Not found'}")
                             if key_val:
                                 keys['LLM_BINDING_API_KEY'] = key_val
+                                # eCanAI exposes an OpenAI-compatible API. Some
+                                # LightRAG/OpenAI client paths still consult the
+                                # conventional alias directly.
+                                if llm_binding == 'ecanai':
+                                    keys['OPENAI_API_KEY'] = key_val
                                 keys['_SYSTEM_LLM_KEY_SOURCE'] = env_var
                                 logger.info(f"[LightRAG Config] Using LLM API key from {env_var}")
                                 # For backward compatibility/fallback, if it's OpenAI, set OPENAI_API_KEY too
@@ -450,7 +467,13 @@ class LightRAGConfigManager:
                 
                 # Read current .env file to get EMBEDDING_BINDING
                 current_config = self.read_config()
-                embedding_binding = current_config.get('EMBEDDING_BINDING')
+                system_embedding = str(getattr(general_settings, 'default_embedding', '') or '').strip().lower()
+                embedding_binding = 'ecanai' if system_embedding == 'ecanai' else current_config.get('EMBEDDING_BINDING')
+                if system_embedding == 'ecanai':
+                    keys['EMBEDDING_BINDING'] = 'ecanai'
+                    system_model = str(getattr(general_settings, 'default_embedding_model', '') or '').strip()
+                    if system_model:
+                        keys['EMBEDDING_MODEL'] = system_model
                 logger.info(f"[LightRAG Config] EMBEDDING_BINDING from .env = {embedding_binding}")
                 
                 if embedding_binding:
@@ -536,7 +559,13 @@ class LightRAGConfigManager:
                 
                 # Read current .env file to get RERANK_BINDING
                 current_config = self.read_config()
-                rerank_binding = current_config.get('RERANK_BINDING')
+                system_rerank = str(getattr(general_settings, 'default_rerank', '') or '').strip().lower()
+                rerank_binding = 'ecanai' if system_rerank == 'ecanai' else current_config.get('RERANK_BINDING')
+                if system_rerank == 'ecanai':
+                    keys['RERANK_BINDING'] = 'ecanai'
+                    system_model = str(getattr(general_settings, 'default_rerank_model', '') or '').strip()
+                    if system_model:
+                        keys['RERANK_MODEL'] = system_model
                 logger.info(f"[LightRAG Config] RERANK_BINDING from .env = {rerank_binding}")
                 
                 if rerank_binding:
@@ -545,6 +574,9 @@ class LightRAGConfigManager:
                     logger.info(f"[LightRAG Config] rerank_provider = {rerank_provider.get('name') if rerank_provider else None}")
                     
                     if rerank_provider:
+                        base_url = rerank_provider.get('base_url')
+                        if base_url:
+                            keys['RERANK_BINDING_HOST'] = base_url
                         # Retrieve API keys if needed
                         api_key_env_vars = rerank_provider.get('api_key_env_vars', [])
                         logger.info(f"[LightRAG Config] api_key_env_vars = {api_key_env_vars}")

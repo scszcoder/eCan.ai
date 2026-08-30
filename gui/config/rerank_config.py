@@ -30,6 +30,7 @@ class RerankProvider(Enum):
     SILICONFLOW = "siliconflow"
     OLLAMA = "ollama"
     RYOAIS = "ryoais"
+    ECANAI = "ecanai"
     VLLM = "cohere"  # vLLM uses Cohere-compatible API
 
 
@@ -51,6 +52,9 @@ class RerankProviderConfig:
     provider: RerankProvider
     class_name: str
     api_key_env_vars: List[str]
+    regions: List[str] = field(default_factory=lambda: ["cn", "intl"])
+    special_features: Dict[str, Any] = field(default_factory=dict)
+    proxy_info: Dict[str, Any] = field(default_factory=dict)
     base_url: Optional[str] = None
     default_model: Optional[str] = None
     supported_models: List[RerankModelConfig] = field(default_factory=list)
@@ -131,6 +135,9 @@ class RerankConfig:
                 provider=provider_enum,
                 class_name=provider_data.get("class_name", ""),
                 api_key_env_vars=provider_data.get("api_key_env_vars", []),
+                regions=provider_data.get("regions", ["cn", "intl"]),
+                special_features=provider_data.get("special_features", {}),
+                proxy_info=provider_data.get("proxy_info", {}),
                 base_url=provider_data.get("base_url"),
                 default_model=provider_data.get("default_model"),
                 supported_models=supported_models,
@@ -184,5 +191,3 @@ class RerankConfig:
 
 # Global instance
 rerank_config = RerankConfig()
-
-

@@ -882,7 +882,7 @@ def main():
         _LIGHTRAG_LLM_SUPPORTED = {'lollms', 'ollama', 'openai', 'azure_openai', 'aws_bedrock', 'gemini'}
         _LIGHTRAG_EMBED_SUPPORTED = _LIGHTRAG_LLM_SUPPORTED | {'jina'}
         _PROVIDER_MAPPING = {
-            'ryoais': 'openai', 'anthropic': 'openai', 'deepseek': 'openai',
+            'ryoais': 'openai', 'ecanai': 'openai', 'anthropic': 'openai', 'deepseek': 'openai',
             'dashscope': 'openai', 'bytedance': 'openai', 'baidu_qianfan': 'openai',
             'zhipuai': 'openai', 'google': 'openai', 'bedrock': 'aws_bedrock',
         }

@@ -336,9 +336,11 @@ class EmbeddingManager:
                 "default_model": provider_config.default_model,
                 "api_key_env_vars": provider_config.api_key_env_vars,
                 "supported_models": self._serialize_models(provider_config.supported_models),
+                "special_features": provider_config.special_features,
+                "api_limits": provider_config.api_limits,
 
                 # Region availability (from embedding_providers.json)
-                "regions": embedding_config._config_data.get("providers", {}).get(provider_name, {}).get("regions", ["cn", "intl"]),
+                "regions": provider_config.regions,
 
                 # User preferences (only for current default provider)
                 "is_preferred": is_preferred,
@@ -422,6 +424,7 @@ class EmbeddingManager:
                     "default_model": provider_config.default_model,
                     "api_key_env_vars": provider_config.api_key_env_vars,
                     "supported_models": self._serialize_models(provider_config.supported_models),
+                    "special_features": embedding_config._config_data.get("providers", {}).get(provider_name_key, {}).get("special_features", {}),
                     "is_preferred": is_default_provider,
                     "preferred_model": preferred_model,
                     "api_key_configured": api_key_configured,
@@ -455,6 +458,7 @@ class EmbeddingManager:
                     "default_model": provider_config.default_model,
                     "api_key_env_vars": provider_config.api_key_env_vars,
                     "supported_models": self._serialize_models(provider_config.supported_models),
+                    "special_features": embedding_config._config_data.get("providers", {}).get(provider_name_key, {}).get("special_features", {}),
                     "is_preferred": is_default_provider,
                     "preferred_model": preferred_model,
                     "api_key_configured": api_key_configured,
@@ -521,7 +525,7 @@ class EmbeddingManager:
         Check if default Embedding provider is configured with API key
         
         This method ensures onboarding is shown when:
-        1. No default_embedding is set (empty or None) - will auto-set to OpenAI
+        1. No default_embedding is set (empty or None) - will auto-set to eCanAI
         2. default_embedding is set but provider not found - will keep the setting
         3. default_embedding is set but API key is missing (for non-local providers)
         4. default_embedding is set but base_url is missing/invalid (for local providers)
@@ -543,18 +547,18 @@ class EmbeddingManager:
             # Get default Embedding from settings (provider identifier expected, e.g., "openai")
             default_embedding = self.config_manager.general_settings.default_embedding
             
-            # Case 1: If default_embedding is empty, set it to OpenAI (provider identifier: "openai") as default
+            # Case 1: If default_embedding is empty, set it to eCanAI as default
             if not default_embedding or not default_embedding.strip():
-                logger.info("[EmbeddingManager] No default Embedding is set - setting to OpenAI (provider identifier: 'openai') with default model")
-                self.config_manager.general_settings.default_embedding = "openai"
+                logger.info("[EmbeddingManager] No default Embedding is set - setting to eCanAI")
+                self.config_manager.general_settings.default_embedding = "ecanai"
                 # Also set the default model if not already set
                 if not self.config_manager.general_settings.default_embedding_model:
-                    provider_config = embedding_config.get_provider("OpenAI")
+                    provider_config = embedding_config.get_provider("eCanAI")
                     if provider_config:
                         self.config_manager.general_settings.default_embedding_model = provider_config.default_model
                         logger.info(f"[EmbeddingManager] Set default model to {provider_config.default_model}")
                 self.config_manager.general_settings.save()
-                default_embedding = "openai"
+                default_embedding = "ecanai"
                 # Continue to check API key configuration below
             
             # Get provider configuration (without triggering auto-configuration to avoid recursion)
@@ -566,6 +570,9 @@ class EmbeddingManager:
                 # Keep default_embedding setting, don't clear it
                 return False, None
             
+            if provider.get('special_features', {}).get('requires_api_key') is False:
+                return bool(provider.get('base_url')), default_embedding
+
             # For local providers (e.g., Ollama), check base_url configuration
             if provider.get('is_local', False):
                 base_url = provider.get('base_url', '')
@@ -613,6 +620,3 @@ class EmbeddingManager:
             return False, None
         finally:
             self._checking_provider = False
-
-
-

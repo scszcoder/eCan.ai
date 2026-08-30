@@ -438,3 +438,44 @@ def save_general_settings_if_needed(base_url_updated: bool, auto_set_as_default:
         import traceback
         logger.error(traceback.format_exc())
         return False
+
+
+def invalidate_lightrag_provider_cache(provider_type: str = '', provider_identifier: str = '') -> None:
+    """Expose provider changes to LightRAG and restart it when eCanAI is active."""
+    try:
+        from knowledge.lightrag_config_manager import get_config_manager
+        get_config_manager().invalidate_caches()
+
+        if (provider_identifier or '').lower() != 'ecanai':
+            return
+
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        if not main_window:
+            return
+        general_settings = main_window.config_manager.general_settings
+        active_provider = getattr(general_settings, f'default_{provider_type}', '')
+        server = getattr(main_window, 'lightrag_server', None)
+        if (active_provider or '').lower() != 'ecanai' or not server or not server.is_running():
+            return
+
+        # A running child process cannot receive new environment variables.
+        # Match the server's existing proxy-change behaviour and restart away
+        # from the IPC thread so saving provider settings remains responsive.
+        import threading
+
+        def restart_with_updated_env() -> None:
+            try:
+                logger.info('[ProviderUtils] Restarting LightRAG to apply eCanAI settings')
+                server.stop()
+                server.start(wait_ready=False)
+            except Exception as exc:
+                logger.error(f'[ProviderUtils] Failed to restart LightRAG: {exc}')
+
+        threading.Thread(
+            target=restart_with_updated_env,
+            name='LightragECanAIProviderRestart',
+            daemon=True,
+        ).start()
+    except Exception as exc:
+        logger.warning(f"[ProviderUtils] Failed to invalidate LightRAG provider cache: {exc}")

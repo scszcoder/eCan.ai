@@ -390,9 +390,6 @@ class LLMManager:
                 except Exception:
                     pass  # Use default base_url if settings retrieval fails
             
-            # Pull runtime fields from raw JSON config for LLM construction
-            raw_cfg = llm_config._config_data.get("providers", {}).get(provider_name, {})
-
             provider_data = {
                 "name": provider_config.name,
                 "display_name": provider_config.display_name,
@@ -407,13 +404,14 @@ class LLMManager:
                 "supported_models": self._serialize_models(provider_config.supported_models),
 
                 # Runtime fields needed by build_node LLM construction
-                "runtime_kind": raw_cfg.get("runtime_kind", ""),
-                "param_mapping": raw_cfg.get("param_mapping", {}),
-                "default_params": raw_cfg.get("default_params", {}),
-                "special_features": raw_cfg.get("special_features", {}),
+                "runtime_kind": provider_config.runtime_kind,
+                "param_mapping": provider_config.param_mapping,
+                "default_params": provider_config.default_params,
+                "special_features": provider_config.special_features,
+                "enable_thinking": provider_config.enable_thinking,
                 
                 # Region availability (from llm_providers.json)
-                "regions": raw_cfg.get("regions", ["cn", "intl"]),
+                "regions": provider_config.regions,
 
                 # User preferences (only for current default provider)
                 "is_preferred": is_preferred,
@@ -794,7 +792,7 @@ class LLMManager:
         Check if LLM provider is configured and a default is selected
         
         This method ensures onboarding is shown when:
-        1. No default_llm is set (empty or None) - will auto-set to OpenAI
+        1. No default_llm is set (empty or None) - will auto-set to eCanAI
         2. default_llm is set but provider not found - will keep the setting
         3. default_llm is set but API key is missing (for non-local providers)
         4. default_llm is set but base_url is missing/invalid (for local providers)
@@ -810,18 +808,18 @@ class LLMManager:
             # Get default LLM from settings (provider identifier expected, e.g., "openai")
             default_llm = self.config_manager.general_settings.default_llm
             
-            # Case 1: If default_llm is empty, set it to OpenAI as default
+            # Case 1: If default_llm is empty, set it to eCanAI as default
             if not default_llm or not default_llm.strip():
-                logger.info("[LLMManager] No default LLM is set - setting to OpenAI (provider identifier: 'openai') with default model")
-                self.config_manager.general_settings.default_llm = "openai"
+                logger.info("[LLMManager] No default LLM is set - setting to eCanAI")
+                self.config_manager.general_settings.default_llm = "ecanai"
                 # Also set the default model if not already set
                 if not self.config_manager.general_settings.default_llm_model:
-                    provider_config = llm_config.get_provider("OpenAI")
+                    provider_config = llm_config.get_provider("eCanAI")
                     if provider_config:
                         self.config_manager.general_settings.default_llm_model = provider_config.default_model
                         logger.info(f"[LLMManager] Set default model to {provider_config.default_model}")
                 self.config_manager.general_settings.save()
-                default_llm = "openai"
+                default_llm = "ecanai"
                 # Continue to check API key configuration below
             
             # Get provider configuration (supports both provider identifier and class_name)
@@ -849,6 +847,9 @@ class LLMManager:
                     # Keep default_llm setting, don't clear it
                     return False, None
             
+            if provider.get('special_features', {}).get('requires_api_key') is False:
+                return bool(provider.get('base_url')), default_llm
+
             # For local providers (e.g., Ollama), check base_url configuration
             if provider.get('is_local', False):
                 base_url = provider.get('base_url', '')
