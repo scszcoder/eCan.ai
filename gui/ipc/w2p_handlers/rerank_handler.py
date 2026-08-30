@@ -268,6 +268,8 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
                     logger.error(f"[Rerank] ❌ Error updating agent reranks: {e}")
         
         # Broadcast providersUpdated so LightRAG UI can refresh immediately
+        from gui.manager.provider_settings_helper import invalidate_lightrag_provider_cache
+        invalidate_lightrag_provider_cache('rerank', provider_identifier)
         try:
             from gui.LocalServer import app_ws_manager
             app_ws_manager.broadcast_sync('lightrag.providersUpdated', {
@@ -588,6 +590,8 @@ def handle_set_default_rerank(request: IPCRequest, params: Optional[Dict[str, An
         
         # Get updated provider info for frontend
         updated_provider = rerank_manager.get_provider(provider_identifier)
+        from gui.manager.provider_settings_helper import invalidate_lightrag_provider_cache
+        invalidate_lightrag_provider_cache('rerank', provider_identifier)
         
         return create_success_response(request, {
             'default_rerank': provider_identifier,
@@ -714,5 +718,3 @@ def handle_get_rerank_provider_api_key(request: IPCRequest, params: Optional[Dic
     except Exception as e:
         logger.error(f"Error getting Rerank provider API key: {e}")
         return create_error_response(request, 'RERANK_ERROR', f"Failed to get API key: {str(e)}")
-
-

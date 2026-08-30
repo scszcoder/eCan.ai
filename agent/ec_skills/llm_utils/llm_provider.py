@@ -31,6 +31,7 @@ class ProviderType(Enum):
     BEDROCK = "bedrock"
     OLLAMA = "ollama"
     RYOAIS = "ryoais"
+    ECANAI = "ecanai"
     UNKNOWN = "unknown"
     
     @classmethod
@@ -51,6 +52,7 @@ class LLMModel:
     model_id: str
     default_temperature: float = 0.7
     max_tokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None
     supports_streaming: bool = True
     supports_function_calling: bool = False
     supports_vision: bool = False
@@ -66,6 +68,7 @@ class LLMModel:
             model_id=data.get('model_id', ''),
             default_temperature=data.get('default_temperature', 0.7),
             max_tokens=data.get('max_tokens'),
+            max_output_tokens=data.get('max_output_tokens'),
             supports_streaming=data.get('supports_streaming', True),
             supports_function_calling=data.get('supports_function_calling', False),
             supports_vision=data.get('supports_vision', False),
@@ -107,6 +110,11 @@ class LLMProvider:
     provider_type: ProviderType
     class_name: str
     api_key_env_vars: List[str] = field(default_factory=list)
+    runtime_kind: str = ""
+    regions: List[str] = field(default_factory=lambda: ["cn", "intl"])
+    param_mapping: Dict[str, str] = field(default_factory=dict)
+    default_params: Dict[str, Any] = field(default_factory=dict)
+    special_features: Dict[str, Any] = field(default_factory=dict)
     base_url: Optional[str] = None
     default_model: Optional[str] = None
     preferred_model: Optional[str] = None
@@ -116,6 +124,7 @@ class LLMProvider:
     is_local: bool = False
     api_key_configured: bool = False
     temperature: float = 0.7
+    enable_thinking: bool = False
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'LLMProvider':
@@ -146,6 +155,11 @@ class LLMProvider:
             provider_type=provider_type,
             class_name=data.get('class_name', ''),
             api_key_env_vars=data.get('api_key_env_vars', []),
+            runtime_kind=data.get('runtime_kind', ''),
+            regions=data.get('regions', ['cn', 'intl']),
+            param_mapping=data.get('param_mapping', {}),
+            default_params=data.get('default_params', {}),
+            special_features=data.get('special_features', {}),
             base_url=data.get('base_url'),
             default_model=data.get('default_model'),
             preferred_model=data.get('preferred_model'),
@@ -154,7 +168,8 @@ class LLMProvider:
             documentation_url=data.get('documentation_url', ''),
             is_local=data.get('is_local', False),
             api_key_configured=data.get('api_key_configured', False),
-            temperature=data.get('temperature', 0.7)
+            temperature=data.get('temperature', 0.7),
+            enable_thinking=data.get('enable_thinking', False),
         )
     
     def to_dict(self) -> Dict[str, Any]:
@@ -170,6 +185,11 @@ class LLMProvider:
             'provider': self.provider_type.value,
             'class_name': self.class_name,
             'api_key_env_vars': self.api_key_env_vars,
+            'runtime_kind': self.runtime_kind,
+            'regions': self.regions,
+            'param_mapping': self.param_mapping,
+            'default_params': self.default_params,
+            'special_features': self.special_features,
             'base_url': self.base_url,
             'default_model': self.default_model,
             'preferred_model': self.preferred_model,
@@ -178,7 +198,8 @@ class LLMProvider:
             'documentation_url': self.documentation_url,
             'is_local': self.is_local,
             'api_key_configured': self.api_key_configured,
-            'temperature': self.temperature
+            'temperature': self.temperature,
+            'enable_thinking': self.enable_thinking,
         }
         return result
     
@@ -234,7 +255,8 @@ class LLMProvider:
             ProviderType.BYTEDANCE,
             ProviderType.BAIDU_QIANFAN,
             ProviderType.OLLAMA,
-            ProviderType.RYOAIS
+            ProviderType.RYOAIS,
+            ProviderType.ECANAI
         ]
         return self.provider_type in openai_compatible_types or 'openai' in self.class_name.lower()
     
@@ -278,7 +300,8 @@ class LLMProvider:
             ProviderType.ANTHROPIC,
             ProviderType.CLAUDE,
             ProviderType.GOOGLE,
-            ProviderType.GEMINI
+            ProviderType.GEMINI,
+            ProviderType.ECANAI
         ]
     
     def __str__(self) -> str:
@@ -319,4 +342,3 @@ def create_providers_from_dict(providers_dict: Dict[str, Dict[str, Any]]) -> Dic
         name: LLMProvider.from_dict(config)
         for name, config in providers_dict.items()
     }
-

@@ -6,6 +6,86 @@ from typing import Optional, Tuple
 from utils.logger_helper import logger_helper as logger
 
 
+def sync_account_api_key_to_ecanai(api_key: str, main_window=None) -> Tuple[bool, Optional[str]]:
+    """Store an account API key for all eCanAI provider roles and apply it."""
+    value = str(api_key or '').strip()
+    if not value:
+        return False, 'Account API key is empty'
+
+    try:
+        if main_window is None:
+            from app_context import AppContext
+            main_window = AppContext.get_main_window()
+        if not main_window or not getattr(main_window, 'config_manager', None):
+            return False, 'Main window is not initialized'
+
+        config_manager = main_window.config_manager
+        role_config = (
+            ('llm', config_manager.llm_manager, 'ECANAI_LLM_API_KEY'),
+            ('embedding', config_manager.embedding_manager, 'ECANAI_EMBEDDING_API_KEY'),
+            ('rerank', config_manager.rerank_manager, 'ECANAI_RERANK_API_KEY'),
+        )
+        for role, manager, env_var in role_config:
+            success, error = manager.store_api_key(env_var, value)
+            if not success:
+                return False, f'Failed to store eCanAI {role} key: {error or "unknown error"}'
+
+        general_settings = config_manager.general_settings
+        active_roles = [
+            role for role, _, _ in role_config
+            if str(getattr(general_settings, f'default_{role}', '') or '').lower() == 'ecanai'
+        ]
+
+        # Apply the new credentials to active in-process clients.
+        if 'llm' in active_roles and hasattr(main_window, 'update_all_llms'):
+            try:
+                main_window.update_all_llms(reason='eCanAI account API key synchronized')
+            except Exception as exc:
+                logger.warning(f'[ProviderUtils] Failed to hot-update eCanAI LLM: {exc}')
+
+        agents = getattr(main_window, 'agents', None) or []
+        for role, update_method in (('embedding', 'update_embeddings'), ('rerank', 'update_reranks')):
+            if role not in active_roles:
+                continue
+            model_name = getattr(general_settings, f'default_{role}_model', '')
+            for agent in agents:
+                mem_manager = getattr(agent, 'mem_manager', None)
+                if mem_manager and hasattr(mem_manager, update_method):
+                    try:
+                        getattr(mem_manager, update_method)(provider_name='ecanai', model_name=model_name)
+                    except Exception as exc:
+                        logger.warning(f'[ProviderUtils] Failed to update agent eCanAI {role}: {exc}')
+
+        # This invalidates LightRAG's secure-key overlay. When eCanAI is active,
+        # it also restarts the existing child process so the new env takes effect.
+        if active_roles:
+            invalidate_lightrag_provider_cache(active_roles[0], 'ecanai')
+        else:
+            invalidate_lightrag_provider_cache()
+
+        try:
+            # Do not import gui.LocalServer here: that module pulls in the full
+            # browser stack and can initialize AppKit as a side effect. Broadcast
+            # only when the application has already loaded LocalServer.
+            import sys
+            local_server_module = sys.modules.get('gui.LocalServer')
+            app_ws_manager = getattr(local_server_module, 'app_ws_manager', None)
+            if app_ws_manager:
+                for role, _, _ in role_config:
+                    app_ws_manager.broadcast_sync('lightrag.providersUpdated', {
+                        'provider_type': role,
+                        'provider': 'ecanai',
+                    })
+        except Exception as exc:
+            logger.debug(f'[ProviderUtils] Could not broadcast eCanAI key sync: {exc}')
+
+        logger.info('[ProviderUtils] Account API key synchronized to all eCanAI provider roles')
+        return True, None
+    except Exception as exc:
+        logger.error(f'[ProviderUtils] Failed to synchronize account API key: {exc}')
+        return False, str(exc)
+
+
 def update_ollama_base_url(
     provider_identifier: str,
     base_url: str,
@@ -438,3 +518,44 @@ def save_general_settings_if_needed(base_url_updated: bool, auto_set_as_default:
         import traceback
         logger.error(traceback.format_exc())
         return False
+
+
+def invalidate_lightrag_provider_cache(provider_type: str = '', provider_identifier: str = '') -> None:
+    """Expose provider changes to LightRAG and restart it when eCanAI is active."""
+    try:
+        from knowledge.lightrag_config_manager import get_config_manager
+        get_config_manager().invalidate_caches()
+
+        if (provider_identifier or '').lower() != 'ecanai':
+            return
+
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        if not main_window:
+            return
+        general_settings = main_window.config_manager.general_settings
+        active_provider = getattr(general_settings, f'default_{provider_type}', '')
+        server = getattr(main_window, 'lightrag_server', None)
+        if (active_provider or '').lower() != 'ecanai' or not server or not server.is_running():
+            return
+
+        # A running child process cannot receive new environment variables.
+        # Match the server's existing proxy-change behaviour and restart away
+        # from the IPC thread so saving provider settings remains responsive.
+        import threading
+
+        def restart_with_updated_env() -> None:
+            try:
+                logger.info('[ProviderUtils] Restarting LightRAG to apply eCanAI settings')
+                server.stop()
+                server.start(wait_ready=False)
+            except Exception as exc:
+                logger.error(f'[ProviderUtils] Failed to restart LightRAG: {exc}')
+
+        threading.Thread(
+            target=restart_with_updated_env,
+            name='LightragECanAIProviderRestart',
+            daemon=True,
+        ).start()
+    except Exception as exc:
+        logger.warning(f"[ProviderUtils] Failed to invalidate LightRAG provider cache: {exc}")

@@ -59,11 +59,14 @@
   "use_lambda_proxy": false,
   "lambda_proxy_endpoint": "",
 
-  "default_llm": "openai",
-  "default_llm_model": "gpt-5.5",
+  "default_llm": "ecanai",
+  "default_llm_model": "",
   
-  "default_embedding": "openai",
-  "default_embedding_model": "text-embedding-3-small",
+  "default_embedding": "ecanai",
+  "default_embedding_model": "text-embedding-v3",
+
+  "default_rerank": "ecanai",
+  "default_rerank_model": "gte-rerank",
   
   "skill_use_git": false,
 

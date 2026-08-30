@@ -1,12 +1,12 @@
 {
   "regions": {
     "cn": {
-      "default_provider": "Alibaba Qwen",
-      "default_model": "gte-rerank-v2"
+      "default_provider": "eCanAI",
+      "default_model": "gte-rerank"
     },
     "intl": {
-      "default_provider": "Cohere",
-      "default_model": "rerank-v3.5"
+      "default_provider": "eCanAI",
+      "default_model": "gte-rerank"
     }
   },
   "providers": {
@@ -219,6 +219,20 @@
         "proxy_format": "aliyun",
         "comment": "LightRAG server automatically redirects Ollama rerank to eCan proxy"
       }
+    },
+    "eCanAI": {
+      "name": "eCanAI",
+      "display_name": "eCanAI",
+      "provider": "ecanai",
+      "class_name": "JinaRerank",
+      "regions": ["cn", "intl"],
+      "api_key_env_vars": ["ECANAI_RERANK_API_KEY"],
+      "base_url": "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1",
+      "default_model": "gte-rerank",
+      "description": "eCanAI rerank proxy with dynamic model discovery",
+      "is_local": false,
+      "special_features": {"requires_api_key": true, "dynamic_models": true},
+      "supported_models": []
     },
     "RyoAIS": {
       "name": "RyoAIS",

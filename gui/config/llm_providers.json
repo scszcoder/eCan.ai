@@ -1,14 +1,14 @@
 {
   "regions": {
     "cn": {
-      "default_provider": "DeepSeek",
-      "default_model": "deepseek-v4-flash",
-      "description": "中国区默认使用 DeepSeek V4 Flash 模型"
+      "default_provider": "eCanAI",
+      "default_model": "",
+      "description": "中国区默认使用 eCanAI 动态模型"
     },
     "intl": {
-      "default_provider": "OpenAI",
-      "default_model": "gpt-5.6-sol",
-      "description": "国际版默认使用 OpenAI GPT-5.6 Sol 模型"
+      "default_provider": "eCanAI",
+      "default_model": "",
+      "description": "国际版默认使用 eCanAI 动态模型"
     }
   },
   "providers": {
@@ -1276,6 +1276,24 @@
       "description": "Local Ollama models (native API for LightRAG, auto-converts to OpenAI-compatible /v1 for ChatOpenAI)",
       "documentation_url": "https://ollama.com/library",
       "is_local": true,
+      "enable_thinking": false,
+      "supported_models": []
+    },
+    "eCanAI": {
+      "name": "eCanAI",
+      "display_name": "eCanAI",
+      "provider": "ecanai",
+      "class_name": "ChatOpenAI",
+      "runtime_kind": "openai_compatible",
+      "regions": ["cn", "intl"],
+      "param_mapping": {"model": "model", "api_key": "api_key", "base_url": "base_url", "temperature": "temperature"},
+      "default_params": {},
+      "special_features": {"requires_api_key": true, "requires_model": true, "dynamic_models": true},
+      "api_key_env_vars": ["ECANAI_LLM_API_KEY"],
+      "base_url": "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1",
+      "default_model": "",
+      "description": "eCanAI OpenAI-compatible LLM proxy with dynamic model discovery",
+      "is_local": false,
       "enable_thinking": false,
       "supported_models": []
     },

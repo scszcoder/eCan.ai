@@ -415,6 +415,7 @@ class LightragServer:
         PROVIDER_MAPPING = {
             # OpenAI-compatible providers (use openai binding)
             'ryoais':        'openai',
+            'ecanai':        'openai',
             'anthropic':     'openai',
             'deepseek':      'openai',
             'dashscope':     'openai',
@@ -441,12 +442,11 @@ class LightragServer:
         _map_binding(env.get('EMBEDDING_BINDING'), LIGHTRAG_EMBED_SUPPORTED, 'EMBEDDING_BINDING')
         
         # Rerank binding: map non-native providers to 'jina' (launcher may further process)
-        # IMPORTANT: Do NOT map ryoais/ollama here - let launcher handle the conversion
-        # This ensures launcher can properly set up the proxy routing
+        # Ollama is routed through the local compatibility proxy. Other
+        # non-native rerank providers use LightRAG's Jina-compatible client.
         rerank_binding = env.get('RERANK_BINDING')
         if rerank_binding and rerank_binding.lower() not in ('null', 'none', ''):
-            # Skip mapping for proxy providers (ryoais, ollama) - launcher will handle them
-            if rerank_binding.lower() not in ('ryoais', 'ollama'):
+            if rerank_binding.lower() != 'ollama':
                 _map_binding(rerank_binding, LIGHTRAG_RERANK_SUPPORTED, 'RERANK_BINDING', default='jina')
         
         # 7. Add SSL/TLS configuration to fix certificate errors
@@ -574,7 +574,7 @@ class LightragServer:
         # gemini, bedrock) have their own context knobs and shouldn't be
         # queried here.
         binding = (env.get('LLM_BINDING') or '').lower()
-        if binding and binding not in ('openai', 'ryoais', 'anthropic', 'deepseek',
+        if binding and binding not in ('openai', 'ryoais', 'ecanai', 'anthropic', 'deepseek',
                                        'dashscope', 'bytedance', 'baidu_qianfan',
                                        'zhipuai', 'google'):
             return None
@@ -1587,7 +1587,7 @@ class LightragServer:
                             if base_url:
                                 provider_type = provider_config.get('provider', '').lower()
                                 # Build URL correctly - check if base_url already has /v1
-                                if provider_type == 'ryoais':
+                                if provider_type in ('ryoais', 'ecanai'):
                                     if base_url.endswith('/v1'):
                                         target_service_url = f"{base_url}/rerank"
                                     else:
