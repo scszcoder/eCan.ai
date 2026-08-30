@@ -328,6 +328,7 @@ jobs:
         ECAN_SKIP_FRONTEND_BUILD: '0'
         ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
       run: |
+        set -o pipefail
         echo "=== Starting Linux Build ==="
         echo "Version: ${{ needs.validate-tag.outputs.version }}"
         echo "Architecture: $BUILD_ARCH"

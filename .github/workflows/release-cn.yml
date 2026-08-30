@@ -642,8 +642,8 @@ jobs:
     env:
       ECAN_APP_ID: cn
       ECAN_APP_NAME: eCan.cn
-      BUILD_ARCH: amd64
       DIST_APP: eCan.cn
+      BUILD_ARCH: amd64
       # ── Azure Trusted Signing (cloud HSM, preferred) ──────────────────────
       AZURE_TENANT_ID:           ${{ secrets.AZURE_TENANT_ID           || 'NOT_SET' }}
       AZURE_CLIENT_ID:           ${{ secrets.AZURE_CLIENT_ID           || 'NOT_SET' }}
@@ -2444,6 +2444,7 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       ECAN_APP_ID: cn
       ECAN_APP_NAME: eCan.cn
+      DIST_APP: eCan.cn
     timeout-minutes: 60
 
     steps:
@@ -2943,10 +2944,13 @@ jobs:
           # uploader silently ships an unsigned AppImage. The signing
           # tool is generic (just an ed25519 detached sig), so the
           # same private key works for both formats.
-          python3 build_system/signing_manager.py \
-            "dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage" \
-            "build_system/certificates/ed25519_private_key.pem" \
-            "dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage.sig"
+          APPIMAGE="dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage"
+          if [ -f "$APPIMAGE" ]; then
+            python3 build_system/signing_manager.py \
+              "$APPIMAGE" \
+              "build_system/certificates/ed25519_private_key.pem" \
+              "${APPIMAGE}.sig"
+          fi
 
       - name: Prepare artifacts
         run: |
