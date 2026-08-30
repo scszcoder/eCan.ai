@@ -39,26 +39,29 @@ runs:
         architecture: ${{ inputs.architecture }}
 
     - name: Cache virtual environment
-      # Skip on self-hosted: $GITHUB_WORKSPACE is a fresh per-job dir
-      # under _work/, so .venv is empty; the cache lookup is pure
-      # overhead. The pip-install step below will recreate .venv from
-      # scratch using the same lockfile, which on a self-hosted runner
-      # is still cheaper than the network round-trip to GHA's cache.
       id: cache-venv
-      if: startsWith(runner.name, 'GitHub Actions')
+      # A venv contains absolute interpreter/workspace paths. Reuse it only on
+      # disposable GitHub-hosted runners, matching the existing hosted flow.
+      if: ${{ runner.environment == 'github-hosted' }}
       uses: actions/cache@v5
       with:
         path: .venv
         # Use runner.arch (actual runner architecture) to prevent cross-arch cache pollution
         # runner.arch returns X64, ARM64, etc.
         # Include app-specific requirements so cache busts when CN/Intl extras change.
-        key: ${{ inputs.platform }}-${{ runner.arch }}-venv-py${{ inputs.python-version }}-${{ hashFiles(inputs.requirements-file, 'requirements-cn.txt', 'requirements-intl.txt') }}-${{ inputs.extra-packages }}
+        key: ${{ inputs.platform }}-${{ runner.arch }}-${{ env.ECAN_APP_ID }}-venv-py${{ inputs.python-version }}-${{ hashFiles(inputs.requirements-file, 'requirements-cn.txt', 'requirements-intl.txt') }}-${{ inputs.extra-packages }}
+
+    - name: Configure pip download cache
+      shell: bash
+      run: |
+        echo "PIP_CACHE_DIR=$RUNNER_TEMP/pip-cache" >> "$GITHUB_ENV"
 
     - name: Cache pip dependencies
-      if: startsWith(runner.name, 'GitHub Actions')
       uses: actions/cache@v5
       with:
-        path: ~/.cache/pip
+        # An explicit runner-temp path works consistently on Windows, macOS,
+        # and Linux; actions/cache restores it for both hosted runner types.
+        path: ${{ runner.temp }}/pip-cache
         # Use runner.arch to prevent cross-arch cache pollution.
         # Include app-specific requirements in cache key so per-app dep changes bust the cache.
         key: ${{ inputs.platform }}-${{ runner.arch }}-pip-${{ inputs.python-version }}-${{ hashFiles('requirements*.txt') }}
@@ -84,8 +87,9 @@ runs:
         fi
 
         if [ "${{ inputs.platform }}" = "windows" ]; then
-          echo "$PWD/.venv/Scripts" >> $GITHUB_PATH
-          echo "VIRTUAL_ENV=$PWD/.venv" >> $GITHUB_ENV
+          VENV_DIR_WIN="$(cygpath -w "$PWD/.venv")"
+          echo "$VENV_DIR_WIN\\Scripts" >> $GITHUB_PATH
+          echo "VIRTUAL_ENV=$VENV_DIR_WIN" >> $GITHUB_ENV
         else
           echo "$PWD/.venv/bin" >> $GITHUB_PATH
           echo "VIRTUAL_ENV=$PWD/.venv" >> $GITHUB_ENV

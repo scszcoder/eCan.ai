@@ -67,21 +67,21 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
 
-    # ── 4. Cache npm deps (GitHub-hosted only) ──────────────────────────────
-    # On self-hosted runners, $GITHUB_WORKSPACE is a fresh per-job dir
-    # under _work/, so node_modules is always empty; the cache lookup is
-    # pure overhead. Skip the cache step entirely; let npm install
-    # populate the dir.
-    - name: Cache wa_bridge npm dependencies
-      if: steps.check_source.outputs.source_exists == 'true' && startsWith(runner.name, 'GitHub Actions')
-      id: cache-wa-bridge-deps
+    # ── 4. Cache npm downloads ───────────────────────────────────────────────
+    - name: Configure wa_bridge npm download cache
+      if: steps.check_source.outputs.source_exists == 'true'
+      shell: bash
+      run: |
+        echo "npm_config_cache=$RUNNER_TEMP/wa-bridge-npm-cache" >> "$GITHUB_ENV"
+
+    - name: Cache wa_bridge npm downloads
+      if: steps.check_source.outputs.source_exists == 'true'
       uses: actions/cache@v5
       with:
-        path: ${{ inputs.bridge-dir }}/node_modules
-        key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-wa-bridge-npm-${{ hashFiles(format('{0}/package-lock.json', inputs.bridge-dir)) }}
+        path: ${{ runner.temp }}/wa-bridge-npm-cache
+        key: ${{ runner.os }}-${{ runner.arch }}-node${{ inputs.node-version }}-wa-bridge-npm-${{ hashFiles(format('{0}/package-lock.json', inputs.bridge-dir)) }}
         restore-keys: |
-          ${{ runner.os }}-${{ env.BUILD_ARCH }}-wa-bridge-npm-
-          ${{ runner.os }}-wa-bridge-npm-
+          ${{ runner.os }}-${{ runner.arch }}-node${{ inputs.node-version }}-wa-bridge-npm-
 
     # ── 5. npm install ─────────────────────────────────────────────────────────
     - name: Install wa_bridge npm dependencies
@@ -103,7 +103,7 @@ runs:
           npm install --prefer-offline --no-audit --no-fund
         else
           echo "Lock file present – installing from lock"
-          npm install --prefer-offline --no-audit --no-fund
+          npm ci --prefer-offline --no-audit --no-fund
         fi
 
         echo "✅ wa_bridge dependencies installed"
