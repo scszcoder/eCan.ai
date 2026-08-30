@@ -15,6 +15,7 @@ from knowledge.lightrag_config_manager import get_config_manager
 class LightragServer:
     def __init__(self, extra_env=None):
         self.extra_env = extra_env or {}
+        self.port = None  # actual bound port, set on successful start
         if self.extra_env:
             logged_keys = sorted(str(k) for k in self.extra_env.keys())
             logger.info(f"[LightragServer] extra_env keys: {logged_keys}")
@@ -1642,6 +1643,19 @@ class LightragServer:
             except: pass
 
             logger.info(f"[LightragServer] Started on port {env['PORT']}")
+            # Record the ACTUAL bound port on the instance AND the parent
+            # process env. The client (knowledge/lightrag_client.py) resolves
+            # its base_url from os.environ['PORT']; when 9621 was occupied
+            # (e.g. a stale orphan from a previous session) the server
+            # relocated but only the SUBPROCESS env knew — every client call
+            # then went to the orphan (2026-08-30: ingest hit an old
+            # ollama-configured instance on 9621 while the real server sat
+            # on 9622).
+            self.port = env.get('PORT')
+            try:
+                os.environ['PORT'] = str(env['PORT'])
+            except Exception:
+                pass
             if self.proc and self.proc.poll() is None:
                 self._write_pid_file(self.proc.pid, env)
 
