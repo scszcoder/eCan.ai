@@ -488,8 +488,15 @@ class LightRAGConfigManager:
                             keys['EMBEDDING_BINDING_HOST'] = base_url
                             logger.info(f"[LightRAG Config] Using Embedding base URL: {base_url}")
                         
-                        # Extract model parameters (dimensions, max_tokens) from current model
-                        embedding_model = (current_config.get('EMBEDDING_MODEL') or '').strip()
+                        # Extract model parameters (dimensions, max_tokens) from current model.
+                        # PRIORITY: a model already resolved above (the ecanai
+                        # overlay carries the user's Settings choice) must WIN
+                        # over the stale .env value — otherwise an old
+                        # text-embedding-3-small in lightrag.env silently
+                        # overwrites the selected text-embedding-v3 forever
+                        # (2026-08-30 CN ingest 404 model_not_found incident).
+                        embedding_model = (keys.get('EMBEDDING_MODEL')
+                                           or current_config.get('EMBEDDING_MODEL') or '').strip()
                         if not embedding_model:
                             # An empty value in an older lightrag.env must not
                             # erase the model selected in the global provider

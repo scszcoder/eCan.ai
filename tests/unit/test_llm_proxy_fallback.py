@@ -292,3 +292,46 @@ class TestEcanaiDefaultProvider:
     def test_ecanai_with_empty_model_gets_role_default(self):
         gs = self._gs({"default_embedding": "ecanai", "default_embedding_model": ""})
         assert gs.default_embedding_model == "text-embedding-v3"
+
+
+class TestEcanaiEmbeddingModelPriority:
+    """2026-08-30 ingest 404 incident: the ecanai overlay set
+    EMBEDDING_MODEL=text-embedding-v3 from Settings, but the stale
+    lightrag.env value (text-embedding-3-small) overwrote it three lines
+    later. The Settings-resolved model must win over the .env value."""
+
+    def test_settings_model_beats_stale_env_model(self):
+        from knowledge.lightrag_config_manager import LightRAGConfigManager
+
+        main_window = MagicMock()
+        gs = main_window.config_manager.general_settings
+        gs.default_llm = 'ecanai'
+        gs.default_llm_model = 'qwen-plus'
+        gs.default_embedding = 'ecanai'
+        gs.default_embedding_model = 'text-embedding-v3'
+        gs.default_rerank = ''
+        gs.lambda_proxy_endpoint = 'https://tcb.example/api/llm-proxy'
+
+        provider = {
+            'name': 'eCanAI', 'provider': 'ecanai',
+            'base_url': 'https://tcb.example/api/llm-proxy/v1',
+            'api_key_env_vars': ['ECANAI_EMBEDDING_API_KEY'],
+            'supported_models': [],
+        }
+        main_window.config_manager.llm_manager.get_provider.return_value = provider
+        main_window.config_manager.llm_manager.retrieve_api_key.return_value = 'KEY'
+        main_window.config_manager.embedding_manager.get_provider.return_value = provider
+        main_window.config_manager.embedding_manager.retrieve_api_key.return_value = 'KEY'
+        main_window.config_manager.rerank_manager.get_provider.return_value = None
+        main_window.get_auth_token.return_value = 'tok'
+
+        fake_self = MagicMock()
+        fake_self.read_config.return_value = {
+            'LLM_BINDING': 'openai',
+            'EMBEDDING_BINDING': 'openai',
+            'EMBEDDING_MODEL': 'text-embedding-3-small',   # stale .env value
+        }
+        with patch('app_context.AppContext.get_main_window', return_value=main_window):
+            keys = LightRAGConfigManager._compute_system_api_keys(fake_self)
+        assert keys['EMBEDDING_MODEL'] == 'text-embedding-v3'
+        assert keys['EMBEDDING_BINDING'] == 'ecanai'
