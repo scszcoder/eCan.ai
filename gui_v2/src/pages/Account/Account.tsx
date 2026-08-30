@@ -126,15 +126,23 @@ const Account: React.FC = () => {
     };
 
     const loadApiKey = async () => {
-        if (!isCN || !isWebPlatform()) return;
+        if (!isCN) return;
         try {
-            const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
-            if (!envId) return;
-            const cloudbase = (await import('@cloudbase/js-sdk')).default;
-            const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
-            const result = await app.callFunction({ name: 'myAPIKeygen', data: { action: 'getApiKey' } });
-            const response = (result as any)?.result || result;
-            setApiKey(response?.apiKey || '');
+            if (isWebPlatform()) {
+                const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
+                if (!envId) return;
+                const cloudbase = (await import('@cloudbase/js-sdk')).default;
+                const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
+                const result = await app.callFunction({ name: 'myAPIKeygen', data: { action: 'getApiKey' } });
+                const response = (result as any)?.result || result;
+                setApiKey(response?.apiKey || '');
+                return;
+            }
+            // Desktop: same myAPIKeygen store via the local backend's IPC bridge.
+            const response = await ipcApi.executeRequest('get_api_key', {});
+            if (response?.success && response.data) {
+                setApiKey((response.data as any)?.apiKey || '');
+            }
         } catch (error) {
             console.error('Error loading API key:', error);
         }
