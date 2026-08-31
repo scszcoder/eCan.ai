@@ -48,18 +48,23 @@ def _row(version="1.0.0", owner=AUTHOR):
     return {"id": SID, "name": "飞鸽客服前台00", "owner": owner, "version": version}
 
 
-def _run(rows, cloud_resp, url_info, zip_ok, tmp_path, dir_exists=True):
+def _run(rows, cloud_resp, url_info, zip_ok, tmp_path, dir_exists=True,
+         with_files=True, auto_fetch=True):
     svc = _FakeSkillService(rows)
     mainwin = _FakeMainwin(svc)
     dest_root = tmp_path / "my_skills"
     if dir_exists:
-        (dest_root / "飞鸽客服前台00_skill").mkdir(parents=True)
+        skill_dir = dest_root / "飞鸽客服前台00_skill"
+        (skill_dir / "diagram_dir").mkdir(parents=True)
+        if with_files:
+            (skill_dir / "diagram_dir" / "skill.json").write_text("{}", encoding="utf-8")
     ctx = {"session": None, "token": "t", "endpoint": "e", "owner": ME}
     with patch.object(sfs, "_get_cloud_context", return_value=ctx), \
          patch.object(sfs, "_appsync_request", return_value=cloud_resp), \
          patch.object(sfs, "_request_download_url", return_value=url_info), \
          patch.object(sfs, "_download_from_s3", return_value=b"zipbytes" if zip_ok else None), \
          patch.object(sfs, "_unzip_to_skill_dir", return_value=zip_ok), \
+         patch.object(sfs, "_auto_fetch_sub_skills_enabled", return_value=auto_fetch), \
          patch.object(sfs, "_get_my_skills_dir", return_value=dest_root):
         n = sfs.refresh_subscribed_skills_from_cloud(mainwin)
     return n, svc
@@ -102,3 +107,41 @@ def test_cloud_error_is_nonfatal(tmp_path):
     n, svc = _run([_row("1.0.0")], {"errors": [{"message": "boom"}]},
                   {"downloadUrl": "u"}, True, tmp_path)
     assert n == 0 and svc.updates == []
+
+
+# ── ECAN_AUTO_FETCH_SUB_SKILLS (2026-08-31) ─────────────────────────────────
+# Subscribed skills whose FILES are missing from my_skills are fetched even
+# when the version is current, unless the option is off.
+
+def test_missing_files_same_version_auto_fetches(tmp_path):
+    n, svc = _run([_row("260828020744021")], _cloud(), {"downloadUrl": "u"},
+                  True, tmp_path, dir_exists=False)
+    assert n == 1
+
+
+def test_empty_husk_dir_counts_as_missing(tmp_path):
+    n, svc = _run([_row("260828020744021")], _cloud(), {"downloadUrl": "u"},
+                  True, tmp_path, dir_exists=True, with_files=False)
+    assert n == 1
+
+
+def test_auto_fetch_disabled_skips_missing_files(tmp_path):
+    n, svc = _run([_row("260828020744021")], _cloud(), {"downloadUrl": "u"},
+                  True, tmp_path, dir_exists=False, auto_fetch=False)
+    assert n == 0 and svc.updates == []
+
+
+def test_missing_files_fetch_failure_counts_nothing(tmp_path):
+    n, svc = _run([_row("260828020744021")], _cloud(), None, False,
+                  tmp_path, dir_exists=False)
+    assert n == 0 and svc.updates == []
+
+
+def test_env_var_controls_option(monkeypatch):
+    mainwin = _FakeMainwin(_FakeSkillService([]))
+    monkeypatch.setenv("ECAN_AUTO_FETCH_SUB_SKILLS", "0")
+    assert sfs._auto_fetch_sub_skills_enabled(mainwin) is False
+    monkeypatch.setenv("ECAN_AUTO_FETCH_SUB_SKILLS", "1")
+    assert sfs._auto_fetch_sub_skills_enabled(mainwin) is True
+    monkeypatch.delenv("ECAN_AUTO_FETCH_SUB_SKILLS")
+    assert sfs._auto_fetch_sub_skills_enabled(mainwin) is True  # default ON
