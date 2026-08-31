@@ -499,14 +499,30 @@ html, body {
     }
 }
 
-.ant-btn-dangerous {
+/* Danger buttons are filled red EXCEPT for text/link variants (icon-only or borderless).
+   Without this exclusion, every <Button type="text" danger icon={<DeleteOutlined />} />
+   (used as row-level delete affordances in Tables and the Account API Key card)
+   renders as a solid red square instead of a red icon on a transparent background. */
+.ant-btn-dangerous:not(.ant-btn-text):not(.ant-btn-link) {
     background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
     border: none !important;
     box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3) !important;
-    
+
     &:hover {
         background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%) !important;
         box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4) !important;
+    }
+}
+
+/* Keep the destructive intent visible on text/link danger buttons by coloring
+   their icons/text red, matching AntD v5's built-in danger semantic. */
+.ant-btn-text.ant-btn-dangerous,
+.ant-btn-link.ant-btn-dangerous {
+    color: var(--ant-color-error, #ff4d4f) !important;
+
+    &:hover:not(:disabled) {
+        color: var(--ant-color-error-hover, #d9363e) !important;
+        background: rgba(255, 77, 79, 0.08) !important;
     }
 }
 

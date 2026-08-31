@@ -86,8 +86,8 @@ const ProviderStatus: React.FC<Props> = ({ kind, provider, model }) => {
         : t('pages.settings.provider_status_not_configured');
 
   return (
-    <Space size={4}>
-      <Badge status={status === 'available' ? 'success' : status === 'testing' ? 'processing' : 'error'} text={label} />
+    <Space size={4} style={{ whiteSpace: 'nowrap' }}>
+      <Badge status={status === 'available' ? 'success' : status === 'testing' ? 'processing' : 'error'} text={<span style={{ whiteSpace: 'nowrap' }}>{label}</span>} />
       <Tooltip title={status === 'unavailable' ? <div><div>{t(`pages.knowledge.settings.parserProbe.errors.${detail.category}.reason`)}</div>{detail.technical && <div style={{ marginTop: 4, wordBreak: 'break-word' }}>{detail.technical}</div>}</div> : t('pages.settings.provider_status_retest')}>
         <Button type="text" size="small" icon={<ReloadOutlined spin={status === 'testing'} />} onClick={() => void probe(true)} disabled={status === 'testing'} />
       </Tooltip>
