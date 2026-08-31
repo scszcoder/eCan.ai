@@ -328,52 +328,50 @@ const Account: React.FC = () => {
                                 {t('account.apiKeyDesc', 'Generate an API key to access eCan services programmatically.')}
                             </Text>
                             {apiKey ? (
-                                <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <Input
-                                            readOnly
-                                            value={apiKeyVisible ? apiKey : maskApiKey(apiKey)}
-                                            style={{ fontFamily: 'monospace', maxWidth: 480 }}
+                                <Space style={{ width: '100%' }} align="center" wrap>
+                                    <Input
+                                        readOnly
+                                        value={apiKeyVisible ? apiKey : maskApiKey(apiKey)}
+                                        style={{ flex: 1, minWidth: 240, fontFamily: 'monospace' }}
+                                    />
+                                    <Tooltip title={apiKeyVisible ? t('account.hide', 'Hide') : t('account.show', 'Show')}>
+                                        <Button
+                                            type="text"
+                                            icon={apiKeyVisible ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+                                            onClick={() => setApiKeyVisible(!apiKeyVisible)}
                                         />
-                                        <Tooltip title={apiKeyVisible ? t('account.hide', 'Hide') : t('account.show', 'Show')}>
+                                    </Tooltip>
+                                    <Tooltip title={t('account.copyToClipboard', 'Copy to clipboard')}>
+                                        <Button
+                                            type="text"
+                                            icon={<CopyOutlined />}
+                                            onClick={handleCopyApiKey}
+                                        />
+                                    </Tooltip>
+                                    <Tooltip title={t('account.testApiKey', 'Test API key')}>
+                                        <Button
+                                            type="text"
+                                            icon={<CheckCircleOutlined />}
+                                            onClick={handleTestApiKey}
+                                            loading={testingKey}
+                                        />
+                                    </Tooltip>
+                                    <Popconfirm
+                                        title={t('account.removeKeyTitle', 'Remove API key?')}
+                                        description={t('account.removeKeyDesc', 'This will permanently revoke this API key.')}
+                                        onConfirm={handleRemoveApiKey}
+                                        okText={t('account.remove', 'Remove')}
+                                        okButtonProps={{ danger: true }}
+                                    >
+                                        <Tooltip title={t('account.removeKey', 'Remove API key')}>
                                             <Button
                                                 type="text"
-                                                icon={apiKeyVisible ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-                                                onClick={() => setApiKeyVisible(!apiKeyVisible)}
+                                                danger
+                                                icon={<DeleteOutlined />}
+                                                loading={removingKey}
                                             />
                                         </Tooltip>
-                                        <Tooltip title={t('account.copyToClipboard', 'Copy to clipboard')}>
-                                            <Button
-                                                type="text"
-                                                icon={<CopyOutlined />}
-                                                onClick={handleCopyApiKey}
-                                            />
-                                        </Tooltip>
-                                        <Tooltip title={t('account.testApiKey', 'Test API key')}>
-                                            <Button
-                                                type="text"
-                                                icon={<CheckCircleOutlined />}
-                                                onClick={handleTestApiKey}
-                                                loading={testingKey}
-                                            />
-                                        </Tooltip>
-                                        <Popconfirm
-                                            title={t('account.removeKeyTitle', 'Remove API key?')}
-                                            description={t('account.removeKeyDesc', 'This will permanently revoke this API key.')}
-                                            onConfirm={handleRemoveApiKey}
-                                            okText={t('account.remove', 'Remove')}
-                                            okButtonProps={{ danger: true }}
-                                        >
-                                            <Tooltip title={t('account.removeKey', 'Remove API key')}>
-                                                <Button
-                                                    type="text"
-                                                    danger
-                                                    icon={<DeleteOutlined />}
-                                                    loading={removingKey}
-                                                />
-                                            </Tooltip>
-                                        </Popconfirm>
-                                    </div>
+                                    </Popconfirm>
                                 </Space>
                             ) : (
                                 <Button

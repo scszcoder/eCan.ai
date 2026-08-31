@@ -148,7 +148,10 @@ def wanSendMessage(msg_req, mainwin):
         )
         return response.json()
     except Exception as e:
-        logger.debug(f"ErrorwanSendMessage:{traceback.format_exc()} {e}", "wanSendMessage", mainwin)
+        # Per CLAUDE.md §6, cloud 5xx (INTERNAL_SERVER_ERROR) is expected
+        # behavior — server-side issue, not a client bug. Log at WARNING
+        # rather than DEBUG so it doesn't spam logs during sustained outages.
+        logger.warning(f"ErrorwanSendMessage: {e}", "wanSendMessage", mainwin)
 
 async def wanSendMessage8(msg_req, mainwin):
     """Send a chat message via GraphQL HTTP (async version)."""
@@ -178,10 +181,20 @@ async def wanSendMessage8(msg_req, mainwin):
                 )
         response = await asyncio.to_thread(_sync_post)
         jresp = response.json()
-        logger.debug("wan send8 JRESP:"+json.dumps(jresp), "wanSendMessage", mainwin)
+        # Per CLAUDE.md §6, cloud 5xx (INTERNAL_SERVER_ERROR) is expected
+        # behavior — server-side issue, not a client bug. Only log the
+        # response at DEBUG level when it succeeded; log failures at WARNING
+        # to avoid log spam during sustained outages.
+        if isinstance(jresp, dict) and "errors" in jresp:
+            logger.warning(
+                f"wan send8 cloud error: {json.dumps(jresp.get('errors'))}",
+                "wanSendMessage", mainwin
+            )
+        else:
+            logger.debug("wan send8 JRESP:"+json.dumps(jresp), "wanSendMessage", mainwin)
         return jresp
     except Exception as e:
-        logger.debug(f"ErrorwanSendMessage8:{traceback.format_exc()} {e}", "wanSendMessage", mainwin)
+        logger.warning(f"ErrorwanSendMessage8: {e}", "wanSendMessage", mainwin)
         logger.error(f"WAN send message trouble payload: {msg_req}")
 
 async def wanHandleRxMessage(mainwin):

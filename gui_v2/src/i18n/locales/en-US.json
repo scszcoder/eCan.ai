@@ -3451,7 +3451,43 @@
     "search_field_style": "Style",
     "search_field_popularity": "Popularity",
     "users": "users",
-    "no_avatars_found": "No avatars found"
+    "no_avatars_found": "No avatars found",
+    "filter": {
+      "price": "Price",
+      "price_all": "All",
+      "price_free": "Free",
+      "price_paid": "Paid",
+      "type": "Type",
+      "type_all": "All",
+      "type_image": "Image",
+      "type_video": "Video",
+      "visibility": "Visibility",
+      "visibility_all": "All",
+      "visibility_public": "Public",
+      "visibility_private": "Private",
+      "clear": "Clear filters"
+    },
+    "sort": {
+      "label": "Sort by",
+      "newest": "Newest",
+      "popular": "Most popular",
+      "rating": "Top rated",
+      "default": "Default"
+    },
+    "upload_new": "Upload New Avatar",
+    "uploading": "Uploading…",
+    "upload_success": "Upload successful",
+    "upload_failed": "Upload failed",
+    "related": "Similar style",
+    "apply_to_agent": "Apply to Agent",
+    "apply_placeholder": "Select an agent",
+    "apply_success": "Applied to \"{{name}}\"",
+    "apply_failed": "Apply failed",
+    "preview_play": "Preview",
+    "download": "Download source",
+    "image_type": "Static Image",
+    "video_type": "Animated Video",
+    "no_description": "No description"
   },
   "settings": {
     "tooltips": {

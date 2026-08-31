@@ -1651,9 +1651,9 @@ const LLMManagement = React.forwardRef<
                 <Button
                   size="small"
                   type="text"
-                  icon={<DeleteOutlined style={{ color: "#999" }} />}
-                  style={{ color: "#999" }}
-                  disabled={true}
+                  danger
+                  icon={<DeleteOutlined />}
+                  disabled
                 />
               </Tooltip>
             </Space>
@@ -1677,9 +1677,9 @@ const LLMManagement = React.forwardRef<
                 <Button
                   size="small"
                   type="text"
-                  icon={<DeleteOutlined style={{ color: "#999" }} />}
-                  style={{ color: "#999" }}
-                  disabled={true}
+                  danger
+                  icon={<DeleteOutlined />}
+                  disabled
                 />
               </Tooltip>
             </Space>
@@ -1703,8 +1703,8 @@ const LLMManagement = React.forwardRef<
                   <Button
                     size="small"
                     type="text"
-                    icon={<DeleteOutlined style={{ color: "#ff4d4f" }} />}
-                    style={{ color: "#ff4d4f" }}
+                    danger
+                    icon={<DeleteOutlined />}
                     onClick={() => deleteProviderConfig(record.name)}
                     disabled={!record.api_key_configured}
                   />
