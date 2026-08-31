@@ -2900,6 +2900,7 @@ jobs:
           chmod 600 build_system/certificates/ed25519_private_key.pem
 
       - name: Build Linux packages
+        shell: bash
         env:
           ECAN_SKIP_FRONTEND_BUILD: '0'
           ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
@@ -2911,6 +2912,7 @@ jobs:
           needs.validate-tag.outputs.environment == 'production' ||
           needs.validate-tag.outputs.environment == 'staging' ||
           needs.validate-tag.outputs.environment == 'test'
+        shell: bash
         run: |
           pip install cryptography --quiet
           # Sign the .deb (required: apt-downgrade integrity check).
@@ -2936,7 +2938,11 @@ jobs:
           fi
 
       - name: Prepare artifacts
+        shell: bash
         run: |
+          echo "[DEBUG] Working directory: $(pwd)"
+          echo "[DEBUG] Contents of dist/:"
+          ls -la dist/ 2>/dev/null || echo "[DEBUG] dist/ does not exist or is empty"
           VERSION="${{ needs.validate-tag.outputs.version }}"
           mkdir -p artifacts
           # Resolve each expected Linux artifact explicitly so we can
