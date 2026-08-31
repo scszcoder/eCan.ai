@@ -779,10 +779,36 @@ jobs:
           # updates". The runner is short-lived and per-job (not
           # a shared workspace), so dropping inherited ACLs and
           # granting only the build agent access is sufficient.
+          # Resolve the actual account via whoami. $env:USERNAME on
+          # GitHub-hosted Windows runners can be a container-local user
+          # (e.g. "runneradmin") that NTAccount.Translate() cannot map
+          # to a SID, producing IdentityNotMappedException on
+          # $acl.SetAccessRule(). Construct the access rule from a
+          # SecurityIdentifier (not a string) so SetAccessRule skips
+          # the implicit translation, and degrade gracefully if the
+          # account genuinely cannot be resolved.
+          $currentAccount = & whoami.exe
+          if (-not $currentAccount) {
+            throw "whoami returned empty -- cannot resolve current account for ACL"
+          }
+          $ntAccount = New-Object System.Security.Principal.NTAccount($currentAccount)
+          try {
+            $currentSid = $ntAccount.Translate(
+              [System.Security.Principal.SecurityIdentifier])
+          } catch [System.Security.Principal.IdentityNotMappedException] {
+            # Best-effort hardening only: the key file is already on disk
+            # and will be used by sign_ota_artifacts() in this same job.
+            # On GitHub-hosted runners the VM is short-lived and per-job,
+            # so the worst case here is the same as not tightening ACLs
+            # at all -- still strictly better than failing the build.
+            Write-Warning "Could not translate '$currentAccount' to a SID; skipping ACL tightening."
+            Write-Host "[OK] OTA signing key installed at $keyPath"
+            return
+          }
           $acl = Get-Acl $keyPath
           $acl.SetAccessRuleProtection($true, $false)
           $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-            $env:USERNAME, 'Read', 'Allow')
+            $currentSid, 'Read', 'Allow')
           $acl.SetAccessRule($rule)
           Set-Acl $keyPath $acl
           Write-Host "[OK] OTA signing key installed at $keyPath"
@@ -1812,6 +1838,7 @@ jobs:
           chmod 600 build_system/certificates/ed25519_private_key.pem
 
       - name: Build Linux packages
+        shell: bash
         env:
           ECAN_SKIP_FRONTEND_BUILD: '0'
           ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
@@ -1823,6 +1850,7 @@ jobs:
           needs.validate-tag.outputs.environment == 'production' ||
           needs.validate-tag.outputs.environment == 'staging' ||
           needs.validate-tag.outputs.environment == 'test'
+        shell: bash
         run: |
           pip install cryptography --quiet
           # Sign the .deb (required: apt-downgrade integrity check).
@@ -1848,7 +1876,11 @@ jobs:
           fi
 
       - name: Prepare artifacts
+        shell: bash
         run: |
+          echo "[DEBUG] Working directory: $(pwd)"
+          echo "[DEBUG] Contents of dist/:"
+          ls -la dist/ 2>/dev/null || echo "[DEBUG] dist/ does not exist or is empty"
           VERSION="${{ needs.validate-tag.outputs.version }}"
           mkdir -p artifacts
           # Resolve each expected Linux artifact explicitly so we can
