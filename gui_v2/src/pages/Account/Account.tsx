@@ -189,19 +189,17 @@ const Account: React.FC = () => {
         if (!apiKey) return;
         setTestingKey(true);
         try {
-            if (isCN && isWebPlatform()) {
+            if (isCN) {
                 const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
                 if (!envId) throw new Error('CloudBase API key service is not configured');
-                const cloudbase = (await import('@cloudbase/js-sdk')).default;
-                const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
-                const result = await app.callFunction({ name: 'myAPIKeygen', data: { action: 'queryApiKey', apiKey } });
-                const response = (result as any)?.result || result;
-                if (response?.status === 'active') {
+                const result = await fetch(`https://${envId}.service.tcloudbase.com/api/llm-proxy/v1/models`, {
+                    headers: { Authorization: `Bearer ${apiKey}` },
+                });
+                const response = await result.json().catch(() => ({}));
+                if (result.ok && response?.object === 'list' && Array.isArray(response.data)) {
                     message.success(t('account.apiKeyTestSuccess', 'API key is active and valid'));
                 } else {
-                    message.error(response?.status
-                        ? t('account.apiKeyTestInactive', 'API key is not active')
-                        : t('account.apiKeyTestFailed', 'Unable to validate API key'));
+                    throw new Error(response?.error?.message || `API key validation failed (HTTP ${result.status})`);
                 }
                 return;
             }

@@ -33,6 +33,14 @@ stored vectors by cosine similarity, then uses Qwen `qwen-plus` to synthesize a
 grounded answer from the top chunks. The `QWEN_API_KEY` belongs only in the
 protected `rag_index_event` environment, not in the browser or upload signer.
 
+### Desktop extraction timeout
+
+Some desktop RAG workflows use `llm_proxy` for long Qwen entity-extraction
+generations. The CN production proxy uses a 180000 ms upstream timeout and a
+210-second CloudBase function timeout. Do not reduce the upstream timeout to a
+short-chat value: a 10000 ms setting causes long extraction requests to fail
+with `502 upstream request timed out` even when embeddings are healthy.
+
 ### Current scope and follow-up
 
 This verified CN implementation is a lightweight COS-backed vector store. It
