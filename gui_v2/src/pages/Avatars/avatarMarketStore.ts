@@ -10,6 +10,7 @@ interface AvatarMarketStoreState {
   fetched: boolean;
   fetch: (username: string) => Promise<void>;
   forceRefresh: (username: string) => Promise<void>;
+  upsertAvatar: (avatar: AvatarItem) => void;
 }
 
 /**
@@ -87,4 +88,50 @@ export const useAvatarMarketStore = create<AvatarMarketStoreState>((set, get) =>
     set({ fetched: false });
     await get().fetch(username);
   },
+
+  /**
+   * Inject a freshly uploaded avatar into the local cache without re-fetching.
+   * Used by AvatarUploader's onSuccess handler for an optimistic update.
+   */
+  upsertAvatar: (avatar: AvatarItem) => {
+    set((state) => {
+      const idx = state.avatars.findIndex((a) => a.id === avatar.id);
+      if (idx === -1) {
+        return { avatars: [avatar, ...state.avatars] };
+      }
+      const next = state.avatars.slice();
+      next[idx] = { ...next[idx], ...avatar };
+      return { avatars: next };
+    });
+  },
 }));
+
+/**
+ * Find avatars that share style / artist with `base`, excluding `base` itself.
+ * Pure client-side filter — does not require backend support.
+ */
+export function findRelatedAvatars(
+  base: AvatarItem,
+  pool: AvatarItem[],
+  limit = 6,
+): AvatarItem[] {
+  const baseStyle = (base.style || '').toLowerCase();
+  const baseArtist = (base.artist || base.owner || '').toLowerCase();
+  const scored = pool
+    .filter((a) => a.id !== base.id)
+    .map((a) => {
+      const style = (a.style || '').toLowerCase();
+      const artist = (a.artist || a.owner || '').toLowerCase();
+      let score = 0;
+      if (baseStyle && style && baseStyle === style) score += 3;
+      else if (baseStyle && style && (style.includes(baseStyle) || baseStyle.includes(style))) score += 1;
+      if (baseArtist && artist && baseArtist === artist) score += 2;
+      return { avatar: a, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return (b.avatar.subscribers ?? 0) - (a.avatar.subscribers ?? 0);
+    });
+  return scored.slice(0, limit).map((x) => x.avatar);
+}

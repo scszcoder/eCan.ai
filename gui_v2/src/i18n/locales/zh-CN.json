@@ -3510,7 +3510,43 @@
     "search_field_style": "风格",
     "search_field_popularity": "热度",
     "users": "用户",
-    "no_avatars_found": "未找到头像"
+    "no_avatars_found": "未找到头像",
+    "filter": {
+      "price": "价格",
+      "price_all": "全部",
+      "price_free": "免费",
+      "price_paid": "付费",
+      "type": "类型",
+      "type_all": "全部",
+      "type_image": "图片",
+      "type_video": "视频",
+      "visibility": "可见性",
+      "visibility_all": "全部",
+      "visibility_public": "公开",
+      "visibility_private": "私有",
+      "clear": "清除筛选"
+    },
+    "sort": {
+      "label": "排序",
+      "newest": "最新优先",
+      "popular": "最热优先",
+      "rating": "评分优先",
+      "default": "默认"
+    },
+    "upload_new": "上传新形象",
+    "uploading": "上传中…",
+    "upload_success": "上传成功",
+    "upload_failed": "上传失败",
+    "related": "同风格推荐",
+    "apply_to_agent": "应用到智能体",
+    "apply_placeholder": "请选择目标智能体",
+    "apply_success": "已应用到 \"{{name}}\"",
+    "apply_failed": "应用失败",
+    "preview_play": "预览",
+    "download": "下载原始素材",
+    "image_type": "静态图片",
+    "video_type": "动态视频",
+    "no_description": "暂无描述"
   },
   "settings": {
     "tooltips": {
