@@ -136,7 +136,15 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
     const { changeLanguage } = useLanguage();
     const { message, modal } = App.useApp();
     const username = useUserStore((state) => state.username);
-    const verification = useAccountStore((state) => state.getVerificationStatus());
+    // NOTE: select the stable accountData reference and derive via useMemo —
+    // selecting getVerificationStatus() directly returns a fresh object per
+    // call and crashes React with an infinite getSnapshot loop (blank page,
+    // 2026-08-31 incident).
+    const accountData = useAccountStore((state) => state.accountData);
+    const verification = React.useMemo(
+        () => useAccountStore.getState().getVerificationStatus(),
+        [accountData],
+    );
     const navigate = useNavigate();
 
     // 从存储中获取完整的用户信息（支持账号登录和 Google 登录）
