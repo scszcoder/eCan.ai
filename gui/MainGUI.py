@@ -5807,7 +5807,44 @@ class MainWindow:
                 ex_stat = "ErrorPrepFullVReport traceback information not available:" + str(e)
             logger.error(ex_stat)
 
-        return report
+        # Deduplicate by vname — self.vehicles can accumulate duplicates across
+        # UDP listener, checkVehicles, fieldLinks and vehicles.json paths, all
+        # of which append without checking for existing entries. updateVehicles
+        # mutation rejects duplicates at Prisma level (Invalid updateMany()
+        # invocation), so dedupe before send.
+        seen_vnames = set()
+        deduped_report = []
+        for vinfo in report:
+            vname = vinfo.get("vname", "")
+            if vname in seen_vnames:
+                logger.debug(f"prepFullVehicleReportData: dropping duplicate vname {vname}")
+                continue
+            seen_vnames.add(vname)
+            deduped_report.append(vinfo)
+        return deduped_report
+
+    def _on_vehicle_report_success(self):
+        """Reset cloud heartbeat cooldown after a successful vehicle report."""
+        if self._cloud_vehicle_report_failure_count > 0:
+            logger.info(
+                f"vehicle report succeeded after {self._cloud_vehicle_report_failure_count} failures"
+            )
+        self._cloud_vehicle_report_failure_count = 0
+        self._cloud_vehicle_report_backoff_until = 0.0
+
+    def _on_vehicle_report_failure(self, err):
+        """Back off cloud heartbeat after a failure. Per CLAUDE.md §6, cloud 5xx
+        is expected behavior (server-side issue), not a client code bug — log
+        as WARNING and stop hammering the broken endpoint for 5 minutes.
+        """
+        self._cloud_vehicle_report_failure_count += 1
+        # Exponential backoff capped at 5 minutes: 1m, 2m, 4m, 5m, 5m, …
+        backoff_seconds = min(300, 60 * (2 ** min(self._cloud_vehicle_report_failure_count - 1, 4)))
+        self._cloud_vehicle_report_backoff_until = time.time() + backoff_seconds
+        logger.warning(
+            f"vehicle report to cloud failed (count={self._cloud_vehicle_report_failure_count}); "
+            f"backing off {backoff_seconds}s. err={err}"
+        )
 
 
     def prepVehicleReportData(self, v):
@@ -5850,6 +5887,13 @@ class MainWindow:
     async def runAgentsMonitor(self, monitor_msg_queue):
         running = True
         ticks = 0
+        # Track last cloud-side failure to avoid hammering a broken cloud function.
+        # When sendWanMessage / updateVehicles returns 5xx, back off for 5 minutes
+        # before retrying instead of retrying every 180 ticks (3 min). Without
+        # this, a sustained cloud outage keeps the asyncio event loop busy
+        # running requests, which raises CPU and starves other tasks.
+        self._cloud_vehicle_report_backoff_until = 0.0
+        self._cloud_vehicle_report_failure_count = 0
         while running:
             ticks = ticks + 1
             if ticks > 255:
@@ -5866,24 +5910,36 @@ class MainWindow:
                 self.saveVehiclesJsonFile()
 
                 if "Commander" in self.host_role:
-                    self.showMsg(f"sending vehicle heartbeat to cloud....")
-                    hbInfo = self.stateCapture()
-                    # update vehicle info to the chat channel (don't we need to update this to cloud lambda too?)
-                    await self.wan_send_heartbeat(hbInfo)
+                    # Skip cloud heartbeat if a recent failure put us in cooldown.
+                    if time.time() < self._cloud_vehicle_report_backoff_until:
+                        cooldown_left = int(self._cloud_vehicle_report_backoff_until - time.time())
+                        logger.debug(
+                            f"skipping vehicle heartbeat (cloud cooldown, {cooldown_left}s left, "
+                            f"{self._cloud_vehicle_report_failure_count} prior failures)"
+                        )
+                    else:
+                        self.showMsg(f"sending vehicle heartbeat to cloud....")
+                        hbInfo = self.stateCapture()
+                        # update vehicle info to the chat channel (don't we need to update this to cloud lambda too?)
+                        await self.wan_send_heartbeat(hbInfo)
 
-                    # send vehicle status to cloud DB
-                    # NOTE: send_report_vehicles_to_cloud uses the synchronous requests library.
-                    # Running it in an executor prevents it from blocking the asyncio event loop,
-                    # which would otherwise starve WebSocket receive loops and cause PONG timeouts.
-                    vehicle_report = self.prepFullVehicleReportData()
-                    _token = self.get_auth_token()
-                    _endpoint = self.getWanApiEndpoint()
-                    resp = await asyncio.get_running_loop().run_in_executor(
-                        None,
-                        lambda: send_report_vehicles_to_cloud(
-                            self.session, _token, vehicle_report, _endpoint
-                        ),
-                    )
+                        # send vehicle status to cloud DB
+                        # NOTE: send_report_vehicles_to_cloud uses the synchronous requests library.
+                        # Running it in an executor prevents it from blocking the asyncio event loop,
+                        # which would otherwise starve WebSocket receive loops and cause PONG timeouts.
+                        vehicle_report = self.prepFullVehicleReportData()
+                        _token = self.get_auth_token()
+                        _endpoint = self.getWanApiEndpoint()
+                        try:
+                            resp = await asyncio.get_running_loop().run_in_executor(
+                                None,
+                                lambda: send_report_vehicles_to_cloud(
+                                    self.session, _token, vehicle_report, _endpoint
+                                ),
+                            )
+                            self._on_vehicle_report_success()
+                        except Exception as report_err:
+                            self._on_vehicle_report_failure(report_err)
 
             if not monitor_msg_queue.empty():
                 message = await monitor_msg_queue.get()
