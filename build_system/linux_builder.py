@@ -359,15 +359,22 @@ exec "${{HERE}}/usr/bin/{self.app_name}" "$@"
                 print("   sudo apt install dpkg-dev")
                 return False
             
-            # Sanitize version for DEB package (dpkg-deb requires Version field
-            # to not contain underscores per Debian policy)
+            # DEB package has two places that contain the version:
+            #   1. The DEBIAN/control file's `Version:` field — must be
+            #      dpkg-deb-compatible (no underscores, per Debian policy).
+            #   2. The .deb FILENAME — must match the workflow's
+            #      `dist/$DIST_APP-$VERSION-linux-amd64.deb` template so
+            #      the "Generate Ed25519 signatures" and "Prepare
+            #      artifacts" steps can find the artifact.
+            #
+            # We previously sanitized the FILENAME too, which broke the
+            # workflow contract (workflow used the raw `${{ ...version }}`
+            # with underscores). Keep the filename verbatim and only
+            # sanitize the value written into control's Version field.
+            pkg_name = f"{self.app_name}-{self.version}-linux-amd64"
             deb_version = self._sanitize_deb_version(self.version)
             if deb_version != self.version:
-                print(f"[DEB] Sanitized version: {self.version} -> {deb_version}")
-            
-            # Use consistent naming format: {app_name}-{version}-linux-{arch}.deb
-            # This matches the workflow expectations: eCan.cn-{version}-linux-amd64.deb
-            pkg_name = f"{self.app_name}-{deb_version}-linux-amd64"
+                print(f"[DEB] Sanitized version for control file: {self.version} -> {deb_version}")
             pkg_dir = self.dist_dir / pkg_name
             if pkg_dir.exists():
                 shutil.rmtree(pkg_dir)
