@@ -49,6 +49,13 @@ const Account: React.FC = () => {
             const response = await ipcApi.executeRequest('get_account_info', {});
             if (response?.success && response.data) {
                 const data = response.data as any;
+                if (data.accountInfo === null) {
+                    // Cloud reachable but no account row for this identity yet.
+                    message.warning(t('account.noAccountRecord',
+                        'No account record found yet — it is created on first login'));
+                    await loadApiKey();
+                    return;
+                }
                 setAccountData(data.accountInfo || data);
                 await loadApiKey();
                 message.success(t('account.refreshSuccess', 'Account info refreshed'));

@@ -3763,6 +3763,7 @@
     "fundRunningLow": "余额不足，请及时充值"
   },
   "account": {
+    "noAccountRecord": "尚未找到账户记录 — 首次登录时自动创建",
     "infoIncomplete": "账户信息不完整",
     "verifyEmailNeeded": "邮箱未验证",
     "verifyPhoneNeeded": "手机号未验证",

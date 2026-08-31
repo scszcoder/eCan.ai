@@ -3704,6 +3704,7 @@
     "fundRunningLow": "Fund running low"
   },
   "account": {
+    "noAccountRecord": "No account record found yet — it is created on first login",
     "infoIncomplete": "Account info incomplete",
     "verifyEmailNeeded": "Email not verified",
     "verifyPhoneNeeded": "Phone number not verified",
