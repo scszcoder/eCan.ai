@@ -25,6 +25,22 @@ export interface AccountInfo {
     fund: number;
     quota: number;
     states: string;
+    /** Server-verified contact flags (verify_account_info resolver). Absent on
+     *  older backends — treat missing as "unknown", only explicit false counts
+     *  as unverified. */
+    email_verified?: boolean;
+    phone_verified?: boolean;
+    /** ISO date after which an incomplete account is deactivated (server-set,
+     *  60 days from signup). */
+    verify_deadline?: string;
+}
+
+export interface VerificationStatus {
+    /** false only when the server explicitly reports something unverified */
+    complete: boolean;
+    missing: Array<'email' | 'phone'>;
+    /** days until deactivation; null when unknown/complete */
+    daysLeft: number | null;
 }
 
 export interface OrderInfo {
@@ -80,10 +96,17 @@ interface AccountState {
     setLoading: (loading: boolean) => void;
     setError: (error: string | null) => void;
     clearAccountData: () => void;
-    
+    /** Fetch fresh account info from the cloud (used by the 20-min poller
+     *  and the Account page refresh). Safe to call repeatedly. */
+    fetchAccountInfo: () => Promise<boolean>;
+
     // Computed getters
     isFreeTier: () => boolean;
     getSubscriptions: () => string[];
+    /** Current fund balance, or null when unknown. */
+    getFund: () => number | null;
+    /** Contact-verification completeness (red-flag indicator). */
+    getVerificationStatus: () => VerificationStatus;
 }
 
 export const useAccountStore = create<AccountState>((set, get) => ({
@@ -102,11 +125,28 @@ export const useAccountStore = create<AccountState>((set, get) => ({
     
     setError: (error) => set({ error, isLoading: false }),
     
-    clearAccountData: () => set({ 
-        accountData: null, 
-        error: null, 
-        lastUpdated: null 
+    clearAccountData: () => set({
+        accountData: null,
+        error: null,
+        lastUpdated: null
     }),
+
+    fetchAccountInfo: async () => {
+        try {
+            const { ipcApi } = await import('../services/ipc/api');
+            const response = await ipcApi.executeRequest('get_account_info', {});
+            if (response?.success && response.data) {
+                const data = (response.data as any).accountInfo || response.data;
+                set({ accountData: data, lastUpdated: Date.now(), error: null });
+                return true;
+            }
+            set({ error: (response as any)?.error?.message || 'fetch failed' });
+            return false;
+        } catch (e: any) {
+            set({ error: e?.message || String(e) });
+            return false;
+        }
+    },
     
     isFreeTier: () => {
         const { accountData } = get();
@@ -119,6 +159,33 @@ export const useAccountStore = create<AccountState>((set, get) => ({
         return true;
     },
     
+    getFund: () => {
+        const { accountData } = get();
+        const fund = accountData?.acctInfo?.fund;
+        return typeof fund === 'number' && !Number.isNaN(fund) ? fund : null;
+    },
+
+    getVerificationStatus: () => {
+        const { accountData } = get();
+        const info = accountData?.acctInfo;
+        const missing: Array<'email' | 'phone'> = [];
+        // Only an explicit false counts — older backends omit the flags.
+        if (info?.email_verified === false) missing.push('email');
+        if (info?.phone_verified === false) missing.push('phone');
+        let daysLeft: number | null = null;
+        if (missing.length) {
+            const deadlineSrc = info?.verify_deadline
+                || (info?.sign_on_date
+                    ? new Date(new Date(info.sign_on_date).getTime() + 60 * 86400_000).toISOString()
+                    : null);
+            if (deadlineSrc) {
+                const ms = new Date(deadlineSrc).getTime() - Date.now();
+                daysLeft = Number.isNaN(ms) ? null : Math.max(0, Math.ceil(ms / 86400_000));
+            }
+        }
+        return { complete: missing.length === 0, missing, daysLeft };
+    },
+
     getSubscriptions: () => {
         const { accountData } = get();
         if (!accountData?.acctInfo?.subs) return [];

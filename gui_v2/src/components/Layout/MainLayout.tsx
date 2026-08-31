@@ -36,6 +36,7 @@ import PageBackBreadcrumb from './PageBackBreadcrumb';
 import QuickActionMenu from './QuickActionMenu';
 import FastDeployPanel from '../FastDeploy/FastDeployPanel';
 import A11yFocusGuard from '../Common/A11yFocusGuard';
+import { useAccountStore } from '../../stores/accountStore';
 import { logoutManager } from '../../services/LogoutManager';
 import { isDesktopPlatform, isWebPlatform } from '../../config/platform';
 
@@ -113,6 +114,17 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
+    // Periodic account-info refresh (2026-08-31): fetch once shortly after
+    // load, then every 20 minutes, so the fund balance and verification flags
+    // stay current without a manual Account-page refresh (customer report:
+    // top-ups weren't reflected). Feeds the low-fund banner + red-flag badge.
+    useEffect(() => {
+        const { fetchAccountInfo } = useAccountStore.getState();
+        const initial = setTimeout(() => { void fetchAccountInfo(); }, 15_000);
+        const interval = setInterval(() => { void fetchAccountInfo(); }, 20 * 60_000);
+        return () => { clearTimeout(initial); clearInterval(interval); };
     }, []);
 
     // Trigger test ads after login initialization completes

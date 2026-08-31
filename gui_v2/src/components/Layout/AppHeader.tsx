@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Header } from 'antd/es/layout/layout';
-import { Button, Badge, Dropdown, Space, MenuProps, Modal } from 'antd';
-import { MenuFoldOutlined, MenuUnfoldOutlined, BellOutlined, UserOutlined, SettingOutlined, GlobalOutlined, SkinOutlined, LogoutOutlined, ClearOutlined } from '@ant-design/icons';
+import { Button, Badge, Dropdown, Space, MenuProps, Modal, Tooltip } from 'antd';
+import { MenuFoldOutlined, MenuUnfoldOutlined, BellOutlined, UserOutlined, SettingOutlined, GlobalOutlined, SkinOutlined, LogoutOutlined, ClearOutlined, FlagFilled } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { useUserStore } from '../../stores/userStore';
+import { useAccountStore } from '../../stores/accountStore';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { App } from 'antd';
@@ -135,6 +136,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
     const { changeLanguage } = useLanguage();
     const { message, modal } = App.useApp();
     const username = useUserStore((state) => state.username);
+    const verification = useAccountStore((state) => state.getVerificationStatus());
     const navigate = useNavigate();
 
     // 从存储中获取完整的用户信息（支持账号登录和 Google 登录）
@@ -425,6 +427,35 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                     >
                         <UserAvatar name={displayName} picture={displayPicture} />
                         <span>{displayName}</span>
+                        {!verification.complete && (
+                            <Tooltip
+                                title={
+                                    <div>
+                                        <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                                            {t('account.infoIncomplete', 'Account info incomplete')}
+                                        </div>
+                                        {verification.missing.includes('email') && (
+                                            <div>• {t('account.verifyEmailNeeded', 'Email not verified')}</div>
+                                        )}
+                                        {verification.missing.includes('phone') && (
+                                            <div>• {t('account.verifyPhoneNeeded', 'Phone number not verified')}</div>
+                                        )}
+                                        {verification.daysLeft !== null && (
+                                            <div style={{ marginTop: 4 }}>
+                                                {t('account.verifyDeadline',
+                                                   { defaultValue: '{{days}} day(s) left before the account is deactivated',
+                                                     days: verification.daysLeft })}
+                                            </div>
+                                        )}
+                                    </div>
+                                }
+                            >
+                                <FlagFilled
+                                    style={{ color: '#ff4d4f', marginLeft: 4 }}
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                            </Tooltip>
+                        )}
                     </UserSection>
                 </Dropdown>
                 <Modal
