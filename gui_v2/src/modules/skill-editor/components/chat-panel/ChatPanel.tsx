@@ -110,6 +110,20 @@ const parseMaybeJson = (value: any) => {
   return value;
 };
 
+const fileToChatAttachment = (file: File, id = crypto.randomUUID()): Promise<ChatAttachment> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({
+      id,
+      name: file.name || `image-${Date.now()}.png`,
+      type: file.type || 'application/octet-stream',
+      size: file.size,
+      content: typeof reader.result === 'string' ? reader.result : '',
+    });
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
 const buildMessageId = (rawId: any, role: 'user' | 'assistant', content: any, timestamp?: any) => {
   const normalizedId = rawId == null ? '' : String(rawId).trim();
   if (normalizedId) {
@@ -170,6 +184,7 @@ interface ChatPanelProps {
 const PanelContainer = styled.div<{ $width: number; $collapsed: boolean }>`
   display: flex;
   flex-direction: column;
+  container-type: inline-size;
   width: ${props => props.$collapsed ? '0px' : `${props.$width}px`};
   min-width: ${props => props.$collapsed ? '0px' : '280px'};
   max-width: ${props => props.$collapsed ? '0px' : '600px'};
@@ -407,26 +422,110 @@ const MessageMeta = styled.span`
 `;
 
 const InputContainer = styled.div`
-  padding: 16px;
+  padding: 12px 14px 14px;
   border-top: 1px solid rgba(148, 163, 184, 0.2);
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.72) 0%, rgba(30, 41, 59, 0.94) 100%);
+  background: rgba(15, 23, 42, 0.96);
 `;
 
-const InputWrapper = styled.div`
+const InputWrapper = styled.div<{ $dragging: boolean }>`
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.92);
-  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.28);
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  background: rgba(30, 41, 59, 0.68);
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.22);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+
+  &:focus-within {
+    background: rgba(30, 41, 59, 0.82);
+    border-color: rgba(96, 165, 250, 0.62);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12), 0 10px 28px rgba(2, 6, 23, 0.28);
+  }
+
+  ${props => props.$dragging && `
+    background: rgba(30, 64, 175, 0.18);
+    border-color: rgba(96, 165, 250, 0.9);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16);
+  `}
+`;
+
+const DropHint = styled.div`
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  color: #93c5fd;
+  font-size: 13px;
+  font-weight: 600;
+  background: rgba(23, 47, 91, 0.96);
+  border-radius: 8px;
+  z-index: 1;
+  pointer-events: none;
+`;
+
+const AttachmentPreviewList = styled.div`
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+`;
+
+const AttachmentPreview = styled.div`
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 180px;
+  padding: 5px 26px 5px 6px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.58);
+  color: #cbd5e1;
+  font-size: 11px;
+`;
+
+const AttachmentThumbnail = styled.img`
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 5px;
+`;
+
+const AttachmentName = styled.span`
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+const RemoveAttachmentButton = styled.button`
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(71, 85, 105, 0.8);
+  color: #e2e8f0;
+  cursor: pointer;
+  line-height: 16px;
+
+  &:hover {
+    background: rgba(239, 68, 68, 0.8);
+  }
 `;
 
 const InputRow = styled.div`
+  position: relative;
   display: flex;
-  align-items: flex-end;
-  gap: 10px;
+  min-width: 0;
 `;
 
 const AutoConfirmChip = styled.button`
@@ -453,7 +552,7 @@ const ActionButtons = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
 `;
 
 const ActionButtonsLeft = styled.div`
@@ -462,25 +561,40 @@ const ActionButtonsLeft = styled.div`
   gap: 4px;
 `;
 
+const ComposerActions = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+`;
+
 const ComposerMeta = styled.div`
   font-size: 11px;
   color: rgba(148, 163, 184, 0.72);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  @container (max-width: 340px) {
+    display: none;
+  }
 `;
 
 const IconButton = styled.button`
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: none;
   background: rgba(30, 41, 59, 0.72);
   color: rgba(226, 232, 240, 0.82);
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 9px;
   border: 1px solid rgba(148, 163, 184, 0.12);
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
   
   .anticon {
     font-size: 13px;
@@ -492,22 +606,28 @@ const IconButton = styled.button`
     background: rgba(59, 130, 246, 0.14);
     border-color: rgba(59, 130, 246, 0.22);
   }
+
+  &:focus-visible {
+    outline: 2px solid rgba(96, 165, 250, 0.8);
+    outline-offset: 2px;
+  }
 `;
 
 const SendButton = styled.button`
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: none;
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   color: white;
   cursor: pointer;
-  border-radius: 12px;
-  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.3);
+  border-radius: 10px;
+  box-shadow: 0 5px 14px rgba(37, 99, 235, 0.28);
   flex-shrink: 0;
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
   
   .anticon {
     font-size: 16px;
@@ -516,12 +636,19 @@ const SendButton = styled.button`
   
   &:hover {
     background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%);
+    transform: translateY(-1px);
   }
   
   &:disabled {
     background: rgba(59, 130, 246, 0.32);
     box-shadow: none;
     cursor: not-allowed;
+    transform: none;
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba(147, 197, 253, 0.9);
+    outline-offset: 2px;
   }
 `;
 
@@ -534,7 +661,8 @@ const StyledTextArea = styled(TextArea)`
     color: #e2e8f0;
     font-size: 14px;
     line-height: 1.6;
-    padding: 2px 0;
+    min-height: 42px;
+    padding: 4px 2px;
     resize: none;
   }
 
@@ -687,6 +815,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const [inputValue, setInputValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pendingClarification, setPendingClarification] = useState<ClarificationQuestion[] | null>(null);
   const [pendingA2UI, setPendingA2UI] = useState<A2UIData | null>(null);
@@ -1363,33 +1492,49 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     setIsRecording(prev => !prev);
   }, []);
 
-  const handleFileUpload = useCallback((info: any) => {
+  const handleFileUpload = useCallback(async (info: any) => {
     try {
       const fileList = info?.fileList;
       if (!Array.isArray(fileList)) return;
-
-      const attachments: ChatAttachment[] = fileList
-        .map((f: any) => {
-          const origin = f?.originFileObj;
-          const name = String(f?.name || origin?.name || 'attachment');
-          const type = String(f?.type || origin?.type || 'application/octet-stream');
-          const size = Number(f?.size || origin?.size || 0);
-
-          return {
-            id: String(f?.uid || crypto.randomUUID()),
-            name,
-            type,
-            size,
-            content: '',
-          };
-        })
-        .filter((a: any) => typeof a?.name === 'string');
-
+      const attachments = await Promise.all(fileList
+        .filter((f: any) => f?.originFileObj instanceof File)
+        .map((f: any) => fileToChatAttachment(f.originFileObj, String(f.uid || crypto.randomUUID()))));
       setPendingAttachments(attachments);
     } catch {
       return;
     }
   }, []);
+
+  const appendFiles = useCallback(async (files: File[]) => {
+    if (!files.length) return;
+    try {
+      const attachments = await Promise.all(files.map(file => fileToChatAttachment(file)));
+      setPendingAttachments(prev => [...prev, ...attachments]);
+    } catch (error) {
+      console.error('[ChatPanel] Failed to read attachment:', error);
+    }
+  }, []);
+
+  const handlePaste = useCallback((event: React.ClipboardEvent<HTMLElement>) => {
+    const filesFromItems = Array.from(event.clipboardData?.items || [])
+      .filter(item => item.kind === 'file')
+      .map(item => item.getAsFile())
+      .filter((file): file is File => !!file && file.type.startsWith('image/'));
+    const filesFromClipboard = Array.from(event.clipboardData?.files || [])
+      .filter(file => file.type.startsWith('image/'));
+    const imageFiles = filesFromItems.length ? filesFromItems : filesFromClipboard;
+    if (!imageFiles.length) return;
+    event.preventDefault();
+    void appendFiles(imageFiles);
+  }, [appendFiles]);
+
+  const handleDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDraggingFile(false);
+    const files = Array.from(event.dataTransfer.files || []);
+    if (files.length) void appendFiles(files);
+  }, [appendFiles]);
 
   const handlePlanApprove = useCallback(async () => {
     if (!activeSessionId || isLoading || !pendingPlan) return;
@@ -1866,7 +2011,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   }, [skipConfirm]);
 
   const handleSend = useCallback(async () => {
-    if (!inputValue.trim() || isLoading || sendingRef.current) return;
+    if ((!inputValue.trim() && pendingAttachments.length === 0) || isLoading || sendingRef.current) return;
     // Intercept `/` slash commands before sending to the agent.
     if (inputValue.trim().startsWith('/') && handleSlashCommand(inputValue.trim())) {
       setInputValue('');
@@ -2538,13 +2683,50 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
       {showInput && (
         <InputContainer>
-          <InputWrapper>
+          <InputWrapper
+            $dragging={isDraggingFile}
+            onPaste={handlePaste}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              if (Array.from(event.dataTransfer.types || []).includes('Files')) setIsDraggingFile(true);
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'copy';
+              if (Array.from(event.dataTransfer.types || []).includes('Files')) setIsDraggingFile(true);
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsDraggingFile(false);
+            }}
+            onDrop={handleDrop}
+          >
             {skipConfirm && (
               <Tooltip title={t('chatPanel.autoConfirmHint', 'Proposed commands run without asking. Click to turn off.')}>
                 <AutoConfirmChip type="button" onClick={() => setSkipConfirm(false)}>
                   ⚡ {t('chatPanel.autoConfirmOn', 'Auto-confirm on')}
                 </AutoConfirmChip>
               </Tooltip>
+            )}
+            {pendingAttachments.length > 0 && (
+              <AttachmentPreviewList>
+                {pendingAttachments.map(attachment => (
+                  <AttachmentPreview key={attachment.id} title={attachment.name}>
+                    {attachment.type.startsWith('image/') ? (
+                      <AttachmentThumbnail src={attachment.content} alt={attachment.name} />
+                    ) : (
+                      <PaperClipOutlined />
+                    )}
+                    <AttachmentName>{attachment.name}</AttachmentName>
+                    <RemoveAttachmentButton
+                      type="button"
+                      aria-label={`${t('common.delete', 'Remove')} ${attachment.name}`}
+                      onClick={() => setPendingAttachments(prev => prev.filter(item => item.id !== attachment.id))}
+                    >
+                      ×
+                    </RemoveAttachmentButton>
+                  </AttachmentPreview>
+                ))}
+              </AttachmentPreviewList>
             )}
             <InputRow>
               <StyledTextArea
@@ -2554,17 +2736,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                 placeholder={t('chatPanel.typeMessage')}
                 autoSize={{ minRows: 1, maxRows: 4 }}
               />
-              <SendButton
-                onClick={handleSend}
-                disabled={!inputValue.trim() || isLoading}
-              >
-                {isLoading ? <LoadingOutlined spin /> : <SendOutlined />}
-              </SendButton>
+              {isDraggingFile && (
+                <DropHint><PaperClipOutlined />&nbsp; {t('chatPanel.dropFilesHere', 'Drop files here')}</DropHint>
+              )}
             </InputRow>
             <ActionButtons>
               <ActionButtonsLeft>
                 <Tooltip title={t('chatPanel.voiceInput')}>
-                  <IconButton onClick={handleVoiceInput}>
+                  <IconButton type="button" onClick={handleVoiceInput} aria-label={t('chatPanel.voiceInput')}>
                     <AudioOutlined style={{ color: isRecording ? '#ef4444' : undefined }} />
                   </IconButton>
                 </Tooltip>
@@ -2574,17 +2753,29 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                   onChange={handleFileUpload}
                 >
                   <Tooltip title={t('chatPanel.attachFile')}>
-                    <IconButton>
+                    <IconButton type="button" aria-label={t('chatPanel.attachFile')}>
                       <PaperClipOutlined />
                     </IconButton>
                   </Tooltip>
                 </Upload>
               </ActionButtonsLeft>
-              <ComposerMeta>
-                {pendingAttachments.length > 0
-                  ? `${pendingAttachments.length} ${pendingAttachments.length > 1 ? t('chatPanel.attachments') : t('chatPanel.attachment')}`
-                  : t('chatPanel.inputHint')}
-              </ComposerMeta>
+              <ComposerActions>
+                <ComposerMeta>
+                  {pendingAttachments.length > 0
+                    ? `${pendingAttachments.length} ${pendingAttachments.length > 1 ? t('chatPanel.attachments') : t('chatPanel.attachment')}`
+                    : t('chatPanel.inputHint')}
+                </ComposerMeta>
+                <Tooltip title={t('chatPanel.inputHint')}>
+                  <SendButton
+                    type="button"
+                    onClick={handleSend}
+                    disabled={(!inputValue.trim() && pendingAttachments.length === 0) || isLoading}
+                    aria-label={t('chatPanel.inputHint')}
+                  >
+                    {isLoading ? <LoadingOutlined spin /> : <SendOutlined />}
+                  </SendButton>
+                </Tooltip>
+              </ComposerActions>
             </ActionButtons>
           </InputWrapper>
         </InputContainer>

@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import json
 import time
+import importlib.util
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -28,6 +29,30 @@ class LinuxBuilder:
         self.version = config.get("app", {}).get("version", "1.0.0")
         self.dist_dir = project_root / "dist"
         self.build_dir = project_root / "build"
+
+    @staticmethod
+    def _find_submodules_without_importing(package: str) -> List[str]:
+        """Enumerate package modules without importing its subpackages.
+
+        LightRAG's API modules parse ``sys.argv`` at import time.  PyInstaller's
+        ``--collect-all`` imports package directories in an isolated child and
+        therefore mistakes the child's RPC arguments for LightRAG CLI options.
+        Walking the package files gives PyInstaller the same hidden-import list
+        without executing those modules during collection.
+        """
+        spec = importlib.util.find_spec(package)
+        locations = list(spec.submodule_search_locations or []) if spec else []
+        modules = {package}
+        for location in locations:
+            root = Path(location)
+            for source in root.rglob("*.py"):
+                relative = source.relative_to(root)
+                parts = list(relative.with_suffix("").parts)
+                if parts[-1] == "__init__":
+                    parts.pop()
+                if parts:
+                    modules.add(".".join([package, *parts]))
+        return sorted(modules)
         
     def build_pyinstaller(self, mode: str = "prod") -> bool:
         """
@@ -76,7 +101,12 @@ class LinuxBuilder:
             
             # Collect all packages
             for package in pyinstaller_config.get("collect_all", []):
-                cmd.extend(["--collect-all", package])
+                if package == "lightrag":
+                    cmd.extend(["--collect-data", package])
+                    for module in self._find_submodules_without_importing(package):
+                        cmd.extend(["--hidden-import", module])
+                else:
+                    cmd.extend(["--collect-all", package])
             
             # Collect data only packages
             for package in pyinstaller_config.get("collect_data_only", []):
@@ -124,8 +154,16 @@ class LinuxBuilder:
                 
                 if result.returncode != 0:
                     print(f"❌ PyInstaller build failed with code {result.returncode}")
+                    # PyInstaller tracebacks often put the useful exception and
+                    # source filename near the beginning of stderr.  Keeping only
+                    # the tail hid that context and left CI logs with an
+                    # unactionable ``SystemExit: 2``.
+                    if result.stdout:
+                        print("PyInstaller standard output:")
+                        print(result.stdout.rstrip())
                     if result.stderr:
-                        print(f"Error output: {result.stderr[-500:]}")
+                        print("PyInstaller error output:")
+                        print(result.stderr.rstrip())
                     return False
             except subprocess.TimeoutExpired:
                 print("❌ PyInstaller build timeout (30 minutes exceeded)")

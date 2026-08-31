@@ -31,6 +31,18 @@ const Account: React.FC = () => {
     const accountData = useAccountStore((state) => state.accountData);
     const setAccountData = useAccountStore((state) => state.setAccountData);
 
+    const syncECanAIKey = async (key: string, silent = false) => {
+        if (!key) return false;
+        const response = await ipcApi.executeRequest('sync_ecanai_account_api_key', { api_key: key });
+        if (!response?.success) {
+            const error = response?.error?.message || 'Failed to synchronize eCanAI provider key';
+            if (!silent) message.warning(error);
+            else console.warn('[Account] eCanAI API key synchronization failed:', error);
+            return false;
+        }
+        return true;
+    };
+
     const handleRefresh = async () => {
         setRefreshing(true);
         try {
@@ -101,6 +113,7 @@ const Account: React.FC = () => {
                 const resp = (result as any)?.result || result;
                 if (!resp?.apiKey) throw new Error(resp?.message || resp?.error || 'Failed to get API key: empty response');
                 setApiKey(resp.apiKey);
+                await syncECanAIKey(resp.apiKey);
                 message.success(resp.message || t('account.apiKeySuccess', 'API key generated successfully'));
                 return;
             }
@@ -110,6 +123,7 @@ const Account: React.FC = () => {
                 const key = resp?.apiKey || '';
                 if (key) {
                     setApiKey(key);
+                    await syncECanAIKey(key);
                     message.success(resp?.message || t('account.apiKeySuccess', 'API key generated successfully'));
                 } else {
                     message.error(resp?.message || t('account.apiKeyEmpty', 'Failed to get API key: empty response'));
@@ -126,15 +140,27 @@ const Account: React.FC = () => {
     };
 
     const loadApiKey = async () => {
-        if (!isCN || !isWebPlatform()) return;
+        if (!isCN) return;
         try {
-            const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
-            if (!envId) return;
-            const cloudbase = (await import('@cloudbase/js-sdk')).default;
-            const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
-            const result = await app.callFunction({ name: 'myAPIKeygen', data: { action: 'getApiKey' } });
-            const response = (result as any)?.result || result;
-            setApiKey(response?.apiKey || '');
+            if (isWebPlatform()) {
+                const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
+                if (!envId) return;
+                const cloudbase = (await import('@cloudbase/js-sdk')).default;
+                const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
+                const result = await app.callFunction({ name: 'myAPIKeygen', data: { action: 'getApiKey' } });
+                const response = (result as any)?.result || result;
+                const key = response?.apiKey || '';
+                setApiKey(key);
+                if (key) await syncECanAIKey(key, true);
+                return;
+            }
+            // Desktop: same myAPIKeygen store via the local backend's IPC bridge.
+            const response = await ipcApi.executeRequest('get_api_key', {});
+            if (response?.success && response.data) {
+                const key = (response.data as any)?.apiKey || '';
+                setApiKey(key);
+                if (key) await syncECanAIKey(key, true);
+            }
         } catch (error) {
             console.error('Error loading API key:', error);
         }

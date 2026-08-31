@@ -10,9 +10,24 @@ from utils.logger_helper import get_traceback
 
 
 def _resolve_base_url() -> str:
-    """Resolve LightRAG server base URL from environment or defaults."""
+    """Resolve LightRAG server base URL from the running server, env, or defaults.
+
+    The server manager relocates to an alternative port when the default is
+    occupied (e.g. by a stale orphan from a previous session), so prefer the
+    port the LIVE LightragServer instance actually bound — otherwise clients
+    keep talking to whatever squats on 9621.
+    """
     host = os.environ.get("HOST", "127.0.0.1")
     port = os.environ.get("PORT", "9621")
+    try:
+        from app_context import AppContext
+        mainwin = AppContext.get_main_window()
+        server = getattr(mainwin, "lightrag_server", None) if mainwin else None
+        actual = getattr(server, "port", None)
+        if actual:
+            port = str(actual)
+    except Exception:
+        pass
     scheme = "http"
     return f"{scheme}://{host}:{port}"
 

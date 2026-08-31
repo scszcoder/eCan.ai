@@ -3719,6 +3719,20 @@ def _build_cloud_llm_from_node_config_impl(
     elif provider_lower == "deepseek":
         api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
         base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip()
+    elif provider_lower == "ecanai":
+        api_key = os.environ.get("ECANAI_LLM_API_KEY", "").strip()
+        if not api_key:
+            try:
+                from utils.env.secure_store import get_current_username, secure_store
+                api_key = (
+                    secure_store.get("ECANAI_LLM_API_KEY", username=get_current_username()) or ""
+                ).strip()
+            except Exception as exc:
+                logger.warning(f"[BrowserAutomation] Failed to read eCanAI API key: {exc}")
+        base_url = os.environ.get(
+            "ECANAI_LLM_BASE_URL",
+            "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1",
+        ).strip()
     elif provider_lower in ("azure", "azure_openai"):
         api_key = os.environ.get("AZURE_OPENAI_API_KEY", "").strip()
         base_url = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip() or None
@@ -3831,7 +3845,7 @@ def _build_cloud_llm_impl(
     llm_config = mainwin_ctx.config_manager.llm_manager.get_default_llm_config()
     provider_dict = llm_config["provider_dict"]
     provider_type, model_name_default, api_key, base_url = extract_provider_config(provider_dict)
-    if not api_key and provider_type not in ("ollama",):
+    if not api_key and provider_type not in ("ollama", "ryoais"):
         llm = _proxy_fallback(
             f"no API key for default provider '{llm_config['provider_id']}'"
         )

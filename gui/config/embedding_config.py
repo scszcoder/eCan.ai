@@ -34,6 +34,7 @@ class EmbeddingProvider(Enum):
     JINA = "jina"
     OLLAMA = "ollama"
     RYOAIS = "ryoais"
+    ECANAI = "ecanai"
 
 
 @dataclass
@@ -55,6 +56,9 @@ class EmbeddingProviderConfig:
     provider: EmbeddingProvider
     class_name: str
     api_key_env_vars: List[str]
+    regions: List[str] = field(default_factory=lambda: ["cn", "intl"])
+    special_features: Dict[str, Any] = field(default_factory=dict)
+    api_limits: Dict[str, Any] = field(default_factory=dict)
     base_url: Optional[str] = None
     default_model: Optional[str] = None
     supported_models: List[EmbeddingModelConfig] = field(default_factory=list)
@@ -136,6 +140,9 @@ class EmbeddingConfig:
                 provider=provider_enum,
                 class_name=provider_data.get("class_name", ""),
                 api_key_env_vars=provider_data.get("api_key_env_vars", []),
+                regions=provider_data.get("regions", ["cn", "intl"]),
+                special_features=provider_data.get("special_features", {}),
+                api_limits=provider_data.get("api_limits", {}),
                 base_url=provider_data.get("base_url"),
                 default_model=provider_data.get("default_model"),
                 supported_models=supported_models,
@@ -189,5 +196,3 @@ class EmbeddingConfig:
 
 # Global instance
 embedding_config = EmbeddingConfig()
-
-

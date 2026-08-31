@@ -475,10 +475,27 @@ class GeneralSettings:
 
     # ==================== LLM Settings ====================
     
+    # eCanAI is the out-of-the-box provider for every role (2026-08-30 user
+    # decision): fresh installs get it from settings_template.json, and these
+    # getter fallbacks upgrade EXISTING profiles whose value is unset — an
+    # explicit user choice (any non-empty stored value) always wins.
+    _ECANAI_ROLE_MODEL_DEFAULTS = {
+        "llm": "qwen-plus",
+        "embedding": "text-embedding-v3",
+        "rerank": "gte-rerank",
+    }
+
+    def _default_role_model(self, role: str) -> str:
+        """Role model fallback, only when the resolved provider is ecanai."""
+        provider = str(self._data.get(f"default_{role}", "") or "").strip()
+        if provider and provider.lower() != "ecanai":
+            return ""
+        return self._ECANAI_ROLE_MODEL_DEFAULTS.get(role, "")
+
     @property
     def default_llm(self) -> str:
         """Default LLM provider to use"""
-        return self._data.get("default_llm", "")
+        return self._data.get("default_llm", "") or "ecanai"
 
     @default_llm.setter
     def default_llm(self, value: str):
@@ -487,7 +504,7 @@ class GeneralSettings:
     @property
     def default_llm_model(self) -> str:
         """Default LLM model for the current default provider"""
-        return self._data.get("default_llm_model", "")
+        return self._data.get("default_llm_model", "") or self._default_role_model("llm")
 
     @default_llm_model.setter
     def default_llm_model(self, value: str):
@@ -562,6 +579,28 @@ class GeneralSettings:
         """Cloud LLM proxy URL (Lambda Function URL / TCB llm-proxy service)"""
         value = str(self._data.get("lambda_proxy_endpoint", "") or "").strip()
         if value:
+            # CN guard (2026-08-30 incident): a profile that once tested intl can
+            # carry a stale AWS Lambda URL here. On CN builds that endpoint is
+            # both wrong (different auth/keys) and mainland-unreachable, and it
+            # silently hijacked every proxy call incl. the api-key validator —
+            # ignore it and use the CN default instead of failing mysteriously.
+            try:
+                from utils.app_env import is_cn as _is_cn
+                if _is_cn() and (".on.aws" in value or "amazonaws.com" in value):
+                    if not getattr(GeneralSettings, "_cn_aws_endpoint_warned", False):
+                        GeneralSettings._cn_aws_endpoint_warned = True
+                        try:
+                            from utils.logger_helper import logger_helper as _log
+                            _log.warning(
+                                "[GeneralSettings] lambda_proxy_endpoint points at an "
+                                f"AWS Lambda URL ({value}) on a CN build — ignoring it "
+                                f"and using {self._CN_DEFAULT_LLM_PROXY_ENDPOINT}"
+                            )
+                        except Exception:
+                            pass
+                    return self._CN_DEFAULT_LLM_PROXY_ENDPOINT
+            except Exception:
+                pass
             return value
         try:
             from utils.app_env import is_cn
@@ -592,7 +631,7 @@ class GeneralSettings:
     @property
     def default_embedding(self) -> str:
         """Default Embedding provider to use"""
-        return self._data.get("default_embedding", "")
+        return self._data.get("default_embedding", "") or "ecanai"
 
     @default_embedding.setter
     def default_embedding(self, value: str):
@@ -601,7 +640,7 @@ class GeneralSettings:
     @property
     def default_embedding_model(self) -> str:
         """Default Embedding model for the current default provider"""
-        return self._data.get("default_embedding_model", "")
+        return self._data.get("default_embedding_model", "") or self._default_role_model("embedding")
 
     @default_embedding_model.setter
     def default_embedding_model(self, value: str):
@@ -648,7 +687,7 @@ class GeneralSettings:
     @property
     def default_rerank(self) -> str:
         """Default Rerank provider to use"""
-        return self._data.get("default_rerank", "")
+        return self._data.get("default_rerank", "") or "ecanai"
 
     @default_rerank.setter
     def default_rerank(self, value: str):
@@ -657,7 +696,7 @@ class GeneralSettings:
     @property
     def default_rerank_model(self) -> str:
         """Default Rerank model for the current default provider"""
-        return self._data.get("default_rerank_model", "")
+        return self._data.get("default_rerank_model", "") or self._default_role_model("rerank")
 
     @default_rerank_model.setter
     def default_rerank_model(self, value: str):

@@ -642,8 +642,8 @@ jobs:
     env:
       ECAN_APP_ID: cn
       ECAN_APP_NAME: eCan.cn
-      BUILD_ARCH: amd64
       DIST_APP: eCan.cn
+      BUILD_ARCH: amd64
       # ── Azure Trusted Signing (cloud HSM, preferred) ──────────────────────
       AZURE_TENANT_ID:           ${{ secrets.AZURE_TENANT_ID           || 'NOT_SET' }}
       AZURE_CLIENT_ID:           ${{ secrets.AZURE_CLIENT_ID           || 'NOT_SET' }}
@@ -939,12 +939,9 @@ jobs:
         # inline pwsh port hung at 30 minutes when HTTPS to gitee.com stalled:
         # the in-script SSH fallback never fired ($useSsh was undefined), so the
         # retry ran the same HTTPS path with no timeout wrapper and waited out
-        # the step cap. Because the repository does not exist locally before
-        # checkout, bootstrap the helper from the same Gitee commit into
-        # RUNNER_TEMP, then execute it. The helper caps ls-remote/fetch at 30s
-        # each via Process.Start +
-        # WaitForExit + http.timeout, and fails fast with a clear ::error::
-        # when gitee.com is unreachable.
+        # the step cap. This bootstrap must be self-contained: no repository
+        # file exists before checkout, and Gitee's /raw route is denied by the
+        # China runner gateway even when Git Smart-HTTP is reachable.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         timeout-minutes: 10
@@ -953,11 +950,22 @@ jobs:
         run: |
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
           $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("oauth2:$clean"))
-          $helper = Join-Path $env:RUNNER_TEMP 'checkout-gitee.ps1'
-          $uri = 'https://gitee.com/songszchen/eCan.ai/raw/${{ github.sha }}/build_system/scripts/checkout-gitee.ps1'
-          Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Basic $basic" } -OutFile $helper -TimeoutSec 60
-          . $helper
-          Invoke-CheckoutGitee -Ref "${{ github.event.inputs.ref || github.ref }}" -Token $env:GITEE_TOKEN
+          $git = (Get-Command git.exe -ErrorAction Stop).Source
+          $ref = "${{ github.event.inputs.ref || github.ref }}"
+          Set-Location -LiteralPath $env:GITHUB_WORKSPACE
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $git init -q .
+          & $git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
+          $env:GIT_TERMINAL_PROMPT = '0'
+          $env:HTTP_PROXY = ''; $env:HTTPS_PROXY = ''; $env:NO_PROXY = '*'
+          & $git -c http.sslVerify=false -c http.proxy= -c https.proxy= `
+            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 `
+            -c "http.extraHeader=Authorization: Basic $basic" `
+            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin $ref
+          if ($LASTEXITCODE -ne 0) { throw "Gitee fetch failed for ref '$ref' (exit=$LASTEXITCODE)" }
+          & $git checkout --force --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Git checkout failed (exit=$LASTEXITCODE)" }
+          Write-Host "[OK] Checked out $ref at $(& $git rev-parse --short HEAD)"
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
@@ -1060,19 +1068,6 @@ jobs:
         with:
           platform: windows
           browsers: chromium
-
-      - name: Cache Node.js dependencies
-        # Skip on self-hosted: $GITHUB_WORKSPACE is a fresh per-job dir
-        # under _work/, so node_modules is always empty; the cache lookup
-        # is pure overhead. See release-intl.yml for the long rationale.
-        if: startsWith(runner.name, 'GitHub Actions')
-        uses: actions/cache@v5
-        with:
-          path: gui_v2/node_modules
-          # Include architecture in cache key to avoid cross-arch contamination (rollup has native binaries).
-          key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-
 
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
@@ -1669,12 +1664,9 @@ jobs:
         # inline pwsh port hung at 30 minutes when HTTPS to gitee.com stalled:
         # the in-script SSH fallback never fired ($useSsh was undefined), so the
         # retry ran the same HTTPS path with no timeout wrapper and waited out
-        # the step cap. Because the repository does not exist locally before
-        # checkout, bootstrap the helper from the same Gitee commit into
-        # RUNNER_TEMP, then execute it. The helper caps ls-remote/fetch at 30s
-        # each via Process.Start +
-        # WaitForExit + http.timeout, and fails fast with a clear ::error::
-        # when gitee.com is unreachable.
+        # the step cap. This bootstrap must be self-contained: no repository
+        # file exists before checkout, and Gitee's /raw route is denied by the
+        # China runner gateway even when Git Smart-HTTP is reachable.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         timeout-minutes: 10
@@ -1683,11 +1675,22 @@ jobs:
         run: |
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
           $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("oauth2:$clean"))
-          $helper = Join-Path $env:RUNNER_TEMP 'checkout-gitee.ps1'
-          $uri = 'https://gitee.com/songszchen/eCan.ai/raw/${{ github.sha }}/build_system/scripts/checkout-gitee.ps1'
-          Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Basic $basic" } -OutFile $helper -TimeoutSec 60
-          . $helper
-          Invoke-CheckoutGitee -Ref "${{ github.event.inputs.ref || github.ref }}" -Token $env:GITEE_TOKEN
+          $git = (Get-Command git.exe -ErrorAction Stop).Source
+          $ref = "${{ github.event.inputs.ref || github.ref }}"
+          Set-Location -LiteralPath $env:GITHUB_WORKSPACE
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $git init -q .
+          & $git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
+          $env:GIT_TERMINAL_PROMPT = '0'
+          $env:HTTP_PROXY = ''; $env:HTTPS_PROXY = ''; $env:NO_PROXY = '*'
+          & $git -c http.sslVerify=false -c http.proxy= -c https.proxy= `
+            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 `
+            -c "http.extraHeader=Authorization: Basic $basic" `
+            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin $ref
+          if ($LASTEXITCODE -ne 0) { throw "Gitee fetch failed for ref '$ref' (exit=$LASTEXITCODE)" }
+          & $git checkout --force --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Git checkout failed (exit=$LASTEXITCODE)" }
+          Write-Host "[OK] Checked out $ref at $(& $git rev-parse --short HEAD)"
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
@@ -1790,16 +1793,6 @@ jobs:
         with:
           platform: macos
           browsers: chromium
-
-      - name: Cache Node.js dependencies
-        # Skip on self-hosted: see build-windows Cache step above.
-        if: startsWith(runner.name, 'GitHub Actions')
-        uses: actions/cache@v5
-        with:
-          path: gui_v2/node_modules
-          key: ${{ runner.os }}-amd64-node-${{ hashFiles('gui_v2/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-amd64-node-
 
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
@@ -2192,12 +2185,9 @@ jobs:
         # inline pwsh port hung at 30 minutes when HTTPS to gitee.com stalled:
         # the in-script SSH fallback never fired ($useSsh was undefined), so the
         # retry ran the same HTTPS path with no timeout wrapper and waited out
-        # the step cap. Because the repository does not exist locally before
-        # checkout, bootstrap the helper from the same Gitee commit into
-        # RUNNER_TEMP, then execute it. The helper caps ls-remote/fetch at 30s
-        # each via Process.Start +
-        # WaitForExit + http.timeout, and fails fast with a clear ::error::
-        # when gitee.com is unreachable.
+        # the step cap. This bootstrap must be self-contained: no repository
+        # file exists before checkout, and Gitee's /raw route is denied by the
+        # China runner gateway even when Git Smart-HTTP is reachable.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         timeout-minutes: 10
@@ -2206,11 +2196,22 @@ jobs:
         run: |
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
           $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("oauth2:$clean"))
-          $helper = Join-Path $env:RUNNER_TEMP 'checkout-gitee.ps1'
-          $uri = 'https://gitee.com/songszchen/eCan.ai/raw/${{ github.sha }}/build_system/scripts/checkout-gitee.ps1'
-          Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Basic $basic" } -OutFile $helper -TimeoutSec 60
-          . $helper
-          Invoke-CheckoutGitee -Ref "${{ github.event.inputs.ref || github.ref }}" -Token $env:GITEE_TOKEN
+          $git = (Get-Command git.exe -ErrorAction Stop).Source
+          $ref = "${{ github.event.inputs.ref || github.ref }}"
+          Set-Location -LiteralPath $env:GITHUB_WORKSPACE
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $git init -q .
+          & $git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
+          $env:GIT_TERMINAL_PROMPT = '0'
+          $env:HTTP_PROXY = ''; $env:HTTPS_PROXY = ''; $env:NO_PROXY = '*'
+          & $git -c http.sslVerify=false -c http.proxy= -c https.proxy= `
+            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 `
+            -c "http.extraHeader=Authorization: Basic $basic" `
+            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin $ref
+          if ($LASTEXITCODE -ne 0) { throw "Gitee fetch failed for ref '$ref' (exit=$LASTEXITCODE)" }
+          & $git checkout --force --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Git checkout failed (exit=$LASTEXITCODE)" }
+          Write-Host "[OK] Checked out $ref at $(& $git rev-parse --short HEAD)"
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
@@ -2315,16 +2316,6 @@ jobs:
           arch: aarch64
           browsers: chromium
 
-      - name: Cache Node.js dependencies
-        # Skip on self-hosted: see build-windows Cache step above.
-        if: startsWith(runner.name, 'GitHub Actions')
-        uses: actions/cache@v5
-        with:
-          path: gui_v2/node_modules
-          key: ${{ runner.os }}-aarch64-node-${{ hashFiles('gui_v2/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-aarch64-node-
-
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
 
@@ -2420,6 +2411,7 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       ECAN_APP_ID: cn
       ECAN_APP_NAME: eCan.cn
+      DIST_APP: eCan.cn
     timeout-minutes: 60
 
     steps:
@@ -2705,12 +2697,9 @@ jobs:
         # inline pwsh port hung at 30 minutes when HTTPS to gitee.com stalled:
         # the in-script SSH fallback never fired ($useSsh was undefined), so the
         # retry ran the same HTTPS path with no timeout wrapper and waited out
-        # the step cap. Because the repository does not exist locally before
-        # checkout, bootstrap the helper from the same Gitee commit into
-        # RUNNER_TEMP, then execute it. The helper caps ls-remote/fetch at 30s
-        # each via Process.Start +
-        # WaitForExit + http.timeout, and fails fast with a clear ::error::
-        # when gitee.com is unreachable.
+        # the step cap. This bootstrap must be self-contained: no repository
+        # file exists before checkout, and Gitee's /raw route is denied by the
+        # China runner gateway even when Git Smart-HTTP is reachable.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: pwsh
         timeout-minutes: 10
@@ -2719,11 +2708,22 @@ jobs:
         run: |
           $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
           $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("oauth2:$clean"))
-          $helper = Join-Path $env:RUNNER_TEMP 'checkout-gitee.ps1'
-          $uri = 'https://gitee.com/songszchen/eCan.ai/raw/${{ github.sha }}/build_system/scripts/checkout-gitee.ps1'
-          Invoke-WebRequest -Uri $uri -Headers @{ Authorization = "Basic $basic" } -OutFile $helper -TimeoutSec 60
-          . $helper
-          Invoke-CheckoutGitee -Ref "${{ github.event.inputs.ref || github.ref }}" -Token $env:GITEE_TOKEN
+          $git = (Get-Command git.exe -ErrorAction Stop).Source
+          $ref = "${{ github.event.inputs.ref || github.ref }}"
+          Set-Location -LiteralPath $env:GITHUB_WORKSPACE
+          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          & $git init -q .
+          & $git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
+          $env:GIT_TERMINAL_PROMPT = '0'
+          $env:HTTP_PROXY = ''; $env:HTTPS_PROXY = ''; $env:NO_PROXY = '*'
+          & $git -c http.sslVerify=false -c http.proxy= -c https.proxy= `
+            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 `
+            -c "http.extraHeader=Authorization: Basic $basic" `
+            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin $ref
+          if ($LASTEXITCODE -ne 0) { throw "Gitee fetch failed for ref '$ref' (exit=$LASTEXITCODE)" }
+          & $git checkout --force --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Git checkout failed (exit=$LASTEXITCODE)" }
+          Write-Host "[OK] Checked out $ref at $(& $git rev-parse --short HEAD)"
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
@@ -2826,16 +2826,6 @@ jobs:
           platform: linux
           browsers: chromium
 
-      - name: Cache Node.js dependencies
-        # Skip on self-hosted: see build-windows Cache step above.
-        if: startsWith(runner.name, 'GitHub Actions')
-        uses: actions/cache@v5
-        with:
-          path: gui_v2/node_modules
-          key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-
-
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
 
@@ -2911,10 +2901,13 @@ jobs:
           # uploader silently ships an unsigned AppImage. The signing
           # tool is generic (just an ed25519 detached sig), so the
           # same private key works for both formats.
-          python3 build_system/signing_manager.py \
-            "dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage" \
-            "build_system/certificates/ed25519_private_key.pem" \
-            "dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage.sig"
+          APPIMAGE="dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage"
+          if [ -f "$APPIMAGE" ]; then
+            python3 build_system/signing_manager.py \
+              "$APPIMAGE" \
+              "build_system/certificates/ed25519_private_key.pem" \
+              "${APPIMAGE}.sig"
+          fi
 
       - name: Prepare artifacts
         run: |

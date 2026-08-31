@@ -60,6 +60,7 @@ function buildLLMFields(raw: RawProvider): ProviderFieldConfig[] {
       defaultValue: raw.default_model || '',
       required: true,
       isDynamicOllamaModel: isOllama,
+      isDynamicProviderModel: raw.special_features?.dynamic_models === true,
     });
   }
 
@@ -138,6 +139,7 @@ function buildLLMFields(raw: RawProvider): ProviderFieldConfig[] {
 
 function buildEmbeddingFields(raw: RawProvider): ProviderFieldConfig[] {
   const fields: ProviderFieldConfig[] = [];
+  const isDynamicProvider = raw.special_features?.dynamic_models === true;
 
   // Model field
   if (raw.supported_models?.length) {
@@ -161,6 +163,7 @@ function buildEmbeddingFields(raw: RawProvider): ProviderFieldConfig[] {
       defaultValue: raw.default_model || '',
       required: true,
       isDynamicOllamaModel: isOllama,
+      isDynamicProviderModel: raw.special_features?.dynamic_models === true,
     });
   }
 
@@ -170,7 +173,7 @@ function buildEmbeddingFields(raw: RawProvider): ProviderFieldConfig[] {
     label: 'fields.dimensions',
     type: 'number',
     placeholder: '1024',
-    disabled: true,
+    disabled: !isDynamicProvider,
   });
 
   // Token limit hint
@@ -182,8 +185,8 @@ function buildEmbeddingFields(raw: RawProvider): ProviderFieldConfig[] {
     disabled: true,
   });
 
-  // Host field (for local providers)
-  if (raw.is_local && raw.base_url) {
+  // Host field (local and configurable OpenAI-compatible providers)
+  if (raw.base_url && (raw.is_local || raw.special_features?.dynamic_models === true)) {
     fields.push({
       key: 'EMBEDDING_BINDING_HOST',
       label: 'fields.apiHost',
@@ -231,6 +234,7 @@ function buildRerankFields(raw: RawProvider): ProviderFieldConfig[] {
       defaultValue: raw.default_model || '',
       required: true,
       isDynamicOllamaModel: isOllama,
+      isDynamicProviderModel: raw.special_features?.dynamic_models === true,
     });
   }
 
@@ -283,6 +287,9 @@ export function buildProviderConfig(raw: RawProvider, type: 'llm' | 'embedding' 
   }
   if (isOllama) {
     config.isOllama = true;
+  }
+  if (raw.special_features?.dynamic_models === true) {
+    config.hasDynamicModels = true;
   }
 
   // Embedding model metadata (dimensions per model)

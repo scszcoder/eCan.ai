@@ -110,6 +110,8 @@ const HeaderRight = styled.div`
     flex-direction: column;
     gap: 6px;
     align-items: flex-end;
+    min-width: 0;
+    max-width: calc(100% - 54px);
 `;
 
 const HeaderBadges = styled.div`
@@ -117,6 +119,8 @@ const HeaderBadges = styled.div`
     flex-direction: row;
     gap: 5px;
     align-items: center;
+    min-width: 0;
+    max-width: 100%;
 `;
 
 const HeaderActions = styled.div`
@@ -128,6 +132,7 @@ const HeaderActions = styled.div`
 const HeaderBadge = styled.div<{ $bg: string }>`
     background: ${(p) => p.$bg};
     color: #fff;
+    min-width: 0;
     font-size: 10px;
     font-weight: 600;
     padding: 2px 8px;
@@ -142,8 +147,44 @@ const HeaderBadge = styled.div<{ $bg: string }>`
 
     .anticon {
         font-size: 10px;
+        flex-shrink: 0;
     }
 `;
+
+const OwnerName = styled.span`
+    min-width: 0;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+`;
+
+const getOwnerDisplayName = (skill: Skill): string => {
+    const value = skill as any;
+    const extra = value?.extra_data && typeof value.extra_data === 'object'
+        ? value.extra_data
+        : {};
+    const candidates = [
+        value.owner_name,
+        value.ownerName,
+        value.author_name,
+        value.authorName,
+        value.nickname,
+        value.nickName,
+        extra.owner_name,
+        extra.ownerName,
+        extra.author_name,
+        extra.authorName,
+        extra.nickname,
+        extra.nickName,
+        value.owner,
+    ];
+
+    const displayName = candidates.find((candidate) =>
+        typeof candidate === 'string' && candidate.trim().length > 0
+    );
+    return displayName?.trim() || 'unknown';
+};
 
 const Body = styled.div`
     padding: 14px 16px 12px;
@@ -484,6 +525,7 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
         const subscribed = !owned && isSubscribed(skill);
         const favorited = favoriteSet.has(skillIdStr);
         const palette = getSkillPalette(skill);
+        const ownerDisplayName = getOwnerDisplayName(skill);
 
         const rating = Number((skill as any).rating ?? 5);
         const reviewCount = Number((skill as any).reviewCount ?? 0);
@@ -540,9 +582,12 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
                     <IconBadge>{palette.icon}</IconBadge>
                     <HeaderRight>
                         <HeaderBadges>
-                            <HeaderBadge $bg="rgba(0,0,0,0.35)" title={String((skill as any).owner || '')}>
-                                <UserOutlined /> {String((skill as any).owner || '').split('@')[0] || 'unknown'}
-                            </HeaderBadge>
+                            <Tooltip title={ownerDisplayName} mouseEnterDelay={0.3}>
+                                <HeaderBadge $bg="rgba(0,0,0,0.35)">
+                                    <UserOutlined />
+                                    <OwnerName>{ownerDisplayName}</OwnerName>
+                                </HeaderBadge>
+                            </Tooltip>
                             <HeaderBadge $bg="rgba(0,0,0,0.35)">
                                 {isCode ? (
                                     <><LockOutlined /> {t('pages.skills.code', 'Code')}</>

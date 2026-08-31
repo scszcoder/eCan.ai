@@ -183,16 +183,16 @@ const initialSettings: Settings = {
   lambda_proxy_endpoint: '',
   
   // LLM
-  default_llm: 'ChatOpenAI',
+  default_llm: 'ecanai',
   default_llm_model: '',
   
   // Embedding
-  default_embedding: 'OpenAI',
-  default_embedding_model: 'text-embedding-3-small',
+  default_embedding: 'ecanai',
+  default_embedding_model: 'text-embedding-v3',
   
   // Rerank
-  default_rerank: '',
-  default_rerank_model: '',
+  default_rerank: 'ecanai',
+  default_rerank_model: 'gte-rerank',
   
   // Skill
   skill_use_git: false,

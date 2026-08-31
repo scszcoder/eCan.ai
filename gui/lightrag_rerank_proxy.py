@@ -94,8 +94,8 @@ class LightRAGRerankProxy:
                             logger.debug(f"[Rerank Proxy] Model '{model}' not in Ollama model list (may be rerank-specific)")
                         return found
                 
-                elif provider_type == 'ryoais':
-                    # RyoAIS: GET /v1/models (OpenAI-compatible)
+                elif provider_type in ('ryoais', 'ecanai'):
+                    # OpenAI-compatible providers: GET /v1/models
                     # Add model_type parameter to filter rerank models
                     response = await client.get(f"{base_url}/models", params={"model_type": "rerank"}, headers=headers)
                     if response.status_code == 200:
@@ -104,9 +104,9 @@ class LightRAGRerankProxy:
                         model_ids = [m.get('id', '') for m in models]
                         found = model in model_ids
                         if found:
-                            logger.debug(f"[Rerank Proxy] Model '{model}' verified in RyoAIS rerank models")
+                            logger.debug(f"[Rerank Proxy] Model '{model}' verified in {provider_type} rerank models")
                         else:
-                            logger.debug(f"[Rerank Proxy] Model '{model}' not in RyoAIS rerank model list")
+                            logger.debug(f"[Rerank Proxy] Model '{model}' not in {provider_type} rerank model list")
                         return found
                 
                 return True  # Unknown provider type, skip verification
@@ -294,7 +294,8 @@ class LightRAGRerankProxy:
             # In both cases we short-circuit to a neutral-score passthrough so
             # retrieval continues with the original ordering at zero cost.
             local_providers = {'ollama', 'ryoais', 'lollms'}
-            needs_key = provider_type not in local_providers
+            requires_key = provider_config.get('special_features', {}).get('requires_api_key', True)
+            needs_key = provider_type not in local_providers and requires_key
             no_key = needs_key and not provider_config.get('api_key_configured', False)
             unsupported = provider_type in _UNSUPPORTED_RERANK_PROVIDERS
             if no_key or unsupported:
@@ -343,7 +344,7 @@ class LightRAGRerankProxy:
             
             # Verify model exists by calling provider's model list API if needed
             # Note: Some providers' /models API may only return embedding models, not rerank models
-            if provider_type in ['ryoais', 'ollama']:
+            if provider_type in ['ryoais', 'ecanai', 'ollama']:
                 model_verified = await self._verify_model_exists(provider_type, base_url, model, api_key)
                 if not model_verified:
                     logger.debug(f"[Rerank Proxy] Model '{model}' not found in provider's model list, but proceeding (may be rerank-specific)")
@@ -357,7 +358,7 @@ class LightRAGRerankProxy:
             # Route to appropriate handler
             if provider_type == 'ollama':
                 results = await self._rerank_ollama(base_url, model, query, documents)
-            elif provider_type == 'ryoais':
+            elif provider_type in ('ryoais', 'ecanai'):
                 results = await self._rerank_ryoais(base_url, model, query, documents, api_key)
             else:
                 # Default to OpenAI-compatible format for other providers

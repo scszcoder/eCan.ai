@@ -11,6 +11,10 @@ interface OllamaModel {
   modified_at: string;
   digest: string;
   details: Record<string, any>;
+  dimensions?: number;
+  dimension?: number;
+  max_tokens?: number;
+  context_length?: number;
 }
 
 interface ProviderSelectorProps {
@@ -49,6 +53,18 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   const [providerStatus, setProviderStatus] = useState<'unchecked' | 'testing' | 'available' | 'unavailable'>('unchecked');
   const [providerError, setProviderError] = useState<{ category?: string; technical?: string }>({});
   const lastAutoProbeRef = React.useRef('');
+  const onSettingChangeRef = React.useRef(onSettingChange);
+  useEffect(() => {
+    onSettingChangeRef.current = onSettingChange;
+  }, [onSettingChange]);
+
+  const applyDynamicModelMetadata = useCallback((model?: OllamaModel) => {
+    if (bindingKey !== 'EMBEDDING_BINDING' || !model) return;
+    const dimensions = model.dimensions ?? model.dimension;
+    const tokenLimit = model.max_tokens ?? model.context_length;
+    if (dimensions) onSettingChangeRef.current('EMBEDDING_DIM', String(dimensions));
+    if (tokenLimit) onSettingChangeRef.current('EMBEDDING_TOKEN_LIMIT', String(tokenLimit));
+  }, [bindingKey]);
 
   const probeFingerprint = currentProvider
     ? JSON.stringify([currentProvider.id, ...currentProvider.fields.map(field => settings[field.key] ?? field.defaultValue ?? '')])
@@ -133,15 +149,56 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
     }
   }, [currentProvider?.isOllama, getOllamaHost, t]);
 
+  const fetchProviderModels = useCallback(async () => {
+    if (!currentProvider?.hasDynamicModels) return;
+    setOllamaLoading(true);
+    setOllamaError(null);
+    const prefix = bindingKey === 'LLM_BINDING' ? 'LLM' : bindingKey === 'EMBEDDING_BINDING' ? 'EMBEDDING' : 'RERANK';
+    const modelType = prefix.toLowerCase();
+    const host = settings[`${prefix}_BINDING_HOST`]
+      || currentProvider.fields.find(field => field.key === `${prefix}_BINDING_HOST`)?.defaultValue
+      || '';
+    try {
+      const response = await IPCAPI.getInstance().getProviderModels<{ models: OllamaModel[]; host: string }>(
+        host,
+        settings[`${prefix}_BINDING_API_KEY`],
+        modelType,
+        currentProvider.id
+      );
+      if (response.success && response.data) {
+        const models = response.data.models || [];
+        setOllamaModels(models);
+        if (!models.length) {
+          setOllamaError(t('pages.knowledge.settings.ollama.noModels', { defaultValue: 'No models found' }));
+        } else if (!settings[`${prefix}_MODEL`]) {
+          onSettingChange(`${prefix}_MODEL`, models[0].name);
+          applyDynamicModelMetadata(models[0]);
+        }
+      } else {
+        setOllamaModels([]);
+        setOllamaError(response.error?.message || t('pages.knowledge.settings.ollama.fetchError', { defaultValue: 'Failed to fetch models' }));
+      }
+    } catch (error: any) {
+      setOllamaModels([]);
+      setOllamaError(error.message || t('pages.knowledge.settings.ollama.fetchError', { defaultValue: 'Failed to fetch models' }));
+    } finally {
+      setOllamaLoading(false);
+    }
+  // onSettingChange is intentionally excluded: callers create it during render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyDynamicModelMetadata, bindingKey, currentProvider?.hasDynamicModels, currentProvider?.fields, settings, t]);
+
   // Fetch Ollama models when provider changes to Ollama
   useEffect(() => {
-    if (currentProvider?.isOllama) {
+    if (currentProvider?.hasDynamicModels) {
+      fetchProviderModels();
+    } else if (currentProvider?.isOllama) {
       fetchOllamaModels();
     } else {
       setOllamaModels([]);
       setOllamaError(null);
     }
-  }, [currentProvider?.isOllama, fetchOllamaModels]);
+  }, [currentProvider?.isOllama, currentProvider?.hasDynamicModels, fetchOllamaModels, fetchProviderModels]);
 
   // Open Ollama website (configured host)
   const handleOpenOllamaWebsite = () => {
@@ -210,7 +267,7 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
     const commonStyle = { width: '100%' };
 
     // Handle Ollama dynamic model field
-    if (field.isDynamicOllamaModel && currentProvider?.isOllama) {
+    if ((field.isDynamicOllamaModel && currentProvider?.isOllama) || (field.isDynamicProviderModel && currentProvider?.hasDynamicModels)) {
       const modelOptions = ollamaModels.map(m => ({ value: m.name, label: m.name }));
       
       return (
@@ -220,7 +277,10 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
             <Select
               value={value || undefined}
               placeholder={ollamaLoading ? t('pages.knowledge.settings.ollama.loading', { defaultValue: 'Loading...' }) : (ollamaError || placeholder)}
-              onChange={(val) => onSettingChange(field.key, val)}
+              onChange={(val) => {
+                onSettingChange(field.key, val);
+                applyDynamicModelMetadata(ollamaModels.find(model => model.name === val));
+              }}
               style={{ flex: 1 }}
               options={modelOptions}
               size="small"
@@ -231,7 +291,7 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               notFoundContent={ollamaError || t('pages.knowledge.settings.ollama.noModels', { defaultValue: 'No models' })}
             />
             <Tooltip title={t('pages.knowledge.settings.ollama.refresh', { defaultValue: 'Refresh' })}>
-              <Button icon={<ReloadOutlined spin={ollamaLoading} />} size="small" onClick={fetchOllamaModels} style={{ flexShrink: 0 }} />
+              <Button icon={<ReloadOutlined spin={ollamaLoading} />} size="small" onClick={currentProvider.hasDynamicModels ? fetchProviderModels : fetchOllamaModels} style={{ flexShrink: 0 }} />
             </Tooltip>
           </div>
         </div>

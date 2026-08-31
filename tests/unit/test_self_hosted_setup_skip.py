@@ -6,14 +6,10 @@ Background: eCan.ai's release pipelines (release-intl.yml, release-cn.yml)
 run on two classes of runners:
 
   - GitHub-hosted windows-latest / ubuntu-latest / macos-latest — every
-    job gets a fresh VM, so system-level installs (Inno Setup, Node.js)
-    and project-level caches (.venv, node_modules) must be rebuilt from
-    scratch.
+    job gets a fresh VM, so reusable data must be restored explicitly.
   - Self-hosted runners labelled `self-hosted,windows,x64,ecan-build`
     (and the linux/macos variants) — the OS image is persistent across
-    jobs, but `$GITHUB_WORKSPACE` is still a fresh per-job directory
-    under `_work/`, so the *project* workspace contents are not
-    preserved between jobs.
+    jobs. Builds still must not rely on stale project workspace contents.
 
 Implications we encode in tests:
 
@@ -32,12 +28,9 @@ Implications we encode in tests:
      system Node.js and skip the `actions/setup-node@v6` download
      when one is already on PATH.
 
-  4. `actions/cache@v5` steps (`Cache Node.js dependencies`,
-     `setup-playwright` browser cache, `setup-python-env` venv cache,
-     `setup-wabaileys-bridge` npm cache) must be gated on
-     `startsWith(runner.name, 'GitHub Actions')` so the cache lookup
-     round-trip is skipped on self-hosted (where the per-job workspace
-     makes the cache always miss anyway).
+  4. Versioned third-party caches must run on self-hosted runners too. Frontend
+     `node_modules` is deliberately excluded and recreated from package-lock.json
+     on every build to avoid stale native modules.
 
 These tests are read-only static checks on the YAML / action.yml files;
 they don't require a Windows host or any runner.
@@ -186,7 +179,7 @@ def test_setup_wabaileys_probes_system_node():
 
 
 # ---------------------------------------------------------------------------
-# Cache steps must gate on runner.name to skip on self-hosted.
+# Cache steps must also run on self-hosted.
 # ---------------------------------------------------------------------------
 
 def _has_runner_name_gate(text: str, step_name_substr: str) -> bool:
@@ -202,47 +195,27 @@ def _has_runner_name_gate(text: str, step_name_substr: str) -> bool:
     return "startsWith(runner.name, 'GitHub Actions')" in block
 
 
-@pytest.mark.parametrize("workflow_path,step_name", [
-    (INTL, "Cache Node.js dependencies"),
-])
-def test_workflow_node_cache_gated_on_hosted(workflow_path: Path, step_name: str):
-    text = _read(workflow_path)
-    assert _has_runner_name_gate(text, step_name), (
-        f"{workflow_path.name}: `{step_name}` must have "
-        "`if: startsWith(runner.name, 'GitHub Actions')`. Without it, "
-        "self-hosted runners waste time on the cache lookup round-trip "
-        "even though the per-job workspace always makes the cache miss."
-    )
+@pytest.mark.parametrize("workflow", [INTL, CN])
+def test_frontend_node_modules_is_not_cached(workflow: Path):
+    text = _read(workflow)
+    assert "Cache Node.js dependencies" not in text
+    assert "path: gui_v2/node_modules" not in text
 
 
-def test_release_cn_all_node_caches_gated():
-    """release-cn.yml has 3 Cache Node.js dependencies steps (windows,
-    linux, macos). All 3 must be gated. c082afd8 was supposed to bump
-    them all to v5 but only the windows step was updated, and none
-    got the runner.name gate.
-    """
-    text = _read(CN)
-    matches = list(re.finditer(
-        r"- name: Cache Node\.js dependencies", text,
-    ))
-    assert len(matches) >= 3, (
-        f"release-cn.yml expected ≥3 'Cache Node.js dependencies' steps, "
-        f"found {len(matches)}."
-    )
-    for i, m in enumerate(matches):
-        # Each match's block must include the gate.
-        block_end = text.find("\n      - name:", m.end())
-        if block_end == -1:
-            block_end = len(text)
-        block = text[m.start():block_end]
-        assert "startsWith(runner.name, 'GitHub Actions')" in block, (
-            f"release-cn.yml Cache Node.js dependencies step #{i+1} "
-            "missing the self-hosted skip gate."
-        )
+def test_frontend_dependencies_are_always_clean_installed():
+    text = _read(SETUP_NODE_ENV)
+    assert "npm ci --legacy-peer-deps" in text
 
 
-def test_setup_playwright_cache_gated_on_hosted():
-    """All 3 platform branches in setup-playwright must gate cache@v5."""
+def test_frontend_caches_only_npm_downloads():
+    text = _read(SETUP_NODE_ENV)
+    assert "Cache npm download cache" in text
+    assert "path: ${{ runner.temp }}/npm-cache" in text
+    assert "npm_config_cache: ${{ runner.temp }}/npm-cache" in text
+    assert "path: ${{ inputs.frontend-dir }}/node_modules" not in text
+
+
+def test_setup_playwright_cache_enabled_on_self_hosted():
     text = _read(SETUP_PLAYWRIGHT)
     for platform in ("Windows", "macOS", "Linux"):
         m = re.search(
@@ -254,34 +227,54 @@ def test_setup_playwright_cache_gated_on_hosted():
         if block_end == -1:
             block_end = len(text)
         block = text[m.start():block_end]
-        assert "startsWith(runner.name, 'GitHub Actions')" in block, (
-            f"setup-playwright Cache ({platform}) missing self-hosted gate."
+        assert "startsWith(runner.name, 'GitHub Actions')" not in block, (
+            f"setup-playwright Cache ({platform}) still skips self-hosted."
         )
+        assert "${{ inputs.browsers }}" in block
+        assert "third_party" not in block
 
 
-def test_setup_python_env_venv_cache_gated_on_hosted():
-    """The .venv and ~/.cache/pip caches must skip on self-hosted."""
+def test_setup_python_env_pip_cache_enabled_on_self_hosted():
     text = _read(SETUP_PYTHON_ENV)
-    for step_name in ("Cache virtual environment", "Cache pip dependencies"):
-        m = re.search(r"- name: " + step_name, text)
-        assert m, f"setup-python-env missing '{step_name}'"
-        block_end = text.find("\n    - name:", m.end())
-        if block_end == -1:
-            block_end = len(text)
-        block = text[m.start():block_end]
-        assert "startsWith(runner.name, 'GitHub Actions')" in block, (
-            f"setup-python-env '{step_name}' missing self-hosted gate."
-        )
+    m = re.search(r"- name: Cache pip dependencies", text)
+    assert m, "setup-python-env missing pip cache step"
+    block_end = text.find("\n    - name:", m.end())
+    block = text[m.start():block_end if block_end != -1 else len(text)]
+    assert "runner.environment" not in block
+    assert "path: ${{ runner.temp }}/pip-cache" in block
 
 
-def test_setup_wabaileys_npm_cache_gated_on_hosted():
+def test_virtualenv_cache_is_hosted_only():
+    text = _read(SETUP_PYTHON_ENV)
+    m = re.search(r"- name: Cache virtual environment", text)
+    assert m, "setup-python-env missing venv cache step"
+    block_end = text.find("\n    - name:", m.end())
+    block = text[m.start():block_end if block_end != -1 else len(text)]
+    assert "runner.environment == 'github-hosted'" in block
+
+
+def test_setup_wabaileys_npm_cache_enabled_on_self_hosted():
     text = _read(SETUP_WABA)
-    m = re.search(r"- name: Cache wa_bridge npm dependencies", text)
+    m = re.search(r"- name: Cache wa_bridge npm downloads", text)
     assert m, "setup-wabaileys-bridge missing npm cache step"
     block_end = text.find("\n    - name:", m.end())
     if block_end == -1:
         block_end = len(text)
     block = text[m.start():block_end]
-    assert "startsWith(runner.name, 'GitHub Actions')" in block, (
-        "setup-wabaileys-bridge npm cache missing self-hosted gate."
+    assert "startsWith(runner.name, 'GitHub Actions')" not in block, (
+        "setup-wabaileys-bridge npm cache still skips self-hosted."
     )
+    assert "path: ${{ runner.temp }}/wa-bridge-npm-cache" in block
+    assert "/node_modules" not in block
+    assert "npm ci --prefer-offline" in text
+
+
+def test_windows_virtualenv_is_exported_as_native_path():
+    text = _read(SETUP_PYTHON_ENV)
+    assert 'VENV_DIR_WIN="$(cygpath -w "$PWD/.venv")"' in text
+    assert 'echo "VIRTUAL_ENV=$VENV_DIR_WIN"' in text
+
+
+def test_virtualenv_cache_is_separated_by_app():
+    text = _read(SETUP_PYTHON_ENV)
+    assert "${{ env.ECAN_APP_ID }}-venv" in text

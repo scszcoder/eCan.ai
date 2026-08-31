@@ -706,12 +706,61 @@ def patch_openai_client_for_retry_on_429():
     try:
         _original_init = openai.AsyncOpenAI.__init__
 
+        def _proxy_wants_no_stream(client) -> bool:
+            """The eCanAI/TCB llm-proxy v1 surface rejects stream=True with
+            400 'streaming is not supported by this endpoint'."""
+            try:
+                base = str(getattr(client, 'base_url', '') or '')
+                return 'llm-proxy' in base or 'tcloudbase.com' in base
+            except Exception:
+                return False
+
+        class _FakeStream:
+            """Minimal async-iterator emulating an OpenAI chat stream from a
+            non-streaming response: one content chunk, then usage, then stop.
+            Matches what lightrag/llm/openai.py's stream reader consumes
+            (chunk.choices[0].delta.content / chunk.usage)."""
+
+            def __init__(self, response):
+                self._response = response
+                self._done = False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self._done:
+                    raise StopAsyncIteration
+                self._done = True
+                from types import SimpleNamespace
+                choice = (self._response.choices or [None])[0]
+                content = getattr(getattr(choice, 'message', None), 'content', '') or ''
+                delta = SimpleNamespace(content=content)
+                fake_choice = SimpleNamespace(delta=delta, finish_reason='stop')
+                return SimpleNamespace(
+                    choices=[fake_choice],
+                    usage=getattr(self._response, 'usage', None),
+                )
+
+            async def close(self):
+                return None
+
         async def _create_with_retry(self, *args, **kwargs):
+            # 2026-08-30: query-time answer synthesis passes stream=True; the
+            # llm-proxy rejects it. Downgrade to a non-streaming call and hand
+            # LightRAG a single-chunk fake stream so both code paths work.
+            emulate_stream = False
+            if kwargs.get('stream') and _proxy_wants_no_stream(self):
+                kwargs = dict(kwargs)
+                kwargs.pop('stream', None)
+                kwargs.pop('stream_options', None)
+                emulate_stream = True
             backoff = initial_backoff
             last_exc = None
             for attempt in range(max_retries + 1):
                 try:
-                    return await self._llm_original_create(*args, **kwargs)
+                    result = await self._llm_original_create(*args, **kwargs)
+                    return _FakeStream(result) if emulate_stream else result
                 except retriable as e:
                     last_exc = e
                     if attempt == max_retries:
@@ -882,7 +931,7 @@ def main():
         _LIGHTRAG_LLM_SUPPORTED = {'lollms', 'ollama', 'openai', 'azure_openai', 'aws_bedrock', 'gemini'}
         _LIGHTRAG_EMBED_SUPPORTED = _LIGHTRAG_LLM_SUPPORTED | {'jina'}
         _PROVIDER_MAPPING = {
-            'ryoais': 'openai', 'anthropic': 'openai', 'deepseek': 'openai',
+            'ryoais': 'openai', 'ecanai': 'openai', 'anthropic': 'openai', 'deepseek': 'openai',
             'dashscope': 'openai', 'bytedance': 'openai', 'baidu_qianfan': 'openai',
             'zhipuai': 'openai', 'google': 'openai', 'bedrock': 'aws_bedrock',
         }

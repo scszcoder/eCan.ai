@@ -124,6 +124,10 @@ def handle_get_llm_providers(request: IPCRequest, params: Optional[Dict[str, Any
         # Merge RyoAIS models using shared utility
         providers = merge_ryoais_models_to_providers(providers, ryoais_models=ryoais_models, provider_type='llm')
 
+        # Merge eCanAI dynamic models (live GET <llm-proxy>/v1/models)
+        from gui.ecanai_utils import merge_ecanai_models_to_providers
+        providers = merge_ecanai_models_to_providers(providers, provider_type='llm')
+
         logger.info(f"Retrieved {len(providers)} LLM providers")
 
         return create_success_response(request, {
@@ -370,6 +374,8 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                 }
         
         # Broadcast providersUpdated so LightRAG UI can refresh immediately
+        from gui.manager.provider_settings_helper import invalidate_lightrag_provider_cache
+        invalidate_lightrag_provider_cache('llm', provider_identifier)
         try:
             from gui.LocalServer import app_ws_manager
             app_ws_manager.broadcast_sync('lightrag.providersUpdated', {
@@ -556,7 +562,7 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
             if is_default_llm:
                 logger.info(f"Provider {provider_name} was the default LLM, selecting a new default")
             else:
-                logger.info("All API keys deleted, resetting to default OpenAI provider")
+                logger.info("All API keys deleted, resetting to default eCanAI provider")
             
             if configured_providers:
                 # Select the first available configured provider
@@ -565,14 +571,14 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
                 new_default_model = new_provider.get('preferred_model') or new_provider.get('default_model') or ''
                 logger.info(f"Selected new default LLM {new_default_llm} with model {new_default_model}")
             else:
-                # No providers are configured, default to OpenAI with its default model
-                new_default_llm = 'openai'
-                # Get OpenAI's default model from llm_manager
+                # No providers are configured, default to eCanAI. Its model is
+                # discovered dynamically from the configured /models endpoint.
+                new_default_llm = 'ecanai'
                 try:
-                    openai_provider = llm_manager.get_provider('openai')
-                    new_default_model = openai_provider.get('default_model', 'gpt-5') if openai_provider else 'gpt-5'
+                    ecanai_provider = llm_manager.get_provider('ecanai')
+                    new_default_model = ecanai_provider.get('default_model', '') if ecanai_provider else ''
                 except:
-                    new_default_model = 'gpt-5'
+                    new_default_model = ''
                 logger.info(f"No configured providers found; defaulting to {new_default_llm} with model {new_default_model} (no API key)")
             
             # Update default_llm setting
@@ -802,6 +808,9 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
         logger.info(f"   Setting: default_llm={name}, model={provider_model}")
         logger.info(f"   Actual: default_llm={final_default_llm}, LLM Type={final_llm_type}")
         logger.info(f"   Status: {verification_status}")
+
+        from gui.manager.provider_settings_helper import invalidate_lightrag_provider_cache
+        invalidate_lightrag_provider_cache('llm', name)
         
         return create_success_response(request, {
             'default_llm': name,

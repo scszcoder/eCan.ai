@@ -52,6 +52,10 @@ def handle_get_embedding_providers(request: IPCRequest, params: Optional[Dict[st
 
         # Merge RyoAIS models using shared utility
         providers = merge_ryoais_models_to_providers(providers, ryoais_models=ryoais_models, provider_type='embedding')
+
+        # Merge eCanAI dynamic models (live GET <llm-proxy>/v1/models)
+        from gui.ecanai_utils import merge_ecanai_models_to_providers
+        providers = merge_ecanai_models_to_providers(providers, provider_type='embedding')
         
         logger.info(f"Retrieved {len(providers)} Embedding providers")
 
@@ -263,6 +267,8 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
                     logger.error(f"[Embedding] ❌ Error updating agent embeddings: {e}")
         
         # Broadcast providersUpdated so LightRAG UI can refresh immediately
+        from gui.manager.provider_settings_helper import invalidate_lightrag_provider_cache
+        invalidate_lightrag_provider_cache('embedding', provider_identifier)
         try:
             from gui.LocalServer import app_ws_manager
             app_ws_manager.broadcast_sync('lightrag.providersUpdated', {
@@ -421,7 +427,7 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
             if is_default_embedding:
                 logger.info(f"Provider {provider_identifier} was the default embedding, selecting a new default")
             else:
-                logger.info("All API keys deleted, resetting to default OpenAI provider")
+                logger.info("All API keys deleted, resetting to default eCanAI provider")
             
             if configured_providers:
                 # Select the first available configured provider
@@ -430,13 +436,14 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
                 new_default_model = new_provider.get('preferred_model') or new_provider.get('default_model') or ''
                 logger.info(f"Selected new default Embedding {new_default_embedding} with model {new_default_model}")
             else:
-                # No providers are configured, default to OpenAI with its default model
-                new_default_embedding = 'openai'
+                # No providers are configured, default to eCanAI. Its model is
+                # discovered dynamically from the configured /models endpoint.
+                new_default_embedding = 'ecanai'
                 try:
-                    openai_provider = embedding_manager.get_provider('openai')
-                    new_default_model = openai_provider.get('default_model', 'text-embedding-3-small') if openai_provider else 'text-embedding-3-small'
+                    ecanai_provider = embedding_manager.get_provider('ecanai')
+                    new_default_model = ecanai_provider.get('default_model', '') if ecanai_provider else ''
                 except:
-                    new_default_model = 'text-embedding-3-small'
+                    new_default_model = ''
                 logger.info(f"No configured providers found; defaulting to {new_default_embedding} with model {new_default_model} (no API key)")
             
             # Update default_embedding setting
@@ -587,6 +594,8 @@ def handle_set_default_embedding(request: IPCRequest, params: Optional[Dict[str,
         
         # Get updated provider info for frontend
         updated_provider = embedding_manager.get_provider(provider_identifier)
+        from gui.manager.provider_settings_helper import invalidate_lightrag_provider_cache
+        invalidate_lightrag_provider_cache('embedding', provider_identifier)
         
         return create_success_response(request, {
             'default_embedding': provider_identifier,
@@ -713,5 +722,3 @@ def handle_get_embedding_provider_api_key(request: IPCRequest, params: Optional[
     except Exception as e:
         logger.error(f"Error getting Embedding provider API key: {e}")
         return create_error_response(request, 'EMBEDDING_ERROR', f"Failed to get API key: {str(e)}")
-
-

@@ -1232,6 +1232,8 @@ def extract_provider_config(provider, config_manager=None, node_model_name=None)
             provider_type = 'ollama'
         elif 'ryoais' in provider_name:
             provider_type = 'ryoais'
+        elif 'ecanai' in provider_name:
+            provider_type = 'ecanai'
         elif 'anthropic' in provider_name or 'claude' in provider_name or 'chatanthropic' == class_name:
             provider_type = 'anthropic'
         elif 'azure' in provider_name or 'azureopenai' == class_name:
@@ -1243,7 +1245,8 @@ def extract_provider_config(provider, config_manager=None, node_model_name=None)
     # Ensure api_key and base_url are not None (use empty string or placeholder)
     # This prevents 'NoneType' object is not subscriptable errors in downstream code
     if api_key is None:
-        # For local providers (Ollama, etc.), use placeholder key
+        # Providers that allow unauthenticated access still need a non-empty
+        # value because the OpenAI client validates this constructor argument.
         if provider_type in ['ollama', 'ryoais']:
             api_key = 'sk-placeholder-key-for-local-llm'
         else:
@@ -1305,6 +1308,19 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
         # These must be checked FIRST to avoid misidentification
         # ============================================================
         
+        # eCanAI is an OpenAI-compatible managed proxy.
+        if 'ecanai' in provider_name.lower():
+            if not api_key:
+                logger.error("eCanAI requires ECANAI_LLM_API_KEY in secure_store")
+                return None
+            base_url = (base_url or 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1').rstrip('/')
+            return ChatOpenAI(
+                model=model_name,
+                api_key=api_key,
+                base_url=base_url,
+                temperature=0,
+            )
+
         # Check for RyoAIS (uses class_name=chatopenai, must check before OpenAI)
         if 'ryoais' in provider_name.lower():
             model_name = model_name or 'qwen2.5-72b-instruct'
@@ -1688,6 +1704,7 @@ def is_provider_browser_use_compatible(provider_type: str) -> bool:
         'dashscope', 
         'ollama', 
         'ryoais',
+        'ecanai',
         'qwen', 
         'qwq',
         'zhipuai',
@@ -1716,6 +1733,7 @@ def get_browser_use_supported_providers() -> list:
         'dashscope',
         'ollama',
         'ryoais',
+        'ecanai',
         'qwen',
         'qwq',
         'zhipuai',
@@ -2250,7 +2268,7 @@ def create_browser_use_llm_by_provider_type(
         return _create_and_validate_browser_use_llm(bu_config)
     
     # OpenAI-compatible providers (DeepSeek, DashScope, Ollama, RyoAIS, Qwen, Baidu Qianfan, Bytedance, Zhipu AI, etc.)
-    elif provider_type_id in ['deepseek', 'dashscope', 'ollama', 'ryoais', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai']:
+    elif provider_type_id in ['deepseek', 'dashscope', 'ollama', 'ryoais', 'ecanai', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai']:
         resolved_timeout_s, is_local_endpoint = _resolve_browser_use_timeout_seconds(
             provider_type_id_val=provider_type_id,
             model_name_val=model_name,
@@ -2528,14 +2546,12 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 base_url = config.get('base_url')
                 class_name = config.get('class_name', '')
                 
-                # Use dummy API key if no API key is available (for initialization purposes)
-                # This allows browser_use to initialize even without API key
                 if not api_key:
-                    logger.debug(
-                        f"[create_browser_use_llm] No API key for provider '{default_llm_name}', "
-                        f"using placeholder key for initialization (this is expected on first use)"
+                    logger.error(
+                        f"[create_browser_use_llm] No API key configured for provider "
+                        f"'{default_llm_name}'"
                     )
-                    api_key = 'sk-placeholder-key-for-first-time-setup'
+                    return None
                 
                 logger.info(
                     f"[create_browser_use_llm] Using default LLM: "

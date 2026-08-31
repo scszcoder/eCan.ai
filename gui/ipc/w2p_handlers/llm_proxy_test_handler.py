@@ -42,6 +42,95 @@ def _get_proxy_config() -> Dict[str, str]:
     }
 
 
+# ── CN dual-mode (2026-08-30) ───────────────────────────────────────────────
+# On CN builds the proxy tests exercise the PUBLIC OpenAI-compatible surface
+# of the Tencent llm-proxy:
+#   <lambda_proxy_endpoint>/v1/{models, chat/completions, embeddings, rerank}
+# authenticated with the account's generated eCan API key (Account page /
+# `ecan apikey add`). Intl builds keep the original Lambda-proxy behavior.
+
+def _is_cn() -> bool:
+    try:
+        from utils.app_env import is_cn
+        return is_cn()
+    except Exception:
+        return False
+
+
+def _cn_v1_config() -> Dict[str, str]:
+    """{'base', 'api_key'} for the CN public v1 surface; raises with an
+    actionable message when the account has no API key yet."""
+    config = _get_proxy_config()
+    base = config['endpoint'].rstrip('/') + '/v1'
+    from agent.cloud_api.cloud_api import _http_auth_header
+    from agent.cloud_api.api_keys import get_api_key_with_local_fallback
+    bearer = _http_auth_header(config['auth_token'] or '')
+    session_token = bearer[7:] if bearer.lower().startswith('bearer ') else bearer
+    key_resp = get_api_key_with_local_fallback(session_token)
+    api_key = key_resp.get('apiKey') or ''
+    if not api_key:
+        raise ValueError(
+            "No account API key found — generate one on the Account page "
+            "(or `ecan apikey add`) before testing the CN llm-proxy v1 surface."
+        )
+    return {'base': base, 'api_key': api_key,
+            'provider': config['provider'], 'model': config['model']}
+
+
+def _cn_v1_request(method: str, path: str, cfg: Dict[str, str],
+                   json_body: Optional[Dict[str, Any]] = None,
+                   timeout: float = 60.0) -> Dict[str, Any]:
+    import httpx
+    import time
+    url = cfg['base'] + path
+    t0 = time.time()
+    headers = {'Authorization': f"Bearer {cfg['api_key']}"}
+    if method == 'GET':
+        resp = httpx.get(url, timeout=timeout, headers=headers)
+    else:
+        resp = httpx.post(url, timeout=timeout, headers=headers, json=json_body or {})
+    latency_ms = int((time.time() - t0) * 1000)
+    try:
+        body: Any = resp.json()
+    except Exception:
+        body = resp.text[:500]
+    return {'mode': 'cn-v1', 'url': url, 'status': resp.status_code,
+            'latency_ms': latency_ms, 'body': body}
+
+
+IPCHandlerRegistry.add_to_whitelist('test_llm_proxy_models')
+
+
+@IPCHandlerRegistry.handler('test_llm_proxy_models')
+def handle_test_llm_proxy_models(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """List the models the proxy serves (GET <endpoint>/v1/models).
+
+    CN: public v1 surface with the account API key. Intl: same route with the
+    auth token (honest 404 if the Lambda proxy doesn't expose it).
+    """
+    try:
+        if _is_cn():
+            return create_success_response(request, _cn_v1_request('GET', '/models', _cn_v1_config()))
+        import httpx
+        import time
+        config = _get_proxy_config()
+        url = config['endpoint'].rstrip('/') + '/v1/models'
+        t0 = time.time()
+        resp = httpx.get(url, timeout=15.0,
+                         headers={'Authorization': f"Bearer {config['auth_token']}"})
+        try:
+            body: Any = resp.json()
+        except Exception:
+            body = resp.text[:500]
+        return create_success_response(request, {
+            'mode': 'intl', 'url': url, 'status': resp.status_code,
+            'latency_ms': int((time.time() - t0) * 1000), 'body': body,
+        })
+    except Exception as e:
+        logger.error(f"[llm_proxy_test] Models error: {e}")
+        return create_error_response(request, 'PROXY_MODELS_ERROR', str(e))
+
+
 IPCHandlerRegistry.add_to_whitelist('test_lambda_proxy_ping')
 IPCHandlerRegistry.add_to_whitelist('test_lambda_proxy_llm')
 IPCHandlerRegistry.add_to_whitelist('test_lambda_proxy_browser_use')
@@ -57,6 +146,12 @@ def handle_test_lambda_proxy_ping(request: IPCRequest, params: Optional[Dict[str
     try:
         import httpx
         import time
+
+        if _is_cn():
+            # CN: ping = list models on the public v1 surface (proves route,
+            # auth via the account API key, and upstream registry in one call).
+            result = _cn_v1_request('GET', '/models', _cn_v1_config(), timeout=15.0)
+            return create_success_response(request, result)
 
         config = _get_proxy_config()
         url = config['endpoint'].rstrip('/')
@@ -97,8 +192,30 @@ def handle_test_lambda_proxy_llm(request: IPCRequest, params: Optional[Dict[str,
         from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
         from langchain_core.messages import HumanMessage
 
-        config = _get_proxy_config()
         p = params or {}
+        if _is_cn():
+            # CN: POST the public /v1/chat/completions (relays to DashScope
+            # Qwen). Model comes from params or the server default.
+            cfg = _cn_v1_config()
+            body: Dict[str, Any] = {
+                'messages': [{'role': 'user',
+                              'content': p.get('prompt', 'Say hello in one sentence.')}],
+            }
+            if p.get('model'):
+                body['model'] = p['model']
+            if p.get('provider'):
+                body['provider'] = p['provider']
+            result = _cn_v1_request('POST', '/chat/completions', cfg, body)
+            resp_body = result.get('body')
+            if isinstance(resp_body, dict):
+                choices = resp_body.get('choices') or []
+                if choices:
+                    result['response'] = (choices[0].get('message') or {}).get('content')
+                result['usage'] = resp_body.get('usage')
+                result['model'] = resp_body.get('model')
+            return create_success_response(request, result)
+
+        config = _get_proxy_config()
         prompt = p.get('prompt', 'Say hello in one sentence.')
         provider = p.get('provider', config['provider'])
         model = p.get('model', config['model'])
@@ -211,10 +328,29 @@ def handle_test_lambda_proxy_embedding(request: IPCRequest, params: Optional[Dic
     try:
         import httpx
 
-        config = _get_proxy_config()
         p = params or {}
         text = p.get('text', 'Hello world')
 
+        if _is_cn():
+            # CN: public /v1/embeddings (relays to DashScope text-embedding-v3).
+            cfg = _cn_v1_config()
+            body: Dict[str, Any] = {'input': text}
+            if p.get('model'):
+                body['model'] = p['model']
+            result = _cn_v1_request('POST', '/embeddings', cfg, body, timeout=30.0)
+            resp_body = result.get('body')
+            if isinstance(resp_body, dict):
+                data = resp_body.get('data') or []
+                if data and isinstance(data[0], dict):
+                    emb = data[0].get('embedding') or []
+                    result['dimensions'] = len(emb)
+                    result['embedding_preview'] = emb[:5]
+                    resp_body.pop('data', None)  # keep the output readable
+                result['usage'] = resp_body.get('usage')
+                result['model'] = resp_body.get('model')
+            return create_success_response(request, result)
+
+        config = _get_proxy_config()
         # Use explicit provider/model for embedding test
         # Local-only providers (ollama) don't work through the proxy
         embed_provider = p.get('provider', 'openai')
@@ -272,6 +408,34 @@ def handle_test_lambda_proxy_health_check(request: IPCRequest, params: Optional[
     try:
         import httpx
         import time
+
+        if _is_cn():
+            # CN: sweep every documented public v1 route in one shot.
+            # /rerank returning 501 not_implemented is the EXPECTED healthy
+            # answer until a reranking provider is configured server-side.
+            cfg = _cn_v1_config()
+            routes = {
+                'models': _cn_v1_request('GET', '/models', cfg, timeout=15.0),
+                'chat_completions': _cn_v1_request(
+                    'POST', '/chat/completions', cfg,
+                    {'messages': [{'role': 'user', 'content': 'ping — reply with pong'}]}),
+                'embeddings': _cn_v1_request('POST', '/embeddings', cfg,
+                                             {'input': 'health check'}, timeout=30.0),
+                'rerank': _cn_v1_request(
+                    'POST', '/rerank', cfg,
+                    {'query': 'q', 'documents': ['a', 'b']}, timeout=15.0),
+            }
+            def _ok(name: str, r: Dict[str, Any]) -> bool:
+                if name == 'rerank':
+                    return r['status'] in (200, 501)
+                return r['status'] == 200
+            summary = {name: {'status': r['status'], 'latency_ms': r['latency_ms'],
+                              'ok': _ok(name, r)} for name, r in routes.items()}
+            return create_success_response(request, {
+                'mode': 'cn-v1', 'base': cfg['base'],
+                'healthy': all(v['ok'] for v in summary.values()),
+                'summary': summary, 'routes': routes,
+            })
 
         config = _get_proxy_config()
         url = config['endpoint'].rstrip('/') + '/v1/test'

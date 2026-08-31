@@ -1621,6 +1621,10 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'settings.getOllamaModels' }, { host, username });
     }
 
+    public async getProviderModels<T>(host: string, apiKey?: string, modelType?: string, provider?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'settings.getProviderModels' }, { host, api_key: apiKey, model_type: modelType, provider });
+    }
+
     public async getRyoAISModels<T>(host: string, username?: string, verifySsl: boolean = false): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'settings.getRyoAISModels' }, { host, username, verify_ssl: verifySsl });
     }
@@ -1660,6 +1664,10 @@ export class IPCAPI {
 
     public async testLambdaProxyPing<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'test_lambda_proxy_ping' }, {});
+    }
+
+    public async testLlmProxyModels<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'test_llm_proxy_models' }, {});
     }
 
     public async testLambdaProxyLlm<T>(params?: { prompt?: string; provider?: string; model?: string }): Promise<APIResponse<T>> {

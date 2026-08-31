@@ -335,9 +335,11 @@ class RerankManager:
                 "default_model": provider_config.default_model,
                 "api_key_env_vars": provider_config.api_key_env_vars,
                 "supported_models": self._serialize_models(provider_config.supported_models),
+                "special_features": provider_config.special_features,
+                "proxy_info": provider_config.proxy_info,
 
                 # Region availability (from rerank_providers.json)
-                "regions": rerank_config._config_data.get("providers", {}).get(provider_name, {}).get("regions", ["cn", "intl"]),
+                "regions": provider_config.regions,
 
                 # User preferences (only for current default provider)
                 "is_preferred": is_preferred,
@@ -470,6 +472,9 @@ class RerankManager:
                 # Keep default_rerank setting, don't clear it
                 return False, None
             
+            if provider.get('special_features', {}).get('requires_api_key') is False:
+                return bool(provider.get('base_url')), default_rerank
+
             # For local providers (e.g., vLLM), check base_url configuration
             if provider.get('is_local', False):
                 base_url = provider.get('base_url', '')
@@ -517,6 +522,3 @@ class RerankManager:
             return True, None
         finally:
             self._checking_provider = False
-
-
-

@@ -34,6 +34,7 @@ class LLMProvider(Enum):
     BAIDU_QIANFAN = "baidu_qianfan"
     OLLAMA = "ollama"
     RYOAIS = "ryoais"
+    ECANAI = "ecanai"
 
 
 @dataclass
@@ -45,6 +46,7 @@ class LLMModelConfig:
     model_id: str
     default_temperature: float = 0.7
     max_tokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None
     supports_streaming: bool = True
     supports_function_calling: bool = False
     supports_vision: bool = False
@@ -60,12 +62,18 @@ class LLMProviderConfig:
     provider: LLMProvider
     class_name: str
     api_key_env_vars: List[str]
+    runtime_kind: str = ""
+    regions: List[str] = field(default_factory=lambda: ["cn", "intl"])
+    param_mapping: Dict[str, str] = field(default_factory=dict)
+    default_params: Dict[str, Any] = field(default_factory=dict)
+    special_features: Dict[str, Any] = field(default_factory=dict)
     base_url: Optional[str] = None
     default_model: Optional[str] = None
     supported_models: List[LLMModelConfig] = field(default_factory=list)
     description: str = ""
     documentation_url: str = ""
     is_local: bool = False
+    enable_thinking: bool = False
 
 
 class LLMConfig:
@@ -179,11 +187,17 @@ class LLMConfig:
                     provider=provider_enum,
                     class_name=provider_data.get("class_name", provider_name),
                     api_key_env_vars=provider_data.get("api_key_env_vars", []),
+                    runtime_kind=provider_data.get("runtime_kind", ""),
+                    regions=provider_data.get("regions", ["cn", "intl"]),
+                    param_mapping=provider_data.get("param_mapping", {}),
+                    default_params=provider_data.get("default_params", {}),
+                    special_features=provider_data.get("special_features", {}),
                     base_url=provider_data.get("base_url"),
                     default_model=provider_data.get("default_model"),
                     description=provider_data.get("description", ""),
                     documentation_url=provider_data.get("documentation_url", ""),
-                    is_local=provider_data.get("is_local", False)
+                    is_local=provider_data.get("is_local", False),
+                    enable_thinking=provider_data.get("enable_thinking", False),
                 )
 
                 providers[provider_name] = provider_config
@@ -226,6 +240,7 @@ class LLMConfig:
                         model_id=model_data.get("model_id", ""),
                         default_temperature=model_data.get("default_temperature", 0.7),
                         max_tokens=model_data.get("max_tokens", 4096),
+                        max_output_tokens=model_data.get("max_output_tokens"),
                         supports_streaming=model_data.get("supports_streaming", True),
                         supports_function_calling=model_data.get("supports_function_calling", False),
                         supports_vision=model_data.get("supports_vision", False),
@@ -459,6 +474,8 @@ class LLMConfig:
             elif provider_id_lower in ("ryoais",):
                 logger.debug(f"[get_max_tokens] Using RyoAIS fallback (model config should have context_length)")
                 return 128000  # RyoAIS: Most models support 128K+ context
+            elif provider_id_lower in ("ecanai",):
+                return 128000  # eCanAI proxy: conservative OpenAI-compatible fallback
             elif provider_id_lower in ("deepseek",):
                 return 128000  # DeepSeek: V3 supports 128k
             elif provider_id_lower in ("openai",):

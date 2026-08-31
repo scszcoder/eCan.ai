@@ -21,6 +21,7 @@ export interface ProviderFieldConfig {
   isSystemManaged?: boolean;
   disabled?: boolean;
   isDynamicOllamaModel?: boolean;
+  isDynamicProviderModel?: boolean;
 }
 
 export interface ProviderConfig {
@@ -30,22 +31,23 @@ export interface ProviderConfig {
   fields: ProviderFieldConfig[];
   modelMetadata?: Record<string, { dimensions?: number; max_tokens?: number }>;
   isOllama?: boolean;
+  hasDynamicModels?: boolean;
   regions?: ('cn' | 'intl')[];
 }
 
 export const DEFAULT_PROVIDER_BY_REGION = {
-  cn: { provider: 'deepseek', model: 'deepseek-v4-flash', displayName: 'DeepSeek V4 Flash' },
-  intl: { provider: 'openai', model: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol' }
+  cn: { provider: 'ecanai', model: '', displayName: 'eCanAI' },
+  intl: { provider: 'ecanai', model: '', displayName: 'eCanAI' }
 } as const;
 
 export const DEFAULT_EMBEDDING_BY_REGION = {
-  cn: { provider: 'jina', model: 'jina-embeddings-v3', displayName: 'Jina Embeddings V3' },
-  intl: { provider: 'openai', model: 'text-embedding-3-large', displayName: 'OpenAI text-embedding-3-large' }
+  cn: { provider: 'ecanai', model: 'text-embedding-v3', displayName: 'eCanAI text-embedding-v3' },
+  intl: { provider: 'ecanai', model: 'text-embedding-v3', displayName: 'eCanAI text-embedding-v3' }
 } as const;
 
 export const DEFAULT_RERANK_BY_REGION = {
-  cn: { provider: 'aliyun', model: 'gte-rerank-v2', displayName: 'Aliyun GTE Rerank v2' },
-  intl: { provider: 'cohere', model: 'rerank-v3.5', displayName: 'Cohere Rerank v3.5' }
+  cn: { provider: 'ecanai', model: 'gte-rerank', displayName: 'eCanAI gte-rerank' },
+  intl: { provider: 'ecanai', model: 'gte-rerank', displayName: 'eCanAI gte-rerank' }
 } as const;
 
 export function getProvidersByRegion<T extends ProviderConfig>(

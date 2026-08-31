@@ -239,3 +239,140 @@ class TestBuildNodeSourceContract:
         assert proxy_pos != -1, "missing-key branch no longer tries the proxy"
         assert raise_pos != -1 and proxy_pos < raise_pos, \
             "proxy fallback must be attempted BEFORE raising the missing-key error"
+
+
+class TestCnAwsEndpointGuard:
+    def _gs(self, data):
+        from gui.config.general_settings import GeneralSettings
+        gs = object.__new__(GeneralSettings)
+        gs._data = data
+        return gs
+
+    def test_stale_aws_url_ignored_on_cn(self):
+        gs = self._gs({"lambda_proxy_endpoint":
+                       "https://abc.lambda-url.us-east-1.on.aws"})
+        with patch("utils.app_env.is_cn", return_value=True):
+            assert "tcloudbase.com" in gs.lambda_proxy_endpoint
+
+    def test_custom_tcb_url_kept_on_cn(self):
+        gs = self._gs({"lambda_proxy_endpoint": "https://my.tcb.example/llm"})
+        with patch("utils.app_env.is_cn", return_value=True):
+            assert gs.lambda_proxy_endpoint == "https://my.tcb.example/llm"
+
+    def test_aws_url_kept_on_intl(self):
+        gs = self._gs({"lambda_proxy_endpoint":
+                       "https://abc.lambda-url.us-east-1.on.aws"})
+        with patch("utils.app_env.is_cn", return_value=False):
+            assert gs.lambda_proxy_endpoint == "https://abc.lambda-url.us-east-1.on.aws"
+
+
+class TestEcanaiDefaultProvider:
+    """eCanAI is the out-of-the-box provider for llm/embedding/rerank
+    (2026-08-30): unset profiles resolve to ecanai + role model defaults;
+    an explicit stored choice always wins."""
+
+    def _gs(self, data):
+        from gui.config.general_settings import GeneralSettings
+        gs = object.__new__(GeneralSettings)
+        gs._data = data
+        return gs
+
+    def test_unset_profile_defaults_to_ecanai(self):
+        gs = self._gs({})
+        assert gs.default_llm == "ecanai" and gs.default_llm_model == "qwen-plus"
+        assert gs.default_embedding == "ecanai"
+        assert gs.default_embedding_model == "text-embedding-v3"
+        assert gs.default_rerank == "ecanai" and gs.default_rerank_model == "gte-rerank"
+
+    def test_explicit_choice_wins_and_model_not_polluted(self):
+        gs = self._gs({"default_llm": "deepseek", "default_llm_model": ""})
+        assert gs.default_llm == "deepseek"
+        assert gs.default_llm_model == ""
+
+    def test_ecanai_with_empty_model_gets_role_default(self):
+        gs = self._gs({"default_embedding": "ecanai", "default_embedding_model": ""})
+        assert gs.default_embedding_model == "text-embedding-v3"
+
+
+class TestEcanaiEmbeddingModelPriority:
+    """2026-08-30 ingest 404 incident: the ecanai overlay set
+    EMBEDDING_MODEL=text-embedding-v3 from Settings, but the stale
+    lightrag.env value (text-embedding-3-small) overwrote it three lines
+    later. The Settings-resolved model must win over the .env value."""
+
+    def test_settings_model_beats_stale_env_model(self):
+        from knowledge.lightrag_config_manager import LightRAGConfigManager
+
+        main_window = MagicMock()
+        gs = main_window.config_manager.general_settings
+        gs.default_llm = 'ecanai'
+        gs.default_llm_model = 'qwen-plus'
+        gs.default_embedding = 'ecanai'
+        gs.default_embedding_model = 'text-embedding-v3'
+        gs.default_rerank = ''
+        gs.lambda_proxy_endpoint = 'https://tcb.example/api/llm-proxy'
+
+        provider = {
+            'name': 'eCanAI', 'provider': 'ecanai',
+            'base_url': 'https://tcb.example/api/llm-proxy/v1',
+            'api_key_env_vars': ['ECANAI_EMBEDDING_API_KEY'],
+            'supported_models': [],
+        }
+        main_window.config_manager.llm_manager.get_provider.return_value = provider
+        main_window.config_manager.llm_manager.retrieve_api_key.return_value = 'KEY'
+        main_window.config_manager.embedding_manager.get_provider.return_value = provider
+        main_window.config_manager.embedding_manager.retrieve_api_key.return_value = 'KEY'
+        main_window.config_manager.rerank_manager.get_provider.return_value = None
+        main_window.get_auth_token.return_value = 'tok'
+
+        fake_self = MagicMock()
+        fake_self.read_config.return_value = {
+            'LLM_BINDING': 'openai',
+            'EMBEDDING_BINDING': 'openai',
+            'EMBEDDING_MODEL': 'text-embedding-3-small',   # stale .env value
+        }
+        with patch('app_context.AppContext.get_main_window', return_value=main_window):
+            keys = LightRAGConfigManager._compute_system_api_keys(fake_self)
+        assert keys['EMBEDDING_MODEL'] == 'text-embedding-v3'
+        assert keys['EMBEDDING_BINDING'] == 'ecanai'
+
+    def test_model_change_triggers_dim_detection(self):
+        # Stale env: model text-embedding-3-small + EMBEDDING_DIM 1536; the
+        # ecanai overlay resolves text-embedding-v3 -> dim must be re-detected.
+        from knowledge.lightrag_config_manager import LightRAGConfigManager
+
+        main_window = MagicMock()
+        gs = main_window.config_manager.general_settings
+        gs.default_llm = 'ecanai'
+        gs.default_llm_model = 'qwen-plus'
+        gs.default_embedding = 'ecanai'
+        gs.default_embedding_model = 'text-embedding-v3'
+        gs.default_rerank = ''
+        gs.lambda_proxy_endpoint = 'https://tcb.example/api/llm-proxy'
+
+        provider = {
+            'name': 'eCanAI', 'provider': 'ecanai',
+            'base_url': 'https://tcb.example/api/llm-proxy/v1',
+            'api_key_env_vars': ['ECANAI_EMBEDDING_API_KEY'],
+            'supported_models': [],
+        }
+        main_window.config_manager.llm_manager.get_provider.return_value = provider
+        main_window.config_manager.llm_manager.retrieve_api_key.return_value = 'KEY'
+        main_window.config_manager.embedding_manager.get_provider.return_value = provider
+        main_window.config_manager.embedding_manager.retrieve_api_key.return_value = 'KEY'
+        main_window.config_manager.rerank_manager.get_provider.return_value = None
+        main_window.get_auth_token.return_value = 'tok'
+
+        fake_self = MagicMock()
+        fake_self.read_config.return_value = {
+            'LLM_BINDING': 'openai',
+            'EMBEDDING_BINDING': 'openai',
+            'EMBEDDING_MODEL': 'text-embedding-3-small',
+            'EMBEDDING_DIM': '1536',
+        }
+        fake_self._detect_embedding_on_demand.return_value = 1024
+        with patch('app_context.AppContext.get_main_window', return_value=main_window):
+            keys = LightRAGConfigManager._compute_system_api_keys(fake_self)
+        assert keys['EMBEDDING_MODEL'] == 'text-embedding-v3'
+        assert keys['EMBEDDING_DIM'] == '1024'
+        fake_self._detect_embedding_on_demand.assert_called_once()

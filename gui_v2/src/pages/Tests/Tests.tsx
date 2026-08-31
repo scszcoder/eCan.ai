@@ -1907,6 +1907,28 @@ const Tests: React.FC = () => {
                         </Button>
                         <Button
                             onClick={async () => {
+                                setTestOutput('Listing proxy models...');
+                                try {
+                                    const resp: any = await Promise.race([
+                                        get_ipc_api().testLlmProxyModels(),
+                                        new Promise((_, reject) => setTimeout(() => reject(new Error('MODELS_TIMEOUT (20s)')), 20000))
+                                    ]);
+                                    setTestOutput('Proxy Models:\n' + JSON.stringify(resp, null, 2));
+                                } catch (e) {
+                                    setTestOutput('Proxy Models error: ' + (e instanceof Error ? e.message : String(e)));
+                                }
+                            }}
+                            style={{
+                                marginLeft: 8,
+                                background: '#722ed1',
+                                borderColor: '#722ed1',
+                                color: '#fff',
+                            }}
+                        >
+                            Models
+                        </Button>
+                        <Button
+                            onClick={async () => {
                                 const prompt = testArgument || undefined;
                                 setTestOutput('Testing LLM via proxy...');
                                 try {

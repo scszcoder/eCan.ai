@@ -1,12 +1,12 @@
 {
   "regions": {
     "cn": {
-      "default_provider": "Jina",
-      "default_model": "jina-embeddings-v3"
+      "default_provider": "eCanAI",
+      "default_model": "text-embedding-v3"
     },
     "intl": {
-      "default_provider": "OpenAI",
-      "default_model": "text-embedding-3-large"
+      "default_provider": "eCanAI",
+      "default_model": "text-embedding-v3"
     }
   },
   "providers": {
@@ -393,7 +393,7 @@
         "OLLAMA_EMBEDDING_API_KEY"
       ],
       "base_url": "http://localhost:11434",
-      "default_model": "",
+      "default_model": "text-embedding-v3",
       "description": "Local Ollama embeddings (native API for LightRAG, auto-converts to OpenAI-compatible /v1 for OpenAIEmbeddings)",
       "documentation_url": "https://ollama.com/library",
       "is_local": true,
@@ -402,6 +402,21 @@
         "rate_limit_rpm": null,
         "rate_limit_tpm": null
       },
+      "supported_models": []
+    },
+    "eCanAI": {
+      "name": "eCanAI",
+      "display_name": "eCanAI",
+      "provider": "ecanai",
+      "class_name": "OpenAIEmbeddings",
+      "regions": ["cn", "intl"],
+      "api_key_env_vars": ["ECANAI_EMBEDDING_API_KEY"],
+      "base_url": "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1",
+      "default_model": "",
+      "description": "eCanAI OpenAI-compatible embedding proxy with dynamic model discovery",
+      "is_local": false,
+      "special_features": {"requires_api_key": true, "dynamic_models": true},
+      "api_limits": {"max_batch_size": 128, "rate_limit_rpm": null, "rate_limit_tpm": null},
       "supported_models": []
     },
     "RyoAIS": {

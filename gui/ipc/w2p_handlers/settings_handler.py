@@ -335,6 +335,54 @@ from gui.ollama_utils import get_ollama_tags_path, save_ollama_tags, load_ollama
 from gui.ryoais_utils import get_ryoais_models_path, save_ryoais_models, load_ryoais_models, fetch_ryoais_models
 
 
+@IPCHandlerRegistry.background_handler('settings.getProviderModels')
+def handle_get_provider_models(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Fetch an OpenAI-compatible provider's model list from ``<host>/models``."""
+    params = params or {}
+    host = str(params.get('host') or '').strip().rstrip('/')
+    if not host:
+        return create_error_response(request, 'PROVIDER_MODELS_INVALID_HOST', 'Provider host is required')
+
+    api_key = str(params.get('api_key') or '').strip()
+    provider_id = str(params.get('provider') or '').strip()
+    requested_type = str(params.get('model_type') or '').lower()
+
+    # System-managed LightRAG key fields are intentionally not exposed to the
+    # web UI. Resolve the provider credential in the backend when needed.
+    if not api_key and provider_id and requested_type in ('llm', 'embedding', 'rerank'):
+        try:
+            ctx = get_handler_context(request, params)
+            manager = getattr(ctx.get_config_manager(), f'{requested_type}_manager') if ctx else None
+            provider = manager.get_provider(provider_id) if manager else None
+            for env_var in (provider or {}).get('api_key_env_vars', []):
+                api_key = manager.retrieve_api_key(env_var) or ''
+                if api_key:
+                    break
+        except Exception as key_exc:
+            logger.warning(f'[SettingsHandler] Could not resolve {provider_id} API key: {key_exc}')
+
+    headers = {'Authorization': f'Bearer {api_key}'} if api_key else {}
+
+    try:
+        response = requests.get(f'{host}/models', headers=headers, timeout=15)
+        response.raise_for_status()
+        payload = response.json()
+        models = payload.get('data', payload.get('models', [])) if isinstance(payload, dict) else []
+        normalized = []
+        for model in models if isinstance(models, list) else []:
+            item = model if isinstance(model, dict) else {'id': str(model)}
+            item_type = str(item.get('type') or item.get('model_type') or '').lower()
+            if requested_type and item_type and item_type not in (requested_type, f'{requested_type}s'):
+                continue
+            model_id = item.get('id') or item.get('model_id') or item.get('name')
+            if model_id:
+                normalized.append({**item, 'name': str(model_id)})
+        return create_success_response(request, {'models': normalized, 'host': host})
+    except Exception as exc:
+        logger.warning(f'[SettingsHandler] Failed to fetch provider models from {host}: {exc}')
+        return create_error_response(request, 'PROVIDER_MODELS_ERROR', str(exc))
+
+
 @IPCHandlerRegistry.background_handler('settings.getOllamaModels')
 def handle_get_ollama_models(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """

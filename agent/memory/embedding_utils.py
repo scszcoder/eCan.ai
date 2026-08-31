@@ -285,6 +285,24 @@ class EmbeddingFactory:
                     logger.error(f"[EmbeddingFactory] Ollama embeddings failed: {e}")
                     return FakeEmbeddings(size=768)  # Ollama default dimension
                 
+            elif provider_enum_value == "ecanai":
+                # eCanAI exposes an OpenAI-compatible embedding endpoint.
+                try:
+                    from utils.env.secure_store import get_current_username, secure_store
+                    base_url = getattr(provider_config, 'base_url', None) or 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1'
+                    api_key = secure_store.get('ECANAI_EMBEDDING_API_KEY', username=get_current_username())
+                    if not api_key:
+                        logger.error("[EmbeddingFactory] eCanAI requires ECANAI_EMBEDDING_API_KEY")
+                        return FakeEmbeddings(size=1024)
+                    return OpenAIEmbeddings(
+                        model=model_name,
+                        api_key=api_key,
+                        base_url=base_url.rstrip('/'),
+                    )
+                except Exception as e:
+                    logger.error(f"[EmbeddingFactory] eCanAI embeddings failed: {e}")
+                    return FakeEmbeddings(size=1024)
+
             elif provider_enum_value == "ryoais":
                 # RyoAIS embeddings (uses OpenAI-compatible API)
                 try:
