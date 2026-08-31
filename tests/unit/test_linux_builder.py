@@ -60,3 +60,10 @@ def test_pyinstaller_failure_keeps_start_of_traceback(tmp_path: Path, capsys) ->
     assert "analysis output" in output
     assert "ROOT CAUSE: bad command-line import" in output
     assert "SystemExit: 2" in output
+
+
+def test_sanitize_deb_version_replaces_underscores() -> None:
+    """Underscores must be replaced because dpkg-deb rejects them in Version field."""
+    assert LinuxBuilder._sanitize_deb_version("0.7.0-lq_dev_multi-final-32a8223") == "0.7.0-lq-dev-multi-final-32a8223"
+    assert LinuxBuilder._sanitize_deb_version("1.0.0") == "1.0.0"  # no change
+    assert LinuxBuilder._sanitize_deb_version("v1.2.3-beta_test-1") == "v1.2.3-beta-test-1"

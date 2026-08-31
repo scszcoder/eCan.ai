@@ -31,6 +31,22 @@ class LinuxBuilder:
         self.build_dir = project_root / "build"
 
     @staticmethod
+    def _sanitize_deb_version(version: str) -> str:
+        """Sanitize version string for DEB package compatibility.
+        
+        Debian package Version field only allows: alphanumerics, dots (.),
+        hyphens (-), plus (+), tildes (~), and colons (:). Underscores are
+        not allowed by Debian policy.
+        
+        Args:
+            version: Original version string (may contain underscores)
+            
+        Returns:
+            Sanitized version string with underscores replaced by hyphens
+        """
+        return version.replace('_', '-')
+    
+    @staticmethod
     def _find_submodules_without_importing(package: str) -> List[str]:
         """Enumerate package modules without importing its subpackages.
 
@@ -343,9 +359,15 @@ exec "${{HERE}}/usr/bin/{self.app_name}" "$@"
                 print("   sudo apt install dpkg-dev")
                 return False
             
+            # Sanitize version for DEB package (dpkg-deb requires Version field
+            # to not contain underscores per Debian policy)
+            deb_version = self._sanitize_deb_version(self.version)
+            if deb_version != self.version:
+                print(f"[DEB] Sanitized version: {self.version} -> {deb_version}")
+            
             # Use consistent naming format: {app_name}-{version}-linux-{arch}.deb
             # This matches the workflow expectations: eCan.cn-{version}-linux-amd64.deb
-            pkg_name = f"{self.app_name}-{self.version}-linux-amd64"
+            pkg_name = f"{self.app_name}-{deb_version}-linux-amd64"
             pkg_dir = self.dist_dir / pkg_name
             if pkg_dir.exists():
                 shutil.rmtree(pkg_dir)
@@ -420,7 +442,7 @@ StartupWMClass={self.app_name.lower()}
             # Create control file
             # NOTE: Keep this in sync with system dependencies listed in requirements-linux.txt
             control_content = f"""Package: {self.app_name.lower()}
-Version: {self.version}
+Version: {deb_version}
 Section: utils
 Priority: optional
 Architecture: amd64
