@@ -32,6 +32,8 @@ class ProviderType(Enum):
     OLLAMA = "ollama"
     RYOAIS = "ryoais"
     ECANAI = "ecanai"
+    MOONSHOT = "moonshot"
+    MINIMAX = "minimax"
     UNKNOWN = "unknown"
     
     @classmethod

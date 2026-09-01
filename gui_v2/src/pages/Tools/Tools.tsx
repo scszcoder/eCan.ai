@@ -150,6 +150,7 @@ const Tools: React.FC = () => {
           {/* ActionButtons hidden while all tools are read-only */}
         </>
       }
+      fillDetailsAvailableWidth
     />
   );
 };

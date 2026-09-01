@@ -93,16 +93,48 @@ export default defineConfig(() => {
         // 优化并行处理
         // maxParallelFileOps: 20, // 恢复默认并行处理 (默认: 20)
         output: {
+          // Split vendor into focused chunks so the initial bundle doesn't
+          // carry every UI library. The previous "react → vendor; rest of
+          // node_modules → vendor" rule stuffed 12+ MB into one chunk
+          // (vendor-C2IlIxh5.js, gzip 3.5 MB), well past Vite's 5 MB warning
+          // line. Splitting cuts first-paint JS and lets Rollup cache the
+          // largest chunks (monaco, flowgram, sigma) independently.
           manualChunks: (id) => {
-            // 将 Monaco Editor 相关代码分离到单独的 chunk
+            // Monaco editor — only loaded by the skill editor and code-style
+            // pages. Split first because it's the single biggest dep.
             if (id.includes('monaco-editor') || id.includes('@monaco-editor')) {
               return 'monaco';
             }
-            // 将 React 相关代码分离到 vendor chunk
-            if (id.includes('react') || id.includes('react-dom')) {
-              return 'vendor';
+            // React core — present on every page; cache-friendly.
+            if (id.includes('node_modules/react/') ||
+                id.includes('node_modules/react-dom/') ||
+                id.includes('node_modules/scheduler/')) {
+              return 'react-vendor';
             }
-            // 其他第三方库
+            // @flowgram.ai is huge (~3 MB) and only used by the skill editor
+            // flow-canvas page. Splitting it means non-skill pages never
+            // pay for it.
+            if (id.includes('@flowgram.ai')) {
+              return 'flowgram';
+            }
+            // Graph visualization stack — only the graph/Knowledge-port pages.
+            if (id.includes('@react-sigma') ||
+                id.includes('graphology') ||
+                id.includes('/sigma/')) {
+              return 'sigma';
+            }
+            // UI component libraries — used across many pages; cache-friendly.
+            if (id.includes('@ant-design') ||
+                id.includes('@douyinfe/semi-ui') ||
+                id.includes('@douyinfe/semi-icons')) {
+              return 'ui-vendor';
+            }
+            // Emotion (CSS-in-JS) — only needed when components actually
+            // style themselves; split to keep it from coupling with react-vendor.
+            if (id.includes('@emotion/')) {
+              return 'emotion';
+            }
+            // Anything else in node_modules.
             if (id.includes('node_modules')) {
               return 'vendor';
             }

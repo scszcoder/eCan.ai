@@ -90,7 +90,7 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
 
         rerank_manager = get_rerank_manager(request, params)
         # Frontend MUST send standard provider identifier (e.g., "openai", "dashscope", "azure_openai")
-        # NOT name or display_name (e.g., NOT "OpenAI", "Qwen (DashScope)")
+        # NOT name or display_name (e.g., NOT "OpenAI", "Qwen")
         provider_identifier = (data.get('name') or "").strip()
         if not provider_identifier:
             return create_error_response(request, 'INVALID_PARAMS', "Provider identifier is required")

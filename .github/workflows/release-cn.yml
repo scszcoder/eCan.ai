@@ -2868,6 +2868,11 @@ jobs:
           sudo apt-get install -y -qq libgl1 libglib2.0-0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0 libxcb-cursor0 libdbus-1-3 libxcb-xkb1 libxkbcommon0
           sudo apt-get install -y -qq scrot wmctrl xdotool xdg-utils cups cups-client tesseract-ocr tesseract-ocr-eng dpkg-dev fakeroot
           sudo apt-get install -y -qq xvfb
+          # upx-ucl: required by PyInstaller --upx-dir when build_config.json
+          # prod profile enables upx_compression. Without this, PyInstaller
+          # silently skips compression (see linux_builder.py fallback).
+          # Ubuntu's `upx-ucl` package provides the `upx` binary on PATH.
+          sudo apt-get install -y -qq upx-ucl
 
       - name: Install AppImage tools
         run: |

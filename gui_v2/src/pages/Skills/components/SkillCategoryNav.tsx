@@ -22,8 +22,8 @@ const Chip = styled.button<{ $active?: boolean; $color?: string }>`
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
+    gap: 5px;
+    padding: 5px 12px;
     border-radius: 999px;
     border: 1px solid ${(p) =>
         p.$active ? `${p.$color || '#1890ff'}66` : 'rgba(255, 255, 255, 0.08)'};
@@ -32,14 +32,14 @@ const Chip = styled.button<{ $active?: boolean; $color?: string }>`
             ? `linear-gradient(135deg, ${p.$color || '#1890ff'}33, ${p.$color || '#1890ff'}11)`
             : 'rgba(255, 255, 255, 0.04)'};
     color: ${(p) => (p.$active ? p.$color || '#1890ff' : 'rgba(255, 255, 255, 0.78)')};
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.15s ease;
     white-space: nowrap;
 
     .anticon {
-        font-size: 14px;
+        font-size: 12px;
     }
 
     &:hover {

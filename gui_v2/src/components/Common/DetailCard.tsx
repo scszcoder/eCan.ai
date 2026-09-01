@@ -87,22 +87,24 @@ export interface DetailItem {
 
 interface DetailCardProps {
     title?: string;
-    items: DetailItem[];
+    items?: DetailItem[];
     extra?: React.ReactNode;
     loading?: boolean;
     variant?: 'outlined' | 'borderless';
     size?: 'default' | 'small';
     columns?: number; // 列数，Default为 1
+    children?: React.ReactNode; // 自定义Body，items 为空时使用
 }
 
 const DetailCard: React.FC<DetailCardProps> = ({
     title,
-    items,
+    items = [],
     extra,
     loading = false,
     variant = 'outlined',
     size = 'default',
     columns = 1,
+    children,
 }) => {
     const renderItem = (item: DetailItem, index: number) => (
         <DetailItemWrapper key={`${item.label}-${index}`} columns={columns}>
@@ -134,9 +136,11 @@ const DetailCard: React.FC<DetailCardProps> = ({
             variant={variant}
             size={size}
         >
-            <DetailGrid columns={columns}>
-                {items.map(renderItem)}
-            </DetailGrid>
+            {children !== undefined ? children : (
+                <DetailGrid columns={columns}>
+                    {items.map(renderItem)}
+                </DetailGrid>
+            )}
         </StyledCard>
     );
 };

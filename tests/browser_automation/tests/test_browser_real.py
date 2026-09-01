@@ -59,7 +59,7 @@ class TestBrowserReal:
                 "browser": {"content": "new chromium"},
                 "runEnvironment": {"content": "full_local"},
                 "headless": {"content": "true"},
-                "modelProvider": {"content": "Qwen (DashScope)"},
+                "modelProvider": {"content": "Qwen"},
                 "modelName": {"content": "qwen3.6-flash"},
             }
         }

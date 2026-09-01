@@ -2299,6 +2299,11 @@
         "invalidIp": "请输入有效的IP地址",
         "osRequired": "操作系统必填"
       },
+      "view": {
+        "list": "列表视图",
+        "grid": "网格视图"
+      },
+      "noDevices": "暂无电脑设备",
       "messages": {
         "addSuccess": "设备添加成功",
         "addFailed": "设备添加失败",
@@ -3789,6 +3794,11 @@
     "apiKeyFailed": "获取 API 密钥失败",
     "apiKeyError": "请求 API 密钥出错",
     "apiKeyRemoved": "API 密钥已移除",
+    "apiKeyRemovedLocal": "API 密钥已从此设备移除，服务器清理可能失败",
+    "apiKeyTestSuccess": "API 密钥有效且可用",
+    "apiKeyTestInactive": "API 密钥未激活",
+    "apiKeyTestFailed": "无法验证 API 密钥",
+    "apiKeyTestError": "验证 API 密钥时出错",
     "removeFailed": "移除 API 密钥失败",
     "removeError": "移除 API 密钥出错",
     "copied": "API 密钥已复制到剪贴板",

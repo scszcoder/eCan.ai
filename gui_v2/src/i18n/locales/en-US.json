@@ -2240,6 +2240,11 @@
         "invalidIp": "Please enter a valid IP address",
         "osRequired": "Operating system is required"
       },
+      "view": {
+        "list": "List View",
+        "grid": "Grid View"
+      },
+      "noDevices": "No devices yet",
       "messages": {
         "addSuccess": "Vehicle added successfully",
         "addFailed": "Failed to add vehicle",
@@ -3730,6 +3735,11 @@
     "apiKeyFailed": "Failed to get API key",
     "apiKeyError": "Error requesting API key",
     "apiKeyRemoved": "API key removed",
+    "apiKeyRemovedLocal": "API key removed from this device. Server cleanup may have failed.",
+    "apiKeyTestSuccess": "API key is active and valid",
+    "apiKeyTestInactive": "API key is not active",
+    "apiKeyTestFailed": "Unable to validate API key",
+    "apiKeyTestError": "Error validating API key",
     "removeFailed": "Failed to remove API key",
     "removeError": "Error removing API key",
     "copied": "API key copied to clipboard",

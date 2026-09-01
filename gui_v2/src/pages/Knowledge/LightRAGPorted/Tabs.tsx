@@ -3,7 +3,9 @@ import { theme } from 'antd';
 import { FileTextOutlined, ShareAltOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useTranslation } from 'react-i18next';
-import Header from './Header';
+import WorkspacePicker from './WorkspacePicker';
+import StatusIndicator from './StatusIndicator';
+import { useWorkspace } from './useWorkspace';
 
 // Minimal tabs component for the ported LightRAG UI.
 // Does not depend on Radix or Tailwind; no routing changes.
@@ -25,6 +27,7 @@ interface TabsProps {
 
 const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: controlledActive, onChange, renderTab }) => {
   const storagePrefix = 'lightrag-ported:tabs';
+  const [workspace, setWorkspace] = useWorkspace();
 
   const readActiveFromStorage = (): TabKey => {
     const raw = sessionStorage.getItem(`${storagePrefix}:active`);
@@ -194,34 +197,48 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
 
   return (
     <div data-ec-scope="lightrag-ported" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Header activeTab={active} />
       <div style={{
-        padding: '0 32px',
+        padding: '8px 32px 0',
         background: tabBarBg,
         display: 'flex',
         alignItems: 'center',
-        gap: '4px',
+        gap: '16px',
         position: 'relative',
-        minHeight: 52
+        borderBottom: `1px solid ${token.colorBorderSecondary}`
       }}>
-        <button className={`ec-tab ${active === 'documents' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('documents')}>
-          <FileTextOutlined style={{ marginRight: 8 }} />
-          {t('pages.knowledge.tabs.documents')}
-        </button>
-        <button className={`ec-tab ${active === 'knowledge-graph' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('knowledge-graph')}>
-          <ShareAltOutlined style={{ marginRight: 8 }} />
-          {t('pages.knowledge.tabs.knowledgeGraph')}
-        </button>
-        <button className={`ec-tab ${active === 'retrieval' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('retrieval')}>
-          <SearchOutlined style={{ marginRight: 8 }} />
-          {t('pages.knowledge.tabs.retrieval')}
-        </button>
-        <button className={`ec-tab ${active === 'settings' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('settings')}>
-          <SettingOutlined style={{ marginRight: 8 }} />
-          {t('pages.knowledge.tabs.settings')}
-        </button>
-        {/* API tab is present but invisible per requirement */}
-        <button className={`ec-tab ${active === 'api' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('api')} style={{ visibility: 'hidden' }}>API</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1 }}>
+          <button className={`ec-tab ${active === 'documents' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('documents')}>
+            <FileTextOutlined style={{ marginRight: 8 }} />
+            {t('pages.knowledge.tabs.documents')}
+          </button>
+          <button className={`ec-tab ${active === 'knowledge-graph' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('knowledge-graph')}>
+            <ShareAltOutlined style={{ marginRight: 8 }} />
+            {t('pages.knowledge.tabs.knowledgeGraph')}
+          </button>
+          <button className={`ec-tab ${active === 'retrieval' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('retrieval')}>
+            <SearchOutlined style={{ marginRight: 8 }} />
+            {t('pages.knowledge.tabs.retrieval')}
+          </button>
+          <button className={`ec-tab ${active === 'settings' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('settings')}>
+            <SettingOutlined style={{ marginRight: 8 }} />
+            {t('pages.knowledge.tabs.settings')}
+          </button>
+          {/* API tab is present but invisible per requirement */}
+          <button className={`ec-tab ${active === 'api' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('api')} style={{ visibility: 'hidden' }}>API</button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <WorkspacePicker
+            value={workspace}
+            onChange={setWorkspace}
+            label="Workspace"
+            placeholder="(server default)"
+          />
+        </div>
+        {active !== 'settings' && (
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <StatusIndicator />
+          </div>
+        )}
       </div>
       <div style={{ flex: 1, overflow: 'hidden', background: contentBg, position: 'relative' }}>
         {tabKeys.map(key => {

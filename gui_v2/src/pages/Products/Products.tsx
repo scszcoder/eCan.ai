@@ -65,6 +65,7 @@ const Products: React.FC = () => {
         />
       }
       detailsContent={<ProductDetail product={selected} onChange={handleChange} />}
+      fillDetailsAvailableWidth
     />
   );
 };

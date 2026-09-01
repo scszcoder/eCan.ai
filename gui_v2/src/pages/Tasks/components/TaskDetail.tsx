@@ -102,13 +102,55 @@ const DetailContainer = styled.div`
   display: flex;
   flex-direction: column;
   min-height: 0;
+
+  /* Compact form overrides — only inside the task detail drawer */
+  .ant-form-item {
+    margin-bottom: 8px !important;
+  }
+  .ant-form-item-label {
+    padding-bottom: 4px !important;
+  }
+  .ant-form-item-label > label {
+    font-size: 12px !important;
+  }
+
+  .ant-input-affix-wrapper,
+  .ant-input:not(.ant-input-affix-wrapper .ant-input):not(textarea),
+  .ant-input-number,
+  .ant-input-number-input,
+  .ant-picker,
+  .ant-input-password {
+    min-height: 32px !important;
+  }
+  .ant-input-affix-wrapper {
+    min-height: 32px !important;
+  }
+  .ant-select-single .ant-select-selector {
+    height: 32px !important;
+  }
+  .ant-select-single .ant-select-selection-item,
+  .ant-select-single .ant-select-selection-placeholder {
+    line-height: 30px !important;
+  }
+  .ant-select-multiple .ant-select-selector {
+    min-height: 32px !important;
+    height: 32px !important;
+  }
+  .ant-select-multiple .ant-select-selection-item,
+  .ant-select-multiple .ant-select-selection-placeholder {
+    height: 20px !important;
+    line-height: 18px !important;
+  }
+  .ant-input-textarea textarea.ant-input {
+    padding: 8px 10px !important;
+  }
 `;
 
 const StatusBarRow = styled.div`
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 6px 0;
+  gap: 10px;
+  padding: 4px 0;
 `;
 
 const StatusBarSpacer = styled.div`
@@ -119,7 +161,7 @@ const StatusBadge = styled.div<{ $status: string }>`
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 2px 8px;
   border-radius: 999px;
   background: ${props => {
     switch (props.$status.toLowerCase()) {
@@ -187,23 +229,23 @@ const StatusDot = styled.div<{ $status: string }>`
 `;
 
 const TabSection = styled.div`
-  padding: 0 16px;
-  margin-bottom: 10px;
+  padding: 0 12px;
+  margin-bottom: 6px;
 `;
 
 const StatsGrid = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 0 16px;
-  margin-bottom: 10px;
+  gap: 6px;
+  padding: 0 12px;
+  margin-bottom: 6px;
 `;
 
 const StatItem = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  padding: 3px 8px;
   background: rgba(255, 255, 255, 0.03);
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -220,7 +262,7 @@ const StatLabel = styled.span`
 `;
 
 const StatValue = styled.span<{ $color?: string }>`
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.2;
   font-weight: 600;
   color: ${props => props.$color || 'var(--text-primary)'};
@@ -948,14 +990,14 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       )}
 
       {/* Form Content */}
-        <FormContainer ref={scrollContainerRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 16px 12px' }}>
+        <FormContainer ref={scrollContainerRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 12px 8px' }}>
         <Form form={form} layout="vertical" onFinish={handleSave} disabled={!editMode && !isNew}>
           <Form.Item name="owner" hidden>
             <Input />
           </Form.Item>
 
           {(activeTab === 'basic' || isNew) && (
-            <Space direction="vertical" style={{ width: '100%' }} size={12}>
+            <Space direction="vertical" style={{ width: '100%' }} size={6}>
               {/* Task Name */}
               <div>
                 <StyledFormItem
@@ -969,13 +1011,13 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     id="task-name"
                     placeholder={t('pages.tasks.namePlaceholder', '输入任务名称...')}
                     autoComplete="off"
-                    style={{ fontSize: 15, fontWeight: 500 }}
+                    style={{ fontSize: 14, fontWeight: 500 }}
                   />
                 </StyledFormItem>
               </div>
 
               {/* Basic Info Row */}
-              <Row gutter={[16, 0]}>
+              <Row gutter={[12, 0]}>
                 <Col span={12}>
                   <StyledFormItem label={t('pages.tasks.taskId', '任务 ID')} name="id">
                     <Input id="task-id" readOnly style={{ fontFamily: 'Monospace', fontSize: 12 }} />
@@ -991,7 +1033,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 </Col>
               </Row>
 
-              <Row gutter={[16, 0]}>
+              <Row gutter={[12, 0]}>
                 <Col span={12}>
                   <StyledFormItem label={t('pages.tasks.triggerLabel', '触发器')} name="trigger">
                     <Select
@@ -1030,7 +1072,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
 
               {currentTaskType === 'cloud' && (
                 <Col span={24}>
-                  <StyledFormItem name="light_weight" valuePropName="checked">
+                  <StyledFormItem name="light_weight" valuePropName="checked" style={{ marginBottom: 0 }}>
                     <Checkbox>{t('pages.tasks.lightWeightDesc', '作为轻量级云任务运行')}</Checkbox>
                   </StyledFormItem>
                 </Col>
@@ -1040,7 +1082,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 <StyledFormItem label={t('common.description', '描述')} name="description">
                   <Input.TextArea
                     id="task-description"
-                    rows={3}
+                    rows={2}
                     placeholder={t('pages.tasks.descriptionPlaceholder', '输入任务描述...')}
                     autoComplete="off"
                   />
@@ -1052,23 +1094,23 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 <Form.List name="skills">
                   {(fields, { add, remove }) => (
                     <>
-                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.85)', fontSize: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.85)', fontSize: 13 }}>
                           {t('pages.tasks.skills', '关联技能')}
                         </span>
                         {(editMode || isNew) && (
-                          <Button type="link" onClick={() => add('')} icon={<PlusOutlined />} style={{ marginLeft: 8 }}>
+                          <Button type="link" size="small" onClick={() => add('')} icon={<PlusOutlined />} style={{ marginLeft: 8 }}>
                             {t('common.add', '添加')}
                           </Button>
                         )}
                       </div>
                       {fields.length === 0 && (
-                        <div style={{ color: 'rgba(255, 255, 255, 0.45)', marginBottom: 16, padding: 12, background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                        <div style={{ color: 'rgba(255, 255, 255, 0.45)', marginBottom: 8, padding: 8, background: 'rgba(255,255,255,0.02)', borderRadius: 6, fontSize: 12 }}>
                           {t('pages.tasks.noSkillsAssociated', '尚未关联任何技能。点击"添加"以关联技能。')}
                         </div>
                       )}
                       {fields.map(({ key, name, ...restField }) => (
-                        <div key={key} style={{ display: 'flex', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                        <div key={key} style={{ display: 'flex', alignItems: 'center', marginBottom: 4, gap: 6 }}>
                           <Form.Item {...restField} name={name} style={{ flex: 1, marginBottom: 0 }}>
                             {editMode || isNew ? (
                               <SkillSelect
@@ -1092,7 +1134,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                             )}
                           </Form.Item>
                           {(editMode || isNew) && fields.length > 0 && (
-                            <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f', fontSize: 18, cursor: 'pointer' }} />
+                            <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f', fontSize: 16, cursor: 'pointer' }} />
                           )}
                         </div>
                       ))}
@@ -1125,15 +1167,15 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     if (declared.length === 0 && extraNames.length === 0) return null;
                     return (
                       <div>
-                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-                          <span style={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.85)', fontSize: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+                          <span style={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.85)', fontSize: 13 }}>
                             {t('pages.tasks.taskVars', '任务变量')}
                           </span>
-                          <span style={{ marginLeft: 8, color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
+                          <span style={{ marginLeft: 8, color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>
                             {t('pages.tasks.taskVarsHelp', '填充技能提示词中的 {{变量}} 占位符')}
                           </span>
                         </div>
-                        <Row gutter={16}>
+                        <Row gutter={[12, 0]}>
                           {declared.map((inp: any) => (
                             <Col span={12} key={inp.name}>
                               <StyledFormItem
@@ -1143,7 +1185,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                                 rules={inp.required ? [{ required: true, message: `${inp.name} ${t('common.required', '为必填项')}` }] : []}
                               >
                                 <Input
-                                  size="large"
                                   disabled={!(editMode || isNew)}
                                   placeholder={inp.default !== undefined && inp.default !== null ? String(inp.default) : ''}
                                 />
@@ -1153,7 +1194,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                           {extraNames.map((nm) => (
                             <Col span={12} key={nm}>
                               <StyledFormItem label={nm} name={['task_vars', nm]}>
-                                <Input size="large" disabled={!(editMode || isNew)} />
+                                <Input disabled={!(editMode || isNew)} />
                               </StyledFormItem>
                             </Col>
                           ))}
@@ -1176,31 +1217,31 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 </Space>
               }
               style={{
-                marginTop: 16,
+                marginTop: 8,
                 background: 'rgba(59, 130, 246, 0.05)',
                 borderColor: 'rgba(59, 130, 246, 0.15)'
               }}
             >
-              <Row gutter={[16, 16]}>
+              <Row gutter={[12, 8]}>
                 <Col span={24}>
-                  <div style={{ padding: 12, background: 'rgba(255, 255, 255, 0.02)', borderRadius: 8 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255, 255, 255, 0.65)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ padding: 8, background: 'rgba(255, 255, 255, 0.02)', borderRadius: 6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255, 255, 255, 0.65)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       {t('pages.tasks.repeatSettings', '重复设置')}
                     </div>
-                    <Row gutter={[12, 12]}>
+                    <Row gutter={[10, 0]}>
                       <Col span={8}>
-                        <StyledFormItem label={t('pages.tasks.scheduleRepeatTypeLabel', '重复类型')} name={["schedule", "repeat_type"]}>
-                          <Select size="large" options={REPEAT_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v === 'none' ? '不重复' : v) }))} />
+                        <StyledFormItem label={t('pages.tasks.scheduleRepeatTypeLabel', '重复类型')} name={["schedule", "repeat_type"]} style={{ marginBottom: 0 }}>
+                          <Select options={REPEAT_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v === 'none' ? '不重复' : v) }))} />
                         </StyledFormItem>
                       </Col>
                       <Col span={8}>
-                        <StyledFormItem label={t('pages.tasks.scheduleRepeatNumberLabel', '重复次数')} name={["schedule", "repeat_number"]}>
-                          <Input size="large" type="number" min={1} />
+                        <StyledFormItem label={t('pages.tasks.scheduleRepeatNumberLabel', '重复次数')} name={["schedule", "repeat_number"]} style={{ marginBottom: 0 }}>
+                          <Input type="number" min={1} />
                         </StyledFormItem>
                       </Col>
                       <Col span={8}>
-                        <StyledFormItem label={t('pages.tasks.scheduleRepeatUnitLabel', '重复单位')} name={["schedule", "repeat_unit"]}>
-                          <Select size="large" options={REPEAT_OPTIONS.filter(v => v !== 'none').map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))} />
+                        <StyledFormItem label={t('pages.tasks.scheduleRepeatUnitLabel', '重复单位')} name={["schedule", "repeat_unit"]} style={{ marginBottom: 0 }}>
+                          <Select options={REPEAT_OPTIONS.filter(v => v !== 'none').map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))} />
                         </StyledFormItem>
                       </Col>
                     </Row>
@@ -1208,29 +1249,29 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 </Col>
 
                 <Col span={24}>
-                  <div style={{ padding: 12, background: 'rgba(255, 255, 255, 0.02)', borderRadius: 8 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255, 255, 255, 0.65)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ padding: 8, background: 'rgba(255, 255, 255, 0.02)', borderRadius: 6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255, 255, 255, 0.65)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       {t('pages.tasks.timeSettings', '时间设置')}
                     </div>
-                    <Row gutter={[12, 12]}>
+                    <Row gutter={[10, 0]}>
                       <Col span={12}>
-                        <StyledFormItem label={t('pages.tasks.scheduleStartTimeLabel', '开始时间')} name={["schedule", "start_date_time"]}>
-                          <DatePicker size="large" showTime style={{ width: '100%' }} />
+                        <StyledFormItem label={t('pages.tasks.scheduleStartTimeLabel', '开始时间')} name={["schedule", "start_date_time"]} style={{ marginBottom: 0 }}>
+                          <DatePicker showTime style={{ width: '100%' }} />
                         </StyledFormItem>
                       </Col>
                       <Col span={12}>
-                        <StyledFormItem label={t('pages.tasks.scheduleEndTimeLabel', '结束时间')} name={["schedule", "end_date_time"]}>
-                          <DatePicker size="large" showTime style={{ width: '100%' }} />
+                        <StyledFormItem label={t('pages.tasks.scheduleEndTimeLabel', '结束时间')} name={["schedule", "end_date_time"]} style={{ marginBottom: 0 }}>
+                          <DatePicker showTime style={{ width: '100%' }} />
                         </StyledFormItem>
                       </Col>
                       <Col span={12}>
-                        <StyledFormItem label={t('pages.tasks.scheduleTimeoutLabel', '超时时间(秒)')} name={["schedule", "time_out"]}>
-                          <Input size="large" type="number" min={60} step={60} />
+                        <StyledFormItem label={t('pages.tasks.scheduleTimeoutLabel', '超时时间(秒)')} name={["schedule", "time_out"]} style={{ marginBottom: 0 }}>
+                          <Input type="number" min={60} step={60} />
                         </StyledFormItem>
                       </Col>
                       <Col span={12}>
-                        <StyledFormItem label={t('pages.tasks.scheduleTimezoneLabel', '时区')} name={["schedule", "timezone"]}>
-                          <Select size="large" showSearch options={TIMEZONE_OPTIONS.map(tz => ({ value: tz, label: tz }))} />
+                        <StyledFormItem label={t('pages.tasks.scheduleTimezoneLabel', '时区')} name={["schedule", "timezone"]} style={{ marginBottom: 0 }}>
+                          <Select showSearch options={TIMEZONE_OPTIONS.map(tz => ({ value: tz, label: tz }))} />
                         </StyledFormItem>
                       </Col>
                     </Row>
@@ -1260,9 +1301,9 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 }]}
               >
                 <Input.TextArea
-                  rows={8}
+                  rows={5}
                   placeholder={JSON.stringify({ key: 'value' }, null, 2)}
-                  style={{ fontFamily: 'Consolas, Monaco, monospace', fontSize: 13 }}
+                  style={{ fontFamily: 'Consolas, Monaco, monospace', fontSize: 12 }}
                 />
               </StyledFormItem>
             </Col>
@@ -1275,23 +1316,23 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         flexShrink: 0,
         display: 'flex',
         justifyContent: 'flex-end',
-        gap: '12px',
-        padding: '16px 24px',
+        gap: '8px',
+        padding: '10px 12px',
         background: 'rgba(255, 255, 255, 0.02)',
         borderTop: '1px solid rgba(255, 255, 255, 0.06)'
       }}>
         {!editMode && !isNew && task && latestStatus.toLowerCase() === 'ready' && (
-          <Button type="primary" onClick={handleLaunchTask} icon={<PlayCircleOutlined />} size="large" loading={launching} style={primaryButtonStyle}>
+          <Button type="primary" onClick={handleLaunchTask} icon={<PlayCircleOutlined />} loading={launching} style={primaryButtonStyle}>
             {t('pages.tasks.launch', '启动')}
           </Button>
         )}
 
         {(editMode || isNew) && (
           <>
-            <Button type="primary" onClick={() => form.submit()} loading={saving} disabled={saving} icon={<SaveOutlined />} size="large" style={primaryButtonStyle}>
+            <Button type="primary" onClick={() => form.submit()} loading={saving} disabled={saving} icon={<SaveOutlined />} style={primaryButtonStyle}>
               {isNew ? t('common.create') : t('common.save')}
             </Button>
-            <Button onClick={handleCancel} disabled={saving} icon={<CloseOutlined />} size="large" style={buttonStyle}>
+            <Button onClick={handleCancel} disabled={saving} icon={<CloseOutlined />} style={buttonStyle}>
               {t('common.cancel')}
             </Button>
           </>
@@ -1300,15 +1341,15 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         {!editMode && !isNew && task && (
           <>
             {isCodeGenerated ? (
-              <Button icon={<LockOutlined />} disabled size="large" style={{ ...buttonStyle, cursor: 'not-allowed' }}>
+              <Button icon={<LockOutlined />} disabled style={{ ...buttonStyle, cursor: 'not-allowed' }}>
                 {t('pages.tasks.readOnlyCodeGenerated') || '只读'}
               </Button>
             ) : (
               <>
-                <Button type="primary" onClick={handleEdit} icon={<EditOutlined />} size="large" style={primaryButtonStyle}>
+                <Button type="primary" onClick={handleEdit} icon={<EditOutlined />} style={primaryButtonStyle}>
                   {t('common.edit')}
                 </Button>
-                <Button danger onClick={handleDelete} icon={<DeleteOutlined />} size="large" style={buttonStyle}>
+                <Button danger onClick={handleDelete} icon={<DeleteOutlined />} style={buttonStyle}>
                   {t('common.delete')}
                 </Button>
               </>

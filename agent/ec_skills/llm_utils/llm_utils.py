@@ -1234,6 +1234,10 @@ def extract_provider_config(provider, config_manager=None, node_model_name=None)
             provider_type = 'ryoais'
         elif 'ecanai' in provider_name:
             provider_type = 'ecanai'
+        elif 'kimi' in provider_name or 'moonshot' in provider_name:
+            provider_type = 'moonshot'
+        elif 'minimax' in provider_name:
+            provider_type = 'minimax'
         elif 'anthropic' in provider_name or 'claude' in provider_name or 'chatanthropic' == class_name:
             provider_type = 'anthropic'
         elif 'azure' in provider_name or 'azureopenai' == class_name:
@@ -1698,18 +1702,20 @@ def is_provider_browser_use_compatible(provider_type: str) -> bool:
         False
     """
     openai_compatible_providers = [
-        'openai', 
-        'azure_openai', 
-        'deepseek', 
-        'dashscope', 
-        'ollama', 
+        'openai',
+        'azure_openai',
+        'deepseek',
+        'dashscope',
+        'ollama',
         'ryoais',
         'ecanai',
-        'qwen', 
+        'qwen',
         'qwq',
         'zhipuai',
         'bytedance',
-        'baidu_qianfan'
+        'baidu_qianfan',
+        'moonshot',
+        'minimax'
     ]
     return provider_type.lower() in openai_compatible_providers
 
@@ -1738,7 +1744,9 @@ def get_browser_use_supported_providers() -> list:
         'qwq',
         'zhipuai',
         'bytedance',
-        'baidu_qianfan'
+        'baidu_qianfan',
+        'moonshot',
+        'minimax'
     ]
 
 
@@ -2227,7 +2235,7 @@ def create_browser_use_llm_by_provider_type(
     
     # Validate provider_type is a standard ID (lowercase, no spaces, no special chars except underscore)
     # Standard IDs: openai, dashscope, deepseek, ollama, etc.
-    # NOT display names like "Qwen (DashScope)" or "ChatGLM (Zhipu AI)"
+    # NOT display names like "Qwen" or "ChatGLM"
     import re
     provider_type_clean = provider_type.lower().strip()
     
@@ -2236,7 +2244,7 @@ def create_browser_use_llm_by_provider_type(
             f"[create_browser_use_llm_by_provider_type] Invalid provider_type '{provider_type}'. "
             f"Must be a standard provider ID (lowercase, no spaces, no special chars). "
             f"Examples: 'openai', 'dashscope', 'deepseek', 'ollama'. "
-            f"NOT display names like 'Qwen (DashScope)'. "
+            f"NOT display names like 'Qwen'. "
             f"Please ensure extract_provider_config() returns the 'provider_type' field (standard ID)."
         )
         return None
@@ -2268,7 +2276,7 @@ def create_browser_use_llm_by_provider_type(
         return _create_and_validate_browser_use_llm(bu_config)
     
     # OpenAI-compatible providers (DeepSeek, DashScope, Ollama, RyoAIS, Qwen, Baidu Qianfan, Bytedance, Zhipu AI, etc.)
-    elif provider_type_id in ['deepseek', 'dashscope', 'ollama', 'ryoais', 'ecanai', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai']:
+    elif provider_type_id in ['deepseek', 'dashscope', 'ollama', 'ryoais', 'ecanai', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai', 'moonshot', 'minimax']:
         resolved_timeout_s, is_local_endpoint = _resolve_browser_use_timeout_seconds(
             provider_type_id_val=provider_type_id,
             model_name_val=model_name,
@@ -2299,7 +2307,7 @@ def create_browser_use_llm_by_provider_type(
         # 
         # Some providers' JSON schema support is not compatible with browser-use
         # Use browser-use's standard compatibility mode (official approach)
-        providers_need_compatibility_mode = ['deepseek', 'ollama', 'ryoais', 'qwen', 'qwq', 'dashscope']
+        providers_need_compatibility_mode = ['deepseek', 'ollama', 'ryoais', 'qwen', 'qwq', 'dashscope', 'moonshot']
         
         if provider_type_id in providers_need_compatibility_mode:
             # Standard compatibility flags from browser-use
@@ -2358,7 +2366,7 @@ def create_browser_use_llm_by_provider_type(
         # Check if this is a domestic API that needs proxy bypass
         # Domestic APIs (DashScope, DeepSeek, Baidu Qianfan, Bytedance) may have proxy restrictions
         # Optimization: Only creates no-proxy clients if proxy is actually configured
-        domestic_apis_need_direct = ['dashscope', 'qwen', 'qwq', 'deepseek', 'baidu_qianfan', 'bytedance']
+        domestic_apis_need_direct = ['dashscope', 'qwen', 'qwq', 'deepseek', 'baidu_qianfan', 'bytedance', 'moonshot']
         
         if provider_type_id in domestic_apis_need_direct:
             # Create no-proxy httpx clients (sync + async, thread-safe, doesn't modify global env vars)
