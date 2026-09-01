@@ -101,6 +101,32 @@ def handle_payment_topup(request: IPCRequest,
             sep = "&" if "?" in url else "?"
             url = f"{url}{sep}amount={amount}"
 
+        # Payment-crediting contract (2026-09-02): the payment PHP must call
+        # ecbAccountManager create_payment_order (user bearer) BEFORE showing
+        # the QR — using the returned orderID as out_trade_no — so the notify
+        # webhook's credit_payment can credit accounts.fund. The desktop's
+        # embedded webview is an OTR profile with no site session cookie, so
+        # the page cannot identify the payer unless we hand it the user's
+        # bearer: append the eCan session token (HTTPS to our own site; the
+        # login-callback PHP already handles this token class). Without it the
+        # page charges anonymously and nothing is credited (the ¥0.01
+        # order-'' incident).
+        try:
+            from app_context import AppContext as _AppContext
+            from agent.cloud_api.cloud_api import _http_auth_header
+            from urllib.parse import quote as _q
+            bearer = _http_auth_header(
+                _AppContext.get_main_window().get_auth_token() or "")
+            token_value = bearer[7:] if bearer.lower().startswith("bearer ") else bearer
+            if token_value:
+                sep = "&" if "?" in url else "?"
+                url = f"{url}{sep}token={_q(token_value)}"
+            else:
+                logger.warning("[Payment] no session token available — payment "
+                               "page cannot create an attributed order")
+        except Exception as _tok_err:
+            logger.warning(f"[Payment] token attach failed: {_tok_err}")
+
         import asyncio as _asyncio
         from app_context import AppContext
         loop = AppContext.main_loop
