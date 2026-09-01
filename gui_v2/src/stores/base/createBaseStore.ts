@@ -142,12 +142,25 @@ export function createResourceStore<T extends BaseResource>(
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
         logger.error(`[${name}Store] Error fetching items:`, errorMessage);
+        // Failure cooldown: without this, lastFetched stays null after a
+        // failed fetch and shouldFetch() keeps returning true, so effect
+        // re-runs hammer the backend in a tight loop (2026-08-31: new
+        // customer machine fired queryAgentSkills several times per second,
+        // each rejected UNAUTHENTICATED). Record the failure time so
+        // shouldFetch() blocks refetches briefly; forceRefresh still works.
+        (get() as any)._lastFailedAt = Date.now();
         set({ error: errorMessage, loading: false });
         throw error;
       }
     },
     
     shouldFetch: () => {
+      // Failure cooldown (see fetchItems catch): block refetch storms after
+      // an error — 15s is short enough to self-heal once auth is ready.
+      const lastFailedAt = (get() as any)._lastFailedAt as number | undefined;
+      if (lastFailedAt && Date.now() - lastFailedAt < 15_000) {
+        return false;
+      }
       const lastFetched = get().lastFetched;
       if (!lastFetched) {
         return true;
@@ -326,12 +339,21 @@ export function createExtendedResourceStore<
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
           logger.error(`[${name}Store] Error fetching items:`, errorMessage);
+          // Failure cooldown — see the sibling copy above (UNAUTHENTICATED
+          // refetch storm, 2026-08-31).
+          (get() as any)._lastFailedAt = Date.now();
           set({ error: errorMessage, loading: false });
           throw error;
         }
       },
 
       shouldFetch: () => {
+        // Failure cooldown (see fetchItems catch): block refetch storms after
+        // an error — 15s is short enough to self-heal once auth is ready.
+        const lastFailedAt = (get() as any)._lastFailedAt as number | undefined;
+        if (lastFailedAt && Date.now() - lastFailedAt < 15_000) {
+          return false;
+        }
         const lastFetched = get().lastFetched;
         if (!lastFetched) {
           return true;
