@@ -141,6 +141,7 @@ const HeaderBadge = styled.div<{ $bg: string }>`
     align-items: center;
     gap: 3px;
     text-transform: uppercase;
+    white-space: nowrap;
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
     border: 1px solid rgba(255, 255, 255, 0.12);
