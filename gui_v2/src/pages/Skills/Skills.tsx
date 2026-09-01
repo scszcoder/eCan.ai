@@ -598,7 +598,7 @@ const Skills: React.FC = () => {
 
     const storeSkillsView = useMemo(() => filterAndSort(storeSkills), [storeSkills, filterAndSort]);
 
-    // Aggregate top-level numbers for hero section
+    // Aggregate top-level numbers for the marketplace stats strip
     const heroStats = useMemo(() => {
         const all = [...mySkills, ...storeSkills];
         const totalDownloads = all.reduce((acc, s) => acc + Number((s as any).downloadCount || 0), 0);
@@ -680,14 +680,10 @@ const Skills: React.FC = () => {
         </>
     );
 
-    // For "App Store" tab — show hero + categories + grid
+    // For "App Store" tab — show stats strip + category nav + filters + grid
     const storeContent = (
         <>
-            <SkillMarketplaceHero
-                stats={heroStats}
-                onSearch={(q) => setFilters((f) => ({ ...f, search: q }))}
-                initialSearch={filters.search || ''}
-            />
+            <SkillMarketplaceHero stats={heroStats} />
             <CategoryStrip>
                 <SkillCategoryNav
                     active={activeCategory}

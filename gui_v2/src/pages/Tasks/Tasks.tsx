@@ -7,9 +7,10 @@ import {
   FullscreenOutlined,
   FullscreenExitOutlined,
   CloseOutlined,
+  GroupOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import styled from '@emotion/styled';
 
@@ -20,7 +21,6 @@ import { useTasks } from './hooks/useTasks';
 import { Task } from './types';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
-import { useDetailView } from '@/hooks/useDetailView';
 import { Task as TaskType } from './types';
 
 // View Toggle Button
@@ -210,11 +210,21 @@ const Tasks: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [scrollToTaskId, setScrollToTaskId] = React.useState<string | undefined>(undefined);
   const [pendingTaskId, setPendingTaskId] = React.useState<string | undefined>(undefined);
-  const [viewMode, setViewMode] = React.useState<'list' | 'grid'>('grid');
-  const [isFullscreen, setIsFullscreen] = React.useState(false);
+  const [viewMode, setViewMode] = React.useState<'list' | 'grid' | 'group'>('grid');
   const [isGridDetailOpen, setIsGridDetailOpen] = React.useState(false);
   const [isGridDetailFullscreen, setIsGridDetailFullscreen] = React.useState(false);
   const username = useUserStore((s) => s.username) || '';
+  
+  // Calculate quick stats for filter tags
+  const quickStats = useMemo(() => {
+    return {
+      all: tasks.length,
+      running: tasks.filter(t => ['running', 'working'].includes((t.state?.top || t.status || '').toLowerCase())).length,
+      ready: tasks.filter(t => (t.state?.top || t.status || '').toLowerCase() === 'ready').length,
+      pending: tasks.filter(t => ['pending', 'submitted'].includes((t.state?.top || t.status || '').toLowerCase())).length,
+      failed: tasks.filter(t => ['failed', 'canceled'].includes((t.state?.top || t.status || '').toLowerCase())).length,
+    };
+  }, [tasks]);
   const statistics = React.useMemo(() => {
     const stats = {
       total: tasks.length,
@@ -242,7 +252,7 @@ const Tasks: React.FC = () => {
   const hasNextTask = selectedTaskIndex >= 0 && selectedTaskIndex < tasks.length - 1;
 
   // Handle view mode change
-  const handleViewModeChange = React.useCallback((mode: 'list' | 'grid') => {
+  const handleViewModeChange = React.useCallback((mode: 'list' | 'grid' | 'group') => {
     setViewMode(mode);
     if (mode !== 'grid') {
       setIsGridDetailOpen(false);
@@ -415,6 +425,13 @@ const Tasks: React.FC = () => {
               icon={<AppstoreOutlined />}
             />
           </Tooltip>
+          <Tooltip title={t('pages.tasks.view.group', '分组视图')}>
+            <ViewToggleButton
+              $isActive={viewMode === 'group'}
+              onClick={() => handleViewModeChange('group')}
+              icon={<GroupOutlined />}
+            />
+          </Tooltip>
         </ViewToggleContainer>
 
         <Tooltip title={t('pages.tasks.refresh', '刷新')}>
@@ -473,6 +490,13 @@ const Tasks: React.FC = () => {
     const nextTask = tasks[selectedTaskIndex + 1];
     if (nextTask) selectItem(nextTask);
   }, [hasNextTask, selectedTaskIndex, tasks, selectItem]);
+
+  // Handle task reordering (for drag and drop)
+  const handleTasksReorder = useCallback((reorderedTasks: Task[]) => {
+    // This would need to be connected to the backend to persist the order
+    // For now, just log it - in a real implementation, you'd save the new order
+    console.log('[Tasks] Tasks reordered:', reorderedTasks.map(t => t.id));
+  }, []);
 
   useEffect(() => {
     if (!isGridDetailOpen) return;
@@ -536,9 +560,8 @@ const Tasks: React.FC = () => {
           onBatchAction={handleBatchAction}
           onRefresh={handleRefresh}
           viewMode={viewMode}
-          onViewModeChange={handleViewModeChange}
-          isFullscreen={isFullscreen}
-          onFullscreenChange={setIsFullscreen}
+          onTasksReorder={handleTasksReorder}
+          quickStats={quickStats}
         />
       }
       detailsContent={
@@ -553,11 +576,6 @@ const Tasks: React.FC = () => {
             onNext={handleSelectNextTask}
             hasPrev={hasPrevTask}
             hasNext={hasNextTask}
-            onClose={() => {
-              setIsAddingNew(false);
-              setIsGridDetailOpen(false);
-              unselectItem();
-            }}
           />
         ) : undefined
       }
@@ -591,9 +609,6 @@ const Tasks: React.FC = () => {
                   ? t('pages.tasks.add', '新建任务')
                   : ((selectedTask as TaskType | null)?.name || t('pages.tasks.details', '详情'))}
               </ModalTitleName>
-              {!isAddingNew && selectedTask ? (
-                <TaskCount>{(selectedTask as TaskType).id?.slice(-8)}</TaskCount>
-              ) : null}
             </ModalTitleMeta>
             <ModalActions>
               <Tooltip title={isGridDetailFullscreen ? t('common.exitFullscreen', '退出全屏') : t('common.fullscreen', '全屏')}>
@@ -631,11 +646,6 @@ const Tasks: React.FC = () => {
               onNext={handleSelectNextTask}
               hasPrev={hasPrevTask}
               hasNext={hasNextTask}
-              onClose={() => {
-                setIsAddingNew(false);
-                setIsGridDetailOpen(false);
-                unselectItem();
-              }}
             />
             <ShortcutHintBar>
               <ShortcutHintItem><ShortcutKey>Esc</ShortcutKey> {t('common.close', '关闭')}</ShortcutHintItem>

@@ -1,12 +1,11 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { Spin, Tooltip, Checkbox, Button, Modal } from 'antd';
+import { Spin, Checkbox, Button, Modal } from 'antd';
 import {
   InboxOutlined,
   PlayCircleOutlined,
   DeleteOutlined,
   BorderOutlined,
   LoadingOutlined,
-  FullscreenOutlined,
   FullscreenExitOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -105,7 +104,7 @@ const EmptyAction = styled(Button)`
 `;
 
 // View Mode types
-export type ViewMode = 'list' | 'grid';
+export type ViewMode = 'list' | 'grid' | 'group';
 
 // Fullscreen Modal Container
 const FullscreenModal = styled(Modal)`
@@ -215,6 +214,57 @@ const SelectAllCheckbox = styled(Checkbox)`
   }
 `;
 
+// Grouping View Container
+const GroupedTasksContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+`;
+
+const TaskGroup = styled.div`
+  animation: ${fadeInAnimation} 0.3s ease-out;
+`;
+
+const GroupHeader = styled.div<{ $color?: string }>`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border-left: 3px solid ${props => props.$color || 'var(--primary-color)'};
+`;
+
+const GroupTitle = styled.div`
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+`;
+
+const GroupCount = styled.span`
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 2px 8px;
+  border-radius: 10px;
+`;
+
+// Dragging styles
+const DraggingItem = styled.div<{ $isDragging?: boolean }>`
+  opacity: ${props => props.$isDragging ? 0.5 : 1};
+  transform: ${props => props.$isDragging ? 'scale(1.02)' : 'scale(1)'};
+  transition: all 0.2s ease;
+`;
+
+const DropIndicator = styled.div`
+  height: 4px;
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.8), rgba(99, 102, 241, 0.8));
+  border-radius: 2px;
+  margin: 4px 0;
+  animation: ${fadeInAnimation} 0.15s ease-out;
+`;
+
 // Priority Sort weights
 const PRIORITY_ORDER: Record<string, number> = {
   ASAP: 5,
@@ -248,9 +298,16 @@ interface TaskListProps {
   onBatchAction?: (action: string, tasks: Task[]) => void;
   onRefresh?: () => void;
   viewMode?: ViewMode;
-  onViewModeChange?: (mode: ViewMode) => void;
   isFullscreen?: boolean;
   onFullscreenChange?: (val: boolean) => void;
+  onTasksReorder?: (tasks: Task[]) => void;
+  quickStats?: {
+    all: number;
+    running: number;
+    ready: number;
+    pending: number;
+    failed: number;
+  };
 }
 
 export const TaskList: React.FC<TaskListProps> = ({
@@ -260,19 +317,14 @@ export const TaskList: React.FC<TaskListProps> = ({
   isSelected,
   scrollToTaskId,
   onBatchAction,
-  onRefresh,
   viewMode: externalViewMode,
-  onViewModeChange,
   isFullscreen: externalFullscreen,
   onFullscreenChange,
+  onTasksReorder,
+  quickStats,
 }) => {
   const { t } = useTranslation();
-  const [internalViewMode, setInternalViewMode] = useState<ViewMode>('list');
-  const viewMode = externalViewMode ?? internalViewMode;
-  const setViewMode = useCallback((mode: ViewMode) => {
-    setInternalViewMode(mode);
-    onViewModeChange?.(mode);
-  }, [onViewModeChange]);
+  const viewMode = externalViewMode || 'list';
 
   const [internalFullscreen, setInternalFullscreen] = useState(false);
   const isFullscreen = externalFullscreen ?? internalFullscreen;
@@ -288,6 +340,8 @@ export const TaskList: React.FC<TaskListProps> = ({
   });
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [isSelectMode, setIsSelectMode] = useState(false);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
   
   // Store refs for each task item
   const taskItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -328,20 +382,14 @@ export const TaskList: React.FC<TaskListProps> = ({
     return stats;
   }, [tasks]);
 
-  // Scroll to task when scrollToTaskId changes
-  useEffect(() => {
-    if (scrollToTaskId && taskItemRefs.current.has(scrollToTaskId)) {
-      const element = taskItemRefs.current.get(scrollToTaskId);
-      if (element) {
-        setTimeout(() => {
-          element.scrollIntoView({
-            behavior: 'smooth',
-            block: 'center',
-          });
-        }, 100);
-      }
-    }
-  }, [scrollToTaskId]);
+  // Use quickStats from parent if available, otherwise calculate from statistics
+  const displayStats = quickStats || {
+    all: statistics.total,
+    running: statistics.running,
+    ready: statistics.ready,
+    pending: statistics.pending,
+    failed: statistics.failed,
+  };
 
   // Filter and sort tasks
   const filteredAndSortedTasks = useMemo(() => {
@@ -420,6 +468,103 @@ export const TaskList: React.FC<TaskListProps> = ({
 
     return result;
   }, [tasks, filters]);
+
+  // Grouped tasks by status for group view
+  const groupedTasks = useMemo(() => {
+    if (viewMode !== 'group') return null;
+
+    const groups: Record<string, { tasks: Task[]; color: string; label: string }> = {
+      running: { tasks: [], color: '#1890FF', label: t('pages.tasks.status.running', '运行中') },
+      pending: { tasks: [], color: '#722ed1', label: t('pages.tasks.status.pending', '待处理') },
+      ready: { tasks: [], color: '#52C41A', label: t('pages.tasks.status.ready', '就绪') },
+      completed: { tasks: [], color: '#8c8c8c', label: t('pages.tasks.status.completed', '已完成') },
+      failed: { tasks: [], color: '#FF4D4F', label: t('pages.tasks.status.failed', '失败') },
+    };
+
+    filteredAndSortedTasks.forEach(task => {
+      const status = (task.state?.top || task.status || 'unknown').toLowerCase();
+      if (status === 'running' || status === 'working') {
+        groups.running.tasks.push(task);
+      } else if (status === 'pending' || status === 'submitted') {
+        groups.pending.tasks.push(task);
+      } else if (status === 'ready') {
+        groups.ready.tasks.push(task);
+      } else if (status === 'completed') {
+        groups.completed.tasks.push(task);
+      } else if (status === 'failed' || status === 'canceled') {
+        groups.failed.tasks.push(task);
+      }
+    });
+
+    // Only return non-empty groups
+    return Object.entries(groups)
+      .filter(([_, group]) => group.tasks.length > 0)
+      .map(([key, group]) => ({ key, ...group }));
+  }, [filteredAndSortedTasks, viewMode, t]);
+
+  // Scroll to task when scrollToTaskId changes
+  useEffect(() => {
+    if (scrollToTaskId && taskItemRefs.current.has(scrollToTaskId)) {
+      const element = taskItemRefs.current.get(scrollToTaskId);
+      if (element) {
+        setTimeout(() => {
+          element.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+          });
+        }, 100);
+      }
+    }
+  }, [scrollToTaskId]);
+
+  // Drag and drop handlers for reordering
+  const handleDragStart = useCallback((e: React.DragEvent, taskId: string) => {
+    setDraggedTaskId(taskId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', taskId);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dropTargetIndex !== index) {
+      setDropTargetIndex(index);
+    }
+  }, [dropTargetIndex]);
+
+  const handleDragLeave = useCallback(() => {
+    setDropTargetIndex(null);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (!draggedTaskId || !onTasksReorder) {
+      setDraggedTaskId(null);
+      setDropTargetIndex(null);
+      return;
+    }
+
+    const dragIndex = filteredAndSortedTasks.findIndex(t => t.id === draggedTaskId);
+    if (dragIndex === -1 || dragIndex === dropIndex) {
+      setDraggedTaskId(null);
+      setDropTargetIndex(null);
+      return;
+    }
+
+    // Reorder tasks
+    const newTasks = [...filteredAndSortedTasks];
+    const [removed] = newTasks.splice(dragIndex, 1);
+    newTasks.splice(dropIndex, 0, removed);
+    onTasksReorder(newTasks);
+
+    setDraggedTaskId(null);
+    setDropTargetIndex(null);
+  }, [draggedTaskId, dropTargetIndex, filteredAndSortedTasks, onTasksReorder]);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedTaskId(null);
+    setDropTargetIndex(null);
+  }, []);
 
   // Keyboard navigation
   useEffect(() => {
@@ -503,6 +648,7 @@ export const TaskList: React.FC<TaskListProps> = ({
         onChange={setFilters}
         totalCount={tasks.length}
         filteredCount={filteredAndSortedTasks.length}
+        quickStats={displayStats}
       />
 
       {/* Batch Actions Bar */}
@@ -578,7 +724,57 @@ export const TaskList: React.FC<TaskListProps> = ({
               </EmptyAction>
             )}
           </EmptyContainer>
+        ) : viewMode === 'group' && groupedTasks ? (
+          // Grouped View
+          <GroupedTasksContainer>
+            {groupedTasks.map((group) => (
+              <TaskGroup key={group.key}>
+                <GroupHeader $color={group.color}>
+                  <GroupTitle>{group.label}</GroupTitle>
+                  <GroupCount>{group.tasks.length}</GroupCount>
+                </GroupHeader>
+                <TasksListContainer>
+                  {group.tasks.map((task, index) => (
+                    <DraggingItem
+                      key={task.id}
+                      $isDragging={draggedTaskId === task.id}
+                      draggable={!filters.status && !filters.priority && !filters.search && !filters.taskType}
+                      onDragStart={(e) => handleDragStart(e, task.id)}
+                      onDragOver={(e) => handleDragOver(e, filteredAndSortedTasks.indexOf(task))}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, filteredAndSortedTasks.indexOf(task))}
+                      onDragEnd={handleDragEnd}
+                      ref={(el) => {
+                        if (el) {
+                          taskItemRefs.current.set(task.id, el);
+                        } else {
+                          taskItemRefs.current.delete(task.id);
+                        }
+                      }}
+                      style={{
+                        animationDelay: `${index * 30}ms`,
+                        animation: `${fadeInAnimation} 0.3s ease-out backwards`,
+                      }}
+                    >
+                      {dropTargetIndex === filteredAndSortedTasks.indexOf(task) && draggedTaskId !== task.id && (
+                        <DropIndicator />
+                      )}
+                      <TaskCard
+                        task={task}
+                        isSelected={isSelected(task)}
+                        onSelect={onSelectItem}
+                        onAction={handleTaskAction}
+                        viewMode="list"
+                        searchHighlight={filters.search}
+                      />
+                    </DraggingItem>
+                  ))}
+                </TasksListContainer>
+              </TaskGroup>
+            ))}
+          </GroupedTasksContainer>
         ) : viewMode === 'grid' ? (
+          // Grid View
           <TasksGridContainer>
             {filteredAndSortedTasks.map((task, index) => (
               <div
@@ -601,15 +797,24 @@ export const TaskList: React.FC<TaskListProps> = ({
                   onSelect={onSelectItem}
                   onAction={handleTaskAction}
                   viewMode="grid"
+                  searchHighlight={filters.search}
                 />
               </div>
             ))}
           </TasksGridContainer>
         ) : (
+          // List View with drag support
           <TasksListContainer>
             {filteredAndSortedTasks.map((task, index) => (
-              <div
+              <DraggingItem
                 key={task.id}
+                $isDragging={draggedTaskId === task.id}
+                draggable={!filters.status && !filters.priority && !filters.search && !filters.taskType}
+                onDragStart={(e) => handleDragStart(e, task.id)}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, index)}
+                onDragEnd={handleDragEnd}
                 ref={(el) => {
                   if (el) {
                     taskItemRefs.current.set(task.id, el);
@@ -622,14 +827,18 @@ export const TaskList: React.FC<TaskListProps> = ({
                   animation: `${fadeInAnimation} 0.3s ease-out backwards`,
                 }}
               >
+                {dropTargetIndex === index && draggedTaskId !== task.id && (
+                  <DropIndicator />
+                )}
                 <TaskCard
                   task={task}
                   isSelected={isSelected(task)}
                   onSelect={onSelectItem}
                   onAction={handleTaskAction}
                   viewMode="list"
+                  searchHighlight={filters.search}
                 />
-              </div>
+              </DraggingItem>
             ))}
           </TasksListContainer>
         )}

@@ -1,10 +1,9 @@
 import React from 'react';
-import { Input, Button, Dropdown, Tag, Badge } from 'antd';
+import { Input, Button, Dropdown, Tag } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   SearchOutlined,
   FilterOutlined,
-  SortAscendingOutlined,
   SortDescendingOutlined,
   CheckOutlined,
   AppstoreOutlined,
@@ -13,7 +12,7 @@ import {
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
-import { keyframes } from '@emotion/react';
+import { keyframes, css } from '@emotion/react';
 
 const fadeInAnimation = keyframes`
   from {
@@ -47,6 +46,64 @@ const FilterTagsRow = styled.div`
   align-items: center;
   flex-wrap: wrap;
   animation: ${fadeInAnimation} 0.2s ease-out;
+`;
+
+// Quick filter tags container
+const QuickFilterTagsContainer = styled.div`
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+`;
+
+const QuickFilterTag = styled.button<{ $isActive?: boolean; $statusColor?: string }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid ${props => props.$isActive 
+    ? (props.$statusColor || 'rgba(59, 130, 246, 0.5)') 
+    : 'rgba(255, 255, 255, 0.1)'};
+  background: ${props => props.$isActive 
+    ? (props.$statusColor ? `${props.$statusColor}20` : 'rgba(59, 130, 246, 0.2)') 
+    : 'rgba(255, 255, 255, 0.04)'};
+  color: ${props => props.$isActive 
+    ? (props.$statusColor || '#60a5fa') 
+    : 'var(--text-secondary)'};
+  cursor: pointer;
+  transition: all 0.2s ease;
+  animation: ${fadeInAnimation} 0.2s ease-out;
+
+  &:hover {
+    background: ${props => props.$statusColor ? `${props.$statusColor}30` : 'rgba(59, 130, 246, 0.15)'};
+    border-color: ${props => props.$statusColor || 'rgba(59, 130, 246, 0.5)'};
+    color: ${props => props.$statusColor || '#60a5fa'};
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+`;
+
+const StatusDot = styled.span<{ $color: string; $pulse?: boolean }>`
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: ${props => props.$color};
+  ${props => props.$pulse ? css`
+    animation: ${pulseAnimation} 2s ease-in-out infinite;
+  ` : ''}
+`;
+
+const pulseAnimation = keyframes`
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.2); }
 `;
 
 const StyledInput = styled(Input)`
@@ -135,7 +192,7 @@ const FilterButton = styled(Button, {
   }
 `;
 
-const FilterBadge = styled.div<{ $count?: number }>`
+const FilterBadgeWrapper = styled.span`
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -180,21 +237,40 @@ interface TaskFiltersProps {
   onChange: (filters: TaskFilterOptions) => void;
   totalCount?: number;
   filteredCount?: number;
+  quickStats?: {
+    all: number;
+    running: number;
+    ready: number;
+    pending: number;
+    failed: number;
+  };
 }
 
 export const TaskFilters: React.FC<TaskFiltersProps> = ({ 
   filters, 
   onChange, 
   totalCount = 0,
-  filteredCount,
+  quickStats,
 }) => {
   const { t } = useTranslation();
+  
+  // Quick filter statistics
+  const displayStats = quickStats || { all: totalCount, running: 0, ready: 0, pending: 0, failed: 0 };
 
   const handleFilterChange = (key: keyof TaskFilterOptions, value: string | undefined) => {
     onChange({
       ...filters,
       [key]: value === 'all' ? undefined : value,
     });
+  };
+  
+  // Quick filter click handler
+  const handleQuickFilter = (status: string | undefined) => {
+    if (filters.status === status) {
+      handleFilterChange('status', undefined);
+    } else {
+      handleFilterChange('status', status);
+    }
   };
 
   // Priority Menu Items
@@ -469,7 +545,49 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
 
   return (
     <FilterContainer>
-      {/* Search and Quick Filters Row */}
+      {/* Quick Filter Tags */}
+      <QuickFilterTagsContainer>
+        <QuickFilterTag
+          $isActive={!filters.status}
+          onClick={() => handleQuickFilter(undefined)}
+        >
+          全部 <span style={{ opacity: 0.7, marginLeft: 4 }}>{displayStats.all}</span>
+        </QuickFilterTag>
+        <QuickFilterTag
+          $isActive={filters.status === 'running'}
+          $statusColor="#1890FF"
+          onClick={() => handleQuickFilter('running')}
+        >
+          <StatusDot $color="#1890FF" $pulse />
+          运行中 <span style={{ opacity: 0.7, marginLeft: 4 }}>{displayStats.running}</span>
+        </QuickFilterTag>
+        <QuickFilterTag
+          $isActive={filters.status === 'ready'}
+          $statusColor="#52C41A"
+          onClick={() => handleQuickFilter('ready')}
+        >
+          <StatusDot $color="#52C41A" />
+          就绪 <span style={{ opacity: 0.7, marginLeft: 4 }}>{displayStats.ready}</span>
+        </QuickFilterTag>
+        <QuickFilterTag
+          $isActive={filters.status === 'pending'}
+          $statusColor="#722ed1"
+          onClick={() => handleQuickFilter('pending')}
+        >
+          <StatusDot $color="#722ed1" />
+          待处理 <span style={{ opacity: 0.7, marginLeft: 4 }}>{displayStats.pending}</span>
+        </QuickFilterTag>
+        <QuickFilterTag
+          $isActive={filters.status === 'failed'}
+          $statusColor="#FF4D4F"
+          onClick={() => handleQuickFilter('failed')}
+        >
+          <StatusDot $color="#FF4D4F" />
+          失败 <span style={{ opacity: 0.7, marginLeft: 4 }}>{displayStats.failed}</span>
+        </QuickFilterTag>
+      </QuickFilterTagsContainer>
+
+      {/* Search and Advanced Filters Row */}
       <FilterRow>
         {/* Search Input */}
         <StyledInput
@@ -487,11 +605,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
           trigger={['click']}
           placement="bottomRight"
         >
-          <FilterBadge count={filters.status ? 1 : 0} size="small">
+          <FilterBadgeWrapper>
             <FilterButton $isActive={!!filters.status}>
               <FilterOutlined />
             </FilterButton>
-          </FilterBadge>
+          </FilterBadgeWrapper>
         </Dropdown>
 
         {/* Priority Filter Button (also handles sort) */}
@@ -500,11 +618,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
           trigger={['click']}
           placement="bottomRight"
         >
-          <FilterBadge count={filters.priority ? 1 : 0} size="small">
+          <FilterBadgeWrapper>
             <FilterButton $isActive={!!filters.priority}>
               <SortDescendingOutlined />
             </FilterButton>
-          </FilterBadge>
+          </FilterBadgeWrapper>
         </Dropdown>
 
         {/* Task Type Filter Button */}
@@ -513,11 +631,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
           trigger={['click']}
           placement="bottomRight"
         >
-          <FilterBadge count={filters.taskType ? 1 : 0} size="small">
+          <FilterBadgeWrapper>
             <FilterButton $isActive={!!filters.taskType}>
               <AppstoreOutlined />
             </FilterButton>
-          </FilterBadge>
+          </FilterBadgeWrapper>
         </Dropdown>
       </FilterRow>
 

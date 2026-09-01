@@ -9,7 +9,6 @@ import {
   ReloadOutlined,
   PlayCircleOutlined,
   HistoryOutlined,
-  ClockCircleOutlined,
   SettingOutlined,
   InfoCircleOutlined,
   LeftOutlined,
@@ -35,17 +34,6 @@ import {
 } from '@/components/Common/StyledForm';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
-
-const fadeInAnimation = keyframes`
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-`;
 
 const pulseAnimation = keyframes`
   0%, 100% { opacity: 1; }
@@ -116,16 +104,15 @@ const DetailContainer = styled.div`
   min-height: 0;
 `;
 
-const HeaderSection = styled.div`
+const StatusBarRow = styled.div`
   display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(99, 102, 241, 0.05) 100%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  margin-bottom: 10px;
-  animation: ${fadeInAnimation} 0.3s ease-out;
+  padding: 6px 0;
+`;
+
+const StatusBarSpacer = styled.div`
+  flex: 1;
 `;
 
 const StatusBadge = styled.div<{ $status: string }>`
@@ -199,13 +186,6 @@ const StatusDot = styled.div<{ $status: string }>`
   `}
 `;
 
-const HeaderActions = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-`;
-
 const TabSection = styled.div`
   padding: 0 16px;
   margin-bottom: 10px;
@@ -246,15 +226,6 @@ const StatValue = styled.span<{ $color?: string }>`
   color: ${props => props.$color || 'var(--text-primary)'};
 `;
 
-const QuickInfoSection = styled.div`
-  display: flex;
-  gap: 8px;
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 8px;
-  flex-wrap: wrap;
-`;
-
 const InfoItem = styled.div`
   display: flex;
   align-items: center;
@@ -273,7 +244,6 @@ interface TaskDetailProps {
   onSave?: (taskId?: string) => void;
   onCancel?: () => void;
   onDelete?: () => void;
-  onClose?: () => void;
   onPrev?: () => void;
   onNext?: () => void;
   hasPrev?: boolean;
@@ -333,7 +303,7 @@ const toDayjs = (date: string | Date | null | undefined) => {
   return d.isValid() ? d : undefined;
 };
 
-export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as any, isNew = false, onSave, onCancel, onDelete, onClose, onPrev, onNext, hasPrev = false, hasNext = false }) => {
+export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as any, isNew = false, onSave, onCancel, onDelete, onPrev, onNext, hasPrev = false, hasNext = false }) => {
   const { message } = App.useApp();
   const showDeleteConfirm = useDeleteConfirm();
 
@@ -888,77 +858,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
 
   return (
     <DetailContainer>
-      {/* Header with Status */}
-      <HeaderSection>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
-          <StatusBadge $status={latestStatus}>
-            <StatusDot $status={latestStatus} />
-            <span style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.2 }}>
-              {latestStatus ? t(`pages.tasks.status.${latestStatus}`, latestStatus) : t('pages.tasks.status.unknown', '未知')}
-            </span>
-          </StatusBadge>
-
-          {/* Quick Info */}
-          <QuickInfoSection>
-            <Tooltip title={t('pages.tasks.taskId', '任务ID')}>
-              <InfoItem>
-                <ClockCircleOutlined />
-                <span>{(task as any)?.id?.slice(-8) || '-'}</span>
-              </InfoItem>
-            </Tooltip>
-
-            {(task as any)?.latest_version && (
-              <Tooltip title={t('pages.tasks.latestVersion', '版本')}>
-                <InfoItem>
-                  <HistoryOutlined />
-                  <span>v{(task as any).latest_version}</span>
-                </InfoItem>
-              </Tooltip>
-            )}
-          </QuickInfoSection>
-        </div>
-
-        <HeaderActions>
-          {!isNew && (hasPrev || hasNext) && (
-            <>
-              <Tooltip title={t('common.previous', '上一个')}>
-                <Button
-                  type="text"
-                  icon={<LeftOutlined />}
-                  onClick={onPrev}
-                  disabled={!hasPrev}
-                />
-              </Tooltip>
-              <Tooltip title={t('common.next', '下一个')}>
-                <Button
-                  type="text"
-                  icon={<RightOutlined />}
-                  onClick={onNext}
-                  disabled={!hasNext}
-                />
-              </Tooltip>
-            </>
-          )}
-          {onClose && (
-            <Tooltip title={t('common.close', '关闭')}>
-              <Button
-                type="text"
-                icon={<CloseOutlined />}
-                onClick={onClose}
-              />
-            </Tooltip>
-          )}
-          <Tooltip title={t('pages.tasks.refresh', '刷新状态')}>
-            <Button
-              type="text"
-              icon={<ReloadOutlined spin={refreshingStatus} />}
-              onClick={handleRefreshStatus}
-              loading={refreshingStatus}
-            />
-          </Tooltip>
-        </HeaderActions>
-      </HeaderSection>
-
       {/* Statistics Summary */}
       <StatsGrid>
         <StatItem>
@@ -980,6 +879,57 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           </StatValue>
         </StatItem>
       </StatsGrid>
+
+      {/* Status Bar (combined: status badge + version + prev/next + refresh) */}
+      <StatusBarRow>
+        <StatusBadge $status={latestStatus}>
+          <StatusDot $status={latestStatus} />
+          <span style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.2 }}>
+            {latestStatus ? t(`pages.tasks.status.${latestStatus}`, latestStatus) : t('pages.tasks.status.unknown', '未知')}
+          </span>
+        </StatusBadge>
+
+        {(task as any)?.latest_version && (
+          <Tooltip title={t('pages.tasks.latestVersion', '版本')}>
+            <InfoItem>
+              <HistoryOutlined />
+              <span>v{(task as any).latest_version}</span>
+            </InfoItem>
+          </Tooltip>
+        )}
+
+        <StatusBarSpacer />
+
+        {!isNew && (hasPrev || hasNext) && (
+          <>
+            <Tooltip title={t('common.previous', '上一个')}>
+              <Button
+                type="text"
+                icon={<LeftOutlined />}
+                onClick={onPrev}
+                disabled={!hasPrev}
+              />
+            </Tooltip>
+            <Tooltip title={t('common.next', '下一个')}>
+              <Button
+                type="text"
+                icon={<RightOutlined />}
+                onClick={onNext}
+                disabled={!hasNext}
+              />
+            </Tooltip>
+          </>
+        )}
+
+        <Tooltip title={t('pages.tasks.refresh', '刷新状态')}>
+          <Button
+            type="text"
+            icon={<ReloadOutlined spin={refreshingStatus} />}
+            onClick={handleRefreshStatus}
+            loading={refreshingStatus}
+          />
+        </Tooltip>
+      </StatusBarRow>
 
       {/* Tabs */}
       {!isNew && (
