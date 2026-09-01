@@ -900,6 +900,23 @@ def handle_get_account_info(request: IPCRequest, params: Optional[Dict[str, Any]
             )
             return create_success_response(request, {'accountInfo': None})
         if response:
+            # CN reqAccountInfo returns a bare LIST of account rows; the
+            # frontend AccountData shape is {acctInfo: {...}, ...} (AWS 'get
+            # all' shape). Without normalization accountData.acctInfo.fund is
+            # undefined and the GUI shows 0 even though the row says 0.02
+            # (2026-09-01 top-up crediting test). Coerce fund/quota to numbers
+            # too — rows may carry them as strings.
+            if isinstance(response, list):
+                acct = dict(response[0]) if response and isinstance(response[0], dict) else {}
+                for num_key in ('fund', 'quota'):
+                    try:
+                        if num_key in acct and not isinstance(acct[num_key], (int, float)):
+                            acct[num_key] = float(acct[num_key])
+                    except (TypeError, ValueError):
+                        pass
+                response = {'acctInfo': acct, 'ordersInfo': [], 'bots': [],
+                            'missions': [], 'skills': [], 'api_usage': [],
+                            'api_key': {}}
             logger.info("[GetAccountInfo] Account info fetched successfully")
             # Store in mainwin for later use
             mainwin._account_info = response
