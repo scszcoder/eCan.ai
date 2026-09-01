@@ -40,17 +40,6 @@ const pulseAnimation = keyframes`
   50% { opacity: 0.5; }
 `;
 
-const slideInAnimation = keyframes`
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-`;
-
 const scaleInAnimation = keyframes`
   from {
     opacity: 0;
@@ -315,14 +304,13 @@ const TASK_TYPE_CONFIG = {
 const TaskItem = styled.div<{ isSelected?: boolean; isRunning?: boolean }>`
   padding: 12px;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.2s ease, border-color 0.2s ease;
   background: var(--bg-secondary);
   border-radius: 12px;
   margin: 4px 0;
-  border: 2px solid ${props => props.isSelected ? 'rgba(59, 130, 246, 0.5)' : 'transparent'};
+  border: 1px solid ${props => props.isSelected ? 'rgba(59, 130, 246, 0.4)' : 'rgba(255, 255, 255, 0.06)'};
   position: relative;
   overflow: hidden;
-  animation: ${slideInAnimation} 0.3s ease-out;
 
   &::before {
     content: '';
@@ -330,27 +318,13 @@ const TaskItem = styled.div<{ isSelected?: boolean; isRunning?: boolean }>`
     left: 0;
     top: 0;
     height: 100%;
-    width: 4px;
+    width: 3px;
     background: ${props => props.isRunning ? '#1890FF' : 'transparent'};
-    transition: all 0.3s ease;
   }
-
-  ${props => props.isRunning && css`
-    &::before {
-      animation: ${pulseAnimation} 2s ease-in-out infinite;
-    }
-  `}
 
   &:hover {
     background: var(--bg-tertiary);
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-    border-color: rgba(59, 130, 246, 0.3);
-
-    &::before {
-      width: 4px;
-      background: var(--primary-color);
-    }
+    border-color: ${props => props.isSelected ? 'rgba(59, 130, 246, 0.5)' : 'rgba(255, 255, 255, 0.1)'};
 
     .task-actions {
       opacity: 1;
@@ -358,13 +332,13 @@ const TaskItem = styled.div<{ isSelected?: boolean; isRunning?: boolean }>`
   }
 
   &.selected {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(51, 65, 85, 0.6) 100%);
-    border: 2px solid rgba(59, 130, 246, 0.5);
-    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.15);
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(51, 65, 85, 0.5) 100%);
+    border: 1px solid rgba(59, 130, 246, 0.4);
+    box-shadow: 0 2px 10px rgba(59, 130, 246, 0.1);
 
     &::before {
-      width: 4px;
-      background: linear-gradient(180deg, rgba(59, 130, 246, 0.9) 0%, rgba(96, 165, 250, 0.7) 100%);
+      width: 3px;
+      background: linear-gradient(180deg, rgba(59, 130, 246, 0.85) 0%, rgba(96, 165, 250, 0.6) 100%);
     }
   }
 `;
@@ -579,47 +553,27 @@ const highlightSearchText = (text: string, highlight: string): React.ReactNode =
 // Grid View specific styled components
 const GridCardWrapper = styled.div<{ $isSelected?: boolean; $isRunning?: boolean }>`
   background: ${props => props.$isSelected
-    ? 'linear-gradient(135deg, rgba(24, 144, 255, 0.16) 0%, rgba(82, 196, 26, 0.08) 100%)'
+    ? 'linear-gradient(135deg, rgba(24, 144, 255, 0.10) 0%, rgba(51, 65, 85, 0.5) 100%)'
     : 'rgba(255, 255, 255, 0.025)'};
   border: 1px solid ${props => props.$isSelected
-    ? 'rgba(24, 144, 255, 0.58)'
+    ? 'rgba(24, 144, 255, 0.4)'
     : props.$isRunning
-      ? 'rgba(24, 144, 255, 0.45)'
+      ? 'rgba(24, 144, 255, 0.4)'
       : 'rgba(255, 255, 255, 0.08)'};
   border-radius: 14px;
   padding: 0;
   cursor: pointer;
-  transition: all 0.2s ease;
-  animation: ${slideInAnimation} 0.3s ease-out;
+  transition: background 0.2s ease, border-color 0.2s ease;
   position: relative;
   overflow: visible;
 
-  ${props => props.$isRunning && css`
-    &::before {
-      content: '';
-      position: absolute;
-      inset: -1px;
-      border-radius: 14px;
-      border: 2px solid #1890FF;
-      animation: ${pulseAnimation} 2s ease-in-out infinite;
-      pointer-events: none;
-      z-index: 1;
-    }
-  `}
-
   &:hover {
     background: ${props => props.$isSelected
-      ? 'linear-gradient(135deg, rgba(24, 144, 255, 0.2) 0%, rgba(82, 196, 26, 0.12) 100%)'
+      ? 'linear-gradient(135deg, rgba(24, 144, 255, 0.14) 0%, rgba(51, 65, 85, 0.55) 100%)'
       : 'rgba(255, 255, 255, 0.045)'};
-    border-color: ${props => props.$isSelected
-      ? 'rgba(24, 144, 255, 0.72)'
-      : props.$isRunning
-        ? 'rgba(24, 144, 255, 0.65)'
-        : 'rgba(255, 255, 255, 0.14)'};
-    transform: translateY(-2px);
-    box-shadow: ${props => props.$isSelected
-      ? '0 14px 30px rgba(24, 144, 255, 0.22)'
-      : '0 12px 28px rgba(0, 0, 0, 0.25)'};
+    border-color: ${props => props.$isSelected || props.$isRunning
+      ? 'rgba(24, 144, 255, 0.55)'
+      : 'rgba(255, 255, 255, 0.14)'};
   }
 `;
 

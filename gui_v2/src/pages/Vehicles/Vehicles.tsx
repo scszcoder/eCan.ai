@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { message, Button, Space, Tooltip } from 'antd';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { message, Button, Space, Tooltip, Modal } from 'antd';
+import { PlusOutlined, ReloadOutlined, AppstoreOutlined, UnorderedListOutlined, FullscreenOutlined, FullscreenExitOutlined, CloseOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { useUserStore } from '@/stores/userStore';
@@ -8,7 +8,7 @@ import { useVehicleStore } from '@/stores/domain/vehicleStore';
 import { VehicleStatus, type Vehicle } from '@/types/domain/vehicle';
 import { useDetailView } from '@/hooks/useDetailView';
 import DetailLayout from '../../components/Layout/DetailLayout';
-import VehicleList from './VehicleList';
+import VehicleList, { type VehicleViewMode } from './VehicleList';
 import VehicleDetails from './VehicleDetails';
 import VehicleFormModal from './VehicleFormModal';
 import { logger } from '@/utils/logger';
@@ -37,6 +37,107 @@ const StyledActionButton = styled(Button)`
   }
 `;
 
+const ViewToggleContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+`;
+
+const ViewToggleButton = styled(Button, {
+  shouldForwardProp: (prop) => prop !== '$isActive',
+})<{ $isActive?: boolean }>`
+  height: 32px !important;
+  width: 32px !important;
+  min-width: 32px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 6px !important;
+  background: ${props => props.$isActive
+    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%)'
+    : 'transparent'} !important;
+  border: ${props => props.$isActive
+    ? '1px solid rgba(59, 130, 246, 0.5)'
+    : '1px solid transparent'} !important;
+  color: ${props => props.$isActive ? 'white' : 'rgba(203, 213, 225, 0.9)'} !important;
+  transition: all 0.2s ease !important;
+
+  &:hover {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%) !important;
+    color: white !important;
+    border-color: rgba(59, 130, 246, 0.5) !important;
+  }
+
+  .anticon {
+    font-size: 16px;
+  }
+`;
+
+const DeviceDetailModal = styled(Modal)<{ $fullscreen?: boolean }>`
+  .ant-modal-content {
+    background: var(--bg-primary) !important;
+    height: ${props => props.$fullscreen ? '100vh' : '88vh'};
+    max-height: ${props => props.$fullscreen ? '100vh' : '88vh'};
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+    border-radius: ${props => props.$fullscreen ? '0' : '16px'};
+  }
+
+  .ant-modal-header {
+    padding: 14px 18px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .ant-modal-title {
+    color: var(--text-primary);
+  }
+
+  .ant-modal-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+  }
+`;
+
+const ModalTitleRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+`;
+
+const ModalTitleMeta = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+`;
+
+const ModalTitleName = styled.div`
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const ModalActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
 const Vehicles: React.FC = () => {
   const { t } = useTranslation();
   const username = useUserStore((state) => state.username) ?? '';
@@ -55,6 +156,9 @@ const Vehicles: React.FC = () => {
   const [filters, setFilters] = useState<Record<string, any>>({});
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [viewMode, setViewMode] = useState<VehicleViewMode>('grid');
+  const [isGridDetailOpen, setIsGridDetailOpen] = useState(false);
+  const [isGridDetailFullscreen, setIsGridDetailFullscreen] = useState(false);
 
   // Get车辆Data
   const fetchVehicles = useCallback(async () => {
@@ -190,10 +294,57 @@ const Vehicles: React.FC = () => {
     setFilters({});
   };
 
+  // Handle vehicle selection — in grid mode, open detail modal
+  const handleSelectVehicle = useCallback((vehicle: Vehicle) => {
+    selectItem(vehicle);
+    if (viewMode === 'grid') {
+      setIsGridDetailOpen(true);
+    }
+  }, [selectItem, viewMode]);
+
+  const handleCloseGridDetail = useCallback(() => {
+    setIsGridDetailOpen(false);
+    setIsGridDetailFullscreen(false);
+    selectItem(null as any);
+  }, [selectItem]);
+
+  // Keyboard navigation in grid mode
+  useEffect(() => {
+    if (!isGridDetailOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleCloseGridDetail();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isGridDetailOpen, handleCloseGridDetail]);
+
   const listTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
       <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.vehicles.title')}</span>
       <Space size={0}>
+        <ViewToggleContainer>
+          <Tooltip title={t('pages.vehicles.view.list', '列表视图')}>
+            <ViewToggleButton
+              $isActive={viewMode === 'list'}
+              onClick={() => setViewMode('list')}
+              icon={<UnorderedListOutlined />}
+            />
+          </Tooltip>
+          <Tooltip title={t('pages.vehicles.view.grid', '网格视图')}>
+            <ViewToggleButton
+              $isActive={viewMode === 'grid'}
+              onClick={() => setViewMode('grid')}
+              icon={<AppstoreOutlined />}
+            />
+          </Tooltip>
+        </ViewToggleContainer>
         <Tooltip title={t('pages.vehicles.refreshVehicles', 'Refresh')}>
           <StyledActionButton
             shape="circle"
@@ -221,26 +372,81 @@ const Vehicles: React.FC = () => {
           <VehicleList
             vehicles={vehicles}
             selectedVehicle={selectedVehicle}
-            onSelect={selectItem}
+            onSelect={handleSelectVehicle}
             filters={filters}
             onFilterChange={handleFilterChange}
             onSearch={handleSearch}
             onReset={handleReset}
             onEdit={handleEdit}
             onDelete={handleDelete}
+            viewMode={viewMode}
             t={t}
           />
         }
         detailsContent={
+          viewMode === 'list' && selectedVehicle ? (
+            <VehicleDetails
+              vehicle={selectedVehicle}
+              onStatusChange={handleStatusChange}
+              onMaintenance={handleMaintenance}
+              t={t}
+            />
+          ) : undefined
+        }
+        defaultListWidth={viewMode === 'grid' ? 560 : 400}
+        minListWidth={viewMode === 'grid' ? 480 : 340}
+        maxListWidth={viewMode === 'grid' ? 720 : 600}
+        fillListAvailableWidth={viewMode === 'grid'}
+        fillDetailsAvailableWidth={viewMode === 'list'}
+      />
+
+      {/* Grid View Detail Modal */}
+      <DeviceDetailModal
+        open={isGridDetailOpen && viewMode === 'grid'}
+        onCancel={handleCloseGridDetail}
+        footer={null}
+        width={isGridDetailFullscreen ? '100vw' : 'min(1200px, 96vw)'}
+        style={isGridDetailFullscreen ? { top: 0, paddingBottom: 0 } : undefined}
+        centered={!isGridDetailFullscreen}
+        destroyOnHidden={false}
+        closable={false}
+        $fullscreen={isGridDetailFullscreen}
+        title={
+          <ModalTitleRow>
+            <ModalTitleMeta>
+              <ModalTitleName>
+                {selectedVehicle?.name || t('pages.vehicles.vehicleInformation')}
+              </ModalTitleName>
+            </ModalTitleMeta>
+            <ModalActions>
+              <Tooltip title={isGridDetailFullscreen ? t('common.exitFullscreen', '退出全屏') : t('common.fullscreen', '全屏')}>
+                <StyledActionButton
+                  shape="circle"
+                  icon={isGridDetailFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                  onClick={() => setIsGridDetailFullscreen((prev) => !prev)}
+                />
+              </Tooltip>
+              <Tooltip title={t('common.close', '关闭')}>
+                <StyledActionButton
+                  shape="circle"
+                  icon={<CloseOutlined />}
+                  onClick={handleCloseGridDetail}
+                />
+              </Tooltip>
+            </ModalActions>
+          </ModalTitleRow>
+        }
+      >
+        {isGridDetailOpen && selectedVehicle ? (
           <VehicleDetails
-            vehicle={selectedVehicle ?? undefined}
+            vehicle={selectedVehicle}
             onStatusChange={handleStatusChange}
             onMaintenance={handleMaintenance}
             t={t}
           />
-        }
-      />
-      
+        ) : null}
+      </DeviceDetailModal>
+
       {/* Add Vehicle Dialog */}
       <VehicleFormModal
         visible={isAddModalVisible}
@@ -249,7 +455,7 @@ const Vehicles: React.FC = () => {
         onCancel={() => setIsAddModalVisible(false)}
         t={t}
       />
-      
+
       {/* Edit Vehicle Dialog */}
       <VehicleFormModal
         visible={isEditModalVisible}
@@ -262,4 +468,4 @@ const Vehicles: React.FC = () => {
   );
 };
 
-export default Vehicles; 
+export default Vehicles;
