@@ -1794,20 +1794,24 @@ const AgentDetails: React.FC = () => {
   return (
     <>
       <style>{`
+        /* 紧凑化：表单控件与栅格间距整体收紧 */
+        .ant-form-item { margin-bottom: 8px; }
+        .ant-form-item-label { padding-bottom: 2px; }
+        .ant-form-item-label > label { height: auto; font-size: 13px; }
         .resizable-textarea .ant-input {
           resize: vertical !important;
-          min-height: 200px !important;
+          min-height: 56px !important;
           overflow: auto !important;
         }
         .resizable-textarea textarea {
           resize: vertical !important;
-          min-height: 200px !important;
+          min-height: 56px !important;
           overflow: auto !important;
         }
         .agent-basic-info-section {
           display: flex;
-          gap: 40px;
-          margin-bottom: 24px;
+          gap: 16px;
+          margin-bottom: 12px;
           align-items: center;
         }
         .agent-basic-info-left {
@@ -1824,7 +1828,7 @@ const AgentDetails: React.FC = () => {
         }
         .agent-basic-info-right {
           flex-shrink: 0;
-          width: 280px;
+          width: 200px;
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -1840,9 +1844,9 @@ const AgentDetails: React.FC = () => {
           content: '*';
         }
       `}</style>
-      <div style={{ padding: '70px 16px 16px 16px', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 16, height: '100%', overflow: 'hidden' } }}>
-          <div ref={scrollContainerRef} style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', paddingRight: 8 }}>
+      <div style={{ padding: '48px 12px 8px 12px', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 12, height: '100%', overflow: 'hidden' } }}>
+          <div ref={scrollContainerRef} style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', paddingRight: 4 }}>
           <Form
             form={form}
             layout="vertical"
@@ -2009,12 +2013,12 @@ const AgentDetails: React.FC = () => {
             </div>
             
             {/* Divider */}
-            <div style={{ 
-              height: '1px', 
+            <div style={{
+              height: '1px',
               background: 'linear-gradient(to right, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.1))',
-              margin: '24px 0'
+              margin: '12px 0'
             }} />
-            <Row gutter={[12, 0]} style={{ margin: 0 }}>
+            <Row gutter={[8, 4]} style={{ margin: 0 }}>
               {/* 第一行：Owner 和 Gender */}
               <Col span={12}>
                 <StyledFormItem name="owner" label={t('common.owner') || 'Owner'} htmlFor="agent-owner">
@@ -2028,10 +2032,10 @@ const AgentDetails: React.FC = () => {
                 </StyledFormItem>
               </Col>
               <Col span={12}>
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ 
-                    paddingBottom: 8,
-                    fontSize: 14,
+                <div style={{ marginBottom: 0 }}>
+                  <div style={{
+                    paddingBottom: 2,
+                    fontSize: 13,
                     fontWeight: 600,
                     color: 'rgba(255, 255, 255, 0.95)',
                     letterSpacing: '0.3px'
@@ -2055,13 +2059,13 @@ const AgentDetails: React.FC = () => {
                 <StyledFormItem name="description" label={t('pages.agents.description') || 'Description'} htmlFor="agent-description">
                   <Input.TextArea
                     id="agent-description"
-                    rows={3}
+                    rows={2}
                     disabled={!editMode}
                     autoComplete="off"
                     placeholder={t('pages.agents.description_placeholder') || 'Enter agent description'}
                     aria-label={t('pages.agents.description') || 'Description'}
                     className="resizable-textarea"
-                    style={{ minHeight: '80px', resize: 'vertical' }}
+                    style={{ resize: 'vertical' }}
                   />
                 </StyledFormItem>
               </Col>
@@ -2242,13 +2246,13 @@ const AgentDetails: React.FC = () => {
                 >
                   <Input.TextArea
                     id="agent-extra-data"
-                    rows={4}
+                    rows={2}
                     disabled={!editMode}
                     autoComplete="off"
                     placeholder={t('pages.agents.extra_data_placeholder') || 'Enter valid JSON (e.g., {"notes": "text"}) or plain text'}
                     aria-label={t('pages.agents.extra_data') || 'Extra Data'}
                     className="resizable-textarea"
-                    style={{ minHeight: '100px', resize: 'vertical' }}
+                    style={{ resize: 'vertical' }}
                   />
                 </StyledFormItem>
               </Col>
@@ -2258,49 +2262,49 @@ const AgentDetails: React.FC = () => {
         </Card>
 
         {/* OperationButton区域 - 固定在Bottom，不随FormScroll */}
-        <div 
-          style={{ 
-            marginTop: '16px',
-            padding: '16px 0',
+        <div
+          style={{
+            marginTop: '8px',
+            padding: '8px 0',
             position: 'sticky',
             bottom: 0,
             zIndex: 100,
             display: 'flex',
             justifyContent: 'flex-end',
-            gap: 12
+            gap: 8
           }}
         >
           {/* 新增模式：DisplayClose和SaveButton */}
           {pageMode === 'create' && (
             <>
-              <Button icon={<CloseOutlined />} onClick={() => navigate(-1)} size="large">
+              <Button icon={<CloseOutlined />} onClick={() => navigate(-1)}>
                 {t('common.close') || 'Close'}
               </Button>
-              <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave} size="large">
+              <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave}>
                 {t('common.create') || 'Create'}
               </Button>
             </>
           )}
-          
+
           {/* 查看模式：DisplayClose、Delete和EditButton */}
           {pageMode === 'view' && (
             <>
-              <Button icon={<CloseOutlined />} onClick={() => navigate(-1)} size="large">
+              <Button icon={<CloseOutlined />} onClick={() => navigate(-1)}>
                 {t('common.close') || 'Close'}
               </Button>
-              <Button icon={<DeleteOutlined />} danger onClick={handleDelete} size="large">
+              <Button icon={<DeleteOutlined />} danger onClick={handleDelete}>
                 {t('common.delete') || 'Delete'}
               </Button>
-              <Button icon={<EditOutlined />} type="default" onClick={() => setEditMode(true)} size="large">
+              <Button icon={<EditOutlined />} type="default" onClick={() => setEditMode(true)}>
                 {t('common.edit') || 'Edit'}
               </Button>
             </>
           )}
-          
+
           {/* Edit模式：DisplayClose、Cancel和SaveButton */}
           {pageMode === 'edit' && (
             <>
-              <Button icon={<CloseOutlined />} onClick={() => navigate(-1)} size="large">
+              <Button icon={<CloseOutlined />} onClick={() => navigate(-1)}>
                 {t('common.close') || 'Close'}
               </Button>
               <Button onClick={() => {
@@ -2331,10 +2335,10 @@ const AgentDetails: React.FC = () => {
                     }
                   });
                 }
-              }} size="large">
+              }}>
                 {t('common.cancel') || 'Cancel'}
               </Button>
-              <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave} size="large">
+              <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave}>
                 {t('common.save') || 'Save'}
               </Button>
             </>
