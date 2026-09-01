@@ -1514,9 +1514,32 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
     # CN version uses application/json, Intl uses application/graphql.
     # Authorization: CN → 'Bearer <jwt>' (JWT extracted from the combined
     # session token); Intl → raw Cognito token. See _http_auth_header.
+    auth_header = _http_auth_header(token)
+
+    # CN fail-fast (2026-09-01): the HTTP gate only accepts JWT bearers
+    # (HS256 session token or a CloudBase JWT). New-flow WeChat desktop
+    # logins hand the app an OPAQUE 43-char website session token; when
+    # registerWeChatSession fails to mint the HS256 session, every request
+    # would go out with that opaque bearer and be rejected "Bearer token
+    # required" — 48 rejections in one customer session, seen server-side
+    # as an UNAUTHENTICATED storm. Refuse to send a known-bad bearer.
+    if is_cn_app():
+        bearer_value = auth_header[7:] if auth_header.lower().startswith("bearer ") else auth_header
+        if bearer_value and bearer_value.count(".") != 2:
+            if not getattr(appsync_http_request, "_cn_opaque_warned", False):
+                appsync_http_request._cn_opaque_warned = True
+                logger_helper.warning(
+                    "[AppSync] CN bearer is not a JWT (opaque website session "
+                    "token?) — skipping cloud request instead of a guaranteed "
+                    "UNAUTHENTICATED. Session registration must mint the HS256 "
+                    "token first (see registerWeChatSession)."
+                )
+            return {"errors": [{"errorType": "UNAUTHENTICATED",
+                                "message": "No JWT bearer available (opaque session token) — request not sent"}]}
+
     headers = {
         'Content-Type': "application/json" if is_cn_app() else "application/graphql",
-        'Authorization': _http_auth_header(token),
+        'Authorization': auth_header,
         'cache-control': "no-cache"
     }
 
