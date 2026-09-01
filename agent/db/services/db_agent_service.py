@@ -518,10 +518,19 @@ class DBAgentService(BaseService):
         try:
             with self.session_scope() as session:
                 from agent.db.models.association_models import DBAgentOrgRel
-                
-                # Query agents by owner
+
+                # Query agents by owner. Legacy-compat (2026-09-01): rows
+                # written by the fast-deploy CLI before the identity fix carry
+                # the RAW id ('wechat_<openid>') while the app queries the
+                # '@local'-normalized form — accept both spellings of the same
+                # identity so those agents stay visible and launchable.
+                owner_variants = {owner}
+                if owner.endswith("@local"):
+                    owner_variants.add(owner[: -len("@local")])
+                elif "@" not in owner:
+                    owner_variants.add(f"{owner}@local")
                 db_agent_records = session.query(DBAgent).filter(
-                    DBAgent.owner == owner
+                    DBAgent.owner.in_(owner_variants)
                 ).all()
                 
                 # Query all agent-org relationships for these agents
