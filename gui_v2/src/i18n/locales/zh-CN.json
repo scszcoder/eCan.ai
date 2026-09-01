@@ -3765,7 +3765,9 @@
     "errorBackendRunning": "抱歉，遇到错误。请检查后端服务是否正在运行。"
   },
   "banner": {
-    "fundRunningLow": "余额不足，请及时充值"
+    "fundRunningLow": "余额不足，请及时充值",
+    "billingInsufficient": "云端 AI 余额已用尽，任务已暂停。请前往账户页面充值后恢复。",
+    "billingBlocked": "此账户暂无法使用云端 AI 服务，请前往账户页面查看。"
   },
   "account": {
     "planBasic": "基础版",

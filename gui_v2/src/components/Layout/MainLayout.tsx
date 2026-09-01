@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { Layout, Button } from 'antd';
+import { Layout, Button, message } from 'antd';
 import type { MenuProps } from 'antd';
 import {
     DashboardOutlined,
@@ -37,6 +37,7 @@ import QuickActionMenu from './QuickActionMenu';
 import FastDeployPanel from '../FastDeploy/FastDeployPanel';
 import A11yFocusGuard from '../Common/A11yFocusGuard';
 import { useAccountStore } from '../../stores/accountStore';
+import { eventBus } from '../../utils/eventBus';
 import { logoutManager } from '../../services/LogoutManager';
 import { isDesktopPlatform, isWebPlatform } from '../../config/platform';
 
@@ -126,6 +127,27 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         const interval = setInterval(() => { void fetchAccountInfo(); }, 20 * 60_000);
         return () => { clearTimeout(initial); clearInterval(interval); };
     }, []);
+
+    // Server-side billing block (2026-09-01): the backend broadcasts
+    // account.billingBlocked when the LLM proxy rejects a call with
+    // insufficient_balance / account_inactive / user_not_registered. React by
+    // refreshing the balance (trips the low-fund banner) and toasting a
+    // top-up hint. The affected task is already paused backend-side — no
+    // client retry.
+    useEffect(() => {
+        const handler = (msg: any) => {
+            void useAccountStore.getState().fetchAccountInfo();
+            const code = msg?.payload?.code || msg?.code || '';
+            const text = code === 'insufficient_balance'
+                ? t('banner.billingInsufficient',
+                    'Cloud AI balance exhausted — the task is paused. Top up on the Account page to resume.')
+                : t('banner.billingBlocked',
+                    'Cloud AI service unavailable for this account — check the Account page.');
+            message.warning({ content: text, key: 'billing-blocked', duration: 10 });
+        };
+        eventBus.on('localws:account.billingBlocked', handler);
+        return () => { eventBus.off('localws:account.billingBlocked', handler); };
+    }, [t]);
 
     // Trigger test ads after login initialization completes
     // useEffect(() => {

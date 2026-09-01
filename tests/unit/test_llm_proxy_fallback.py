@@ -224,6 +224,56 @@ class TestUserNotRegisteredMapping:
             ChatLambdaProxy._extract_completion(data)
 
 
+class TestBillingBlockMapping:
+    """Server-authoritative billing (2026-09-01): 402 insufficient_balance /
+    403 account_inactive are terminal billing blocks — mapped to actionable
+    messages and a typed LLMBillingError so callers pause instead of retry."""
+
+    BAL_JSON = ('{"error":{"message":"insufficient balance",'
+                '"type":"payment_required","code":"insufficient_balance"}}')
+
+    def test_insufficient_balance_friendly(self):
+        from agent.ec_skills.llm_utils.proxy_errors import friendly_proxy_error_message
+        msg = friendly_proxy_error_message(f"Error code: 402 - {self.BAL_JSON}")
+        assert msg and "充值" in msg and "Account page" in msg
+
+    def test_account_inactive_friendly(self):
+        from agent.ec_skills.llm_utils.proxy_errors import friendly_proxy_error_message
+        msg = friendly_proxy_error_message('{"error":{"code":"account_inactive"}}')
+        assert msg and "停用" in msg
+
+    def test_translate_returns_typed_billing_error(self):
+        from agent.ec_skills.llm_utils.proxy_errors import (
+            LLMBillingError, translate_proxy_exception)
+        exc = translate_proxy_exception(RuntimeError(self.BAL_JSON))
+        assert isinstance(exc, LLMBillingError)
+        assert isinstance(exc, PermissionError)  # legacy handlers still catch
+        assert exc.code == "insufficient_balance"
+
+    def test_friendly_message_is_idempotent_and_keeps_code(self):
+        # The friendly text embeds [code: ...] so a second pass (or downstream
+        # string matching, e.g. build_node's billing branch) still detects it.
+        from agent.ec_skills.llm_utils.proxy_errors import (
+            billing_block_code, friendly_proxy_error_message)
+        msg = friendly_proxy_error_message(self.BAL_JSON)
+        assert billing_block_code(msg) == "insufficient_balance"
+        assert friendly_proxy_error_message(msg) == msg
+
+    def test_unknown_codes_still_none(self):
+        from agent.ec_skills.llm_utils.proxy_errors import billing_block_code
+        assert billing_block_code('{"error":{"code":"rate_limited"}}') is None
+        assert billing_block_code(None) is None
+
+    def test_build_node_pauses_qa_task_on_billing_block(self):
+        # Source contract: the QA failure path must park billing-blocked
+        # tasks as input_required (no redispatch hammer), not failed.
+        import inspect
+        from agent.ec_skills import build_node
+        src = inspect.getsource(build_node)
+        assert "TaskState.input_required if _billing_code" in src
+        assert '"paused_for_funds" if _billing_code' in src
+
+
 class TestBuildNodeSourceContract:
     """build_node's _build_runtime_llm is a deep closure — assert the
     missing-key branch tries the proxy before raising, at source level."""

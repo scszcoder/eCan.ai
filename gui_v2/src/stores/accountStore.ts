@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { getRegionSync } from '../contexts/AppConfigContext';
 
 /**
  * Account info structure from cloud API
@@ -162,7 +163,11 @@ export const useAccountStore = create<AccountState>((set, get) => ({
     getFund: () => {
         const { accountData } = get();
         const fund = accountData?.acctInfo?.fund;
-        return typeof fund === 'number' && !Number.isNaN(fund) ? fund : null;
+        if (typeof fund !== 'number' || Number.isNaN(fund)) return null;
+        // CN billing went server-authoritative (2026-09-01): accounts.fund
+        // is integer fen. Normalize to yuan here so every consumer (display,
+        // low-fund threshold) works in currency units. Intl stays USD as-is.
+        return getRegionSync() === 'cn' ? fund / 100 : fund;
     },
 
     getVerificationStatus: () => {

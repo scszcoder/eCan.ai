@@ -5133,8 +5133,29 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 )
                 logger.debug(f"Traceback: {traceback.format_exc()}")
 
+                # eCan proxy billing block (402 insufficient_balance /
+                # 403 account_inactive / user_not_registered)? These are
+                # terminal until the user acts (top-up / activation) — the
+                # server caches the denial, so retrying or re-dispatching
+                # only hammers the proxy. Detected first so the generic
+                # provider-402 branch below doesn't claim them.
+                from agent.ec_skills.llm_utils.proxy_errors import (
+                    billing_block_code, friendly_proxy_error_message,
+                    notify_billing_block,
+                )
+                _billing_code = (billing_block_code(getattr(e, "code", ""))
+                                 or billing_block_code(error_msg))
+
                 # Detect specific error types and provide helpful messages
-                if "AuthenticationError" in error_type or "authentication" in error_msg.lower():
+                if _billing_code:
+                    user_msg = (friendly_proxy_error_message(error_msg)
+                                or friendly_proxy_error_message(f"[{_billing_code}]")
+                                or error_msg)
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
+                    # Nudge the GUI: refresh balance + show the top-up hint.
+                    notify_billing_block(_billing_code)
+                elif "AuthenticationError" in error_type or "authentication" in error_msg.lower():
                     user_msg = (
                         f"🔑 LLM Authentication Failed: Invalid API key for {llm_provider}\n"
                         f"   Provider: {llm_provider}\n"
@@ -5241,7 +5262,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             model=model_name,
                             error_type=error_type,
                             error_preview=error_msg[:240],
-                            action="mark_task_failed_for_redispatch",
+                            action=("paused_for_funds" if _billing_code
+                                    else "mark_task_failed_for_redispatch"),
                         )
 
                         _cust_id = str(_qa_payload.get("customer_id") or "").strip()
@@ -5278,7 +5300,16 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         if _task is None and runtime and hasattr(runtime, "context"):
                             _task = runtime.context.get("task") or runtime.context.get("managed_task")
                         if _task is not None and getattr(_task, "status", None) is not None:
-                            _task.status.state = TaskState.failed
+                            # Billing blocks pause the task instead of failing
+                            # it: a failed QA task is re-dispatched next cycle,
+                            # which would hammer the proxy while the balance
+                            # stays empty. input_required parks it until the
+                            # user tops up (the next inbound message
+                            # re-dispatches normally).
+                            _task.status.state = (
+                                TaskState.input_required if _billing_code
+                                else TaskState.failed
+                            )
                 except Exception as _qa_fail_log_err:
                     logger.debug(
                         f"[LIVE-CHAT-LEDGER] qa_llm_failed handling failed: "

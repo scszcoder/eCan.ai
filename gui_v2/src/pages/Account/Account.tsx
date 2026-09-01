@@ -51,6 +51,13 @@ const planLabel = (subs: unknown, t: any): string => {
     return names.join(' + ');
 };
 
+// CN fund is server-authoritative integer fen (billing settlement,
+// 2026-09-01) — render ¥fund/100. Intl fund stays a USD amount.
+const formatFund = (fund: unknown, isCN: boolean): string => {
+    const n = typeof fund === 'number' && !Number.isNaN(fund) ? fund : 0;
+    return isCN ? `¥${(n / 100).toFixed(2)}` : `$${n}`;
+};
+
 const Account: React.FC = () => {
     const { t } = useTranslation();
     const [topUpAmount, setTopUpAmount] = useState<number | null>(50);
@@ -330,7 +337,9 @@ const Account: React.FC = () => {
                                 <Divider type="vertical" style={{ height: 'auto' }} />
                                 <div>
                                     <Text type="secondary">{t('account.balance', 'Balance')}</Text><br />
-                                    <Text strong>{isCN ? '¥' : '$'}{accountData?.acctInfo?.fund ?? 0}</Text>
+                                    <Text strong style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        {formatFund(accountData?.acctInfo?.fund, isCN)}
+                                    </Text>
                                 </div>
                                 <Divider type="vertical" style={{ height: 'auto' }} />
                                 <div>

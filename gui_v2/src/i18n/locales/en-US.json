@@ -3706,7 +3706,9 @@
     "errorBackendRunning": "Sorry, I encountered an error. Please check if the backend is running."
   },
   "banner": {
-    "fundRunningLow": "Fund running low"
+    "fundRunningLow": "Fund running low",
+    "billingInsufficient": "Cloud AI balance exhausted — the task is paused. Top up on the Account page to resume.",
+    "billingBlocked": "Cloud AI service unavailable for this account — check the Account page."
   },
   "account": {
     "planBasic": "Basic",
