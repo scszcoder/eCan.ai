@@ -31,12 +31,26 @@ _CLI_TIMEOUT_S = 280
 
 
 def _current_user_id() -> Optional[str]:
-    """The logged-in user's id, or None when not resolvable."""
+    """The logged-in user's id, or None when not resolvable.
+
+    Prefer MainWindow.user — the @local-normalized identity every DB owner
+    column and owner-scoped query uses. auth_manager.current_user can be the
+    RAW id for new-flow WeChat logins (e.g. 'wechat_<openid>' without
+    '@local'); deploying with that owner made the 9 agents invisible to
+    get_agents_by_owner('...@local') on a customer machine (2026-09-01).
+    """
     try:
         from app_context import AppContext
 
+        mainwin = AppContext.get_main_window()
+        mw_user = getattr(mainwin, "user", None) if mainwin else None
+        if mw_user:
+            return str(mw_user)
         login = AppContext.get_login()
         user = getattr(getattr(login, "auth_manager", None), "current_user", None)
+        if user and "@" not in str(user):
+            # Match MainWindow._init_user_environment's normalization.
+            return f"{user}@local"
         return str(user) if user else None
     except Exception:
         return None
