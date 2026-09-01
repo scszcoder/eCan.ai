@@ -146,12 +146,33 @@ class LinuxBuilder:
             # Exclude modules
             for exclude in pyinstaller_config.get("excludes", []):
                 cmd.extend(["--exclude-module", exclude])
-            
+
+            # Strip debug symbols (-10-30% size on .so/.pyc).
+            # Honored only when the profile declares it; default false (matches
+            # build_config.json:31, 36, 46 — `prod` is the only profile that
+            # sets this true).
+            if profile.get("strip_debug", False):
+                cmd.append("--strip")
+                print("[PyInstaller] strip_debug=true → passing --strip")
+
+            # UPX compresses binaries in-place (-30-50% size on the PyInstaller
+            # output). Requires `upx` on PATH; release-cn.yml installs it via
+            # apt-get before invoking this builder (see P3-12 / UPX bootstrap
+            # comment below). If UPX is missing, fall back gracefully rather
+            # than failing the whole build.
+            if profile.get("upx_compression", False):
+                upx_path = shutil.which("upx")
+                if upx_path:
+                    cmd.extend(["--upx-dir", os.path.dirname(upx_path)])
+                    print(f"[PyInstaller] upx_compression=true → using upx at {upx_path}")
+                else:
+                    print("[PyInstaller] upx_compression=true but 'upx' not on PATH; skipping (size will be larger)")
+
             # Add hooks path
             hooks_path = self.project_root / "build_system" / "pyinstaller_hooks"
             if hooks_path.exists():
                 cmd.extend(["--additional-hooks-dir", str(hooks_path)])
-            
+
             # Main entry point
             cmd.append(str(self.project_root / "main.py"))
             
@@ -513,7 +534,16 @@ exit 0
             if output_file.exists():
                 output_file.unlink()
             
-            cmd = ["dpkg-deb", "--build", "--root-owner-group", str(pkg_dir), str(output_file)]
+            # PyInstaller output is dominated by already-compressed .so/.pyc, which
+            # xz -9 re-presses significantly better than the dpkg-deb default (zstd).
+            # -Zxz -z9 cuts the .deb ~30-40% on this codebase (877MB → ~530-620MB).
+            # See build_optimization_analysis.canvas.tsx for the breakdown.
+            cmd = [
+                "dpkg-deb", "--build",
+                "-Zxz", "-z9",
+                "--root-owner-group",
+                str(pkg_dir), str(output_file),
+            ]
             print(f"\n[DEB] Command: {' '.join(cmd)}\n")
             
             try:
