@@ -80,6 +80,7 @@ const Warehouses: React.FC = () => {
         />
       }
       detailsContent={<WarehouseDetail warehouse={selected} onChange={handleChange} />}
+      fillDetailsAvailableWidth
     />
   );
 };

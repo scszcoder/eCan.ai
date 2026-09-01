@@ -2240,6 +2240,11 @@
         "invalidIp": "Please enter a valid IP address",
         "osRequired": "Operating system is required"
       },
+      "view": {
+        "list": "List View",
+        "grid": "Grid View"
+      },
+      "noDevices": "No devices yet",
       "messages": {
         "addSuccess": "Vehicle added successfully",
         "addFailed": "Failed to add vehicle",

@@ -2299,6 +2299,11 @@
         "invalidIp": "请输入有效的IP地址",
         "osRequired": "操作系统必填"
       },
+      "view": {
+        "list": "列表视图",
+        "grid": "网格视图"
+      },
+      "noDevices": "暂无电脑设备",
       "messages": {
         "addSuccess": "设备添加成功",
         "addFailed": "设备添加失败",
