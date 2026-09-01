@@ -305,6 +305,21 @@ class AuthManager:
             if not result.get('success'):
                 logger.error(f"AuthManager: On-demand token refresh failed: {result.get('error')}")
                 self.signed_in = False
+                # Mirror the no-session-token branch (above): when refresh
+                # itself fails, the credential cache and the supervisor must
+                # both observe the loss so the GUI can show the re-login
+                # banner and downstream callers (wan_chat, OfflineSyncManager,
+                # AppSync) stop using the stale cached token. Without this
+                # notify, the IPC keeps returning the same expired token and
+                # every cloud call 401s in silence (CLAUDE.md §6 — refresh
+                # failure without GUI notification).
+                try:
+                    from auth.session_supervisor import get_session_supervisor
+                    sup = get_session_supervisor()
+                    if sup is not None:
+                        sup.notify_session_cleared(source="ensure_valid_tokens_refresh_failed")
+                except Exception:
+                    pass
                 return False
 
             refreshed_tokens = result.get('data') or {}
