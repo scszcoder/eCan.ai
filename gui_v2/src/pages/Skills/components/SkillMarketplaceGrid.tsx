@@ -90,8 +90,8 @@ const IconBadge = styled.div<{ $bg: [string, string] }>`
     height: 44px;
     border-radius: 10px;
     background: linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0.06));
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    /* backdrop-filter: blur(8px); 移除以提升低性能电脑性能 */
+    /* -webkit-backdrop-filter: blur(8px); */
     border: 1px solid rgba(255, 255, 255, 0.2);
     color: #fff;
     display: flex;
@@ -142,8 +142,8 @@ const HeaderBadge = styled.div<{ $bg: string }>`
     gap: 3px;
     text-transform: uppercase;
     white-space: nowrap;
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    /* backdrop-filter: blur(6px); 移除以提升低性能电脑性能 */
+    /* -webkit-backdrop-filter: blur(6px); */
     border: 1px solid rgba(255, 255, 255, 0.12);
 
     .anticon {
@@ -355,8 +355,8 @@ const TrendingRibbon = styled.div`
     left: 8px;
     z-index: 2;
     background: linear-gradient(135deg, rgba(250,173,20,0.88), rgba(255,122,69,0.88));
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    /* backdrop-filter: blur(8px); 移除以提升低性能电脑性能 */
+    /* -webkit-backdrop-filter: blur(8px); */
     color: #fff;
     font-size: 10px;
     font-weight: 700;

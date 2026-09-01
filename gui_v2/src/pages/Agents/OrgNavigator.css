@@ -195,10 +195,10 @@
   justify-content: space-between;
   align-items: center;
   padding: 24px 32px 16px;
-  /* 增强玻璃态效果 */
+  /* 增强玻璃态效果 - 移除 backdrop-filter 避免低性能电脑闪烁 */
   background: 
-    linear-gradient(180deg, rgba(15, 23, 42, 0.8) 0%, rgba(15, 23, 42, 0.7) 100%);
-  backdrop-filter: blur(16px);
+    linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(15, 23, 42, 0.9) 100%);
+  /* backdrop-filter: blur(16px); 移除以提升性能 */
   border-bottom: 1px solid rgba(59, 130, 246, 0.25);
   box-shadow: 
     0 4px 20px rgba(0, 0, 0, 0.2),
@@ -291,10 +291,10 @@
   text-align: center;
   z-index: 2;
   padding: 48px;
-  /* 增强玻璃态卡片 */
+  /* 增强玻璃态卡片 - 移除 backdrop-filter 避免低性能电脑闪烁 */
   background: 
-    linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(20, 27, 45, 0.85) 100%);
-  backdrop-filter: blur(28px);
+    linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(20, 27, 45, 0.95) 100%);
+  /* backdrop-filter: blur(28px); 移除以提升性能 */
   border-radius: 24px;
   border: 1px solid rgba(59, 130, 246, 0.3);
   box-shadow: 

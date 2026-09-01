@@ -49,7 +49,7 @@
   padding: 14px 20px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.2);
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.98) 100%);
-  backdrop-filter: blur(10px);
+  /* backdrop-filter: blur(10px); 移除以提升低性能电脑性能 */
   z-index: 10;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   position: sticky;

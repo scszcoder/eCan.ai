@@ -81,23 +81,23 @@
 .workflow-comment-more-button > .semi-button:hover {
     color: #ffa100;
     background: #fbf2d2cc;
-    backdrop-filter: blur(1px);
+    /* backdrop-filter: blur(1px); 移除以提升低性能电脑性能 */
 }
 
 .workflow-comment-more-button-focused > .semi-button:hover {
     color: #ff811a;
     background: #ffe3cecc;
-    backdrop-filter: blur(1px);
+    /* backdrop-filter: blur(1px); 移除以提升低性能电脑性能 */
 }
 
 .workflow-comment-more-button > .semi-button:active {
     color: #f2b600;
     background: #ede5c7cc;
-    backdrop-filter: blur(1px);
+    /* backdrop-filter: blur(1px); 移除以提升低性能电脑性能 */
 }
 
 .workflow-comment-more-button-focused > .semi-button:active {
     color: #ff811a;
     background: #eed5c1cc;
-    backdrop-filter: blur(1px);
+    /* backdrop-filter: blur(1px); 移除以提升低性能电脑性能 */
 }
