@@ -8,6 +8,7 @@ import { ipcApi } from '../../services/ipc/api';
 import { getCachedAppConfig, useIsCN } from '../../contexts/AppConfigContext';
 import { isWebPlatform } from '../../config/platform';
 import TokenUsageSection from './TokenUsageSection';
+import ContactVerification from './ContactVerification';
 
 const { Title, Text } = Typography;
 
@@ -375,6 +376,8 @@ const Account: React.FC = () => {
                     </Card>
                 </Col>
             </Row>
+
+            {isCN && <ContactVerification />}
 
             <Row gutter={[24, 24]} style={{ marginTop: 24 }}>
                 <Col xs={24}>
