@@ -178,6 +178,7 @@ const Account: React.FC = () => {
         setRemovingKey(true);
         try {
             const maskedKey = maskApiKey(apiKey);
+            let backendSuccess = false;
             if (isCN && isWebPlatform()) {
                 const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
                 if (!envId) throw new Error('CloudBase API key service is not configured');
@@ -185,21 +186,31 @@ const Account: React.FC = () => {
                 const app = cloudbase.init({ env: envId, region: 'ap-shanghai' });
                 const result = await app.callFunction({ name: 'myAPIKeygen', data: { action: 'removeApiKeys', keys: [maskedKey] } });
                 const resp = (result as any)?.result || result;
-                if (!resp?.success) throw new Error(resp?.message || resp?.error || 'Failed to remove API key');
-                setApiKey('');
-                message.success(t('account.apiKeyRemoved', 'API key removed'));
-                return;
+                if (resp?.success) {
+                    backendSuccess = true;
+                } else {
+                    console.warn('Backend API key removal failed, performing local cleanup:', resp?.message || resp?.error);
+                }
+            } else {
+                const response = await ipcApi.executeRequest('remove_api_key', { masked_keys: [maskedKey] });
+                if (response?.success) {
+                    backendSuccess = true;
+                } else {
+                    console.warn('Backend API key removal failed, performing local cleanup:', response?.error?.message);
+                }
             }
-            const response = await ipcApi.executeRequest('remove_api_key', { masked_keys: [maskedKey] });
-            if (response?.success) {
-                setApiKey('');
+            // Always clear local state, even if backend deletion fails
+            setApiKey('');
+            if (backendSuccess) {
                 message.success(t('account.apiKeyRemoved', 'API key removed'));
             } else {
-                message.error(response?.error?.message || t('account.removeFailed', 'Failed to remove API key'));
+                message.warning(t('account.apiKeyRemovedLocal', 'API key removed from this device. Server cleanup may have failed.'));
             }
         } catch (error) {
             console.error('Error removing API key:', error);
-            message.error(t('account.removeError', 'Error removing API key'));
+            // Still clear local state on exception
+            setApiKey('');
+            message.warning(t('account.apiKeyRemovedLocal', 'API key removed from this device. Server cleanup may have failed.'));
         } finally {
             setRemovingKey(false);
         }

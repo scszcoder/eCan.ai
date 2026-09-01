@@ -921,6 +921,27 @@ def _cn_session_token(mainwin) -> str:
     return value[7:] if value.lower().startswith("bearer ") else value
 
 
+def _session_invalidated_response(request) -> Optional[IPCResponse]:
+    """Return INVALID_TOKEN when the user is signed out or has no token.
+
+    Returning this code lets the gui_v2 IPC wrapper auto-redirect to the
+    login page (apiRouter -> INVALID_TOKEN handler) instead of showing a
+    generic 'Failed to get API key' toast on top of a stale-session failure
+    (the symptom the user saw as "获取密钥按钮报错" after refresh-token
+    revocation). Returns None when the session looks usable.
+    """
+    mainwin = AppContext.get_main_window()
+    auth_manager = getattr(mainwin, "auth_manager", None) if mainwin else None
+    if auth_manager is None or not auth_manager.is_signed_in():
+        return create_error_response(request, 'INVALID_TOKEN',
+                                     'Session expired — please sign in again')
+    token = mainwin.get_auth_token() if mainwin else ""
+    if not (token or "").strip():
+        return create_error_response(request, 'INVALID_TOKEN',
+                                     'Session expired — please sign in again')
+    return None
+
+
 @IPCHandlerRegistry.handler('sync_ecanai_account_api_key')
 def handle_sync_ecanai_account_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Synchronize the signed-in account key to all local eCanAI providers."""
@@ -951,6 +972,9 @@ def handle_req_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
             return create_error_response(request, 'NOT_INITIALIZED', 'Main window not initialized')
 
         customer = (params or {}).get('customer', 'guest')
+        invalid = _session_invalidated_response(request)
+        if invalid is not None:
+            return invalid
         from utils.app_env import is_cn
         if is_cn():
             # CN: same myAPIKeygen backend the web Account page uses, so the
@@ -995,6 +1019,9 @@ def handle_remove_api_key(request: IPCRequest, params: Optional[Dict[str, Any]])
         if not masked_keys:
             return create_error_response(request, 'INVALID_PARAMS', 'masked_keys is required')
 
+        invalid = _session_invalidated_response(request)
+        if invalid is not None:
+            return invalid
         from utils.app_env import is_cn
         if is_cn():
             from agent.cloud_api.api_keys import remove_api_keys
@@ -1035,6 +1062,9 @@ def handle_get_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         mainwin = AppContext.get_main_window()
         if not mainwin:
             return create_error_response(request, 'NOT_INITIALIZED', 'Main window not initialized')
+        invalid = _session_invalidated_response(request)
+        if invalid is not None:
+            return invalid
         from utils.app_env import is_cn
         if not is_cn():
             return create_success_response(request, {'apiKey': None, 'status': 'not_supported'})
