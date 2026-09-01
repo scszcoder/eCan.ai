@@ -436,7 +436,7 @@ class LLMManager:
         Also supports lookup by:
         1. provider identifier (canonical, e.g., "openai")
         2. class_name (backward compatibility, e.g., "ChatOpenAI" -> "openai")
-        3. name (backward compatibility, e.g., "Qwen (DashScope)" -> "dashscope")
+        3. name (backward compatibility, e.g., "Qwen" -> "dashscope")
         """
         key = (provider_key or "").strip().lower()
         if not key:

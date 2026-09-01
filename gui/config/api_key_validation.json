@@ -42,7 +42,7 @@
     },
     "ZHIPUAI_API_KEY": {
       "min_length": 20,
-      "description": "ChatGLM (Zhipu AI) API key"
+      "description": "ChatGLM API key"
     },
     "AWS_ACCESS_KEY_ID": {
       "min_length": 16,

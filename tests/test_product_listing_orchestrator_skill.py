@@ -947,7 +947,7 @@ class TestEdgeCases:
             "inputsValues": {
                 "systemPrompt": {"type": "constant", "content": "You are a test."},
                 "prompt": {"type": "template", "content": "{{input}}"},
-                "modelProvider": {"type": "constant", "content": "Qwen (DashScope)"},
+                "modelProvider": {"type": "constant", "content": "Qwen"},
                 "modelName": {"type": "constant", "content": "qwen3.6-plus"},
                 "apiKey": {"type": "constant", "content": "test"},
                 "apiHost": {"type": "constant", "content": "https://dashscope.aliyuncs.com/compatible-mode/v1"},

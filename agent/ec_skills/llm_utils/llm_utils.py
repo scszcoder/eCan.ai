@@ -2244,7 +2244,7 @@ def create_browser_use_llm_by_provider_type(
             f"[create_browser_use_llm_by_provider_type] Invalid provider_type '{provider_type}'. "
             f"Must be a standard provider ID (lowercase, no spaces, no special chars). "
             f"Examples: 'openai', 'dashscope', 'deepseek', 'ollama'. "
-            f"NOT display names like ''Qwen. "
+            f"NOT display names like 'Qwen'. "
             f"Please ensure extract_provider_config() returns the 'provider_type' field (standard ID)."
         )
         return None

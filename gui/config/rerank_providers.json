@@ -81,7 +81,7 @@
     },
     "Alibaba Qwen": {
       "name": "Alibaba Qwen",
-      "display_name": "Alibaba Qwen (DashScope)",
+      "display_name": "Alibaba Qwen",
       "provider": "aliyun",
       "class_name": "AliyunRerank",
       "regions": ["cn", "intl"],
@@ -143,7 +143,7 @@
     },
     "SiliconFlow": {
       "name": "SiliconFlow",
-      "display_name": "SiliconFlow (BGE)",
+      "display_name": "SiliconFlow",
       "provider": "siliconflow",
       "class_name": "SiliconFlowRerank",
       "regions": ["cn", "intl"],

@@ -201,9 +201,9 @@
         }
       ]
     },
-    "Qwen (DashScope)": {
-      "name": "Qwen (DashScope)",
-      "display_name": "Qwen (DashScope)",
+    "Qwen": {
+      "name": "Qwen",
+      "display_name": "Qwen",
       "provider": "alibaba_qwen",
       "class_name": "QwenEmbeddings",
       "regions": ["cn", "intl"],
