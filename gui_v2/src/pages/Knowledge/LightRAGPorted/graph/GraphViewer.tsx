@@ -140,11 +140,11 @@ const GraphViewer: React.FC = () => {
           background: transparent !important;
         }
         .graph-async-select .ant-select-selector {
-          background: rgba(100, 116, 139, 0.5) !important;
+          background: rgba(100, 116, 139, 0.85) !important;
           border: 1px solid rgba(255, 255, 255, 0.15) !important;
           color: #ffffff !important;
           height: 40px !important;
-          backdrop-filter: blur(12px) !important;
+          /* backdrop-filter: blur(12px) !important; 移除以提升低性能电脑性能 */
         }
         .graph-async-select .ant-select-selection-search-input {
           height: 38px !important;

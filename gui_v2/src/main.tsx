@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 // Configure Monaco Editor to use local files (must be imported before any Monaco usage)
 import './modules/skill-editor/components/code-editor/monaco-config';
+// Low performance detection - 在 React 渲染前尽早启用减少动画，避免低性能电脑闪烁
+import './utils/lowPerformanceDetection';
 
 // Suppress React deprecation warnings from third-party libraries in production
 // These warnings come from bundled code (rc-util/antd/@flowgram.ai) and cannot be fixed externally

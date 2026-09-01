@@ -62,9 +62,9 @@
   max-width: 420px;
   max-height: calc(100vh - 48px); /* 避免卡片高度超过视口导致底部链接 (注册新账号/返回登录) 被裁掉 */
   overflow-y: auto; /* 卡片内部可滚动,确保 Sign Up 链接在小屏/短视口下也可访问 */
-  background: rgba(30, 41, 59, 0.7);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(30, 41, 59, 0.95);
+  /* backdrop-filter: blur(20px); 移除以提升低性能电脑性能 */
+  /* -webkit-backdrop-filter: blur(20px); */
   border: 1px solid rgba(148, 163, 184, 0.1);
   border-radius: 16px;
   padding: 40px 36px;
@@ -574,9 +574,9 @@
   width: 920px;
   max-width: 100%;
   min-height: 560px;
-  background: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  background: rgba(15, 23, 42, 0.95);
+  /* backdrop-filter: blur(24px) saturate(140%); 移除以提升低性能电脑性能 */
+  /* -webkit-backdrop-filter: blur(24px) saturate(140%); */
   border: 1px solid rgba(148, 163, 184, 0.12);
   box-shadow:
     0 25px 50px -12px rgba(0, 0, 0, 0.5),

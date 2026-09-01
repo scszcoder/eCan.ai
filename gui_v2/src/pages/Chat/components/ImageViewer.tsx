@@ -58,10 +58,10 @@ const Toolbar = styled.div`
     display: flex;
     flex-direction: column;
     gap: 8px;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.9);
     padding: 12px;
     border-radius: 12px;
-    backdrop-filter: blur(10px);
+    /* backdrop-filter: blur(10px); 移除以提升低性能电脑性能 */
     border: 1px solid rgba(255, 255, 255, 0.2);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 `;
@@ -81,7 +81,7 @@ const CloseButton = styled.button`
     position: absolute;
     top: 20px;
     right: 20px;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.9);
     border: none;
     border-radius: 50%;
     width: 40px;
@@ -92,7 +92,7 @@ const CloseButton = styled.button`
     cursor: pointer;
     color: white;
     font-size: 18px;
-    backdrop-filter: blur(10px);
+    /* backdrop-filter: blur(10px); 移除以提升低性能电脑性能 */
     border: 1px solid rgba(255, 255, 255, 0.1);
     transition: all 0.2s ease;
     
@@ -106,12 +106,12 @@ const ImageInfo = styled.div`
     position: absolute;
     bottom: 20px;
     left: 20px;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.9);
     color: white;
     padding: 8px 12px;
     border-radius: 8px;
     font-size: 14px;
-    backdrop-filter: blur(10px);
+    /* backdrop-filter: blur(10px); 移除以提升低性能电脑性能 */
     border: 1px solid rgba(255, 255, 255, 0.1);
 `;
 
@@ -119,12 +119,12 @@ const ZoomInfo = styled.div`
     position: absolute;
     top: 20px;
     left: 20px;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.9);
     color: white;
     padding: 8px 12px;
     border-radius: 8px;
     font-size: 14px;
-    backdrop-filter: blur(10px);
+    /* backdrop-filter: blur(10px); 移除以提升低性能电脑性能 */
     border: 1px solid rgba(255, 255, 255, 0.1);
 `;
 

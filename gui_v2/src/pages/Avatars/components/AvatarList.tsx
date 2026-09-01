@@ -104,7 +104,7 @@ const VideoIndicator = styled.div`
   justify-content: center;
   color: #fff;
   font-size: 13px;
-  backdrop-filter: blur(4px);
+  /* backdrop-filter: blur(4px); 移除以提升低性能电脑性能 */
 `;
 
 const PriceBadge = styled.span<{ free?: boolean }>`
