@@ -136,3 +136,6 @@ WS*_SPEC.md
 # for the cloud build. Should be auto-deleted by trap EXIT on script end.
 # Ignored as belt-and-suspenders in case deploy is SIGKILLed.
 **/*.tcb-bak
+
+# Server-side API design notes (implementation lives in the private backend repo)
+docs/VERIFY_ACCOUNT_INFO_API.md

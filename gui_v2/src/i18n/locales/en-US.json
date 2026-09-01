@@ -3700,7 +3700,15 @@
     "errorProcessingMessage": "Sorry, I encountered an error processing your message. Please try again.",
     "errorBackendRunning": "Sorry, I encountered an error. Please check if the backend is running."
   },
+  "banner": {
+    "fundRunningLow": "Fund running low"
+  },
   "account": {
+    "noAccountRecord": "No account record found yet — it is created on first login",
+    "infoIncomplete": "Account info incomplete",
+    "verifyEmailNeeded": "Email not verified",
+    "verifyPhoneNeeded": "Phone number not verified",
+    "verifyDeadline": "{{days}} day(s) left before the account is deactivated",
     "title": "Account",
     "refresh": "Refresh",
     "refreshSuccess": "Account info refreshed",

@@ -3759,7 +3759,15 @@
     "errorProcessingMessage": "抱歉，处理消息时遇到错误。请重试。",
     "errorBackendRunning": "抱歉，遇到错误。请检查后端服务是否正在运行。"
   },
+  "banner": {
+    "fundRunningLow": "余额不足，请及时充值"
+  },
   "account": {
+    "noAccountRecord": "尚未找到账户记录 — 首次登录时自动创建",
+    "infoIncomplete": "账户信息不完整",
+    "verifyEmailNeeded": "邮箱未验证",
+    "verifyPhoneNeeded": "手机号未验证",
+    "verifyDeadline": "还剩 {{days}} 天，逾期账户将被停用",
     "title": "账户",
     "refresh": "刷新",
     "refreshSuccess": "账户信息已刷新",

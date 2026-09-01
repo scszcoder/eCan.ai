@@ -943,6 +943,21 @@ def sync_all_skill_files_to_cloud(skills: List[Dict[str, Any]]) -> None:
 # Startup auto-refresh for subscribed skills
 # ---------------------------------------------------------------------------
 
+def _auto_fetch_sub_skills_enabled(mainwin) -> bool:
+    """ECAN_AUTO_FETCH_SUB_SKILLS option: auto-download subscribed skills
+    whose files are missing from my_skills. Env var wins over the persisted
+    settings field of the same name; default ON."""
+    env = str(os.environ.get("ECAN_AUTO_FETCH_SUB_SKILLS", "") or "").strip()
+    if env:
+        return env not in ("0", "false", "no", "off")
+    try:
+        gs = mainwin.config_manager.general_settings
+        value = gs.get_field("ECAN_AUTO_FETCH_SUB_SKILLS", 1)
+        return str(value).strip().lower() not in ("0", "false", "no", "off")
+    except Exception:
+        return True
+
+
 def refresh_subscribed_skills_from_cloud(mainwin) -> int:
     """Auto-update SUBSCRIBED (non-owned, read-only) skills from the cloud.
 
@@ -952,6 +967,12 @@ def refresh_subscribed_skills_from_cloud(mainwin) -> int:
     When the cloud copy is newer, download the presigned zip into my_skills
     (the compiler is local-file-first, so refreshing the files is what makes
     the update take effect) and then sync the DB row's diagram + version.
+
+    2026-08-31 addition: independent of version freshness, a subscribed skill
+    whose FILES are missing from my_skills (never downloaded, wiped, or a
+    failed earlier fetch) is fetched automatically when the
+    ECAN_AUTO_FETCH_SUB_SKILLS option is on (default 1; env var beats the
+    persisted settings field).
 
     Rationale (v0.9.95x incident): a republished rented skill only reached
     subscribers via a manual skills-page update click; two consecutive live
@@ -1008,17 +1029,40 @@ def refresh_subscribed_skills_from_cloud(mainwin) -> int:
                 )
                 if not cloud:
                     continue
-                if compare_skill_versions(row.get("version"), cloud.get("version")) != CLOUD_NEWER:
-                    continue
-
                 folder = name if name.endswith("_skill") else f"{name}_skill"
                 dest_dir = Path(_get_my_skills_dir()) / folder
+                cloud_newer = compare_skill_versions(
+                    row.get("version"), cloud.get("version")) == CLOUD_NEWER
+                # "Missing" = no dir, or a dir with no JSON anywhere (the
+                # compiler needs at least the diagram_dir json; an empty husk
+                # from a failed earlier unzip counts as missing).
+                try:
+                    files_missing = not (dest_dir.is_dir()
+                                         and any(dest_dir.rglob("*.json")))
+                except Exception:
+                    files_missing = not dest_dir.is_dir()
+                if not cloud_newer and not (files_missing
+                                            and _auto_fetch_sub_skills_enabled(mainwin)):
+                    continue
+                if files_missing and not cloud_newer:
+                    logger.info(
+                        f"[skill_file_sync] subscribed skill '{name}' ({sid}) has no "
+                        f"local files — auto-fetching (ECAN_AUTO_FETCH_SUB_SKILLS)"
+                    )
                 got_files = False
                 url_info = _request_download_url(sid, author, ctx)
                 if url_info and url_info.get("downloadUrl"):
                     zip_bytes = _download_from_s3(url_info["downloadUrl"])
                     if zip_bytes and _unzip_to_skill_dir(zip_bytes, dest_dir):
                         got_files = True
+                if not got_files and not cloud_newer:
+                    # Missing-files fetch failed and there is no version delta —
+                    # nothing achieved; don't touch the row or count a refresh.
+                    logger.warning(
+                        f"[skill_file_sync] auto-fetch failed for subscribed skill "
+                        f"'{name}' ({sid}) — files still missing"
+                    )
+                    continue
                 if not got_files and dest_dir.is_dir():
                     # Files exist locally but couldn't refresh — the stale files
                     # would win over any DB update (local-file-first compile), so

@@ -885,14 +885,27 @@ def handle_get_account_info(request: IPCRequest, params: Optional[Dict[str, Any]
             mainwin.getWanApiEndpoint()
         )
         
-        if response and 'errorType' not in response:
+        if isinstance(response, dict) and 'errorType' in response:
+            logger.warning(f"[GetAccountInfo] Failed to fetch account info: {response}")
+            return create_error_response(
+                request, 'FETCH_ERROR',
+                response.get('message') or str(response))
+        if isinstance(response, list) and not response:
+            # Cloud answered fine but has NO account row for this identity
+            # (e.g. server-side owner derivation not matching the row created
+            # by ensure_account). SUCCESS with no data — not an error popup.
+            logger.warning(
+                "[GetAccountInfo] Cloud returned an empty account list — "
+                "no accounts row matches this session's identity"
+            )
+            return create_success_response(request, {'accountInfo': None})
+        if response:
             logger.info("[GetAccountInfo] Account info fetched successfully")
             # Store in mainwin for later use
             mainwin._account_info = response
             return create_success_response(request, {'accountInfo': response})
-        else:
-            logger.warning(f"[GetAccountInfo] Failed to fetch account info: {response}")
-            return create_error_response(request, 'FETCH_ERROR', str(response))
+        logger.warning(f"[GetAccountInfo] Failed to fetch account info: {response}")
+        return create_error_response(request, 'FETCH_ERROR', str(response))
             
     except Exception as e:
         logger.error(f"[GetAccountInfo] Error: {e}")
