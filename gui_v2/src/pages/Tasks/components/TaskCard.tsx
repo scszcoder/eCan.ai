@@ -21,6 +21,7 @@ import {
   TeamOutlined,
   CloudOutlined,
   DesktopOutlined,
+  DragOutlined,
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { keyframes, css } from '@emotion/react';
@@ -458,19 +459,6 @@ const TaskTitle = styled.span`
   max-width: 200px;
 `;
 
-const TaskId = styled.span`
-  font-size: 11px;
-  color: var(--text-muted);
-  font-family: 'Monaco', 'Menlo', monospace;
-  background: rgba(255, 255, 255, 0.05);
-  padding: 2px 6px;
-  border-radius: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 120px;
-`;
-
 const TaskTags = styled.div`
   display: flex;
   align-items: center;
@@ -530,27 +518,6 @@ const ProgressWrapper = styled.div`
   animation: ${scaleInAnimation} 0.3s ease-out;
 `;
 
-const ShortcutHintBar = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 10px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
-  color: var(--text-secondary);
-  font-size: 12px;
-`;
-
-const ShortcutKey = styled.span`
-  padding: 2px 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-`;
-
 const ActionMenuWrapper = styled.div`
   opacity: 0;
   transition: opacity 0.2s ease;
@@ -594,7 +561,20 @@ interface TaskCardProps {
   onSelect: (task: Task) => void;
   onAction?: (action: string, task: Task) => void;
   viewMode?: 'list' | 'grid';
+  searchHighlight?: string;
 }
+
+// Helper function to highlight search text
+const highlightSearchText = (text: string, highlight: string): React.ReactNode => {
+  if (!highlight || !text) return text;
+  
+  const regex = new RegExp(`(${highlight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  const parts = text.split(regex);
+  
+  return parts.map((part, index) =>
+    regex.test(part) ? <mark key={index} className="highlight">{part}</mark> : part
+  );
+};
 
 // Grid View specific styled components
 const GridCardWrapper = styled.div<{ $isSelected?: boolean; $isRunning?: boolean }>`
@@ -691,16 +671,6 @@ const GridTaskTitle = styled.div`
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.35;
-`;
-
-const GridTaskId = styled.div`
-  font-size: 11px;
-  color: var(--text-muted);
-  font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-top: 3px;
 `;
 
 // Grid card body
@@ -876,12 +846,37 @@ const GridActionBtn = styled(Button, {
   }
 `;
 
+// Drag handle for list items
+const DragHandle = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 8px;
+  color: var(--text-muted);
+  cursor: grab;
+  opacity: 0.4;
+  transition: opacity 0.2s ease;
+  flex-shrink: 0;
+
+  &:hover {
+    opacity: 1;
+    color: var(--text-secondary);
+  }
+
+  &:active {
+    cursor: grabbing;
+  }
+`;
+
 export const TaskCard: React.FC<TaskCardProps> = ({
   task,
   isSelected,
   onSelect,
   onAction,
   viewMode = 'list',
+  searchHighlight,
 }) => {
   const { t } = useTranslation();
 
@@ -919,6 +914,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     return {
       ...finalConfig,
       key: trig,
+      text: t(finalConfig.i18nKey, finalConfig.defaultText),
     };
   });
 
@@ -932,7 +928,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     : t('pages.tasks.notRun', '未运行');
 
   // Calculate progress
-  const rawProgress = task.progress ?? task.metadata?.progress ?? task.state?.progress ?? task.metadata?.progress_percent;
+  const rawProgress = (task as any).progress ?? task.metadata?.progress ?? task.state?.progress ?? task.metadata?.progress_percent;
   const normalizedProgress = typeof rawProgress === 'number'
     ? rawProgress
     : typeof rawProgress === 'string'
@@ -946,6 +942,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
   // Get run count
   const runCount = task.metadata?.run_count || 0;
+
+  // Highlighted title
+  const displayTitle = task.name || t('pages.tasks.untitledTask', '未命名任务');
+  const highlightedTitle = searchHighlight ? highlightSearchText(displayTitle, searchHighlight) : displayTitle;
 
   // Dropdown menu items
   const menuItems: MenuProps['items'] = [
@@ -1002,12 +1002,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               {statusConfig.icon}
             </GridStatusIcon>
             <GridHeaderInfo>
-              <GridTaskTitle title={task.name || t('pages.tasks.untitledTask', '未命名任务')}>
-                {task.name || t('pages.tasks.untitledTask', '未命名任务')}
+              <GridTaskTitle title={displayTitle}>
+                {highlightedTitle}
               </GridTaskTitle>
-              <GridTaskId title={task.id}>
-                #{task.id?.slice(-10) || ''}
-              </GridTaskId>
             </GridHeaderInfo>
           </GridHeaderLeft>
 
@@ -1140,6 +1137,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       isRunning={isRunning}
     >
       <TaskHeader>
+        {/* Drag Handle */}
+        <DragHandle>
+          <DragOutlined />
+        </DragHandle>
+        
         <Space align="start" style={{ flex: 1 }}>
           {/* Status Icon */}
           <TaskIconWrapper status={status} gradient={statusConfig.gradient} isRunning={isRunning}>
@@ -1149,12 +1151,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           {/* Task Info */}
           <TaskMeta>
             <TaskTitleRow>
-              <TaskTitle title={task.name || t('pages.tasks.untitledTask', '未命名任务')}>
-                {task.name || t('pages.tasks.untitledTask', '未命名任务')}
+              <TaskTitle title={displayTitle}>
+                {highlightedTitle}
               </TaskTitle>
-              <TaskId title={task.id}>
-                {task.id?.slice(-12) || ''}
-              </TaskId>
             </TaskTitleRow>
 
             {/* Tags Row */}
