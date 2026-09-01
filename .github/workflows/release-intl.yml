@@ -1898,8 +1898,15 @@ jobs:
             exit 1
           fi
           for f in $DEB ${DEB}.sig $APPIMAGE ${APPIMAGE}.sig; do
-            [ -f "$f" ] && cp "$f" artifacts/
+            # `|| true` swallows the exit code from a missing source so the
+            # `for` loop's overall exit code (which equals the LAST
+            # iteration's last command) does not fail the step under
+            # `set -e -o pipefail` when AppImage is not built.
+            [ -f "$f" ] && cp "$f" artifacts/ || true
           done
+          echo "[ARTIFACTS] Copied: $DEB $DEB.sig $APPIMAGE $APPIMAGE.sig"
+          echo "[ARTIFACTS] DEB present: $([ -f "$DEB" ] && echo yes || echo no)"
+          echo "[ARTIFACTS] APPIMAGE present: $([ -f "$APPIMAGE" ] && echo yes || echo no)"
 
       - name: Upload Linux artifacts (S3 transfer)
         uses: actions/upload-artifact@v6
