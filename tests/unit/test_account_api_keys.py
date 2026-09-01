@@ -46,7 +46,9 @@ def _run(fn, server_payload, *args, **kwargs):
         captured["body"] = json.loads(req.data.decode())
         return _FakeResp(server_payload)
 
-    with patch.object(ak, "_env_id", return_value=ENV), \
+    with patch("agent.cloud_api.cloud_api.req_api_key",
+               return_value={"errorType": "TEST", "message": "graphql off"}), \
+         patch.object(ak, "_env_id", return_value=ENV), \
          patch.object(ak, "_candidate_tokens",
                       side_effect=lambda g: [ak._strip_bearer(g)] if g else []), \
          patch.object(ak, "_mint_access_token_from_refresh", return_value=""), \
@@ -185,3 +187,26 @@ def test_live_key_test_invalid_key_reports_http_status():
          patch("urllib.request.urlopen", fake_urlopen):
         result = ak.test_api_key_live("BADKEY")
     assert not result["valid"] and result["http_status"] == 401
+
+
+def test_create_prefers_graphql_mutation():
+    # CN v21: the standard reqApiKey mutation with the eCan bearer is the
+    # primary path (works for WeChat logins); gateway invoke is fallback-only.
+    with patch("agent.cloud_api.cloud_api.req_api_key",
+               return_value={"apiKey": "kG", "apiKeyId": "id", "message": "ok"}) as gql, \
+         patch.object(ak, "_post") as gateway:
+        result = ak.create_api_key("Bearer SESSTOK", customer="guest")
+    assert result["apiKey"] == "kG" and result["success"]
+    gql.assert_called_once()
+    assert gql.call_args.args[1] == "SESSTOK"  # bearer stripped, passed through
+    gateway.assert_not_called()
+
+
+def test_create_falls_back_to_gateway_on_pre_v21_backend():
+    with patch("agent.cloud_api.cloud_api.req_api_key",
+               return_value={"errorType": "GRAPHQL_VALIDATION_FAILED",
+                             "message": "Unknown argument input"}), \
+         patch.object(ak, "_post", return_value={"apiKey": "kF", "success": True}) as gateway:
+        result = ak.create_api_key("TOK")
+    assert result["apiKey"] == "kF"
+    gateway.assert_called_once()

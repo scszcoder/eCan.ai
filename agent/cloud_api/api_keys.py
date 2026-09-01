@@ -202,7 +202,31 @@ def _post(action: str, session_token: str,
 
 
 def create_api_key(session_token: str, customer: str = "guest") -> Dict[str, Any]:
-    """Create (or return the existing) API key for the signed-in account."""
+    """Create (or return the existing) API key for the signed-in account.
+
+    2026-09-02 (CN GraphQL v21): PRIMARY path is the standard GraphQL
+    mutation ``reqApiKey(input:{customer}) {apiKey apiKeyId message}`` with
+    the eCan bearer — the same credential every other GraphQL call uses, so
+    it works for ALL login types. The CloudBase gateway invoke stays as the
+    FALLBACK only: it authenticates the bearer against CloudBase itself, so
+    WeChat-login accounts (eCan HS256 session token, no CloudBase JWT) got
+    INVALID_CREDENTIALS before their code ever ran (customer incident).
+    Pre-v21 backends reject the mutation shape and fall through cleanly.
+    """
+    try:
+        import requests as _rq
+        from agent.cloud_api.cloud_api import req_api_key as _gql_req_api_key
+        resp = _gql_req_api_key(_rq.Session(), _strip_bearer(session_token),
+                                None, customer=customer)
+        if isinstance(resp, dict) and resp.get("apiKey"):
+            resp.setdefault("success", True)
+            return resp
+        logger.info(
+            f"[api_keys] GraphQL reqApiKey unavailable/empty "
+            f"({(resp or {}).get('message', '')[:120]}) — falling back to gateway invoke"
+        )
+    except Exception as exc:
+        logger.info(f"[api_keys] GraphQL reqApiKey failed ({exc}) — gateway fallback")
     return _post("createApiKey", session_token, {"customer": customer})
 
 
