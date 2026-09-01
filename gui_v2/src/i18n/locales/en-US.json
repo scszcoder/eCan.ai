@@ -3709,6 +3709,9 @@
     "fundRunningLow": "Fund running low"
   },
   "account": {
+    "planBasic": "Basic",
+    "planPro": "Pro",
+    "planCustom": "Custom",
     "noAccountRecord": "No account record found yet — it is created on first login",
     "infoIncomplete": "Account info incomplete",
     "verifyEmailNeeded": "Email not verified",

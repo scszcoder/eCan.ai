@@ -16,6 +16,41 @@ const maskApiKey = (key: string): string => {
     return key.slice(0, 6) + '*'.repeat(key.length - 12) + key.slice(-6);
 };
 
+// Plan-id → readable tier. The subs field carries raw subscription ids
+// (e.g. "2091768641895804928") which mean nothing to users. Known ids map
+// explicitly; ids containing pro/custom markers map by keyword; everything
+// else (including the current default id) displays as Basic.
+const PLAN_ID_NAMES: Record<string, 'basic' | 'pro' | 'custom'> = {
+    '2091768641895804928': 'basic',
+};
+
+const planTier = (rawId: string): 'basic' | 'pro' | 'custom' => {
+    const id = (rawId || '').trim();
+    if (PLAN_ID_NAMES[id]) return PLAN_ID_NAMES[id];
+    const lower = id.toLowerCase();
+    if (lower.includes('custom')) return 'custom';
+    if (lower.includes('pro')) return 'pro';
+    return 'basic';
+};
+
+const planLabel = (subs: unknown, t: any): string => {
+    const raw = String(subs ?? '').trim();
+    if (!raw || raw === '[]') return t('account.freeTier', 'Free Tier');
+    let ids: string[];
+    try {
+        const parsed = JSON.parse(raw);
+        ids = Array.isArray(parsed) ? parsed.map(String) : [raw];
+    } catch {
+        ids = raw.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    if (!ids.length) return t('account.freeTier', 'Free Tier');
+    const names = Array.from(new Set(ids.map(planTier))).map((tier) =>
+        tier === 'pro' ? t('account.planPro', 'Pro')
+        : tier === 'custom' ? t('account.planCustom', 'Custom')
+        : t('account.planBasic', 'Basic'));
+    return names.join(' + ');
+};
+
 const Account: React.FC = () => {
     const { t } = useTranslation();
     const [topUpAmount, setTopUpAmount] = useState<number | null>(50);
@@ -288,10 +323,8 @@ const Account: React.FC = () => {
                             <Space size={32} wrap>
                                 <div>
                                     <Text type="secondary">{t('account.plan', 'Plan')}</Text><br />
-                                    <Text strong>
-                                        {accountData?.acctInfo?.subs && accountData.acctInfo.subs !== '[]' && accountData.acctInfo.subs.trim() !== ''
-                                            ? accountData.acctInfo.subs
-                                            : t('account.freeTier', 'Free Tier')}
+                                    <Text strong title={String(accountData?.acctInfo?.subs ?? '')}>
+                                        {planLabel(accountData?.acctInfo?.subs, t)}
                                     </Text>
                                 </div>
                                 <Divider type="vertical" style={{ height: 'auto' }} />
