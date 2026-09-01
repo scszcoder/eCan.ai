@@ -115,9 +115,26 @@ def handle_payment_topup(request: IPCRequest,
             from app_context import AppContext as _AppContext
             from agent.cloud_api.cloud_api import _http_auth_header
             from urllib.parse import quote as _q
-            bearer = _http_auth_header(
-                _AppContext.get_main_window().get_auth_token() or "")
-            token_value = bearer[7:] if bearer.lower().startswith("bearer ") else bearer
+            mainwin = _AppContext.get_main_window()
+            # create_payment_order currently verifies a CloudBase ACCESS token
+            # (like ensure_account), so prefer the raw AccessToken when the
+            # auth manager holds one (email/phone logins). Fall back to the
+            # eCan session token — WeChat logins have nothing else; the server
+            # must additionally accept session tokens for them (probed
+            # 2026-09-01: session token -> "CloudBase access token
+            # verification failed").
+            token_value = ""
+            try:
+                am = getattr(mainwin, "auth_manager", None)
+                if am is not None:
+                    raw = am.get_tokens() or {}
+                    token_value = str(raw.get("AccessToken")
+                                      or raw.get("access_token") or "").strip()
+            except Exception:
+                token_value = ""
+            if not token_value:
+                bearer = _http_auth_header(mainwin.get_auth_token() or "")
+                token_value = bearer[7:] if bearer.lower().startswith("bearer ") else bearer
             if token_value:
                 sep = "&" if "?" in url else "?"
                 url = f"{url}{sep}token={_q(token_value)}"
