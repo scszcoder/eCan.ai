@@ -1442,6 +1442,7 @@ const RerankManagement = React.forwardRef<
       title: t("pages.settings.actions"),
       key: "actions",
       width: 140,
+      fixed: 'right' as const,
       render: (_: any, record: LLMProvider) => {
         // Ollama specific actions
         if (isOllamaProvider(record)) {
@@ -1541,6 +1542,7 @@ const RerankManagement = React.forwardRef<
         pagination={false}
         size="small"
         scroll={{ y: 'calc(100vh - 280px)', x: 'max-content' }}
+        style={{ minWidth: '100%' }}
       />
     </div>
   );
