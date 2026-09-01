@@ -92,7 +92,7 @@ const SettingsContent = styled.div`
       .ant-tabs-tabpane {
         height: 100%;
         overflow-y: auto;
-        overflow-x: hidden;
+        overflow-x: auto;
         padding: 0;
       }
       
