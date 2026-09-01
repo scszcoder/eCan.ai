@@ -35,6 +35,8 @@ class LLMProvider(Enum):
     OLLAMA = "ollama"
     RYOAIS = "ryoais"
     ECANAI = "ecanai"
+    MOONSHOT = "moonshot"
+    MINIMAX = "minimax"
 
 
 @dataclass

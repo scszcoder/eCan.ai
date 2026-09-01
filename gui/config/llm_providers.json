@@ -441,9 +441,9 @@
         }
       ]
     },
-    "Qwen (DashScope)": {
-      "name": "Qwen (DashScope)",
-      "display_name": "Qwen (DashScope)",
+    "Qwen": {
+      "name": "Qwen",
+      "display_name": "Qwen",
       "provider": "dashscope",
       "runtime_kind": "qwq_compatible",
       "regions": ["cn", "intl"],
@@ -558,7 +558,7 @@
     },
     "Bytedance": {
       "name": "Bytedance",
-      "display_name": "Bytedance (Doubao)",
+      "display_name": "Bytedance",
       "provider": "bytedance",
       "runtime_kind": "openai_compatible",
       "regions": ["cn"],
@@ -670,9 +670,9 @@
         }
       ]
     },
-    "Kimi (Moonshot AI)": {
-      "name": "Kimi (Moonshot AI)",
-      "display_name": "Kimi (Moonshot AI)",
+    "Kimi": {
+      "name": "Kimi",
+      "display_name": "Kimi",
       "provider": "moonshot",
       "runtime_kind": "openai_compatible",
       "regions": ["cn", "intl"],
@@ -692,59 +692,59 @@
         "MOONSHOT_API_KEY"
       ],
       "base_url": "https://api.moonshot.cn/v1",
-      "default_model": "kimi-k2",
-      "description": "Moonshot AI Kimi models - K2, K2.5, K1.5 series (Aug 2026)",
+      "default_model": "kimi-k3",
+      "description": "Moonshot AI Kimi models - K3, K2.7 Code, K2.6 series (Sep 2026)",
       "documentation_url": "https://platform.moonshot.cn/docs",
       "is_local": false,
       "enable_thinking": false,
       "supported_models": [
         {
-          "name": "kimi-k2",
-          "display_name": "Kimi K2",
-          "model_id": "kimi-k2",
+          "name": "kimi-k3",
+          "display_name": "Kimi K3",
+          "model_id": "kimi-k3",
           "default_temperature": 0.7,
           "max_tokens": 1000000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
           "cost_per_1k_tokens": 0.002,
-          "description": "Latest flagship - 1M context, complex reasoning, coding, multimodal"
+          "description": "Latest flagship - 2.8T params, 1M context, multimodal, coding, knowledge work, deep reasoning"
         },
         {
-          "name": "kimi-k2.5",
-          "display_name": "Kimi K2.5",
-          "model_id": "kimi-k2.5",
+          "name": "kimi-k2.7-code",
+          "display_name": "Kimi K2.7 Code",
+          "model_id": "kimi-k2.7-code",
           "default_temperature": 0.7,
-          "max_tokens": 1000000,
+          "max_tokens": 262144,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.0015,
+          "description": "Coding-focused model - 256K context, text/image/video input, thinking mode"
+        },
+        {
+          "name": "kimi-k2.7-code-highspeed",
+          "display_name": "Kimi K2.7 Code HighSpeed",
+          "model_id": "kimi-k2.7-code-highspeed",
+          "default_temperature": 0.7,
+          "max_tokens": 262144,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.003,
+          "description": "High-speed version of K2.7 Code - ~180 tokens/s output, up to 260 tokens/s for short contexts"
+        },
+        {
+          "name": "kimi-k2.6",
+          "display_name": "Kimi K2.6",
+          "model_id": "kimi-k2.6",
+          "default_temperature": 0.7,
+          "max_tokens": 262144,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
           "cost_per_1k_tokens": 0.001,
-          "description": "Enhanced K2 with improved reasoning and efficiency"
-        },
-        {
-          "name": "kimi-k1.5",
-          "display_name": "Kimi K1.5",
-          "model_id": "kimi-k1.5",
-          "default_temperature": 0.7,
-          "max_tokens": 128000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.0005,
-          "description": "Previous generation flagship - long context, strong reasoning"
-        },
-        {
-          "name": "moonshot-v1-32k",
-          "display_name": "Moonshot V1 32K",
-          "model_id": "moonshot-v1-32k",
-          "default_temperature": 0.7,
-          "max_tokens": 32000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.0006,
-          "description": "Classic Moonshot V1 model with 32K context"
+          "description": "General model - 256K context, text/image/video input, thinking & non-thinking modes"
         }
       ]
     },
@@ -770,41 +770,113 @@
         "MINIMAX_API_KEY"
       ],
       "base_url": "https://api.minimax.chat/v1",
-      "default_model": "MiniMax-Text-01",
-      "description": "MiniMax AI models - Text-01, MiniMax-Text (Aug 2026)",
+      "default_model": "minimax-m3",
+      "description": "MiniMax AI models - M3, M2.7, M2.5, M2.1, M2 series (Sep 2026)",
       "documentation_url": "https://www.minimaxi.com/document",
       "is_local": false,
       "enable_thinking": false,
       "supported_models": [
         {
-          "name": "MiniMax-Text-01",
-          "display_name": "MiniMax Text-01",
-          "model_id": "MiniMax-Text-01",
+          "name": "minimax-m3",
+          "display_name": "MiniMax M3",
+          "model_id": "minimax-m3",
           "default_temperature": 0.7,
           "max_tokens": 1000000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.001,
-          "description": "Latest flagship - 1M context, MoE architecture, strong reasoning"
+          "description": "Latest flagship - 1M context, MSA architecture, Coding/Agentic, native multimodal"
         },
         {
-          "name": "abab6.5s",
-          "display_name": "ABAB 6.5S",
-          "model_id": "abab6.5s",
+          "name": "minimax-m2.7",
+          "display_name": "MiniMax M2.7",
+          "model_id": "minimax-m2.7",
+          "default_temperature": 0.7,
+          "max_tokens": 1000000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0008,
+          "description": "M2.7 series - strong reasoning, long context, tool use"
+        },
+        {
+          "name": "minimax-m2.7-highspeed",
+          "display_name": "MiniMax M2.7 HighSpeed",
+          "model_id": "minimax-m2.7-highspeed",
+          "default_temperature": 0.7,
+          "max_tokens": 1000000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0015,
+          "description": "High-speed variant of M2.7 - faster output, same capabilities"
+        },
+        {
+          "name": "minimax-m2.5",
+          "display_name": "MiniMax M2.5",
+          "model_id": "minimax-m2.5",
           "default_temperature": 0.7,
           "max_tokens": 245760,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.0005,
-          "description": "Fast and efficient model for general tasks"
+          "description": "M2.5 series - balanced performance and cost"
+        },
+        {
+          "name": "minimax-m2.5-highspeed",
+          "display_name": "MiniMax M2.5 HighSpeed",
+          "model_id": "minimax-m2.5-highspeed",
+          "default_temperature": 0.7,
+          "max_tokens": 245760,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.001,
+          "description": "High-speed variant of M2.5 - faster output"
+        },
+        {
+          "name": "minimax-m2.1",
+          "display_name": "MiniMax M2.1",
+          "model_id": "minimax-m2.1",
+          "default_temperature": 0.7,
+          "max_tokens": 245760,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0003,
+          "description": "M2.1 series - efficient for general tasks"
+        },
+        {
+          "name": "minimax-m2.1-highspeed",
+          "display_name": "MiniMax M2.1 HighSpeed",
+          "model_id": "minimax-m2.1-highspeed",
+          "default_temperature": 0.7,
+          "max_tokens": 245760,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0006,
+          "description": "High-speed variant of M2.1 - faster output"
+        },
+        {
+          "name": "minimax-m2",
+          "display_name": "MiniMax M2",
+          "model_id": "minimax-m2",
+          "default_temperature": 0.7,
+          "max_tokens": 245760,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0002,
+          "description": "M2 series - cost-efficient baseline model"
         }
       ]
     },
     "Baidu Qianfan": {
       "name": "Baidu Qianfan",
-      "display_name": "Baidu Qianfan (ERNIE)",
+      "display_name": "Baidu Qianfan",
       "provider": "baidu_qianfan",
       "runtime_kind": "openai_compatible",
       "regions": ["cn"],
@@ -1144,9 +1216,9 @@
         }
       ]
     },
-    "ChatGLM (Zhipu AI)": {
-      "name": "ChatGLM (Zhipu AI)",
-      "display_name": "ChatGLM (Zhipu AI)",
+    "ChatGLM": {
+      "name": "ChatGLM",
+      "display_name": "ChatGLM",
       "provider": "zhipuai",
       "runtime_kind": "zhipuai",
       "regions": ["cn", "intl"],
