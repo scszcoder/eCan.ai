@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 
 const FilterContainer = styled.div`
-  padding: 12px 16px;
+  padding: 8px 16px;
   background: transparent;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   flex-shrink: 0;
@@ -14,19 +14,19 @@ const FilterContainer = styled.div`
 const FilterTopRow = styled.div`
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 8px;
+  padding: 8px 16px;
   background: var(--bg-primary);
 `;
 
 const SearchInput = styled(Input)`
   flex: 1;
-  height: 40px;
-  border-radius: 10px;
+  height: 34px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 0 12px 0 12px;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-primary);
 
   &::placeholder {
@@ -45,7 +45,7 @@ const SearchInput = styled(Input)`
   }
 
   .ant-input {
-    font-size: 14px;
+    font-size: 13px;
     color: var(--text-primary);
     background: transparent;
     &::placeholder {
@@ -59,11 +59,11 @@ const SearchInput = styled(Input)`
 `;
 
 const FilterButton = styled.button<{ $active?: boolean }>`
-  height: 40px;
-  min-width: 40px;
-  width: 40px;
+  height: 34px;
+  min-width: 34px;
+  width: 34px;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 8px;
   background: ${props => props.$active 
     ? 'linear-gradient(135deg, #1890ff, #40a9ff)' 
     : 'rgba(255, 255, 255, 0.06)'};
@@ -80,6 +80,7 @@ const FilterButton = styled.button<{ $active?: boolean }>`
   font-weight: 500;
   transition: all 0.2s ease;
   position: relative;
+  flex-shrink: 0;
 
   &:hover {
     background: ${props => props.$active 
@@ -92,15 +93,15 @@ const FilterButton = styled.button<{ $active?: boolean }>`
   }
 
   .anticon {
-    font-size: 16px;
+    font-size: 14px;
   }
 `;
 
 const ActiveFiltersBar = styled.div`
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 6px;
 `;
 
 const ActiveFilterTag = styled.button<{ $color?: string }>`
@@ -419,7 +420,7 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
       <FilterTopRow>
         <SearchInput
           placeholder={t('pages.skills.filter.searchPlaceholder', 'Search skills...')}
-          prefix={<SearchOutlined style={{ color: 'rgba(255, 255, 255, 0.4)', fontSize: 16, marginLeft: 12 }} />}
+          prefix={<SearchOutlined style={{ color: 'rgba(255, 255, 255, 0.4)', fontSize: 14, marginLeft: 8 }} />}
           value={filters.search}
           onChange={(e) => handleFilterChange('search', e.target.value)}
           allowClear

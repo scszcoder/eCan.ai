@@ -40,14 +40,14 @@ const TopBar = styled.div`
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 24px;
+    padding: 8px 24px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
     gap: 12px;
 
     @media (max-width: 900px) {
-        padding: 12px 14px;
+        padding: 8px 14px;
     }
 `;
 
@@ -85,8 +85,8 @@ const StickyFilters = styled.div`
 const CategoryStrip = styled.div`
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 12px 24px;
+    gap: 8px;
+    padding: 8px 24px 4px;
     overflow-x: auto;
     background: var(--bg-primary);
 
@@ -102,7 +102,7 @@ const PageTitleBlock = styled.div`
 `;
 
 const PageTitle = styled.div`
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 700;
     color: var(--text-primary);
     line-height: 1.2;
@@ -110,28 +110,28 @@ const PageTitle = styled.div`
 `;
 
 const PageSubtitle = styled.div`
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-secondary);
-    margin-top: 2px;
+    margin-top: 1px;
 `;
 
 const SectionHeading = styled.div`
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 24px 24px 8px;
+    padding: 14px 24px 6px;
 
     .heading-left {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
     }
     .heading-icon {
-        font-size: 20px;
+        font-size: 18px;
         color: var(--primary-color);
     }
     .heading-text {
-        font-size: 18px;
+        font-size: 15px;
         font-weight: 700;
         color: var(--text-primary);
         letter-spacing: -0.2px;
