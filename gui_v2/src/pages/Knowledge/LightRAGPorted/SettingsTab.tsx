@@ -1000,6 +1000,25 @@ const SettingsTab: React.FC = () => {
             }
             return next;
           });
+
+          // Auto-fill eCanAI API key when mineru/docling is set to ecanai mode
+          const mineruMode = (parserData.engines || []).find(
+            (e: any) => e.id === 'mineru'
+          )?.fields?.find((f: any) => f.key === 'MINERU_API_MODE')?.options?.[0]?.value;
+          if (mineruMode === 'ecanai' || (parserData.current?.MINERU_API_MODE || '').toLowerCase() === 'ecanai') {
+            get_ipc_api().executeRequest<{ apiKey: string | null }>(
+              'lightrag.getEcanaiApiKey', {}
+            ).then(resp => {
+              if (resp.success && resp.data?.apiKey) {
+                setSettings(prev => {
+                  if (!prev.MINERU_API_TOKEN && prev.MINERU_API_MODE === 'ecanai') {
+                    return { ...prev, MINERU_API_TOKEN: resp.data!.apiKey as string };
+                  }
+                  return prev;
+                });
+              }
+            }).catch(() => {/* key not available */});
+          }
         }
       }
     } catch (e) {
@@ -1035,6 +1054,17 @@ const SettingsTab: React.FC = () => {
       } else if (key === 'MINERU_API_MODE') {
         if (value === 'official') {
           newSettings['MINERU_OFFICIAL_ENDPOINT'] ||= 'https://mineru.net';
+        } else if (value === 'ecanai') {
+          // eCanAI provider: auto-fill endpoint and fetch account API key
+          newSettings['MINERU_LOCAL_ENDPOINT'] ||= 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1';
+          // Fetch eCanAI LLM API key and auto-fill MINERU_API_TOKEN
+          get_ipc_api().executeRequest<{ apiKey: string | null }>(
+            'lightrag.getEcanaiApiKey', {}
+          ).then(resp => {
+            if (resp.success && resp.data?.apiKey) {
+              setSettings(prev => ({ ...prev, MINERU_API_TOKEN: resp.data!.apiKey as string }));
+            }
+          }).catch(() => {/* key not available */});
         }
       }
       

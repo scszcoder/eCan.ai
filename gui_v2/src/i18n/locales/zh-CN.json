@@ -2694,6 +2694,7 @@
           "mineruProvider": "MinerU API 协议",
           "providerOfficial": "官方 / API 兼容服务（需 API Key）",
           "providerLocal": "本地 / 自定义服务（需 API Key）",
+          "providerEcanai": "eCanAI（使用账户 API Key）",
           "providerCustom": "自定义 (Custom)",
           "mineruEndpoint": "MinerU 服务地址",
           "mineruLocalEndpoint": "本地 MinerU 地址",

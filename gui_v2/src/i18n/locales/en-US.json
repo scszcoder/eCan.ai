@@ -2635,6 +2635,7 @@
           "mineruProvider": "MinerU API Protocol",
           "providerOfficial": "Official / API-compatible (API key)",
           "providerLocal": "Local / custom service (API key)",
+          "providerEcanai": "eCanAI (uses account API key)",
           "providerCustom": "Custom",
           "mineruEndpoint": "MinerU Endpoint",
           "mineruLocalEndpoint": "Local MinerU Endpoint",
