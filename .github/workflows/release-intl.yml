@@ -1284,7 +1284,56 @@ jobs:
           fi
           cp dist/*-macos-amd64.* artifacts/
 
-      - name: Upload macOS amd64 artifacts (S3 transfer)
+      # Run #33569387342 (CN) saw the macos-15-intel runner fail this step
+      # with `Failed to CreateArtifact: Unable to make request: ENOTFOUND`
+      # *after* build.py prod had already produced a valid 759MB .pkg on
+      # disk — i.e. the artifact blob-storage DNS lookup on that specific
+      # runner instance timed out, not the build. The same .pkg uploaded
+      # fine on every other runner in the same run, so this is an
+      # infrastructure flake, not a workflow bug. macos-15-intel is the
+      # Intel SKU, which has a smaller hosted-runner pool than ARM
+      # (macos-latest), so transient DNS failures are more likely to be
+      # observed on it. Mirrored from release-cn.yml per the cross-
+      # pipeline parity invariant in CLAUDE.md Section 5.
+      #
+      # Retry the upload-artifact call up to 2 more times before giving
+      # up. `overwrite: true` lets a retry replace a partially-registered
+      # artifact from the prior attempt without surfacing a name
+      # conflict. `continue-on-error: true` on attempts 1-2 lets the
+      # next attempt run only if the previous one failed.
+      - name: Upload macOS amd64 artifacts (S3 transfer) — attempt 1
+        id: upload_macos_amd64_s3
+        uses: actions/upload-artifact@v6
+        continue-on-error: true
+        with:
+          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: artifacts/
+          retention-days: 1
+          compression-level: 6
+          if-no-files-found: error
+          overwrite: true
+      - name: Upload macOS amd64 artifacts (S3 transfer) — attempt 2
+        id: upload_macos_amd64_s3_2
+        if: steps.upload_macos_amd64_s3.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        continue-on-error: true
+        with:
+          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: artifacts/
+          retention-days: 1
+          compression-level: 6
+          if-no-files-found: error
+          overwrite: true
+      - name: Upload macOS amd64 artifacts (S3 transfer) — final attempt
+        # Last attempt has no continue-on-error so a third failure here
+        # fails the job, matches the pre-retry behaviour, and is what the
+        # Final Status Summary's MACOS_AMD64 marker surfaces. The
+        # double-condition (attempts 1 AND 2 failed) is what makes the
+        # chain stop early when attempt 2 succeeds — otherwise the final
+        # step would re-upload a successful artifact.
+        if: >-
+          steps.upload_macos_amd64_s3.outcome == 'failure' &&
+          steps.upload_macos_amd64_s3_2.outcome == 'failure'
         uses: actions/upload-artifact@v6
         with:
           name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
@@ -1297,6 +1346,7 @@ jobs:
           # directory would let upload succeed as a yellow "No files
           # were found" warning, hiding the real failure.
           if-no-files-found: error
+          overwrite: true
 
       - name: Upload macOS amd64 artifacts (debug mirror)
         if: github.event.inputs.upload_artifacts == 'true'
