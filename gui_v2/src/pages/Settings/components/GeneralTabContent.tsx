@@ -7,9 +7,27 @@ import styled from '@emotion/styled';
 import { StyledFormItem } from '@/components/Common/StyledForm';
 
 const StyledRefreshButton = styled(Button)`
-  &:hover {
-    color: #1890ff;
-    border-color: #1890ff;
+  &,
+  &:hover,
+  &:focus,
+  &:active {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+`;
+
+const StyledSaveButton = styled(Button)`
+  color: var(--ant-color-primary) !important;
+  font-weight: 500;
+
+  &,
+  &:hover,
+  &:focus,
+  &:active {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
   }
 `;
 
@@ -36,19 +54,19 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
       height: '100%',
       display: 'flex',
       flexDirection: 'column',
-      padding: '0 24px 20px 24px'
+      padding: '0 16px 16px'
     }}>
       <div style={{
         background: token.colorBgContainer,
-        borderRadius: 16,
+        borderRadius: 12,
         border: `1px solid ${token.colorBorder}`,
         boxShadow: token.boxShadowTertiary,
         display: 'flex',
         flexDirection: 'column',
         flex: 1,
         minHeight: 0,
-        marginTop: 16
-      }}>
+        marginTop: 12
+      }} className="general-settings-card">
         <Tabs
           type="line"
           size="small"
@@ -56,18 +74,18 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
           destroyOnHidden={false}
           tabBarExtraContent={(
             <div style={{ display: 'flex', gap: 8, marginRight: 8 }}>
-              <Button 
-                type="default" 
+              <StyledSaveButton
+                type="text"
                 icon={<SaveOutlined />} 
                 onClick={() => form.submit()} 
                 loading={loading}
                 size="small"
               >
                 {t('common.save')}
-              </Button>
+              </StyledSaveButton>
               <Tooltip title={t('common.reload')}>
                 <StyledRefreshButton
-                  shape="circle"
+                  type="text"
                   icon={<ReloadOutlined />}
                   onClick={handleReload}
                   loading={loading}
@@ -82,7 +100,7 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
               label: t('pages.settings.basic_settings'),
               children: (
                 <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
-                  <div style={{ padding: '16px 24px' }}>
+                  <div className="general-settings-panel" style={{ padding: '12px 18px' }}>
                   <Divider orientation="left" style={{ margin: '8px 0 16px 0', fontSize: '14px', fontWeight: 600 }}>
                     {t('pages.settings.basic_mode_settings')}
                   </Divider>
@@ -157,7 +175,7 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
               label: t('pages.settings.network_settings'),
               children: (
                 <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
-                  <div style={{ padding: '16px 24px' }}>
+                  <div className="general-settings-panel" style={{ padding: '12px 18px' }}>
                   <Divider orientation="left" style={{ margin: '8px 0 16px 0', fontSize: '14px', fontWeight: 600 }}>
                     {t('pages.settings.engine_port_settings')}
                   </Divider>
@@ -271,7 +289,7 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
               label: t('pages.settings.api_paths'),
               children: (
                 <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
-                  <div style={{ padding: '16px 24px' }}>
+                  <div className="general-settings-panel" style={{ padding: '12px 18px' }}>
                   <Divider orientation="left" style={{ margin: '8px 0 16px 0', fontSize: '14px', fontWeight: 600 }}>
                     OCR API
                   </Divider>
@@ -394,7 +412,7 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
               label: t('pages.settings.path_settings'),
               children: (
                 <div style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
-                  <div style={{ padding: '16px 24px' }}>
+                  <div className="general-settings-panel" style={{ padding: '12px 18px' }}>
                   <Divider orientation="left" style={{ margin: '8px 0 16px 0', fontSize: '14px', fontWeight: 600 }}>
                     {t('pages.settings.path_settings')}
                   </Divider>

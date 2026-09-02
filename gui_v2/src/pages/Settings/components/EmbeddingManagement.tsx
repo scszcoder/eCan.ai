@@ -1201,6 +1201,7 @@ const EmbeddingManagement = React.forwardRef<
           <Space style={{ width: '100%', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             {!record.is_local ? (
               <span
+                className="provider-api-key-value"
                 role="button"
                 tabIndex={0}
                 title={t("common.edit")}
@@ -1215,14 +1216,6 @@ const EmbeddingManagement = React.forwardRef<
                   padding: '2px 6px',
                   border: '1px dashed transparent',
                   transition: 'border-color 0.15s, background 0.15s',
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLElement).style.borderColor = '#d9d9d9';
-                  (e.currentTarget as HTMLElement).style.background = '#fafafa';
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.borderColor = 'transparent';
-                  (e.currentTarget as HTMLElement).style.background = 'transparent';
                 }}
               >
                 {apiKeyText}
@@ -1444,7 +1437,6 @@ const EmbeddingManagement = React.forwardRef<
       title: t("pages.settings.actions"),
       key: "actions",
       width: 140,
-      fixed: 'right' as const,
       render: (_: any, record: LLMProvider) => {
         // Ollama specific actions
         if (isOllamaProvider(record)) {
@@ -1535,7 +1527,7 @@ const EmbeddingManagement = React.forwardRef<
   ];
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <div className="provider-settings-table" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <Table
         columns={columns}
         dataSource={providers}

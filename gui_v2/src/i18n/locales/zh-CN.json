@@ -1062,6 +1062,8 @@
       "channel": {
         "title": "消息渠道",
         "refresh": "刷新",
+        "expand": "展开配置",
+        "collapse": "收起配置",
         "description": "配置外部消息渠道。每个渠道需要一个专用账号 — 请勿重复使用个人账号，入站/出站流量将被路由到智能体。",
         "no_channels": "未配置渠道",
         "no_channels_desc": "未找到 channels.json 或为空。首次保存后将显示默认条目。",

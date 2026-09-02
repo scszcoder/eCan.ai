@@ -1030,6 +1030,8 @@
       "channel": {
         "title": "Messaging Channels",
         "refresh": "Refresh",
+        "expand": "Expand settings",
+        "collapse": "Collapse settings",
         "description": "Configure external messaging channels. Each channel requires a dedicated account — do not reuse personal accounts, as inbound/outbound traffic will be routed to agents.",
         "no_channels": "No channels configured",
         "no_channels_desc": "channels.json not found or empty. Default entries will appear after the first save.",
