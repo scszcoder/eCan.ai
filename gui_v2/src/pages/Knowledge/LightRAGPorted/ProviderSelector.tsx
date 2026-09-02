@@ -290,7 +290,13 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               notFoundContent={ollamaError || t('pages.knowledge.settings.ollama.noModels', { defaultValue: 'No models' })}
             />
             <Tooltip title={t('pages.knowledge.settings.ollama.refresh', { defaultValue: 'Refresh' })}>
-              <Button icon={<ReloadOutlined spin={ollamaLoading} />} size="small" onClick={currentProvider.hasDynamicModels ? fetchProviderModels : fetchOllamaModels} style={{ flexShrink: 0 }} />
+              <Button
+                type="text"
+                icon={<ReloadOutlined spin={ollamaLoading} />}
+                size="small"
+                onClick={currentProvider.hasDynamicModels ? fetchProviderModels : fetchOllamaModels}
+                style={{ flexShrink: 0 }}
+              />
             </Tooltip>
           </div>
         </div>
@@ -359,6 +365,7 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               {isApiKeyField && (
                 <Tooltip title={t('pages.knowledge.settings.goToSettings', { defaultValue: 'Go to System Settings' })}>
                   <Button
+                    type="text"
                     icon={<SettingOutlined />}
                     size="small"
                     onClick={() => handleNavigateToSettings(field.key)}
