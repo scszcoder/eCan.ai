@@ -971,13 +971,35 @@ const SettingsTab: React.FC = () => {
           const current = Object.fromEntries(
             Object.entries(parserData.current).filter(([, value]) => value !== null && value !== undefined)
           ) as Record<string, string>;
-          setSettings(prev => ({
-            ...prev,
-            ...current,
-            // The engine selection is UI-only (never persisted); it is
-            // derived from LIGHTRAG_PARSER on the backend.
-            PARSING_ENGINE: parserData.engine || prev.PARSING_ENGINE || 'native'
-          }));
+          setSettings(prev => {
+            const next: Record<string, string> = {
+              ...prev,
+              ...current,
+              // The engine selection is UI-only (never persisted); it is
+              // derived from LIGHTRAG_PARSER on the backend.
+              PARSING_ENGINE: parserData.engine || prev.PARSING_ENGINE || 'native',
+            };
+            // Fill empty select/boolean fields with their provider defaults.
+            // LightRAG's .env file only writes keys that were explicitly set;
+            // it never persists defaultValue defaults to disk. If we don't
+            // do this here the UI shows the fallback default but saving the
+            // page writes `KEY=` (empty) and LightRAG misreads it as a real
+            // (blank) value rather than its intended default. We only touch
+            // select/boolean — text/password fields are user-owned and must
+            // be preserved even when blank.
+            for (const engine of parserData.engines || []) {
+              for (const field of engine.fields || []) {
+                if (
+                  (field.type === 'select' || field.type === 'boolean') &&
+                  field.defaultValue !== undefined &&
+                  (next[field.key] === undefined || next[field.key] === '')
+                ) {
+                  next[field.key] = field.defaultValue;
+                }
+              }
+            }
+            return next;
+          });
         }
       }
     } catch (e) {
@@ -1509,7 +1531,14 @@ const SettingsTab: React.FC = () => {
           for (const field of newProvider?.fields || []) {
             if (field.key === 'LIGHTRAG_PARSER') {
               next[field.key] = field.defaultValue || '';
-            } else if (!(field.key in next) && field.defaultValue !== undefined) {
+            } else if (
+              field.defaultValue !== undefined &&
+              (next[field.key] === undefined || next[field.key] === '')
+            ) {
+              // Fill empty values with the provider default so legacy
+              // .env entries (e.g. MINERU_API_MODE=) don't get persisted
+              // as blank when switching parsers. Already configured values
+              // (non-empty) are preserved on purpose.
               next[field.key] = field.defaultValue;
             }
           }
