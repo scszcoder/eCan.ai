@@ -4,11 +4,23 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-08-23_
+_Last updated: 2026-09-02_
 
 ---
 
 ## 🔴 Bugs (unfixed)
+
+- **CI frontend builds have NO lockfile (2026-09-02)**. `setup-node-env`
+  installs gui_v2 deps with `npm install --legacy-peer-deps`;
+  package-lock.json is gitignored and pnpm-lock.yaml is unused by CI, so
+  every release resolves fresh dependency versions. This turned the
+  312a59707 manualChunks split into a landmine: local pnpm bundles booted
+  while every CI installer 96l–96n died at load (`Cannot access 'ti'
+  before initialization`, stuck 加载中) — reverted in 0e3daf792 (96o).
+  Fix: make CI install from a committed lockfile (commit package-lock.json
+  or switch CI to pnpm + pnpm-lock.yaml), and only then consider
+  re-splitting vendor chunks — with a QtWebEngine smoke test of the built
+  bundle as a release gate.
 
 - **CN COS signed-upload URLs fail `SignatureDoesNotMatch` (server signing bug,
   2026-08-21 evening)**. writeSkillFile now returns proper signed PUT URLs
