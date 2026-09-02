@@ -144,23 +144,42 @@ class TestGetSavedLoginInfoGating:
         assert result["login_type"] == "google"
         assert result["last_identifier"] == "bob@gmail.com"
 
-    def test_missing_login_type_falls_back_to_empty_credentials(self, tmp_path: Path):
-        """When login_type is absent (old uli.json), credentials are blank for safety."""
+    def test_missing_login_type_infers_password_from_stored_credential(self, tmp_path: Path):
+        """When login_type is absent (several save paths never stamped it),
+        the keyring decides: a NON-EMPTY stored secret means the last login
+        was a password login, so credentials prefill (2026-09-02 fix for
+        'remember password shows blank fields'). Wechat/OTP identities never
+        store a secret, so they still come back blank."""
         from auth.auth_manager import AuthManager
 
         acct = tmp_path / "uli.json"
         am = _make_manager(acct, {"user": "someone@old.com", "machine_role": "Commander"})
 
-        with patch.object(am, "_get_credentials") as mock_creds:
+        with patch.object(am, "_get_credentials",
+                          return_value=(True, "s3cret")) as mock_creds:
             result = am.get_saved_login_info()
-            # Old entries without login_type are treated as non-password
-            # for safety (we can't know if they were password or OAuth)
-            mock_creds.assert_not_called()
+            mock_creds.assert_called_once_with("someone@old.com")
+
+        assert result["username"] == "someone@old.com"
+        assert result["password"] == "s3cret"
+        assert result["login_type"] == "password"
+        assert result["last_identifier"] == "someone@old.com"
+
+    def test_missing_login_type_without_stored_secret_stays_blank(self, tmp_path: Path):
+        """No login_type AND no stored secret → blank for safety (an OAuth
+        identity like wechat_xxx@local must never prefill the email form)."""
+        from auth.auth_manager import AuthManager
+
+        acct = tmp_path / "uli.json"
+        am = _make_manager(acct, {"user": "wechat_zzz@local", "machine_role": "Commander"})
+
+        with patch.object(am, "_get_credentials", return_value=(False, "not found")):
+            result = am.get_saved_login_info()
 
         assert result["username"] == ""
         assert result["password"] == ""
         assert result["login_type"] is None
-        assert result["last_identifier"] == "someone@old.com"
+        assert result["last_identifier"] == "wechat_zzz@local"
 
 
 # ---------------------------------------------------------------------------

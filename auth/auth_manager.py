@@ -585,7 +585,8 @@ class AuthManager:
                 self.current_user = username
 
                 # Persist username/password and refresh token
-                self._update_saved_login_info(username, password, role)  # Save credentials on success
+                self._update_saved_login_info(username, password, role,
+                                              login_type="password")  # Save credentials on success
                 rt = (self.tokens.get('RefreshToken') or self.tokens.get('refresh_token'))
                 if rt:
                     self._store_refresh_token(username, rt)
@@ -832,7 +833,12 @@ class AuthManager:
         — separate keyring services so both apps can coexist during dev.
         """
         try:
-            self._update_saved_login_info(username, password or "", role)
+            # Stamp login_type when we can tell: a non-empty password means a
+            # password login; OTP/phone/wechat callers pass none, and their
+            # login_type is stamped by complete_login_from_provider instead.
+            self._update_saved_login_info(
+                username, password or "", role,
+                login_type="password" if password else None)
         except Exception as e:
             logger.warning(f"[AuthManager] CN save info failed: {e}")
 
@@ -1596,6 +1602,21 @@ class AuthManager:
                     logger.debug(f"[get_saved_login_info] Password retrieved (login_type=password)")
                 else:
                     logger.warning(f"[get_saved_login_info] Could not retrieve password: {result}")
+            elif not login_type and username:
+                # login_type missing: several save paths historically wrote
+                # credentials without stamping it (Intl login(), CN
+                # _persist_cn_login), so a real email+password login could
+                # read back as blank fields (2026-09-02 customer report).
+                # Infer from the keyring — only a password login stores a
+                # NON-EMPTY secret; wechat/OTP identities have none, so this
+                # cannot leak a wechat id / phone number into the email form.
+                success, result = self._get_credentials(username)
+                if success and result:
+                    is_password_login = True
+                    password = result
+                    login_type = "password"
+                    logger.info("[get_saved_login_info] login_type missing; "
+                                "inferred 'password' from stored credential")
 
             # For non-password login types, return the identifier under a
             # distinct field (``last_identifier``) so the frontend can log /
@@ -2296,17 +2317,22 @@ class AuthManager:
         except Exception as e:
             errors.append(f"uli.json: {e}")
 
-        # 3. Clear keyring credentials and refresh tokens for the saved user
+        # 3. Clear keyring credentials and refresh tokens for the saved user.
+        # Both services are wiped: on CN the credential lives in
+        # ecan_cloudbase_auth — clearing only "ecan_auth" (the old hardcode)
+        # left the CN password orphaned while uli.json's user was popped,
+        # producing permanently blank login fields.
         if saved_user:
-            try:
-                keyring.delete_password("ecan_auth", saved_user)
-                cleared.append(f"keyring_credentials({saved_user})")
-            except Exception:
+            for _cred_service in ("ecan_auth", "ecan_cloudbase_auth"):
                 try:
-                    keyring.set_password("ecan_auth", saved_user, "")
-                    cleared.append(f"keyring_credentials_zeroed({saved_user})")
-                except Exception as ke:
-                    errors.append(f"keyring_credentials: {ke}")
+                    keyring.delete_password(_cred_service, saved_user)
+                    cleared.append(f"keyring_credentials({_cred_service}:{saved_user})")
+                except Exception:
+                    try:
+                        keyring.set_password(_cred_service, saved_user, "")
+                        cleared.append(f"keyring_credentials_zeroed({_cred_service}:{saved_user})")
+                    except Exception as ke:
+                        errors.append(f"keyring_credentials({_cred_service}): {ke}")
 
             try:
                 self._delete_refresh_token(saved_user)

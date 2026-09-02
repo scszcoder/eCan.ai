@@ -604,11 +604,26 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
                 result = agent_service.delete_agent(agent_id)
                 
                 if result.get('success'):
+                    deleted_agent = None
                     try:
                         agents = ctx.get_agents()
                         original_count = len(agents)
-                        # Step 2: Delete from memory after database deletion succeeds
-                        agents[:] = [ag for ag in agents if ag.card.id != agent_id]
+                        # Capture the agent BEFORE removal (Step 4 needs its
+                        # avatar_id; looking it up after removal always found
+                        # None, so orphan-avatar cleanup never ran).
+                        deleted_agent = next(
+                            (ag for ag in agents
+                             if getattr(getattr(ag, 'card', None), 'id', None) == agent_id),
+                            None)
+                        # Step 2: Delete from memory after database deletion
+                        # succeeds. getattr-guarded: one malformed agent (no
+                        # .card) must not abort the whole removal — a lingering
+                        # memory row wins over the DB in get_all_org_agents, so
+                        # the deleted agent would reappear on every refresh.
+                        agents[:] = [
+                            ag for ag in agents
+                            if getattr(getattr(ag, 'card', None), 'id', None) != agent_id
+                        ]
                         new_count = len(agents)
                         logger.info(f"[agent_handler] Removed agent from memory: {agent_id} (count: {original_count} → {new_count})")
                     except Exception as e:
@@ -626,8 +641,8 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
                     
                     # Step 4: Check if agent had a custom avatar and clean it up if orphaned
                     try:
-                        # Get the deleted agent's avatar_id before it's removed from memory
-                        deleted_agent = next((ag for ag in ctx.get_agents() if ag.card.id == agent_id), None)
+                        # deleted_agent was captured in Step 2 before the
+                        # memory removal (a post-removal lookup finds nothing).
                         avatar_id = deleted_agent.card.avatar_id if deleted_agent and hasattr(deleted_agent.card, 'avatar_id') else None
                         
                         if avatar_id and not avatar_id.startswith('A00'):  # Not a system avatar

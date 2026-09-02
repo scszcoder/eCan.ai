@@ -539,7 +539,7 @@ const LoginCN: React.FC = () => {
   // 分发,既不会再误填,也能让 phone/wechat 模式显式清掉 email tab 的
   // 字段。
   useEffect(() => {
-    const initialize = async () => {
+    const initialize = async (attempt = 0) => {
       try {
         const api = get_ipc_api();
         if (!api) return;
@@ -554,6 +554,15 @@ const LoginCN: React.FC = () => {
         ]) as APIResponse<any>;
 
         const loginData = (response?.data as any)?.last_login;
+        // Post-logout race: MainLayout navigates here BEFORE the logout
+        // cleanup finishes, so this first fetch can land mid-cleanup and
+        // come back empty even though credentials are saved. Retry once
+        // after the dust settles instead of leaving the form blank
+        // (2026-09-02 customer report).
+        if (attempt === 0 && (!loginData || (!loginData.username && !loginData.login_type))) {
+          setTimeout(() => { void initialize(1); }, 1800);
+          if (!loginData) return;
+        }
         if (loginData) {
           const { username, password, machine_role, language, login_type, last_identifier } = loginData;
 
@@ -631,17 +640,17 @@ const LoginCN: React.FC = () => {
     return () => clearTimeout(timer);
   }, [form, i18n.language]);
 
-  // 监听 rememberMe 变化，当用户取消勾选时清除 keyring 中的密码
-  useEffect(() => {
-    if (!rememberMe) {
-      // 根据当前 mode 获取正确的标识符
-      let identifier = '';
-      if (mode === 'phone-login' || mode === 'phone-signup') {
-        identifier = form.getFieldValue('phone') || '';
-      } else {
-        identifier = form.getFieldValue('username') || '';
-      }
-      
+  // 用户主动取消勾选"记住密码"时清除 keyring 中的密码。
+  // 必须是 checkbox 的显式操作 — 之前监听 rememberMe state 变化会在
+  // handleModeChange 程序化地把 rememberMe 置 false（切到注册/手机页）时
+  // 也触发清除，用户只是看了一眼注册页，保存的密码就被抹掉了
+  // (2026-09-02 客户反馈：记住密码后登录框仍为空的元凶之一)。
+  const handleRememberMeChange = (checked: boolean) => {
+    setRememberMe(checked);
+    if (!checked) {
+      const identifier = (mode === 'phone-login' || mode === 'phone-signup')
+        ? (form.getFieldValue('phone') || '')
+        : (form.getFieldValue('username') || '');
       if (identifier) {
         const api = get_ipc_api();
         if (api) {
@@ -651,7 +660,7 @@ const LoginCN: React.FC = () => {
         }
       }
     }
-  }, [rememberMe, mode]);
+  };
 
   // 验证码倒计时
   useEffect(() => {
@@ -1454,7 +1463,7 @@ const LoginCN: React.FC = () => {
                     <div style={{ marginTop: -8, marginBottom: 16 }}>
                       <Checkbox
                         checked={rememberMe}
-                        onChange={(e) => setRememberMe(e.target.checked)}
+                        onChange={(e) => handleRememberMeChange(e.target.checked)}
                         style={{ color: 'rgba(255, 255, 255, 0.7)' }}
                       >
                         {t('login.rememberMe') || '记住密码'}

@@ -641,6 +641,15 @@
       "fast_deploy_expand_status": "展开状态",
       "fast_deploy_collapse_status": "收起",
       "fast_deploy_success": "成功",
+      "fast_deploy_refreshing": "正在刷新智能体列表…",
+      "fast_deploy_refreshed": "智能体列表已刷新，新智能体已显示在智能体页面。",
+      "fast_deploy_refresh_failed": "自动刷新失败，请点击智能体页面的刷新按钮。",
+      "batchSelect": "批量选择",
+      "selectAll": "全选",
+      "selectedCount": "已选 {{count}} 个",
+      "batchDeleteConfirm": "确认删除",
+      "batchDeleteConfirmContent": "确定要删除选中的 {{count}} 个智能体吗？此操作无法撤销。",
+      "batchDeleteSuccess": "已删除 {{count}} 个智能体",
       "fast_deploy_failure": "失败",
       "agent_details": "智能体详情",
       "create_agent": "新增 Agent",
@@ -2123,6 +2132,7 @@
         "deleteSuccess": "{{count}} 个任务已删除"
       },
       "selectAll": "全选",
+      "batchSelect": "批量选择",
       "selectedCount": "已选择 {{count}} 项",
       "cancelSelection": "取消",
       "states": {

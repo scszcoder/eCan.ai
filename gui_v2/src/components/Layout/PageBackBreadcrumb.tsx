@@ -465,12 +465,12 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
 
                 // 根据When前PageRefresh对应的Data
                 if (currentPath === 'agents') {
-                    // Agents Page：调用 get_all_org_agents InterfaceRefresh组织和代理Data
-                    const res = await api.getAllOrgAgents(username).catch((e: any) => ({ success: false, error: e, data: null }));
-                    
-                    if (res.success && res.data) {
-                        useOrgStore.getState().refreshOrgData();
-                    }
+                    // Agents Page: fetch AND store the result. The old code
+                    // discarded the response and called refreshOrgData() — a
+                    // no-op placeholder — so the button reported success
+                    // without updating anything.
+                    const { refreshOrgAgents } = await import('../../pages/Agents/utils/refreshOrgAgents');
+                    await refreshOrgAgents(username);
                 } else if (currentPath === 'tasks') {
                     // Tasks Page：只Refresh tasks Data
                     const tasksRes = await api.getAgentTasks(username, []).catch((e: any) => ({ success: false, error: e, data: null }));

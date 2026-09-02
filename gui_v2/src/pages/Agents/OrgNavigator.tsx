@@ -1,7 +1,7 @@
 import React, { useMemo, useCallback, useEffect, useState, useRef } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
-import { Alert, Button, Spin, FloatButton } from 'antd';
-import { PlusOutlined, InboxOutlined } from '@ant-design/icons';
+import { Alert, Button, Checkbox, FloatButton, Modal, Spin, message } from 'antd';
+import { CheckSquareOutlined, DeleteOutlined, InboxOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useUserStore } from '../../stores/userStore';
@@ -199,6 +199,28 @@ const OrgNavigator: React.FC = () => {
   const { t } = useTranslation();
   const username = useUserStore((state) => state.username);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Batch-select mode (2026-09-02 customer report: deleting many generated
+  // agents one by one). In this mode a card click toggles selection instead
+  // of opening the agent; delete goes through the existing delete_agent IPC,
+  // which already accepts a list of ids.
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchSelected, setBatchSelected] = useState<Set<string>>(new Set());
+  const [batchDeleting, setBatchDeleting] = useState(false);
+
+  const toggleBatchSelected = useCallback((id: string) => {
+    setBatchSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const exitBatchMode = useCallback(() => {
+    setBatchMode(false);
+    setBatchSelected(new Set());
+  }, []);
   
   // Agent runtime status polling (batch endpoint, 5s interval)
   const startStatusPolling = useAgentRuntimeStore(s => s.startPolling);
@@ -434,6 +456,46 @@ const OrgNavigator: React.FC = () => {
   }, [levelDoors, agentsForDisplay, searchResults]);
   // Note：Remove了 isRootView, actualOrgId, searchQuery, rootNode, allAgentsFromStore
   // 因为它们已经通过 levelDoors, agentsForDisplay, searchResults 间接Include
+
+  // Agent ids currently visible in the grid (for select-all in batch mode).
+  const visibleAgentIds = useMemo(() =>
+    allItems
+      .filter((item) => item.type === 'agent')
+      .map((item) => String((item.data as any)?.card?.id ?? (item.data as any)?.id ?? ''))
+      .filter(Boolean),
+    [allItems]);
+
+  const handleBatchDelete = useCallback(() => {
+    const ids = Array.from(batchSelected);
+    if (!ids.length || !username) return;
+    Modal.confirm({
+      title: t('pages.agents.batchDeleteConfirm', '确认删除'),
+      content: t('pages.agents.batchDeleteConfirmContent',
+        { count: ids.length, defaultValue: `确定要删除选中的 ${ids.length} 个智能体吗？此操作无法撤销。` }),
+      okText: t('common.delete', '删除'),
+      cancelText: t('common.cancel', '取消'),
+      okButtonProps: { danger: true },
+      async onOk() {
+        setBatchDeleting(true);
+        try {
+          const res = await get_ipc_api().deleteAgent(username, ids);
+          if (res?.success) {
+            message.success(t('pages.agents.batchDeleteSuccess',
+              { count: ids.length, defaultValue: `已删除 ${ids.length} 个智能体` }));
+          } else {
+            message.error(res?.error?.message || t('common.delete_failed', '删除失败'));
+          }
+          const { refreshOrgAgents } = await import('./utils/refreshOrgAgents');
+          await refreshOrgAgents(username);
+        } catch (e: any) {
+          message.error(e?.message || String(e));
+        } finally {
+          setBatchDeleting(false);
+          exitBatchMode();
+        }
+      },
+    });
+  }, [batchSelected, username, t, exitBatchMode]);
   // 避免不必要的重新计算
 
 
@@ -604,6 +666,47 @@ const OrgNavigator: React.FC = () => {
           zIndex: 2,
         }}
       >
+        {!batchMode ? (
+          <Button
+            size="small"
+            icon={<CheckSquareOutlined />}
+            onClick={() => setBatchMode(true)}
+            style={{ marginRight: 8 }}
+          >
+            {t('pages.agents.batchSelect', '批量选择')}
+          </Button>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginRight: 8 }}>
+            <Checkbox
+              checked={batchSelected.size === visibleAgentIds.length && visibleAgentIds.length > 0}
+              indeterminate={batchSelected.size > 0 && batchSelected.size < visibleAgentIds.length}
+              onChange={() => {
+                setBatchSelected(batchSelected.size === visibleAgentIds.length
+                  ? new Set() : new Set(visibleAgentIds));
+              }}
+            >
+              <span style={{ color: 'var(--text-primary, #e2e8f0)', fontSize: 13 }}>
+                {t('pages.agents.selectAll', '全选')}
+              </span>
+            </Checkbox>
+            <span style={{ color: 'var(--text-secondary, #94a3b8)', fontSize: 13 }}>
+              {t('pages.agents.selectedCount', { count: batchSelected.size, defaultValue: `已选 ${batchSelected.size} 个` })}
+            </span>
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              loading={batchDeleting}
+              disabled={batchSelected.size === 0}
+              onClick={handleBatchDelete}
+            >
+              {t('common.delete', '删除')}
+            </Button>
+            <Button size="small" onClick={exitBatchMode}>
+              {t('common.cancel', '取消')}
+            </Button>
+          </div>
+        )}
         <SkillFinder />
       </div>
 
@@ -642,12 +745,37 @@ const OrgNavigator: React.FC = () => {
               // agent item
               const agent = item.data;
               const cardId = (agent as any)?.card?.id ?? (agent as any)?.id ?? agent.card.name;
+              const idStr = String(cardId);
+              const isBatchSelected = batchSelected.has(idStr);
               return (
-                <div key={`agent-${cardId}`} className="agent-card-wrapper">
+                <div
+                  key={`agent-${cardId}`}
+                  className="agent-card-wrapper"
+                  // In batch mode the wrapper captures the click BEFORE any
+                  // card-internal handler (nav, dropdown) and toggles
+                  // selection instead.
+                  onClickCapture={batchMode ? (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleBatchSelected(idStr);
+                  } : undefined}
+                  style={batchMode ? {
+                    position: 'relative',
+                    cursor: 'pointer',
+                    borderRadius: 12,
+                    outline: isBatchSelected ? '2px solid #38bdf8' : '2px solid transparent',
+                    opacity: isBatchSelected ? 1 : 0.8,
+                  } : undefined}
+                >
                   <AgentCard
                     agent={agent}
                     onChat={() => navigate(`/chat?agentId=${cardId}`)}
                   />
+                  {batchMode && (
+                    <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 3, pointerEvents: 'none' }}>
+                      <Checkbox checked={isBatchSelected} />
+                    </div>
+                  )}
                 </div>
               );
             }

@@ -586,16 +586,14 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
             // 同时从 orgStore 中Remove
             const removeAgentFromOrg = useOrgStore.getState().removeAgentFromOrg;
             removeAgentFromOrg(id);
-            
-            // Refresh组织和 agent Data以确保界面Update
-            try {
-              const refreshResponse = await api.getAllOrgAgents(username);
-              if (refreshResponse?.success && refreshResponse.data) {
-                useOrgStore.getState().setAllOrgAgents(refreshResponse.data as any);
-              }
-            } catch (error) {
-              console.error('[AgentCard] Error refreshing org data after delete:', error);
-            }
+
+            // Refresh in the BACKGROUND — awaiting this inside onOk kept the
+            // confirm dialog + full-page mask up for the whole (seconds-long)
+            // get_all_org_agents round trip, blocking every other card's menu
+            // (2026-09-02 customer report: "3-dot menu stopped working").
+            void import('../utils/refreshOrgAgents')
+              .then(({ refreshOrgAgents }) => refreshOrgAgents(username))
+              .catch((error) => console.error('[AgentCard] Error refreshing org data after delete:', error));
           } else {
             message.error(res.error?.message || (t('common.delete_failed') as string) || 'Delete failed');
           }

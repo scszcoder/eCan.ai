@@ -94,6 +94,19 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
             if (resp?.success && data.status === 'success') {
                 setStatusLines((l) => [...l, ...extra]);
                 setResult('success');
+                // Pull the freshly generated agents into the stores so they
+                // appear on the Agents page immediately — before this, they
+                // only showed up after re-login (2026-09-02 customer report).
+                setStatusLines((l) => [...l, t('pages.agents.fast_deploy_refreshing', 'Refreshing agent list…')]);
+                try {
+                    const { refreshOrgAgents } = await import('../../pages/Agents/utils/refreshOrgAgents');
+                    const refreshed = await refreshOrgAgents();
+                    setStatusLines((l) => [...l, refreshed
+                        ? t('pages.agents.fast_deploy_refreshed', 'Agent list refreshed — new agents are on the Agents page.')
+                        : t('pages.agents.fast_deploy_refresh_failed', 'Auto-refresh failed — use the refresh button on the Agents page.')]);
+                } catch (refreshErr) {
+                    setStatusLines((l) => [...l, String(refreshErr)]);
+                }
             } else {
                 if (resp?.error?.message) extra.push(String(resp.error.message));
                 setStatusLines((l) => [...l, ...extra]);

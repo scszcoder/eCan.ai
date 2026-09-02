@@ -5,6 +5,7 @@ import {
   PlayCircleOutlined,
   DeleteOutlined,
   BorderOutlined,
+  CheckSquareOutlined,
   LoadingOutlined,
   FullscreenExitOutlined,
 } from '@ant-design/icons';
@@ -629,6 +630,33 @@ export const TaskList: React.FC<TaskListProps> = ({
     }
   };
 
+  // In select mode a card click toggles membership instead of opening the
+  // task; selection highlight reuses the card's isSelected styling.
+  const handleCardSelect = useCallback((task: Task) => {
+    if (isSelectMode) {
+      setSelectedTaskIds(prev => {
+        const next = new Set(prev);
+        if (next.has(task.id)) next.delete(task.id);
+        else next.add(task.id);
+        return next;
+      });
+      return;
+    }
+    onSelectItem(task);
+  }, [isSelectMode, onSelectItem]);
+
+  const cardIsSelected = useCallback((task: Task) =>
+    isSelectMode ? selectedTaskIds.has(task.id) : isSelected(task),
+    [isSelectMode, selectedTaskIds, isSelected]);
+
+  const runBatch = (action: string) => {
+    const chosen = filteredAndSortedTasks.filter(t => selectedTaskIds.has(t.id));
+    if (!chosen.length) return;
+    onBatchAction?.(action, chosen);
+    setIsSelectMode(false);
+    setSelectedTaskIds(new Set());
+  };
+
   if (loading) {
     return (
       <EmptyContainer>
@@ -651,6 +679,20 @@ export const TaskList: React.FC<TaskListProps> = ({
         quickStats={displayStats}
       />
 
+      {/* Batch-select entry: the old Ctrl+A-only path was undiscoverable —
+          customers deleted tasks one by one (2026-09-02 report). */}
+      {!isSelectMode && selectedTaskIds.size === 0 && filteredAndSortedTasks.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '2px 0' }}>
+          <Button
+            size="small"
+            icon={<CheckSquareOutlined />}
+            onClick={() => setIsSelectMode(true)}
+          >
+            {t('pages.tasks.batchSelect', '批量选择')}
+          </Button>
+        </div>
+      )}
+
       {/* Batch Actions Bar */}
       <BatchActionsBar $visible={isSelectMode || selectedTaskIds.size > 0}>
         <SelectAllCheckbox
@@ -671,7 +713,7 @@ export const TaskList: React.FC<TaskListProps> = ({
 
         <BatchButton
           icon={<PlayCircleOutlined />}
-          onClick={() => handleTaskAction('run', tasks[0])}
+          onClick={() => runBatch('run')}
           disabled={selectedTaskIds.size === 0}
         >
           {t('pages.tasks.actions.run', '运行')}
@@ -680,7 +722,7 @@ export const TaskList: React.FC<TaskListProps> = ({
         <BatchButton
           danger
           icon={<DeleteOutlined />}
-          onClick={() => handleTaskAction('delete', tasks[0])}
+          onClick={() => runBatch('delete')}
           disabled={selectedTaskIds.size === 0}
         >
           {t('pages.tasks.actions.delete', '删除')}
@@ -761,8 +803,8 @@ export const TaskList: React.FC<TaskListProps> = ({
                       )}
                       <TaskCard
                         task={task}
-                        isSelected={isSelected(task)}
-                        onSelect={onSelectItem}
+                        isSelected={cardIsSelected(task)}
+                        onSelect={handleCardSelect}
                         onAction={handleTaskAction}
                         viewMode="list"
                         searchHighlight={filters.search}
@@ -793,8 +835,8 @@ export const TaskList: React.FC<TaskListProps> = ({
               >
                 <TaskCard
                   task={task}
-                  isSelected={isSelected(task)}
-                  onSelect={onSelectItem}
+                  isSelected={cardIsSelected(task)}
+                  onSelect={handleCardSelect}
                   onAction={handleTaskAction}
                   viewMode="grid"
                   searchHighlight={filters.search}
@@ -832,8 +874,8 @@ export const TaskList: React.FC<TaskListProps> = ({
                 )}
                 <TaskCard
                   task={task}
-                  isSelected={isSelected(task)}
-                  onSelect={onSelectItem}
+                  isSelected={cardIsSelected(task)}
+                  onSelect={handleCardSelect}
                   onAction={handleTaskAction}
                   viewMode="list"
                   searchHighlight={filters.search}
