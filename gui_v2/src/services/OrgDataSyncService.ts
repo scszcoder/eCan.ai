@@ -13,6 +13,7 @@ import { logger } from '../utils/logger';
 import { get_ipc_api } from './ipc_api';
 import { useUserStore } from '../stores/userStore';
 import { useOrgStore } from '../stores/orgStore';
+import { userStorageManager } from './storage/UserStorageManager';
 import { useAgentStore } from '../stores/agentStore';
 
 class OrgDataSyncService {
@@ -149,6 +150,18 @@ class OrgDataSyncService {
                 return;
             }
 
+            // Fast-exit when no token is present: the backend will return
+            // TOKEN_REQUIRED, api-router will silently redirect to /login,
+            // and there's nothing for us to sync. Retrying here only delays
+            // the redirect and accumulates error noise.
+            if (!userStorageManager.getToken()) {
+                logger.warn(
+                    '[OrgDataSyncService] ⚠️ No auth token available, skipping data sync ' +
+                    '(LoginCN autologin will install a token on success)'
+                );
+                return;
+            }
+
             let companyName = '';
             try {
                 companyName = (localStorage.getItem('org_company_filter') || '').trim();
@@ -157,6 +170,15 @@ class OrgDataSyncService {
             }
 
             while (this.retryCount < this.maxRetries) {
+                // Re-check token at the top of each retry: if it disappeared
+                // mid-loop (e.g. another tab called removeToken()), bail out
+                // instead of firing 5 doomed requests.
+                if (!userStorageManager.getToken()) {
+                    logger.warn(
+                        '[OrgDataSyncService] ⚠️ Token cleared during retry loop, aborting'
+                    );
+                    return;
+                }
                 try {
                     logger.info(`[OrgDataSyncService] 🔄 Fetching org data (attempt ${this.retryCount + 1}/${this.maxRetries})...`);
 

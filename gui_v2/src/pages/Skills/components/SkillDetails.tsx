@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useLayoutEffect } from 'react';
 import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, Select, Tabs, App, Avatar, Dropdown } from 'antd';
 import { useEffectOnActive } from 'keepalive-for-react';
 import type { TabsProps } from 'antd';
@@ -152,7 +152,7 @@ const SectionCard: React.FC<{
         position: 'relative',
         background: 'rgba(255,255,255,0.03)',
         border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: 12,
+        borderRadius: 8,
         overflow: 'hidden',
         ...style,
     }}>
@@ -160,10 +160,10 @@ const SectionCard: React.FC<{
             position: 'absolute', top: 0, left: 0, right: 0, height: 2,
             background: accent, opacity: 0.6,
         }} />
-        <div style={{ padding: '14px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{ color: accent, fontSize: 14, display: 'inline-flex' }}>{icon}</span>
-                <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: 600 }}>{title}</Text>
+        <div style={{ padding: '10px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <span style={{ color: accent, fontSize: 13, display: 'inline-flex' }}>{icon}</span>
+                <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 600 }}>{title}</Text>
             </div>
             {children}
         </div>
@@ -871,47 +871,47 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     </StyledFormItem>
                 </Space>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {/* Identity + Meta compact card */}
                     <div style={{
                         display: 'grid',
                         gridTemplateColumns: '1fr 1fr 1fr 1fr',
-                        gap: 12,
-                        padding: '14px 16px',
+                        gap: 8,
+                        padding: '10px 14px',
                         background: 'rgba(255,255,255,0.03)',
                         border: '1px solid rgba(255,255,255,0.06)',
-                        borderRadius: 10,
+                        borderRadius: 8,
                     }}>
                         <div>
-                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>{t('common.name', 'Name')}</div>
-                            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>{(skill as any)?.name || '—'}</Text>
+                            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3 }}>{t('common.name', 'Name')}</div>
+                            <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>{(skill as any)?.name || '—'}</Text>
                         </div>
                         <div>
-                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>{t('common.owner', 'Owner')}</div>
+                            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3 }}>{t('common.owner', 'Owner')}</div>
                             <Space size={4}>
-                                <Avatar size={16} style={{ background: colorFromString((skill as any)?.owner), fontSize: 9, fontWeight: 700 }}>
+                                <Avatar size={14} style={{ background: colorFromString((skill as any)?.owner), fontSize: 8, fontWeight: 700 }}>
                                     {getInitials((skill as any)?.owner)}
                                 </Avatar>
-                                <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)' }}>{(skill as any)?.owner || '—'}</Text>
+                                <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.9)' }}>{(skill as any)?.owner || '—'}</Text>
                             </Space>
                         </div>
                         <div>
-                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>{t('pages.skills.version', 'Version')}</div>
-                            <Tag style={{ margin: 0, background: 'rgba(255,255,255,0.06)', border: 'none', color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace', fontSize: 12 }}>
+                            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3 }}>{t('pages.skills.version', 'Version')}</div>
+                            <Tag style={{ margin: 0, background: 'rgba(255,255,255,0.06)', border: 'none', color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace', fontSize: 11, padding: '0 6px', lineHeight: '16px' }}>
                                 v{(skill as any)?.version || '0.0.0'}
                             </Tag>
                         </div>
                         <div>
-                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>{t('pages.skills.level', 'Level')}</div>
-                            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)' }}>
+                            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3 }}>{t('pages.skills.level', 'Level')}</div>
+                            <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.9)' }}>
                                 {t(`pages.skills.levels.${(skill as any)?.level || 'entry'}`, String((skill as any)?.level || 'entry'))}
                             </Text>
                         </div>
-                        <div style={{ gridColumn: '1 / -1' }}>
-                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>ID</div>
+                        <div style={{ gridColumn: '1 / -1', marginTop: 2 }}>
+                            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3 }}>ID</div>
                             <Text
                                 copyable={(skill as any)?.id ? { text: String((skill as any).id) } : false}
-                                style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace' }}
+                                style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace' }}
                             >
                                 {String((skill as any)?.id || '—')}
                             </Text>
@@ -919,9 +919,9 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     </div>
 
                     {/* Description */}
-                    <StyledFormItem label={t('common.description', 'Description')} name="description">
+                    <StyledFormItem label={t('common.description', 'Description')} name="description" style={{ marginBottom: 0 }}>
                         <TextArea
-                            rows={3}
+                            rows={2}
                             placeholder={t('pages.skills.descriptionPlaceholder', 'Enter skill description')}
                         />
                     </StyledFormItem>
@@ -944,9 +944,9 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             <SectionCard icon={<BulbOutlined />} title={t('pages.skills.objectives', 'Objectives')} accent="#faad14" style={{ marginBottom: 0 }}>
                                 <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
                                     {objs.map((o: string, i: number) => (
-                                        <li key={i} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: i < objs.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
-                                            <CheckCircleOutlined style={{ color: '#52c41a', marginTop: 2, flexShrink: 0 }} />
-                                            <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, lineHeight: 1.5 }}>{o}</Text>
+                                        <li key={i} style={{ display: 'flex', gap: 6, padding: '3px 0', borderBottom: i < objs.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                                            <CheckCircleOutlined style={{ color: '#52c41a', marginTop: 2, flexShrink: 0, fontSize: 12 }} />
+                                            <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, lineHeight: 1.5 }}>{o}</Text>
                                         </li>
                                     ))}
                                 </ul>
@@ -970,13 +970,13 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                         if (examples.length === 0) return null;
                         return (
                             <SectionCard icon={<ExperimentOutlined />} title={t('pages.skills.examples', 'Usage Examples')} accent="#1890ff" style={{ marginBottom: 0 }}>
-                                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                                <Space direction="vertical" size={3} style={{ width: '100%' }}>
                                     {examples.slice(0, 3).map((ex: string, i: number) => (
                                         <div key={i} style={{
-                                            padding: '5px 8px',
+                                            padding: '4px 8px',
                                             background: 'rgba(24,144,255,0.06)',
                                             border: '1px solid rgba(24,144,255,0.12)',
-                                            borderRadius: 5,
+                                            borderRadius: 4,
                                             fontFamily: 'monospace',
                                             fontSize: 11,
                                             color: 'rgba(255,255,255,0.8)',
@@ -1014,10 +1014,11 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                             background: 'rgba(114,46,209,0.1)',
                                             border: '1px solid rgba(114,46,209,0.25)',
                                             color: '#b37feb',
-                                            borderRadius: 5,
-                                            padding: '1px 8px',
+                                            borderRadius: 4,
+                                            padding: '0 6px',
                                             margin: 0,
-                                            fontSize: 12,
+                                            fontSize: 11,
+                                            lineHeight: '18px',
                                         }}>{tag}</Tag>
                                     ))}
                                 </Space>
@@ -1031,7 +1032,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
             key: 'config',
             label: <span><CodeOutlined /> {t('pages.skills.tabs.config', 'Configuration')}</span>,
             children: (
-                <Row gutter={[24, 0]}>
+                <Row gutter={[16, 8]}>
                     <Col span={24}>
                         <StyledFormItem
                             label={t('pages.skills.config', 'Config (JSON)')}
@@ -1039,11 +1040,12 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             help={t('pages.skills.configHelp', 'Enter valid JSON configuration')}
                             validateTrigger={['onChange', 'onBlur']}
                             rules={[validateJSON(t)]}
+                            style={{ marginBottom: 0 }}
                         >
                             <TextArea
-                                rows={8}
+                                rows={6}
                                 placeholder='{"key": "value"}'
-                                style={{ fontFamily: 'monospace', fontSize: '13px', lineHeight: '1.6' }}
+                                style={{ fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6' }}
                             />
                         </StyledFormItem>
                     </Col>
@@ -1054,11 +1056,12 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             help={t('pages.skills.mappingRulesHelp', 'State mapping rules for resume/event handling')}
                             validateTrigger={['onChange', 'onBlur']}
                             rules={[validateJSON(t)]}
+                            style={{ marginBottom: 0 }}
                         >
                             <TextArea
-                                rows={8}
+                                rows={6}
                                 placeholder='{"developing": {"mappings": [...]}}'
-                                style={{ fontFamily: 'monospace', fontSize: '13px', lineHeight: '1.6' }}
+                                style={{ fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6' }}
                             />
                         </StyledFormItem>
                     </Col>
@@ -1069,7 +1072,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
             key: 'metadata',
             label: <span><TagsOutlined /> {t('pages.skills.tabs.meta', 'Metadata')}</span>,
             children: (
-                <Row gutter={[24, 0]}>
+                <Row gutter={[16, 8]}>
                     <Col span={24}>
                         <Form.Item noStyle shouldUpdate>
                           {({ getFieldValue }) => {
@@ -1079,6 +1082,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                 label={t('pages.skills.tags', 'Tags')}
                                 name="tags_json"
                                 help={t('pages.skills.tagsHelp', 'Press Enter or click +Add to add tags')}
+                                style={{ marginBottom: 0 }}
                               >
                                 <TagInput
                                   value={tagsValue}
@@ -1094,6 +1098,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             label={t('pages.skills.examples', 'Examples')}
                             name="examples_json"
                             help={t('pages.skills.examplesHelp', 'Usage examples — click to add')}
+                            style={{ marginBottom: 0 }}
                         >
                             <StringArrayInput
                                 value={form.getFieldValue('examples_json') || '[]'}
@@ -1107,6 +1112,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             label={t('pages.skills.inputModes', 'Input Modes')}
                             name="inputModes_json"
                             help={t('pages.skills.inputModesHelp', 'Click to select')}
+                            style={{ marginBottom: 0 }}
                         >
                             <ModeSelector
                                 value={form.getFieldValue('inputModes_json') || '[]'}
@@ -1119,6 +1125,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             label={t('pages.skills.outputModes', 'Output Modes')}
                             name="outputModes_json"
                             help={t('pages.skills.inputModesHelp', 'Click to select')}
+                            style={{ marginBottom: 0 }}
                         >
                             <ModeSelector
                                 value={form.getFieldValue('outputModes_json') || '[]'}
@@ -1131,6 +1138,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             label={t('pages.skills.objectives', 'Objectives')}
                             name="objectives_json"
                             help={t('pages.skills.objectivesHelp', 'Goals this skill aims to achieve')}
+                            style={{ marginBottom: 0 }}
                         >
                             <StringArrayInput
                                 value={form.getFieldValue('objectives_json') || '[]'}
@@ -1144,6 +1152,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             label={t('pages.skills.needInputs', 'Required Inputs')}
                             name="need_inputs_json"
                             help={t('pages.skills.needInputsHelp', 'Define parameters this skill expects')}
+                            style={{ marginBottom: 0 }}
                         >
                             <NeedInputsEditor
                                 value={form.getFieldValue('need_inputs_json') || '[]'}
@@ -1158,12 +1167,13 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
             key: 'extended',
             label: <span><AppstoreOutlined /> {t('pages.skills.tabs.extended', 'Publishing & Pricing')}</span>,
             children: (
-                <Row gutter={[24, 0]}>
+                <Row gutter={[16, 8]}>
                     <Col span={24}>
                         <StyledFormItem
                             label={t('pages.skills.limitations', 'Limitations')}
                             name="limitations_json"
                             help={t('pages.skills.limitationsHelp', 'Known limitations or constraints')}
+                            style={{ marginBottom: 0 }}
                         >
                             <StringArrayInput
                                 value={form.getFieldValue('limitations_json') || '[]'}
@@ -1173,17 +1183,17 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                         </StyledFormItem>
                     </Col>
                     <Col span={8}>
-                        <StyledFormItem label={t('pages.skills.price', 'Price')} name="price">
+                        <StyledFormItem label={t('pages.skills.price', 'Price')} name="price" style={{ marginBottom: 0 }}>
                             <Input type="number" min={0} placeholder="0" />
                         </StyledFormItem>
                     </Col>
                     <Col span={8}>
-                        <StyledFormItem label={t('pages.skills.priceModel', 'Price Model')} name="price_model">
+                        <StyledFormItem label={t('pages.skills.priceModel', 'Price Model')} name="price_model" style={{ marginBottom: 0 }}>
                             <Input placeholder={t('pages.skills.priceModelPlaceholder', 'e.g., per-use, subscription')} />
                         </StyledFormItem>
                     </Col>
                     <Col span={8}>
-                        <StyledFormItem label=" " style={{ marginTop: '30px' }}>
+                        <div style={{ marginTop: 32 }}>
                             <Space size={24}>
                                 <StyledFormItem name="public" valuePropName="checked" noStyle>
                                     <Checkbox>{t('pages.skills.public', 'Public')}</Checkbox>
@@ -1192,7 +1202,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     <Checkbox>{t('pages.skills.rentable', 'Rentable')}</Checkbox>
                                 </StyledFormItem>
                             </Space>
-                        </StyledFormItem>
+                        </div>
                     </Col>
                 </Row>
             ),
@@ -1235,6 +1245,22 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
         },
     ];
 
+    // Direct DOM override of antd Tabs internal padding — survives CSS priority issues
+    useLayoutEffect(() => {
+        const root = document.querySelector('[data-skills-details]');
+        if (!root) return;
+        const tabContainer = root.querySelector('.ant-tabs');
+        if (!tabContainer) return;
+        const contentHolder = tabContainer.querySelector('.ant-tabs-content-holder') as HTMLElement | null;
+        const content = tabContainer.querySelector('.ant-tabs-content') as HTMLElement | null;
+        const panes = tabContainer.querySelectorAll('.ant-tabs-tabpane');
+        if (contentHolder) contentHolder.style.paddingTop = '0';
+        if (content) content.style.paddingTop = '0';
+        panes.forEach(p => { (p as HTMLElement).style.paddingTop = '0'; });
+        const nav = tabContainer.querySelector('.ant-tabs-nav') as HTMLElement | null;
+        if (nav) nav.style.marginBottom = '0';
+    }, []);
+
     // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
     useEffectOnActive(
         () => {
@@ -1257,14 +1283,27 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
 
     return (
         <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-primary)' }}>
-            <FormContainer ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
-                <Space direction="vertical" style={{ width: '100%' }} size={20}>
+            {/* Compact antd Tabs content padding inside SkillDetails */}
+            <style>{`
+                [data-skills-details] .ant-tabs-content-holder {
+                    padding-top: 0 !important;
+                }
+                [data-skills-details] .ant-tabs-content {
+                    padding-top: 0 !important;
+                }
+                [data-skills-details] .ant-tabs-tabpane {
+                    padding: 10px 0 0 !important;
+                }
+            `}</style>
+            <div data-skills-details>
+            <FormContainer ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 12px' }}>
+                <Space direction="vertical" style={{ width: '100%' }} size={12}>
                 {/* Hero Header */}
                 <div
                     style={{
                         position: 'relative',
-                        padding: '28px 32px',
-                        borderRadius: '16px',
+                        padding: '16px 20px',
+                        borderRadius: '12px',
                         background: 'linear-gradient(135deg, rgba(24, 144, 255, 0.12) 0%, rgba(82, 196, 26, 0.08) 50%, rgba(114, 46, 209, 0.08) 100%)',
                         border: '1px solid rgba(255, 255, 255, 0.08)',
                         overflow: 'hidden',
@@ -1272,23 +1311,23 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 >
                     {/* decorative gradient orbs */}
                     <div style={{
-                        position: 'absolute', top: -60, right: -40, width: 200, height: 200, borderRadius: '50%',
+                        position: 'absolute', top: -50, right: -40, width: 160, height: 160, borderRadius: '50%',
                         background: 'radial-gradient(circle, rgba(24,144,255,0.18) 0%, transparent 70%)', pointerEvents: 'none',
                     }} />
                     <div style={{
-                        position: 'absolute', bottom: -80, left: '40%', width: 240, height: 240, borderRadius: '50%',
+                        position: 'absolute', bottom: -60, left: '40%', width: 200, height: 200, borderRadius: '50%',
                         background: 'radial-gradient(circle, rgba(82,196,26,0.10) 0%, transparent 70%)', pointerEvents: 'none',
                     }} />
 
-                    <div style={{ position: 'relative', display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+                    <div style={{ position: 'relative', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
                         {/* Icon */}
                         <div
                             style={{
-                                width: 72, height: 72, borderRadius: 18, flexShrink: 0,
+                                width: 56, height: 56, borderRadius: 12, flexShrink: 0,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                fontSize: 32, color: '#fff',
+                                fontSize: 26, color: '#fff',
                                 background: `linear-gradient(135deg, ${(() => { const { bg } = getSkillIcon(skill || ({} as Skill)); return bg.join(', '); })()})`,
-                                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+                                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.25)',
                             }}
                         >
                             {(() => { const { icon } = getSkillIcon(skill || ({} as Skill)); return icon; })()}
@@ -1296,58 +1335,58 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
 
                         {/* Title block */}
                         <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                                <Title level={3} style={{ color: 'white', margin: 0, lineHeight: 1.2 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                                <Title level={4} style={{ color: 'white', margin: 0, lineHeight: 1.2, fontSize: 20 }}>
                                     {name || t('pages.skills.newSkill', 'New Skill')}
                                 </Title>
                                 {!isNew && (
-                                    <Tag color={getStatusColor(status as any)} style={{ borderRadius: 20, border: 'none', fontWeight: 600, padding: '2px 10px', margin: 0 }}>
+                                    <Tag color={getStatusColor(status as any)} style={{ borderRadius: 20, border: 'none', fontWeight: 600, padding: '0 8px', margin: 0, fontSize: 11, lineHeight: '18px' }}>
                                         {t(`pages.skills.status.${status || 'unknown'}`, String(status || 'unknown'))}
                                     </Tag>
                                 )}
-                                <Tag style={{ borderRadius: 20, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.85)', fontWeight: 500, padding: '2px 10px', margin: 0 }}>
-                                    <ThunderboltOutlined style={{ marginRight: 4 }} />
+                                <Tag style={{ borderRadius: 20, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.85)', fontWeight: 500, padding: '0 8px', margin: 0, fontSize: 11, lineHeight: '18px' }}>
+                                    <ThunderboltOutlined style={{ marginRight: 3 }} />
                                     {t(`pages.skills.categories.${category || 'unknown'}`, String(category || 'unknown'))}
                                 </Tag>
                                 {isCodeSkill && (
-                                    <Tag color="orange" style={{ borderRadius: 20, border: 'none', fontWeight: 500, padding: '2px 10px', margin: 0 }}>
-                                        <LockOutlined style={{ marginRight: 4 }} />
+                                    <Tag color="orange" style={{ borderRadius: 20, border: 'none', fontWeight: 500, padding: '0 8px', margin: 0, fontSize: 11, lineHeight: '18px' }}>
+                                        <LockOutlined style={{ marginRight: 3 }} />
                                         {t('pages.skills.codeSkillReadOnly', 'Code-based')}
                                     </Tag>
                                 )}
                             </div>
 
-                            <Text style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 14, lineHeight: 1.6, display: 'block', marginBottom: 14 }}>
+                            <Text style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 13, lineHeight: 1.5, display: 'block', marginBottom: 8 }}>
                                 {description || t('pages.skills.noDescription', 'No description available')}
                             </Text>
 
                             {/* Meta row */}
-                            <Space size={20} wrap>
+                            <Space size={14} wrap>
                                 {((skill as any)?.owner) && (
-                                    <Space size={6}>
-                                        <Avatar size={20} style={{ background: colorFromString((skill as any).owner), fontSize: 10, fontWeight: 600 }}>
+                                    <Space size={4}>
+                                        <Avatar size={18} style={{ background: colorFromString((skill as any).owner), fontSize: 9, fontWeight: 600 }}>
                                             {getInitials((skill as any).owner)}
                                         </Avatar>
-                                        <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>{(skill as any).owner}</Text>
+                                        <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>{(skill as any).owner}</Text>
                                     </Space>
                                 )}
                                 {((skill as any)?.version) && (
-                                    <Space size={6}>
-                                        <Tag style={{ margin: 0, background: 'rgba(255,255,255,0.06)', border: 'none', color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace' }}>
+                                    <Space size={4}>
+                                        <Tag style={{ margin: 0, background: 'rgba(255,255,255,0.06)', border: 'none', color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace', fontSize: 11, padding: '0 6px', lineHeight: '18px' }}>
                                             v{(skill as any).version}
                                         </Tag>
                                     </Space>
                                 )}
                                 {!isNew && (skill as any)?.lastUsed && (
-                                    <Space size={6}>
-                                        <ClockCircleOutlined style={{ color: 'rgba(255,255,255,0.4)' }} />
-                                        <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>{(skill as any).lastUsed}</Text>
+                                    <Space size={4}>
+                                        <ClockCircleOutlined style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }} />
+                                        <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>{(skill as any).lastUsed}</Text>
                                     </Space>
                                 )}
                                 {!isNew && (skill as any)?.id && (
                                     <Text
                                         copyable={{ text: String((skill as any).id) }}
-                                        style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, fontFamily: 'monospace' }}
+                                        style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11, fontFamily: 'monospace' }}
                                     >
                                         ID: {String((skill as any).id)}
                                     </Text>
@@ -1358,20 +1397,20 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                         {/* Right: Level card */}
                         {!isNew && (
                             <div style={{
-                                minWidth: 200,
-                                padding: '14px 18px',
+                                minWidth: 168,
+                                padding: '10px 14px',
                                 background: 'rgba(255, 255, 255, 0.04)',
-                                borderRadius: 14,
+                                borderRadius: 10,
                                 border: '1px solid rgba(255, 255, 255, 0.08)',
                                 backdropFilter: 'blur(10px)',
                             }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                                    <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                                    <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                                         {t('pages.skills.proficiency', 'Proficiency')}
                                     </Text>
                                     <div style={{
-                                        padding: '2px 10px',
-                                        borderRadius: 10,
+                                        padding: '1px 8px',
+                                        borderRadius: 8,
                                         background: (isNaN(levelVal) ? 0 : levelVal) >= 100
                                             ? 'linear-gradient(135deg, #52c41a, #73d13d)'
                                             : (isNaN(levelVal) ? 0 : levelVal) >= 66
@@ -1380,7 +1419,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                             ? 'linear-gradient(135deg, #faad14, #ffc53d)'
                                             : 'linear-gradient(135deg, #8c8c8c, #bfbfbf)',
                                         color: 'white',
-                                        fontSize: 10,
+                                        fontSize: 9,
                                         fontWeight: 600,
                                     }}>
                                         {(isNaN(levelVal) ? 0 : levelVal) >= 100
@@ -1392,23 +1431,23 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                             : t('pages.skills.levelBeginner', 'Beginner')}
                                     </div>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 6 }}>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 4 }}>
                                     <span style={{
-                                        fontSize: 28, fontWeight: 700,
+                                        fontSize: 22, fontWeight: 700,
                                         background: 'linear-gradient(135deg, #1890ff, #52c41a)',
                                         WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
                                         fontFamily: 'monospace', lineHeight: 1,
                                     }}>
                                         {isNaN(levelVal) ? 0 : levelVal}
                                     </span>
-                                    <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>%</span>
+                                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>%</span>
                                 </div>
                                 <Progress
                                     percent={isNaN(levelVal) ? 0 : levelVal}
                                     status={(status as any) === 'learning' ? 'active' : 'normal'}
                                     strokeColor={{ '0%': '#1890ff', '50%': '#40a9ff', '100%': '#52c41a' }}
                                     trailColor="rgba(255, 255, 255, 0.08)"
-                                    size={{ height: 6 }}
+                                    size={{ height: 4 }}
                                     showInfo={false}
                                     strokeLinecap="round"
                                 />
@@ -1420,10 +1459,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     {!isNew && (
                         <div style={{
                             position: 'relative',
-                            marginTop: 22,
+                            marginTop: 12,
                             display: 'grid',
                             gridTemplateColumns: 'repeat(5, 1fr)',
-                            gap: 12,
+                            gap: 8,
                         }}>
                             {[
                                 { icon: <StarOutlined />, label: t('pages.skills.rating', 'Rating'), value: Number((skill as any)?.rating ?? 5).toFixed(1), suffix: '/ 5', color: '#faad14' },
@@ -1433,25 +1472,26 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                 { icon: <ThunderboltOutlined />, label: t('pages.skills.usageCount', 'Usage'), value: (skill as any)?.usageCount ?? 0, suffix: '', color: '#722ed1' },
                             ].map((s, idx) => (
                                 <div key={idx} style={{
-                                    padding: '12px 14px',
+                                    padding: '8px 10px',
                                     background: 'rgba(255,255,255,0.04)',
                                     border: '1px solid rgba(255,255,255,0.06)',
-                                    borderRadius: 12,
-                                    display: 'flex', alignItems: 'center', gap: 10,
+                                    borderRadius: 8,
+                                    display: 'flex', alignItems: 'center', gap: 8,
                                 }}>
                                     <div style={{
-                                        width: 32, height: 32, borderRadius: 10,
+                                        width: 26, height: 26, borderRadius: 8,
                                         background: `${s.color}20`,
                                         color: s.color,
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        fontSize: 16,
+                                        fontSize: 13,
+                                        flexShrink: 0,
                                     }}>
                                         {s.icon}
                                     </div>
                                     <div style={{ minWidth: 0 }}>
-                                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 0.4 }}>{s.label}</div>
-                                        <div style={{ fontSize: 16, color: '#fff', fontWeight: 600, lineHeight: 1.2, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {String(s.value)}{s.suffix && <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', fontWeight: 400 }}> {s.suffix}</span>}
+                                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 0.4, lineHeight: 1.1 }}>{s.label}</div>
+                                        <div style={{ fontSize: 14, color: '#fff', fontWeight: 600, lineHeight: 1.2, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {String(s.value)}{s.suffix && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: 400 }}> {s.suffix}</span>}
                                         </div>
                                     </div>
                                 </div>
@@ -1465,7 +1505,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 <StyledCard
                     title={
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                            <Space>
+                            <Space size={6}>
                                 <SettingOutlined style={{ color: '#1890ff' }} />
                                 <span style={{ color: 'white' }}>{t('pages.skills.details', 'Skill Details')}</span>
                             </Space>
@@ -1486,12 +1526,15 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             )}
                         </div>
                     }
+                    styles={{ body: { padding: '0px 16px 8px' }, header: { padding: '6px 16px', minHeight: 'auto' } }}
                 >
                     <Form form={form} layout="vertical" disabled={!editMode}>
                         <Tabs
                             defaultActiveKey="basic"
                             items={tabItems}
-                            tabBarStyle={{ color: 'white' }}
+                            size="small"
+                            tabBarStyle={{ color: 'white', margin: 0, borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+                            style={{ paddingTop: 0 }}
                         />
                     </Form>
                 </StyledCard>
@@ -1522,7 +1565,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 gap: 12,
-                padding: '14px 24px',
+                padding: '10px 16px',
                 background: 'rgba(15, 23, 42, 0.6)',
                 backdropFilter: 'blur(12px)',
                 borderTop: '1px solid rgba(255, 255, 255, 0.08)',
@@ -1538,23 +1581,21 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     )}
                 </div>
 
-                <Space size={10}>
+                <Space size={8}>
                 {/* Edit模式Button */}
                 {!isNew && editMode && (
                     <>
                         <Button
                             type="primary"
                             onClick={handleSave}
-                            size="large"
-                            style={primaryButtonStyle}
+                            style={{ ...primaryButtonStyle, height: 36, minWidth: 88 }}
                             icon={<CheckCircleOutlined />}
                         >
                             {t('common.save', 'Save')}
                         </Button>
                         <Button
                             onClick={handleCancel}
-                            size="large"
-                            style={buttonStyle}
+                            style={{ ...buttonStyle, height: 36, minWidth: 80 }}
                         >
                             {t('common.cancel', 'Cancel')}
                         </Button>
@@ -1567,16 +1608,14 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                         <Button
                             type="primary"
                             onClick={handleSave}
-                            size="large"
-                            style={primaryButtonStyle}
+                            style={{ ...primaryButtonStyle, height: 36, minWidth: 88 }}
                             icon={<CheckCircleOutlined />}
                         >
                             {t('common.create', 'Create')}
                         </Button>
                         <Button
                             onClick={handleCancel}
-                            size="large"
-                            style={buttonStyle}
+                            style={{ ...buttonStyle, height: 36, minWidth: 80 }}
                         >
                             {t('common.cancel', 'Cancel')}
                         </Button>
@@ -1591,8 +1630,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                 <Button
                                     icon={<LockOutlined />}
                                     disabled
-                                    size="large"
-                                    style={buttonStyle}
+                                    style={{ ...buttonStyle, height: 36, minWidth: 100 }}
                                 >
                                     {t('pages.skills.readOnly', 'Read-only')}
                                 </Button>
@@ -1604,8 +1642,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     type="primary"
                                     icon={<EditOutlined />}
                                     onClick={handleEdit}
-                                    size="large"
-                                    style={primaryButtonStyle}
+                                    style={{ ...primaryButtonStyle, height: 36, minWidth: 88 }}
                                 >
                                     {t('pages.skills.edit', 'Edit')}
                                 </Button>
@@ -1613,8 +1650,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                 <Button
                                     icon={<PlayCircleOutlined />}
                                     onClick={goToEditorAndRun}
-                                    size="large"
-                                    style={buttonStyle}
+                                    style={{ ...buttonStyle, height: 36, minWidth: 80 }}
                                 >
                                     {t('pages.skills.run', 'Run')}
                                 </Button>
@@ -1642,7 +1678,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     }}
                                     placement="topRight"
                                 >
-                                    <Button icon={<MoreOutlined />} size="large" style={buttonStyle} />
+                                    <Button icon={<MoreOutlined />} style={{ ...buttonStyle, height: 36, minWidth: 48 }} />
                                 </Dropdown>
                             </>
                         ) : (
@@ -1653,8 +1689,9 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     icon={isSubscribed ? <HeartOutlined /> : <DownloadOutlined />}
                                     onClick={handleToggleSubscribe}
                                     loading={subscribeLoading}
-                                    size="large"
-                                    style={isSubscribed ? { ...buttonStyle, borderColor: '#faad14', color: '#faad14' } : primaryButtonStyle}
+                                    style={isSubscribed
+                                        ? { ...buttonStyle, height: 36, minWidth: 100, borderColor: '#faad14', color: '#faad14' }
+                                        : { ...primaryButtonStyle, height: 36, minWidth: 100 }}
                                 >
                                     {isSubscribed ? t('pages.skills.unsubscribe', 'Unsubscribe') : t('pages.skills.subscribe', 'Subscribe')}
                                 </Button>
@@ -1662,8 +1699,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     icon={<PlayCircleOutlined />}
                                     onClick={goToEditorAndRun}
                                     disabled={isThirdPartySkill}
-                                    size="large"
-                                    style={buttonStyle}
+                                    style={{ ...buttonStyle, height: 36, minWidth: 80 }}
                                 >
                                     {t('pages.skills.run', 'Run')}
                                 </Button>
@@ -1671,8 +1707,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     <Button
                                         icon={<LockOutlined />}
                                         disabled
-                                        size="large"
-                                        style={buttonStyle}
+                                        style={{ ...buttonStyle, height: 36, minWidth: 100 }}
                                     >
                                         {t('pages.skills.readOnly', 'Read-only')}
                                     </Button>
@@ -1682,6 +1717,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     </>
                 )}
                 </Space>
+            </div>
             </div>
         </div>
     );

@@ -2514,7 +2514,9 @@
         "workspace_switch_failed": "切换 workspace 失败",
         "workspacePicker": {
           "tooltip": "留空则使用服务端默认工作空间。建议按类别使用不同名称（例如 customer_service、product_details）以隔离数据。",
-          "placeholder": "工作空间名称（留空 = 服务端默认）"
+          "placeholder": "工作空间名称（留空 = 服务端默认）",
+          "label": "工作空间",
+          "serverDefault": "（服务端默认）"
         },
         "headerStatus": {
           "loading": "加载中...",

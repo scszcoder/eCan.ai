@@ -141,6 +141,17 @@ class ChannelManager:
         if rt.status == ChannelStatus.RUNNING:
             return
 
+        # Join any previous thread on this slot before replacing it,
+        # otherwise restart storms accumulate zombie channel-* threads.
+        if rt.thread and rt.thread.is_alive():
+            logger.warning(
+                f"[ChannelManager] Previous thread for {channel_id} still "
+                "alive; joining before restart"
+            )
+            rt.stop_event.set()
+            rt.thread.join(timeout=5)
+        rt.thread = None
+
         rt.stop_event.clear()
         rt.status = ChannelStatus.STARTING
         rt.thread = threading.Thread(

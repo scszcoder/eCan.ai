@@ -137,7 +137,7 @@ const StatusIndicator: React.FC = () => {
                 color: token.colorTextSecondary,
                 fontWeight: 400,
                 whiteSpace: 'nowrap',
-                maxWidth: 320,
+                maxWidth: 200,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis'
               }}

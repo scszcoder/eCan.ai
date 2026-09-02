@@ -29,11 +29,9 @@ export interface WorkspacePickerProps {
    *  picker is wired to the shared `useWorkspace()` hook (which handles
    *  persistence and cross-component sync on its own). */
   storageKey?: string;
-  /** Label placement hint; caller decides layout. Default false = inline. */
-  block?: boolean;
   /** Optional placeholder override. */
   placeholder?: string;
-  /** Optional title/label to show above the picker. */
+  /** Optional title/label override shown next to the picker. */
   label?: string;
   /** Optional callback fired once on mount with the restored value. */
   onRestored?: (workspace: string) => void;
@@ -50,7 +48,6 @@ const WorkspacePicker: React.FC<WorkspacePickerProps> = ({
   storageKey,
   placeholder,
   label,
-  block,
   onRestored,
 }) => {
   const [workspaceNames, setWorkspaceNames] = useState<string[]>([]);
@@ -123,41 +120,55 @@ const WorkspacePicker: React.FC<WorkspacePickerProps> = ({
 
   const { t } = useTranslation();
 
+  // Localised label/tooltip shown next to the picker. The tooltip doubles
+  // as the "what is a workspace?" explainer that used to be missing — see
+  // the user feedback about workspace context being invisible.
+  const workspaceLabel = label || t('pages.knowledge.lightrag.workspacePicker.label');
+  const workspaceTooltip = t('pages.knowledge.lightrag.workspacePicker.tooltip');
+
   return (
     <div style={{
-      display: block ? 'flex' : 'inline-flex',
-      width: block ? '100%' : 'auto',
+      display: 'flex',
       alignItems: 'center',
-      gap: 10,
+      gap: 6,
+      flexShrink: 0,
     }}>
-      {label ? (
-        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
-          <AppstoreOutlined style={{ marginRight: 5, color: token.colorPrimary }} />
-          <span style={{ fontWeight: 500 }}>{label}</span>
-          <Tooltip title={t('pages.knowledge.lightrag.workspacePicker.tooltip')}>
-            <InfoCircleOutlined style={{ marginLeft: 5, color: token.colorTextTertiary }} />
-          </Tooltip>
-        </span>
-      ) : null}
+      <AppstoreOutlined style={{ color: token.colorPrimary, fontSize: 12 }} />
+      <span style={{ fontSize: 12, color: token.colorTextSecondary, fontWeight: 500, whiteSpace: 'nowrap' }}>
+        {workspaceLabel}
+      </span>
+      <Tooltip title={workspaceTooltip} placement="bottom">
+        <InfoCircleOutlined style={{ color: token.colorTextTertiary, fontSize: 12, cursor: 'help' }} />
+      </Tooltip>
       <Select
         value={value || undefined}
         onChange={(v) => onChange((v || '').trim())}
-        options={workspaceNames.map((name) => ({
-          value: name,
-          label: (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <FolderOutlined style={{ color: name === value ? token.colorPrimary : token.colorTextTertiary }} />
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
-              {name === value && <CheckOutlined style={{ color: token.colorPrimary, fontSize: 12 }} />}
+        // options only carry value; visual rendering is delegated to
+        // optionRender so the closed picker shows a plain "test3" label
+        // (standard antd Select look) while the dropdown shows the
+        // folder-icon + check-mark affordance.
+        options={workspaceNames.map((name) => ({ value: name, label: name }))}
+        optionRender={(option) => (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <FolderOutlined
+              style={{
+                color: option.value === value ? token.colorPrimary : token.colorTextTertiary,
+              }}
+            />
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {option.label}
             </span>
-          ),
-        }))}
+            {option.value === value && (
+              <CheckOutlined style={{ color: token.colorPrimary, fontSize: 12 }} />
+            )}
+          </span>
+        )}
         placeholder={placeholder || t('pages.knowledge.lightrag.workspacePicker.placeholder')}
         loading={loading}
         showSearch
         optionFilterProp="value"
         size="middle"
-        style={{ width: block ? '100%' : 210, minWidth: 0 }}
+        style={{ width: 160, minWidth: 0 }}
         popupMatchSelectWidth={240}
         getPopupContainer={() => document.body}
       />

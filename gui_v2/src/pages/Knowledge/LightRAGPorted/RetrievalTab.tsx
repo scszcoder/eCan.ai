@@ -774,7 +774,7 @@ const RetrievalTab: React.FC = () => {
 
   return (
     <div style={{ 
-      padding: '32px', 
+      padding: '16px', 
       height: '100%', 
       display: 'flex', 
       gap: 20,
@@ -795,7 +795,7 @@ const RetrievalTab: React.FC = () => {
             flex: 1, 
             minHeight: 0, 
             border: `1px solid ${token.colorBorder}`, 
-            borderRadius: 16, 
+            borderRadius: 12, 
             padding: 20, 
             overflow: 'auto', 
             background: token.colorBgContainer,
@@ -842,7 +842,7 @@ const RetrievalTab: React.FC = () => {
           padding: '16px 20px',
           background: token.colorBgContainer,
           border: `1px solid ${token.colorBorder}`,
-          borderRadius: 16,
+          borderRadius: 12,
           boxShadow: isDark ? '0 4px 16px rgba(0, 0, 0, 0.15)' : '0 4px 16px rgba(0, 0, 0, 0.06)'
         }}>
           <button className="ec-btn" onClick={handleClear} disabled={loading} title={t('pages.knowledge.retrieval.clearConversation')}>
@@ -903,7 +903,7 @@ const RetrievalTab: React.FC = () => {
         width: 320, 
         flexShrink: 0, 
         border: `1px solid ${token.colorBorder}`, 
-        borderRadius: 16, 
+        borderRadius: 12, 
         background: token.colorBgContainer, 
         display: 'flex', 
         flexDirection: 'column', 
@@ -912,7 +912,7 @@ const RetrievalTab: React.FC = () => {
         boxShadow: isDark ? '0 4px 16px rgba(0, 0, 0, 0.15)' : '0 4px 16px rgba(0, 0, 0, 0.06)'
       }}>
         <div style={{ padding: '20px 24px', borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
-          <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: token.colorText }}>⚙️ {t('pages.knowledge.retrieval.querySettings')}</h4>
+          <h4 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: token.colorText }}>⚙️ {t('pages.knowledge.retrieval.querySettings')}</h4>
         </div>
         <div 
           ref={settingsPanelRef}
@@ -939,11 +939,11 @@ const RetrievalTab: React.FC = () => {
           <div className="param-group">
             <div className="param-group-title">{t('pages.knowledge.retrieval.basic')}</div>
             <div className="param-row" style={{ alignItems: 'center' }}>
-              <label>Workspace</label>
+              <label>{t('pages.knowledge.lightrag.workspacePicker.label')}</label>
               <WorkspacePicker
                 value={workspace}
                 onChange={setWorkspace}
-                placeholder="(server default)"
+                placeholder={t('pages.knowledge.lightrag.workspacePicker.serverDefault')}
               />
             </div>
             <div className="param-row">
@@ -1014,42 +1014,7 @@ const RetrievalTab: React.FC = () => {
       </div>
 
       <style>{`
-        [data-ec-scope="lightrag-ported"] .ec-input {
-          background: ${token.colorBgContainer};
-          color: ${token.colorText};
-          border: 1px solid ${token.colorBorder};
-          border-radius: 8px;
-          padding: 8px 12px;
-          box-sizing: border-box;
-          font-size: 13px;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        [data-ec-scope="lightrag-ported"] .ec-input:focus {
-          outline: none;
-          border-color: ${token.colorPrimary};
-          box-shadow: 0 0 0 2px ${token.colorPrimaryBg};
-        }
-        [data-ec-scope="lightrag-ported"] .ec-btn {
-          background: ${token.colorBgContainer};
-          color: ${token.colorText};
-          border: 1px solid ${token.colorBorder};
-          border-radius: 8px;
-          padding: 8px 12px;
-          cursor: pointer;
-          font-size: 13px;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-          min-width: 40px;
-          box-shadow: ${isDark ? '0 2px 8px rgba(0, 0, 0, 0.15)' : '0 2px 8px rgba(0, 0, 0, 0.05)'};
-        }
-        [data-ec-scope="lightrag-ported"] .ec-btn:hover {
-          border-color: ${token.colorPrimary};
-          color: ${token.colorPrimary};
-          transform: translateY(-2px);
-          box-shadow: ${isDark ? '0 4px 12px rgba(24, 144, 255, 0.3)' : '0 4px 12px rgba(24, 144, 255, 0.2)'};
-        }
+        /* .ec-btn is defined in styles/lightragTheme.css — do not duplicate here */
         [data-ec-scope="lightrag-ported"] .ec-btn-primary {
           background: ${token.colorPrimary};
           color: #ffffff;
@@ -1059,20 +1024,18 @@ const RetrievalTab: React.FC = () => {
           background: ${token.colorPrimaryHover};
           border-color: ${token.colorPrimaryHover};
           color: #ffffff;
-          transform: translateY(-2px);
-          box-shadow: 0 6px 16px rgba(24, 144, 255, 0.4);
         }
-        [data-ec-scope="lightrag-ported"] .ec-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
+        [data-ec-scope="lightrag-ported"] .ec-btn:hover {
+          border-color: ${token.colorPrimary};
+          color: ${token.colorPrimary};
         }
         [data-ec-scope="lightrag-ported"] .param-group {
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 12px;
         }
         [data-ec-scope="lightrag-ported"] .param-group-title {
-          font-size: 11px;
+          font-size: 12px;
           font-weight: 700;
           color: ${token.colorTextSecondary};
           text-transform: uppercase;

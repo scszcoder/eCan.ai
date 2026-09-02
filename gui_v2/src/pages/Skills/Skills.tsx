@@ -892,20 +892,21 @@ const Skills: React.FC = () => {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        padding: '14px 20px',
+                        padding: '8px 16px',
                         borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        flexShrink: 0,
                     }}>
-                        <Space>
+                        <Space size={6}>
                             <ThunderboltOutlined style={{ color: 'var(--primary-color)' }} />
-                            <strong style={{ color: 'var(--text-primary)' }}>
+                            <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>
                                 {isAddingNew ? t('pages.skills.newSkill', 'New Skill') : t('common.edit', 'Edit')}
                             </strong>
                         </Space>
                         <Space>
-                            <Button onClick={handleCloseDrawer}>{t('common.cancel', 'Cancel')}</Button>
+                            <Button size="small" onClick={handleCloseDrawer}>{t('common.cancel', 'Cancel')}</Button>
                         </Space>
                     </div>
-                    <div style={{ flex: 1, minHeight: 0 }}>
+                    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                         <SkillDetails
                             skill={isAddingNew ? null : editingSkill}
                             isNew={isAddingNew}

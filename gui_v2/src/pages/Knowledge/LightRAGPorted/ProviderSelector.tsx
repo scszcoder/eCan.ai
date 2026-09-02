@@ -237,7 +237,7 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
       : field.key;
     
     const label = (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
         <span style={{ fontWeight: 500, fontSize: 13, color: token.colorText }}>
           {labelText}
           {field.required && <span style={{ color: token.colorError, marginLeft: 2 }}>*</span>}
@@ -283,7 +283,6 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               }}
               style={{ flex: 1 }}
               options={modelOptions}
-              size="small"
               loading={ollamaLoading}
               disabled={managed}
               showSearch
@@ -314,7 +313,6 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               onChange={(val) => onSettingChange(field.key, val)}
               style={commonStyle}
               options={translatedModelOptions}
-              size="small"
               disabled={managed}
             />
           </div>
@@ -332,7 +330,6 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               placeholder={placeholder}
               onChange={(e) => onSettingChange(field.key, e.target.value)}
               style={commonStyle}
-              size="small"
               disabled={managed || field.disabled}
             />
           </div>
@@ -352,11 +349,10 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
                 value={value}
                 placeholder={placeholder}
                 onChange={(e) => onSettingChange(field.key, e.target.value)}
-                style={{ 
+                style={{
                   flex: 1,
                   ...(managed ? { backgroundColor: token.colorBgContainerDisabled, cursor: 'not-allowed' } : {})
                 }}
-                size="small"
                 readOnly={managed} // ReadOnly for system managed keys - allows viewing but not editing
                 visibilityToggle={true} // Always show toggle so users can view the value (even if masked)
               />
@@ -383,7 +379,6 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               placeholder={placeholder}
               onChange={(val) => onSettingChange(field.key, val?.toString() || '')}
               style={commonStyle}
-              size="small"
               disabled={field.disabled}
               min={0}
               step={field.key.includes('TEMPERATURE') || field.key.includes('SCORE') ? 0.1 : 1}
@@ -402,7 +397,6 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               onChange={(e) => onSettingChange(field.key, e.target.value)}
               rows={2}
               style={commonStyle}
-              size="small"
               disabled={field.disabled}
             />
           </div>
@@ -427,7 +421,6 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               onChange={(val) => onSettingChange(field.key, val)}
               style={commonStyle}
               options={translatedOptions}
-              size="small"
               disabled={field.disabled}
             />
           </div>
@@ -437,8 +430,8 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
         if (isParserSelector) {
           return (
             <div key={field.key} style={{
-              minHeight: 58,
-              padding: '10px 12px',
+              minHeight: 44,
+              padding: '6px 10px',
               border: `1px solid ${token.colorBorderSecondary}`,
               borderRadius: token.borderRadiusLG,
               background: token.colorFillQuaternary,
@@ -519,9 +512,9 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
     .filter(group => group.fields.length > 0) : [];
 
   return (
-    <div style={{ padding: '16px 0' }}>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ marginBottom: 6 }}>
+    <div style={{ padding: '8px 0' }}>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 4 }}>
           <span style={{ fontWeight: 600, fontSize: 14, color: token.colorText }}>
             {t('pages.knowledge.settings.provider.selectProvider')}
           </span>
@@ -531,7 +524,6 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           placeholder={t('pages.knowledge.settings.provider.selectProviderPlaceholder')}
           onChange={(val) => onSettingChange(bindingKey, val)}
           style={{ width: '100%' }}
-          size="middle"
           optionLabelProp="label"
         >
           {providers.map(p => {
@@ -619,16 +611,18 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
             </div>
           }
           style={{
-            marginBottom: 20,
-            borderColor: token.colorBorder
+            marginBottom: 12,
+            borderColor: token.colorBorder,
+            borderRadius: 12,
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
           }}
         >
           {isParserSelector ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {parserFieldGroups.map(group => (
                 <section key={group.key}>
                   <div style={{
-                    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+                    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
                     color: token.colorTextSecondary, fontSize: 12, fontWeight: 600
                   }}>
                     <span>{group.title}</span>
@@ -636,8 +630,8 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
                   </div>
                   <div style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                    gap: '10px 14px'
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                    gap: 8
                   }}>
                     {group.fields.map(field => (
                       <div key={field.key} style={{
@@ -655,7 +649,7 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: 12
+              gap: 8
             }}>
               {visibleFields.map(field => renderField(field))}
             </div>
@@ -668,7 +662,9 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           size="small"
           title={t('pages.knowledge.settings.provider.commonSettings')}
           style={{
-            borderColor: token.colorBorder
+            borderColor: token.colorBorder,
+            borderRadius: 12,
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
           }}
         >
           <div style={{

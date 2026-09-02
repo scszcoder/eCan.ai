@@ -280,6 +280,31 @@ const InfoItem = styled.div`
   }
 `;
 
+const ShortcutHintGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--text-secondary);
+  font-size: 12px;
+`;
+
+const ShortcutHintItem = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+`;
+
+const ShortcutKey = styled.span`
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+`;
+
 interface TaskDetailProps {
   task: Task | null | object;
   isNew?: boolean;
@@ -1315,47 +1340,56 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       <div style={{
         flexShrink: 0,
         display: 'flex',
-        justifyContent: 'flex-end',
-        gap: '8px',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: '12px',
         padding: '10px 12px',
         background: 'rgba(255, 255, 255, 0.02)',
         borderTop: '1px solid rgba(255, 255, 255, 0.06)'
       }}>
-        {!editMode && !isNew && task && latestStatus.toLowerCase() === 'ready' && (
-          <Button type="primary" onClick={handleLaunchTask} icon={<PlayCircleOutlined />} loading={launching} style={primaryButtonStyle}>
-            {t('pages.tasks.launch', '启动')}
-          </Button>
-        )}
+        <ShortcutHintGroup>
+          <ShortcutHintItem><ShortcutKey>Esc</ShortcutKey> {t('common.close', '关闭')}</ShortcutHintItem>
+          {!isNew && hasPrev && <ShortcutHintItem><ShortcutKey>←</ShortcutKey> {t('common.previous', '上一个')}</ShortcutHintItem>}
+          {!isNew && hasNext && <ShortcutHintItem><ShortcutKey>→</ShortcutKey> {t('common.next', '下一个')}</ShortcutHintItem>}
+        </ShortcutHintGroup>
 
-        {(editMode || isNew) && (
-          <>
-            <Button type="primary" onClick={() => form.submit()} loading={saving} disabled={saving} icon={<SaveOutlined />} style={primaryButtonStyle}>
-              {isNew ? t('common.create') : t('common.save')}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {!editMode && !isNew && task && latestStatus.toLowerCase() === 'ready' && (
+            <Button type="primary" onClick={handleLaunchTask} icon={<PlayCircleOutlined />} loading={launching} style={primaryButtonStyle}>
+              {t('pages.tasks.launch', '启动')}
             </Button>
-            <Button onClick={handleCancel} disabled={saving} icon={<CloseOutlined />} style={buttonStyle}>
-              {t('common.cancel')}
-            </Button>
-          </>
-        )}
+          )}
 
-        {!editMode && !isNew && task && (
-          <>
-            {isCodeGenerated ? (
-              <Button icon={<LockOutlined />} disabled style={{ ...buttonStyle, cursor: 'not-allowed' }}>
-                {t('pages.tasks.readOnlyCodeGenerated') || '只读'}
+          {(editMode || isNew) && (
+            <>
+              <Button type="primary" onClick={() => form.submit()} loading={saving} disabled={saving} icon={<SaveOutlined />} style={primaryButtonStyle}>
+                {isNew ? t('common.create') : t('common.save')}
               </Button>
-            ) : (
-              <>
-                <Button type="primary" onClick={handleEdit} icon={<EditOutlined />} style={primaryButtonStyle}>
-                  {t('common.edit')}
+              <Button onClick={handleCancel} disabled={saving} icon={<CloseOutlined />} style={buttonStyle}>
+                {t('common.cancel')}
+              </Button>
+            </>
+          )}
+
+          {!editMode && !isNew && task && (
+            <>
+              {isCodeGenerated ? (
+                <Button icon={<LockOutlined />} disabled style={{ ...buttonStyle, cursor: 'not-allowed' }}>
+                  {t('pages.tasks.readOnlyCodeGenerated') || '只读'}
                 </Button>
-                <Button danger onClick={handleDelete} icon={<DeleteOutlined />} style={buttonStyle}>
-                  {t('common.delete')}
-                </Button>
-              </>
-            )}
-          </>
-        )}
+              ) : (
+                <>
+                  <Button type="primary" onClick={handleEdit} icon={<EditOutlined />} style={primaryButtonStyle}>
+                    {t('common.edit')}
+                  </Button>
+                  <Button danger onClick={handleDelete} icon={<DeleteOutlined />} style={buttonStyle}>
+                    {t('common.delete')}
+                  </Button>
+                </>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </DetailContainer>
   );

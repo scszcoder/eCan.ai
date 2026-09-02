@@ -1,0 +1,122 @@
+/*
+ * LightRAG UI Design System — shared across Documents / Retrieval / Graph /
+ * ProviderSelector / Settings tabs. All rules are scoped under
+ * `[data-ec-scope="lightrag-ported"]` so this file never bleeds out into
+ * Login / Onboarding / other pages.
+ *
+ * Tokens
+ * ──────────────────────────────────────────────────────────────────
+ *   radius.sm         8    small controls (badges, code blocks)
+ *   radius.md         12   standard cards, tables, panels
+ *   shadow.soft       0 2px 8px  rgba(...)
+ *   shadow.lifted     0 4px 16px rgba(...)
+ *   type.h3           14 / 600   section heading
+ *   type.h4           13 / 600   sub heading
+ *   type.body         13 / 400   table body, inputs, chat
+ *   type.caption      12 / 500   labels, table footers
+ *   type.micro        11 / 400   helpers, badges, sub-status text
+ *
+ * Spacing
+ *   s1  4    tight inline gap (icon ↔ label)
+ *   s2  8    field-to-field gap (within a card)
+ *   s3  12   card-to-card gap, field group internal gap
+ *   s4  16   card outer padding, page padding
+ *   s5  24   tab bar horizontal padding
+ *   s6  32   reserved (currently unused; do not introduce)
+ *
+ * NOTE: Everything here is deliberately expressed in plain CSS (no CSS
+ * variables) because the host tab already injects `<style>` blocks via
+ * React with theme tokens at render time. Keep this file free of any
+ * `var(--…)` lookups so the cascade stays predictable across dark/light
+ * theme switches.
+ */
+
+/* ── 1. Base typography normalisation ─────────────────────────────── */
+[data-ec-scope="lightrag-ported"] {
+  font-size: 13px;
+  line-height: 1.5;
+}
+[data-ec-scope="lightrag-ported"] h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+[data-ec-scope="lightrag-ported"] h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+[data-ec-scope="lightrag-ported"] p {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* ── 2. Buttons (single source of truth) ──────────────────────────── */
+[data-ec-scope="lightrag-ported"] .ec-btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid;
+  line-height: 1;
+  white-space: nowrap;
+}
+[data-ec-scope="lightrag-ported"] .ec-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+[data-ec-scope="lightrag-ported"] .ec-btn-sm {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+/* ── 3. Cards / panels / tables — radius + shadow ─────────────────── */
+[data-ec-scope="lightrag-ported"] .ec-card,
+[data-ec-scope="lightrag-ported"] .ec-panel,
+[data-ec-scope="lightrag-ported"] .ec-table {
+  border-radius: 12px;
+}
+[data-ec-scope="lightrag-ported"] .ec-card,
+[data-ec-scope="lightrag-ported"] .ec-panel {
+  border: 1px solid;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+[data-ec-scope="lightrag-ported"] .ec-card-lifted,
+[data-ec-scope="lightrag-ported"] .ec-panel-lifted {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+/* Dark-mode variant hook — the host injects `[data-ec-scope].is-dark`
+ * via `useTheme` when `currentTheme === 'dark'`. Both classes share the
+ * same shadow value so the lookup only affects contrast. */
+[data-ec-scope="lightrag-ported"].is-dark .ec-card,
+[data-ec-scope="lightrag-ported"].is-dark .ec-panel {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+[data-ec-scope="lightrag-ported"].is-dark .ec-card-lifted,
+[data-ec-scope="lightrag-ported"].is-dark .ec-panel-lifted {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+/* ── 4. Spacing utilities ─────────────────────────────────────────── */
+[data-ec-scope="lightrag-ported"] .ec-stack > * + * { margin-top: 12px; }
+[data-ec-scope="lightrag-ported"] .ec-stack-sm > * + * { margin-top: 8px; }
+[data-ec-scope="lightrag-ported"] .ec-stack-lg > * + * { margin-top: 16px; }
+
+/* ── 5. Form/Field row spacing (shared by SettingsTab + ProviderSelector) ── */
+[data-ec-scope="lightrag-ported"] .ec-field { margin-bottom: 12px; }
+[data-ec-scope="lightrag-ported"] .ec-field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}

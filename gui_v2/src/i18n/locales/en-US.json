@@ -2455,7 +2455,9 @@
         "workspace_switch_failed": "Failed to switch workspace",
         "workspacePicker": {
           "tooltip": "Leave empty to use the server's default workspace. Use distinct names per category (e.g. customer_service, product_details) for data isolation.",
-          "placeholder": "workspace name (empty = server default)"
+          "placeholder": "workspace name (empty = server default)",
+          "label": "Workspace",
+          "serverDefault": "(server default)"
         },
         "headerStatus": {
           "loading": "Loading...",

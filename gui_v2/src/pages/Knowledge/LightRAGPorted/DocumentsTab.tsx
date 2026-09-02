@@ -1469,27 +1469,33 @@ const DocumentsTab: React.FC = () => {
         alignItems: 'center', 
         justifyContent: 'space-between',
         padding: '8px 0',
-        marginBottom: 4
+        marginBottom: 4,
+        gap: 12,
+        flexWrap: 'wrap'
       }}>
-        <div>
+        <div style={{ flex: '1 1 auto', minWidth: 0 }}>
           <h3 style={{ 
             margin: 0, 
-            fontSize: 18, 
+            fontSize: 14, 
             fontWeight: 600, 
             color: token.colorText,
-            lineHeight: 1.2
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap'
           }}>
             {t('pages.knowledge.documents.title')}
           </h3>
           <p style={{ 
             margin: '4px 0 0 0', 
             fontSize: 13, 
-            color: token.colorTextSecondary 
+            color: token.colorTextSecondary,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
           }}>
             {t('pages.knowledge.documents.subtitle')}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
           <button className="ec-btn" onClick={handleSelectFiles}>
             <FolderOpenOutlined /> {t('pages.knowledge.documents.uploadFiles')}
           </button>
@@ -1754,7 +1760,7 @@ const DocumentsTab: React.FC = () => {
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
           flexShrink: 0
         }}>
-          <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: token.colorText }}>{t('pages.knowledge.documents.uploadedDocuments')}</h4>
+          <h4 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: token.colorText }}>{t('pages.knowledge.documents.uploadedDocuments')}</h4>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="ec-btn" onClick={handleScan} title={t('pages.knowledge.documents.scanRetry')}>
               <ScanOutlined /> {t('pages.knowledge.documents.scanRetry')}
@@ -1765,9 +1771,10 @@ const DocumentsTab: React.FC = () => {
             <button className="ec-btn" onClick={handleRefreshStatus} title={t('common.refresh')}>
               <UnorderedListOutlined /> {t('common.refresh')}
             </button>
-            <Select 
-              defaultValue="ALL" 
-              style={{ width: 160 }} 
+            <Select
+              defaultValue="ALL"
+              size="small"
+              style={{ width: 160 }}
               onChange={handleStatusFilterChange}
               options={[
                 { value: 'ALL', label: `${t('pages.knowledge.documents.all') || 'All'} (${statusCounts.all})` },
@@ -1785,7 +1792,7 @@ const DocumentsTab: React.FC = () => {
           flex: 1,
           minHeight: 300,
           border: `1px solid ${token.colorBorder}`, 
-          borderRadius: 16, 
+          borderRadius: 12, 
           background: token.colorBgContainer,
           overflow: 'hidden',
           display: 'flex',
@@ -1794,9 +1801,9 @@ const DocumentsTab: React.FC = () => {
         }}>
           <div style={{ 
             display: 'grid', 
-            gridTemplateColumns: '2fr 1.5fr 100px 80px 80px 130px 130px 100px', 
-            gap: 8, 
-            padding: '12px 16px',
+            gridTemplateColumns: '2fr 1.5fr 110px 80px 80px 130px 130px 120px',
+            gap: 8,
+            padding: '6px 16px',
             background: isDark ? token.colorBgTextHover : token.colorBgLayout,
             borderBottom: `1px solid ${token.colorBorder}`,
             fontWeight: 600,
@@ -1836,7 +1843,7 @@ const DocumentsTab: React.FC = () => {
               gap: 8
             }}>
               <div style={{ fontSize: 48, opacity: 0.3 }}>📄</div>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>{t('pages.knowledge.documents.noDocuments')}</div>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>{t('pages.knowledge.documents.noDocuments')}</div>
               <div style={{ fontSize: 13 }}>{t('pages.knowledge.documents.noDocumentsDesc')}</div>
             </div>
           ) : (
@@ -1844,9 +1851,9 @@ const DocumentsTab: React.FC = () => {
               {documents.map((doc, idx) => (
                 <div key={doc.id || doc.file_path || idx} style={{ 
                   display: 'grid', 
-                  gridTemplateColumns: '2fr 1.5fr 100px 80px 80px 130px 130px 100px', 
-                  gap: 8, 
-                  padding: '12px 16px',
+                  gridTemplateColumns: '2fr 1.5fr 110px 80px 80px 130px 130px 120px',
+                  gap: 8,
+                  padding: '6px 16px',
                   borderBottom: `1px solid ${token.colorBorderSecondary}`,
                   fontSize: 13,
                   alignItems: 'center',
@@ -1998,7 +2005,7 @@ const DocumentsTab: React.FC = () => {
                       </Tooltip>
                     ) : (
                       <div style={{
-                        width: 72,
+                        width: 96,
                         display: 'grid',
                         gridTemplateColumns: '32px 32px',
                         gap: 8,
@@ -2084,7 +2091,7 @@ const DocumentsTab: React.FC = () => {
       {/* Log console */}
       <div style={{ 
         background: isDark ? token.colorBgElevated : token.colorBgContainer, 
-        borderRadius: 16, 
+        borderRadius: 12, 
         border: `1px solid ${token.colorBorder}`,
         overflow: 'hidden'
       }}>
@@ -2100,7 +2107,7 @@ const DocumentsTab: React.FC = () => {
         }}
         onClick={() => setConsoleCollapsed(!consoleCollapsed)}
         >
-          <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: token.colorText, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h4 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: token.colorText, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ transform: consoleCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', display: 'inline-block' }}>▼</span>
             {t('pages.knowledge.documents.console', '控制台')}
           </h4>
@@ -2155,43 +2162,8 @@ const DocumentsTab: React.FC = () => {
         )}
       </div>
 
-      {/* Scoped styles */}
+      {/* Scoped styles — button styles are owned by styles/lightragTheme.css */}
       <style>{`
-        [data-ec-scope="lightrag-ported"] .ec-input {
-          background: ${token.colorBgContainer};
-          color: ${token.colorText};
-          border: 1px solid ${token.colorBorder};
-          border-radius: 10px;
-          padding: 10px 14px;
-          font-size: 14px;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        [data-ec-scope="lightrag-ported"] .ec-input:focus {
-          outline: none;
-          border-color: ${token.colorPrimary};
-          box-shadow: 0 0 0 2px ${token.colorPrimaryBg};
-        }
-        [data-ec-scope="lightrag-ported"] .ec-btn {
-          background: ${token.colorBgContainer};
-          color: ${token.colorText};
-          border: 1px solid ${token.colorBorder};
-          border-radius: 10px;
-          padding: 10px 18px;
-          cursor: pointer;
-          font-size: 14px;
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-          font-weight: 500;
-          box-shadow: ${isDark ? '0 2px 8px rgba(0, 0, 0, 0.15)' : '0 2px 8px rgba(0, 0, 0, 0.05)'};
-        }
-        [data-ec-scope="lightrag-ported"] .ec-btn:hover {
-          border-color: ${token.colorPrimary};
-          color: ${token.colorPrimary};
-          transform: translateY(-2px);
-          box-shadow: ${isDark ? '0 4px 12px rgba(24, 144, 255, 0.3)' : '0 4px 12px rgba(24, 144, 255, 0.2)'};
-        }
         [data-ec-scope="lightrag-ported"] .ec-btn-primary {
           background: ${token.colorPrimary};
           color: #ffffff;
@@ -2201,12 +2173,10 @@ const DocumentsTab: React.FC = () => {
           background: ${token.colorPrimaryHover};
           border-color: ${token.colorPrimaryHover};
           color: #ffffff;
-          transform: translateY(-2px);
-          box-shadow: 0 6px 16px rgba(24, 144, 255, 0.4);
         }
-        [data-ec-scope="lightrag-ported"] .ec-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
+        [data-ec-scope="lightrag-ported"] .ec-btn:hover {
+          border-color: ${token.colorPrimary};
+          color: ${token.colorPrimary};
         }
         [data-ec-scope="lightrag-ported"] .ec-file-input {
           padding: 12px;
