@@ -2355,6 +2355,54 @@ async def os_connect_to_adspower(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+async def os_launch_chrome_debug(mainwin, args):
+    """Detect Chrome and launch it CDP-ready (companion to os_connect_to_chrome).
+
+    Never installs anything: a missing Chrome returns not_installed and the
+    LLM must ask the user before calling os_install_chrome.
+    """
+    try:
+        import asyncio as _asyncio
+        from agent.mcp.server.chrome_launcher import launch_chrome_debug
+
+        params = (args or {}).get("input") or {}
+        port = int(params.get("port") or 9228)
+        user_data_dir = str(params.get("user_data_dir") or "")
+        extra_flags = params.get("extra_flags") or None
+        result = await _asyncio.to_thread(
+            launch_chrome_debug, port=port, user_data_dir=user_data_dir,
+            extra_flags=extra_flags)
+        logger.info(f"[os_launch_chrome_debug] {result.get('status')} port={port}")
+        return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorOsLaunchChromeDebug")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+async def os_install_chrome(mainwin, args):
+    """Download + silently install Chrome. Call ONLY after the user agreed."""
+    try:
+        import asyncio as _asyncio
+        from agent.mcp.server.chrome_launcher import install_chrome
+
+        params = (args or {}).get("input") or {}
+        if not params.get("confirmed_by_user"):
+            return [TextContent(type="text", text=json.dumps({
+                "status": "consent_required",
+                "message": ("Refused: installing Chrome requires the user's "
+                            "explicit permission. Ask the user, then call "
+                            "again with confirmed_by_user=true."),
+            }, ensure_ascii=False))]
+        result = await _asyncio.to_thread(install_chrome)
+        logger.info(f"[os_install_chrome] {result.get('status')}")
+        return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorOsInstallChrome")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 async def os_connect_to_chrome(mainwin, args):
     """
     Connect to existing Chrome browser via BrowserManager.
@@ -3877,6 +3925,8 @@ tool_function_mapping = {
         "rpa_operator_report_work_results": rpa_operator_report_work_results,
         "os_connect_to_adspower": os_connect_to_adspower,
         "os_connect_to_chrome": os_connect_to_chrome,
+        "os_launch_chrome_debug": os_launch_chrome_debug,
+        "os_install_chrome": os_install_chrome,
         "ecan_ai_new_chromiunm": ecan_ai_new_chromiunm,
         "os_reconnect_wifi": os_reconnect_wifi,
         "api_ecan_ai_query_components": api_ecan_ai_query_components,

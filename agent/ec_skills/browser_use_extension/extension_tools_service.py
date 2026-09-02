@@ -26,6 +26,8 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     FilesPrintAction,
     GetSessionMonitorSnapshotAction,
     InspectDomRegionsAction,
+    InstallChromeAction,
+    LaunchChromeDebugAction,
     LabelInputFile,
     LabelsReformatAction,
     ListSessionMonitorsAction,
@@ -379,6 +381,45 @@ def _convert_image_with_sips(src: str, dst: str, target_format: str) -> None:
     completed = subprocess.run(cmd, capture_output=True, text=True)
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr.strip() or "sips conversion failed")
+
+
+@custom_controller.action(
+    "Find Google Chrome on this computer (adding it to PATH when needed) and launch it "
+    "with remote debugging enabled (CDP port, dedicated user-data-dir) so automation can "
+    "connect — the user doesn't have to start Chrome manually. Returns JSON status "
+    "already_running/launched/launch_timeout/not_installed. On not_installed, DO NOT "
+    "install — ask the user for permission first, then use install_chrome.",
+    param_model=LaunchChromeDebugAction,
+)
+async def launch_chrome_debug(params: LaunchChromeDebugAction) -> ActionResult:
+    import asyncio as _asyncio
+    from agent.mcp.server.chrome_launcher import launch_chrome_debug as _launch
+
+    result = await _asyncio.to_thread(
+        _launch, port=int(params.port or 9228),
+        user_data_dir=(params.user_data_dir or "").strip())
+    return _json_result(result)
+
+
+@custom_controller.action(
+    "Download and silently install Google Chrome. ONLY call after the user has "
+    "EXPLICITLY agreed in the conversation (pass confirmed_by_user=true). "
+    "Never install software unprompted. Can take several minutes.",
+    param_model=InstallChromeAction,
+)
+async def install_chrome(params: InstallChromeAction) -> ActionResult:
+    import asyncio as _asyncio
+    from agent.mcp.server.chrome_launcher import install_chrome as _install
+
+    if not params.confirmed_by_user:
+        return _json_result({
+            "status": "consent_required",
+            "message": ("Refused: installing Chrome requires the user's explicit "
+                        "permission. Ask the user, then call again with "
+                        "confirmed_by_user=true."),
+        })
+    result = await _asyncio.to_thread(_install)
+    return _json_result(result)
 
 
 @custom_controller.action(

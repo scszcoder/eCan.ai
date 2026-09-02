@@ -1500,6 +1500,59 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="os_launch_chrome_debug",
+        description="<category>Browser Automation</category><sub-category>Launch Chrome (CDP)</sub-category>Find Google Chrome on this computer (adding it to PATH if needed) and launch it with remote debugging enabled (--remote-debugging-port, dedicated --user-data-dir, --disable-features=SharedStorage,InterestCohort) so automation can connect via CDP — the user does not have to start Chrome manually. Returns a JSON status: already_running / launched / launch_timeout / not_installed. If status is not_installed, DO NOT install anything — ask the user for permission first, and only call os_install_chrome after they agree.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "properties": {
+                        "port": {
+                            "type": "integer",
+                            "description": "Remote debugging (CDP) port. Default 9228.",
+                        },
+                        "user_data_dir": {
+                            "type": "string",
+                            "description": "Chrome profile directory to use. Default: C:\\chrome_data on Windows, ~/chrome_data elsewhere.",
+                        },
+                        "extra_flags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Additional Chrome command-line flags.",
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="os_install_chrome",
+        description="<category>System</category><sub-category>Install Chrome</sub-category>Download and silently install Google Chrome (Windows installer / macOS brew-or-dmg / Linux .deb). ONLY call this after the user has EXPLICITLY given permission in the conversation — never install software unprompted. Can take several minutes; returns JSON status installed / already_installed / needs_manual_step / error.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "properties": {
+                        "confirmed_by_user": {
+                            "type": "boolean",
+                            "description": "Set true only when the user explicitly agreed to install Chrome.",
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_open_app",
         description="<category>System</category><sub-category>General Applications</sub-category>Open an app in the OS. Smart: first checks if a matching window is already open (brings to front), then checks running processes, and only launches the executable if needed. Supports common app aliases (WeChat/微信, DingTalk/钉钉, etc.) and searches typical installation directories as fallback.",
         inputSchema={
