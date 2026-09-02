@@ -247,7 +247,11 @@
   align-items: flex-start;
   position: relative;
   z-index: 2;
-  padding: 100px 48px 48px; /* 增加顶部内边距到100px，确保第一行hover不超出 */
+  /* 顶部间距缩至 48px：工具栏的遮挡余量现在由上方的
+     navigator-skill-finder 行（padding-top 64px）承担 —— 之前小屏
+     media query 把这里降到 32px 时首行卡片顶部（三点菜单所在处）被
+     绝对定位的工具栏盖住，菜单点不动（2026-09-03 客户报告）。 */
+  padding: 48px 48px 48px;
   gap: 100px 48px; /* 增加上下间距到100px，左右48px，确保视觉舒适且hover不重叠 */
   max-width: 1400px;
   margin: 0 auto;

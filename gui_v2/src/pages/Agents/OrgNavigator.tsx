@@ -660,8 +660,15 @@ const OrgNavigator: React.FC = () => {
         className="navigator-skill-finder"
         style={{
           display: 'flex',
+          alignItems: 'center',
           justifyContent: 'flex-end',
-          padding: '8px 16px 0 16px',
+          // 64px top clearance: the Agents toolbar (MainLayout, absolute,
+          // z-index 10, ~56px tall) overlays the top of this page. This row
+          // used to sit under it — only its bottom edge peeked out ("mystery
+          // widgets", 2026-09-03 report) and the batch/select controls were
+          // unreachable. The grid below also relies on this row for
+          // clearance now (its own top padding no longer has to).
+          padding: '64px 16px 0 16px',
           position: 'relative',
           zIndex: 2,
         }}
