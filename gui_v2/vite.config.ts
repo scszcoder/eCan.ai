@@ -93,48 +93,23 @@ export default defineConfig(() => {
         // 优化并行处理
         // maxParallelFileOps: 20, // 恢复默认并行处理 (默认: 20)
         output: {
-          // Split vendor into focused chunks so the initial bundle doesn't
-          // carry every UI library. The previous "react → vendor; rest of
-          // node_modules → vendor" rule stuffed 12+ MB into one chunk
-          // (vendor-C2IlIxh5.js, gzip 3.5 MB), well past Vite's 5 MB warning
-          // line. Splitting cuts first-paint JS and lets Rollup cache the
-          // largest chunks (monaco, flowgram, sigma) independently.
+          // REVERTED (2026-09-02) to the pre-312a59707 rule after the
+          // fine-grained split (react-vendor / ui-vendor / emotion / …)
+          // shipped a bundle that died at load with "Cannot access 'ti'
+          // before initialization" in ui-vendor — a cross-chunk TDZ cycle
+          // (@ant-design in ui-vendor vs antd/rc-* in vendor). The cycle
+          // only appears with certain dependency-resolution orders: CI
+          // installs with `npm install` and NO lockfile, so its module
+          // graph differs from local pnpm builds — locally it booted,
+          // v0.9.96l–96n installers hung on 加载中 forever. Do not
+          // re-split interdependent UI libs across chunks until CI builds
+          // from a committed lockfile and the installer bundle is
+          // smoke-tested in QtWebEngine.
           manualChunks: (id) => {
-            // Monaco editor — only loaded by the skill editor and code-style
-            // pages. Split first because it's the single biggest dep.
+            // Monaco editor — long-standing safe split (self-contained).
             if (id.includes('monaco-editor') || id.includes('@monaco-editor')) {
               return 'monaco';
             }
-            // React core — present on every page; cache-friendly.
-            if (id.includes('node_modules/react/') ||
-                id.includes('node_modules/react-dom/') ||
-                id.includes('node_modules/scheduler/')) {
-              return 'react-vendor';
-            }
-            // @flowgram.ai is huge (~3 MB) and only used by the skill editor
-            // flow-canvas page. Splitting it means non-skill pages never
-            // pay for it.
-            if (id.includes('@flowgram.ai')) {
-              return 'flowgram';
-            }
-            // Graph visualization stack — only the graph/Knowledge-port pages.
-            if (id.includes('@react-sigma') ||
-                id.includes('graphology') ||
-                id.includes('/sigma/')) {
-              return 'sigma';
-            }
-            // UI component libraries — used across many pages; cache-friendly.
-            if (id.includes('@ant-design') ||
-                id.includes('@douyinfe/semi-ui') ||
-                id.includes('@douyinfe/semi-icons')) {
-              return 'ui-vendor';
-            }
-            // Emotion (CSS-in-JS) — only needed when components actually
-            // style themselves; split to keep it from coupling with react-vendor.
-            if (id.includes('@emotion/')) {
-              return 'emotion';
-            }
-            // Anything else in node_modules.
             if (id.includes('node_modules')) {
               return 'vendor';
             }
