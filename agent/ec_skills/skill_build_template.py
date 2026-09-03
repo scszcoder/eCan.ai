@@ -59,16 +59,47 @@ Last Updated: 2025-10-30
 
 import asyncio
 import concurrent.futures
+import threading
 from typing import Optional, Callable, Any
 from app_context import AppContext
 from agent.ec_skill import EC_Skill
 from utils.logger_helper import logger_helper as logger
 
+# Bounded ThreadPoolExecutor for skill building - prevents thread leak
+# Key fix: max_workers=2 and proper thread naming prevents "Dummy" thread accumulation
+_SKILL_BUILD_EXECUTOR: Optional[concurrent.futures.ThreadPoolExecutor] = None
+
+
+def _get_skill_build_executor() -> concurrent.futures.ThreadPoolExecutor:
+    """Get or create the shared skill build executor.
+    
+    Uses a singleton to prevent unbounded thread creation.
+    Each thread is named for debugging (vs "Dummy-N" which indicates thread pool exhaustion).
+    """
+    global _SKILL_BUILD_EXECUTOR
+    if _SKILL_BUILD_EXECUTOR is None or _SKILL_BUILD_EXECUTOR._shutdown:
+        _SKILL_BUILD_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="skill-build-sync"
+        )
+        logger.debug("[skill_build_template] Created skill-build ThreadPoolExecutor (max_workers=2)")
+    return _SKILL_BUILD_EXECUTOR
+
+
+def shutdown_skill_build_executor(wait: bool = True) -> None:
+    """Shutdown the skill build executor. Call on app shutdown."""
+    global _SKILL_BUILD_EXECUTOR
+    if _SKILL_BUILD_EXECUTOR is not None:
+        _SKILL_BUILD_EXECUTOR.shutdown(wait=wait, cancel_futures=False)
+        logger.info("[skill_build_template] Skill build executor shutdown")
+        _SKILL_BUILD_EXECUTOR = None
+
 
 def sync_to_async_bridge(
     async_creator_func: Callable,
     mainwin: Any = None,
-    run_context: Optional[dict] = None
+    run_context: Optional[dict] = None,
+    timeout: float = 300.0  # 5 minute default timeout
 ) -> EC_Skill:
     """
     Bridge function to call async skill creation from sync context.
@@ -76,20 +107,21 @@ def sync_to_async_bridge(
     This handles the complexity of running async functions in potentially
     nested event loop scenarios.
     
+    Key fix: Uses a bounded shared ThreadPoolExecutor instead of creating
+    a new executor per call (which caused "Dummy-N" thread accumulation).
+    
     Args:
         async_creator_func: The async function that creates the skill
         mainwin: MainWindow instance (will get from AppContext if None)
         run_context: Optional runtime context dictionary
+        timeout: Maximum seconds to wait for skill creation (default 300s)
         
     Returns:
         EC_Skill: The created skill instance
         
     Raises:
+        TimeoutError: If skill creation exceeds timeout
         Exception: If skill creation fails
-        
-    Example:
-        >>> def build_skill(mainwin=None):
-        >>>     return sync_to_async_bridge(create_my_skill, mainwin)
     """
     if mainwin is None:
         mainwin = AppContext.get_main_window()
@@ -99,15 +131,18 @@ def sync_to_async_bridge(
         try:
             loop = asyncio.get_running_loop()
             # We're in an async context, but build_skill is sync
-            # Create a new thread to run the async function
-            logger.debug("[skill_build_template] Running in new thread (event loop detected)")
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, async_creator_func(mainwin))
-                return future.result()
+            # Use the shared bounded executor with a named thread
+            logger.debug("[skill_build_template] Running in shared thread (event loop detected)")
+            executor = _get_skill_build_executor()
+            future = executor.submit(asyncio.run, async_creator_func(mainwin))
+            return future.result(timeout=timeout)
         except RuntimeError:
             # No event loop running, safe to use asyncio.run
             logger.debug("[skill_build_template] Running with asyncio.run (no event loop)")
             return asyncio.run(async_creator_func(mainwin))
+    except concurrent.futures.TimeoutError:
+        logger.error(f"[skill_build_template] Skill creation timed out after {timeout}s")
+        raise
     except Exception as e:
         logger.error(f"[skill_build_template] Failed to build skill: {e}")
         raise

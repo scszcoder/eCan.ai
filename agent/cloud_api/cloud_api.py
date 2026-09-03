@@ -32,6 +32,58 @@ ecb_data_homepath = getECBotDataHome()
 _LONG_LLM_TASK_WAITERS: dict[str, tuple[asyncio.AbstractEventLoop, asyncio.Future]] = {}
 _LONG_LLM_TASK_WAITERS_LOCK = threading.Lock()
 
+# Thread tracking for AppSync WebSocket subscriptions (memory leak fix)
+# All WebSocket threads are tracked here for cleanup on shutdown
+_appsync_ws_threads: list[threading.Thread] = []
+_appsync_ws_threads_lock = threading.Lock()
+
+
+def _track_appsync_ws_thread(t: threading.Thread) -> threading.Thread:
+    """Track a WebSocket thread for cleanup."""
+    with _appsync_ws_threads_lock:
+        _appsync_ws_threads.append(t)
+        logger.debug(f"[cloud_api] Tracking AppSync WS thread: {t.name} (total: {len(_appsync_ws_threads)})")
+    return t
+
+
+def get_appsync_ws_thread_count() -> int:
+    """Get the count of tracked AppSync WebSocket threads."""
+    with _appsync_ws_threads_lock:
+        alive = [t for t in _appsync_ws_threads if t.is_alive()]
+        # Prune dead threads
+        if len(alive) < len(_appsync_ws_threads):
+            _appsync_ws_threads[:] = alive
+        return len(alive)
+
+
+def cleanup_appsync_ws_threads(timeout: float = 5.0) -> int:
+    """Clean up all tracked AppSync WebSocket threads.
+    
+    Args:
+        timeout: Seconds to wait for each thread to finish
+        
+    Returns:
+        Number of threads successfully cleaned up
+    """
+    cleaned = 0
+    with _appsync_ws_threads_lock:
+        threads_to_join = list(_appsync_ws_threads)
+        _appsync_ws_threads.clear()
+    
+    for t in threads_to_join:
+        try:
+            t.join(timeout=timeout)
+            if not t.is_alive():
+                cleaned += 1
+                logger.debug(f"[cloud_api] Cleaned up AppSync WS thread: {t.name}")
+            else:
+                logger.warning(f"[cloud_api] AppSync WS thread did not stop: {t.name}")
+        except Exception as e:
+            logger.warning(f"[cloud_api] Error joining thread {t.name}: {e}")
+    
+    logger.info(f"[cloud_api] AppSync WS threads cleanup done: {cleaned}/{len(threads_to_join)} joined")
+    return cleaned
+
 
 def register_long_llm_task_waiter(task_id: str, loop: asyncio.AbstractEventLoop, future: asyncio.Future) -> None:
     with _LONG_LLM_TASK_WAITERS_LOCK:
@@ -5980,7 +6032,9 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
         target=_appsync_ws_reconnect_loop,
         args=("CloudLLMTask", resolved_ws_url, id_token, build_ws),
         daemon=True,
+        name=f"CloudLLMTask-ws-{id(token) % 10000}",  # Named for leak debugging
     )
+    _track_appsync_ws_thread(t)
     t.start()
     logger.info("[CloudLLMTask] Web socket thread launched")
     return ws, t
@@ -6115,7 +6169,9 @@ def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[
         target=_appsync_ws_reconnect_loop,
         args=("AccountNotification", resolved_ws_url, id_token, build_ws),
         daemon=True,
+        name=f"AccountNotification-ws-{id(token) % 10000}",
     )
+    _track_appsync_ws_thread(t)
     t.start()
     logger.info("[AccountNotification] WebSocket thread launched")
     return ws, t
@@ -6356,7 +6412,9 @@ def subscribe_agent_scene_events(acct_site_id: str, id_token: str, ws_url: Optio
         target=_appsync_ws_reconnect_loop,
         args=("AgentSceneEvent", resolved_ws_url, id_token, build_ws),
         daemon=True,
+        name=f"AgentSceneEvent-ws-{id(token) % 10000}",
     )
+    _track_appsync_ws_thread(t)
     t.start()
     logger.info("[AgentSceneEvent] WebSocket thread launched")
     return ws, t
@@ -6489,7 +6547,9 @@ def subscribe_puzzle_results(id_token: str, ws_url: Optional[str] = None,
         target=_appsync_ws_reconnect_loop,
         args=("PuzzleResult", resolved_ws_url, id_token, build_ws),
         daemon=True,
+        name=f"PuzzleResult-ws-{id(token) % 10000}",
     )
+    _track_appsync_ws_thread(t)
     t.start()
     logger.info("[PuzzleResult] WebSocket thread launched")
     return ws, t
@@ -6634,7 +6694,9 @@ def subscribe_scene_complete(acct_site_id: str, id_token: str, ws_url: Optional[
         target=_appsync_ws_reconnect_loop,
         args=("SceneComplete", resolved_ws_url, id_token, build_ws),
         daemon=True,
+        name=f"SceneComplete-ws-{id(token) % 10000}",
     )
+    _track_appsync_ws_thread(t)
     t.start()
     logger.info("[SceneComplete] WebSocket thread launched")
     return ws, t
@@ -6999,7 +7061,9 @@ def subscribe_story_updates(acct_site_id: str, id_token: str, ws_url: Optional[s
         target=_appsync_ws_reconnect_loop,
         args=("StoryUpdate", resolved_ws_url, id_token, build_ws),
         daemon=True,
+        name=f"StoryUpdate-ws-{id(token) % 10000}",
     )
+    _track_appsync_ws_thread(t)
     t.start()
     logger.info("[StoryUpdate] WebSocket thread launched")
     return ws, t
