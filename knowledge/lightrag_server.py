@@ -1902,7 +1902,7 @@ class LightragServer:
 
     def stop(self, force: bool = False):
         """Stop the LightRAG server.
-        
+
         Args:
             force: If True, forcefully kill the entire process group immediately.
                    This will interrupt all running LLM/embedding HTTP requests.
@@ -1915,6 +1915,13 @@ class LightragServer:
         if hasattr(self, '_vllm_error_monitor_thread') and self._vllm_error_monitor_thread:
             self._vllm_error_monitor_thread.join(timeout=2)
             self._vllm_error_monitor_thread = None
+        # Join self-health check thread to prevent leak on restart.
+        # Without this, the old thread continues running because start()
+        # immediately sets _monitor_running=True again, masking the False.
+        if hasattr(self, '_self_health_check_thread') and self._self_health_check_thread:
+            if self._self_health_check_thread.is_alive():
+                self._self_health_check_thread.join(timeout=3)
+            self._self_health_check_thread = None
 
         if hasattr(self, '_script_path') and self._script_path and os.path.exists(self._script_path):
             try: os.remove(self._script_path)
@@ -2154,6 +2161,8 @@ class LightragServer:
                 self._unhealthy_count = 0
             try:
                 self.stop(force=True)
+                # stop() now joins the old self-health check thread; give it
+                # a moment for any in-flight requests.get to return.
                 time.sleep(2)
                 self.start(wait_ready=False)
                 logger.info("[LightragServer] Self-restart completed")

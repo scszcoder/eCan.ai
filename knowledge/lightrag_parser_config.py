@@ -48,7 +48,14 @@ LIGHTRAG_PARSER_KEY = "LIGHTRAG_PARSER"
 # Default endpoint for the official MinerU provider (pre-filled in the UI).
 DEFAULT_MINERU_OFFICIAL_ENDPOINT = "https://mineru.net"
 DEFAULT_MINERU_LOCAL_ENDPOINT = "http://127.0.0.1:8000"
-DEFAULT_DOCLING_ENDPOINT = "http://localhost:5001"
+# eCanAI OpenAI-compatible proxy. The parser UI also reuses this for Docling
+# when the user picks the eCanAI provider; the proxy serves `/v1/...` paths
+# compatible with both ``local`` MinerU (``/tasks`` etc.) and Docling-serve
+# (``/v1/convert/file/async`` etc.) on the host that fronts them.
+ECANAI_PARSER_BASE_URL = (
+    "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1"
+)
+DEFAULT_DOCLING_ENDPOINT = ECANAI_PARSER_BASE_URL
 
 # Every env var the parsing engines touch, used to return the current
 # values to the UI without leaking unrelated settings.
@@ -107,10 +114,14 @@ def normalize_parser_routing(value: Any) -> str:
 # Per-engine endpoint requirements (mirrors LightRAG registry.py closures)
 # ---------------------------------------------------------------------------
 
-# Required variables are the exact names consumed by LightRAG.
+# Required variables are the exact names consumed by LightRAG. ``ecanai`` is
+# an eCan-specific alias for ``local`` that reuses the account-level LLM API
+# key (``ECANAI_LLM_API_KEY``) and the eCanAI parser base URL; the runtime
+# still talks to MinerU at ``/tasks`` on that endpoint.
 _MINERU_MODE_REQUIREMENTS = {
     "official": ("MINERU_API_TOKEN",),
     "local": ("MINERU_LOCAL_ENDPOINT", "MINERU_API_TOKEN"),
+    "ecanai": ("MINERU_API_TOKEN",),
 }
 
 
@@ -162,6 +173,7 @@ PARSER_ENGINE_DEFINITIONS: List[Dict[str, Any]] = [
                 "options": [
                     {"value": "local", "label": "fields.providerLocal"},
                     {"value": "official", "label": "fields.providerOfficial"},
+                    {"value": "ecanai", "label": "fields.providerEcanai"},
                 ],
             },
             {
@@ -371,7 +383,8 @@ def derive_parsing_engine(settings: Dict[str, Any]) -> str:
 
 def derive_mineru_provider(settings: Dict[str, Any]) -> str:
     """
-    Resolve LightRAG's native ``MINERU_API_MODE`` (official or local).
+    Resolve LightRAG's native ``MINERU_API_MODE`` (official / local / ecanai).
+    ``ecanai`` is an eCan convenience alias resolved to ``local`` at save time.
     """
     mode = str(settings.get("MINERU_API_MODE") or "local").strip().lower()
     return mode if mode in _MINERU_MODE_REQUIREMENTS else "local"
@@ -425,7 +438,7 @@ def validate_parser_endpoints(settings: Dict[str, Any]) -> List[str]:
         raw_mode = str(settings.get("MINERU_API_MODE") or "local").strip().lower()
         if raw_mode not in _MINERU_MODE_REQUIREMENTS:
             errors.append(
-                "MINERU_API_MODE 必须是 LightRAG 支持的 official 或 local，"
+                "MINERU_API_MODE 必须是 official / local / ecanai，"
                 f"当前值为 {raw_mode!r}"
             )
             return errors
@@ -452,3 +465,25 @@ def validate_parser_endpoints(settings: Dict[str, Any]) -> List[str]:
             )
 
     return errors
+
+
+def normalize_parser_ecanai_alias(
+    settings: Dict[str, Any], ecanai_endpoint: str
+) -> Dict[str, Any]:
+    """
+    Translate the UI-only ``MINERU_API_MODE=ecanai`` value into a LightRAG-
+    compatible form before persisting to ``lightrag.env``.
+
+    LightRAG's ``MinerURawClient.__init__`` only accepts ``official`` or
+    ``local``; ``ecanai`` is an eCan convenience alias that says "use the
+    eCanAI OpenAI-compatible proxy and the account-level LLM API key".  We
+    rewrite the mode to ``local``, point ``MINERU_LOCAL_ENDPOINT`` at the
+    eCanAI proxy, and let the UI handle the API key source separately.
+    """
+    if str(settings.get("MINERU_API_MODE") or "").strip().lower() != "ecanai":
+        return settings
+    rewritten = dict(settings)
+    rewritten["MINERU_API_MODE"] = "local"
+    if not str(rewritten.get("MINERU_LOCAL_ENDPOINT") or "").strip():
+        rewritten["MINERU_LOCAL_ENDPOINT"] = ecanai_endpoint
+    return rewritten

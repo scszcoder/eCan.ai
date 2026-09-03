@@ -1030,6 +1030,8 @@
       "channel": {
         "title": "Messaging Channels",
         "refresh": "Refresh",
+        "expand": "Expand settings",
+        "collapse": "Collapse settings",
         "description": "Configure external messaging channels. Each channel requires a dedicated account — do not reuse personal accounts, as inbound/outbound traffic will be routed to agents.",
         "no_channels": "No channels configured",
         "no_channels_desc": "channels.json not found or empty. Default entries will appear after the first save.",
@@ -2455,7 +2457,9 @@
         "workspace_switch_failed": "Failed to switch workspace",
         "workspacePicker": {
           "tooltip": "Leave empty to use the server's default workspace. Use distinct names per category (e.g. customer_service, product_details) for data isolation.",
-          "placeholder": "workspace name (empty = server default)"
+          "placeholder": "workspace name (empty = server default)",
+          "label": "Workspace",
+          "serverDefault": "(server default)"
         },
         "headerStatus": {
           "loading": "Loading...",
@@ -2631,6 +2635,7 @@
           "mineruProvider": "MinerU API Protocol",
           "providerOfficial": "Official / API-compatible (API key)",
           "providerLocal": "Local / custom service (API key)",
+          "providerEcanai": "eCanAI (uses account API key)",
           "providerCustom": "Custom",
           "mineruEndpoint": "MinerU Endpoint",
           "mineruLocalEndpoint": "Local MinerU Endpoint",

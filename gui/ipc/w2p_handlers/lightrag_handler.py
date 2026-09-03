@@ -1467,6 +1467,19 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         
         settings_to_save = {k: v for k, v in params.items() if k not in keys_to_exclude}
 
+        # eCanAI is a UI-only alias for MinerU local mode. LightRAG's
+        # MinerURawClient rejects any ``MINERU_API_MODE`` outside
+        # ``{official, local}`` and the eCanAI proxy requires only the
+        # account-level LLM API key (``ECANAI_LLM_API_KEY``); the rest of
+        # the configuration is fixed (endpoint, model). Translate here so
+        # the saved .env is always valid and the runtime never sees
+        # ``ecanai`` as a real value.
+        from knowledge.lightrag_parser_config import (
+            ECANAI_PARSER_BASE_URL,
+            normalize_parser_ecanai_alias,
+        )
+        settings_to_save = normalize_parser_ecanai_alias(settings_to_save, ECANAI_PARSER_BASE_URL)
+
         from knowledge.lightrag_parser_config import LIGHTRAG_PARSER_KEY, normalize_parser_routing
         settings_to_save[LIGHTRAG_PARSER_KEY] = normalize_parser_routing(
             settings_to_save.get(LIGHTRAG_PARSER_KEY)
@@ -2605,13 +2618,36 @@ def handle_download_file(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         shutil.copy2(source_file, dest_file)
         
         logger.info(f"File saved to: {dest_file}")
-        
+
         return create_success_response(request, {
             'success': True,
             'filePath': dest_file,
             'fileName': os.path.basename(dest_file)
         })
-        
+
     except Exception as e:
         logger.error(f"Error downloading file: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'DOWNLOAD_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.getEcanaiApiKey')
+def handle_get_ecanai_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """
+    Retrieve the eCanAI account-level LLM API key from secure_store.
+
+    Used by the parser settings UI to auto-fill MINERU_API_TOKEN and
+    DOCLING_API_KEY when the user selects the eCanAI provider.  Returns
+    None (not an error) when no key has been provisioned yet.
+    """
+    try:
+        from utils.env.secure_store import secure_store
+        from gui.ipc.context_bridge import get_username
+        username = get_username(request, params)
+        key = secure_store.get("ECANAI_LLM_API_KEY", username=username) if username else None
+        key = str(key).strip() if key else ""
+        return create_success_response(request, {
+            "apiKey": key or None,
+        })
+    except Exception as e:
+        logger.debug(f"[lightrag.getEcanaiApiKey] failed: {e}")
+        return create_success_response(request, {"apiKey": None})

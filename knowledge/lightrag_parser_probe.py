@@ -76,13 +76,20 @@ def probe_mineru(settings: Dict[str, Any]) -> Dict[str, Any]:
     mode = str(settings.get("MINERU_API_MODE") or "local").strip().lower()
     ssl_value = str(settings.get("SSL_VERIFY", "false")).strip().lower()
     verify_ssl = ssl_value in {"1", "true", "yes", "on"}
-    if mode == "local":
-        endpoint = _base_url(settings.get("MINERU_LOCAL_ENDPOINT"), "MINERU_LOCAL_ENDPOINT")
+    if mode == "local" or mode == "ecanai":
+        # ``ecanai`` is an eCan convenience alias; at runtime it is rewritten
+        # to ``local`` with ``MINERU_LOCAL_ENDPOINT`` pointed at the eCanAI
+        # proxy, so the probe targets the same URL the runtime will hit.
+        endpoint_value = (
+            settings.get("MINERU_LOCAL_ENDPOINT") if mode == "local"
+            else settings.get("MINERU_LOCAL_ENDPOINT")
+        )
+        endpoint = _base_url(endpoint_value, "MINERU_LOCAL_ENDPOINT")
         token = str(settings.get("MINERU_API_TOKEN") or "").strip()
         if not token:
-            raise ValueError("local 模式未配置 MINERU_API_TOKEN")
+            raise ValueError(f"{mode} 模式未配置 MINERU_API_TOKEN")
         result = _probe_health(
-            "MinerU local",
+            "MinerU ecanai" if mode == "ecanai" else "MinerU local",
             endpoint,
             headers={"Authorization": f"Bearer {token}"},
             verify_ssl=verify_ssl,
@@ -90,7 +97,7 @@ def probe_mineru(settings: Dict[str, Any]) -> Dict[str, Any]:
         result["mode"] = mode
         return result
     if mode != "official":
-        raise ValueError("MINERU_API_MODE 只能是 local 或 official")
+        raise ValueError("MINERU_API_MODE 只能是 local / ecanai / official")
 
     endpoint = _base_url(
         settings.get("MINERU_OFFICIAL_ENDPOINT") or "https://mineru.net",

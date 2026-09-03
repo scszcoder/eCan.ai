@@ -106,6 +106,7 @@ const SettingsContent = styled.div`
       flex-shrink: 0;
     }
   }
+
 `;
 
 const StyledCard = styled(Card)`
@@ -795,6 +796,134 @@ const Settings: React.FC = () => {
           /* Remove padding from table parent containers */
           .ant-tabs-tabpane > div > div[style*="paddingTop"] {
             padding-top: 0 !important;
+          }
+
+          /* Keep every Settings Select control and its arrow on one height axis.
+             global.css enlarges the selector without enlarging the Select root. */
+          .ant-tabs-tabpane .ant-select-single:not(.ant-select-sm):not(.ant-select-lg) {
+            height: 40px !important;
+          }
+          .ant-tabs-tabpane .ant-select-single:not(.ant-select-sm):not(.ant-select-lg) .ant-select-selector {
+            height: 40px !important;
+            min-height: 40px !important;
+          }
+          .ant-tabs-tabpane .ant-select-single.ant-select-sm {
+            height: 30px !important;
+          }
+          .ant-tabs-tabpane .ant-select-single.ant-select-sm .ant-select-selector {
+            height: 30px !important;
+            min-height: 30px !important;
+          }
+          .ant-tabs-tabpane .ant-select .ant-select-arrow {
+            top: 50% !important;
+            margin-top: 0 !important;
+            transform: translateY(-50%) !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            line-height: 1 !important;
+          }
+          .ant-tabs-tabpane .ant-select .ant-select-arrow .anticon {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+          }
+
+          /* Compact general settings, using live Ant Design tokens for both themes. */
+          .general-settings-card > .ant-tabs > .ant-tabs-nav {
+            min-height: 40px !important;
+            padding: 0 12px !important;
+          }
+          .general-settings-card > .ant-tabs > .ant-tabs-nav .ant-tabs-tab {
+            padding: 9px 12px !important;
+            font-size: 13px !important;
+          }
+          .general-settings-card .general-settings-panel {
+            padding: 12px 18px !important;
+          }
+          .general-settings-card .ant-divider {
+            margin: 10px 0 12px !important;
+            color: ${token.colorText} !important;
+            font-size: 13px !important;
+          }
+          .general-settings-card .ant-form-item {
+            margin-bottom: 8px !important;
+          }
+          .general-settings-card .ant-form-item-label {
+            padding-bottom: 3px !important;
+          }
+          .general-settings-card .ant-form-item-label > label {
+            height: 20px !important;
+            color: ${token.colorTextSecondary} !important;
+            font-size: 12px !important;
+          }
+
+          /* Shared provider list treatment; deliberately scoped to these three tables. */
+          .provider-settings-table {
+            padding: 12px 16px 16px;
+          }
+          .provider-settings-table .ant-table-wrapper {
+            border: 1px solid ${token.colorBorderSecondary};
+            border-radius: 10px;
+            background: ${token.colorBgContainer};
+            box-shadow: ${token.boxShadowTertiary};
+          }
+          .provider-settings-table .ant-table {
+            background: ${token.colorBgContainer} !important;
+            color: ${token.colorText} !important;
+            font-size: 13px !important;
+          }
+          .provider-settings-table .ant-table-thead > tr > th {
+            height: 38px !important;
+            padding: 8px 12px !important;
+            background: ${token.colorFillAlter} !important;
+            color: ${token.colorTextSecondary} !important;
+            font-size: 12px !important;
+            font-weight: 600 !important;
+          }
+          .provider-settings-table .ant-table-tbody > tr > td,
+          .provider-settings-table .ant-table-tbody > tr:first-child > td {
+            padding: 8px 12px !important;
+            background: ${token.colorBgContainer} !important;
+            color: ${token.colorText} !important;
+            line-height: 1.35 !important;
+            vertical-align: middle !important;
+          }
+          .provider-settings-table .ant-table-tbody > tr:hover > td,
+          .provider-settings-table .ant-table-tbody > tr:hover > td.ant-table-cell-fix-right {
+            background: ${token.colorFillSecondary} !important;
+          }
+          .provider-settings-table .ant-space {
+            gap: 6px !important;
+          }
+          .provider-settings-table .ant-input,
+          .provider-settings-table .ant-input-affix-wrapper,
+          .provider-settings-table .ant-select,
+          .provider-settings-table .ant-btn {
+            font-size: 12px !important;
+          }
+          .provider-settings-table .ant-input,
+          .provider-settings-table .ant-input-affix-wrapper,
+          .provider-settings-table .ant-select-single .ant-select-selector,
+          .provider-settings-table .ant-btn-sm {
+            min-height: 28px !important;
+          }
+          .provider-settings-table .ant-btn-sm {
+            height: 28px !important;
+            border-radius: 6px !important;
+          }
+          .provider-settings-table .ant-btn-text.ant-btn-sm {
+            width: 28px !important;
+            padding-inline: 0 !important;
+          }
+          .provider-settings-table .ant-space-vertical > .ant-space:has(.ant-btn-primary) {
+            align-self: flex-end;
+          }
+          .provider-settings-table .provider-api-key-value:hover,
+          .provider-settings-table .provider-api-key-value:focus-visible {
+            border-color: ${token.colorBorder} !important;
+            background: ${token.colorFillSecondary} !important;
+            outline: none;
           }
         `}</style>
         <Tabs

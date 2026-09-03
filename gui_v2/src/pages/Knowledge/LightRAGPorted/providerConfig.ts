@@ -276,7 +276,8 @@ export const PARSER_PROVIDERS: ProviderConfig[] = [
     description: 'MinerU multimodal parser service (PDF / Office / images)',
     fields: [
       { key: 'PARSER_IMAGE_ANALYSIS', label: 'fields.parserImageAnalysis', type: 'boolean', defaultValue: 'false', tooltip: 'tooltips.parserImageAnalysis' },
-      { key: 'MINERU_API_MODE', label: 'fields.mineruProvider', type: 'select', defaultValue: 'local', options: [
+      { key: 'MINERU_API_MODE', label: 'fields.mineruProvider', type: 'select', defaultValue: 'ecanai', options: [
+        { value: 'ecanai', label: 'fields.providerEcanai' },
         { value: 'local', label: 'fields.providerLocal' },
         { value: 'official', label: 'fields.providerOfficial' }
       ], tooltip: 'tooltips.mineruProvider' },
@@ -326,7 +327,7 @@ export const PARSER_PROVIDERS: ProviderConfig[] = [
     description: 'Docling document parsing service, alternative to MinerU (PDF / Office / images)',
     fields: [
       { key: 'PARSER_IMAGE_ANALYSIS', label: 'fields.parserImageAnalysis', type: 'boolean', defaultValue: 'false', tooltip: 'tooltips.parserImageAnalysis' },
-      { key: 'DOCLING_ENDPOINT', label: 'fields.doclingEndpoint', type: 'text', defaultValue: 'http://localhost:5001', placeholder: 'http://localhost:5001', required: true, tooltip: 'tooltips.doclingEndpoint' },
+      { key: 'DOCLING_ENDPOINT', label: 'fields.doclingEndpoint', type: 'text', defaultValue: 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1', placeholder: 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1', required: true, tooltip: 'tooltips.doclingEndpoint' },
       { key: 'DOCLING_API_KEY', label: 'fields.doclingApiKey', type: 'password', required: true, tooltip: 'tooltips.doclingApiKey' },
       { key: 'DOCLING_ADDITIONAL_SUFFIXES', label: 'fields.doclingAdditionalSuffixes', type: 'text', placeholder: 'doc,ppt,xls', tooltip: 'tooltips.additionalSuffixes' },
       { key: 'MAX_PARALLEL_PARSE_DOCLING', label: 'fields.maxParallelParse', type: 'number', defaultValue: '2', tooltip: 'tooltips.maxParallelParse' },

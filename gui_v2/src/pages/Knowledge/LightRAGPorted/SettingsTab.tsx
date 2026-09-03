@@ -971,13 +971,54 @@ const SettingsTab: React.FC = () => {
           const current = Object.fromEntries(
             Object.entries(parserData.current).filter(([, value]) => value !== null && value !== undefined)
           ) as Record<string, string>;
-          setSettings(prev => ({
-            ...prev,
-            ...current,
-            // The engine selection is UI-only (never persisted); it is
-            // derived from LIGHTRAG_PARSER on the backend.
-            PARSING_ENGINE: parserData.engine || prev.PARSING_ENGINE || 'native'
-          }));
+          setSettings(prev => {
+            const next: Record<string, string> = {
+              ...prev,
+              ...current,
+              // The engine selection is UI-only (never persisted); it is
+              // derived from LIGHTRAG_PARSER on the backend.
+              PARSING_ENGINE: parserData.engine || prev.PARSING_ENGINE || 'native',
+            };
+            // Fill empty select/boolean fields with their provider defaults.
+            // LightRAG's .env file only writes keys that were explicitly set;
+            // it never persists defaultValue defaults to disk. If we don't
+            // do this here the UI shows the fallback default but saving the
+            // page writes `KEY=` (empty) and LightRAG misreads it as a real
+            // (blank) value rather than its intended default. We only touch
+            // select/boolean — text/password fields are user-owned and must
+            // be preserved even when blank.
+            for (const engine of parserData.engines || []) {
+              for (const field of engine.fields || []) {
+                if (
+                  (field.type === 'select' || field.type === 'boolean') &&
+                  field.defaultValue !== undefined &&
+                  (next[field.key] === undefined || next[field.key] === '')
+                ) {
+                  next[field.key] = field.defaultValue;
+                }
+              }
+            }
+            return next;
+          });
+
+          // Auto-fill eCanAI API key when mineru/docling is set to ecanai mode
+          const mineruMode = (parserData.engines || []).find(
+            (e: any) => e.id === 'mineru'
+          )?.fields?.find((f: any) => f.key === 'MINERU_API_MODE')?.options?.[0]?.value;
+          if (mineruMode === 'ecanai' || (parserData.current?.MINERU_API_MODE || '').toLowerCase() === 'ecanai') {
+            get_ipc_api().executeRequest<{ apiKey: string | null }>(
+              'lightrag.getEcanaiApiKey', {}
+            ).then(resp => {
+              if (resp.success && resp.data?.apiKey) {
+                setSettings(prev => {
+                  if (!prev.MINERU_API_TOKEN && prev.MINERU_API_MODE === 'ecanai') {
+                    return { ...prev, MINERU_API_TOKEN: resp.data!.apiKey as string };
+                  }
+                  return prev;
+                });
+              }
+            }).catch(() => {/* key not available */});
+          }
         }
       }
     } catch (e) {
@@ -1013,6 +1054,17 @@ const SettingsTab: React.FC = () => {
       } else if (key === 'MINERU_API_MODE') {
         if (value === 'official') {
           newSettings['MINERU_OFFICIAL_ENDPOINT'] ||= 'https://mineru.net';
+        } else if (value === 'ecanai') {
+          // eCanAI provider: auto-fill endpoint and fetch account API key
+          newSettings['MINERU_LOCAL_ENDPOINT'] ||= 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1';
+          // Fetch eCanAI LLM API key and auto-fill MINERU_API_TOKEN
+          get_ipc_api().executeRequest<{ apiKey: string | null }>(
+            'lightrag.getEcanaiApiKey', {}
+          ).then(resp => {
+            if (resp.success && resp.data?.apiKey) {
+              setSettings(prev => ({ ...prev, MINERU_API_TOKEN: resp.data!.apiKey as string }));
+            }
+          }).catch(() => {/* key not available */});
         }
       }
       
@@ -1250,7 +1302,7 @@ const SettingsTab: React.FC = () => {
       : field.key;
 
     const label = (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
         <span style={{ fontWeight: 500, fontSize: 13, color: token.colorText }}>{displayLabel}</span>
         {hasTooltip && (
           <Tooltip title={t(`pages.knowledge.settings.${field.tooltip}`)} placement="top">
@@ -1275,53 +1327,46 @@ const SettingsTab: React.FC = () => {
     );
 
     const commonStyle = { width: '100%' };
-    const inputNumberStyle = { 
-      width: '100%',
-      ...(disabled ? { height: '24px' } : {})
-    };
 
     switch (field.type) {
       case 'text':
         return (
-          <div key={field.key} style={{ marginBottom: 12 }}>
+          <div key={field.key} style={{ marginBottom: 8 }}>
             {label}
             <Input
               value={value}
               placeholder={placeholder}
               onChange={(e) => updateSetting(field.key, e.target.value)}
               style={commonStyle}
-              size="small"
               disabled={disabled}
             />
           </div>
         );
-      
+
       case 'password':
         return (
-          <div key={field.key} style={{ marginBottom: 12 }}>
+          <div key={field.key} style={{ marginBottom: 8 }}>
             {label}
             <Input.Password
               value={value}
               placeholder={placeholder}
               onChange={(e) => updateSetting(field.key, e.target.value)}
               style={commonStyle}
-              size="small"
               disabled={disabled}
               visibilityToggle={!disabled}
             />
           </div>
         );
-      
+
       case 'number':
         return (
-          <div key={field.key} style={{ marginBottom: 12 }}>
+          <div key={field.key} style={{ marginBottom: 8 }}>
             {label}
             <InputNumber
               value={value ? Number(value) : undefined}
               placeholder={placeholder}
               onChange={(val) => updateSetting(field.key, val?.toString() || '')}
-              style={inputNumberStyle}
-              size="small"
+              style={commonStyle}
               disabled={disabled}
               min={0}
               step={field.key.includes('TEMPERATURE') || field.key.includes('SCORE') ? 0.1 : 1}
@@ -1329,10 +1374,10 @@ const SettingsTab: React.FC = () => {
             />
           </div>
         );
-      
+
       case 'textarea':
         return (
-          <div key={field.key} style={{ marginBottom: 12 }}>
+          <div key={field.key} style={{ marginBottom: 8 }}>
             {label}
             <Input.TextArea
               value={value}
@@ -1340,12 +1385,11 @@ const SettingsTab: React.FC = () => {
               onChange={(e) => updateSetting(field.key, e.target.value)}
               rows={2}
               style={commonStyle}
-              size="small"
               disabled={field.disabled}
             />
           </div>
         );
-      
+
       case 'select':
         // Translate options if needed
         const options = field.options?.map(opt => ({
@@ -1354,7 +1398,7 @@ const SettingsTab: React.FC = () => {
         }));
 
         return (
-          <div key={field.key} style={{ marginBottom: 12 }}>
+          <div key={field.key} style={{ marginBottom: 8 }}>
             {label}
             <Select
               value={value || undefined}
@@ -1362,42 +1406,36 @@ const SettingsTab: React.FC = () => {
               onChange={(val) => updateSetting(field.key, val)}
               style={commonStyle}
               options={options}
-              size="small"
               disabled={field.disabled}
             />
           </div>
         );
-      
+
       case 'boolean':
         return (
-          <div key={field.key} style={{ marginBottom: 12 }}>
-            {label}
-            <div style={{ height: 24, display: 'flex', alignItems: 'center' }}>
-              <Switch
-                checked={value === 'true' || value === 'True'}
-                onChange={(checked) => updateSetting(field.key, checked ? 'true' : 'false')}
-                size="small"
-                disabled={disabled}
-              />
-            </div>
+          <div key={field.key} style={{ marginBottom: 8, minHeight: 30, display: 'flex', alignItems: 'center' }}>
+            <Switch
+              checked={value === 'true' || value === 'True'}
+              onChange={(checked) => updateSetting(field.key, checked ? 'true' : 'false')}
+              disabled={disabled}
+            />
           </div>
         );
-      
+
       case 'directory':
         return (
-          <div key={field.key} style={{ marginBottom: 12 }}>
+          <div key={field.key} style={{ marginBottom: 8 }}>
             {label}
             <Input
               value={value}
               placeholder={placeholder}
               onChange={(e) => updateSetting(field.key, e.target.value)}
               style={commonStyle}
-              size="small"
               disabled={field.disabled}
               suffix={
                 !field.disabled && (
-                  <FolderOpenOutlined 
-                    style={{ cursor: 'pointer', color: token.colorPrimary }} 
+                  <FolderOpenOutlined
+                    style={{ cursor: 'pointer', color: token.colorPrimary }}
                     onClick={() => openFolderDialog(field.key)}
                   />
                 )
@@ -1424,17 +1462,17 @@ const SettingsTab: React.FC = () => {
     });
 
     return (
-      <div style={{ padding: '16px 0' }}>
+      <div style={{ padding: '8px 0' }}>
         {/* Workspace Module - Only show in basic tab */}
         {isBasicTab && (
-          <div style={{ marginBottom: 24 }}>
-            <h3 style={{ 
-              marginBottom: 12, 
-              fontSize: 14, 
-              fontWeight: 600, 
+          <div style={{ marginBottom: 16 }}>
+            <h3 style={{
+              marginBottom: 8,
+              fontSize: 14,
+              fontWeight: 600,
               color: token.colorText,
               borderBottom: `1px solid ${token.colorBorder}`,
-              paddingBottom: 6,
+              paddingBottom: 4,
               display: 'flex',
               alignItems: 'center',
               gap: 8
@@ -1467,23 +1505,23 @@ const SettingsTab: React.FC = () => {
         )}
 
         {Object.entries(sections).map(([sectionName, sectionFields]) => (
-          <div key={sectionName} style={{ marginBottom: 20 }}>
+          <div key={sectionName} style={{ marginBottom: 12 }}>
             {sectionName !== 'default' && (
-              <h3 style={{ 
-                marginBottom: 12, 
-                fontSize: 14, 
-                fontWeight: 600, 
+              <h3 style={{
+                marginBottom: 8,
+                fontSize: 14,
+                fontWeight: 600,
                 color: token.colorText,
                 borderBottom: `1px solid ${token.colorBorder}`,
-                paddingBottom: 6
+                paddingBottom: 4
               }}>
                 {t(`pages.knowledge.settings.sections.${sectionName}`) || sectionName.charAt(0).toUpperCase() + sectionName.slice(1)}
               </h3>
             )}
-            <div style={{ 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(2, 1fr)', 
-              gap: '12px 16px',
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+              gap: 12,
               maxWidth: '100%'
             }}>
               {sectionFields.map(field => renderField(field))}
@@ -1523,7 +1561,14 @@ const SettingsTab: React.FC = () => {
           for (const field of newProvider?.fields || []) {
             if (field.key === 'LIGHTRAG_PARSER') {
               next[field.key] = field.defaultValue || '';
-            } else if (!(field.key in next) && field.defaultValue !== undefined) {
+            } else if (
+              field.defaultValue !== undefined &&
+              (next[field.key] === undefined || next[field.key] === '')
+            ) {
+              // Fill empty values with the provider default so legacy
+              // .env entries (e.g. MINERU_API_MODE=) don't get persisted
+              // as blank when switching parsers. Already configured values
+              // (non-empty) are preserved on purpose.
               next[field.key] = field.defaultValue;
             }
           }
@@ -1725,9 +1770,9 @@ const SettingsTab: React.FC = () => {
         ].some(id => id && id.startsWith('PG'));
 
         return (
-          <div style={{ padding: '16px 0' }}>
-            <div style={{ marginBottom: 24 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: token.colorText }}>
+          <div style={{ padding: '8px 0' }}>
+            <div style={{ marginBottom: 12 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: token.colorText }}>
                 {t('pages.knowledge.settings.provider.kvStorage')}
               </h3>
               <ProviderSelector
@@ -1737,8 +1782,8 @@ const SettingsTab: React.FC = () => {
                 onSettingChange={updateSetting}
               />
             </div>
-            <div style={{ marginBottom: 24 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: token.colorText }}>
+            <div style={{ marginBottom: 12 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: token.colorText }}>
                 {t('pages.knowledge.settings.provider.vectorStorage')}
               </h3>
               <ProviderSelector
@@ -1748,8 +1793,8 @@ const SettingsTab: React.FC = () => {
                 onSettingChange={updateSetting}
               />
             </div>
-            <div style={{ marginBottom: 24 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: token.colorText }}>
+            <div style={{ marginBottom: 12 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: token.colorText }}>
                 {t('pages.knowledge.settings.provider.graphStorage')}
               </h3>
               <ProviderSelector
@@ -1759,8 +1804,8 @@ const SettingsTab: React.FC = () => {
                 onSettingChange={updateSetting}
               />
             </div>
-            <div style={{ marginBottom: 24 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: token.colorText }}>
+            <div style={{ marginBottom: 12 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: token.colorText }}>
                 {t('pages.knowledge.settings.provider.docStatusStorage')}
               </h3>
               <ProviderSelector
@@ -1777,14 +1822,14 @@ const SettingsTab: React.FC = () => {
                 size="small"
                 title={t('pages.knowledge.settings.provider.commonPostgresSettings')}
                 style={{
-                  marginTop: 24,
+                  marginTop: 12,
                   borderColor: token.colorBorder
                 }}
               >
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(2, 1fr)',
-                  gap: '12px 16px',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                  gap: 12,
                   maxWidth: '100%'
                 }}>
                   {STORAGE_COMMON_POSTGRES.map(field => renderField(field as any))}
@@ -1818,25 +1863,27 @@ const SettingsTab: React.FC = () => {
 
 
   return (
-    <div style={{ 
-      height: '100%', 
-      display: 'flex', 
+    <div style={{
+      height: '100%',
+      display: 'flex',
       flexDirection: 'column',
       background: token.colorBgLayout
     }} data-ec-scope="lightrag-ported">
       {/* Fixed Header */}
       <div style={{
-        padding: '20px 24px 0 24px',
+        padding: '12px 16px 0 16px',
         background: token.colorBgLayout
       }}>
         <div style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '12px 0',
-          marginBottom: 16
+          padding: '8px 0',
+          marginBottom: 8,
+          gap: 12,
+          flexWrap: 'wrap'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 auto', minWidth: 0 }}>
             <div style={{ 
               width: 36, 
               height: 36, 
@@ -1844,20 +1891,21 @@ const SettingsTab: React.FC = () => {
               background: `linear-gradient(135deg, ${token.colorPrimary} 0%, ${token.colorPrimaryHover} 100%)`,
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              flexShrink: 0
             }}>
               <DatabaseOutlined style={{ fontSize: 18, color: '#ffffff' }} />
             </div>
-            <div>
-              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: token.colorText, lineHeight: 1.2 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: token.colorText, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
                 {t('pages.knowledge.settings.title')}
               </h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: 13, color: token.colorTextSecondary }}>
+              <p style={{ margin: '4px 0 0 0', fontSize: 13, color: token.colorTextSecondary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {t('pages.knowledge.settings.subtitle')}
               </p>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '12px' }}>
+          <div style={{ display: 'flex', gap: '12px', flexShrink: 0, flexWrap: 'wrap' }}>
             <Tooltip title={t('pages.knowledge.help.tooltip')}>
               <button 
                 className="ec-btn ec-btn-default" 
@@ -1879,7 +1927,7 @@ const SettingsTab: React.FC = () => {
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
-        padding: '0 24px 20px 24px',
+        padding: '0 16px 12px 16px',
         overflow: 'hidden'
       }}>
         <div style={{
@@ -1928,24 +1976,9 @@ const SettingsTab: React.FC = () => {
           height: 100%;
         }
         .lightrag-settings-tabs .ant-tabs-tabpane {
-          padding: 0 20px 16px 20px;
+          padding: 0 16px 8px 16px;
         }
-        
-        [data-ec-scope="lightrag-ported"] .ec-input {
-          background: ${token.colorBgContainer};
-          color: ${token.colorText};
-          border: 1px solid ${token.colorBorder};
-          border-radius: 8px;
-          padding: 6px 10px;
-          font-size: 13px;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-          width: 100%;
-        }
-        [data-ec-scope="lightrag-ported"] .ec-input:focus {
-          outline: none;
-          border-color: ${token.colorPrimary};
-          box-shadow: 0 0 0 2px ${token.colorPrimaryBg};
-        }
+
         [data-ec-scope="lightrag-ported"] .ec-btn {
           background: ${token.colorBgContainer};
           color: ${token.colorText};

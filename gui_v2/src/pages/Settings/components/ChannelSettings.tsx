@@ -28,9 +28,10 @@ import {
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
-  DownOutlined,
   InfoCircleOutlined,
   LoadingOutlined,
+  MinusOutlined,
+  PlusOutlined,
   QrcodeOutlined,
   ReloadOutlined,
   StopOutlined,
@@ -587,11 +588,33 @@ export function ChannelSettings() {
       );
     },
     expandRowByClick: true,
-    expandIcon: ({ expanded }) => (
-      <DownOutlined
-        rotate={expanded ? 180 : 0}
-        style={{ transition: 'transform 0.2s', color: '#999', fontSize: 12 }}
-      />
+    expandIcon: ({ expanded, onExpand, record }) => (
+      <Tooltip
+        title={expanded ? t('pages.settings.channel.collapse') : t('pages.settings.channel.expand')}
+        mouseEnterDelay={0.4}
+      >
+        <Button
+          type="text"
+          size="small"
+          shape="circle"
+          aria-label={expanded ? t('pages.settings.channel.collapse') : t('pages.settings.channel.expand')}
+          aria-expanded={expanded}
+          icon={expanded ? <MinusOutlined /> : <PlusOutlined />}
+          onClick={(event) => {
+            event.stopPropagation();
+            onExpand(record, event);
+          }}
+          style={{
+            width: 24,
+            minWidth: 24,
+            height: 24,
+            color: 'var(--ant-color-text-secondary)',
+            background: 'transparent',
+            borderColor: 'transparent',
+            boxShadow: 'none',
+          }}
+        />
+      </Tooltip>
     ),
     expandedRowRender: (row) => {
       const entry = channels[row.channelId];

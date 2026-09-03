@@ -12,11 +12,10 @@ import {
   Switch,
   Select,
   Button,
-  Table,
   Space,
   Modal,
   Tooltip,
-  Collapse,
+  Tabs,
   Row,
   Col,
   App,
@@ -53,43 +52,128 @@ const SettingsContainer = styled.div`
 const ScrollableContent = styled.div`
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
+  padding: 12px 16px 16px;
 `;
 
 const HeaderBar = styled.div`
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
   gap: 8px;
-  padding: 12px 24px;
+  min-height: 48px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--ant-color-border-secondary);
   flex-shrink: 0;
+
+  .browser-header-action,
+  .browser-header-action:hover,
+  .browser-header-action:focus,
+  .browser-header-action:active {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .browser-header-action-primary {
+    color: var(--ant-color-primary) !important;
+    font-weight: 500;
+  }
+`;
+
+const HeaderTitle = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
 `;
 
 const StyledCard = styled(Card)`
-  margin-bottom: 16px;
-  
-  .ant-card-head {
-    min-height: 40px;
-    padding: 0 16px;
-  }
-  
-  .ant-card-head-title {
-    padding: 8px 0;
-    font-size: 14px;
-    font-weight: 600;
-  }
+  border-radius: 10px;
   
   .ant-card-body {
-    padding: 16px;
+    padding: 14px 16px 6px;
+  }
+
+  .ant-form-item {
+    margin-bottom: 10px;
+  }
+
+  .ant-form-item-label {
+    padding-bottom: 3px;
+  }
+
+  .ant-form-item-label > label {
+    height: 20px;
+    font-size: 12px;
   }
 `;
 
 const ProfileCard = styled(Card)`
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    border-color: var(--ant-color-primary-border);
+    box-shadow: var(--ant-box-shadow-tertiary);
+  }
   
   .ant-card-body {
-    padding: 12px 16px;
+    padding: 9px 12px;
+  }
+`;
+
+const BrowserTabs = styled(Tabs)`
+  height: auto !important;
+
+  > .ant-tabs-nav {
+    min-height: 38px !important;
+    margin: 0 0 10px !important;
+    padding: 0 4px !important;
+    background: transparent !important;
+  }
+
+  > .ant-tabs-nav .ant-tabs-tab {
+    margin: 0 !important;
+    padding: 8px 12px !important;
+    font-size: 13px !important;
+  }
+
+  > .ant-tabs-content-holder,
+  > .ant-tabs-content-holder > .ant-tabs-content,
+  > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane {
+    height: auto !important;
+    overflow: visible !important;
+  }
+`;
+
+const ProfileModal = styled(Modal)`
+  .ant-modal-header {
+    margin-bottom: 10px;
+  }
+
+  .ant-modal-content {
+    padding: 16px 18px 12px;
+  }
+
+  .ant-form-item {
+    margin-bottom: 10px;
+  }
+
+  .ant-form-item-label {
+    padding-bottom: 3px;
+  }
+
+  .ant-form-item-label > label {
+    height: 20px;
+    font-size: 12px;
+  }
+
+  .ant-divider {
+    margin: 10px 0 8px !important;
+    font-size: 13px;
   }
 `;
 
@@ -545,32 +629,41 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
     return (
       <SettingsContainer>
         <HeaderBar>
-          {hasChanges && (
-            <Tag color="warning">{tb('unsaved_changes')}</Tag>
-          )}
-          <Button
-            type="primary"
-            icon={<SaveOutlined />}
-            onClick={saveSettings}
-            loading={loading}
-          >
-            {tb('save_all')}
-          </Button>
-          <Tooltip title={tb('reload')}>
+          <HeaderTitle>
+            <GlobalOutlined />
+            <span>{t('pages.settings.browser_use.tab_title')}</span>
+            {hasChanges && <Tag color="warning">{tb('unsaved_changes')}</Tag>}
+          </HeaderTitle>
+          <Space size={6}>
             <Button
-              shape="circle"
-              icon={<ReloadOutlined />}
-              onClick={loadSettings}
+              type="text"
+              size="small"
+              className="browser-header-action browser-header-action-primary"
+              icon={<SaveOutlined />}
+              onClick={saveSettings}
               loading={loading}
-            />
-          </Tooltip>
+            >
+              {tb('save_all')}
+            </Button>
+            <Tooltip title={tb('reload')}>
+              <Button
+                type="text"
+                size="small"
+                className="browser-header-action"
+                icon={<ReloadOutlined />}
+                onClick={loadSettings}
+                loading={loading}
+              />
+            </Tooltip>
+          </Space>
         </HeaderBar>
         
         <ScrollableContent>
           <PluginsSummaryCard />
-          <Collapse
-            defaultActiveKey={['agent', 'session', 'profiles']}
-            ghost
+          <BrowserTabs
+            className="browser-settings-tabs"
+            defaultActiveKey="agent"
+            size="small"
             items={[
               {
                 key: 'agent',
@@ -585,6 +678,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
                 <Form
                   form={agentForm}
                   layout="vertical"
+                  size="small"
                   initialValues={defaultAgentSettings}
                   onValuesChange={handleFormChange}
                 >
@@ -690,6 +784,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
                 <Form
                   form={sessionForm}
                   layout="vertical"
+                  size="small"
                   initialValues={defaultBrowserSessionSettings}
                   onValuesChange={handleFormChange}
                 >
@@ -770,8 +865,8 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
                 ),
                 children: (
                   <div>
-                    <div style={{ marginBottom: 16 }}>
-                <Button type="dashed" icon={<PlusOutlined />} onClick={handleAddProfile}>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                <Button size="small" type="primary" icon={<PlusOutlined />} onClick={handleAddProfile}>
                   {tb('profiles.add_profile')}
                 </Button>
               </div>
@@ -846,7 +941,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
         </ScrollableContent>
 
         {/* Profile Edit Modal */}
-        <Modal
+        <ProfileModal
           title={editingProfile?.id.startsWith('profile_') ? tb('profiles.add_profile') : tb('profiles.edit_profile')}
           open={profileModalVisible}
           onOk={handleSaveProfile}
@@ -1312,7 +1407,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
               </Col>
             </Row>
           </Form>
-        </Modal>
+        </ProfileModal>
       </SettingsContainer>
     );
   }

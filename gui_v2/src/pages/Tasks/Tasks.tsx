@@ -171,38 +171,6 @@ const ModalActions = styled.div`
   gap: 8px;
 `;
 
-const ShortcutHintBar = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex-shrink: 0;
-  min-height: fit-content;
-  padding: 10px 16px 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
-  color: var(--text-secondary);
-  font-size: 12px;
-`;
-
-const ShortcutHintItem = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  white-space: nowrap;
-`;
-
-const ShortcutKey = styled.span`
-  padding: 2px 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-`;
-
 const Tasks: React.FC = () => {
   const { t } = useTranslation();
   const { tasks, selectedTask, selectItem, unselectItem, isSelected, loading, handleRefresh } = useTasks();
@@ -647,11 +615,6 @@ const Tasks: React.FC = () => {
               hasPrev={hasPrevTask}
               hasNext={hasNextTask}
             />
-            <ShortcutHintBar>
-              <ShortcutHintItem><ShortcutKey>Esc</ShortcutKey> {t('common.close', '关闭')}</ShortcutHintItem>
-              {!isAddingNew && hasPrevTask && <ShortcutHintItem><ShortcutKey>←</ShortcutKey> {t('common.previous', '上一个')}</ShortcutHintItem>}
-              {!isAddingNew && hasNextTask && <ShortcutHintItem><ShortcutKey>→</ShortcutKey> {t('common.next', '下一个')}</ShortcutHintItem>}
-            </ShortcutHintBar>
           </>
         ) : null}
       </TaskDetailModal>
