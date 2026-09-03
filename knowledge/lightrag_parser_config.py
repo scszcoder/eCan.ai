@@ -682,25 +682,55 @@ def resolve_ecanai_parser_secrets(
     ecanai_api_key: str,
 ) -> Dict[str, Any]:
     """
-    Force-refresh the URL + API key for any parser using the eCanAI provider,
-    and sync the per-mode API key into the active env var LightRAG reads.
+    Force-refresh the URL for any parser using the eCanAI provider, and
+    resolve the active API key into the env var LightRAG reads.
 
     Each provider mode owns its own dedicated API key env var
     (``MINERU_LOCAL_API_KEY`` / ``MINERU_OFFICIAL_API_KEY`` for self-hosted
-    MinerU, etc.) so a user-typed value is never clobbered by switching modes.
-    LightRAG only reads ``MINERU_API_TOKEN`` / ``DOCLING_API_KEY``, so this
-    function copies the per-mode key into the active env var on save.
+    MinerU, etc.) so a user-typed value is never clobbered by switching
+    modes. LightRAG only reads ``MINERU_API_TOKEN`` / ``DOCLING_API_KEY``,
+    so this function copies the right per-mode key into the active env var
+    on save.
 
-    The eCanAI provider is the only mode where the active env var is always
-    account-managed and refreshed from ``ECANAI_LLM_API_KEY``. Local and
-    official credentials remain isolated in their per-mode fields.
+    For eCanAI mode the active key is fully account-managed:
+      - When the account key (``ECANAI_LLM_API_KEY``) is available it is
+        always used, regardless of what the UI sent. The UI marks this
+        field as ``isSystemManaged`` (read-only) and auto-fills with the
+        account key, but the save handler is the authoritative source so
+        a stale value from a previous mode (e.g. the local-mode key that
+        was synced into ``MINERU_API_TOKEN`` earlier) cannot persist.
+      - When no account key is available, a user-typed custom key in
+        ``MINERU_API_TOKEN`` / ``DOCLING_API_KEY`` is preserved verbatim
+        so a self-hosted ecanai proxy still works for users without a
+        provisioned account key.
+      - ``MINERU_LOCAL_API_KEY`` / ``DOCLING_LOCAL_API_KEY`` is local
+        mode's credential and never propagates into ecanai mode.
+
+    Local and official modes copy their own per-mode key into the active
+    env var verbatim.
     """
     rewritten = dict(settings)
 
     mineru_mode = derive_mineru_provider(rewritten)
     if mineru_mode == "ecanai":
         rewritten["MINERU_ECANAI_ENDPOINT"] = ecanai_endpoint
-        rewritten["MINERU_API_TOKEN"] = str(ecanai_api_key or "").strip()
+        if ecanai_api_key:
+            # Account-managed path: overwrite whatever the UI sent. The
+            # field is isSystemManaged (read-only) so the user cannot
+            # type into it directly; any value arriving here from a UI
+            # payload is stale and must be replaced.
+            rewritten["MINERU_API_TOKEN"] = ecanai_api_key
+        elif "MINERU_API_TOKEN" in rewritten:
+            # No account key, user-typed custom value: preserve verbatim
+            # for self-managed ecanai proxies. Local key never leaks here.
+            pass
+        else:
+            # Ensure the key always exists in the returned dict so callers
+            # can index ``resolved["MINERU_API_TOKEN"]`` regardless of
+            # whether the UI included it. Empty value preserves the
+            # "no credential provided" state.
+            rewritten["MINERU_API_TOKEN"] = ""
+        # MINERU_LOCAL_API_KEY is local mode's key and never leaks here.
     elif mineru_mode == "local":
         # New UI payloads always include the isolated setting slot, even
         # when intentionally blank. Older callers only have the canonical
@@ -723,7 +753,16 @@ def resolve_ecanai_parser_secrets(
     docling_mode = derive_docling_provider(rewritten)
     if docling_mode == "ecanai":
         rewritten["DOCLING_ECANAI_ENDPOINT"] = ecanai_endpoint
-        rewritten["DOCLING_API_KEY"] = str(ecanai_api_key or "").strip()
+        if ecanai_api_key:
+            # Same account-managed logic as MinerU eCanAI above.
+            rewritten["DOCLING_API_KEY"] = ecanai_api_key
+        elif "DOCLING_API_KEY" in rewritten:
+            # No account key; preserve the user-typed custom key.
+            pass
+        else:
+            # Ensure the key always exists so callers can safely index it.
+            rewritten["DOCLING_API_KEY"] = ""
+        # DOCLING_LOCAL_API_KEY never leaks here either.
     elif docling_mode == "local":
         local_key = str(rewritten.get("DOCLING_LOCAL_API_KEY") or "").strip()
         if local_key:
@@ -791,11 +830,23 @@ def validate_parser_endpoints(settings: Dict[str, Any]) -> List[str]:
         provider = derive_mineru_provider(settings)
         required_keys = _MINERU_MODE_REQUIREMENTS[provider]
         if provider == "ecanai":
+            # eCanAI mode: MINERU_API_TOKEN is fully account-managed. The
+            # frontend marks this field as isSystemManaged (read-only) and
+            # auto-fills with the account key from secure_store on every
+            # load; the save handler refreshes it again at write time.
+            # MINERU_LOCAL_API_KEY belongs to local mode and is the wrong
+            # credential for the ecanai proxy — accepting it here would
+            # leak a self-hosted local key into the ecanai request flow.
+            # Note: when the account key is unavailable (e.g. no signed-in
+            # account), the save handler's earlier guard rejects the save
+            # *before* this validator runs, so an empty MINERU_API_TOKEN
+            # arriving here is always a hard error.
             has_token = bool(str(settings.get("MINERU_API_TOKEN") or "").strip())
             if not has_token:
                 errors.append(
                     f"LIGHTRAG_PARSER 引用了 mineru，但未配置 API Key "
-                    f"（当前 MINERU_API_MODE=ecanai，请确保账户有 ECANAI_LLM_API_KEY）"
+                    f"（当前 MINERU_API_MODE=ecanai，请在 UI 上填写 "
+                    f"MINERU_API_TOKEN 或确保账户有 ECANAI_LLM_API_KEY）"
                 )
         else:
             missing = [
@@ -827,8 +878,9 @@ def validate_parser_endpoints(settings: Dict[str, Any]) -> List[str]:
             has_api_key = bool(str(settings.get("DOCLING_API_KEY") or "").strip())
             if not has_api_key:
                 errors.append(
-                    "LIGHTRAG_PARSER 引用了 docling，但未配置 API Key "
-                    "（当前 DOCLING_PROVIDER=ecanai，请确保账户有 ECANAI_LLM_API_KEY）"
+                    f"LIGHTRAG_PARSER 引用了 docling，但未配置 API Key "
+                    f"（当前 DOCLING_PROVIDER=ecanai，请在 UI 上填写 "
+                    f"DOCLING_API_KEY 或确保账户有 ECANAI_LLM_API_KEY）"
                 )
         else:
             missing = [

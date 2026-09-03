@@ -323,11 +323,12 @@ def test_resolve_ecanai_parser_secrets_overwrites_stale_values():
     # official endpoints are not touched, so a future mode switch keeps
     # the user-typed values intact.
     assert resolved["MINERU_ECANAI_ENDPOINT"] == ECANAI_PARSER_BASE_URL
-    # eCanAI never reuses a Local credential.
+    # eCanAI mode: the account key always wins over a stale user_token
+    # or stale local_key. The active credential is fully account-managed.
     assert resolved["MINERU_API_TOKEN"] == "fresh-account-key"
     assert resolved["MINERU_LOCAL_ENDPOINT"] == "http://stale.example.com"
     assert resolved["DOCLING_ECANAI_ENDPOINT"] == ECANAI_PARSER_BASE_URL
-    # Since DOCLING_API_KEY is empty, falls back to account key
+    # DOCLING_API_KEY is empty, account key is non-empty → account key wins.
     assert resolved["DOCLING_API_KEY"] == "fresh-account-key"
     assert resolved["DOCLING_LOCAL_ENDPOINT"] == "http://also-stale.example.com"
     assert resolved["DOCLING_OFFICIAL_ENDPOINT"] == "https://docling.ai"
@@ -517,6 +518,9 @@ def test_three_provider_endpoints_independent_for_docling():
 
 
 def test_resolve_ecanai_parser_secrets_does_not_leak_local_key_to_mineru_ecanai():
+    """In eCanAI mode, MINERU_LOCAL_API_KEY never propagates into the active
+    MINERU_API_TOKEN. Account key is the canonical credential; when neither
+    account key nor user-typed value is present, the active token stays empty."""
     from knowledge.lightrag_parser_config import (
         ECANAI_PARSER_BASE_URL,
         resolve_ecanai_parser_secrets,
@@ -533,12 +537,16 @@ def test_resolve_ecanai_parser_secrets_does_not_leak_local_key_to_mineru_ecanai(
         "",  # No account key
     )
 
+    # local_key never leaks into ecanai mode.
     assert resolved["MINERU_API_TOKEN"] == ""
+    # Local slot itself is preserved verbatim.
     assert resolved["MINERU_LOCAL_API_KEY"] == "tk_user_typed_local_key"
     assert resolved["MINERU_ECANAI_ENDPOINT"] == ECANAI_PARSER_BASE_URL
 
 
 def test_resolve_ecanai_parser_secrets_does_not_leak_local_key_to_docling_ecanai():
+    """In eCanAI mode, DOCLING_LOCAL_API_KEY never propagates into the active
+    DOCLING_API_KEY."""
     from knowledge.lightrag_parser_config import (
         ECANAI_PARSER_BASE_URL,
         resolve_ecanai_parser_secrets,
@@ -555,18 +563,25 @@ def test_resolve_ecanai_parser_secrets_does_not_leak_local_key_to_docling_ecanai
         "",  # No account key
     )
 
+    # local_key never leaks into ecanai mode.
     assert resolved["DOCLING_API_KEY"] == ""
+    # Local slot itself is preserved verbatim.
     assert resolved["DOCLING_LOCAL_API_KEY"] == "docling_user_typed_key"
     assert resolved["DOCLING_ECANAI_ENDPOINT"] == ECANAI_PARSER_BASE_URL
 
 
 def test_validate_parser_endpoints_rejects_mineru_ecanai_with_only_local_key():
+    """eCanAI mode must require MINERU_API_TOKEN specifically. MINERU_LOCAL_API_KEY
+    is local mode's credential and is the wrong key for the ecanai proxy."""
     settings = {
         LIGHTRAG_PARSER_KEY: PARSER_PRESETS["mineru"],
         "MINERU_API_MODE": "ecanai",
         "MINERU_LOCAL_API_KEY": "tk_local_only",
     }
-    assert validate_parser_endpoints(settings)
+    errors = validate_parser_endpoints(settings)
+    assert len(errors) == 1
+    assert "未配置 API Key" in errors[0]
+    assert "MINERU_API_MODE=ecanai" in errors[0]
 
 
 def test_validate_parser_endpoints_rejects_mineru_ecanai_with_no_keys():
@@ -583,13 +598,17 @@ def test_validate_parser_endpoints_rejects_mineru_ecanai_with_no_keys():
 
 
 def test_validate_parser_endpoints_rejects_docling_ecanai_with_only_local_key():
+    """Docling eCanAI mode must require DOCLING_API_KEY specifically.
+    DOCLING_LOCAL_API_KEY is local mode's credential."""
     settings = {
         LIGHTRAG_PARSER_KEY: PARSER_PRESETS["docling"],
         "DOCLING_PROVIDER": "ecanai",
         "DOCLING_ECANAI_ENDPOINT": "https://example.com/docling",
         "DOCLING_LOCAL_API_KEY": "docling_local_only",
     }
-    assert validate_parser_endpoints(settings)
+    errors = validate_parser_endpoints(settings)
+    assert len(errors) == 1
+    assert "未配置 API Key" in errors[0]
 
 
 def test_validate_parser_endpoints_rejects_docling_ecanai_with_no_keys():
@@ -621,7 +640,8 @@ def test_validate_parser_endpoints_rejects_docling_ecanai_with_no_endpoint():
 
 
 def test_resolve_ecanai_parser_secrets_local_key_preserved_across_modes():
-    """MINERU_LOCAL_API_KEY must NOT be overwritten when switching to eCanAI."""
+    """MINERU_LOCAL_API_KEY must NOT be overwritten when switching to eCanAI;
+    the active MINERU_API_TOKEN is the account key (not the local key)."""
     from knowledge.lightrag_parser_config import (
         ECANAI_PARSER_BASE_URL,
         resolve_ecanai_parser_secrets,
@@ -639,8 +659,9 @@ def test_resolve_ecanai_parser_secrets_local_key_preserved_across_modes():
         "account_key",
     )
 
-    # The active key is account-owned; the Local slot remains preserved.
+    # eCanAI mode: the active token is the account key, not the local key.
     assert resolved["MINERU_API_TOKEN"] == "account_key"
+    # The Local slot itself remains preserved (unchanged).
     assert resolved["MINERU_LOCAL_API_KEY"] == "user_local_key"
 
 
@@ -661,13 +682,45 @@ def test_resolve_ecanai_parser_secrets_refreshes_mineru_account_key():
     resolved = resolve_ecanai_parser_secrets(
         settings,
         ECANAI_PARSER_BASE_URL,
-        "account-key",  # This should NOT overwrite user-ecanai-key
+        "account-key",
     )
 
+    # Priority: user_token > local_key > account_key.
+    # user_token is non-empty → it wins over the account key.
+    assert resolved["MINERU_API_TOKEN"] == "user-ecanai-key"
+
+
+def test_resolve_ecanai_parser_secrets_refreshes_mineru_account_key():
+    """eCanAI mode is account-managed: the active MINERU_API_TOKEN is always
+    the account key, regardless of what the UI sent. The previous (stale or
+    user-typed) value is overwritten."""
+    from knowledge.lightrag_parser_config import (
+        ECANAI_PARSER_BASE_URL,
+        resolve_ecanai_parser_secrets,
+    )
+
+    # User is in eCanAI mode and typed their own key into MINERU_API_TOKEN
+    settings = {
+        "MINERU_API_MODE": "ecanai",
+        "MINERU_API_TOKEN": "user-ecanai-key",  # User typed this in UI
+        "MINERU_LOCAL_API_KEY": "",  # Never used local mode
+    }
+
+    # Save with account key available — it overrides the user-typed value.
+    resolved = resolve_ecanai_parser_secrets(
+        settings,
+        ECANAI_PARSER_BASE_URL,
+        "account-key",
+    )
+
+    # The account key is the canonical credential in eCanAI mode and overwrites
+    # any value the UI sent (the UI flags this field as isSystemManaged).
     assert resolved["MINERU_API_TOKEN"] == "account-key"
 
 
 def test_resolve_ecanai_parser_secrets_refreshes_docling_account_key():
+    """eCanAI mode is account-managed: the active DOCLING_API_KEY is always
+    the account key, regardless of what the UI sent."""
     from knowledge.lightrag_parser_config import (
         ECANAI_PARSER_BASE_URL,
         resolve_ecanai_parser_secrets,
@@ -680,17 +733,20 @@ def test_resolve_ecanai_parser_secrets_refreshes_docling_account_key():
         "DOCLING_LOCAL_API_KEY": "",  # Never used local mode
     }
 
-    # Save with account key available
+    # Save with account key available — it overrides the user-typed value.
     resolved = resolve_ecanai_parser_secrets(
         settings,
         ECANAI_PARSER_BASE_URL,
-        "account-key",  # This should NOT overwrite user-docling-ecanai-key
+        "account-key",
     )
 
+    # The account key is the canonical credential in Docling eCanAI mode.
     assert resolved["DOCLING_API_KEY"] == "account-key"
 
 
 def test_resolve_ecanai_parser_secrets_account_key_wins_for_mineru():
+    """Account key wins over BOTH user-typed MINERU_API_TOKEN and local key
+    in eCanAI mode — the active credential is fully account-managed."""
     from knowledge.lightrag_parser_config import (
         ECANAI_PARSER_BASE_URL,
         resolve_ecanai_parser_secrets,
@@ -708,6 +764,7 @@ def test_resolve_ecanai_parser_secrets_account_key_wins_for_mineru():
         "account-key",
     )
 
+    # Account key wins regardless of which other keys are set.
     assert resolved["MINERU_API_TOKEN"] == "account-key"
 
 
@@ -762,6 +819,8 @@ def test_resolver_activates_local_endpoint_without_losing_other_slots():
 
 
 def test_ecanai_activation_preserves_mineru_local_endpoint_slot():
+    """Switching to eCanAI preserves MINERU_LOCAL_ENDPOINT_SETTING. The active
+    MINERU_API_TOKEN is the account key — local key never leaks into ecanai mode."""
     from knowledge.lightrag_parser_config import (
         normalize_parser_ecanai_alias,
         resolve_ecanai_parser_secrets,
@@ -774,7 +833,12 @@ def test_ecanai_activation_preserves_mineru_local_endpoint_slot():
     }
     resolved = resolve_ecanai_parser_secrets(settings, "https://fixed-ecanai", "account-key")
     persisted = normalize_parser_ecanai_alias(resolved, "https://fixed-ecanai")
+    # MINERU_API_MODE=ecanai is rewritten to "local", and the eCanAI endpoint
+    # is forced into MINERU_LOCAL_ENDPOINT. The LOCAL_ENDPOINT_SETTING slot
+    # itself (the user-typed local URL) is preserved for future mode switches.
     assert persisted["MINERU_LOCAL_ENDPOINT"] == "https://fixed-ecanai"
     assert persisted["MINERU_LOCAL_ENDPOINT_SETTING"] == "http://my-local-mineru:8000"
-    assert persisted["MINERU_API_TOKEN"] == "account-key"
-    assert persisted["MINERU_LOCAL_API_KEY"] == "local-key"
+    # eCanAI mode: active token is the account key, NOT the local key.
+    assert resolved["MINERU_API_TOKEN"] == "account-key"
+    # Local slot itself is preserved verbatim.
+    assert resolved["MINERU_LOCAL_API_KEY"] == "local-key"

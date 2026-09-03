@@ -1469,34 +1469,77 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
 
         # Resolve the selected protocol into the canonical fields consumed by
         # LightRAG. Local/official values come from their isolated UI slots;
-        # eCanAI always uses the fixed proxy and current account API key.
+        # eCanAI prefers the user-typed value (MINERU_API_TOKEN /
+        # DOCLING_API_KEY / per-mode local key) and only falls back to the
+        # account-level ECANAI_LLM_API_KEY when none of those are set.
         from knowledge.lightrag_parser_config import (
             ECANAI_PARSER_BASE_URL,
             derive_docling_provider,
             derive_mineru_provider,
+            LIGHTRAG_PARSER_KEY,
+            normalize_parser_routing,
             resolve_ecanai_parser_secrets,
         )
+        routing = normalize_parser_routing(settings_to_save.get(LIGHTRAG_PARSER_KEY)).lower()
+        mineru_in_routing = "mineru" in routing
+        docling_in_routing = "docling" in routing
+
         mineru_ecanai = derive_mineru_provider(settings_to_save) == "ecanai"
         docling_ecanai = derive_docling_provider(settings_to_save) == "ecanai"
         ecanai_api_key = ""
-        if mineru_ecanai or docling_ecanai:
-            try:
-                from utils.env.secure_store import secure_store
-                from gui.ipc.context_bridge import get_username
-                username = get_username(request, params)
-                ecanai_api_key = (
-                    str(secure_store.get("ECANAI_LLM_API_KEY", username=username) or "").strip()
-                    if username else ""
-                )
-            except Exception as ecanai_lookup_error:
-                logger.debug(f"[LightRAG] Account API key lookup failed: {ecanai_lookup_error}")
+        if (mineru_ecanai and mineru_in_routing) or (docling_ecanai and docling_in_routing):
+            # 1. Check whether the user has already typed the eCanAI key
+            #    in the dedicated UI field. The save resolver refreshes
+            #    this from the account store at write time, so a typed
+            #    value here is a user-typed custom key (e.g. for a
+            #    self-managed ecanai proxy). ``*_LOCAL_API_KEY`` belongs
+            #    to local mode and is the wrong credential here, so it
+            #    MUST NOT be treated as satisfying the ecanai requirement.
+            user_typed_mineru = (
+                mineru_in_routing
+                and bool(str(settings_to_save.get("MINERU_API_TOKEN") or "").strip())
+            )
+            user_typed_docling = (
+                docling_in_routing
+                and bool(str(settings_to_save.get("DOCLING_API_KEY") or "").strip())
+            )
+            has_user_key = user_typed_mineru or user_typed_docling
 
-            if not ecanai_api_key:
-                return create_error_response(
-                    request,
-                    'PARSER_CONFIG_ERROR',
-                    'eCanAI parser requires the current account API key.',
-                )
+            if not has_user_key:
+                # 2. No per-mode key typed; try the account-level secret.
+                try:
+                    from utils.env.secure_store import secure_store
+                    from gui.ipc.context_bridge import get_username
+                    username = get_username(request, params)
+                    ecanai_api_key = (
+                        str(secure_store.get("ECANAI_LLM_API_KEY", username=username) or "").strip()
+                        if username else ""
+                    )
+                except Exception as ecanai_lookup_error:
+                    logger.debug(f"[LightRAG] Account API key lookup failed: {ecanai_lookup_error}")
+
+            if not has_user_key and not ecanai_api_key:
+                # Only surface the eCanAI key requirement for the engine that
+                # is actually in the routing; do not demand docling credentials
+                # when the user has switched to mineru/native and left
+                # DOCLING_PROVIDER=ecanai from a prior session.
+                if mineru_ecanai and mineru_in_routing:
+                    provider_label = "MinerU"
+                elif docling_ecanai and docling_in_routing:
+                    provider_label = "Docling"
+                else:
+                    # Neither engine in routing — this should not normally be
+                    # reachable, but handle gracefully instead of crashing.
+                    provider_label = None
+
+                if provider_label:
+                    return create_error_response(
+                        request,
+                        'PARSER_CONFIG_ERROR',
+                        f'{provider_label} eCanAI mode requires an API key. '
+                        'Type one in the settings UI, or sign in to an account '
+                        'that has ECANAI_LLM_API_KEY provisioned.',
+                    )
 
         # Run for every mode: besides eCanAI account values this maps the
         # selected Local/Official per-mode key into LightRAG's active key.
