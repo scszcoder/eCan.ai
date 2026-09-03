@@ -18,6 +18,13 @@ export interface ParserEngineField {
   tooltip?: string;
   required?: boolean;
   options?: Array<{ value: string; label: string }>;
+  /**
+   * Marks a field whose value is sourced from account state (not the
+   * ``.env`` file). The UI renders these as read-only with a "System"
+   * badge; the save path refreshes them from secure_store before
+   * persistence.
+   */
+  isSystemManaged?: boolean;
 }
 
 export interface ParserEngineDefinition {
@@ -44,6 +51,7 @@ export function buildParserProviders(
       tooltip: f.tooltip,
       required: f.required,
       options: f.options,
+      isSystemManaged: f.isSystemManaged,
     }));
 
     // A running desktop backend can be one process/version behind the Vite

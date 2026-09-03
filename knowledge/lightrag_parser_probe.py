@@ -76,18 +76,34 @@ def probe_mineru(settings: Dict[str, Any]) -> Dict[str, Any]:
     mode = str(settings.get("MINERU_API_MODE") or "local").strip().lower()
     ssl_value = str(settings.get("SSL_VERIFY", "false")).strip().lower()
     verify_ssl = ssl_value in {"1", "true", "yes", "on"}
-    if mode == "local" or mode == "ecanai":
+    if mode in ("local", "ecanai"):
         # ``ecanai`` is an eCan convenience alias; at runtime it is rewritten
         # to ``local`` with ``MINERU_LOCAL_ENDPOINT`` pointed at the eCanAI
-        # proxy, so the probe targets the same URL the runtime will hit.
-        endpoint_value = (
-            settings.get("MINERU_LOCAL_ENDPOINT") if mode == "local"
-            else settings.get("MINERU_LOCAL_ENDPOINT")
-        )
-        endpoint = _base_url(endpoint_value, "MINERU_LOCAL_ENDPOINT")
-        token = str(settings.get("MINERU_API_TOKEN") or "").strip()
-        if not token:
-            raise ValueError(f"{mode} 模式未配置 MINERU_API_TOKEN")
+        # proxy. Each mode owns a dedicated endpoint env var so the
+        # user-typed local value is preserved across mode switches.
+        if mode == "local":
+            endpoint_field = "MINERU_LOCAL_ENDPOINT_SETTING"
+        else:  # ecanai
+            endpoint_field = "MINERU_ECANAI_ENDPOINT"
+        endpoint_value = settings.get(endpoint_field)
+        if mode == "local" and not endpoint_value:
+            # Backward compatibility for unsaved legacy settings.
+            endpoint_value = settings.get("MINERU_LOCAL_ENDPOINT")
+        endpoint = _base_url(endpoint_value, endpoint_field)
+
+        # Per-mode API key: the UI shows the field matching this mode and
+        # the user types into it. eCanAI mode uses MINERU_API_TOKEN (the
+        # ecanai-only field); local mode uses MINERU_LOCAL_API_KEY. To
+        if mode == "local":
+            token = str(settings.get("MINERU_LOCAL_API_KEY") or "").strip()
+            if not token:
+                raise ValueError("local 模式未配置 MINERU_LOCAL_API_KEY")
+        else:  # ecanai
+            token = str(settings.get("MINERU_API_TOKEN") or "").strip()
+            if not token:
+                raise ValueError(
+                    "ecanai 模式未获取到账户 API Key（MINERU_API_TOKEN / ECANAI_LLM_API_KEY）"
+                )
         result = _probe_health(
             "MinerU ecanai" if mode == "ecanai" else "MinerU local",
             endpoint,
@@ -103,9 +119,10 @@ def probe_mineru(settings: Dict[str, Any]) -> Dict[str, Any]:
         settings.get("MINERU_OFFICIAL_ENDPOINT") or "https://mineru.net",
         "MINERU_OFFICIAL_ENDPOINT",
     )
-    token = str(settings.get("MINERU_API_TOKEN") or "").strip()
+    # Use per-mode API key: MINERU_OFFICIAL_API_KEY for official.
+    token = str(settings.get("MINERU_OFFICIAL_API_KEY") or "").strip()
     if not token:
-        raise ValueError("official 模式未配置 MINERU_API_TOKEN")
+        raise ValueError("official 模式未配置 MINERU_OFFICIAL_API_KEY")
 
     # Querying a deliberately nonexistent task is read-only. A structured
     # 2xx/4xx response proves the API route is present; 401/403 proves auth is
@@ -119,7 +136,7 @@ def probe_mineru(settings: Dict[str, Any]) -> Dict[str, Any]:
         verify=verify_ssl,
     )
     if response.status_code in (401, 403):
-        raise RuntimeError(f"MinerU official 鉴权失败（HTTP {response.status_code}），请检查 MINERU_API_TOKEN")
+        raise RuntimeError(f"MinerU official 鉴权失败（HTTP {response.status_code}），请检查 MINERU_OFFICIAL_API_KEY")
     content_type = response.headers.get("content-type", "").lower()
     if response.status_code >= 500:
         raise RuntimeError(f"MinerU official 服务异常 HTTP {response.status_code}：{_error_detail(response)}")
@@ -139,14 +156,32 @@ def probe_mineru(settings: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def probe_docling(settings: Dict[str, Any]) -> Dict[str, Any]:
-    endpoint = _base_url(settings.get("DOCLING_ENDPOINT"), "DOCLING_ENDPOINT")
-    api_key = str(settings.get("DOCLING_API_KEY") or "").strip()
-    if not api_key:
-        raise ValueError("未配置 DOCLING_API_KEY")
+    provider = str(settings.get("DOCLING_PROVIDER") or "ecanai").strip().lower()
     ssl_value = str(settings.get("SSL_VERIFY", "false")).strip().lower()
     verify_ssl = ssl_value in {"1", "true", "yes", "on"}
+
+    if provider == "local":
+        endpoint = _base_url(settings.get("DOCLING_LOCAL_ENDPOINT"), "DOCLING_LOCAL_ENDPOINT")
+        api_key = str(settings.get("DOCLING_LOCAL_API_KEY") or "").strip()
+        if not api_key:
+            raise ValueError("local 模式未配置 DOCLING_LOCAL_API_KEY")
+    elif provider == "official":
+        endpoint = _base_url(settings.get("DOCLING_OFFICIAL_ENDPOINT"), "DOCLING_OFFICIAL_ENDPOINT")
+        api_key = str(settings.get("DOCLING_OFFICIAL_API_KEY") or "").strip()
+        if not api_key:
+            raise ValueError("official 模式未配置 DOCLING_OFFICIAL_API_KEY")
+    else:
+        # eCanAI always uses the account-managed key. Local credentials must
+        # never leak into this protocol.
+        endpoint = _base_url(settings.get("DOCLING_ECANAI_ENDPOINT"), "DOCLING_ECANAI_ENDPOINT")
+        api_key = str(settings.get("DOCLING_API_KEY") or "").strip()
+        if not api_key:
+            raise ValueError(
+                "eCanAI 模式未获取到账户 API Key（DOCLING_API_KEY / ECANAI_LLM_API_KEY）"
+            )
+
     return _probe_health(
-        "Docling",
+        f"Docling {provider}",
         endpoint,
         headers={"Authorization": f"Bearer {api_key}"},
         verify_ssl=verify_ssl,

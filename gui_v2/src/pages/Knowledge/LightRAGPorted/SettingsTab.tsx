@@ -1001,20 +1001,25 @@ const SettingsTab: React.FC = () => {
             return next;
           });
 
-          // Auto-fill eCanAI API key when mineru/docling is set to ecanai mode
-          const mineruMode = (parserData.engines || []).find(
-            (e: any) => e.id === 'mineru'
-          )?.fields?.find((f: any) => f.key === 'MINERU_API_MODE')?.options?.[0]?.value;
-          if (mineruMode === 'ecanai' || (parserData.current?.MINERU_API_MODE || '').toLowerCase() === 'ecanai') {
+          // Auto-fill eCanAI API key when mineru/docling is set to ecanai mode.
+          // The backend save path also refreshes from secure_store, so this
+          // only seeds the in-memory settings with the latest account key.
+          const mineruEcanai = (parserData.current?.MINERU_API_MODE || '').toLowerCase() === 'ecanai';
+          const doclingEcanai = (parserData.current?.DOCLING_PROVIDER || '').toLowerCase() === 'ecanai';
+          if (mineruEcanai || doclingEcanai) {
             get_ipc_api().executeRequest<{ apiKey: string | null }>(
               'lightrag.getEcanaiApiKey', {}
             ).then(resp => {
               if (resp.success && resp.data?.apiKey) {
                 setSettings(prev => {
-                  if (!prev.MINERU_API_TOKEN && prev.MINERU_API_MODE === 'ecanai') {
-                    return { ...prev, MINERU_API_TOKEN: resp.data!.apiKey as string };
+                  const next = { ...prev };
+                  if (next.MINERU_API_MODE === 'ecanai') {
+                    next.MINERU_API_TOKEN = resp.data!.apiKey as string;
                   }
-                  return prev;
+                  if (next.DOCLING_PROVIDER === 'ecanai') {
+                    next.DOCLING_API_KEY = resp.data!.apiKey as string;
+                  }
+                  return next;
                 });
               }
             }).catch(() => {/* key not available */});
@@ -1054,15 +1059,71 @@ const SettingsTab: React.FC = () => {
       } else if (key === 'MINERU_API_MODE') {
         if (value === 'official') {
           newSettings['MINERU_OFFICIAL_ENDPOINT'] ||= 'https://mineru.net';
+          // Do NOT copy the ecanai account key into the official slot — they
+          // are different credentials (eCanAI account token ≠ mineru.net API
+          // key). Copying the ecanai key here causes a silent auth failure
+          // because the user then calls mineru.net with the wrong token.
+          // Per-mode keys are preserved across mode switches so any key the
+          // user previously typed into the official slot is kept verbatim.
+          // The active MINERU_API_TOKEN slot shows whichever key the current
+          // mode actually reads; if the official slot is still empty the
+          // field will be blank so the user is prompted to fill it in.
+          //
+          // Only seed MINERU_API_TOKEN from the official slot when one was
+          // actually typed. If the official slot is empty we MUST leave the
+          // previous MINERU_API_TOKEN intact — that value belongs to a
+          // different mode and erasing it would make the API key box flash
+          // empty every time the user opens this mode before saving.
+        } else if (value === 'local') {
+          // Same rationale: do NOT copy the ecanai account token into the
+          // local slot. The local service may use a different credential
+          // (e.g. a self-issued Bearer token). Preserve any user-typed
+          // local key; if the slot is still empty the field will be blank
+          // so the user is prompted.
         } else if (value === 'ecanai') {
-          // eCanAI provider: auto-fill endpoint and fetch account API key
-          newSettings['MINERU_LOCAL_ENDPOINT'] ||= 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1';
-          // Fetch eCanAI LLM API key and auto-fill MINERU_API_TOKEN
+          // eCanAI uses a dedicated endpoint env var so switching modes
+          // never clobbers the user-typed value in MINERU_LOCAL_ENDPOINT.
+          newSettings['MINERU_ECANAI_ENDPOINT'] ||= 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1';
+          // ALWAYS refresh MINERU_API_TOKEN from the account store. eCanAI
+          // uses the current app's account key — never a per-mode key the
+          // user typed for local / official. The previous MINERU_API_TOKEN
+          // value (e.g. synced from MINERU_LOCAL_API_KEY during an earlier
+          // mode toggle, or written by the save handler) may belong to a
+          // different mode; without this refresh the ecanai field would
+          // show the wrong credential.
           get_ipc_api().executeRequest<{ apiKey: string | null }>(
             'lightrag.getEcanaiApiKey', {}
           ).then(resp => {
             if (resp.success && resp.data?.apiKey) {
               setSettings(prev => ({ ...prev, MINERU_API_TOKEN: resp.data!.apiKey as string }));
+            }
+          }).catch(() => {/* key not available */});
+        }
+      } else if (key === 'DOCLING_PROVIDER') {
+        if (value === 'official') {
+          newSettings['DOCLING_OFFICIAL_ENDPOINT'] ||= 'https://docling.ai';
+          // Do NOT copy the ecanai account key into the official slot.
+          // Preserve any user-typed official key; if empty the field
+          // will be blank so the user is prompted to fill it in.
+          // Only seed DOCLING_API_KEY from the official slot when the user
+          // already typed one; an empty slot must NOT clobber the previously
+          // active key (e.g. the eCanAI account token from the prior mode).
+        } else if (value === 'local') {
+          // Same rationale: do NOT copy the ecanai token into the local slot.
+        } else if (value === 'ecanai') {
+          // Same rationale as MinerU eCanAI: a dedicated endpoint env var
+          // preserves the user-typed local value across mode switches.
+          newSettings['DOCLING_ECANAI_ENDPOINT'] ||= 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1';
+          // ALWAYS refresh DOCLING_API_KEY from the account store. Same
+          // rationale as MinerU eCanAI: a stale value from a per-mode slot
+          // (e.g. DOCLING_LOCAL_API_KEY) would otherwise leak into the
+          // ecanai field and present the wrong credential as the account
+          // key.
+          get_ipc_api().executeRequest<{ apiKey: string | null }>(
+            'lightrag.getEcanaiApiKey', {}
+          ).then(resp => {
+            if (resp.success && resp.data?.apiKey) {
+              setSettings(prev => ({ ...prev, DOCLING_API_KEY: resp.data!.apiKey as string }));
             }
           }).catch(() => {/* key not available */});
         }
@@ -1310,16 +1371,16 @@ const SettingsTab: React.FC = () => {
           </Tooltip>
         )}
         {isSystemManaged && (
-          <Tooltip title={t('pages.knowledge.settings.systemManaged', { defaultValue: 'Managed by System Settings' })} placement="top">
-            <span style={{ 
-              fontSize: 10, 
-              background: token.colorFillSecondary, 
-              color: token.colorTextSecondary, 
-              padding: '1px 6px', 
+          <Tooltip title={t('pages.knowledge.settings.systemManaged')} placement="top">
+            <span style={{
+              fontSize: 10,
+              background: token.colorFillSecondary,
+              color: token.colorTextSecondary,
+              padding: '1px 6px',
               borderRadius: 4,
               marginLeft: 4
             }}>
-              System
+              {t('pages.knowledge.settings.badgeSystem', { defaultValue: 'System' })}
             </span>
           </Tooltip>
         )}
@@ -1573,6 +1634,43 @@ const SettingsTab: React.FC = () => {
             }
           }
           next.PARSER_IMAGE_ANALYSIS = 'false';
+
+          // Cross-engine API key sync: only mirror keys across engines when
+          // both engines are using the SAME provider mode. eCanAI keys come
+          // from the account store (secure_store) and are distinct from
+          // self-hosted / official API keys, so copying across modes would
+          // leak the wrong credential into the wrong service.
+          if (value === 'docling' || value === 'mineru') {
+            const mineruMode = (next['MINERU_API_MODE'] || 'ecanai').toLowerCase();
+            const doclingMode = (next['DOCLING_PROVIDER'] || 'ecanai').toLowerCase();
+            const sameMode = mineruMode === doclingMode;
+
+            const targetKey = value === 'docling' ? 'DOCLING_API_KEY' : 'MINERU_API_TOKEN';
+            const otherKey = value === 'docling' ? 'MINERU_API_TOKEN' : 'DOCLING_API_KEY';
+
+            if (sameMode && !next[targetKey] && next[otherKey]) {
+              // Both engines share a provider mode, so the same credential
+              // is valid for both. Copy it across.
+              next[targetKey] = next[otherKey];
+            } else if (!next[targetKey]) {
+              // Mismatched modes (or both empty): pull the eCanAI account
+              // key only when the target engine is actually using ecanai.
+              // local/official modes with an empty key stay empty so the
+              // user is prompted to fill it in rather than silently using
+              // the wrong service's credential.
+              const targetMode = value === 'docling' ? doclingMode : mineruMode;
+              if (targetMode === 'ecanai') {
+                get_ipc_api().executeRequest<{ apiKey: string | null }>(
+                  'lightrag.getEcanaiApiKey', {}
+                ).then(resp => {
+                  if (resp.success && resp.data?.apiKey) {
+                    setSettings(s => ({ ...s, [targetKey]: resp.data!.apiKey as string }));
+                  }
+                }).catch(() => { /* key not available */ });
+              }
+            }
+          }
+
           return next;
         });
         return;

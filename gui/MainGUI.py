@@ -380,6 +380,60 @@ class MainWindow:
         logger.info(f"[TaskTracker] Task cancellation complete: {cancelled} cancelled")
         return cancelled
 
+    def _close_appsync_ws_subscriptions(self) -> int:
+        """Close tracked AppSync WebSocket subscriptions and join their threads.
+
+        Memory leak fix (2026-09-03): each WS subscription holds a daemon thread
+        running an auto-reconnect loop. Without explicit join, those threads keep
+        their 8MB stacks (VMS growth ~230GB/session observed in logs).
+        Also closes the websocket client (sends close frame to server).
+
+        Returns:
+            Number of WS threads successfully joined.
+        """
+        from agent.cloud_api.cloud_api import (
+            cleanup_appsync_ws_threads,
+            get_appsync_ws_thread_count,
+        )
+
+        before = get_appsync_ws_thread_count()
+        logger.info(f"[MainWindow] Closing {before} AppSync WS subscriptions")
+
+        # Close the local WebSocketApp handles so the reconnect loop sees
+        # the close and exits the while True loop.
+        for attr in (
+            "cloud_llm_ws",
+            "cloud_show_ws",
+            "account_notification_ws",
+        ):
+            ws = getattr(self, attr, None)
+            if ws is None:
+                continue
+            close_fn = getattr(ws, "close", None)
+            if callable(close_fn):
+                try:
+                    close_fn()
+                except Exception:
+                    pass
+            setattr(self, attr, None)
+
+        # Now join the threads (they should exit once run_forever returns).
+        joined = cleanup_appsync_ws_threads(timeout=3.0)
+
+        # Drop our local thread references too.
+        for attr in (
+            "cloud_llm_thread",
+            "cloud_show_thread",
+            "account_notification_thread",
+        ):
+            if hasattr(self, attr):
+                setattr(self, attr, None)
+
+        logger.info(
+            f"[MainWindow] AppSync WS cleanup done: {joined}/{before} joined"
+        )
+        return joined
+
     def _cleanup_completed_tasks(self):
         """Remove completed tasks from tracking list.
         
@@ -4620,7 +4674,16 @@ class MainWindow:
                 self.websocket = None
                 logger.info("[MainWindow] Cloud LLM Websocket closed")
         except Exception as e:
-            logger.debug(f"[MainWindow] âŒ Error closing websocket: {e}")
+            logger.debug(f"[MainWindow] Error closing websocket: {e}")
+
+        # Close AppSync WebSocket subscriptions and join their threads.
+        # Memory leak fix (2026-09-03): previously these daemon threads kept
+        # running across logout/relogin cycles, accumulating 8MB thread stacks
+        # and inflating VMS by hundreds of MB.
+        try:
+            self._close_appsync_ws_subscriptions()
+        except Exception as e:
+            logger.warning(f"[MainWindow] Error closing AppSync WS subscriptions: {e}")
 
         # Close unified browser manager
         try:

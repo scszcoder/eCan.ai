@@ -282,16 +282,34 @@ export const PARSER_PROVIDERS: ProviderConfig[] = [
         { value: 'official', label: 'fields.providerOfficial' }
       ], tooltip: 'tooltips.mineruProvider' },
       { key: 'MINERU_OFFICIAL_ENDPOINT', label: 'fields.mineruEndpoint', type: 'text', defaultValue: 'https://mineru.net', placeholder: 'https://mineru.net', tooltip: 'tooltips.mineruEndpoint' },
-      { key: 'MINERU_LOCAL_ENDPOINT', label: 'fields.mineruEndpoint', type: 'text', defaultValue: 'http://127.0.0.1:8000', placeholder: 'http://127.0.0.1:8000', tooltip: 'tooltips.mineruLocalEndpoint' },
+      { key: 'MINERU_LOCAL_ENDPOINT_SETTING', label: 'fields.mineruEndpoint', type: 'text', placeholder: 'http://127.0.0.1:8000', tooltip: 'tooltips.mineruLocalEndpoint' },
+      { key: 'MINERU_ECANAI_ENDPOINT', label: 'fields.mineruEcanaiEndpoint', type: 'text', defaultValue: 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1', placeholder: 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1', tooltip: 'tooltips.mineruEcanaiEndpoint' },
       { key: 'MINERU_API_TOKEN', label: 'fields.mineruApiKey', type: 'password', required: true, tooltip: 'tooltips.mineruApiKey' },
+      { key: 'MINERU_LOCAL_API_KEY', label: 'fields.mineruLocalApiKey', type: 'password', tooltip: 'tooltips.mineruLocalApiKey' },
+      { key: 'MINERU_OFFICIAL_API_KEY', label: 'fields.mineruOfficialApiKey', type: 'password', tooltip: 'tooltips.mineruOfficialApiKey' },
       { key: 'MINERU_MODEL_VERSION', label: 'fields.mineruModelVersion', type: 'select', defaultValue: 'pipeline', options: [
         { value: 'pipeline', label: 'fields.mineruModelPipeline' },
         { value: 'vlm', label: 'fields.mineruModelVlm' }
       ], tooltip: 'tooltips.mineruModelVersion' },
       { key: 'MINERU_IS_OCR', label: 'fields.mineruIsOcr', type: 'boolean', defaultValue: 'false', tooltip: 'tooltips.mineruIsOcr' },
       { key: 'MINERU_LANGUAGE', label: 'fields.mineruLanguage', type: 'select', defaultValue: 'ch', options: [
+        // LightRAG 1.5.6 reads MINERU_LANGUAGE for BOTH modes:
+        //   - local: maps to the ``lang_list`` form field of the local
+        //     mineru-api service. The service only honors the 12 values
+        //     listed in CLI --lang (pipeline backend); others fall back
+        //     to default ch.
+        //   - official: maps to the ``language`` task parameter of the
+        //     mineru.net API, which accepts a much wider list (en,
+        //     japanese/french/german/etc. on top of the CLI set).
+        // List the union so a user who switches mode does not see their
+        // previously valid choice disappear. Local service will ignore
+        // values it does not understand; runtime warns but does not fail.
         { value: 'ch', label: 'fields.languageChineseMixed' },
         { value: 'ch_server', label: 'fields.languageChineseMixedServer' },
+        { value: 'ch_lite', label: 'fields.languageChineseLite' },
+        { value: 'chinese_cht', label: 'fields.languageChineseTraditional' },
+        { value: 'en', label: 'fields.languageEnglish' },
+        { value: 'japan', label: 'fields.languageJapanese' },
         { value: 'korean', label: 'fields.languageKorean' },
         { value: 'ta', label: 'fields.languageTamil' },
         { value: 'te', label: 'fields.languageTelugu' },
@@ -301,8 +319,16 @@ export const PARSER_PROVIDERS: ProviderConfig[] = [
         { value: 'arabic', label: 'fields.languageArabic' },
         { value: 'east_slavic', label: 'fields.languageEastSlavic' },
         { value: 'cyrillic', label: 'fields.languageCyrillic' },
-        { value: 'devanagari', label: 'fields.languageDevanagari' }
+        { value: 'devanagari', label: 'fields.languageDevanagari' },
+        { value: 'latin', label: 'fields.languageLatin' },
+        { value: 'french', label: 'fields.languageFrench' },
+        { value: 'german', label: 'fields.languageGerman' },
+        { value: 'spanish', label: 'fields.languageSpanish' },
+        { value: 'portuguese', label: 'fields.languagePortuguese' },
+        { value: 'russian', label: 'fields.languageRussian' },
+        { value: 'italian', label: 'fields.languageItalian' }
       ], tooltip: 'tooltips.mineruLanguage' },
+      { key: 'MINERU_PAGE_RANGES', label: 'fields.mineruPageRanges', type: 'text', placeholder: '1-3,5,7-9', tooltip: 'tooltips.mineruPageRangesTooltip' },
       { key: 'MINERU_ENABLE_TABLE', label: 'fields.mineruEnableTable', type: 'boolean', defaultValue: 'true', tooltip: 'tooltips.mineruEnableTable' },
       { key: 'MINERU_ENABLE_FORMULA', label: 'fields.mineruEnableFormula', type: 'boolean', defaultValue: 'true', tooltip: 'tooltips.mineruEnableFormula' },
       { key: 'MINERU_LOCAL_BACKEND', label: 'fields.mineruBackend', type: 'select', defaultValue: 'hybrid-auto-engine', options: [
@@ -316,6 +342,8 @@ export const PARSER_PROVIDERS: ProviderConfig[] = [
         { value: 'ocr', label: 'fields.parseMethodOcr' }
       ] },
       { key: 'MINERU_LOCAL_IMAGE_ANALYSIS', label: 'fields.mineruServerImageProcessing', type: 'boolean', defaultValue: 'false', tooltip: 'tooltips.mineruServerImageProcessing' },
+      { key: 'MINERU_LOCAL_START_PAGE_ID', label: 'fields.mineruLocalStartPageId', type: 'number', placeholder: '0', tooltip: 'tooltips.mineruLocalPageRangeTooltip' },
+      { key: 'MINERU_LOCAL_END_PAGE_ID', label: 'fields.mineruLocalEndPageId', type: 'number', placeholder: '99999', tooltip: 'tooltips.mineruLocalPageRangeTooltip' },
       { key: 'MINERU_ADDITIONAL_SUFFIXES', label: 'fields.mineruAdditionalSuffixes', type: 'text', placeholder: 'doc,xls,ppt', tooltip: 'tooltips.additionalSuffixes' },
       { key: 'MAX_PARALLEL_PARSE_MINERU', label: 'fields.maxParallelParse', type: 'number', defaultValue: '2', tooltip: 'tooltips.maxParallelParse' },
       { key: 'LIGHTRAG_PARSER', label: 'fields.parserRouting', type: 'textarea', defaultValue: PARSER_PRESETS.mineru, tooltip: 'tooltips.parserRouting' }
@@ -327,8 +355,17 @@ export const PARSER_PROVIDERS: ProviderConfig[] = [
     description: 'Docling document parsing service, alternative to MinerU (PDF / Office / images)',
     fields: [
       { key: 'PARSER_IMAGE_ANALYSIS', label: 'fields.parserImageAnalysis', type: 'boolean', defaultValue: 'false', tooltip: 'tooltips.parserImageAnalysis' },
-      { key: 'DOCLING_ENDPOINT', label: 'fields.doclingEndpoint', type: 'text', defaultValue: 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1', placeholder: 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1', required: true, tooltip: 'tooltips.doclingEndpoint' },
+      { key: 'DOCLING_PROVIDER', label: 'fields.doclingProvider', type: 'select', defaultValue: 'ecanai', options: [
+        { value: 'ecanai', label: 'fields.providerEcanai' },
+        { value: 'local', label: 'fields.providerLocal' },
+        { value: 'official', label: 'fields.providerOfficial' }
+      ], tooltip: 'tooltips.doclingProvider' },
+      { key: 'DOCLING_OFFICIAL_ENDPOINT', label: 'fields.doclingEndpoint', type: 'text', defaultValue: 'https://docling.ai', placeholder: 'https://docling.ai', tooltip: 'tooltips.doclingEndpoint' },
+      { key: 'DOCLING_LOCAL_ENDPOINT', label: 'fields.doclingEndpoint', type: 'text', placeholder: 'http://127.0.0.1:5001', tooltip: 'tooltips.doclingEndpoint' },
+      { key: 'DOCLING_ECANAI_ENDPOINT', label: 'fields.doclingEcanaiEndpoint', type: 'text', defaultValue: 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1', placeholder: 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1', tooltip: 'tooltips.doclingEcanaiEndpoint' },
       { key: 'DOCLING_API_KEY', label: 'fields.doclingApiKey', type: 'password', required: true, tooltip: 'tooltips.doclingApiKey' },
+      { key: 'DOCLING_LOCAL_API_KEY', label: 'fields.doclingLocalApiKey', type: 'password', tooltip: 'tooltips.doclingLocalApiKey' },
+      { key: 'DOCLING_OFFICIAL_API_KEY', label: 'fields.doclingOfficialApiKey', type: 'password', tooltip: 'tooltips.doclingOfficialApiKey' },
       { key: 'DOCLING_ADDITIONAL_SUFFIXES', label: 'fields.doclingAdditionalSuffixes', type: 'text', placeholder: 'doc,ppt,xls', tooltip: 'tooltips.additionalSuffixes' },
       { key: 'MAX_PARALLEL_PARSE_DOCLING', label: 'fields.maxParallelParse', type: 'number', defaultValue: '2', tooltip: 'tooltips.maxParallelParse' },
       { key: 'LIGHTRAG_PARSER', label: 'fields.parserRouting', type: 'textarea', defaultValue: PARSER_PRESETS.docling, tooltip: 'tooltips.parserRouting' }

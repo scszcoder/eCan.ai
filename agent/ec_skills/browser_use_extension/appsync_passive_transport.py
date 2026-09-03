@@ -12,6 +12,7 @@ import httpx
 import websocket
 
 from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserCommand, PassiveBrowserStepResult
+from agent.cloud_api.cloud_api import _track_appsync_ws_thread
 
 
 def _transport_log(msg: str, level: str = "info") -> None:
@@ -447,8 +448,10 @@ class AppSyncPassivePubSubTransport:
 
         self._ws_thread = threading.Thread(
             target=lambda: self._ws.run_forever(sslopt={"cert_reqs": 0}),
+            name=f"PassiveTransport-ws-{id(self)}",
             daemon=True,
         )
+        _track_appsync_ws_thread(self._ws_thread)
         self._ws_thread.start()
         # NOTE: Do NOT reset _reconnect_attempt here. It is only reset
         # on a successful subscription ack (start_ack) in on_message.
@@ -497,7 +500,8 @@ class AppSyncPassivePubSubTransport:
             else:
                 _transport_log("[PassiveTransport] ❌ Cannot reconnect: no subscribed_run_id", level="error")
 
-        t = threading.Thread(target=_reconnect, daemon=True)
+        t = threading.Thread(target=_reconnect, name=f"PassiveTransport-reconnect-{id(self)}", daemon=True)
+        _track_appsync_ws_thread(t)
         t.start()
 
     def close(self) -> None:
@@ -518,12 +522,24 @@ class AppSyncPassivePubSubTransport:
         self._pending.clear()
 
         ws = self._ws
+        ws_thread = self._ws_thread
         if ws is not None:
             try:
                 ws.close()
             except Exception:
                 pass
         self._ws = None
+        self._ws_thread = None
+        # Join the run_forever() thread so it doesn't outlive close().
+        # Without this, logout/relogin sequences leave orphaned daemon
+        # threads holding ~8MB stacks each. cleanup_appsync_ws_threads()
+        # would also join this, but doing it here gives deterministic
+        # per-instance shutdown.
+        if ws_thread is not None and ws_thread.is_alive():
+            try:
+                ws_thread.join(timeout=5.0)
+            except Exception:
+                pass
 
     def _deliver_from_thread(self, result: PassiveBrowserStepResult) -> None:
         if self._closed:

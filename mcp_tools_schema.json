@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-09-02T17:16:17.596001",
-  "total_tools": 134,
+  "generated_at": "2026-09-03T23:56:42.287174",
+  "total_tools": 136,
   "tools": [
     {
       "name": "rpa_supervisor_scheduling_work",
@@ -1891,6 +1891,75 @@
               "post_wait": {
                 "type": "integer",
                 "description": "wait number of seconds after attempting to open the url site"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_launch_chrome_debug",
+      "title": null,
+      "description": "<category>Browser Automation</category><sub-category>Launch Chrome (CDP)</sub-category>Find Google Chrome on this computer (adding it to PATH if needed) and launch it with remote debugging enabled (--remote-debugging-port, dedicated --user-data-dir, --disable-features=SharedStorage,InterestCohort) so automation can connect via CDP — the user does not have to start Chrome manually. Returns a JSON status: already_running / launched / launch_timeout / not_installed. If status is not_installed, DO NOT install anything — ask the user for permission first, and only call os_install_chrome after they agree.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": {
+              "port": {
+                "type": "integer",
+                "description": "Remote debugging (CDP) port. Default 9228."
+              },
+              "user_data_dir": {
+                "type": "string",
+                "description": "Chrome profile directory to use. Default: C:\\chrome_data on Windows, ~/chrome_data elsewhere."
+              },
+              "extra_flags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Additional Chrome command-line flags."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_install_chrome",
+      "title": null,
+      "description": "<category>System</category><sub-category>Install Chrome</sub-category>Download and silently install Google Chrome (Windows installer / macOS brew-or-dmg / Linux .deb). ONLY call this after the user has EXPLICITLY given permission in the conversation — never install software unprompted. Can take several minutes; returns JSON status installed / already_installed / needs_manual_step / error.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": {
+              "confirmed_by_user": {
+                "type": "boolean",
+                "description": "Set true only when the user explicitly agreed to install Chrome."
               }
             }
           }
