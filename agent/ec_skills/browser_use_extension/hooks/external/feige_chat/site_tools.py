@@ -381,7 +381,25 @@ async def feige_open_session(params: FeigeOpenSessionAction, browser_session: Br
         )
         if isinstance(data, str):
             import json as _json
-            data = _json.loads(data)
+            # Guard the empty/whitespace case: on a freshly-loaded rebuilt
+            # frame the open-session IIFE can return no value (threw or
+            # undefined during early paint), so _evaluate_js hands back "".
+            # json.loads("") throws "Expecting value: line 1 column 1" — a
+            # misleading error that read as a code bug. Treat empty as a
+            # clear, retryable "frame not ready" instead (2026-09-03 fresh-
+            # machine cold-start).
+            if not data.strip():
+                logger.warning(
+                    f"[Feige] feige_open_session: eval returned empty "
+                    f"(frame not ready?) cust={str(params.customer_name or '')!r}")
+                return ActionResult(error="feige_open_session: eval_returned_empty (frame not ready)")
+            try:
+                data = _json.loads(data)
+            except Exception as _je:
+                logger.warning(
+                    f"[Feige] feige_open_session: non-JSON eval result "
+                    f"({_je}); raw[:120]={data[:120]!r}")
+                return ActionResult(error="feige_open_session: eval_non_json")
         if isinstance(data, dict) and data.get("clicked"):
             logger.info(f"[Feige] Opened session: name={data.get('name')}")
             return ActionResult(extracted_content=f"Opened session: {data.get('name', '(unknown)')}")
@@ -859,13 +877,30 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     return true;
   }
   function readRowName(row) {
-    var wrap = row && row.querySelector ? row.querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD') : null;
+    if (!row || !row.querySelector) return '';
+    var wrap = row.querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
     if (wrap) {
       var t = (wrap.getAttribute('title') || wrap.textContent || '').trim();
       if (t) return t;
     }
-    var span = row && row.querySelector ? row.querySelector('[class*="NameContent"], .Jv6FtqUv5VoYARd2pp4y') : null;
-    return span ? (span.textContent || '').trim() : '';
+    var span = row.querySelector('[class*="NameContent"], .Jv6FtqUv5VoYARd2pp4y');
+    if (span) { var s = (span.textContent || '').trim(); if (s) return s; }
+    // Broadened fallbacks (2026-09-03): on the rebuilt Feige frame the hashed
+    // classes above stopped matching — every sidebar row read back name-empty,
+    // so all by-name matching failed and cold-start delivery died (customer
+    // 肽斯特: 2 rows, seen_names ['','']). Name-SPECIFIC selectors only (never
+    // generic textContent, which would grab preview/time and risk mis-delivery).
+    var cand = row.querySelector('[class*="nickname" i], [class*="nickName"], [class*="userName"], [class*="customerName"], [class*="ConvName"], [class*="convName"]');
+    if (cand) { var c = (cand.getAttribute('title') || cand.textContent || '').trim(); if (c) return c; }
+    // Last resort: a title-attribute tooltip (Feige puts the full name here);
+    // skip elements that look like a message preview container.
+    var titled = row.querySelectorAll('[title]');
+    for (var ti = 0; ti < titled.length; ti++) {
+      var tv = (titled[ti].getAttribute('title') || '').trim();
+      var tc = String(titled[ti].className || '');
+      if (tv && !/msgContent|preview|content/i.test(tc)) return tv;
+    }
+    return '';
   }
   function readRowPreview(row) {
     var preview = row && row.querySelector ? row.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span') : null;
@@ -1029,6 +1064,33 @@ _FEIGE_SEND_MESSAGE_JS = r"""
           probe.qa_id_total = qaAll.length;
         } else {
           probe.unfiltered_rows = allConvRows.slice(0, 10).map(dumpRowIds);
+          // 2026-09-03: rows present but readRowName is empty for ALL of them
+          // (rebuilt frame — hashed name classes no longer match). Capture the
+          // first row's structure so the correct name selector can be written:
+          // outerHTML (trimmed) + a text-node inventory (short leaf texts, the
+          // likely name/preview) + any title attributes. Only on the all-empty
+          // case, so it doesn't bloat normal not-found logs.
+          try {
+            var namesAllEmpty = allConvRows.length > 0 &&
+              allConvRows.slice(0, 10).every(function(r){ return !readRowName(r); });
+            probe.names_all_empty = namesAllEmpty;
+            if (namesAllEmpty) {
+              var r0 = allConvRows[0];
+              probe.row0_outer_html = String(r0.outerHTML || '').slice(0, 1400);
+              var leaf = [];
+              var walk = r0.querySelectorAll('*');
+              for (var li = 0; li < walk.length && leaf.length < 24; li++) {
+                var el = walk[li];
+                if (el.children.length) continue; // leaf only
+                var tx = String(el.textContent || '').trim();
+                if (tx && tx.length <= 40) leaf.push(tx);
+              }
+              probe.row0_leaf_texts = leaf;
+              var tls = r0.querySelectorAll('[title]');
+              probe.row0_titles = Array.prototype.slice.call(tls, 0, 8)
+                .map(function(e){ return String(e.getAttribute('title') || '').slice(0, 40); });
+            }
+          } catch (he) { probe.row0_probe_error = String(he).slice(0, 120); }
         }
       } catch (pe) { probe.probe_error = String(pe).slice(0, 120); }
       return finish({
