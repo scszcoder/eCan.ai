@@ -4,11 +4,36 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-09-02_
+_Last updated: 2026-09-03_
 
 ---
 
 ## 🔴 Bugs (unfixed)
+
+- **CN "请求日志分析" (Request Log Analysis, Help menu) upload fails —
+  backend SDL gap (2026-09-03)**. Client sends `requestDebug(input:
+  RequestDebugInput!)` + `requestDebugDone(zipKey, owner)` (matches AWS
+  `schema.graphql:412-413,1739-1753`); the CN TCB GraphQL schema never
+  defined them → `Unknown type "RequestDebugInput". Did you mean
+  "ReqSceneInput"?`. **Client is correct — backend-only fix** (CLAUDE.md
+  §5). Backend copilot: add the 3 types + 2 mutations to the CN SDL, and
+  a resolver mirroring `lambda_functions/debug_log_uploader/lambda_function.py`
+  but with a Tencent **COS** presigned PUT (key `debug-logs/{owner_safe}/
+  log_{ts}_{uid}.zip`, TTL 900s) instead of S3. Client PUTs with
+  `Content-Type: application/zip` (`debug_log_handler.py:320`) — sign
+  `content-type;host` or host-only per the writeSkillFile COS convention
+  to avoid the prior SignatureDoesNotMatch mismatch. No client rebuild
+  needed once deployed.
+- **Offline-sync delete retries spam "Not found" (2026-09-03)**. Batch-deleted
+  agents/tasks that never synced to cloud queue `agent.delete`/`task.delete`
+  ops that 404 ("Not found"), retry 3×, and log ERROR each time (99 lines in
+  one customer session). Fix: treat item-level "Not found" on DELETE ops as
+  success in CloudAPIService/OfflineSyncQueue — the goal state already holds.
+- **CN `sendWanMessage` resolver returns "Unexpected error" (2026-09-03)**.
+  Every WAN A2A send from the customer machine fails server-side (5×/session).
+  Backend-side investigation needed (eCan_lambda repo).
+- **`get_llm_provider_api_key` logs ERROR for unset provider (ryoais)**.
+  Expected-behavior class — downgrade to WARNING/info per CLAUDE.md §6.
 
 - **CI frontend builds have NO lockfile (2026-09-02)**. `setup-node-env`
   installs gui_v2 deps with `npm install --legacy-peer-deps`;
