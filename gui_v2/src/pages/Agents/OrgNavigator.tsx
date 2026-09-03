@@ -457,13 +457,32 @@ const OrgNavigator: React.FC = () => {
   // Note：Remove了 isRootView, actualOrgId, searchQuery, rootNode, allAgentsFromStore
   // 因为它们已经通过 levelDoors, agentsForDisplay, searchResults 间接Include
 
+  // Drop duplicate agent entries before render. extractAllAgents() concats
+  // agents across the org tree with NO dedup, and setAgents stores them
+  // as-is — so an agent that appears under more than one node yields two
+  // list items with the SAME id. Rendered with the same React key, React
+  // keeps only the LAST one interactive; every earlier duplicate's 3-dot
+  // menu is dead (2026-09-03 customer report: "only the last agent
+  // clickable"). Dedup by the same id the key uses; doors pass through.
+  const dedupedItems = useMemo(() => {
+    const seen = new Set<string>();
+    return allItems.filter((item) => {
+      if (item.type !== 'agent') return true;
+      const agent: any = item.data;
+      const id = String(agent?.card?.id || agent?.id || agent?.card?.name || '');
+      if (id && seen.has(id)) return false;
+      if (id) seen.add(id);
+      return true;
+    });
+  }, [allItems]);
+
   // Agent ids currently visible in the grid (for select-all in batch mode).
   const visibleAgentIds = useMemo(() =>
-    allItems
+    dedupedItems
       .filter((item) => item.type === 'agent')
       .map((item) => String((item.data as any)?.card?.id ?? (item.data as any)?.id ?? ''))
       .filter(Boolean),
-    [allItems]);
+    [dedupedItems]);
 
   const handleBatchDelete = useCallback(() => {
     const ids = Array.from(batchSelected);
@@ -718,9 +737,9 @@ const OrgNavigator: React.FC = () => {
       </div>
 
       {/* 统一网格Layout - 同时Displaydoors和agents */}
-      {allItems.length > 0 && (
-        <div className="unified-grid" data-item-count={allItems.length}>
-          {allItems.map((item) => {
+      {dedupedItems.length > 0 && (
+        <div className="unified-grid" data-item-count={dedupedItems.length}>
+          {dedupedItems.map((item, itemIndex) => {
             if (item.type === 'door') {
               const door = item.data;
               let displayName = door.name;
@@ -751,12 +770,18 @@ const OrgNavigator: React.FC = () => {
             } else {
               // agent item
               const agent = item.data;
-              const cardId = (agent as any)?.card?.id ?? (agent as any)?.id ?? agent.card.name;
+              // Use || (not ??) so an EMPTY-STRING id also falls through to
+              // the next candidate — with ?? an empty id survived and every
+              // card got the same key `agent-`, so React kept only the LAST
+              // card interactive (all others' 3-dot menus were dead —
+              // 2026-09-03 customer report, 9 agents). The itemIndex tiebreaker
+              // guarantees uniqueness even if two agents share id AND name.
+              const cardId = (agent as any)?.card?.id || (agent as any)?.id || agent.card.name;
               const idStr = String(cardId);
               const isBatchSelected = batchSelected.has(idStr);
               return (
                 <div
-                  key={`agent-${cardId}`}
+                  key={`agent-${idStr || 'noid'}-${itemIndex}`}
                   className="agent-card-wrapper"
                   // In batch mode the wrapper captures the click BEFORE any
                   // card-internal handler (nav, dropdown) and toggles
