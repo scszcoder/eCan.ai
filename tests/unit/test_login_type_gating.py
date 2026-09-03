@@ -419,3 +419,33 @@ class TestLoginTypeGatingWriteThrough:
         assert result["password"] == "Secret123!"
         assert result["login_type"] == "password"
         assert result["last_identifier"] == "alice@example.com"
+
+
+# ---------------------------------------------------------------------------
+# _update_saved_login_info — read-only legacy uli.json (2026-09-03 customer)
+# ---------------------------------------------------------------------------
+
+class TestUpdateSavedLoginInfoReadOnlyFile:
+    """A legacy uli.json left read-only by an old install made every save die
+    with Errno 13, freezing a stale user in the file — keyring lookups then
+    used the wrong name and the login form stayed blank forever. The write
+    now clears the read-only attribute and retries once."""
+
+    def test_readonly_acct_file_is_rewritten(self, tmp_path: Path):
+        import os
+        import stat
+
+        acct = tmp_path / "uli.json"
+        am = _make_manager(acct, {"user": "old@stale.com", "machine_role": "Commander"})
+        os.chmod(acct, stat.S_IREAD)  # simulate read-only legacy file
+
+        with patch.object(am, "_store_credentials", return_value=True):
+            ok = am._update_saved_login_info(
+                "new@user.com", "pw", "Commander", login_type="password")
+        assert ok
+
+        with open(acct, encoding="utf-8") as f:
+            data = json.load(f)
+        assert data["user"] == "new@user.com"
+        assert data["login_type"] == "password"
+        os.chmod(acct, stat.S_IWRITE | stat.S_IREAD)  # cleanup for tmp_path

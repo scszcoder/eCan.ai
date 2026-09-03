@@ -82,8 +82,30 @@ class AuthManager:
             logger.debug(f"[AuthManager.__init__] Candidate files: {candidate_files}")
             for candidate in candidate_files:
                 if candidate and exists(candidate):
-                    self.acct_file = candidate
-                    logger.info(f"[AuthManager.__init__] Found uli.json at fallback location: {candidate}")
+                    if os.path.normcase(os.path.normpath(candidate)) == \
+                            os.path.normcase(os.path.normpath(self.acct_file)):
+                        break
+                    # MIGRATE the legacy file into the app's own data dir
+                    # instead of adopting the legacy path. Adopting it made
+                    # every future save depend on that file being writable —
+                    # on a customer machine an old install had left
+                    # ...\eCan\uli.json read-only, so every
+                    # _update_saved_login_info died with Errno 13 and the
+                    # stale previous user stayed forever (keyring lookups
+                    # then used the wrong name → login form always blank,
+                    # 2026-09-03 report).
+                    try:
+                        with open(candidate, 'r', encoding='utf-8') as f:
+                            legacy_data = json.load(f)
+                        os.makedirs(self.ecb_data_homepath, exist_ok=True)
+                        with open(self.acct_file, 'w', encoding='utf-8') as f:
+                            json.dump(legacy_data, f, indent=2, ensure_ascii=False)
+                        logger.info(f"[AuthManager.__init__] Migrated legacy uli.json {candidate} -> {self.acct_file}")
+                    except Exception as mig_err:
+                        self.acct_file = candidate
+                        logger.warning(
+                            f"[AuthManager.__init__] uli.json migration failed "
+                            f"({mig_err}); using legacy path {candidate}")
                     break
 
         # Try to restore user info from uli.json for API key isolation
@@ -1685,6 +1707,19 @@ class AuthManager:
             try:
                 with open(self.acct_file, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
+            except PermissionError:
+                # Legacy files can carry a read-only attribute from an old
+                # install; clear it and retry once before giving up.
+                try:
+                    import stat as _stat
+                    os.chmod(self.acct_file, _stat.S_IWRITE | _stat.S_IREAD)
+                    with open(self.acct_file, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    logger.info(f"[_update_saved_login_info] Cleared read-only "
+                                f"attribute and rewrote {self.acct_file}")
+                except Exception as e:
+                    logger.error(f"Error writing to {self.acct_file} (after "
+                                 f"read-only clear attempt): {e}")
             except Exception as e:
                 logger.error(f"Error writing to {self.acct_file}: {e}")
 

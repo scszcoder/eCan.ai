@@ -106,6 +106,24 @@ class DownloadFileAction(BaseModel):
 		description="Download timeout seconds."
 	)
 
+class LaunchChromeDebugAction(BaseModel):
+	"""Find Chrome and launch it with remote debugging (CDP) enabled."""
+	port: int = Field(
+		default=9228,
+		description="Remote debugging (CDP) port."
+	)
+	user_data_dir: str = Field(
+		default="",
+		description="Chrome profile dir; default C:\\chrome_data (win) / ~/chrome_data."
+	)
+
+class InstallChromeAction(BaseModel):
+	"""Install Google Chrome — only after the user's explicit permission."""
+	confirmed_by_user: bool = Field(
+		default=False,
+		description="True only when the user explicitly agreed to install Chrome."
+	)
+
 class FilesPrintAction(BaseModel):
 	printer: str = Field(
 		default="", description="networked printer name"
