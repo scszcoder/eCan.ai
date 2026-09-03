@@ -13,6 +13,7 @@ import websocket
 
 from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserCommand, PassiveBrowserStepResult
+from agent.cloud_api.cloud_api import _track_appsync_ws_thread
 
 
 @dataclass(frozen=True)
@@ -503,8 +504,10 @@ class AppSyncPassiveClient:
 
         self._ws_thread = threading.Thread(
             target=lambda: self._ws.run_forever(sslopt={"cert_reqs": 0}),
+            name=f"PassiveBrowserClient-ws-{id(self)}",
             daemon=True,
         )
+        _track_appsync_ws_thread(self._ws_thread)
         self._ws_thread.start()
 
     def _dispatch_command(self, cmd: PassiveBrowserCommand) -> None:
@@ -658,7 +661,8 @@ class AppSyncPassiveClient:
                 self._current_reconnect_delay = min(self._current_reconnect_delay * 2, self._max_reconnect_delay)
                 self._schedule_reconnect()
 
-        t = threading.Thread(target=_reconnect, daemon=True)
+        t = threading.Thread(target=_reconnect, name=f"PassiveBrowserClient-reconnect-{id(self)}", daemon=True)
+        _track_appsync_ws_thread(t)
         t.start()
 
     async def stop(self) -> None:
