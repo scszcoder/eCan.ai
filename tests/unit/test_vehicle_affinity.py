@@ -6,11 +6,46 @@ start-everywhere behaviour; every failure path fails open.
 """
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from agent.ec_agents import vehicle_affinity as va
+from agent.ec_agents import machine_fingerprint as mf
+
+
+class TestMachineFingerprint:
+    """OS-native machine id → deterministic UUID5, per docs/
+    VEHICLE_AFFINITY_MACHINE_ID.md §4."""
+
+    def test_windows_reads_machine_guid(self):
+        with patch.object(mf.platform, "system", return_value="Windows"), \
+             patch.object(mf, "_read_windows_machine_guid", return_value="WINGUID-123"):
+            v1 = mf.get_os_vehicle_id()
+            v2 = mf.get_os_vehicle_id()
+        assert v1 == v2 and len(v1) == 36  # deterministic uuid5
+
+    def test_macos_reads_platform_uuid(self):
+        with patch.object(mf.platform, "system", return_value="Darwin"), \
+             patch.object(mf, "_read_macos_platform_uuid", return_value="MAC-UUID-9"):
+            assert len(mf.get_os_vehicle_id()) == 36
+
+    def test_linux_reads_machine_id(self):
+        with patch.object(mf.platform, "system", return_value="Linux"), \
+             patch.object(mf, "_read_linux_machine_id", return_value="deadbeef"):
+            assert len(mf.get_os_vehicle_id()) == 36
+
+    def test_distinct_os_ids_give_distinct_uuids(self):
+        with patch.object(mf.platform, "system", return_value="Linux"):
+            with patch.object(mf, "_read_linux_machine_id", return_value="aaaa"):
+                a = mf.get_os_vehicle_id()
+            with patch.object(mf, "_read_linux_machine_id", return_value="bbbb"):
+                b = mf.get_os_vehicle_id()
+        assert a != b
+
+    def test_none_when_os_id_unavailable(self):
+        with patch.object(mf, "read_os_machine_id", return_value=""):
+            assert mf.get_os_vehicle_id() is None
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +82,11 @@ class TestAgentLaunchAllowed:
         allowed, _ = va.agent_launch_allowed(_agent(vehicle="veh-2"))
         assert not allowed
 
-    def test_unresolvable_local_vehicle_fails_open(self):
+    def test_unresolvable_local_vehicle_fails_open(self, monkeypatch):
+        # Force both id sources to fail (no OS id, no data-home) so the local
+        # vehicle is genuinely unresolvable.
+        from agent.ec_agents import machine_fingerprint as mf
+        monkeypatch.setattr(mf, "get_os_vehicle_id", lambda: None)
         allowed, reason = va.agent_launch_allowed(_agent(vehicle_id="veh-2"))
         assert allowed and reason == "local-vehicle-unresolved"
 
@@ -91,22 +130,86 @@ class TestAgentLaunchAllowed:
 
 
 class TestResolveLocalVehicleId:
-    def test_resolves_and_persists_machine_id(self, tmp_path):
+    def test_os_fingerprint_is_primary(self, monkeypatch):
+        """Primary source is the OS machine fingerprint — same id in any
+        process regardless of data-home path (the 2026-09-03 fix)."""
+        from agent.ec_agents import machine_fingerprint as mf
+        monkeypatch.setattr(mf, "get_os_vehicle_id", lambda: "os-uuid-xyz")
+        # data-home doesn't matter when the OS id resolves
+        assert va.resolve_local_vehicle_id(
+            SimpleNamespace(my_ecb_data_homepath="/whatever")) == "os-uuid-xyz"
+
+    def test_app_and_cli_paths_agree_via_os_id(self, monkeypatch):
+        """The core invariant: app (mainwin) and CLI (username) resolve the
+        SAME id, even with divergent data-homes, because the OS id is
+        path-independent."""
+        from agent.ec_agents import machine_fingerprint as mf
+        monkeypatch.setattr(mf, "get_os_vehicle_id", lambda: "os-uuid-same")
+        app_id = va.resolve_local_vehicle_id(SimpleNamespace(my_ecb_data_homepath="/app/home"))
+        va._reset_for_tests()
+        cli_id = va.resolve_local_vehicle_id(username="user@example.com")
+        assert app_id == cli_id == "os-uuid-same"
+
+    def test_falls_back_to_persisted_uuid_without_os_id(self, tmp_path, monkeypatch):
+        from agent.ec_agents import machine_fingerprint as mf
+        monkeypatch.setattr(mf, "get_os_vehicle_id", lambda: None)
         mainwin = SimpleNamespace(my_ecb_data_homepath=str(tmp_path))
         first = va.resolve_local_vehicle_id(mainwin)
-        assert first and len(first) == 36  # uuid format
-
+        assert first and len(first) == 36  # uuid format from machine_id.py
         va._reset_for_tests()
         assert va.resolve_local_vehicle_id(mainwin) == first  # file-persisted
 
-    def test_no_mainwin_no_username_returns_empty(self):
+    def test_no_mainwin_no_username_returns_empty(self, monkeypatch):
+        from agent.ec_agents import machine_fingerprint as mf
+        monkeypatch.setattr(mf, "get_os_vehicle_id", lambda: None)
         assert va.resolve_local_vehicle_id() == ""
 
-    def test_cached_after_first_resolution(self, tmp_path):
+    def test_cached_after_first_resolution(self, tmp_path, monkeypatch):
+        from agent.ec_agents import machine_fingerprint as mf
+        monkeypatch.setattr(mf, "get_os_vehicle_id", lambda: None)
         mainwin = SimpleNamespace(my_ecb_data_homepath=str(tmp_path))
         first = va.resolve_local_vehicle_id(mainwin)
         # Second call ignores a different mainwin — process-cached
         assert va.resolve_local_vehicle_id(SimpleNamespace(my_ecb_data_homepath="")) == first
+
+
+class TestGateSelfHealAndTransition:
+    def _mainwin(self, row_for_id=None):
+        service = MagicMock()
+        if row_for_id is None:
+            service.query_vehicles.return_value = {"success": True, "data": []}
+        else:
+            service.query_vehicles.return_value = {"success": True, "data": [row_for_id]}
+        return SimpleNamespace(ec_db_mgr=SimpleNamespace(vehicle_service=service))
+
+    def test_orphan_pin_is_adopted(self):
+        """A pin to an id that is no known vehicle (e.g. minted by the old
+        data-home-dependent scheme) is adopted, not stranded."""
+        va._local_vehicle_id = "os-new"
+        va._legacy_vehicle_id = "legacy-old"
+        mainwin = self._mainwin(row_for_id=None)  # no row for the pin → orphan
+        allowed, reason = va.agent_launch_allowed(
+            _agent(vehicle_id="2417627c-stale", mainwin=mainwin))
+        assert allowed and reason == "stale-pin-adopt"
+
+    def test_real_other_host_still_skipped(self):
+        """A pin that IS a known vehicle row (a genuine other host) is still
+        skipped — self-heal must not weaken the multi-host case."""
+        va._local_vehicle_id = "os-new"
+        va._legacy_vehicle_id = "legacy-old"
+        mainwin = self._mainwin(row_for_id={"id": "other-host", "name": "otherpc", "hostname": "otherpc"})
+        allowed, _ = va.agent_launch_allowed(
+            _agent(vehicle_id="other-host", mainwin=mainwin))
+        assert not allowed
+
+    def test_legacy_id_accepted_in_transition(self):
+        """During the id transition, a pin matching the persisted-UUID id
+        still counts as local."""
+        va._local_vehicle_id = "os-new"
+        va._legacy_vehicle_id = "legacy-old"
+        allowed, reason = va.agent_launch_allowed(
+            _agent(vehicle_id="legacy-old", mainwin=SimpleNamespace()))
+        assert allowed and reason == "local-legacy-id"
 
 
 class TestRegisterLocalVehicle:
