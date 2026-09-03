@@ -220,8 +220,21 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
 
   const renderField = (field: ProviderFieldConfig) => {
     const value = settings[field.key] || field.defaultValue || '';
-    // Use field.isSystemManaged property directly from backend data
-    const managed = field.isSystemManaged || false;
+    // The backend marks the eCanAI-managed key/endpoint as
+    // ``isSystemManaged`` at load time, but the user can switch the
+    // provider mode without re-fetching the engine definitions. Compute
+    // the managed flag from the *current* settings so the System badge
+    // follows the active mode and disappears once the user picks local
+    // or official.
+    const mineruMode = settings.MINERU_API_MODE || 'ecanai';
+    const doclingMode = settings.DOCLING_PROVIDER || 'ecanai';
+    const isMineruEcanai = currentProvider?.id === 'mineru' && mineruMode === 'ecanai';
+    const isDoclingEcanai = currentProvider?.id === 'docling' && doclingMode === 'ecanai';
+    const isEcanaiManagedKey =
+      (field.key === 'MINERU_API_TOKEN' || field.key === 'MINERU_ECANAI_ENDPOINT') && isMineruEcanai;
+    const isEcanaiManagedDoclingKey =
+      (field.key === 'DOCLING_API_KEY' || field.key === 'DOCLING_ECANAI_ENDPOINT') && isDoclingEcanai;
+    const managed = field.isSystemManaged || isEcanaiManagedKey || isEcanaiManagedDoclingKey;
     
     // Translate placeholder only for select type with matching option values
     const placeholder = field.placeholder 
@@ -248,16 +261,16 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
           </Tooltip>
         )}
         {managed && (
-          <Tooltip title={t('pages.knowledge.settings.systemManaged', { defaultValue: 'Managed by System Settings' })} placement="top">
-            <span style={{ 
-              fontSize: 10, 
-              background: token.colorFillSecondary, 
-              color: token.colorTextSecondary, 
-              padding: '1px 6px', 
+          <Tooltip title={t('pages.knowledge.settings.systemManaged')} placement="top">
+            <span style={{
+              fontSize: 10,
+              background: token.colorFillSecondary,
+              color: token.colorTextSecondary,
+              padding: '1px 6px',
               borderRadius: 4,
               marginLeft: 4
             }}>
-              System
+              {t('pages.knowledge.settings.badgeSystem', { defaultValue: 'System' })}
             </span>
           </Tooltip>
         )}
@@ -475,27 +488,77 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   };
 
   const visibleFields = currentProvider?.fields.filter(field => {
-    if (currentProvider.id !== 'mineru') return true;
+    if (currentProvider.id === 'mineru') {
+      // Default to ``ecanai`` to match the schema's defaultValue; an empty
+      // settings map should render the recommended provider, not silently
+      // show local-only fields.
+      const mineruMode = settings.MINERU_API_MODE || 'ecanai';
+      const isOfficial = mineruMode === 'official';
+      const isEcanai = mineruMode === 'ecanai';
+      const localBackend = settings.MINERU_LOCAL_BACKEND || 'hybrid-auto-engine';
 
-    const mineruMode = settings.MINERU_API_MODE || 'local';
-    const isOfficial = mineruMode === 'official';
-    const localBackend = settings.MINERU_LOCAL_BACKEND || 'hybrid-auto-engine';
+      // Each provider mode owns a dedicated endpoint env var so switching
+      // modes never clobbers the value the user typed into the inactive
+      // mode's box. Only the *endpoint* is mode-specific — every other
+      // MinerU parameter is shown for all three modes so the user sees
+      // the same options as on the official mineru.net console and
+      // doesn't have to flip modes to discover what each knob does.
+      // Per-mode API key fields: each mode owns its own key env var so a
+      // user-typed credential is preserved across mode switches. Only the
+      // active key field (matching the current mode) is shown so the user
+      // always sees the right input for the current service.
+      if (field.key === 'MINERU_API_TOKEN') return isEcanai;
+      if (field.key === 'MINERU_LOCAL_API_KEY') return !isOfficial && !isEcanai;
+      if (field.key === 'MINERU_OFFICIAL_API_KEY') return isOfficial;
+      // Per-mode endpoints (one box per mode, switched by MINERU_API_MODE).
+      if (field.key === 'MINERU_OFFICIAL_ENDPOINT') return isOfficial;
+      if (field.key === 'MINERU_LOCAL_ENDPOINT_SETTING') return !isOfficial && !isEcanai;
+      if (field.key === 'MINERU_ECANAI_ENDPOINT') return isEcanai;
+      // MINERU_MODEL_VERSION / MINERU_IS_OCR / MINERU_PAGE_RANGES describe
+      // official mineru.net API task parameters. LightRAG 1.5.6 also reads
+      // MINERU_PAGE_RANGES in local mode (mapped to start/end_page_id via
+      // local_page_bounds) but MINERU_MODEL_VERSION / MINERU_IS_OCR are
+      // ignored by the local mineru-api service. Hide them in local mode
+      // so the user does not configure knobs the service silently drops.
+      if (field.key === 'MINERU_MODEL_VERSION') return isOfficial;
+      if (field.key === 'MINERU_IS_OCR') return isOfficial;
+      if (field.key === 'MINERU_PAGE_RANGES') return isOfficial;
+      // MINERU_LOCAL_BACKEND / MINERU_LOCAL_PARSE_METHOD /
+      // MINERU_LOCAL_IMAGE_ANALYSIS / MINERU_LOCAL_START_PAGE_ID /
+      // MINERU_LOCAL_END_PAGE_ID describe the self-hosted MinerU service;
+      // they are only meaningful in local and ecanai mode (ecanai is an
+      // alias for local that talks to the proxy at ``/tasks``). Keep
+      // them hidden in official mode so the user does not see fields
+      // that the official API ignores.
+      if (field.key === 'MINERU_LOCAL_BACKEND') {
+        return !isOfficial;
+      }
+      if (field.key === 'MINERU_LOCAL_PARSE_METHOD') {
+        return !isOfficial && !localBackend.startsWith('vlm');
+      }
+      if (field.key === 'MINERU_LOCAL_IMAGE_ANALYSIS') {
+        return !isOfficial && (localBackend.startsWith('vlm') || localBackend.startsWith('hybrid'));
+      }
+      if (field.key === 'MINERU_LOCAL_START_PAGE_ID') return !isOfficial;
+      if (field.key === 'MINERU_LOCAL_END_PAGE_ID') return !isOfficial;
+      return true;
+    }
 
-    // These are two different LightRAG protocols. Only expose fields that
-    // are actually included in the active protocol's request payload.
-    if (['MINERU_OFFICIAL_ENDPOINT', 'MINERU_MODEL_VERSION', 'MINERU_IS_OCR'].includes(field.key)) {
-      return isOfficial;
+    if (currentProvider.id === 'docling') {
+      // Docling follows the same three-way provider model as MinerU. Each
+      // mode owns its own endpoint and API key env var so user-typed
+      // credentials are preserved across mode switches. Only the active
+      // key field (matching the current mode) is shown.
+      const doclingMode = settings.DOCLING_PROVIDER || 'ecanai';
+      if (field.key === 'DOCLING_OFFICIAL_ENDPOINT') return doclingMode === 'official';
+      if (field.key === 'DOCLING_LOCAL_ENDPOINT') return doclingMode === 'local';
+      if (field.key === 'DOCLING_ECANAI_ENDPOINT') return doclingMode === 'ecanai';
+      // Per-mode API key fields: same logic as MinerU above.
+      if (field.key === 'DOCLING_API_KEY') return doclingMode === 'ecanai';
+      if (field.key === 'DOCLING_LOCAL_API_KEY') return doclingMode === 'local';
+      if (field.key === 'DOCLING_OFFICIAL_API_KEY') return doclingMode === 'official';
     }
-    if (field.key === 'MINERU_API_TOKEN') return true;
-    if (['MINERU_LOCAL_ENDPOINT', 'MINERU_LOCAL_BACKEND'].includes(field.key)) {
-      return !isOfficial;
-    }
-    if (field.key === 'MINERU_LOCAL_PARSE_METHOD') {
-      return !isOfficial && !localBackend.startsWith('vlm');
-    }
-    if (field.key === 'MINERU_LOCAL_IMAGE_ANALYSIS') {
-      return !isOfficial && (localBackend.startsWith('vlm') || localBackend.startsWith('hybrid'));
-    }
+
     return true;
   }) || [];
 
@@ -503,7 +566,16 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
     {
       key: 'connection',
       title: t('pages.knowledge.settings.parserLayout.connection'),
-      keys: ['MINERU_API_MODE', 'MINERU_OFFICIAL_ENDPOINT', 'MINERU_LOCAL_ENDPOINT', 'MINERU_API_TOKEN', 'DOCLING_ENDPOINT', 'DOCLING_API_KEY']
+      // Per-mode key/endpoint fields are conditionally shown by mode,
+      // so include all of them in the group key list.
+      keys: [
+        'MINERU_API_MODE',
+        'MINERU_OFFICIAL_ENDPOINT', 'MINERU_LOCAL_ENDPOINT_SETTING', 'MINERU_ECANAI_ENDPOINT',
+        'MINERU_API_TOKEN', 'MINERU_LOCAL_API_KEY', 'MINERU_OFFICIAL_API_KEY',
+        'DOCLING_PROVIDER',
+        'DOCLING_OFFICIAL_ENDPOINT', 'DOCLING_LOCAL_ENDPOINT', 'DOCLING_ECANAI_ENDPOINT',
+        'DOCLING_API_KEY', 'DOCLING_LOCAL_API_KEY', 'DOCLING_OFFICIAL_API_KEY',
+      ]
     },
     {
       key: 'options',
@@ -513,7 +585,7 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
     {
       key: 'advanced',
       title: t('pages.knowledge.settings.parserLayout.advanced'),
-      keys: ['MINERU_LOCAL_IMAGE_ANALYSIS', 'MINERU_ADDITIONAL_SUFFIXES', 'DOCLING_ADDITIONAL_SUFFIXES', 'MAX_PARALLEL_PARSE_MINERU', 'MAX_PARALLEL_PARSE_DOCLING', 'LIGHTRAG_PARSER']
+      keys: ['MINERU_LOCAL_IMAGE_ANALYSIS', 'MINERU_LOCAL_START_PAGE_ID', 'MINERU_LOCAL_END_PAGE_ID', 'MINERU_PAGE_RANGES', 'MINERU_ADDITIONAL_SUFFIXES', 'DOCLING_ADDITIONAL_SUFFIXES', 'MAX_PARALLEL_PARSE_MINERU', 'MAX_PARALLEL_PARSE_DOCLING', 'LIGHTRAG_PARSER']
     }
   ].map(group => ({ ...group, fields: visibleFields.filter(field => group.keys.includes(field.key)) }))
     .filter(group => group.fields.length > 0) : [];

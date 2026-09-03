@@ -1467,6 +1467,43 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         
         settings_to_save = {k: v for k, v in params.items() if k not in keys_to_exclude}
 
+        # Resolve the selected protocol into the canonical fields consumed by
+        # LightRAG. Local/official values come from their isolated UI slots;
+        # eCanAI always uses the fixed proxy and current account API key.
+        from knowledge.lightrag_parser_config import (
+            ECANAI_PARSER_BASE_URL,
+            derive_docling_provider,
+            derive_mineru_provider,
+            resolve_ecanai_parser_secrets,
+        )
+        mineru_ecanai = derive_mineru_provider(settings_to_save) == "ecanai"
+        docling_ecanai = derive_docling_provider(settings_to_save) == "ecanai"
+        ecanai_api_key = ""
+        if mineru_ecanai or docling_ecanai:
+            try:
+                from utils.env.secure_store import secure_store
+                from gui.ipc.context_bridge import get_username
+                username = get_username(request, params)
+                ecanai_api_key = (
+                    str(secure_store.get("ECANAI_LLM_API_KEY", username=username) or "").strip()
+                    if username else ""
+                )
+            except Exception as ecanai_lookup_error:
+                logger.debug(f"[LightRAG] Account API key lookup failed: {ecanai_lookup_error}")
+
+            if not ecanai_api_key:
+                return create_error_response(
+                    request,
+                    'PARSER_CONFIG_ERROR',
+                    'eCanAI parser requires the current account API key.',
+                )
+
+        # Run for every mode: besides eCanAI account values this maps the
+        # selected Local/Official per-mode key into LightRAG's active key.
+        settings_to_save = resolve_ecanai_parser_secrets(
+            settings_to_save, ECANAI_PARSER_BASE_URL, ecanai_api_key
+        )
+
         # eCanAI is a UI-only alias for MinerU local mode. LightRAG's
         # MinerURawClient rejects any ``MINERU_API_MODE`` outside
         # ``{official, local}`` and the eCanAI proxy requires only the
@@ -1475,7 +1512,6 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         # the saved .env is always valid and the runtime never sees
         # ``ecanai`` as a real value.
         from knowledge.lightrag_parser_config import (
-            ECANAI_PARSER_BASE_URL,
             normalize_parser_ecanai_alias,
         )
         settings_to_save = normalize_parser_ecanai_alias(settings_to_save, ECANAI_PARSER_BASE_URL)
@@ -1808,26 +1844,92 @@ def handle_get_parser_engines(request: IPCRequest, params: Optional[Dict[str, An
     Returns:
         engines: list of parser engine definitions (id, name, description,
                  fields with env var names, defaults, options, tooltips).
+                 Fields whose value comes from account state (``ECANAI_LLM_API_KEY``
+                 and the eCanAI proxy URL) carry ``isSystemManaged: true`` when
+                 the active provider is ``ecanai`` so the UI can render them
+                 as read-only.
         current: current values of every parser-related env var.
         engine:  UI engine selection derived from LIGHTRAG_PARSER
                  ('native' | 'mineru' | 'docling') — never persisted.
     """
     try:
         from knowledge.lightrag_parser_config import (
+            ECANAI_PARSER_BASE_URL,
             LIGHTRAG_PARSER_KEY,
             PARSER_ENGINE_DEFINITIONS,
             PARSER_SETTINGS_KEYS,
             derive_parsing_engine,
+            mark_system_managed_parser_fields,
             normalize_parser_routing,
         )
 
         config_manager = get_config_manager()
         settings = config_manager.get_effective_config()
         settings[LIGHTRAG_PARSER_KEY] = normalize_parser_routing(settings.get(LIGHTRAG_PARSER_KEY))
+
+        # Backward-compat migration: older .env files store the self-hosted /
+        # official API key in the shared ``MINERU_API_TOKEN`` / ``DOCLING_API_KEY``
+        # env var. Per-mode keys (``MINERU_LOCAL_API_KEY``,
+        # ``MINERU_OFFICIAL_API_KEY``, etc.) were introduced later so a
+        # user-typed credential survives mode switches. Mirror the legacy
+        # value into the right per-mode var once if it's still empty — this
+        # only runs in-memory, the .env file is rewritten on the next save.
+        mineru_mode = str(settings.get('MINERU_API_MODE') or '').strip().lower()
+        mineru_runtime_endpoint = str(settings.get('MINERU_LOCAL_ENDPOINT') or '').strip()
+        if not mineru_mode and mineru_runtime_endpoint:
+            mineru_mode = (
+                'ecanai'
+                if mineru_runtime_endpoint.rstrip('/') == ECANAI_PARSER_BASE_URL.rstrip('/')
+                else 'local'
+            )
+            settings['MINERU_API_MODE'] = mineru_mode
+        # Saved eCanAI configuration is translated to LightRAG's local mode.
+        # Reconstruct the UI protocol without treating its account key or
+        # fixed endpoint as the user's Local configuration.
+        if mineru_mode == 'local' and mineru_runtime_endpoint.rstrip('/') == ECANAI_PARSER_BASE_URL.rstrip('/'):
+            mineru_mode = 'ecanai'
+            settings['MINERU_API_MODE'] = 'ecanai'
+        if mineru_mode == 'local':
+            if not str(settings.get('MINERU_LOCAL_ENDPOINT_SETTING') or '').strip():
+                settings['MINERU_LOCAL_ENDPOINT_SETTING'] = mineru_runtime_endpoint
+            if not str(settings.get('MINERU_LOCAL_API_KEY') or '').strip():
+                legacy = str(settings.get('MINERU_API_TOKEN') or '').strip()
+                if legacy:
+                    settings['MINERU_LOCAL_API_KEY'] = legacy
+        elif mineru_mode == 'official':
+            if not str(settings.get('MINERU_OFFICIAL_API_KEY') or '').strip():
+                legacy = str(settings.get('MINERU_API_TOKEN') or '').strip()
+                if legacy:
+                    settings['MINERU_OFFICIAL_API_KEY'] = legacy
+
+        docling_mode = str(settings.get('DOCLING_PROVIDER') or '').strip().lower()
+        legacy_docling_endpoint = str(settings.get('DOCLING_ENDPOINT') or '').strip()
+        if not docling_mode and legacy_docling_endpoint:
+            docling_mode = (
+                'ecanai'
+                if legacy_docling_endpoint.rstrip('/') == ECANAI_PARSER_BASE_URL.rstrip('/')
+                else 'local'
+            )
+            settings['DOCLING_PROVIDER'] = docling_mode
+        if docling_mode == 'local':
+            if not str(settings.get('DOCLING_LOCAL_ENDPOINT') or '').strip():
+                settings['DOCLING_LOCAL_ENDPOINT'] = legacy_docling_endpoint
+            if not str(settings.get('DOCLING_LOCAL_API_KEY') or '').strip():
+                legacy = str(settings.get('DOCLING_API_KEY') or '').strip()
+                if legacy:
+                    settings['DOCLING_LOCAL_API_KEY'] = legacy
+        elif docling_mode == 'official':
+            if not str(settings.get('DOCLING_OFFICIAL_ENDPOINT') or '').strip():
+                settings['DOCLING_OFFICIAL_ENDPOINT'] = legacy_docling_endpoint
+            if not str(settings.get('DOCLING_OFFICIAL_API_KEY') or '').strip():
+                legacy = str(settings.get('DOCLING_API_KEY') or '').strip()
+                if legacy:
+                    settings['DOCLING_OFFICIAL_API_KEY'] = legacy
+
         current = {key: settings.get(key) for key in PARSER_SETTINGS_KEYS}
 
         return create_success_response(request, {
-            'engines': PARSER_ENGINE_DEFINITIONS,
+            'engines': mark_system_managed_parser_fields(PARSER_ENGINE_DEFINITIONS, settings),
             'current': current,
             'engine': derive_parsing_engine(settings),
         })
