@@ -1140,6 +1140,10 @@ jobs:
           $keyDir = Join-Path $env:GITHUB_WORKSPACE 'build_system/certificates'
           New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
           $keyPath = Join-Path $keyDir 'ed25519_private_key.pem'
+          # Remove existing file if present (may be read-only from previous run)
+          if (Test-Path $keyPath) {
+              Remove-Item $keyPath -Force
+          }
           [System.IO.File]::WriteAllBytes(
             $keyPath,
             [System.Convert]::FromBase64String($env:OTA_PRIVATE_KEY)
