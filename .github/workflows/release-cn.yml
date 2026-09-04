@@ -1148,12 +1148,31 @@ jobs:
           $keyDir = Join-Path $env:GITHUB_WORKSPACE 'build_system/certificates'
           New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
           $keyPath = Join-Path $keyDir 'ed25519_private_key.pem'
-          # Remove existing file if present (may be read-only from previous run)
-          if (Test-Path $keyPath) {
-              # Remove read-only attribute before deletion (chmod 600 may have been applied)
-              $file = Get-Item $keyPath
-              if ($file.IsReadOnly) { $file.IsReadOnly = $false }
-              Remove-Item $keyPath -Force
+          # Remove existing file if present. The previous run in this
+          # job may have left the file behind with two issues that
+          # block Remove-Item -Force:
+          #   1. The file system read-only attribute set by chmod 600
+          #      on the Linux step's artifact view (File.IsReadOnly).
+          #   2. ACLs previously tightened by this same step
+          #      (SetAccessRuleProtection + Read-only rule for the
+          #      build agent account). Without DELETE permission in
+          #      the ACL, Remove-Item -Force fails with "Access to the
+          #      path is denied" even after clearing the read-only
+          #      attribute.
+          # Reset ownership + ACL to FullControl first so Remove-Item
+          # has delete permission; clear the OS read-only attribute
+          # last. takeown/icacls degrade gracefully on permission
+          # boundaries (they succeed even when ownership cannot be
+          # claimed, since Set-Acl by owner is implicitly allowed).
+          if (Test-Path -LiteralPath $keyPath) {
+              $currentUser = & whoami.exe
+              if ($currentUser) {
+                & takeown.exe /F $keyPath 2>$null | Out-Null
+                & icacls.exe $keyPath /grant:r "${currentUser}:(F)" /Q 2>$null | Out-Null
+              }
+              $file = Get-Item -LiteralPath $keyPath -ErrorAction SilentlyContinue
+              if ($file -and $file.IsReadOnly) { $file.IsReadOnly = $false }
+              Remove-Item -LiteralPath $keyPath -Force
           }
           [System.IO.File]::WriteAllBytes(
             $keyPath,
