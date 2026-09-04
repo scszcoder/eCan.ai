@@ -978,7 +978,7 @@ jobs:
         # job on ubuntu-latest) is faster there than a direct python
         # invocation. The fast path matters for self-hosted runners
         # in CN where every public-internet hop is bandwidth-bound.
-        if: startsWith(runner.name, 'ECAN-WIN') || contains(runner.groups, 'ecan-windows-amd64')
+        if: github.event.inputs.runner_group != 'github-hosted'
         shell: powershell
         env:
           VERSION:               ${{ needs.validate-tag.outputs.version }}
@@ -1003,16 +1003,16 @@ jobs:
               Write-Host "[WARN] Direct S3 upload failed (rc=$LASTEXITCODE); upload-to-s3 fallback will retry from GHA artifact store" -ForegroundColor Yellow
           }
 
-      - name: Upload Windows artifacts (S3 transfer)
+      - name: Upload Windows installer artifact
         # Skipped on self-hosted intl runners whose build job just
         # uploaded directly to S3 (the upstream step's `if:` is
         # mutually exclusive with this one). On GitHub-hosted runners,
         # this step remains the bridge that feeds upload-to-s3's
         # actions/download-artifact@v7 step.
-        if: ${{ !(startsWith(runner.name, 'ECAN-WIN') || contains(runner.groups, 'ecan-windows-amd64')) }}
+        if: ${{ github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
         with:
-          name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-installer
           path: artifacts/
           retention-days: 1
           compression-level: 6
@@ -1314,7 +1314,7 @@ jobs:
 
       - name: Upload macOS amd64 installer to S3 (direct, fast path)
         id: upload-macos-amd64-s3
-        if: startsWith(runner.name, 'ECAN-MAC') || contains(runner.groups, 'ecan-macos-amd64')
+        if: github.event.inputs.runner_group != 'github-hosted'
         env:
           VERSION:               ${{ needs.validate-tag.outputs.version }}
           ENVIRONMENT:           ${{ needs.validate-tag.outputs.environment }}
@@ -1352,38 +1352,38 @@ jobs:
       # artifact from the prior attempt without surfacing a name
       # conflict. `continue-on-error: true` on attempts 1-2 lets the
       # next attempt run only if the previous one failed.
-      - name: Upload macOS amd64 artifacts (S3 transfer) — attempt 1
+      - name: Upload macOS amd64 installer artifact — attempt 1
         # Skipped on self-hosted intl runners whose build job just
         # uploaded directly to S3 (the upstream step's `if:` is
         # mutually exclusive with this one). On GitHub-hosted runners,
         # this step remains the bridge that feeds upload-to-s3's
         # actions/download-artifact@v7 step.
-        if: ${{ !(startsWith(runner.name, 'ECAN-MAC') || contains(runner.groups, 'ecan-macos-amd64')) }}
+        if: ${{ github.event.inputs.runner_group == 'github-hosted' }}
         id: upload_macos_amd64_s3
         uses: actions/upload-artifact@v6
         continue-on-error: true
         with:
-          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-installer
           path: artifacts/
           retention-days: 1
           compression-level: 6
           if-no-files-found: error
           overwrite: true
-      - name: Upload macOS amd64 artifacts (S3 transfer) — attempt 2
+      - name: Upload macOS amd64 installer artifact — attempt 2
         if: >-
           steps.upload_macos_amd64_s3.outcome == 'failure' &&
-          ${{ !(startsWith(runner.name, 'ECAN-MAC') || contains(runner.groups, 'ecan-macos-amd64')) }}
+          ${{ github.event.inputs.runner_group == 'github-hosted' }}
         id: upload_macos_amd64_s3_2
         uses: actions/upload-artifact@v6
         continue-on-error: true
         with:
-          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-installer
           path: artifacts/
           retention-days: 1
           compression-level: 6
           if-no-files-found: error
           overwrite: true
-      - name: Upload macOS amd64 artifacts (S3 transfer) — final attempt
+      - name: Upload macOS amd64 installer artifact — final attempt
         # Last attempt has no continue-on-error so a third failure here
         # fails the job, matches the pre-retry behaviour, and is what the
         # Final Status Summary's MACOS_AMD64 marker surfaces. The
@@ -1393,10 +1393,10 @@ jobs:
         if: >-
           steps.upload_macos_amd64_s3.outcome == 'failure' &&
           steps.upload_macos_amd64_s3_2.outcome == 'failure' &&
-          ${{ !(startsWith(runner.name, 'ECAN-MAC') || contains(runner.groups, 'ecan-macos-amd64')) }}
+          ${{ github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
         with:
-          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-installer
           path: artifacts/
           retention-days: 1
           compression-level: 6
@@ -1686,7 +1686,7 @@ jobs:
 
       - name: Upload macOS aarch64 installer to S3 (direct, fast path)
         id: upload-macos-aarch64-s3
-        if: startsWith(runner.name, 'ECAN-MAC') || contains(runner.groups, 'ecan-macos-aarch64')
+        if: github.event.inputs.runner_group != 'github-hosted'
         env:
           VERSION:               ${{ needs.validate-tag.outputs.version }}
           ENVIRONMENT:           ${{ needs.validate-tag.outputs.environment }}
@@ -1707,15 +1707,15 @@ jobs:
               echo "[WARN] Direct S3 upload failed; legacy upload-artifact step below will retry from GHA artifact store" >&2
           fi
 
-      - name: Upload macOS aarch64 artifacts (S3 transfer)
+      - name: Upload macOS aarch64 installer artifact
         # Skipped on self-hosted intl runners whose build job just
         # uploaded directly to S3. On GitHub-hosted runners, this step
         # remains the bridge that feeds upload-to-s3's
         # actions/download-artifact@v7 step.
-        if: ${{ !(startsWith(runner.name, 'ECAN-MAC') || contains(runner.groups, 'ecan-macos-aarch64')) }}
+        if: ${{ github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
         with:
-          name: eCan-macos-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-macos-aarch64-${{ needs.validate-tag.outputs.version }}-installer
           path: artifacts/
           retention-days: 1
           compression-level: 6
@@ -2060,7 +2060,7 @@ jobs:
 
       - name: Upload Linux amd64 packages to S3 (direct, fast path)
         id: upload-linux-s3
-        if: startsWith(runner.name, 'ECAN-LIN') || contains(runner.groups, 'ecan-linux-amd64')
+        if: github.event.inputs.runner_group != 'github-hosted'
         env:
           VERSION:               ${{ needs.validate-tag.outputs.version }}
           ENVIRONMENT:           ${{ needs.validate-tag.outputs.environment }}
@@ -2080,15 +2080,15 @@ jobs:
               echo "[WARN] Direct S3 upload failed; legacy upload-artifact step below will retry from GHA artifact store" >&2
           fi
 
-      - name: Upload Linux artifacts (S3 transfer)
+      - name: Upload Linux packages artifact
         # Skipped on self-hosted intl runners whose build job just
         # uploaded directly to S3. On GitHub-hosted runners, this step
         # remains the bridge that feeds upload-to-s3's
         # actions/download-artifact@v7 step.
-        if: ${{ !(startsWith(runner.name, 'ECAN-LIN') || contains(runner.groups, 'ecan-linux-amd64')) }}
+        if: ${{ github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
         with:
-          name: eCan-linux-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          name: eCan-linux-amd64-${{ needs.validate-tag.outputs.version }}-installer
           path: artifacts/
           retention-days: 1
           compression-level: 6
@@ -2347,7 +2347,7 @@ jobs:
             echo "|---|---|---|---|---|"
 
             if [[ "${WINDOWS_OK}" == "true" ]]; then
-              A="eCan-windows-amd64-${VER}-s3-transfer"
+              A="eCan-windows-amd64-${VER}-installer"
               B="eCan-windows-amd64-${VER}"
               URL_A="${RUN_URL}#artifacts"
               echo "| Windows | amd64 | :white_check_mark: | \`${A}\` | [open artifacts list](${URL_A}) |"
@@ -2357,7 +2357,7 @@ jobs:
             fi
 
             if [[ "${MACOS_AMD64_OK}" == "true" ]]; then
-              A="eCan-macos-amd64-${VER}-s3-transfer"
+              A="eCan-macos-amd64-${VER}-installer"
               B="eCan-macos-amd64-${VER}"
               URL_A="${RUN_URL}#artifacts"
               echo "| macOS | amd64 | :white_check_mark: | \`${A}\` | [open artifacts list](${URL_A}) |"
@@ -2367,7 +2367,7 @@ jobs:
             fi
 
             if [[ "${MACOS_AARCH64_OK}" == "true" ]]; then
-              A="eCan-macos-aarch64-${VER}-s3-transfer"
+              A="eCan-macos-aarch64-${VER}-installer"
               B="eCan-macos-aarch64-${VER}"
               URL_A="${RUN_URL}#artifacts"
               echo "| macOS | aarch64 | :white_check_mark: | \`${A}\` | [open artifacts list](${URL_A}) |"
@@ -2377,7 +2377,7 @@ jobs:
             fi
 
             if [[ "${LINUX_OK}" == "true" ]]; then
-              A="eCan-linux-amd64-${VER}-s3-transfer"
+              A="eCan-linux-amd64-${VER}-installer"
               B="eCan-linux-amd64-${VER}"
               URL_A="${RUN_URL}#artifacts"
               echo "| Linux | amd64 | :white_check_mark: | \`${A}\` | [open artifacts list](${URL_A}) |"
@@ -2390,7 +2390,7 @@ jobs:
             echo "> **Note:** the artifacts panel is gated behind a GitHub login. To grab a single artifact, use the CLI:"
             echo ""
             echo '```bash'
-            echo "gh run download ${GITHUB_RUN_ID:-<run-id>} --repo ${GITHUB_REPOSITORY:-ecan/eCan.ai} --name eCan-windows-amd64-${VER}-s3-transfer"
+            echo "gh run download ${GITHUB_RUN_ID:-<run-id>} --repo ${GITHUB_REPOSITORY:-ecan/eCan.ai} --name eCan-windows-amd64-${VER}-installer"
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -2402,12 +2402,12 @@ jobs:
           echo "version=${VER}"
           echo "run_id=${GITHUB_RUN_ID}"
           echo "repository=${GITHUB_REPOSITORY}"
-          echo "windows_artifact_1=eCan-windows-amd64-${VER}-s3-transfer"
+          echo "windows_artifact_1=eCan-windows-amd64-${VER}-installer"
           echo "windows_artifact_2=eCan-windows-amd64-${VER}"
-          echo "macos_amd64_artifact_1=eCan-macos-amd64-${VER}-s3-transfer"
+          echo "macos_amd64_artifact_1=eCan-macos-amd64-${VER}-installer"
           echo "macos_amd64_artifact_2=eCan-macos-amd64-${VER}"
-          echo "macos_aarch64_artifact_1=eCan-macos-aarch64-${VER}-s3-transfer"
+          echo "macos_aarch64_artifact_1=eCan-macos-aarch64-${VER}-installer"
           echo "macos_aarch64_artifact_2=eCan-macos-aarch64-${VER}"
-          echo "linux_artifact_1=eCan-linux-amd64-${VER}-s3-transfer"
+          echo "linux_artifact_1=eCan-linux-amd64-${VER}-installer"
           echo "linux_artifact_2=eCan-linux-amd64-${VER}"
           echo "::endgroup::"

@@ -83,10 +83,10 @@ six feed files in one pass.
 
 ## Reusable (shared-*) workflows
 
-* `shared-s3-upload.yml`            — fallback upload of `*-s3-transfer` artifacts to S3. Only
+* `shared-s3-upload.yml`            — fallback upload of `*-installer` artifacts to S3. Only
   runs when at least one build job did NOT direct-upload (see "Distribution" below).
   Requires AWS secrets.
-* `shared-cos-upload.yml`           — fallback upload of `*-s3-transfer` artifacts to COS.
+* `shared-cos-upload.yml`           — fallback upload of `*-installer` artifacts to COS.
   Same skip-rule as the S3 variant. Requires Tencent secrets.
 * `shared-appcast-generation.yml`   — write Sparkle appcast XML to S3 (`--app intl`).
 * `shared-cos-appcast-generation.yml` — write Sparkle appcast XML to COS (`--app cn` hardcoded).
@@ -109,7 +109,7 @@ it just built:
   elsewhere. Each build job publishes a `cos-uploaded` / `s3-uploaded`
   output that records whether the direct upload succeeded.
 * **GitHub-Artifact-Store fallback** (GitHub-hosted runners) — the
-  build job uploads the installer as a `*-s3-transfer` artifact, and
+  build job uploads the installer as a `*-installer` artifact, and
   the shared-*-upload job downloads it back and re-uploads to COS/S3.
   This path is unchanged from the original pipeline and remains the
   default for `runner_group == github-hosted`.

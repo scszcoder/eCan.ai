@@ -543,7 +543,7 @@ class S3Uploader:
         print("=" * 60)
 
         # Verify dist directory exists. The wrapper downloads
-        # `*-s3-transfer` artifacts into `dist/` before invoking us; if
+        # `*-installer` artifacts into `dist/` before invoking us; if
         # we land here without that directory, every build job either
         # failed or produced no artifacts, and there is nothing to
         # upload. Surface that as a hard precondition failure

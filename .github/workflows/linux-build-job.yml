@@ -513,7 +513,7 @@ jobs:
     - name: Upload Linux artifacts for S3 transfer (always, short retention)
       uses: actions/upload-artifact@v6
       with:
-        name: eCan-linux-${{ env.BUILD_ARCH }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
+        name: eCan-linux-${{ env.BUILD_ARCH }}-${{ needs.validate-tag.outputs.version }}-installer
         path: artifacts/
         retention-days: 1
         compression-level: 6
