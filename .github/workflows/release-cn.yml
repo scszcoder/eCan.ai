@@ -655,6 +655,14 @@ jobs:
       WIN_CERT_PFX:              ${{ secrets.WIN_CERT_PFX              || 'NOT_SET' }}
       WIN_CERT_PASSWORD:         ${{ secrets.WIN_CERT_PASSWORD         || 'NOT_SET' }}
     timeout-minutes: 60
+    # Per-job outputs for the CN direct-upload fast path. The build job
+    # publishes `cos-uploaded: 'true'` when the in-job upload_to_cos.py
+    # call succeeds; the shared-cos-upload.yml caller uses that to skip
+    # the GitHub-Actions-intermediate path. Empty string is the documented
+    # "did not run" sentinel -- GitHub Actions cannot output `false` for
+    # a step that never executed, only an empty string.
+    outputs:
+      cos-uploaded: ${{ steps.upload-windows-cos.outputs.success }}
 
     steps:
       # Self-hosted Windows runner prerequisite check + install:
@@ -1337,7 +1345,56 @@ jobs:
           }
           Copy-Item $installer artifacts\
 
+      - name: Upload Windows installer to COS (direct, fast path)
+        id: upload-windows-cos
+        # Skip on GitHub-hosted runners: they don't have a fast CN-side
+        # network path to ap-shanghai COS, so the historical
+        # upload-artifact → download-artifact → upload_to_cos.py path
+        # (via upload-to-cos job on ubuntu-latest) is faster there than
+        # a direct python invocation. The fast path matters for
+        # self-hosted runners in CN where every public-internet hop is
+        # bandwidth-bound.
+        if: startsWith(runner.name, 'ECAN-WIN') || contains(runner.groups, 'ecan-windows-amd64')
+        shell: powershell
+        env:
+          VERSION:                 ${{ needs.validate-tag.outputs.version }}
+          ENVIRONMENT:             ${{ needs.validate-tag.outputs.environment }}
+          ECAN_TENCENT_SECRET_ID:  ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+        run: |
+          $VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
+          if (-not (Test-Path $VenvPython)) {
+              throw "Venv python not found at $VenvPython"
+          }
+          & $VenvPython build_system/scripts/upload_to_cos.py `
+              --version  $env:VERSION `
+              --env      $env:ENVIRONMENT `
+              --app      cn `
+              --platform windows `
+              --dist-dir artifacts
+          # Map python exit codes to the GitHub Actions output convention
+          # the downstream upload-to-cos job gates on:
+          #   rc=0  -> success=true  (direct upload took effect, skip fallback)
+          #   rc=2  -> success=error (hard precondition -- the prepare
+          #            step already threw, so this branch is unreachable;
+          #            treat as failed fast path so the upload-to-cos
+          #            fallback can still attempt a retry from GHA
+          #            artifact store)
+          #   other -> success=error
+          if ($LASTEXITCODE -eq 0) {
+              'success=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+              'success=error' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+              Write-Host "[WARN] Direct COS upload failed (rc=$LASTEXITCODE); upload-to-cos fallback will retry from GHA artifact store" -ForegroundColor Yellow
+          }
+
       - name: Upload Windows artifacts (S3 transfer)
+        # Skipped on self-hosted CN runners whose build job just uploaded
+        # directly to COS (the upstream step's `if:` is mutually
+        # exclusive with this one). On GitHub-hosted runners, this step
+        # remains the bridge that feeds upload-to-cos's
+        # actions/download-artifact@v7 step.
+        if: ${{ !(startsWith(runner.name, 'ECAN-WIN') || contains(runner.groups, 'ecan-windows-amd64')) }}
         uses: actions/upload-artifact@v6
         with:
           name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
@@ -1392,6 +1449,13 @@ jobs:
       TARGET_ARCH: x86_64
       PYINSTALLER_TARGET_ARCH: x86_64
     timeout-minutes: 60
+    # Per-job outputs for the CN direct-upload fast path. See
+    # release-cn.yml::build-windows for the full design rationale; the
+    # short version is `cos-uploaded` lets upload-to-cos skip the slow
+    # GitHub-Artifact-Store round-trip when self-hosted macOS runners
+    # already uploaded directly.
+    outputs:
+      cos-uploaded: ${{ steps.upload-macos-amd64-cos.outputs.success }}
 
     steps:
       # Self-hosted Windows runner prerequisite check + install:
@@ -1884,12 +1948,45 @@ jobs:
       # fine on every other runner in the same run, so this is an
       # infrastructure flake, not a workflow bug.
       #
-      # Retry the upload-artifact call up to 2 more times before giving
-      # up. `overwrite: true` lets a retry replace a partially-registered
-      # artifact from the prior attempt without surfacing a name
-      # conflict. `continue-on-error: true` on attempts 1-2 lets the
-      # next attempt run only if the previous one failed.
+      # ============================================================================
+      # Distribution — CN direct-upload fast path (self-hosted) OR
+      # legacy GitHub-Artifact-Store retry chain (GitHub-hosted).
+      #
+      # On self-hosted macOS runners, the build job calls upload_to_cos.py
+      # directly and skips the slow public-internet round-trip; the legacy
+      # retry chain below is gated off via `if:`. On GitHub-hosted macOS
+      # runners, the retry chain handles transient upload-artifact timeouts.
+      # ============================================================================
+      - name: Upload macOS amd64 installer to COS (direct, fast path)
+        id: upload-macos-amd64-cos
+        if: startsWith(runner.name, 'ECAN-MAC') || contains(runner.groups, 'ecan-macos-amd64')
+        env:
+          VERSION:                 ${{ needs.validate-tag.outputs.version }}
+          ENVIRONMENT:             ${{ needs.validate-tag.outputs.environment }}
+          ECAN_TENCENT_SECRET_ID:  ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+        run: |
+          python3 build_system/scripts/upload_to_cos.py \
+              --version  "$VERSION" \
+              --env      "$ENVIRONMENT" \
+              --app      cn \
+              --platform macos \
+              --arch     amd64 \
+              --dist-dir artifacts
+          if [ $? -eq 0 ]; then
+              echo "success=true"  >> "$GITHUB_OUTPUT"
+          else
+              echo "success=error" >> "$GITHUB_OUTPUT"
+              echo "[WARN] Direct COS upload failed; legacy upload-artifact chain below will retry from GHA artifact store" >&2
+          fi
+
       - name: Upload macOS amd64 artifacts (S3 transfer) — attempt 1
+        # Skipped on self-hosted CN runners whose build job just uploaded
+        # directly to COS (the upstream step's `if:` is mutually
+        # exclusive with this one). On GitHub-hosted runners, this step
+        # remains the bridge that feeds upload-to-cos's
+        # actions/download-artifact@v7 step.
+        if: ${{ !(startsWith(runner.name, 'ECAN-MAC') || contains(runner.groups, 'ecan-macos-amd64')) }}
         id: upload_macos_amd64_s3
         uses: actions/upload-artifact@v6
         continue-on-error: true
@@ -1901,8 +1998,10 @@ jobs:
           if-no-files-found: error
           overwrite: true
       - name: Upload macOS amd64 artifacts (S3 transfer) — attempt 2
+        if: >-
+          steps.upload_macos_amd64_s3.outcome == 'failure' &&
+          ${{ !(startsWith(runner.name, 'ECAN-MAC') || contains(runner.groups, 'ecan-macos-amd64')) }}
         id: upload_macos_amd64_s3_2
-        if: steps.upload_macos_amd64_s3.outcome == 'failure'
         uses: actions/upload-artifact@v6
         continue-on-error: true
         with:
@@ -1921,7 +2020,8 @@ jobs:
         # step would re-upload a successful artifact.
         if: >-
           steps.upload_macos_amd64_s3.outcome == 'failure' &&
-          steps.upload_macos_amd64_s3_2.outcome == 'failure'
+          steps.upload_macos_amd64_s3_2.outcome == 'failure' &&
+          ${{ !(startsWith(runner.name, 'ECAN-MAC') || contains(runner.groups, 'ecan-macos-amd64')) }}
         uses: actions/upload-artifact@v6
         with:
           name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
@@ -1967,6 +2067,10 @@ jobs:
       TARGET_ARCH: arm64
       PYINSTALLER_TARGET_ARCH: arm64
     timeout-minutes: 60
+    # Per-job outputs for the CN direct-upload fast path. See
+    # release-cn.yml::build-windows for the full design rationale.
+    outputs:
+      cos-uploaded: ${{ steps.upload-macos-aarch64-cos.outputs.success }}
 
     steps:
       # Self-hosted Windows runner prerequisite check + install:
@@ -2448,7 +2552,35 @@ jobs:
           fi
           cp dist/*-macos-aarch64.* artifacts/
 
+      - name: Upload macOS aarch64 installer to COS (direct, fast path)
+        id: upload-macos-aarch64-cos
+        if: startsWith(runner.name, 'ECAN-MAC') || contains(runner.groups, 'ecan-macos-aarch64')
+        env:
+          VERSION:                 ${{ needs.validate-tag.outputs.version }}
+          ENVIRONMENT:             ${{ needs.validate-tag.outputs.environment }}
+          ECAN_TENCENT_SECRET_ID:  ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+        run: |
+          python3 build_system/scripts/upload_to_cos.py \
+              --version  "$VERSION" \
+              --env      "$ENVIRONMENT" \
+              --app      cn \
+              --platform macos \
+              --arch     aarch64 \
+              --dist-dir artifacts
+          if [ $? -eq 0 ]; then
+              echo "success=true"  >> "$GITHUB_OUTPUT"
+          else
+              echo "success=error" >> "$GITHUB_OUTPUT"
+              echo "[WARN] Direct COS upload failed; legacy upload-artifact step below will retry from GHA artifact store" >&2
+          fi
+
       - name: Upload macOS aarch64 artifacts (S3 transfer)
+        # Skipped on self-hosted CN runners whose build job just uploaded
+        # directly to COS. On GitHub-hosted runners, this step remains
+        # the bridge that feeds upload-to-cos's
+        # actions/download-artifact@v7 step.
+        if: ${{ !(startsWith(runner.name, 'ECAN-MAC') || contains(runner.groups, 'ecan-macos-aarch64')) }}
         uses: actions/upload-artifact@v6
         with:
           name: eCan-macos-aarch64-${{ needs.validate-tag.outputs.version }}-s3-transfer
@@ -2487,6 +2619,10 @@ jobs:
       ECAN_APP_NAME: eCan.cn
       DIST_APP: eCan.cn
     timeout-minutes: 60
+    # Per-job outputs for the CN direct-upload fast path. See
+    # release-cn.yml::build-windows for the full design rationale.
+    outputs:
+      cos-uploaded: ${{ steps.upload-linux-cos.outputs.success }}
 
     steps:
       # Self-hosted Windows runner prerequisite check + install:
@@ -3037,7 +3173,34 @@ jobs:
           echo "[ARTIFACTS] DEB present: $([ -f "$DEB" ] && echo yes || echo no)"
           echo "[ARTIFACTS] APPIMAGE present: $([ -f "$APPIMAGE" ] && echo yes || echo no)"
 
+      - name: Upload Linux amd64 packages to COS (direct, fast path)
+        id: upload-linux-cos
+        if: startsWith(runner.name, 'ECAN-LIN') || contains(runner.groups, 'ecan-linux-amd64')
+        env:
+          VERSION:                 ${{ needs.validate-tag.outputs.version }}
+          ENVIRONMENT:             ${{ needs.validate-tag.outputs.environment }}
+          ECAN_TENCENT_SECRET_ID:  ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+        run: |
+          python3 build_system/scripts/upload_to_cos.py \
+              --version  "$VERSION" \
+              --env      "$ENVIRONMENT" \
+              --app      cn \
+              --platform linux \
+              --dist-dir artifacts
+          if [ $? -eq 0 ]; then
+              echo "success=true"  >> "$GITHUB_OUTPUT"
+          else
+              echo "success=error" >> "$GITHUB_OUTPUT"
+              echo "[WARN] Direct COS upload failed; legacy upload-artifact step below will retry from GHA artifact store" >&2
+          fi
+
       - name: Upload Linux artifacts (S3 transfer)
+        # Skipped on self-hosted CN runners whose build job just uploaded
+        # directly to COS. On GitHub-hosted runners, this step remains
+        # the bridge that feeds upload-to-cos's
+        # actions/download-artifact@v7 step.
+        if: ${{ !(startsWith(runner.name, 'ECAN-LIN') || contains(runner.groups, 'ecan-linux-amd64')) }}
         uses: actions/upload-artifact@v6
         with:
           name: eCan-linux-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
@@ -3067,12 +3230,22 @@ jobs:
   upload-to-cos:
     name: Upload to COS
     needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
+    # Skip when every succeeded build job already uploaded directly
+    # to COS (CN direct-upload fast path on self-hosted runners).
+    # Otherwise fall back to the historical
+    # upload-artifact → download-artifact → upload_to_cos.py path.
+    # Each clause is "build succeeded AND didn't direct-upload"; if
+    # any clause is true, the slow upload-to-cos path still has
+    # something to do.
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      (needs.build-windows.result == 'success' ||
-       needs.build-linux.result == 'success' ||
-       (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success'))
+      (
+        (needs.build-windows.result      == 'success' && needs.build-windows.outputs.cos-uploaded      != 'true') ||
+        (needs.build-macos-amd64.result  == 'success' && needs.build-macos-amd64.outputs.cos-uploaded  != 'true') ||
+        (needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.cos-uploaded != 'true') ||
+        (needs.build-linux.result        == 'success' && needs.build-linux.outputs.cos-uploaded        != 'true')
+      )
     # The reusable upload workflow internally uses `continue-on-error:
     # true` on the upload step, so even if <BACKEND> is unreachable /
     # auth is broken / SDK errored, the job itself reports success and
@@ -3093,10 +3266,23 @@ jobs:
   generate-appcast:
     name: Generate Appcast (all platforms × archs)
     needs: [validate-tag, upload-to-cos, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
+    # `upload-success == 'true'` covers the historical upload-to-cos path.
+    # The OR-clauses cover the CN direct-upload fast path: when every
+    # succeeded build job already uploaded to COS in-place, upload-to-cos
+    # is skipped (its outputs are empty), and we must still generate the
+    # appcast from the in-place artifacts. Each clause is "build
+    # succeeded AND direct-uploaded"; together they say "at least one
+    # succeeded build direct-uploaded", which is what bridges the gap.
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      needs.upload-to-cos.outputs.upload-success == 'true' &&
+      (
+        needs.upload-to-cos.outputs.upload-success == 'true' ||
+        (needs.build-windows.result      == 'success' && needs.build-windows.outputs.cos-uploaded      == 'true') ||
+        (needs.build-macos-amd64.result  == 'success' && needs.build-macos-amd64.outputs.cos-uploaded  == 'true') ||
+        (needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.cos-uploaded == 'true') ||
+        (needs.build-linux.result        == 'success' && needs.build-linux.outputs.cos-uploaded        == 'true')
+      ) &&
       (needs.build-windows.result == 'success' ||
        needs.build-linux.result == 'success' ||
        needs.build-macos-amd64.result == 'success' ||
@@ -3132,10 +3318,20 @@ jobs:
   generate-download-links:
     name: Generate Download Links
     needs: [validate-tag, upload-to-cos, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
+    # Same direct-upload-aware gate as generate-appcast. See that job's
+    # comment for the full rationale; in short, when upload-to-cos is
+    # skipped because all succeeded build jobs direct-uploaded, this
+    # job must still run so end-users get correct download links.
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      needs.upload-to-cos.outputs.upload-success == 'true'
+      (
+        needs.upload-to-cos.outputs.upload-success == 'true' ||
+        (needs.build-windows.result      == 'success' && needs.build-windows.outputs.cos-uploaded      == 'true') ||
+        (needs.build-macos-amd64.result  == 'success' && needs.build-macos-amd64.outputs.cos-uploaded  == 'true') ||
+        (needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.cos-uploaded == 'true') ||
+        (needs.build-linux.result        == 'success' && needs.build-linux.outputs.cos-uploaded        == 'true')
+      )
     uses: ./.github/workflows/shared-cos-download-links.yml
     with:
       version:        ${{ needs.validate-tag.outputs.version }}
@@ -3161,7 +3357,13 @@ jobs:
           MACOS_AMD64:       ${{ needs.build-macos-amd64.result }}
           MACOS_AARCH64:     ${{ needs.build-macos-aarch64.result }}
           LINUX_RESULT:      ${{ needs.build-linux.result }}
-          UPLOAD_RESULT:     ${{ needs.upload-to-cos.outputs.upload-success }}
+          # When the build jobs direct-uploaded to COS (CN fast path),
+          # upload-to-cos is skipped and its output is empty. Map
+          # "empty + at least one cos-uploaded=true" to "direct" so the
+          # summary makes sense instead of reading "COS upload: ".
+          # Each OR-clause is "build succeeded AND direct-uploaded →
+          # 'direct'", short-circuited so an early true stops the chain.
+          UPLOAD_RESULT: ${{ needs.upload-to-cos.outputs.upload-success || (needs.build-windows.outputs.cos-uploaded == 'true' && needs.build-windows.result == 'success' && 'direct') || (needs.build-macos-amd64.outputs.cos-uploaded == 'true' && needs.build-macos-amd64.result == 'success' && 'direct') || (needs.build-macos-aarch64.outputs.cos-uploaded == 'true' && needs.build-macos-aarch64.result == 'success' && 'direct') || (needs.build-linux.outputs.cos-uploaded == 'true' && needs.build-linux.result == 'success' && 'direct') || 'skipped' }}
           APPCAST_RESULT:    ${{ needs.generate-appcast.result }}
           LATEST_RESULT:     ${{ needs.generate-latest-json.result }}
           LINKS_RESULT:      ${{ needs.generate-download-links.result }}
