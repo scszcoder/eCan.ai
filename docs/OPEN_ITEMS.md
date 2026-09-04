@@ -4,12 +4,30 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-09-03_
+_Last updated: 2026-09-04_
 
 ---
 
 ## 🔴 Bugs (unfixed)
 
+- **Feige sidebar preview selector drift — cold-start row invisible to the
+  backstop scan (2026-09-04, build 96s, customer 肽斯特)**. The rebuilt Feige
+  frame no longer matches `[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span`,
+  so `ws108 backstop scan` skipped EVERY row `empty_preview` (150 ticks) while
+  the new conversation's rows rendered (rows 12→14 at 13:16:04); WS carried only
+  the msg_type 1000/2004 system frames (customer text never reaches WS), DOM
+  monitor paused under WS-live → zero dispatches, customer waited 12 min.
+  ws189 (uncommitted at time of writing) adds a structural leaf-text fallback
+  shared by front_desk / pre_dispatch_enrich / site_tools
+  (`sidebar_preview_js.py`) + an `EMPTY-PREVIEW DUMP` (row outerHTML 1500) so the
+  real preview class can be pinned. **Still open**: (a) live validation of the
+  fallback on the customer frame; (b) `event_monitor.py` `last_message` field
+  and `_FEIGE_LIST_SESSIONS_JS` still use only the dead hashed selector
+  (DOM-monitor path is paused under WS-live, so not on the hot path today);
+  (c) `hasUnread()` in the scan JS matches the rebuilt frame's `auxo-badge`
+  avatar wrapper on every row (unread=true everywhere) — harmless today because
+  unread is no longer a routing gate (ws104), but wrong; (d) the deeper
+  OPEN-CLAIM-CAP gap (claiming an unrendered cold conversation) is unchanged.
 - **CN "请求日志分析" (Request Log Analysis, Help menu) upload fails —
   backend SDL gap (2026-09-03)**. Client sends `requestDebug(input:
   RequestDebugInput!)` + `requestDebugDone(zipKey, owner)` (matches AWS

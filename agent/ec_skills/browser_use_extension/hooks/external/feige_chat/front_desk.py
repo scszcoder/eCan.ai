@@ -65,6 +65,7 @@ from agent.ec_skills.node_runtime.frontdesk_dispatch import (
 )
 from . import dispatch_state as _ds
 from . import typing_lock as _typing_lock
+from .sidebar_preview_js import ROW_PREVIEW_FALLBACK_JS as _ROW_PREVIEW_FALLBACK_JS
 
 # CN builds name the app logger "eCan.cn" (propagate=False) — a bare
 # getLogger("eCan") record never reaches its handlers, silencing this
@@ -220,7 +221,7 @@ _BACKSTOP_PROCESS_START: float = time.monotonic()
 # ws178: rate-limit for the nameless-row DOM dump (see the scan JS debug block).
 _NAMELESS_DUMP_AT: dict = {}
 
-_COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
+_COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){""" + _ROW_PREVIEW_FALLBACK_JS + r"""
   function readName(row){
     var nick=row.querySelector('[data-qa-id="qa-conversation-nickname"]');
     if(nick){var nv=(nick.textContent||'').trim(); if(nv) return nv;}
@@ -246,9 +247,13 @@ _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
     }
     return '';
   }
-  function readPreview(row){
+  function readPreview(row, nm){
     var p=row.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span');
-    return p?(p.textContent||'').trim():'';
+    var v=p?(p.textContent||'').trim():'';
+    if(v) return v;
+    // ws189: selector drift on the rebuilt frame (live 2026-09-04: every row
+    // empty_preview, cold-start customer never answered) — structural fallback.
+    return __ecanRowPreviewFallback(row, nm);
   }
   function rowIsCurrent(row){
     var btm=row&&row.getAttribute?String(row.getAttribute('data-btm-id')||''):'';
@@ -273,7 +278,7 @@ _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
   var out=[];
   for(var i=0;i<all.length;i++){
     var nm=readName(all[i]); if(!nm) continue;
-    out.push({name:nm, preview:readPreview(all[i]), unread:hasUnread(all[i]),
+    out.push({name:nm, preview:readPreview(all[i], nm), unread:hasUnread(all[i]),
               needReply:/needReply/i.test(String(all[i].className||'')),
               current:rowIsCurrent(all[i])});
   }
@@ -304,7 +309,25 @@ _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){
       });
     }
   }
-  return JSON.stringify({rows:out, total:all.length, url:String(location.href||'').slice(-60), debug:debug});
+  // ws189: when rows have names but NONE yields a preview even after the
+  // structural fallback, dump the first named row's leaf-text inventory +
+  // outerHTML so the preview selector can be pinned from evidence next rev.
+  var pdebug=null;
+  if(out.length>0 && out.every(function(o){return !o.preview;})){
+    for(var e=0;e<all.length;e++){
+      if(!readName(all[e])) continue;
+      var leaves=[]; var le=all[e].querySelectorAll('*');
+      for(var l=0;l<le.length&&leaves.length<14;l++){
+        if(le[l].children&&le[l].children.length) continue;
+        var lt=String(le[l].textContent||'').replace(/\s+/g,' ').trim();
+        if(!lt) continue;
+        leaves.push({tag:String(le[l].tagName||'').toLowerCase(), cls:String(le[l].className||'').slice(0,40), txt:lt.slice(0,30)});
+      }
+      pdebug={name:readName(all[e]), leaves:leaves, html:String(all[e].outerHTML||'').slice(0,1500)};
+      break;
+    }
+  }
+  return JSON.stringify({rows:out, total:all.length, url:String(location.href||'').slice(-60), debug:debug, pdebug:pdebug});
 })()"""
 
 
@@ -398,6 +421,15 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
             if _now_dump - _NAMELESS_DUMP_AT.get("ts", 0.0) >= 120.0:
                 _NAMELESS_DUMP_AT["ts"] = _now_dump
                 logger.info(f"[BrowserAutomation] ws178 backstop scan NAMELESS-ROW DUMP: {_scan_debug}")
+        _scan_pdebug = (r or {}).get("pdebug")
+        if _scan_pdebug:
+            # ws189: every named row read back preview-empty (selector drift AND the
+            # structural fallback missed) — show the real row so readPreview can be
+            # pinned from evidence. Rate-limited like the nameless dump.
+            _now_pd = time.monotonic()
+            if _now_pd - _NAMELESS_DUMP_AT.get("pd_ts", 0.0) >= 120.0:
+                _NAMELESS_DUMP_AT["pd_ts"] = _now_pd
+                logger.info(f"[BrowserAutomation] ws189 backstop scan EMPTY-PREVIEW DUMP: {_scan_pdebug}")
     except Exception as _e:
         logger.debug(f"[BrowserAutomation] ws103 coldstart recovery scan failed: {_e}")
         return 0

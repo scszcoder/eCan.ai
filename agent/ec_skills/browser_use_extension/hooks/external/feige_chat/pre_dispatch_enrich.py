@@ -70,6 +70,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from .dom_assets import scrape_latest_customer_bubble
+from .sidebar_preview_js import ROW_PREVIEW_FALLBACK_JS as _ROW_PREVIEW_FALLBACK_JS
 
 # CN builds name the app logger "eCan.cn" (propagate=False) — a bare
 # getLogger("eCan") record never reaches its handlers, silencing this
@@ -278,7 +279,7 @@ async def _resolve_card_customer_name(browser_session, log_tag: str) -> str:
             )
     except Exception:
         _card_target_id = None
-    js = '''(function(){
+    js = '''(function(){''' + _ROW_PREVIEW_FALLBACK_JS + '''
   function rn(r){
     var n=r.querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
     if(n){var t=(n.getAttribute('title')||n.textContent||'').trim();if(t)return t;}
@@ -287,7 +288,9 @@ async def _resolve_card_customer_name(browser_session, log_tag: str) -> str:
   }
   function rp(r){
     var p=r.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span');
-    return p?(p.textContent||'').trim():'';
+    var v=p?(p.textContent||'').trim():'';
+    if(v) return v;
+    return __ecanRowPreviewFallback(r, rn(r));  // ws189: selector drift fallback
   }
   var rows=Array.from(document.querySelectorAll('[data-qa-id="qa-conversation-chat-item"]'));
   var cards=[];
