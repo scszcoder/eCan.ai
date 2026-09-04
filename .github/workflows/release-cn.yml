@@ -1145,39 +1145,29 @@ jobs:
           OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
         shell: powershell
         run: |
-          $keyDir = Join-Path $env:GITHUB_WORKSPACE 'build_system/certificates'
-          New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
-          $keyPath = Join-Path $keyDir 'ed25519_private_key.pem'
-          # Decode secrets.OTA_ED25519_PRIVATE_KEY (base64 of the PEM blob)
-          # into build_system/certificates/ed25519_private_key.pem so
-          # sign_ota_artifacts() (called inside build.py prod) has the
-          # key on disk.
-          #
-          # Why no pre-delete and no ACL hardening:
-          #   Self-hosted runners reuse C:\actions-runner\_work\eCan.ai\eCan.ai
-          #   across runs, so the previous run's key file is still there.
-          #   The earlier hardening (SetAccessRuleProtection($true,$false) +
-          #   Allow Read for current user) was meant to lock the file to
-          #   build-agent Read only -- but it ALSO removed the inherited
-          #   Modify right that the next run needs to overwrite the file.
-          #   [System.IO.File]::WriteAllBytes() requires FILE_WRITE_DATA,
-          #   Remove-Item requires DELETE, and Set-Acl itself requires
-          #   WriteDAC. None of those are in the hardened "Read only" rule,
-          #   so every subsequent run failed with UnauthorizedAccessException
-          #   regardless of which deletion method was tried (cmd /c del,
-          #   takeown / icacls, all need admin that the runner lacks).
-          #
-          #   The default inherited ACL on a self-hosted runner's workspace
-          #   ("Authenticated Users: Modify" from C:\actions-runner\_work)
-          #   already grants the runner service account enough rights to
-          #   overwrite the file in place. We deliberately do NOT touch
-          #   the ACL here: hardening is defense-in-depth, and on a
-          #   single-tenant self-hosted runner it provides no meaningful
-          #   security gain while breaking subsequent runs.
+          # Write the OTA key to RUNNER_TEMP rather than
+          # build_system/certificates/. The latter lives under
+          # C:\actions-runner\_work\eCan.ai\eCan.ai\, which is the
+          # self-hosted runner's persistent workspace -- a previous
+          # run's ACL-hardened key file (Read-only ACE for the
+          # current user) blocks subsequent runs from overwriting
+          # the file via WriteAllBytes, Remove-Item, or Set-Acl,
+          # because none of those operations have the rights the
+          # hardened ACE grants. RUNNER_TEMP is per-job ephemeral,
+          # the directory does not exist before this step, so no
+          # stale hardened file can poison the new run.
+          $keyPath = Join-Path $env:RUNNER_TEMP 'ed25519_private_key.pem'
           [System.IO.File]::WriteAllBytes(
             $keyPath,
             [System.Convert]::FromBase64String($env:OTA_PRIVATE_KEY)
           )
+          # Export the path so the python signing step (which runs
+          # OTASigningManager.__init__ -> private_key_path) picks
+          # up the ephemeral location via OTA_PRIVATE_KEY_PATH.
+          # signing_manager.py honors that env var before falling
+          # back to build_system/certificates/.
+          "OTA_PRIVATE_KEY_PATH=$keyPath" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "[OK] OTA signing key installed at $keyPath"
 
       - name: Install Inno Setup

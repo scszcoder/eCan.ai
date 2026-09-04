@@ -729,10 +729,24 @@ class SigningManager:
 
 class OTASigningManager:
     """OTA signing manager - using Ed25519 signing algorithm"""
-    
+
     def __init__(self, project_root: Path = None):
         self.project_root = project_root or Path.cwd()
-        self.private_key_path = self.project_root / "build_system" / "certificates" / "ed25519_private_key.pem"
+        # The key file path can be overridden via OTA_PRIVATE_KEY_PATH
+        # (used by GitHub Actions self-hosted runner workflows that
+        # write the key to a per-job ephemeral location under
+        # RUNNER_TEMP to avoid ACL hardening on persistent workspace
+        # paths). Falls back to the canonical project-root-relative
+        # location so existing local-dev and Linux CI usage still
+        # works without any environment setup.
+        override = os.environ.get('OTA_PRIVATE_KEY_PATH')
+        if override:
+            self.private_key_path = Path(override)
+        else:
+            self.private_key_path = (
+                self.project_root
+                / 'build_system' / 'certificates' / 'ed25519_private_key.pem'
+            )
         self.dist_dir = self.project_root / "dist"
     
     def sign_for_ota(self, version: str) -> bool:
