@@ -207,7 +207,7 @@ const ContactVerification: React.FC = () => {
                     : t('account.verifyEmailTitle', 'Verify email address')}
                 onCancel={() => setChannel(null)}
                 footer={null}
-                destroyOnClose
+                destroyOnHidden
             >
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
                     {step === 'input' ? (

@@ -980,6 +980,35 @@ def handle_sync_ecanai_account_api_key(request: IPCRequest, params: Optional[Dic
         return create_error_response(request, 'ECANAI_KEY_SYNC_ERROR', str(exc))
 
 
+@IPCHandlerRegistry.handler('remove_ecanai_account_api_key')
+def handle_remove_ecanai_account_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Clear the local eCanAI account credentials and drop lightrag.env copies.
+
+    Companion to ``sync_ecanai_account_api_key``: when the user revokes
+    the API key from the Account page, the Account UI removed the key
+    from ``myAPIKeygen`` already. This handler removes the matching
+    ``ECANAI_{LLM,EMBEDDING,RERANK}_API_KEY`` slots from secure_store
+    and blanks the ``LLM_BINDING_API_KEY`` / ``EMBEDDING_BINDING_API_KEY``
+    / ``RERANK_BINDING_API_KEY`` plus ``MINERU_API_TOKEN`` /
+    ``DOCLING_API_KEY`` (when the active mode is ecanai) in lightrag.env,
+    then triggers a LightRAG restart and broadcasts ``providersUpdated``
+    so any open settings tab refreshes.
+    """
+    try:
+        mainwin = AppContext.get_main_window()
+        if not mainwin:
+            return create_error_response(request, 'NOT_INITIALIZED', 'Main window not initialized')
+
+        from gui.manager.provider_settings_helper import clear_ecanai_account_api_key
+        success, error = clear_ecanai_account_api_key(main_window=mainwin)
+        if not success:
+            return create_error_response(request, 'ECANAI_KEY_CLEAR_ERROR', error or 'Key clear failed')
+        return create_success_response(request, {'cleared': True})
+    except Exception as exc:
+        logger.error(f'[RemoveECanAIKey] Error: {exc}')
+        return create_error_response(request, 'ECANAI_KEY_CLEAR_ERROR', str(exc))
+
+
 @IPCHandlerRegistry.handler('req_api_key')
 def handle_req_api_key(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Request a new API key from cloud."""

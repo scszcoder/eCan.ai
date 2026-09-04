@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Modal } from 'antd';
+import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Modal, Tag } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { 
@@ -69,6 +69,40 @@ const setParserImageAnalysis = (routing: string, enabled: boolean): string =>
       return `:${engine}${args || ''}-${enabled ? `i${withoutImages}` : withoutImages}`;
     }
   );
+
+// Keys that are owned by System Settings (default_llm / default_embedding /
+// default_rerank) and synced to lightrag.env by the backend whenever the
+// user changes a default. Saving them from the LightRAG settings page
+// would either be a no-op or — worse — leave a stale value behind that
+// disagrees with the system default. Strip them before saving.
+//
+// Each list also includes the per-mode API key / endpoint env vars that
+// the backend derives from the system provider's API key store. Those
+// values are populated automatically and should never round-trip
+// through the LightRAG settings save path.
+const SYSTEM_MANAGED_KEYS: readonly string[] = [
+  // LLM
+  'LLM_BINDING', 'LLM_MODEL', 'LLM_BINDING_HOST', 'LLM_BINDING_API_KEY',
+  'AZURE_OPENAI_API_VERSION', 'AZURE_OPENAI_DEPLOYMENT', 'AZURE_OPENAI_ENDPOINT',
+  'AZURE_OPENAI_API_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION',
+  'OPENAI_LLM_REASONING_EFFORT', 'OPENAI_LLM_EXTRA_BODY',
+  'OPENAI_LLM_TEMPERATURE', 'OPENAI_LLM_MAX_TOKENS', 'OPENAI_LLM_MAX_COMPLETION_TOKENS',
+  'OLLAMA_LLM_NUM_CTX', 'OLLAMA_LLM_NUM_PREDICT', 'OLLAMA_LLM_STOP',
+  'BEDROCK_LLM_TEMPERATURE', 'GEMINI_LLM_MAX_OUTPUT_TOKENS',
+  'GEMINI_LLM_TEMPERATURE', 'GEMINI_LLM_THINKING_CONFIG',
+  '_SYSTEM_LLM_KEY_SOURCE',
+  // Embedding
+  'EMBEDDING_BINDING', 'EMBEDDING_MODEL', 'EMBEDDING_DIM', 'EMBEDDING_SEND_DIM',
+  'EMBEDDING_TOKEN_LIMIT', 'EMBEDDING_BINDING_HOST', 'EMBEDDING_BINDING_API_KEY',
+  'AZURE_EMBEDDING_API_VERSION', 'AZURE_EMBEDDING_DEPLOYMENT',
+  'AZURE_EMBEDDING_ENDPOINT', 'AZURE_EMBEDDING_API_KEY',
+  'OLLAMA_EMBEDDING_NUM_CTX',
+  '_SYSTEM_EMBED_KEY_SOURCE',
+  // Rerank
+  'RERANK_BINDING', 'RERANK_MODEL', 'RERANK_BINDING_HOST', 'RERANK_BINDING_API_KEY',
+  '_SYSTEM_RERANK_KEY_SOURCE',
+  '_RERANK_RUNTIME_HOST', '_RERANK_USES_PROXY',
+];
 
 const SettingsTab: React.FC = () => {
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -1001,29 +1035,14 @@ const SettingsTab: React.FC = () => {
             return next;
           });
 
-          // Auto-fill eCanAI API key when mineru/docling is set to ecanai mode.
-          // The backend save path also refreshes from secure_store, so this
-          // only seeds the in-memory settings with the latest account key.
-          const mineruEcanai = (parserData.current?.MINERU_API_MODE || '').toLowerCase() === 'ecanai';
-          const doclingEcanai = (parserData.current?.DOCLING_PROVIDER || '').toLowerCase() === 'ecanai';
-          if (mineruEcanai || doclingEcanai) {
-            get_ipc_api().executeRequest<{ apiKey: string | null }>(
-              'lightrag.getEcanaiApiKey', {}
-            ).then(resp => {
-              if (resp.success && resp.data?.apiKey) {
-                setSettings(prev => {
-                  const next = { ...prev };
-                  if (next.MINERU_API_MODE === 'ecanai') {
-                    next.MINERU_API_TOKEN = resp.data!.apiKey as string;
-                  }
-                  if (next.DOCLING_PROVIDER === 'ecanai') {
-                    next.DOCLING_API_KEY = resp.data!.apiKey as string;
-                  }
-                  return next;
-                });
-              }
-            }).catch(() => {/* key not available */});
-          }
+          // eCanAI-mode API keys are sourced from the account-level
+          // ECANAI_LLM_API_KEY in secure_store. The backend's
+          // getParserEngines handler seeds parserData.current with the
+          // live account value (or '' when no key is provisioned) so the
+          // UI displays the right credential on first paint — no async
+          // overlay needed here. The user-driven updateSetting path
+          // separately re-pulls the key on every ecanai switch to
+          // capture account changes between page load and the toggle.
         }
       }
     } catch (e) {
@@ -1184,6 +1203,46 @@ const SettingsTab: React.FC = () => {
     }
   };
 
+  // In the merged "models" tab each ProviderSelector runs in managed
+  // mode — the provider is owned by System Settings. Provide a deep-link
+  // callback so users land on the matching Settings tab for each model type.
+  const handleNavigateToSystemSettings = (kind: 'llm' | 'embedding' | 'rerank') => {
+    const tabMap: Record<'llm' | 'embedding' | 'rerank', string> = {
+      llm: 'llm',
+      embedding: 'embedding',
+      rerank: 'rerank',
+    };
+    window.location.hash = `#/settings?tab=${tabMap[kind]}`;
+  };
+
+  // Read-only "currently active provider" indicator for the merged Models
+  // tab. ProviderSelector's managed banner already shows the provider
+  // name in a secondary line, but it is easy to miss when triaging
+  // "which provider is LightRAG actually using?". This tag sits next to
+  // each module's heading so the active provider is visible at a glance.
+  // It is intentionally a non-interactive Ant Design <Tag> — provider
+  // selection is owned by System Settings, and the save payload below
+  // strips the managed binding keys, so there is no path through this
+  // component that could mutate the value.
+  const renderActiveProviderTag = (
+    bindingKey: 'LLM_BINDING' | 'EMBEDDING_BINDING' | 'RERANK_BINDING',
+    providers: ProviderConfig[],
+  ) => {
+    const providerId = (settings[bindingKey] || '').trim();
+    if (!providerId) return null;
+    const provider = providers.find(p => p.id === providerId);
+    const displayName = provider
+      ? (provider.name.includes('.') ? t(`pages.knowledge.settings.${provider.name}`) : provider.name)
+      : providerId;
+    return (
+      <Tooltip title={t('pages.knowledge.settings.provider.managedHint', { defaultValue: 'This provider is configured in System Settings' })}>
+        <Tag color="blue" style={{ marginLeft: 4, fontSize: 12, fontWeight: 500 }}>
+          {displayName}
+        </Tag>
+      </Tooltip>
+    );
+  };
+
   const loadWorkspaces = async () => {
     try {
       setWorkspaceLoading(true);
@@ -1295,9 +1354,18 @@ const SettingsTab: React.FC = () => {
       // Strip the UI-only engine selection from the payload — the engine is
       // persisted through LIGHTRAG_PARSER itself and must never be written
       // to lightrag.env as a fake variable.
+      // Also strip provider-binding keys — those are owned by System
+      // Settings (default_llm / default_embedding / default_rerank) and
+      // are written to lightrag.env by the backend whenever the user
+      // changes the system default. Saving them here would either be a
+      // no-op (the backend strips them too) or, worse, would let a stale
+      // value linger after the user changes the system default.
       const savePayload = { ...settings };
       delete savePayload.PARSING_ENGINE;
       delete savePayload.PARSER_IMAGE_ANALYSIS;
+      for (const managedKey of SYSTEM_MANAGED_KEYS) {
+        delete savePayload[managedKey];
+      }
 
       const response = await get_ipc_api().lightragApi.saveSettings(savePayload);
       if (response.success) {
@@ -1599,9 +1667,7 @@ const SettingsTab: React.FC = () => {
       basic: <CloudServerOutlined />,
       rag: <ApiOutlined />,
       parsing: <FileTextOutlined />,
-      reranking: <SortAscendingOutlined />,
-      llm: <RobotOutlined />,
-      embedding: <BlockOutlined />,
+      models: <RobotOutlined />,
       storage: <DatabaseOutlined />,
       evaluation: <ExperimentOutlined />
     };
@@ -1825,38 +1891,103 @@ const SettingsTab: React.FC = () => {
             onTestProvider={settings.PARSING_ENGINE === 'mineru' || settings.PARSING_ENGINE === 'docling' ? testParserConfig : undefined}
           />
         );
-      case 'reranking':
+      case 'models':
+        // ──────────────────────────────────────────────────────────────
+        // LLM / Embedding / Reranking merged into one tab. The provider
+        // itself is owned by System Settings (default_llm /
+        // default_embedding / default_rerank). We pass managed=true so
+        // ProviderSelector hides its provider dropdown and shows a
+        // "managed by System Settings" banner with a deep link.
+        // ──────────────────────────────────────────────────────────────
         return (
-          <ProviderSelector
-            bindingKey="RERANK_BINDING"
-            providers={rerankingProviders}
-            commonFields={RERANKING_COMMON_FIELDS}
-            settings={settings}
-            onSettingChange={createSettingChangeHandler("RERANK_BINDING", rerankingProviders)}
-            onTestProvider={(providerId, silent) => testModelServiceConfig('rerank', providerId, silent)}
-          />
-        );
-      case 'llm':
-        return (
-          <ProviderSelector
-            bindingKey="LLM_BINDING"
-            providers={llmProviders}
-            commonFields={LLM_COMMON_FIELDS}
-            settings={settings}
-            onSettingChange={createSettingChangeHandler("LLM_BINDING", llmProviders)}
-            onTestProvider={(providerId, silent) => testModelServiceConfig('llm', providerId, silent)}
-          />
-        );
-      case 'embedding':
-        return (
-          <ProviderSelector
-            bindingKey="EMBEDDING_BINDING"
-            providers={embeddingProviders}
-            commonFields={EMBEDDING_COMMON_FIELDS}
-            settings={settings}
-            onSettingChange={createSettingChangeHandler("EMBEDDING_BINDING", embeddingProviders)}
-            onTestProvider={(providerId, silent) => testModelServiceConfig('embedding', providerId, silent)}
-          />
+          <div style={{ padding: '8px 0' }}>
+            <div style={{ marginBottom: 16 }}>
+              <h3 style={{
+                fontSize: 14,
+                fontWeight: 600,
+                marginBottom: 8,
+                color: token.colorText,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}>
+                <RobotOutlined style={{ fontSize: 14, color: token.colorPrimary }} />
+                {t('pages.knowledge.settings.llm.title')}
+                {renderActiveProviderTag('LLM_BINDING', llmProviders)}
+              </h3>
+              <ProviderSelector
+                bindingKey="LLM_BINDING"
+                providers={llmProviders}
+                commonFields={LLM_COMMON_FIELDS}
+                settings={settings}
+                onSettingChange={updateSetting}
+                onTestProvider={(providerId, silent) => testModelServiceConfig('llm', providerId, silent)}
+                managed
+                managedKind="llm"
+                navigateToSettings={() => handleNavigateToSystemSettings('llm')}
+                token={token}
+                t={t}
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <h3 style={{
+                fontSize: 14,
+                fontWeight: 600,
+                marginBottom: 8,
+                color: token.colorText,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}>
+                <BlockOutlined style={{ fontSize: 14, color: token.colorPrimary }} />
+                {t('pages.knowledge.settings.embedding.title')}
+                {renderActiveProviderTag('EMBEDDING_BINDING', embeddingProviders)}
+              </h3>
+              <ProviderSelector
+                bindingKey="EMBEDDING_BINDING"
+                providers={embeddingProviders}
+                commonFields={EMBEDDING_COMMON_FIELDS}
+                settings={settings}
+                onSettingChange={updateSetting}
+                onTestProvider={(providerId, silent) => testModelServiceConfig('embedding', providerId, silent)}
+                managed
+                managedKind="embedding"
+                navigateToSettings={() => handleNavigateToSystemSettings('embedding')}
+                token={token}
+                t={t}
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <h3 style={{
+                fontSize: 14,
+                fontWeight: 600,
+                marginBottom: 8,
+                color: token.colorText,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}>
+                <SortAscendingOutlined style={{ fontSize: 14, color: token.colorPrimary }} />
+                {t('pages.knowledge.settings.reranking.title')}
+                {renderActiveProviderTag('RERANK_BINDING', rerankingProviders)}
+              </h3>
+              <ProviderSelector
+                bindingKey="RERANK_BINDING"
+                providers={rerankingProviders}
+                commonFields={RERANKING_COMMON_FIELDS}
+                settings={settings}
+                onSettingChange={updateSetting}
+                onTestProvider={(providerId, silent) => testModelServiceConfig('rerank', providerId, silent)}
+                managed
+                managedKind="rerank"
+                navigateToSettings={() => handleNavigateToSystemSettings('rerank')}
+                token={token}
+                t={t}
+              />
+            </div>
+          </div>
         );
       case 'storage':
         // Check if any PostgreSQL provider is selected

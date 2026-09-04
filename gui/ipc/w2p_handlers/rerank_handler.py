@@ -694,6 +694,7 @@ def handle_get_rerank_provider_api_key(request: IPCRequest, params: Optional[Dic
                 else:
                     api_key = rerank_manager._get_masked_api_key('AZURE_OPENAI_API_KEY')
                 result['credentials']['api_key'] = api_key
+                result['configured'] = bool(api_key)
 
             return create_success_response(request, result)
 
@@ -708,15 +709,21 @@ def handle_get_rerank_provider_api_key(request: IPCRequest, params: Optional[Dic
                 # Return masked API key
                 api_key = rerank_manager._get_masked_api_key(env_var)
 
-            if api_key is None:
-                return create_error_response(request, 'RERANK_ERROR', f"No API key found for {provider_identifier}")
-
+            # An absent slot is NOT an error — mirrors the get_api_key
+            # contract (absent key = success with apiKey=None). The UI
+            # uses this to decide whether to show "configure a key" vs
+            # "key already configured" without raising an opaque toast.
             return create_success_response(request, {
                 'provider_name': provider_identifier,
                 'env_var': env_var,
-                'api_key': api_key,
+                'api_key': api_key or '',
                 'is_masked': not show_full,
-                'message': f'API key retrieved for {provider_identifier}'
+                'configured': bool(api_key),
+                'message': (
+                    f'API key retrieved for {provider_identifier}'
+                    if api_key else
+                    f'No API key configured for {provider_identifier}'
+                ),
             })
 
     except Exception as e:

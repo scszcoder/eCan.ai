@@ -1389,6 +1389,15 @@ class LightragClient:
             error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
             logger.error(f"LightragClient.get_documents_paginated HTTP error: {error_msg}")
             return {"status": "error", "message": error_msg}
+        except requests.exceptions.ConnectionError as e:
+            # All 3 retries exhausted — server is genuinely down, not just
+            # restarting. The handler/registry will still surface the error
+            # to the frontend (so DocumentsTab can show "Waiting for
+            # LightRAG server…"), but we MUST NOT log a full traceback for
+            # an expected transient condition. Same pattern as
+            # get_status_counts / get_processing_progress handlers.
+            logger.debug(f"[LightragClient] get_documents_paginated: server not ready: {e}")
+            return {"status": "error", "message": str(e)}
         except Exception as e:
             err = get_traceback(e, "LightragClient.get_documents_paginated")
             logger.error(err)

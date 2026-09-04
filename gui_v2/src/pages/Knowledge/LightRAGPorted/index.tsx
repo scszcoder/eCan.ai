@@ -54,22 +54,22 @@ const KnowledgePortedPage: React.FC = () => {
           ]);
 
           const llmProvider = settings.LLM_BINDING || settings.LLM_PROVIDER;
-          if (llmProvider && !settings.LLM_BINDING_API_KEY && !settings._SYSTEM_LLM_API_KEY_SOURCE) {
+          if (llmProvider && !settings.LLM_BINDING_API_KEY && !settings._SYSTEM_LLM_KEY_SOURCE) {
             const globalLlm = (llmResp.success && llmResp.data?.providers || []).find(
               (p) => (p.provider || p.name || '').toLowerCase() === llmProvider.toLowerCase()
             );
             if (globalLlm?.api_key_configured) {
-              settings._SYSTEM_LLM_API_KEY_SOURCE = true;
+              settings._SYSTEM_LLM_KEY_SOURCE = true;
             }
           }
 
           const embedProvider = settings.EMBEDDING_BINDING || settings.EMBEDDING_PROVIDER;
-          if (embedProvider && !settings.EMBEDDING_BINDING_API_KEY && !settings._SYSTEM_EMBEDDING_BINDING_API_KEY_SOURCE) {
+          if (embedProvider && !settings.EMBEDDING_BINDING_API_KEY && !settings._SYSTEM_EMBED_KEY_SOURCE) {
             const globalEmbed = (embedResp.success && embedResp.data?.providers || []).find(
               (p) => (p.provider || p.name || '').toLowerCase() === embedProvider.toLowerCase()
             );
             if (globalEmbed?.api_key_configured) {
-              settings._SYSTEM_EMBEDDING_BINDING_API_KEY_SOURCE = true;
+              settings._SYSTEM_EMBED_KEY_SOURCE = true;
             }
           }
         } catch (e) {

@@ -1,7 +1,9 @@
 import traceback
 import json
+import time
+import threading
 from os.path import exists
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, Tuple
 import requests
 from app_context import AppContext
 from gui.ipc.context_bridge import get_handler_context
@@ -11,6 +13,47 @@ from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 
 from utils.logger_helper import logger_helper as logger
+
+# --- /v1/models probe deduplication --------------------------------------
+# TCB's llm-proxy rate-limits per source IP. The frontend sometimes fires
+# several `settings.getProviderModels` calls for the same (host,
+# model_type) within a few hundred ms (page switches, useEffect re-runs,
+# workspace selection, auth-state flips). Two layers of deduplication
+# collapse these into a single upstream request:
+#
+#   1. _PROVIDER_MODELS_LOCKS serializes concurrent probes for the same
+#      key. The first thread does the network call; the rest find a fresh
+#      cache hit and return immediately. This is what stops a "storm" of
+#      10 simultaneous identical requests.
+#   2. _PROVIDER_MODELS_CACHE holds successful responses for 60s so a
+#      quick UI re-render does not re-issue the probe.
+#
+# A short negative cache (_PROVIDER_MODELS_ERROR_CACHE, 5s) keeps the
+# next request from retrying the moment a 429 has just come back —
+# without it, an autoplay UI re-render can pile 10 more requests on a
+# rate-limited endpoint inside a single rate-limit window.
+#
+# The cache key is ``(host, requested_type)`` — intentionally without
+# ``api_key``. OpenAI-compatible ``/v1/models`` returns the same catalog
+# regardless of credential, so keying on ``api_key`` would split the
+# cache across login states (empty → filled, or key rotations) and
+# force the very dedup we're trying to do.
+_PROVIDER_MODELS_CACHE: Dict[Tuple[str, str], Tuple[float, Dict[str, Any]]] = {}
+_PROVIDER_MODELS_CACHE_TTL_S = 60.0
+_PROVIDER_MODELS_ERROR_CACHE: Dict[Tuple[str, str], Tuple[float, str]] = {}
+_PROVIDER_MODELS_ERROR_TTL_S = 5.0
+_PROVIDER_MODELS_LOCKS: Dict[Tuple[str, str], threading.Lock] = {}
+_PROVIDER_MODELS_LOCKS_GUARD = threading.Lock()
+
+
+def _get_provider_models_lock(key: Tuple[str, str]) -> threading.Lock:
+    """Return (creating if needed) the per-key probe lock."""
+    with _PROVIDER_MODELS_LOCKS_GUARD:
+        lock = _PROVIDER_MODELS_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _PROVIDER_MODELS_LOCKS[key] = lock
+        return lock
 
 @IPCHandlerRegistry.handler('get_hostname')
 def handle_get_hostname(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -349,11 +392,15 @@ def handle_get_provider_models(request: IPCRequest, params: Optional[Dict[str, A
 
     # System-managed LightRAG key fields are intentionally not exposed to the
     # web UI. Resolve the provider credential in the backend when needed.
+    provider_requires_key = False
     if not api_key and provider_id and requested_type in ('llm', 'embedding', 'rerank'):
         try:
             ctx = get_handler_context(request, params)
             manager = getattr(ctx.get_config_manager(), f'{requested_type}_manager') if ctx else None
             provider = manager.get_provider(provider_id) if manager else None
+            provider_requires_key = bool(
+                provider and (provider.get('api_key_env_vars') or provider.get('requires_api_key'))
+            )
             for env_var in (provider or {}).get('api_key_env_vars', []):
                 api_key = manager.retrieve_api_key(env_var) or ''
                 if api_key:
@@ -361,26 +408,82 @@ def handle_get_provider_models(request: IPCRequest, params: Optional[Dict[str, A
         except Exception as key_exc:
             logger.warning(f'[SettingsHandler] Could not resolve {provider_id} API key: {key_exc}')
 
-    headers = {'Authorization': f'Bearer {api_key}'} if api_key else {}
+    # Credentialed providers without a configured key would only get a 401
+    # from the remote /v1/models endpoint — that's expected behavior, not a
+    # bug. Return an empty list with a flag so the UI can show "configure a
+    # key first" instead of an opaque toast. Issue the request only when
+    # we actually have credentials to present.
+    if provider_id and requested_type and provider_requires_key and not api_key:
+        # Dedupe: the answer is stable until the user actually configures a
+        # key, so an empty list with `requires_api_key=True` is safe to serve
+        # from cache.
+        cache_key = (host, requested_type, '__nokey__')
+        cached = _PROVIDER_MODELS_CACHE.get(cache_key)
+        if cached and (time.monotonic() - cached[0]) < _PROVIDER_MODELS_CACHE_TTL_S:
+            return create_success_response(request, cached[1])
+        payload = {'models': [], 'host': host, 'requires_api_key': True}
+        _PROVIDER_MODELS_CACHE[cache_key] = (time.monotonic(), payload)
+        logger.info(
+            f"[SettingsHandler] Skipping model probe for {provider_id}/{requested_type}: "
+            f"no API key configured (onboarding required)"
+        )
+        return create_success_response(request, payload)
 
-    try:
-        response = requests.get(f'{host}/models', headers=headers, timeout=15)
-        response.raise_for_status()
-        payload = response.json()
-        models = payload.get('data', payload.get('models', [])) if isinstance(payload, dict) else []
-        normalized = []
-        for model in models if isinstance(models, list) else []:
-            item = model if isinstance(model, dict) else {'id': str(model)}
-            item_type = str(item.get('type') or item.get('model_type') or '').lower()
-            if requested_type and item_type and item_type not in (requested_type, f'{requested_type}s'):
-                continue
-            model_id = item.get('id') or item.get('model_id') or item.get('name')
-            if model_id:
-                normalized.append({**item, 'name': str(model_id)})
-        return create_success_response(request, {'models': normalized, 'host': host})
-    except Exception as exc:
-        logger.warning(f'[SettingsHandler] Failed to fetch provider models from {host}: {exc}')
-        return create_error_response(request, 'PROVIDER_MODELS_ERROR', str(exc))
+    # Cache key intentionally excludes ``api_key``. OpenAI-compatible
+    # ``/v1/models`` returns the same catalog regardless of credential, so
+    # splitting the cache on ``api_key`` produces spurious misses when the
+    # auth state flips (logged-out → logged-in / key rotation) and lets a
+    # UI re-render double-hit a rate-limited endpoint with two different
+    # keys for the *same* provider + model_type.
+    cache_key = (host, requested_type)
+    lock = _get_provider_models_lock(cache_key)
+    with lock:
+        # Collapsed-concurrent path: another thread already finished a probe
+        # for this key while we were waiting on the lock.
+        cached = _PROVIDER_MODELS_CACHE.get(cache_key)
+        if cached and (time.monotonic() - cached[0]) < _PROVIDER_MODELS_CACHE_TTL_S:
+            return create_success_response(request, cached[1])
+        err_cached = _PROVIDER_MODELS_ERROR_CACHE.get(cache_key)
+        if err_cached and (time.monotonic() - err_cached[0]) < _PROVIDER_MODELS_ERROR_TTL_S:
+            return create_error_response(request, 'PROVIDER_MODELS_ERROR', err_cached[1])
+
+        headers = {'Authorization': f'Bearer {api_key}'} if api_key else {}
+
+        try:
+            response = requests.get(f'{host}/models', headers=headers, timeout=15)
+            response.raise_for_status()
+            payload = response.json()
+            models = payload.get('data', payload.get('models', [])) if isinstance(payload, dict) else []
+            normalized = []
+            for model in models if isinstance(models, list) else []:
+                item = model if isinstance(model, dict) else {'id': str(model)}
+                item_type = str(item.get('type') or item.get('model_type') or '').lower()
+                if requested_type and item_type and item_type not in (requested_type, f'{requested_type}s'):
+                    continue
+                model_id = item.get('id') or item.get('model_id') or item.get('name')
+                if model_id:
+                    normalized.append({**item, 'name': str(model_id)})
+            result_payload = {'models': normalized, 'host': host}
+            _PROVIDER_MODELS_CACHE[cache_key] = (time.monotonic(), result_payload)
+            return create_success_response(request, result_payload)
+        except Exception as exc:
+            # 401/403/429 from a credentialed provider are normal cloud-side
+            # responses (rate limit, expired key, plan gating) — surface them
+            # as warnings, not full stack traces. Genuine code errors still
+            # raise as ERROR inside the GraphQL layer.
+            msg = str(exc)
+            transient = ('401', '403', '429', 'Too Many Requests', 'Unauthorized')
+            if any(t in msg for t in transient):
+                logger.info(
+                    f"[SettingsHandler] {provider_id or host} /models probe "
+                    f"returned a transient response: {msg[:120]}"
+                )
+                # Negative cache for the rate-limit window so concurrent /
+                # follow-up probes don't pile onto a 429-bombarded endpoint.
+                _PROVIDER_MODELS_ERROR_CACHE[cache_key] = (time.monotonic(), msg)
+            else:
+                logger.warning(f'[SettingsHandler] Failed to fetch provider models from {host}: {msg}')
+            return create_error_response(request, 'PROVIDER_MODELS_ERROR', msg)
 
 
 @IPCHandlerRegistry.background_handler('settings.getOllamaModels')

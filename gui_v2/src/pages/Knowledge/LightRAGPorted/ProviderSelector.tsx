@@ -24,6 +24,19 @@ interface ProviderSelectorProps {
   settings: Record<string, string>;
   onSettingChange: (key: string, value: string) => void;
   onTestProvider?: (providerId: string, silent?: boolean) => Promise<boolean | { ok: boolean; category?: string; technical?: string }>;
+  /**
+   * Managed mode hides the provider dropdown. The provider is owned by
+   * System Settings (default_llm / default_embedding / default_rerank);
+   * we display the active provider's name and a deep-link button so the
+   * user can change it there. Only non-provider-specific tuning fields
+   * remain editable.
+   */
+  managed?: boolean;
+  /** Provider type the managed banner should reference (display only). */
+  managedKind?: 'llm' | 'embedding' | 'rerank';
+  navigateToSettings?: () => void;
+  token?: any;
+  t?: (key: string, options?: any) => string;
 }
 
 const ProviderSelector: React.FC<ProviderSelectorProps> = ({
@@ -32,10 +45,17 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   commonFields = [],
   settings,
   onSettingChange,
-  onTestProvider
+  onTestProvider,
+  managed = false,
+  managedKind,
+  navigateToSettings,
+  token: tokenProp,
+  t: tProp,
 }) => {
-  const { t } = useTranslation();
-  const { token } = theme.useToken();
+  const { t: tHook } = useTranslation();
+  const { token: tokenHook } = theme.useToken();
+  const t = tProp || tHook;
+  const token = tokenProp || tokenHook;
   
   const currentProviderId = settings[bindingKey] || '';
   // Only fall back to first provider if the saved setting is a valid provider in the current list.
@@ -207,15 +227,16 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
     window.open(host, '_blank');
   };
 
-  const handleNavigateToSettings = (fieldKey: string) => {
-    // Navigate within the app using hash routing (same as onboarding)
-    if (fieldKey === 'LLM_BINDING_API_KEY') {
-      window.location.hash = '#/settings?tab=llm';
-    } else if (fieldKey === 'EMBEDDING_BINDING_API_KEY') {
-      window.location.hash = '#/settings?tab=embedding';
-    } else if (fieldKey === 'RERANK_BINDING_API_KEY') {
-      window.location.hash = '#/settings?tab=rerank';
-    }
+  const handleNavigateToSettings = (kind: 'llm' | 'embedding' | 'rerank') => {
+    // Navigate within the app using hash routing (same as onboarding).
+    // Each model type deep-links to its matching tab in System Settings so
+    // the user lands exactly where they can change the provider.
+    const tabMap: Record<'llm' | 'embedding' | 'rerank', string> = {
+      llm: 'llm',
+      embedding: 'embedding',
+      rerank: 'rerank',
+    };
+    window.location.hash = `#/settings?tab=${tabMap[kind]}`;
   };
 
   const renderField = (field: ProviderFieldConfig) => {
@@ -381,7 +402,7 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
                     type="text"
                     icon={<SettingOutlined />}
                     size="small"
-                    onClick={() => handleNavigateToSettings(field.key)}
+                    onClick={() => handleNavigateToSettings(managedKind || 'llm')}
                     style={{ flexShrink: 0 }}
                   />
                 </Tooltip>
@@ -590,42 +611,151 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   ].map(group => ({ ...group, fields: visibleFields.filter(field => group.keys.includes(field.key)) }))
     .filter(group => group.fields.length > 0) : [];
 
+  // In managed mode, fields whose values come from the System Settings
+  // provider configuration (model, host, api_key) are hidden. The
+  // provider object still knows about them — we just don't render the
+  // inputs. Other tuning parameters (timeout, temperature, scoring
+  // thresholds, etc.) stay editable.
+  const managedFieldKeys = new Set([
+    'LLM_MODEL', 'LLM_BINDING_HOST', 'LLM_BINDING_API_KEY',
+    'EMBEDDING_MODEL', 'EMBEDDING_BINDING_HOST', 'EMBEDDING_BINDING_API_KEY',
+    'EMBEDDING_DIM', 'EMBEDDING_TOKEN_LIMIT', 'EMBEDDING_SEND_DIM',
+    'RERANK_MODEL', 'RERANK_BINDING_HOST', 'RERANK_BINDING_API_KEY',
+  ]);
+  const fieldsForDisplay = managed && currentProvider
+    ? currentProvider.fields.filter(field => !managedFieldKeys.has(field.key))
+    : visibleFields;
+
   return (
     <div style={{ padding: '8px 0' }}>
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ marginBottom: 4 }}>
-          <span style={{ fontWeight: 600, fontSize: 14, color: token.colorText }}>
-            {t('pages.knowledge.settings.provider.selectProvider')}
-          </span>
-        </div>
-        <Select
-          value={effectiveProviderId}
-          placeholder={t('pages.knowledge.settings.provider.selectProviderPlaceholder')}
-          onChange={(val) => onSettingChange(bindingKey, val)}
-          style={{ width: '100%' }}
-          optionLabelProp="label"
+      {managed ? (
+        // ── Managed banner ────────────────────────────────────────────
+        // The provider dropdown is owned by System Settings. Show the
+        // active provider as a read-only tag with its current status and
+        // offer a deep link to the matching Settings tab. This banner
+        // renders independently of provider fields — it must appear even
+        // when all provider fields are managed (e.g. eCanAI reranking where
+        // every field is stripped by managedFieldKeys and fieldsForDisplay
+        // is empty).
+        <div
+          style={{
+            marginBottom: 12,
+            padding: '10px 12px',
+            border: `1px solid ${token.colorBorder}`,
+            borderRadius: 8,
+            background: token.colorFillQuaternary,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+          }}
         >
-          {providers.map(p => {
-            // Translate provider name if it's an i18n key
-            const providerName = p.name.includes('.') 
-              ? t(`pages.knowledge.settings.${p.name}`)
-              : p.name;
-            
-            return (
-              <Select.Option key={p.id} value={p.id} label={providerName}>
-                <div>
-                  <div style={{ fontWeight: 500 }}>{providerName}</div>
-                  {p.description && (
-                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>{p.description}</div>
-                  )}
-                </div>
-              </Select.Option>
-            );
-          })}
-        </Select>
-      </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 auto', minWidth: 0 }}>
+            <Tooltip title={t('pages.knowledge.settings.provider.managedHint', { defaultValue: 'This provider is configured in System Settings' })}>
+              <span style={{
+                fontSize: 10,
+                background: token.colorFillSecondary,
+                color: token.colorTextSecondary,
+                padding: '1px 6px',
+                borderRadius: 4,
+              }}>
+                {t('pages.knowledge.settings.badgeSystem', { defaultValue: 'System' })}
+              </span>
+            </Tooltip>
+            <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>
+              {t(`pages.knowledge.settings.provider.managedBy_${managedKind || 'llm'}`, {
+                provider: currentProvider
+                  ? (currentProvider.name.includes('.') ? t(`pages.knowledge.settings.${currentProvider.name}`) : currentProvider.name)
+                  : '—',
+                defaultValue: 'Provider: {{provider}} (managed by System Settings)'
+              })}
+            </span>
+          </div>
 
-      {currentProvider && visibleFields.length > 0 && (
+          {/* Test button + provider status — always visible in managed mode */}
+          {onTestProvider && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Tooltip title={providerStatus === 'unavailable' ? (
+                <div>
+                  <div>{t(`pages.knowledge.settings.parserProbe.errors.${providerError.category || 'unknown'}.reason`)}</div>
+                  {providerError.technical && <div style={{ marginTop: 4, wordBreak: 'break-word' }}>{providerError.technical}</div>}
+                </div>
+              ) : undefined}>
+                <Badge
+                  status={providerStatus === 'testing' ? 'processing' : providerStatus === 'available' ? 'success' : providerStatus === 'unavailable' ? 'error' : 'default'}
+                  text={t(`pages.knowledge.settings.serviceStatus.${providerStatus}`)}
+                  style={{ color: token.colorTextSecondary, fontSize: 12 }}
+                />
+              </Tooltip>
+              <Tooltip title={t('pages.knowledge.settings.parserProbe.test')}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<ApiOutlined />}
+                  loading={testingProvider}
+                  onClick={handleTestProvider}
+                  style={{ height: 28, padding: '0 8px', color: token.colorPrimary, fontWeight: 500 }}
+                >
+                  {t('pages.knowledge.settings.parserProbe.testShort')}
+                </Button>
+              </Tooltip>
+            </div>
+          )}
+
+          {navigateToSettings && (
+            <Button
+              type="link"
+              size="small"
+              icon={<SettingOutlined />}
+              onClick={() => handleNavigateToSettings(managedKind || 'llm')}
+              style={{ padding: '0 4px' }}
+            >
+              {t('pages.knowledge.settings.provider.goToSettings', { defaultValue: 'Go to System Settings' })}
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 4 }}>
+            <span style={{ fontWeight: 600, fontSize: 14, color: token.colorText }}>
+              {t('pages.knowledge.settings.provider.selectProvider')}
+            </span>
+          </div>
+          <Select
+            value={effectiveProviderId}
+            placeholder={t('pages.knowledge.settings.provider.selectProviderPlaceholder')}
+            onChange={(val) => onSettingChange(bindingKey, val)}
+            style={{ width: '100%' }}
+            optionLabelProp="label"
+          >
+            {providers.map(p => {
+              // Translate provider name if it's an i18n key
+              const providerName = p.name.includes('.') 
+                ? t(`pages.knowledge.settings.${p.name}`)
+                : p.name;
+              
+              return (
+                <Select.Option key={p.id} value={p.id} label={providerName}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{providerName}</div>
+                    {p.description && (
+                      <div style={{ fontSize: 12, color: token.colorTextSecondary }}>{p.description}</div>
+                    )}
+                  </div>
+                </Select.Option>
+              );
+            })}
+          </Select>
+        </div>
+      )}
+
+      {/* In managed mode the banner (above) is always visible.
+          The Card only renders when there are managed-field tuning parameters
+          to show (fieldsForDisplay non-empty). When all fields are owned by
+          System Settings (e.g. eCanAI reranking) the Card is omitted so the
+          user does not see an empty "Configuration" card. The common-fields
+          Card below still shows any global tuning fields. */}
+      {currentProvider && fieldsForDisplay.length > 0 && (
         <Card
           size="small"
           title={
@@ -730,7 +860,7 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
               gap: 8
             }}>
-              {visibleFields.map(field => renderField(field))}
+              {fieldsForDisplay.map(field => renderField(field))}
             </div>
           )}
         </Card>

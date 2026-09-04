@@ -173,7 +173,7 @@ const Avatars: React.FC = () => {
           footer={null}
           width={760}
           centered
-          destroyOnClose
+          destroyOnHidden
           closable={false}
           styles={{
             body: { padding: 0, maxHeight: 'calc(90vh - 0px)', overflowY: 'auto' },
@@ -217,7 +217,7 @@ const Avatars: React.FC = () => {
         onCancel={() => setUploadOpen(false)}
         footer={null}
         title={t('avatar.upload_new')}
-        destroyOnClose
+        destroyOnHidden
         width={520}
       >
         {username && (

@@ -121,6 +121,9 @@ const DocumentsTab: React.FC = () => {
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const batchCancelRequestedRef = useRef(false);
   const batchSubmittingRef = useRef(false);
+  // Mirror of `documents` that async closures (e.g. pollUntilDeleted started
+  // before loadDocuments() resolves) can read for the freshest list.
+  const documentsRef = useRef<Document[]>([]);
   const [autoStopOnFailure, setAutoStopOnFailure] = useState(true); // 默认启用自动停止
   const [consoleCollapsed, setConsoleCollapsed] = useState(false); // Console折叠状态，默认展开
   // LightRAG workspace (tenant) for scoping ingestion and document queries.
@@ -863,6 +866,7 @@ const DocumentsTab: React.FC = () => {
           }
           
           if (Array.isArray(docsArray)) {
+            documentsRef.current = docsArray;
             // Optimize: Only update if documents actually changed (for silent refresh)
             if (silentRefresh) {
               // Compare and only update if there are actual changes
@@ -1222,19 +1226,22 @@ const DocumentsTab: React.FC = () => {
                 duration: 3
               });
               
-              // Poll to verify deletion completion
+              // Poll to verify deletion completion. Reads `documentsRef.current`
+              // (kept in sync by loadDocuments) rather than the React `documents`
+              // state captured by this closure — the snapshot would always
+              // include the doc we're deleting and the user would see
+              // "删除验证超时" 60 s after the server already removed it
+              // (observed 2026-09-04 with doc-1cd4ce4e…f9f3e2).
               let pollCount = 0;
               const maxPolls = 20; // Max 60 seconds (20 * 3s)
               const pollInterval = 3000;
-              
+
               const pollUntilDeleted = async () => {
                 pollCount++;
                 console.log(`[DocumentsTab] Deletion poll ${pollCount}/${maxPolls}`);
-                
-                // Refresh documents list and status counts
+
                 await loadDocuments();
-                
-                // Also refresh status counts to ensure UI is in sync
+
                 try {
                   const countsResponse = await get_ipc_api().lightragApi.getStatusCounts({ workspace: workspace || undefined });
                   if (countsResponse.success && countsResponse.data) {
@@ -1254,35 +1261,27 @@ const DocumentsTab: React.FC = () => {
                       PROCESSED: processed,
                       PROCESSING: processing,
                       PENDING: pending,
-                      FAILED: failed
+                      FAILED: failed,
                     });
                   }
                 } catch (e) {
                   console.error('[DocumentsTab] Failed to refresh status counts:', e);
                 }
-                
-                // Check if document still exists in current documents state
-                // Use a small delay to ensure state has updated
-                setTimeout(() => {
-                  const stillExists = documents.some((d: Document) => d.id === doc.id);
-                  
-                  if (!stillExists) {
-                    // Document deleted successfully
-                    appendLog('✅ 文档删除完成');
-                    message.success('文档已成功删除');
-                    return;
-                  }
-                  
-                  // Continue polling if not done
-                  if (pollCount < maxPolls) {
-                    setTimeout(pollUntilDeleted, pollInterval);
-                  } else {
-                    appendLog('⚠️ 删除验证超时，请手动刷新查看');
-                    message.warning('删除验证超时，请刷新页面确认');
-                  }
-                }, 500);
+
+                const stillExists = documentsRef.current.some((d: Document) => d.id === doc.id);
+                if (!stillExists) {
+                  appendLog('✅ 文档删除完成');
+                  message.success('文档已成功删除');
+                  return;
+                }
+                if (pollCount < maxPolls) {
+                  setTimeout(pollUntilDeleted, pollInterval);
+                } else {
+                  appendLog('⚠️ 删除验证超时，请手动刷新查看');
+                  message.warning('删除验证超时，请刷新页面确认');
+                }
               };
-              
+
               // Start polling after 2 seconds
               setTimeout(pollUntilDeleted, 2000);
           } else {

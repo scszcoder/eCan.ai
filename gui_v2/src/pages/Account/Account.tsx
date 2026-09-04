@@ -7,6 +7,7 @@ import { useAccountStore } from '../../stores/accountStore';
 import { ipcApi } from '../../services/ipc/api';
 import { getCachedAppConfig, useIsCN } from '../../contexts/AppConfigContext';
 import { isWebPlatform } from '../../config/platform';
+import { eventBus } from '../../utils/eventBus';
 import TokenUsageSection from './TokenUsageSection';
 import ContactVerification from './ContactVerification';
 
@@ -81,6 +82,21 @@ const Account: React.FC = () => {
             const error = response?.error?.message || 'Failed to synchronize eCanAI provider key';
             if (!silent) message.warning(error);
             else console.warn('[Account] eCanAI API key synchronization failed:', error);
+            return false;
+        }
+        return true;
+    };
+
+    const clearECanAIKey = async (silent = false) => {
+        // Companion to syncECanAIKey: when the user revokes the key from
+        // Account page, drop the matching ECANAI_{LLM,EMBEDDING,RERANK}_API_KEY
+        // slots from secure_store and the matching lightrag.env API-key
+        // fields, then trigger LightRAG restart.
+        const response = await ipcApi.executeRequest('remove_ecanai_account_api_key', {});
+        if (!response?.success) {
+            const error = response?.error?.message || 'Failed to clear eCanAI provider key';
+            if (!silent) message.warning(error);
+            else console.warn('[Account] eCanAI API key clear failed:', error);
             return false;
         }
         return true;
@@ -222,6 +238,7 @@ const Account: React.FC = () => {
         try {
             const maskedKey = maskApiKey(apiKey);
             let backendSuccess = false;
+            let backendReason = '';
             if (isCN && isWebPlatform()) {
                 const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
                 if (!envId) throw new Error('CloudBase API key service is not configured');
@@ -232,28 +249,42 @@ const Account: React.FC = () => {
                 if (resp?.success) {
                     backendSuccess = true;
                 } else {
-                    console.warn('Backend API key removal failed, performing local cleanup:', resp?.message || resp?.error);
+                    const reason = resp?.message || resp?.error || 'unknown error';
+                    console.warn('Backend API key removal failed, performing local cleanup:', reason);
+                    backendReason = reason;
                 }
             } else {
                 const response = await ipcApi.executeRequest('remove_api_key', { masked_keys: [maskedKey] });
                 if (response?.success) {
                     backendSuccess = true;
                 } else {
-                    console.warn('Backend API key removal failed, performing local cleanup:', response?.error?.message);
+                    const reason = response?.error?.message || response?.error?.code || 'unknown error';
+                    console.warn('Backend API key removal failed, performing local cleanup:', reason);
+                    backendReason = reason;
                 }
             }
             // Always clear local state, even if backend deletion fails
             setApiKey('');
+            // Always drop the local eCanAI credentials, even if backend
+            // deletion failed — otherwise an open Knowledge → Settings tab
+            // keeps showing the previous account key in the parser fields
+            // until the user visits System Settings again.
+            await clearECanAIKey(true);
             if (backendSuccess) {
                 message.success(t('account.apiKeyRemoved', 'API key removed'));
             } else {
-                message.warning(t('account.apiKeyRemovedLocal', 'API key removed from this device. Server cleanup may have failed.'));
+                // Surface the actual server-side failure reason so the user
+                // can distinguish "rate-limited, retry later" from "key
+                // already revoked elsewhere" — not just a vague "may have failed".
+                message.warning(`${t('account.apiKeyRemovedLocal', 'API key removed from this device')}. Server: ${backendReason || 'unknown'}`);
             }
         } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
             console.error('Error removing API key:', error);
             // Still clear local state on exception
             setApiKey('');
-            message.warning(t('account.apiKeyRemovedLocal', 'API key removed from this device. Server cleanup may have failed.'));
+            await clearECanAIKey(true);
+            message.warning(`${t('account.apiKeyRemovedLocal', 'API key removed from this device')}. Server: ${reason}`);
         } finally {
             setRemovingKey(false);
         }
@@ -270,6 +301,15 @@ const Account: React.FC = () => {
 
     useEffect(() => {
         void loadApiKey();
+
+        // Refresh account data when billing status changes
+        const handleBillingBlocked = () => {
+            void loadApiKey();
+        };
+        eventBus.on('localws:account.billingBlocked', handleBillingBlocked);
+        return () => {
+            eventBus.off('localws:account.billingBlocked', handleBillingBlocked);
+        };
     }, []);
 
     const handleTestApiKey = async () => {

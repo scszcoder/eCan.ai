@@ -75,7 +75,7 @@ export function validateLightRAGConfig(settings: Record<string, any>): Validatio
   if (llmProvider && llmProvider !== 'null' && llmProvider.trim() !== '') {
     const llmHost = settings.LLM_BINDING_HOST || settings.LLM_HOST;
     const llmApiKey = settings.LLM_BINDING_API_KEY || settings.LLM_API_KEY;
-    const isSystemManaged = settings._SYSTEM_LLM_API_KEY_SOURCE === true;
+    const isSystemManaged = settings._SYSTEM_LLM_KEY_SOURCE === true;
     const requiresApiKey = providerRequiresApiKey(llmProvider);
     
     // For Ollama and lollms: only check if host is configured
@@ -110,7 +110,7 @@ export function validateLightRAGConfig(settings: Record<string, any>): Validatio
   if (embeddingProvider && embeddingProvider !== 'null' && embeddingProvider.trim() !== '') {
     const embeddingHost = settings.EMBEDDING_BINDING_HOST || settings.EMBEDDING_HOST;
     const embeddingApiKey = settings.EMBEDDING_BINDING_API_KEY;
-    const isSystemManaged = settings._SYSTEM_EMBEDDING_BINDING_API_KEY_SOURCE === true;
+    const isSystemManaged = settings._SYSTEM_EMBED_KEY_SOURCE === true;
     const requiresApiKey = providerRequiresApiKey(embeddingProvider);
     
     // For Ollama and lollms: only check if host is configured
