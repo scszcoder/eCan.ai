@@ -2233,6 +2233,96 @@ def extract_preferred_start_url(task_text: str, workflow_state: dict | None) -> 
         if match:
             return match.group(0)
     return None
+_BLANK_TAB_URLS = ("", "about:blank", "chrome://newtab/", "chrome://new-tab-page/", "edge://newtab/")
+
+
+def extract_store_url(workflow_state: dict | None) -> str | None:
+    """The deployed store URL for this run, if any: ``prompt_refs.store_url``,
+    else the first of ``prompt_refs.store_urls`` (Fast Deploy seeds both via
+    task_vars). Returns None when absent or not an http(s) URL."""
+    if not isinstance(workflow_state, dict):
+        return None
+    pr = workflow_state.get("prompt_refs")
+    if not isinstance(pr, dict):
+        return None
+    cand = pr.get("store_url")
+    if not cand:
+        urls = pr.get("store_urls")
+        if isinstance(urls, (list, tuple)) and urls:
+            cand = urls[0]
+    cand = str(cand or "").strip()
+    return cand if cand.lower().startswith(("http://", "https://")) else None
+
+
+def _same_site(url_a: str, url_b: str) -> bool:
+    try:
+        from urllib.parse import urlparse
+        return bool(url_a) and bool(url_b) and urlparse(url_a).netloc.lower() == urlparse(url_b).netloc.lower()
+    except Exception:
+        return False
+
+
+async def navigate_blank_tab_to_store_url(browser_session: Any, state: dict | None) -> str | None:
+    """Third pre-run anchoring strategy (2026-09-05): when the focused tab is
+    BLANK (about:blank / new-tab) and the run carries a store URL, open the
+    store URL there — or switch to a tab that is already on that site.
+
+    Why: when no Chrome listens on the CDP port, eCan auto-starts its own
+    (private profile, one about:blank tab). Nothing ever navigated it, so the
+    monitors watched a blank page for hours (customer run 2026-09-04/05:
+    482 backstop scans at url=about:blank). A focused tab that already shows a
+    real page is left alone — the operator may be exactly where they want.
+
+    Returns the URL navigated/switched to, else None. Never raises.
+    """
+    try:
+        store_url = extract_store_url(state)
+        sm = getattr(browser_session, "session_manager", None)
+        if not store_url or sm is None:
+            return None
+        latest_focus = getattr(browser_session, "agent_focus_target_id", None)
+        current_target = sm.get_target(latest_focus) if latest_focus else None
+        current_url = str(getattr(current_target, "url", "") or "").strip()
+        if current_url not in _BLANK_TAB_URLS:
+            return None  # a real page is loaded — don't hijack it
+        from browser_use.browser.events import NavigateToUrlEvent, SwitchTabEvent
+        try:
+            from utils import agent_status as _agent_status
+        except Exception:  # pragma: no cover
+            _agent_status = None
+        # Prefer an existing tab already on the store site.
+        for tid, target in (sm.get_all_targets() or {}).items():
+            if getattr(target, "target_type", "") not in ("page", "tab"):
+                continue
+            if _same_site(str(getattr(target, "url", "") or ""), store_url) and tid != latest_focus:
+                await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=tid))
+                logger.info(
+                    f"[BrowserAutomation] Focused tab was blank — switched to existing store tab "
+                    f"...{str(tid)[-4:]} ({store_url})"
+                )
+                if _agent_status:
+                    _agent_status.report(site_tab="found", site_tab_url=store_url[:120])
+                return store_url
+        await browser_session.event_bus.dispatch(NavigateToUrlEvent(url=store_url, new_tab=False))
+        logger.info(
+            f"[BrowserAutomation] Focused tab was blank ({current_url or 'empty'}) — "
+            f"pre-navigated to store URL: {store_url}"
+        )
+        if _agent_status:
+            _agent_status.report(site_tab="navigating", site_tab_url=store_url[:120])
+        await asyncio.sleep(0.8)
+        try:
+            await asyncio.wait_for(
+                browser_session.get_browser_state_summary(include_screenshot=False), timeout=5.0
+            )
+        except Exception:
+            logger.warning("[BrowserAutomation] State-summary timeout after store-URL navigation, proceeding anyway")
+        return store_url
+    except Exception as e:
+        logger.warning(f"[BrowserAutomation] store-URL pre-navigation skipped: {e}")
+        return None
+
+
 async def run_pre_run_navigation(
     browser_session: Any,
     *,
@@ -2377,6 +2467,12 @@ async def run_pre_run_navigation(
                 logger.warning(
                     f"[BrowserAutomation] State-summary TIMEOUT after 5s after navigation, proceeding anyway"
                 )
+
+    # 3. Blank focused tab + a deployed store URL → open the store there
+    #    (auto-started Chrome case). Only runs when neither strategy above
+    #    anchored the tab.
+    if not assignment_nav_used and not preferred_start_url:
+        await navigate_blank_tab_to_store_url(browser_session, state)
 
     return tab_already_at_correct_url, new_last_known
 

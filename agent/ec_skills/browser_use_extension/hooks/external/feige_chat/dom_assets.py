@@ -57,6 +57,7 @@ from typing import Any, Callable
 # module's entire log output in packaged CN apps (v0.9.95u incident:
 # the WS reader looked dead because none of its lines could land).
 from utils.logger_helper import logger_helper as logger
+from utils import agent_status as _agent_status
 
 # ---------------------------------------------------------------------------
 # Focus-target tuning constants.
@@ -1932,6 +1933,7 @@ async def ensure_feige_tab_reachable(browser_session) -> bool:
             cached_url = str(getattr(cached_tgt, "url", "") or "")
             if "im.jinritemai.com" in cached_url:
                 # Cached target still valid — no Chrome interaction needed.
+                _agent_status.report(site_tab="found", site_tab_url=cached_url[:120])
                 return True
         # Cached but stale — clear and re-probe below.
         try:
@@ -1961,7 +1963,9 @@ async def ensure_feige_tab_reachable(browser_session) -> bool:
                 f"[BrowserAutomation] ensure-feige-tab-reachable: cached "
                 f"new Feige target=...{str(tid)[-6:]} (no focus, mt043A)"
             )
+            _agent_status.report(site_tab="found", site_tab_url=turl[:120])
             return True
+    _agent_status.report(site_tab="missing", chrome_tabs=len(all_targets or {}))
     logger.info(
         "[BrowserAutomation] ensure-feige-tab-reachable: no Feige tab "
         "exists in this browser session (mt043A)"

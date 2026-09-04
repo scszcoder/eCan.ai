@@ -432,6 +432,11 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     logger.info(
                         "[FEIGE-WS-SHADOW] first frame received -> WS now owns dispatch "
                         "(DOM monitor scrape paused from here)")
+                    try:
+                        from utils import agent_status as _agent_status
+                        _agent_status.report(detection="ws")
+                    except Exception:
+                        pass
                 # HumanMode: scan THIS frame for a competing bot answer (智能客服/
                 # 机器人 — role=2, sender name matches a configured pattern, NOT our
                 # own send). If one answered, suppress our own reply for that turn.

@@ -7,6 +7,7 @@ Displays real-time and historical log information from logger_helper
 """
 
 import os
+import re
 import sys
 from datetime import datetime
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -31,6 +32,7 @@ class LogViewerMessages:
             'auto_scroll': 'Auto-scroll',
             'filter': 'Filter:',
             'filter_all': 'All',
+            'agent_filter': 'Agent:',
             'refresh': 'Refresh',
             'search': 'Search:',
             'search_placeholder': 'Enter search term...',
@@ -70,6 +72,7 @@ class LogViewerMessages:
             'auto_scroll': '自动滚动',
             'filter': '筛选:',
             'filter_all': '全部',
+            'agent_filter': '智能体:',
             'refresh': '刷新',
             'search': '搜索:',
             'search_placeholder': '输入搜索词...',
@@ -239,6 +242,27 @@ class LogHighlighter(QSyntaxHighlighter):
                 self.setFormat(idx, len(token), fmt)
 
 
+_SCOPE_AGENT_RE = re.compile(r"\[agent=([^\s\]]+)")
+
+
+def _scope_agents(content: str):
+    """Agent names present in the run-scope suffixes of *content*."""
+    return _SCOPE_AGENT_RE.findall(content or "")
+
+
+def _filter_lines(content: str, level_text: str, agent_text: str):
+    """Level AND agent filter over raw log lines (either may be empty = no filter)."""
+    out = []
+    agent_tag = f"[agent={agent_text}" if agent_text else ""
+    for line in (content or "").split('\n'):
+        if level_text and not ((f" - {level_text} - " in line) or (level_text.upper() in line)):
+            continue
+        if agent_tag and agent_tag not in line:
+            continue
+        out.append(line)
+    return out
+
+
 class LogViewer(QMainWindow):
     """Log Viewer Window for displaying real-time and historical logs"""
     
@@ -356,6 +380,15 @@ class LogViewer(QMainWindow):
         self.level_filter.addItems([_get_log_viewer_messages().get('filter_all'), "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
         self.level_filter.currentTextChanged.connect(self._filter_logs)
         layout.addWidget(self.level_filter)
+
+        # Agent filter — options come from the "[agent=…]" run-scope suffix that
+        # utils/log_scope.py appends to every line emitted inside an agent's run.
+        layout.addWidget(QLabel(_get_log_viewer_messages().get('agent_filter')))
+        self.agent_filter = QComboBox()
+        self.agent_filter.addItem(_get_log_viewer_messages().get('filter_all'))
+        self.agent_filter.setMinimumWidth(140)
+        self.agent_filter.currentTextChanged.connect(lambda _t: self._filter_logs(self.level_filter.currentText()))
+        layout.addWidget(self.agent_filter)
         
         # Refresh button
         self.refresh_btn = QPushButton(_get_log_viewer_messages().get('refresh'))
@@ -586,7 +619,24 @@ class LogViewer(QMainWindow):
                               _get_log_viewer_messages().get('error_load_file', error=str(e)))
             self.progress_bar.setVisible(False)
 
+    def _populate_agent_filter(self, content: str):
+        """Refresh the Agent dropdown from the scope suffixes present in *content*."""
+        try:
+            agents = sorted(set(_scope_agents(content)))
+            current = self.agent_filter.currentText()
+            all_text = _get_log_viewer_messages().get('filter_all')
+            self.agent_filter.blockSignals(True)
+            self.agent_filter.clear()
+            self.agent_filter.addItem(all_text)
+            self.agent_filter.addItems(agents)
+            idx = self.agent_filter.findText(current)
+            self.agent_filter.setCurrentIndex(idx if idx >= 0 else 0)
+            self.agent_filter.blockSignals(False)
+        except Exception as e:
+            logger.debug(f"agent filter populate failed: {e}")
+
     def _on_file_loaded(self, content: str):
+        self._populate_agent_filter(content)
         # Remember if user was viewing history before loading new content
         was_viewing_history = self.user_is_scrolling
         
@@ -763,13 +813,16 @@ class LogViewer(QMainWindow):
             self.progress_bar.setVisible(True)
             self.progress_bar.setRange(0, 0)
 
+            agent_text = self.agent_filter.currentText() if hasattr(self, 'agent_filter') else ''
+
             def do_filter(content: str, level_text: str):
                 all_text = _get_log_viewer_messages().get('filter_all')
-                if level_text == all_text or level_text == "All":
+                agent_sel = '' if (not agent_text or agent_text == all_text or agent_text == "All") else agent_text
+                if (level_text == all_text or level_text == "All") and not agent_sel:
                     return content, _get_log_viewer_messages().get('showing_all_levels')
-                lines = content.split('\n')
-                filtered = [line for line in lines if (f" - {level_text} - " in line) or (level_text.upper() in line)]
-                return '\n'.join(filtered), _get_log_viewer_messages().get('showing_level', count=len(filtered), level=level_text)
+                filtered = _filter_lines(content, level_text if level_text not in (all_text, "All") else '', agent_sel)
+                label = level_text if level_text not in (all_text, "All") else agent_sel
+                return '\n'.join(filtered), _get_log_viewer_messages().get('showing_level', count=len(filtered), level=label)
 
             # Reuse file loader thread to avoid blocking
             loader = FileReaderThread(self.current_log_file)

@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from utils.logger_helper import logger_helper as logger
+from utils import agent_status as _agent_status
 from agent.ec_skills.browser_use_extension.event_monitor_capability import (
     clear_attached_monitor_set,
     get_attached_monitor_set,
@@ -2164,6 +2165,7 @@ async def stop_monitors(monitor_set: Optional[ActiveMonitorSet], session=None) -
         except Exception as e:
             logger.debug(f"[EventMonitor] Error stopping monitor: {e}")
     monitor_set.monitors.clear()
+    _agent_status.report(monitor="stopped")
     
     # Clear session reference if provided
     if session:
@@ -2446,6 +2448,7 @@ async def _start_dom_mutation_monitor(
                         f"[EventMonitor] DOM monitor loop started: "
                         f"label='{self.state['config'].label}', interval_ms={self.state.get('check_interval_ms', 250)}"
                     )
+                    _agent_status.report(monitor="running", monitor_label=self.state['config'].label)
                     # ws074: pre-start the placeholder sweeper HERE — at monitor-loop start,
                     # before the first message — instead of lazily on the first reply-delivery
                     # (HOT-PATH-B), which on a cold conversation does not run until ~40s in. The
@@ -2541,6 +2544,7 @@ async def _start_dom_mutation_monitor(
                             f"[EventMonitor] DOM monitor loop exited unexpectedly for "
                             f"label='{self.state['config'].label}'; restarting in 2s"
                         )
+                        _agent_status.report(monitor="stopped", monitor_label=self.state['config'].label)
                         await asyncio.sleep(2.0)
                         if self.state.get("enabled", False):
                             self._task = asyncio.create_task(_run_loop())
@@ -2849,6 +2853,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     f"[EventMonitor][HB] label='{cfg.label}' CDP_ERROR={runtime_err} "
                     f"target=...{str(mutation_state.get('target_id') or '')[-6:]}"
                 )
+                _agent_status.report(monitor="running", monitor_label=cfg.label, monitor_hb="cdp_error")
             logger.debug(f"[EventMonitor] Runtime domain query failed: {runtime_err}")
             # Connection may be stale — force reconnect on next cycle
             await _cleanup_monitor_cdp(mutation_state)
@@ -2937,6 +2942,11 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     f"url={current_url[:80]} roots_found={root_count} items=0 "
                     f"target=...{str(mutation_state.get('target_id') or '')[-6:]}"
                 )
+                _agent_status.report(
+                    monitor="running", monitor_label=cfg.label, monitor_hb=str(status),
+                    site_tab="found", site_tab_url=current_url[:120],
+                    dom_roots=root_count, dom_items=0,
+                )
         if status == "page_mismatch":
             mutation_state["page_mismatch_count"] = int(mutation_state.get("page_mismatch_count") or 0) + 1
             mismatch_count = mutation_state["page_mismatch_count"]
@@ -2958,6 +2968,10 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     f"[EventMonitor][HB] label='{cfg.label}' status=page_mismatch "
                     f"url={current_url[:80]} expected_patterns={_cfg_patterns} "
                     f"target=...{str(mutation_state.get('target_id') or '')[-6:]}"
+                )
+                _agent_status.report(
+                    monitor="running", monitor_label=cfg.label, monitor_hb="page_mismatch",
+                    site_tab="missing", site_tab_url=current_url[:120], dom_items=0,
                 )
             else:
                 logger.debug(f"[EventMonitor] DOM page mismatch, skipping: {current_url}")
@@ -3115,6 +3129,11 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     f"[EventMonitor][HB] label='{cfg.label}' status={status or 'ok'} "
                     f"url={current_url[:80]} items={len(items)} keys={_item_keys_preview}"
                     + _items_detail
+                )
+                _agent_status.report(
+                    monitor="running", monitor_label=cfg.label, monitor_hb=str(status or "ok"),
+                    site_tab="found", site_tab_url=current_url[:120], dom_items=len(items),
+                    **({"dom_last_items_at": _agent_status._now_iso()} if items else {}),
                 )
 
         keys_initialized = bool(mutation_state.get("keys_initialized"))

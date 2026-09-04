@@ -28,6 +28,7 @@ import { eventBus } from '@/utils/eventBus';
 import { avatarSceneOrchestrator } from '@/services/avatarSceneOrchestrator';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { AgentHostTag } from './AgentHostTag';
+import { ReadinessStrip } from './ReadinessStrip';
 
 // DEPRECATED: My Twin Agent related code - kept for reference, will be removed later
 // Previously: const myTwinAgent = useAgentStore(state => state.getMyTwinAgent());
@@ -772,6 +773,9 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               first, falls back to legacy vehicle_id+vehicle store. Renders
               nothing when both sources are silent. */}
           <AgentHostTag agentId={id} vehicleId={(agent as any)?.vehicle_id ?? null} />
+          {/* Readiness dots (chrome / site tab / monitor / DOM / detection) from the
+              backend [AGENT-STATUS] ledger — hidden until the agent reports. */}
+          <ReadinessStrip readiness={runtimeInfo?.readiness} />
         </div>
 
         {/* Buttons (right-aligned) */}

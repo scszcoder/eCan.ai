@@ -9,6 +9,8 @@ export interface AgentRuntimeInfo {
   runtime_status: RuntimeStatus;
   enabled: boolean;
   active_task_count: number;
+  /** Backend [AGENT-STATUS] readiness ledger (chrome / site_tab / monitor / dom / detection). */
+  readiness?: Record<string, string | number | null | undefined>;
 }
 
 interface AgentRuntimeState {

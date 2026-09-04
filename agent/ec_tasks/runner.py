@@ -44,6 +44,7 @@ from pydantic import TypeAdapter
 
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
+from utils.log_scope import scope as _log_scope, wrap_context as _wrap_log_context
 
 from .models import ManagedTask, PriorityType
 from .scheduler import find_tasks_ready_to_run
@@ -6962,6 +6963,34 @@ class TaskRunner(Generic[Context]):
         dev_init_state: Optional[dict] = None,
         dev_single_run: bool = False
     ):
+        """Run-scope wrapper: every log line emitted by this run (and by the
+        asyncio tasks / threadsafe handoffs it spawns) carries
+        ``[agent=… task=… skill=…]`` — see utils/log_scope.py. The scope is
+        restored on exit so a pooled worker thread never leaks it into the
+        next job. Behavior of the run itself is unchanged (see _impl)."""
+        card = getattr(self.agent, 'card', None)
+        _skill = getattr(task2run, 'skill', None) if task2run is not None else None
+        with _log_scope(
+            agent_id=getattr(card, 'id', None) or (card.get('id') if isinstance(card, dict) else None),
+            agent_name=self._get_agent_name(),
+            task_id=getattr(task2run, 'id', None) if task2run is not None else None,
+            task_name=getattr(task2run, 'name', None) if task2run is not None else None,
+            skill_name=(getattr(_skill, 'name', None) or getattr(_skill, 'skill_name', None)
+                        or (_skill.get('name') if isinstance(_skill, dict) else None)),
+        ):
+            return self._launch_unified_run_impl(
+                task2run, trigger_type,
+                dev_init_state=dev_init_state, dev_single_run=dev_single_run,
+            )
+
+    def _launch_unified_run_impl(
+        self,
+        task2run: Optional[ManagedTask] = None,
+        trigger_type: "str | List[str]" = "queue",
+        *,
+        dev_init_state: Optional[dict] = None,
+        dev_single_run: bool = False
+    ):
         """
         Unified task execution loop supporting all trigger types.
         
@@ -8087,7 +8116,8 @@ class TaskRunner(Generic[Context]):
                 )
                 return
 
-            future = self._skill_executor.submit(_execute)
+            # Executor threads don't inherit ContextVars — carry the run scope over.
+            future = self._skill_executor.submit(_wrap_log_context(_execute))
 
             # CRITICAL: Save Future reference to task so cancel() can work, and
             # so the queue loop can serialize subsequent messages for this task.
