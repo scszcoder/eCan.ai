@@ -769,13 +769,18 @@ jobs:
           $keyDir = Join-Path $env:GITHUB_WORKSPACE 'build_system/certificates'
           New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
           $keyPath = Join-Path $keyDir 'ed25519_private_key.pem'
-          # Remove existing file if present (may be read-only from previous run)
-          if (Test-Path $keyPath) {
-              # Remove read-only attribute before deletion (chmod 600 may have been applied)
-              $file = Get-Item $keyPath
-              if ($file.IsReadOnly) { $file.IsReadOnly = $false }
-              Remove-Item $keyPath -Force
-          }
+          # Decode secrets.OTA_ED25519_PRIVATE_KEY (base64 of the PEM blob)
+          # into build_system/certificates/ed25519_private_key.pem so
+          # sign_ota_artifacts() (called inside build.py prod) has the
+          # key on disk. [System.IO.File]::WriteAllBytes() truncates an
+          # existing file before writing, so we do NOT delete first --
+          # an explicit Remove-Item fails on a previous run's hardened
+          # ACLs even with -Force (the build-agent Read-only rule has
+          # no DELETE permission), and the only paths to clear it
+          # (takeown/icacls) require admin privileges the Gitee
+          # self-hosted runner does not always have. Overwrite in
+          # place; the ACL tightening below still drops inherited
+          # permissions and grants only Read.
           [System.IO.File]::WriteAllBytes(
             $keyPath,
             [System.Convert]::FromBase64String($env:OTA_PRIVATE_KEY)
