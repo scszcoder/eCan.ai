@@ -238,6 +238,7 @@ const Account: React.FC = () => {
         try {
             const maskedKey = maskApiKey(apiKey);
             let backendSuccess = false;
+            let backendReason = '';
             if (isCN && isWebPlatform()) {
                 const envId = getCachedAppConfig()?.auth.cloudbase_env_id;
                 if (!envId) throw new Error('CloudBase API key service is not configured');
@@ -248,14 +249,18 @@ const Account: React.FC = () => {
                 if (resp?.success) {
                     backendSuccess = true;
                 } else {
-                    console.warn('Backend API key removal failed, performing local cleanup:', resp?.message || resp?.error);
+                    const reason = resp?.message || resp?.error || 'unknown error';
+                    console.warn('Backend API key removal failed, performing local cleanup:', reason);
+                    backendReason = reason;
                 }
             } else {
                 const response = await ipcApi.executeRequest('remove_api_key', { masked_keys: [maskedKey] });
                 if (response?.success) {
                     backendSuccess = true;
                 } else {
-                    console.warn('Backend API key removal failed, performing local cleanup:', response?.error?.message);
+                    const reason = response?.error?.message || response?.error?.code || 'unknown error';
+                    console.warn('Backend API key removal failed, performing local cleanup:', reason);
+                    backendReason = reason;
                 }
             }
             // Always clear local state, even if backend deletion fails
@@ -268,14 +273,18 @@ const Account: React.FC = () => {
             if (backendSuccess) {
                 message.success(t('account.apiKeyRemoved', 'API key removed'));
             } else {
-                message.warning(t('account.apiKeyRemovedLocal', 'API key removed from this device. Server cleanup may have failed.'));
+                // Surface the actual server-side failure reason so the user
+                // can distinguish "rate-limited, retry later" from "key
+                // already revoked elsewhere" — not just a vague "may have failed".
+                message.warning(`${t('account.apiKeyRemovedLocal', 'API key removed from this device')}. Server: ${backendReason || 'unknown'}`);
             }
         } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
             console.error('Error removing API key:', error);
             // Still clear local state on exception
             setApiKey('');
             await clearECanAIKey(true);
-            message.warning(t('account.apiKeyRemovedLocal', 'API key removed from this device. Server cleanup may have failed.'));
+            message.warning(`${t('account.apiKeyRemovedLocal', 'API key removed from this device')}. Server: ${reason}`);
         } finally {
             setRemovingKey(false);
         }
