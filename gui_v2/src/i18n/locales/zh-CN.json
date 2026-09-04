@@ -2603,11 +2603,18 @@
           "basic": "基础配置",
           "rag": "RAG参数",
           "parsing": "文档解析",
-          "reranking": "重排序配置",
-          "llm": "LLM配置",
-          "embedding": "向量配置",
+          "models": "模型配置",
           "storage": "存储配置",
           "evaluation": "评估配置"
+        },
+        "llm": {
+          "title": "LLM 模型"
+        },
+        "embedding": {
+          "title": "嵌入模型"
+        },
+        "reranking": {
+          "title": "重排序模型"
         },
         "provider": {
           "selectProvider": "选择提供商",
@@ -2619,7 +2626,13 @@
           "graphStorage": "图存储",
           "docStatusStorage": "文档状态存储",
           "commonStorageSettings": "通用存储设置",
-          "commonPostgresSettings": "PostgreSQL 通用配置"
+          "commonPostgresSettings": "PostgreSQL 通用配置",
+          "managedBy": "Provider: {{provider}} (由系统设置管理)",
+          "managedBy_llm": "LLM: {{provider}} (由系统设置管理)",
+          "managedBy_embedding": "嵌入模型: {{provider}} (由系统设置管理)",
+          "managedBy_rerank": "重排序模型: {{provider}} (由系统设置管理)",
+          "managedHint": "该提供商在系统设置中配置",
+          "goToSettings": "前往系统设置"
         },
         "fields": {
           "host": "主机",
@@ -2937,6 +2950,9 @@
           "options": "解析选项",
           "advanced": "高级设置"
         },
+        "badgeSystem": "系统",
+        "systemManaged": "此字段由系统设置管理，无法在此编辑",
+        "goToSettings": "前往系统设置",
         "basic": {
           "host": "服务器地址",
           "port": "端口",
@@ -2948,22 +2964,6 @@
           "workingDir": "工作目录",
           "logDir": "日志目录",
           "tiktokenCacheDir": "TikToken缓存目录"
-        },
-        "llm": {
-          "binding": "LLM类型",
-          "model": "LLM模型",
-          "apiHost": "LLM API地址",
-          "apiKey": "LLM API密钥",
-          "timeout": "LLM超时",
-          "maxCompletionTokens": "最大完成Token"
-        },
-        "embedding": {
-          "binding": "向量类型",
-          "model": "向量模型",
-          "dimension": "向量维度",
-          "apiHost": "向量API地址",
-          "apiKey": "向量API密钥",
-          "tokenLimit": "向量Token限制"
         },
         "rag": {
           "chunkSize": "分块大小",
@@ -3075,6 +3075,7 @@
         "loadedDocuments": "已加载 {{count}} 个文档 (第 {{page}} 页)",
         "noDocumentsFound": "未找到文档",
         "ingestingFiles": "正在导入 {{count}} 个文件...",
+        "waitingForServer": "等待服务器就绪...",
         "ingestingFilesFromDirs": "正在从 {{dirCount}} 个目录导入 {{fileCount}} 个文件...",
         "ingestError": "导入错误",
         "mineruUnsupportedFormat": "MinerU 3.4.4 不支持这些文件：{{files}}。仅支持 PDF、DOCX、PPTX、XLSX，以及 PNG、JPEG、JP2、WebP、GIF、BMP、TIFF（仅 .tiff，不支持 .tif）。请切换为 Docling 或 Native 解析引擎后重试。",

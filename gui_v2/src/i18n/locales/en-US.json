@@ -2544,11 +2544,18 @@
           "basic": "Basic Config",
           "rag": "RAG Parameters",
           "parsing": "Document Parsing",
-          "reranking": "Reranking Config",
-          "llm": "LLM Config",
-          "embedding": "Embedding Config",
+          "models": "Models",
           "storage": "Storage Config",
           "evaluation": "Evaluation Config"
+        },
+        "llm": {
+          "title": "LLM"
+        },
+        "embedding": {
+          "title": "Embedding"
+        },
+        "reranking": {
+          "title": "Reranking"
         },
         "provider": {
           "selectProvider": "Select Provider",
@@ -2560,7 +2567,13 @@
           "graphStorage": "Graph Storage",
           "docStatusStorage": "Document Status Storage",
           "commonStorageSettings": "Common Storage Settings",
-          "commonPostgresSettings": "Common PostgreSQL Configuration"
+          "commonPostgresSettings": "Common PostgreSQL Configuration",
+          "managedBy": "Provider: {{provider}} (managed by System Settings)",
+          "managedBy_llm": "LLM: {{provider}} (managed by System Settings)",
+          "managedBy_embedding": "Embedding: {{provider}} (managed by System Settings)",
+          "managedBy_rerank": "Rerank: {{provider}} (managed by System Settings)",
+          "managedHint": "This provider is configured in System Settings",
+          "goToSettings": "Go to System Settings"
         },
         "fields": {
           "host": "Host",
@@ -2722,22 +2735,6 @@
           "logDir": "Log Directory",
           "tiktokenCacheDir": "TikToken Cache Directory"
         },
-        "llm": {
-          "binding": "LLM Provider",
-          "model": "LLM Model",
-          "apiHost": "LLM API Host",
-          "apiKey": "LLM API Key",
-          "timeout": "LLM Timeout",
-          "maxCompletionTokens": "Max Completion Tokens"
-        },
-        "embedding": {
-          "binding": "Embedding Provider",
-          "model": "Embedding Model",
-          "dimension": "Embedding Dimension",
-          "apiHost": "Embedding API Host",
-          "apiKey": "Embedding API Key",
-          "tokenLimit": "Token Limit"
-        },
         "rag": {
           "chunkSize": "Chunk Size",
           "chunkOverlap": "Chunk Overlap",
@@ -2834,6 +2831,8 @@
           "additionalSuffixes": "Extra file suffixes this service can handle (comma-separated); declare them in the parser routing rules too.",
           "doclingEndpoint": "Base URL of the Docling service; the client appends /v1/convert/file/async and other paths. Official provider pre-fills http://localhost:5001.",
           "doclingApiKey": "Access key sent as Bearer authentication for health checks, uploads, task polling, and result downloads.",
+          "doclingLocalApiKey": "API key for the self-hosted Docling service. Preserved across mode switches.",
+          "doclingOfficialApiKey": "API key for the official docling.ai API. Preserved across mode switches.",
           "maxParallelParse": "Number of parallel parse tasks for this engine."
         },
         "sections": {
@@ -2944,7 +2943,10 @@
           "connection": "Service Connection",
           "options": "Parsing Options",
           "advanced": "Advanced Settings"
-        }
+        },
+        "badgeSystem": "System",
+        "systemManaged": "This field is managed by System Settings and cannot be edited here",
+        "goToSettings": "Go to System Settings"
       },
       "documents": {
         "title": "Document Management",
@@ -3014,6 +3016,7 @@
         "loadedDocuments": "Loaded {{count}} documents (Page {{page}})",
         "noDocumentsFound": "No documents found",
         "ingestingFiles": "Ingesting {{count}} file(s)...",
+        "waitingForServer": "Waiting for server to be ready...",
         "ingestingFilesFromDirs": "Ingesting {{fileCount}} file(s) from {{dirCount}} directory(ies)...",
         "ingestError": "Ingest Error",
         "mineruUnsupportedFormat": "MinerU 3.4.4 does not support: {{files}}. It only accepts PDF, DOCX, PPTX, XLSX, PNG, JPEG, JP2, WebP, GIF, BMP, and TIFF (.tiff only; .tif is unsupported). Switch to Docling or Native and try again.",

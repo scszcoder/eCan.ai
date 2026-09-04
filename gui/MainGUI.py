@@ -2313,7 +2313,35 @@ class MainWindow:
             # Initialize LightRAG server in main thread to allow signal handlers
             # but run the actual server start in executor for non-blocking behavior
             from knowledge.lightrag_server import LightragServer
-            
+
+            # Mirror System Settings default providers into lightrag.env
+            # before the server starts. Without this, fresh installs (or
+            # upgrades from the old "pick a provider in both UIs" model)
+            # would leave lightrag.env empty while settings.json already
+            # carries a valid default_llm — and the server would fall
+            # back to whatever the LightRAG library's own defaults are.
+            # sync_default_provider_to_lightrag_env is a no-op when
+            # lightrag.env already agrees with the System Settings
+            # default, so calling it on every startup is safe.
+            #
+            # sync_default_parser_to_lightrag_env covers the eCanAI
+            # parser path: when System Settings defaults MinerU / Docling
+            # to ``ecanai`` mode and an account API key is already in
+            # secure_store, the URL and the key must reach lightrag.env
+            # before the LightRAG subprocess starts; otherwise the parser
+            # child process crashes with ``MINERU_API_TOKEN is required``
+            # on the first request even though the Settings UI shows the
+            # right configuration.
+            try:
+                from gui.manager.provider_settings_helper import (
+                    sync_default_provider_to_lightrag_env,
+                    sync_default_parser_to_lightrag_env,
+                )
+                sync_default_provider_to_lightrag_env()
+                sync_default_parser_to_lightrag_env()
+            except Exception as sync_err:
+                logger.warning(f"[MainWindow] Could not pre-sync default providers to lightrag.env: {sync_err}")
+
             # All configuration is now in lightrag.env file
             # Managers are guaranteed to be initialized at this point
             self.lightrag_server = LightragServer(extra_env={})

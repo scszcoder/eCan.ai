@@ -19,6 +19,12 @@ export interface TabConfig {
 }
 
 // Configuration tabs structure
+//
+// NOTE: LLM / Embedding / Reranking are merged into a single "models" tab.
+// The provider selection is owned by System Settings (default_llm /
+// default_embedding / default_rerank) and synchronized into lightrag.env
+// automatically — the user no longer picks a provider here. Only
+// non-provider-specific tuning parameters remain visible.
 export const SETTINGS_TABS: TabConfig[] = [
   {
     key: 'basic',
@@ -33,21 +39,9 @@ export const SETTINGS_TABS: TabConfig[] = [
     fields: []
   },
   {
-    key: 'reranking',
-    label: 'pages.knowledge.settings.tabs.reranking',
-    icon: 'SortAscendingOutlined',
-    fields: []
-  },
-  {
-    key: 'llm',
-    label: 'pages.knowledge.settings.tabs.llm',
+    key: 'models',
+    label: 'pages.knowledge.settings.tabs.models',
     icon: 'RobotOutlined',
-    fields: []
-  },
-  {
-    key: 'embedding',
-    label: 'pages.knowledge.settings.tabs.embedding',
-    icon: 'BlockOutlined',
     fields: []
   },
   {
@@ -278,12 +272,13 @@ export const FIELDS_BY_TAB: Record<string, FieldConfig[]> = {
   basic: BASIC_FIELDS,
   rag: RAG_FIELDS,
   parsing: [], // Uses ProviderSelector
-  reranking: [], // Now uses ProviderSelector
-  llm: [], // Now uses ProviderSelector
-  embedding: [], // Now uses ProviderSelector
-  storage: [], // Now uses ProviderSelector
+  models: [], // LLM / Embedding / Reranking — uses ProviderSelector in managed mode
+  storage: [], // Uses ProviderSelector
   evaluation: EVALUATION_FIELDS
 };
 
-// Mark which tabs use provider-based configuration
-export const PROVIDER_BASED_TABS = ['parsing', 'reranking', 'llm', 'embedding', 'storage'];
+// Mark which tabs use provider-based configuration.
+// Note: 'models' covers the merged LLM/Embedding/Reranking UI and is
+// provider-based, but it consumes providers from System Settings rather
+// than letting the user pick a different one here.
+export const PROVIDER_BASED_TABS = ['parsing', 'models', 'storage'];

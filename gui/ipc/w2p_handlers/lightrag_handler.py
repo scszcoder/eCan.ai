@@ -1971,6 +1971,20 @@ def handle_get_parser_engines(request: IPCRequest, params: Optional[Dict[str, An
 
         current = {key: settings.get(key) for key in PARSER_SETTINGS_KEYS}
 
+        # eCanAI mode: the active key is account-managed and the save path
+        # (resolve_ecanai_parser_secrets) refreshes it from secure_store at
+        # write time. Read it back from the same source here so the UI field
+        # always reflects the live account key — not a stale .env value
+        # captured at the previous save (which can also be a Local key that
+        # happened to live in the same env var). When no account key is
+        # provisioned we explicitly clear the field so the UI surfaces the
+        # missing-credential state instead of silently showing the env value.
+        ecanai_account_key = _read_ecanai_account_key(request)
+        if mineru_mode == 'ecanai':
+            current['MINERU_API_TOKEN'] = ecanai_account_key or ''
+        if docling_mode == 'ecanai':
+            current['DOCLING_API_KEY'] = ecanai_account_key or ''
+
         return create_success_response(request, {
             'engines': mark_system_managed_parser_fields(PARSER_ENGINE_DEFINITIONS, settings),
             'current': current,
@@ -2796,3 +2810,28 @@ def handle_get_ecanai_api_key(request: IPCRequest, params: Optional[Dict[str, An
     except Exception as e:
         logger.debug(f"[lightrag.getEcanaiApiKey] failed: {e}")
         return create_success_response(request, {"apiKey": None})
+
+
+def _read_ecanai_account_key(request: IPCRequest) -> str:
+    """
+    Return the current account-level eCanAI API key, or '' when no key is
+    provisioned / no user is signed in / secure_store is unreachable.
+
+    Used by ``handle_get_parser_engines`` to seed the eCanAI-mode UI field
+    with the live account credential instead of the stale ``.env`` value.
+    Mirrors the lookup in ``handle_get_ecanai_api_key`` so the two paths
+    cannot drift.
+    """
+    try:
+        from utils.env.secure_store import secure_store
+        from gui.ipc.context_bridge import get_username
+        username = get_username(request, {})
+        if not username:
+            return ""
+        key = secure_store.get("ECANAI_LLM_API_KEY", username=username)
+        return str(key).strip() if key else ""
+    except Exception as ecanai_lookup_error:
+        logger.debug(
+            f"[getParserEngines] eCanAI account key lookup failed: {ecanai_lookup_error}"
+        )
+        return ""
