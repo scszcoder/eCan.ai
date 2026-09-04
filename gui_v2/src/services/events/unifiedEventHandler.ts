@@ -125,7 +125,27 @@ export class UnifiedEventHandler {
         logger.debug('[UnifiedEventHandler] push_account_info event received and handled (routine heartbeat)');
         // This is a routine heartbeat/info event from backend, no further action needed
         break;
-      
+
+      // LightRAG provider cache invalidated — emitted by
+      // ``gui/manager/provider_settings_helper.py`` after a provider
+      // save/clear rotates an eCanAI key or parser engine. The
+      // Knowledge → Settings tab listens on the eventBus channel
+      // ``lightrag:providersUpdated`` to re-pull parser field values
+      // and bump the ragStore version (see LightRAGPorted/index.tsx).
+      case 'lightrag.providersUpdated':
+        eventBus.emit('lightrag:providersUpdated', event.payload);
+        break;
+
+      // LightRAG restart outcome — emitted by
+      // ``_broadcast_lightrag_restart_notice`` after a provider
+      // rotation triggers a child-process restart. ``status`` is one
+      // of ``ok`` | ``skipped`` | ``failed``; UIs surface it as a
+      // toast. Forwarded via eventBus so callers don't have to
+      // subscribe to the raw WS frame.
+      case 'lightrag.restartNotice':
+        eventBus.emit('lightrag:restartNotice', event.payload);
+        break;
+
       // WebSocket subscription confirmation - no action needed
       case 'subscribed':
         break;
