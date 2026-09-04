@@ -224,7 +224,7 @@ const ApplyToAgentButton: React.FC<{ avatar: AvatarItem }> = ({ avatar }) => {
         okText={t('avatar.apply_to_agent')}
         okButtonProps={{ disabled: !selectedAgentId, loading: submitting }}
         onOk={handleApply}
-        destroyOnClose
+        destroyOnHidden
       >
         <Select
           showSearch
