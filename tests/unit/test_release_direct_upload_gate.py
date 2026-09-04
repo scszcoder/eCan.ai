@@ -168,6 +168,108 @@ def test_release_cn_final_status_synthesizes_upload_label(release_cn):
 def release_intl() -> str:
     return (REPO_ROOT / ".github/workflows/release-intl.yml").read_text()
 
+
+# ---------------------------------------------------------------------------
+# Cross-cutting runner-identity invariant
+# ---------------------------------------------------------------------------
+#
+# The direct-upload fast path originally used
+# ``startsWith(runner.name, 'ECAN-WIN') || contains(runner.groups, '...')``
+# as the gate, but operators register runners with arbitrary names
+# (``win-runner``, ``mac-runner-1``, ...) so that condition is silently
+# false on real runners -- the direct-upload step never runs, the
+# fallback upload-artifact step always runs, and we lose the speedup.
+#
+# The build jobs themselves gate on
+# ``github.event.inputs.runner_group != 'github-hosted'`` (the
+# dispatch input the operator picks), which is independent of the
+# runner's registered name. The direct-upload fast path must use the
+# same gate so the two paths can't disagree.
+#
+# These tests pin that invariant so a future refactor that reverts to
+# ``runner.name`` / ``runner.groups`` (the only expression that ever
+# silently turned off the fast path on real runners) fails locally.
+
+
+_RUNTIME_GATE_HEURISTICS = (
+    # The exact form we want.
+    "github.event.inputs.runner_group != 'github-hosted'",
+    # The negation form the upload-artifact steps use (mutually
+    # exclusive with the direct-upload step's gate).
+    "github.event.inputs.runner_group == 'github-hosted'",
+)
+
+
+def test_release_cn_direct_upload_uses_runner_group_input(release_cn):
+    """Every direct-upload ``if:`` in release-cn.yml must use the
+    ``runner_group`` dispatch input (not ``runner.name`` /
+    ``runner.groups``). Otherwise real self-hosted runners fall back
+    to the slow upload-artifact path because their registered names
+    don't match the assumed prefix.
+    """
+    # Run through each "Upload ... to COS (direct, fast path)" step
+    # block and assert its `if:` is one of the two ``runner_group``
+    # forms. This is what keeps the direct upload path in lock-step
+    # with the build job's own runner selection.
+    for m in re.finditer(
+        r"name: Upload [^\n]+ \(direct, fast path\)\s*\n"
+        r"id: upload-[a-z0-9-]+-cos\s*"
+        r".*?\n        if: ([^\n]+)",
+        release_cn,
+    ):
+        gate = m.group(1).strip()
+        assert gate in _RUNTIME_GATE_HEURISTICS, (
+            f"Direct-upload step `if:` in release-cn.yml must use "
+            f"`github.event.inputs.runner_group` (got: {gate!r}). "
+            f"The runner.name / runner.groups form is silently false "
+            f"on real runners, defeating the direct-upload fast path."
+        )
+
+
+def test_release_intl_direct_upload_uses_runner_group_input(release_intl):
+    """Same invariant for release-intl.yml: every direct-upload step
+    must gate on ``runner_group``, not ``runner.name`` / ``runner.groups``.
+    """
+    for m in re.finditer(
+        r"name: Upload [^\n]+ \(direct, fast path\)\s*\n"
+        r"id: upload-[a-z0-9-]+-s3\s*"
+        r".*?\n        if: ([^\n]+)",
+        release_intl,
+    ):
+        gate = m.group(1).strip()
+        assert gate in _RUNTIME_GATE_HEURISTICS, (
+            f"Direct-upload step `if:` in release-intl.yml must use "
+            f"`github.event.inputs.runner_group` (got: {gate!r}). "
+            f"The runner.name / runner.groups form is silently false "
+            f"on real runners, defeating the direct-upload fast path."
+        )
+
+
+def test_release_cn_no_runner_name_gate_anywhere(release_cn):
+    """Belt-and-braces: zero occurrences of the broken gate heuristic.
+
+    If a future refactor reintroduces ``startsWith(runner.name, ...)``
+    or ``contains(runner.groups, ...)``, this test fails fast with a
+    file-anchored diff that's easier to audit than the regex above.
+    """
+    assert "startsWith(runner.name" not in release_cn, (
+        "release-cn.yml still uses `startsWith(runner.name, ...)` "
+        "to gate direct upload. That's silently false on real "
+        "self-hosted runners (e.g. registered as `win-runner`); "
+        "switch to `github.event.inputs.runner_group != 'github-hosted'`."
+    )
+    assert "contains(runner.groups" not in release_cn, (
+        "release-cn.yml still uses `contains(runner.groups, ...)` "
+        "to gate direct upload. Switch to "
+        "`github.event.inputs.runner_group != 'github-hosted'`."
+    )
+
+
+def test_release_intl_no_runner_name_gate_anywhere(release_intl):
+    assert "startsWith(runner.name" not in release_intl
+    assert "contains(runner.groups" not in release_intl
+
+
 def test_release_intl_windows_job_has_s3_uploaded_output(release_intl):
     assert "s3-uploaded: ${{ steps.upload-windows-s3.outputs.success }}" in release_intl
 
