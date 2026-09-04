@@ -57,6 +57,11 @@ runs:
         echo "PIP_CACHE_DIR=$RUNNER_TEMP/pip-cache" >> "$GITHUB_ENV"
 
     - name: Cache pip dependencies
+      # Mirror the venv cache above: pip download cache saves happen in the
+      # post phase and are wasteful on self-hosted runners that already keep
+      # `$RUNNER_TEMP/pip-cache` on local disk. GitHub-hosted runners are
+      # disposable and still benefit from this cache.
+      if: ${{ runner.environment == 'github-hosted' }}
       uses: actions/cache@v5
       with:
         # An explicit runner-temp path works consistently on Windows, macOS,

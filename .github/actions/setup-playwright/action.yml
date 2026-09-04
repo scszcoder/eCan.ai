@@ -17,7 +17,13 @@ runs:
   using: 'composite'
   steps:
     - name: Cache Playwright browsers (Windows)
-      if: ${{ inputs.platform == 'windows' }}
+      # GitHub Cache saves happen in the post phase and dominate job-end
+      # latency on self-hosted runners (~3-7 min for ~200 MB Playwright/npm
+      # caches). Self-hosted runners keep Playwright browsers on the local
+      # filesystem (`~\AppData\Local\ms-playwright`), so GitHub Cache
+      # provides no value but blocks `Complete job`.
+      # GitHub-hosted runners are disposable machines and still need this cache.
+      if: ${{ inputs.platform == 'windows' && runner.environment == 'github-hosted' }}
       uses: actions/cache@v5
       with:
         path: |
@@ -27,7 +33,7 @@ runs:
           ${{ runner.os }}-${{ runner.arch }}-playwright-${{ inputs.browsers }}-
 
     - name: Cache Playwright browsers (macOS)
-      if: ${{ inputs.platform == 'macos' }}
+      if: ${{ inputs.platform == 'macos' && runner.environment == 'github-hosted' }}
       uses: actions/cache@v5
       with:
         path: |
@@ -37,7 +43,7 @@ runs:
           ${{ runner.os }}-${{ inputs.arch }}-playwright-${{ inputs.browsers }}-
 
     - name: Cache Playwright browsers (Linux)
-      if: ${{ inputs.platform == 'linux' }}
+      if: ${{ inputs.platform == 'linux' && runner.environment == 'github-hosted' }}
       uses: actions/cache@v5
       with:
         path: |
