@@ -771,6 +771,9 @@ jobs:
           $keyPath = Join-Path $keyDir 'ed25519_private_key.pem'
           # Remove existing file if present (may be read-only from previous run)
           if (Test-Path $keyPath) {
+              # Remove read-only attribute before deletion (chmod 600 may have been applied)
+              $file = Get-Item $keyPath
+              if ($file.IsReadOnly) { $file.IsReadOnly = $false }
               Remove-Item $keyPath -Force
           }
           [System.IO.File]::WriteAllBytes(

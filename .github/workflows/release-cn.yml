@@ -953,7 +953,13 @@ jobs:
           $git = (Get-Command git.exe -ErrorAction Stop).Source
           $ref = "${{ github.event.inputs.ref || github.ref }}"
           Set-Location -LiteralPath $env:GITHUB_WORKSPACE
-          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          if (Test-Path -LiteralPath '.git') {
+              # Remove read-only attribute before deletion
+              Get-ChildItem -LiteralPath '.git' -Recurse -Force | ForEach-Object {
+                  if ($_.IsReadOnly) { $_.IsReadOnly = $false }
+              }
+              Remove-Item -Recurse -Force '.git'
+          }
           & $git init -q .
           & $git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
           $env:GIT_TERMINAL_PROMPT = '0'
@@ -1071,6 +1077,8 @@ jobs:
 
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
+        with:
+          npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
 
       - name: Setup WhatsApp Baileys Bridge Environment
         uses: ./.github/actions/setup-wabaileys-bridge
@@ -1142,6 +1150,9 @@ jobs:
           $keyPath = Join-Path $keyDir 'ed25519_private_key.pem'
           # Remove existing file if present (may be read-only from previous run)
           if (Test-Path $keyPath) {
+              # Remove read-only attribute before deletion (chmod 600 may have been applied)
+              $file = Get-Item $keyPath
+              if ($file.IsReadOnly) { $file.IsReadOnly = $false }
               Remove-Item $keyPath -Force
           }
           [System.IO.File]::WriteAllBytes(
@@ -1708,7 +1719,13 @@ jobs:
           $git = (Get-Command git.exe -ErrorAction Stop).Source
           $ref = "${{ github.event.inputs.ref || github.ref }}"
           Set-Location -LiteralPath $env:GITHUB_WORKSPACE
-          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          if (Test-Path -LiteralPath '.git') {
+              # Remove read-only attribute before deletion
+              Get-ChildItem -LiteralPath '.git' -Recurse -Force | ForEach-Object {
+                  if ($_.IsReadOnly) { $_.IsReadOnly = $false }
+              }
+              Remove-Item -Recurse -Force '.git'
+          }
           & $git init -q .
           & $git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
           $env:GIT_TERMINAL_PROMPT = '0'
@@ -1826,6 +1843,8 @@ jobs:
 
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
+        with:
+          npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
 
       - name: Setup OTA signing key
         if: |
@@ -2275,7 +2294,13 @@ jobs:
           $git = (Get-Command git.exe -ErrorAction Stop).Source
           $ref = "${{ github.event.inputs.ref || github.ref }}"
           Set-Location -LiteralPath $env:GITHUB_WORKSPACE
-          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          if (Test-Path -LiteralPath '.git') {
+              # Remove read-only attribute before deletion
+              Get-ChildItem -LiteralPath '.git' -Recurse -Force | ForEach-Object {
+                  if ($_.IsReadOnly) { $_.IsReadOnly = $false }
+              }
+              Remove-Item -Recurse -Force '.git'
+          }
           & $git init -q .
           & $git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
           $env:GIT_TERMINAL_PROMPT = '0'
@@ -2394,6 +2419,8 @@ jobs:
 
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
+        with:
+          npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
 
       - name: Setup OTA signing key
         if: |
@@ -2787,7 +2814,13 @@ jobs:
           $git = (Get-Command git.exe -ErrorAction Stop).Source
           $ref = "${{ github.event.inputs.ref || github.ref }}"
           Set-Location -LiteralPath $env:GITHUB_WORKSPACE
-          if (Test-Path -LiteralPath '.git') { Remove-Item -Recurse -Force '.git' }
+          if (Test-Path -LiteralPath '.git') {
+              # Remove read-only attribute before deletion
+              Get-ChildItem -LiteralPath '.git' -Recurse -Force | ForEach-Object {
+                  if ($_.IsReadOnly) { $_.IsReadOnly = $false }
+              }
+              Remove-Item -Recurse -Force '.git'
+          }
           & $git init -q .
           & $git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
           $env:GIT_TERMINAL_PROMPT = '0'
@@ -2904,6 +2937,8 @@ jobs:
 
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
+        with:
+          npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
 
       - name: Setup WhatsApp Baileys Bridge Environment
         uses: ./.github/actions/setup-wabaileys-bridge

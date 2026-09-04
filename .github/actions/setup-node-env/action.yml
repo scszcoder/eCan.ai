@@ -21,6 +21,12 @@ inputs:
       runners, false on github-hosted.
     required: false
     default: ''
+  npm-registry:
+    description: |
+      npm registry URL. Use a Chinese mirror (e.g. https://registry.npmmirror.com)
+      on self-hosted runners in China for faster downloads.
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -83,13 +89,20 @@ runs:
       run: |
         echo "=== Installing Frontend Dependencies ==="
 
+        # Use Chinese mirror for faster downloads on self-hosted runners
+        REGISTRY_ARG=""
+        if [ -n "${{ inputs.npm-registry }}" ]; then
+          echo "Using npm registry: ${{ inputs.npm-registry }}"
+          REGISTRY_ARG="--registry ${{ inputs.npm-registry }}"
+        fi
+
         # Frontend node_modules is intentionally never cached or reused.
         # npm ci removes it before recreating the exact lock-file dependency tree.
         if [ -f "package-lock.json" ]; then
-          npm ci --legacy-peer-deps
+          npm ci --legacy-peer-deps $REGISTRY_ARG
         else
           rm -rf node_modules
-          ${{ inputs.install-command }}
+          ${{ inputs.install-command }} $REGISTRY_ARG
         fi
 
         echo "=== Verifying Rollup Installation ==="
