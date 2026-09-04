@@ -83,14 +83,49 @@ six feed files in one pass.
 
 ## Reusable (shared-*) workflows
 
-* `shared-s3-upload.yml`            — upload `*-s3-transfer` artifacts to S3, requires AWS secrets.
-* `shared-cos-upload.yml`           — upload `*-s3-transfer` artifacts to COS, requires Tencent secrets.
+* `shared-s3-upload.yml`            — fallback upload of `*-installer` artifacts to S3. Only
+  runs when at least one build job did NOT direct-upload (see "Distribution" below).
+  Requires AWS secrets.
+* `shared-cos-upload.yml`           — fallback upload of `*-installer` artifacts to COS.
+  Same skip-rule as the S3 variant. Requires Tencent secrets.
 * `shared-appcast-generation.yml`   — write Sparkle appcast XML to S3 (`--app intl`).
 * `shared-cos-appcast-generation.yml` — write Sparkle appcast XML to COS (`--app cn` hardcoded).
 * `shared-s3-latest-json.yml`       — render S3 latest.json (Intl).
 * `shared-cos-latest-json.yml`      — render COS latest.json (CN).
 * `shared-download-links.yml`       — render GH Actions Summary with download URLs (Intl only).
 * `shared-cos-download-links.yml`   — render GH Actions Summary with download URLs (CN).
+
+## Distribution: direct-upload fast path vs GitHub-Artifact-Store fallback
+
+Each build job in both pipelines does one of two things with the installer
+it just built:
+
+* **Direct upload** (self-hosted runners) — the build job calls
+  `build_system/scripts/upload_to_{cos,s3}.py` with
+  `--dist-dir artifacts` and pushes the installer straight to COS/S3.
+  This skips the public-internet round-trip through GitHub's artifact
+  blob store, cutting the installer's CI-to-CDN time from ~20 min to
+  ~2 min for CN self-hosted runners and from ~10 min to ~3 min
+  elsewhere. Each build job publishes a `cos-uploaded` / `s3-uploaded`
+  output that records whether the direct upload succeeded.
+* **GitHub-Artifact-Store fallback** (GitHub-hosted runners) — the
+  build job uploads the installer as a `*-installer` artifact, and
+  the shared-*-upload job downloads it back and re-uploads to COS/S3.
+  This path is unchanged from the original pipeline and remains the
+  default for `runner_group == github-hosted`.
+
+The `upload-to-{cos,s3}` gate is the seam between the two paths. It
+runs only when at least one succeeded build job did NOT direct-upload
+(`needs.<job>.outputs.{cos,s3}-uploaded != 'true'`); when every
+succeeded build job direct-uploaded, the slow fallback is skipped
+entirely and the in-place artifacts are picked up directly by the
+downstream `generate-appcast` / `generate-download-links` / `final-status`
+jobs.
+
+The `-transfer` artifact upload is also still produced on GitHub-hosted
+runners (the upload steps' `if:` excludes self-hosted runners) so the
+artifact store remains a debug-mirror surface for the
+`upload_artifacts == 'true'` opt-in.
 
 ## Local linting
 

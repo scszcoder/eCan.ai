@@ -114,7 +114,7 @@ jobs:
         if: inputs.windows-build-result == 'success'
         uses: actions/download-artifact@v7
         with:
-          name: eCan-windows-amd64-${{ inputs.version }}-s3-transfer
+          name: eCan-windows-amd64-${{ inputs.version }}-installer
           path: windows-artifacts
         continue-on-error: true
 
@@ -122,7 +122,7 @@ jobs:
         if: inputs.macos-build-result == 'success' && inputs.macos-built-amd64 == true
         uses: actions/download-artifact@v7
         with:
-          name: eCan-macos-amd64-${{ inputs.version }}-s3-transfer
+          name: eCan-macos-amd64-${{ inputs.version }}-installer
           path: macos-amd64-artifacts
         continue-on-error: true
 
@@ -130,7 +130,7 @@ jobs:
         if: inputs.macos-build-result == 'success' && inputs.macos-built-aarch64 == true
         uses: actions/download-artifact@v7
         with:
-          name: eCan-macos-aarch64-${{ inputs.version }}-s3-transfer
+          name: eCan-macos-aarch64-${{ inputs.version }}-installer
           path: macos-aarch64-artifacts
         continue-on-error: true
 
@@ -138,7 +138,7 @@ jobs:
         if: inputs.linux-result == 'success'
         uses: actions/download-artifact@v7
         with:
-          name: eCan-linux-amd64-${{ inputs.version }}-s3-transfer
+          name: eCan-linux-amd64-${{ inputs.version }}-installer
           path: linux-artifacts
         continue-on-error: true
 

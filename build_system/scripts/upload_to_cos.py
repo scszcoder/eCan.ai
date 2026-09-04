@@ -179,7 +179,8 @@ class COSUploader:
     EXIT_SOFT_FAIL = 1
     EXIT_HARD_FAIL = 2
 
-    def __init__(self, version: str, environment: str, app_id: str = 'cn'):
+    def __init__(self, version: str, environment: str, app_id: str = 'cn',
+                 dist_dir: str | None = None):
         self.version = version
         self.environment = environment
         self.app_id = app_id
@@ -194,7 +195,12 @@ class COSUploader:
         self.app_prefix = self.app_name
 
         self.release_dir = f"v{version}"
-        self.dist_dir = project_root / 'dist'
+        # Source directory of build artifacts. Defaults to <project_root>/dist
+        # for the historical GitHub-Actions-intermediate path; build jobs
+        # that call this script directly (release-cn.yml direct-upload
+        # fast path) pass an explicit path (e.g. ``artifacts/``) to skip the
+        # upload-artifact → download-artifact round-trip.
+        self.dist_dir = (project_root / dist_dir) if dist_dir else project_root / 'dist'
         self.uploaded_files = []
 
         secret_id = os.environ.get('ECAN_TENCENT_SECRET_ID', '')
@@ -536,7 +542,7 @@ class COSUploader:
         print(f"Dist Dir:    {self.dist_dir}")
 
         # Verify dist directory exists. The wrapper downloads
-        # `*-s3-transfer` artifacts into `dist/` before invoking us; if
+        # `*-installer` artifacts into `dist/` before invoking us; if
         # we land here without that directory, every build job either
         # failed or produced no artifacts, and there is nothing to
         # upload. Surface that as a hard precondition failure
@@ -658,10 +664,16 @@ def main():
                         default='all', help='Target platform')
     parser.add_argument('--arch', choices=['all', 'amd64', 'aarch64'],
                         default='all', help='Target architecture')
+    parser.add_argument('--dist-dir', default=None,
+                        help='Source directory of build artifacts '
+                             '(default: <project_root>/dist). Build jobs calling this '
+                             'script directly (CN direct-upload fast path) pass the '
+                             'platform-specific staging directory, e.g. ``artifacts/``.')
 
     args = parser.parse_args()
     install_signal_handlers()
-    uploader = COSUploader(args.version, args.env, app_id=args.app)
+    uploader = COSUploader(args.version, args.env, app_id=args.app,
+                           dist_dir=args.dist_dir)
     try:
         success = uploader.upload_all(platform_filter=args.platform, arch_filter=args.arch)
     except _PreconditionError as e:

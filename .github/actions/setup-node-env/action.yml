@@ -70,8 +70,18 @@ runs:
       uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
+        # Disable setup-node's internal package-manager cache; the
+        # explicit `actions/cache@v5` step below handles npm cache save/restore
+        # (and on self-hosted runners it is skipped entirely).
+        package-manager-cache: false
 
     - name: Cache npm download cache
+      # GitHub Cache saves happen in the post phase and dominate job-end
+      # latency on self-hosted runners (~3-7 min for ~200 MB Playwright/npm
+      # caches). Self-hosted runners keep tools on the local filesystem
+      # (`~/.npm`), so GitHub Cache provides no value but blocks `Complete job`.
+      # GitHub-hosted runners are disposable machines and still need this cache.
+      if: ${{ runner.environment == 'github-hosted' }}
       uses: actions/cache@v5
       with:
         # Cache downloaded package archives only. Never cache node_modules,

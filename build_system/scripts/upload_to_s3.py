@@ -49,7 +49,8 @@ class S3Uploader:
     EXIT_SOFT_FAIL = 1
     EXIT_HARD_FAIL = 2
 
-    def __init__(self, version: str, environment: str, user_prefix: str = ''):
+    def __init__(self, version: str, environment: str, user_prefix: str = '',
+                 dist_dir: str | None = None):
         """
         Initialize S3 uploader
 
@@ -60,6 +61,12 @@ class S3Uploader:
                 non-empty, the on-S3 directory name becomes
                 ``{prefix}_v{version}`` instead of the default ``v{version}``.
                 See ota/docs/multi_version_picker.md for the end-to-end design.
+            dist_dir: Source directory of build artifacts. Defaults to
+                ``<project_root>/dist`` for the historical
+                GitHub-Actions-intermediate path; build jobs that call this
+                script directly (release-intl.yml direct-upload fast path)
+                pass an explicit path (e.g. ``artifacts/``) to skip the
+                upload-artifact → download-artifact round-trip.
         """
         self.version = version
         self.environment = environment
@@ -102,7 +109,7 @@ class S3Uploader:
             print("   Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables")
             sys.exit(1)
         
-        self.dist_dir = project_root / 'dist'
+        self.dist_dir = (project_root / dist_dir) if dist_dir else project_root / 'dist'
         self.uploaded_files = []
     
     def _load_config(self) -> dict:
@@ -536,7 +543,7 @@ class S3Uploader:
         print("=" * 60)
 
         # Verify dist directory exists. The wrapper downloads
-        # `*-s3-transfer` artifacts into `dist/` before invoking us; if
+        # `*-installer` artifacts into `dist/` before invoking us; if
         # we land here without that directory, every build job either
         # failed or produced no artifacts, and there is nothing to
         # upload. Surface that as a hard precondition failure
@@ -625,6 +632,11 @@ Examples:
                        help='Only upload this platform (optional)')
     parser.add_argument('--arch', choices=['amd64', 'aarch64'],
                        help='Only upload this architecture (optional)')
+    parser.add_argument('--dist-dir', default=None,
+                       help='Source directory of build artifacts '
+                            '(default: <project_root>/dist). Build jobs calling this '
+                            'script directly (intl direct-upload fast path) pass the '
+                            'platform-specific staging directory, e.g. ``artifacts/``.')
 
     args = parser.parse_args()
 
@@ -635,7 +647,8 @@ Examples:
     # of being buried under a yellow warning. Soft runtime failures
     # (S3 unreachable, auth) keep the historical rc=1 → ::warning::
     # contract so transient S3 problems don't false-alarm the build.
-    uploader = S3Uploader(args.version, args.env, user_prefix=args.user_prefix)
+    uploader = S3Uploader(args.version, args.env, user_prefix=args.user_prefix,
+                          dist_dir=args.dist_dir)
     try:
         success = uploader.run(args.platform, args.arch)
     except _PreconditionError as e:

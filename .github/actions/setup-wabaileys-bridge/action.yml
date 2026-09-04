@@ -66,6 +66,10 @@ runs:
       uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
+        # Disable setup-node's internal package-manager cache; the
+        # explicit `actions/cache@v5` step below handles npm cache save/restore
+        # (and on self-hosted runners it is skipped entirely).
+        package-manager-cache: false
 
     # ── 4. Cache npm downloads ───────────────────────────────────────────────
     - name: Configure wa_bridge npm download cache
@@ -75,7 +79,12 @@ runs:
         echo "npm_config_cache=$RUNNER_TEMP/wa-bridge-npm-cache" >> "$GITHUB_ENV"
 
     - name: Cache wa_bridge npm downloads
-      if: steps.check_source.outputs.source_exists == 'true'
+      # GitHub Cache saves happen in the post phase and dominate job-end
+      # latency on self-hosted runners (~3-7 min for ~200 MB Playwright/npm
+      # caches). Self-hosted runners keep tools on the local filesystem, so
+      # GitHub Cache provides no value but blocks `Complete job`.
+      # GitHub-hosted runners are disposable machines and still need this cache.
+      if: steps.check_source.outputs.source_exists == 'true' && runner.environment == 'github-hosted'
       uses: actions/cache@v5
       with:
         path: ${{ runner.temp }}/wa-bridge-npm-cache
