@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-04T12:19:16.561465",
+  "generated_at": "2026-09-04T12:41:16.286565",
   "total_tools": 136,
   "tools": [
     {
@@ -3060,7 +3060,7 @@
     {
       "name": "send_sms",
       "title": null,
-      "description": "<category>Messaging</category><sub-category>SMS</sub-category>Send an SMS to a phone number via AWS End User Messaging SMS. Use for short notifications, alerts, or 2FA-style confirmations. Returns {success, messageId, error}.",
+      "description": "<category>Messaging</category><sub-category>SMS</sub-category>Send an SMS to a phone number on the merchant's behalf through the eCan platform. Use for short notifications, alerts, or 2FA-style confirmations. Returns {success, messageId, error}.",
       "inputSchema": {
         "type": "object",
         "required": [
@@ -3097,7 +3097,7 @@
     {
       "name": "send_email",
       "title": null,
-      "description": "<category>Messaging</category><sub-category>Email</sub-category>Send an email via AWS SES. Supports plain-text and/or HTML body, with an optional reply-to address. Returns {success, messageId, error}.",
+      "description": "<category>Messaging</category><sub-category>Email</sub-category>Send an email on the merchant's behalf through the eCan platform; use reply_to for the merchant's own address. Supports plain-text and/or HTML body. Returns {success, messageId, error}.",
       "inputSchema": {
         "type": "object",
         "required": [

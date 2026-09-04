@@ -289,6 +289,44 @@ def add(name, content, file_path, overwrite):
 @prompts.command()
 @requires_auth
 @click.argument('name')
+@click.argument('new_name')
+def copy(name, new_name):
+    """
+    Copy a prompt under a new name.
+
+    OPERATION command - duplicates a prompt in the my_prompts library with a
+    fresh id, so the copy can be edited independently of the original.
+
+    Examples:
+      ecan prompts copy travel_agent0 travel_agent1
+    """
+    out = get_output()
+
+    src = _find_by_title(name)
+    if not src:
+        out.error(f"Prompt not found: {name}")
+        raise SystemExit(1)
+
+    target = str(new_name or "").strip().lower()
+    if any(str(d.get("title") or "").strip().lower() == target
+           for d in _load_prompt_docs()):
+        out.error(f"Prompt already exists: {new_name}")
+        raise SystemExit(1)
+
+    doc = {k: v for k, v in src.items() if k != "__path"}
+    doc["id"] = f"pr-{uuid4().hex[:6]}"
+    doc["title"] = new_name
+    doc["topic"] = new_name
+    doc["usageCount"] = 0
+    doc["lastModified"] = datetime.utcnow().isoformat()
+    _write_doc(doc)
+    out.success(f"Prompt '{src.get('title')}' copied to '{new_name}' (id {doc['id']})!")
+    out.info("Saved locally; the running app syncs it to cloud.")
+
+
+@prompts.command()
+@requires_auth
+@click.argument('name')
 @click.option('--force', '-f', is_flag=True,
               help='Skip confirmation prompt')
 def remove(name, force):
