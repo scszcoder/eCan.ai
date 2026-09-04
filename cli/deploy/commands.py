@@ -352,6 +352,53 @@ def _load_system_skill(name: str):
     return None
 
 
+def _replace_cleanup(ctx, owner: str, skill_ids, log: list) -> dict:
+    """Fast Deploy 'replace' mode: delete this owner's existing tasks that use
+    the given (shared) skills, and every agent of this owner that has one of
+    those tasks assigned — then the caller proceeds with a normal 'add'.
+    Other owners' rows are never touched. Returns {"tasks": [...], "agents": [...]}."""
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+
+    task_ids: list = []
+    for sid in skill_ids:
+        rels = ctx.db.task_service.get_tasks_by_skill(sid)
+        for rel in (rels.get("data") or []) if isinstance(rels, dict) else []:
+            tid = str((rel or {}).get("task_id") or "")
+            if not tid or tid in task_ids:
+                continue
+            rows = (ctx.db.task_service.query_tasks(id=tid) or {}).get("data") or []
+            if rows and str(rows[0].get("owner") or "") == str(owner):
+                task_ids.append(tid)
+
+    agent_ids: list = []
+    if task_ids:
+        agents = (ctx.db.agent_service.get_agents_by_owner(owner) or {}).get("data") or []
+        for a in agents:
+            aid = str((a or {}).get("id") or "")
+            if not aid:
+                continue
+            assoc = (ctx.db.agent_service.get_agent_task_associations(aid) or {}).get("data") or []
+            if any(str((x or {}).get("task_id") or "") in task_ids for x in assoc):
+                agent_ids.append(aid)
+
+    # Agents first (their task links go with them), then the tasks.
+    for aid in agent_ids:
+        r = ctx.db.agent_service.delete_agent(aid)
+        if not (isinstance(r, dict) and r.get("success")):
+            raise RuntimeError(f"replace: delete agent {aid} failed: {(r or {}).get('error')}")
+        cloud_sync(DataType.AGENT, {"id": aid}, Operation.DELETE)
+    for tid in task_ids:
+        r = ctx.db.task_service.delete_task(tid)
+        if not (isinstance(r, dict) and r.get("success")):
+            raise RuntimeError(f"replace: delete task {tid} failed: {(r or {}).get('error')}")
+        cloud_sync(DataType.TASK, {"id": tid}, Operation.DELETE)
+
+    log.append(f"Replace mode: deleted {len(agent_ids)} agent(s) and {len(task_ids)} task(s) "
+               f"using the 抖店客服 skills (owner={owner})")
+    return {"tasks": task_ids, "agents": agent_ids}
+
+
 def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     """Create the real Douyin/抖店 CS deployment (shared-skill model).
     Returns (plan, log, created). Raises on hard failure — the caller turns
@@ -359,9 +406,15 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     from utils.logger_helper import logger_helper as logger
 
     store_urls = [u.strip() for u in (cfg.get("store_urls") or []) if u and str(u).strip()]
-    qa_n = int(cfg.get("qa_agents") or 6)
+    qa_n = int(cfg.get("qa_agents") or 8)  # matches the 抖店客服 panel default
     log = []
     created = {"skills": [], "tasks": [], "agents": []}
+
+    # ── 0) 'replace' mode: clear this owner's previous 抖店客服 deployment first.
+    if str(cfg.get("mode") or "add").strip().lower() == "replace":
+        _replace_cleanup(ctx, owner, (_DDCS_FD_SKILL_ID, _DDCS_QA_SKILL_ID), log)
+    else:
+        log.append("Add mode: existing tasks/agents kept")
 
     # ── 1+2) Visibility checks: the two published skills, then their prompts
     #    (prompt visibility rides the skills' author identity).
@@ -605,6 +658,23 @@ def scenario(config, output):
         from ..base.context import get_context
         ctx = get_context()
         owner = ctx.username or os.environ.get("ECAN_DEPLOY_OWNER") or "default"
+        # Chrome environment first (install check with download link, PATH,
+        # desktop-shortcut debug flags) — the 2026-09-04/05 customer runs
+        # failed before detection ever started because eCan attached to a
+        # Chrome without the Feige page. See cli/deploy/chrome_precheck.py.
+        from .chrome_precheck import run_chrome_precheck
+        try:
+            pre_ok, pre_log, pre_msg = run_chrome_precheck()
+        except Exception as e:  # never let the check itself block a deploy
+            pre_ok, pre_log, pre_msg = True, [f"Chrome pre-check skipped: {e}"], ""
+        if not pre_ok:
+            _emit({
+                "status": "failure",
+                "scenario": scenario_key,
+                "message": pre_msg,
+                "log": pre_log,
+            }, ok=False)
+            return
         try:
             plan, log, created = _deploy_douyin_cs(cfg, ctx, owner)
         except Exception as e:
@@ -612,9 +682,10 @@ def scenario(config, output):
                 "status": "failure",
                 "scenario": scenario_key,
                 "message": f"Deployment failed: {e}",
-                "log": [f"Error: {e}"],
+                "log": [*pre_log, f"Error: {e}"],
             }, ok=False)
             return
+        log = [*pre_log, *log]
         _emit({
             "status": "success",
             "scenario": scenario_key,

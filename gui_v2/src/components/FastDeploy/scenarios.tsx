@@ -16,6 +16,11 @@ export interface ScenarioSchema {
     storeUrls: boolean;
     /** Show the "# of Q&A agents" control (customer-service scenarios). */
     qaAgents?: { default: number; min: number; max: number };
+    /** Pre-filled first store URL (the platform's fixed workstation page). */
+    defaultStoreUrl?: string;
+    /** Show the add/replace switch (replace = delete this owner's existing
+     *  tasks on the scenario's skills + the agents assigned to them, then add). */
+    replaceMode?: boolean;
 }
 
 export interface BusinessScenario {
@@ -31,13 +36,20 @@ export interface BusinessScenario {
 export interface ScenarioConfig {
     storeUrls: string[];
     qaAgents?: number;
+    mode?: 'add' | 'replace';
 }
 
 const CS_SCHEMA: ScenarioSchema = { storeUrls: true, qaAgents: { default: 6, min: 1, max: 16 } };
+const DOUYIN_CS_SCHEMA: ScenarioSchema = {
+    storeUrls: true,
+    qaAgents: { default: 8, min: 1, max: 16 },
+    defaultStoreUrl: 'https://im.jinritemai.com/pc_seller_v2/main/workspace',
+    replaceMode: true,
+};
 const OPS_SCHEMA: ScenarioSchema = { storeUrls: true };
 
 export const SCENARIOS: BusinessScenario[] = [
-    { key: 'douyin_cs', nameEn: 'Douyin Store Customer Service', nameZh: '抖店客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: CS_SCHEMA },
+    { key: 'douyin_cs', nameEn: 'Douyin Store Customer Service', nameZh: '抖店客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: DOUYIN_CS_SCHEMA },
     { key: 'tmall_cs', nameEn: 'T-Mall Store Customer Service', nameZh: '天猫客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: CS_SCHEMA },
     { key: 'amazon_ops', nameEn: 'Amazon Operation', nameZh: '亚马逊运营', region: 'intl', icon: <AmazonOutlined />, schema: OPS_SCHEMA },
     { key: 'ebay_ops', nameEn: 'eBay Operation', nameZh: 'eBay运营', region: 'intl', icon: <ShopOutlined />, schema: OPS_SCHEMA },
@@ -56,7 +68,8 @@ export function scenarioName(s: BusinessScenario, lang: string): string {
 
 export function defaultConfig(s: BusinessScenario): ScenarioConfig {
     return {
-        storeUrls: [''],
+        storeUrls: [s.schema.defaultStoreUrl ?? ''],
         ...(s.schema.qaAgents ? { qaAgents: s.schema.qaAgents.default } : {}),
+        ...(s.schema.replaceMode ? { mode: 'add' as const } : {}),
     };
 }
