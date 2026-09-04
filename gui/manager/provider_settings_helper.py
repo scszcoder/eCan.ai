@@ -1139,6 +1139,30 @@ def save_general_settings_if_needed(base_url_updated: bool, auto_set_as_default:
         return False
 
 
+def _broadcast_lightrag_restart_notice(status: str, reason: str, message: str) -> None:
+    """Tell the GUI about the outcome of a LightRAG restart attempt.
+
+    Mirrors the ``lightrag.providersUpdated`` broadcast contract but
+    carries restart-specific payload (``status`` ∈ ``ok`` / ``skipped``
+    / ``failed``). Failures are intentionally silent at the broadcast
+    layer — the same WS manager is not always loaded, and importing
+    ``gui.LocalServer`` pulls in AppKit. The error log is enough.
+    """
+    try:
+        import sys
+        local_server_module = sys.modules.get('gui.LocalServer')
+        app_ws_manager = getattr(local_server_module, 'app_ws_manager', None)
+        if app_ws_manager is None:
+            return
+        app_ws_manager.broadcast_sync('lightrag.restartNotice', {
+            'status': status,
+            'reason': reason,
+            'message': message,
+        })
+    except Exception as exc:
+        logger.debug(f'[ProviderUtils] Could not broadcast lightrag.restartNotice: {exc}')
+
+
 def invalidate_lightrag_provider_cache(provider_type: str = '', provider_identifier: str = '') -> None:
     """
     Expose provider changes to LightRAG and restart it.
@@ -1157,8 +1181,7 @@ def invalidate_lightrag_provider_cache(provider_type: str = '', provider_identif
          the matching ``LLM_BINDING*`` / ``EMBEDDING_BINDING*`` /
          ``RERANK_BINDING*`` slots of ``lightrag.env``.
       2. Invalidates the LightRAG config cache so the next read picks up
-         the new env values.
-      3. Restarts the running LightRAG server in a background thread
+         the new env values.      3. Restarts the running LightRAG server in a background thread
          (the previous behaviour, which only restarted on eCanAI, has
          been extended to *any* provider switch).
 
@@ -1177,7 +1200,13 @@ def invalidate_lightrag_provider_cache(provider_type: str = '', provider_identif
         # System Settings; without it, the merged Models tab would show
         # the right provider but the server would still be using the old
         # one.
-        sync_default_provider_to_lightrag_env(provider_type=provider_type)
+        #
+        # ``sync_default_provider_to_lightrag_env`` returns True only
+        # when at least one BINDING* env key was actually rewritten.
+        # That is the *single* source of truth for "LightRAG's running
+        # child process is now looking at the wrong env": every other
+        # check below is a heuristic.
+        env_written = bool(sync_default_provider_to_lightrag_env(provider_type=provider_type))
 
         from app_context import AppContext
         main_window = AppContext.get_main_window()
@@ -1207,51 +1236,65 @@ def invalidate_lightrag_provider_cache(provider_type: str = '', provider_identif
             except Exception:
                 pass
 
-        # Determine whether the provider-switch actually changed anything
-        # that requires a restart. ``sync_default_provider_to_lightrag_env``
-        # already compared current vs new binding/host/model — we only
-        # need to additionally check here for changes outside that
-        # helper's scope (e.g. parser env keys when only the parser was
-        # touched).
-        needs_restart = any_ecanai_bound
-        if not needs_restart and provider_type:
-            try:
-                current = str(lr_config.get_value(
-                    {'llm': 'LLM_BINDING', 'embedding': 'EMBEDDING_BINDING', 'rerank': 'RERANK_BINDING'}.get(provider_type, ''),
-                    '',
-                ) or '').lower()
-                # If the caller specified a different provider_identifier
-                # than what is currently written to lightrag.env, the
-                # active binding was just changed and the child process
-                # MUST be replaced.
-                if provider_identifier and current != (provider_identifier or '').lower():
-                    needs_restart = True
-            except Exception:
-                pass
+        # A running child process cannot receive new environment variables.
+        # We restart when ANY of the following is true:
+        #   * the sync helper actually rewrote a BINDING* / model /
+        #     host / api-key env key (the only fully-reliable signal);
+        #   * eCanAI is bound to ANY role, because account-key rotations
+        #     do not always produce a BINDING diff but the parser path
+        #     (MINERU_API_TOKEN / DOCLING_API_KEY) is updated out-of-band
+        #     by ``sync_account_api_key_to_ecanai``;
+        #   * the LightRAG parser reached into the ecanai account key
+        #     (covered by ``any_ecanai_bound`` above).
+        #
+        # The previous heuristic — ``current LLM_BINDING != new
+        # provider_identifier`` — turned out to be unsound because
+        # ``sync_default_provider_to_lightrag_env`` has already written
+        # the new binding to ``lightrag.env`` by the time we read it,
+        # so the comparison always reported "no change" and child
+        # processes went on serving requests with the old provider.
+        needs_restart = env_written or any_ecanai_bound
 
         if not needs_restart:
             return
 
         server = getattr(main_window, 'lightrag_server', None)
         if not server or not server.is_running():
+            # The env file is now correct; the next launch will pick it up.
+            # Tell the UI so an open Knowledge tab can refresh and the user
+            # is not left wondering why nothing changed.
+            _broadcast_lightrag_restart_notice(
+                status='skipped',
+                reason='server_not_running',
+                message='LightRAG is not running; the new settings will apply on next launch.',
+            )
             return
 
-        # A running child process cannot receive new environment variables.
         # Match the server's existing proxy-change behaviour and restart away
         # from the IPC thread so saving provider settings remains responsive.
         import threading
 
         def restart_with_updated_env() -> None:
             try:
-                logger.info('[ProviderUtils] Restarting LightRAG to apply eCanAI settings')
+                logger.info('[ProviderUtils] Restarting LightRAG to apply provider settings')
                 server.stop()
                 server.start(wait_ready=False)
+                _broadcast_lightrag_restart_notice(
+                    status='ok',
+                    reason='env_changed',
+                    message='LightRAG restarted to pick up the new provider settings.',
+                )
             except Exception as exc:
                 logger.error(f'[ProviderUtils] Failed to restart LightRAG: {exc}')
+                _broadcast_lightrag_restart_notice(
+                    status='failed',
+                    reason='restart_exception',
+                    message=f'LightRAG restart failed: {exc}',
+                )
 
         threading.Thread(
             target=restart_with_updated_env,
-            name='LightragECanAIProviderRestart',
+            name='LightragProviderSettingsRestart',
             daemon=True,
         ).start()
     except Exception as exc:
