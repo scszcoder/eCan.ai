@@ -769,51 +769,18 @@ jobs:
           $keyDir = Join-Path $env:GITHUB_WORKSPACE 'build_system/certificates'
           New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
           $keyPath = Join-Path $keyDir 'ed25519_private_key.pem'
-          # Remove existing file if present. The previous run in this
-          # job may have left the file behind with two issues that
-          # block Remove-Item -Force:
-          #   1. The file system read-only attribute set by chmod 600
-          #      on the Linux step's artifact view (File.IsReadOnly).
-          #   2. ACLs previously tightened by this same step
-          #      (SetAccessRuleProtection + Read-only rule for the
-          #      build agent account). Without DELETE permission in
-          #      the ACL, Remove-Item -Force fails with "Access to the
-          #      path is denied" even after clearing the read-only
-          #      attribute.
-          # Reset ownership + ACL to FullControl first so Remove-Item
-          # has delete permission; clear the OS read-only attribute
-          # last. takeown/icacls degrade gracefully on permission
-          # boundaries (they succeed even when ownership cannot be
-          # claimed, since Set-Acl by owner is implicitly allowed).
-          if (Test-Path -LiteralPath $keyPath) {
-              $currentUser = & whoami.exe
-              if ($currentUser) {
-                # Take ownership of the file so we can modify its ACL.
-                & takeown.exe /F $keyPath /A /R /D Y 2>$null | Out-Null
-                # Remove any explicit deny ACEs on the file, then grant FullControl.
-                # /grant:r replaces; (D,DE) = DELETE + DELETE_CHILD.
-                & icacls.exe $keyPath /remove:d "$currentUser" 2>$null | Out-Null
-                & icacls.exe $keyPath /grant:r "${currentUser}:(D,DE,F)" /Q 2>$null | Out-Null
-                # Also reset the parent directory ACL so DELETE_CHILD propagates.
-                # The previous run's SetAccessRuleProtection() on the file may have
-                # blocked inheritance, but the parent dir ACL can still be restrictive.
-                & icacls.exe $keyDir /remove:d "$currentUser" 2>$null | Out-Null
-                & icacls.exe $keyDir /grant:r "${currentUser}:(D,DE,F)" /Q 2>$null | Out-Null
-              }
-              # cmd /c del handles read-only attribute natively and does not
-              # require a separate attrib -r step. Use (RD) to also clear any
-              # read-only flag the filesystem set during the previous run.
-              cmd /c "del /f /q `"$keyPath`"" 2>$null
-              if ($LASTEXITCODE -ne 0 -or (Test-Path -LiteralPath $keyPath)) {
-                # Fallback: .NET File.Delete bypasses PowerShell's -Force
-                # semantics and can sometimes delete when cmd fails.
-                try {
-                  [System.IO.File]::Delete($keyPath)
-                } catch {
-                  Write-Host "::error::Failed to delete $keyPath : $($_.Exception.Message)"
-                }
-              }
-          }
+          # Decode secrets.OTA_ED25519_PRIVATE_KEY (base64 of the PEM blob)
+          # into build_system/certificates/ed25519_private_key.pem so
+          # sign_ota_artifacts() (called inside build.py prod) has the
+          # key on disk. [System.IO.File]::WriteAllBytes() truncates an
+          # existing file before writing, so we do NOT delete first --
+          # an explicit Remove-Item fails on a previous run's hardened
+          # ACLs even with -Force (the build-agent Read-only rule has
+          # no DELETE permission), and the only paths to clear it
+          # (takeown/icacls) require admin privileges the Gitee
+          # self-hosted runner does not always have. Overwrite in
+          # place; the ACL tightening below still drops inherited
+          # permissions and grants only Read.
           [System.IO.File]::WriteAllBytes(
             $keyPath,
             [System.Convert]::FromBase64String($env:OTA_PRIVATE_KEY)
