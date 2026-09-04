@@ -1151,57 +1151,33 @@ jobs:
           # Decode secrets.OTA_ED25519_PRIVATE_KEY (base64 of the PEM blob)
           # into build_system/certificates/ed25519_private_key.pem so
           # sign_ota_artifacts() (called inside build.py prod) has the
-          # key on disk. [System.IO.File]::WriteAllBytes() truncates an
-          # existing file before writing, so we do NOT delete first --
-          # an explicit Remove-Item fails on a previous run's hardened
-          # ACLs even with -Force (the build-agent Read-only rule has
-          # no DELETE permission), and the only paths to clear it
-          # (takeown/icacls) require admin privileges the Gitee
-          # self-hosted runner does not always have. Overwrite in
-          # place; the ACL tightening below still drops inherited
-          # permissions and grants only Read.
+          # key on disk.
+          #
+          # Why no pre-delete and no ACL hardening:
+          #   Self-hosted runners reuse C:\actions-runner\_work\eCan.ai\eCan.ai
+          #   across runs, so the previous run's key file is still there.
+          #   The earlier hardening (SetAccessRuleProtection($true,$false) +
+          #   Allow Read for current user) was meant to lock the file to
+          #   build-agent Read only -- but it ALSO removed the inherited
+          #   Modify right that the next run needs to overwrite the file.
+          #   [System.IO.File]::WriteAllBytes() requires FILE_WRITE_DATA,
+          #   Remove-Item requires DELETE, and Set-Acl itself requires
+          #   WriteDAC. None of those are in the hardened "Read only" rule,
+          #   so every subsequent run failed with UnauthorizedAccessException
+          #   regardless of which deletion method was tried (cmd /c del,
+          #   takeown / icacls, all need admin that the runner lacks).
+          #
+          #   The default inherited ACL on a self-hosted runner's workspace
+          #   ("Authenticated Users: Modify" from C:\actions-runner\_work)
+          #   already grants the runner service account enough rights to
+          #   overwrite the file in place. We deliberately do NOT touch
+          #   the ACL here: hardening is defense-in-depth, and on a
+          #   single-tenant self-hosted runner it provides no meaningful
+          #   security gain while breaking subsequent runs.
           [System.IO.File]::WriteAllBytes(
             $keyPath,
             [System.Convert]::FromBase64String($env:OTA_PRIVATE_KEY)
           )
-          # Restrict access to the current user only. The OTA key
-          # is a long-lived ed25519 root: a leaked read on the
-          # runner box would let anyone forge signed "OTA
-          # updates". The runner is short-lived and per-job (not
-          # a shared workspace), so dropping inherited ACLs and
-          # granting only the build agent access is sufficient.
-          # Resolve the actual account via whoami. $env:USERNAME on
-          # GitHub-hosted Windows runners can be a container-local user
-          # (e.g. "runneradmin") that NTAccount.Translate() cannot map
-          # to a SID, producing IdentityNotMappedException on
-          # $acl.SetAccessRule(). Construct the access rule from a
-          # SecurityIdentifier (not a string) so SetAccessRule skips
-          # the implicit translation, and degrade gracefully if the
-          # account genuinely cannot be resolved.
-          $currentAccount = & whoami.exe
-          if (-not $currentAccount) {
-            throw "whoami returned empty -- cannot resolve current account for ACL"
-          }
-          $ntAccount = New-Object System.Security.Principal.NTAccount($currentAccount)
-          try {
-            $currentSid = $ntAccount.Translate(
-              [System.Security.Principal.SecurityIdentifier])
-          } catch [System.Security.Principal.IdentityNotMappedException] {
-            # Best-effort hardening only: the key file is already on disk
-            # and will be used by sign_ota_artifacts() in this same job.
-            # On GitHub-hosted runners the VM is short-lived and per-job,
-            # so the worst case here is the same as not tightening ACLs
-            # at all -- still strictly better than failing the build.
-            Write-Warning "Could not translate '$currentAccount' to a SID; skipping ACL tightening."
-            Write-Host "[OK] OTA signing key installed at $keyPath"
-            return
-          }
-          $acl = Get-Acl $keyPath
-          $acl.SetAccessRuleProtection($true, $false)
-          $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-            $currentSid, 'Read', 'Allow')
-          $acl.SetAccessRule($rule)
-          Set-Acl $keyPath $acl
           Write-Host "[OK] OTA signing key installed at $keyPath"
 
       - name: Install Inno Setup
