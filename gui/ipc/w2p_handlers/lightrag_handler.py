@@ -1161,7 +1161,19 @@ def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[st
         
         if result.get('status') == 'error':
             error_msg = result.get('message', 'Failed to get documents')
-            logger.error(f"Get documents paginated failed: {error_msg}")
+            # The server-restart race is an expected transient condition,
+            # not a real failure. The frontend's isConnectionErrorMessage()
+            # detects this same pattern and shows "Waiting for LightRAG
+            # server…" with a 10×2s retry loop. Mirror that here so the
+            # handler doesn't pollute the runlog on every poll.
+            if ('connection refused' in error_msg.lower()
+                    or 'failed to establish a new connection' in error_msg.lower()):
+                logger.debug(
+                    f"[lightrag_handler] Server not ready for get_documents_paginated; "
+                    f"forwarding transient error to caller: {error_msg}"
+                )
+            else:
+                logger.error(f"Get documents paginated failed: {error_msg}")
             return create_error_response(request, 'GET_DOCUMENTS_ERROR', error_msg)
             
         # Extract data from client response

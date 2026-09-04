@@ -587,12 +587,35 @@ class IPCHandlerRegistry:
                 error_message = error_info.get('message', 'Request failed')
                 error_code = error_info.get('code', 'UNKNOWN_ERROR')
                 error_details = error_info.get('details')
-                
-                # Log the full error response for debugging
-                logger.error(f"[registry] Handler {method} returned error: code={error_code}, message={error_message}")
-                logger.error(f"[registry] Full error response: {ipc_response}")
-                
-                # Create exception with error code for proper handling
+
+                # Transient / expected errors that callers handle gracefully
+                # (rate limits, expired tokens, plan gating, partial server
+                # failures). The handler already logged the upstream error;
+                # we MUST NOT also emit an ERROR + stack trace here — that
+                # floods runlogs on every 429/401 storm. Re-raise without
+                # a stack trace so apiRouter can return a typed response.
+                _TRANSIENT_ERROR_CODES = {
+                    'PROVIDER_MODELS_ERROR',  # cloud 429/401 on /v1/models
+                    'API_KEY_ERROR',          # myAPIKeygen partial / scoped failure
+                }
+                _is_transient_unavailable = (
+                    'connection refused' in error_message.lower()
+                    or 'failed to establish a new connection' in error_message.lower()
+                    or 'max retries exceeded' in error_message.lower()
+                )
+                if error_code in _TRANSIENT_ERROR_CODES or _is_transient_unavailable:
+                    logger.warning(
+                        f"[registry] {error_code} for {method} (server unavailable, "
+                        f"frontend will retry): {error_message}"
+                    )
+                else:
+                    # Log the full error response for debugging
+                    logger.error(f"[registry] Handler {method} returned error: code={error_code}, message={error_message}")
+                    logger.error(f"[registry] Full error response: {ipc_response}")
+
+                # Create exception with error code for proper handling. Use
+                # the exception class — no stack trace is emitted because
+                # the error is raised (and re-raised) by the same line.
                 error = RuntimeError(error_message)
                 error.error_code = error_code  # type: ignore
                 error.error_details = error_details  # type: ignore
@@ -601,9 +624,31 @@ class IPCHandlerRegistry:
         except Exception as e:
             # Use warning level for expected auth errors, error level for unexpected errors
             error_code = getattr(e, 'error_code', None)
-            if error_code in ('INVALID_TOKEN', 'TOKEN_REQUIRED', 'SYSTEM_NOT_READY',
+            # LightRAG connection-refused: the 3-attempt retry in
+            # ``LightragClient.get_documents_paginated`` already absorbed the
+            # brief startup race after a restart. The frontend's
+            # ``isConnectionErrorMessage()`` then takes over with its own
+            # 10×2s "Waiting for LightRAG server…" retry. Re-emitting the
+            # urllib3 traceback here only floods the runlog on every poll.
+            err_text = str(e).lower()
+            _is_transient_unavailable = (
+                'connection refused' in err_text
+                or 'failed to establish a new connection' in err_text
+                or 'max retries exceeded' in err_text
+            )
+            if _is_transient_unavailable:
+                logger.warning(
+                    f"[registry] {error_code} for method {method} (server unavailable, "
+                    f"frontend will retry): {e}"
+                )
+            elif error_code in ('INVALID_TOKEN', 'TOKEN_REQUIRED', 'SYSTEM_NOT_READY',
                               'LOGIN_FAILED', 'CLOUDBASE_NOT_AVAILABLE',
-                              'INVALID_PARAMS', 'INVALID_CREDENTIALS', 'SMS_SEND_FAILED'):
+                              'INVALID_PARAMS', 'INVALID_CREDENTIALS', 'SMS_SEND_FAILED',
+                              # Transient cloud-side responses (rate limit, expired
+                              # key, plan gating). The handler already logged the
+                              # upstream error; re-raising here would only emit a
+                              # second stack trace.
+                              'PROVIDER_MODELS_ERROR'):
                 # Expected user-visible errors - log as warning without stack trace
                 logger.warning(f"[registry] {error_code} for method {method}: {e}")
             else:

@@ -641,7 +641,40 @@ class RequestHandlers:
             # ``SMS_SEND_FAILED`` to the warning list keeps the noise
             # down without changing behaviour — the frontend still
             # gets the structured error code in the GraphQL response.
-            if error_code in (
+            #
+            # ``PROVIDER_MODELS_ERROR`` is added here for the same
+            # reason: the handler already classifies the upstream
+            # 401/403/429 as a transient cloud-side response (see
+            # ``SettingsHandler.handle_get_provider_models`` and the
+            # matching branch in ``registry.handle_graphql_request``),
+            # so re-emitting it as ERROR with a full traceback on every
+            # rate-limited probe just floods the runlog. The frontend
+            # receives the typed code via the GraphQL response and can
+            # render its own UI hint.
+            #
+            # LightRAG ``GET_DOCUMENTS_ERROR`` (with a urllib3
+            # "Connection refused" message) is handled the same way: the
+            # 3-attempt client retry already absorbed the brief startup
+            # race, the frontend's ``isConnectionErrorMessage()`` then
+            # takes over with a 10×2s "Waiting for LightRAG server…"
+            # loop, and re-dumping the urllib3 traceback here on every
+            # poll just floods the runlog. The frontend still receives
+            # the typed code via the GraphQL response.
+            err_text_lower = error_message.lower()
+            is_lightrag_unavailable = (
+                error_code == "GET_DOCUMENTS_ERROR"
+                and (
+                    'connection refused' in err_text_lower
+                    or 'failed to establish a new connection' in err_text_lower
+                    or 'max retries exceeded' in err_text_lower
+                )
+            )
+            if is_lightrag_unavailable:
+                logger.warning(
+                    f"[GraphQL] {error_code} for {method} (server unavailable, "
+                    f"frontend will retry): {error_message}"
+                )
+            elif error_code in (
                 "INVALID_TOKEN",
                 "TOKEN_REQUIRED",
                 "SYSTEM_NOT_READY",
@@ -649,6 +682,7 @@ class RequestHandlers:
                 "CLOUDBASE_NOT_AVAILABLE",
                 "INVALID_CREDENTIALS",
                 "SMS_SEND_FAILED",
+                "PROVIDER_MODELS_ERROR",
             ):
                 logger.warning(f"[GraphQL] {error_code} for {method}: {error_message}")
             else:
