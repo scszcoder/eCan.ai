@@ -181,6 +181,41 @@ def _dump_feige_env() -> None:
         pass
 
 
+# ws190: ONE observer per Chrome endpoint (+label), shared by every browser
+# session that attaches to that Chrome. Live 2026-09-04 22:36: five per-customer
+# chat-scoped sessions (node scope, card:…, 陆地飞鱼, 肽斯特, …) each started its
+# own observer against the same Chrome; every incoming frame was dispatched 5×
+# to 5 Q&A agents → 4 duplicate replies to one product card. Old observers were
+# never torn down either (reconnect-follow re-attached them to every new tab).
+# Registry key -> {"client", "dispatchers": [fn, ...], "handles": set, "alive"}.
+# The FIRST dispatcher is the active one; stopping a subscriber hands over to
+# the next; the real CDP client is stopped only with the last subscriber.
+_SHARED_OBSERVERS: dict = {}
+
+
+class _SharedObserverHandle:
+    """What start_ws_shadow_observer returns: a per-subscriber token. Passing it
+    to stop_ws_shadow_observer unsubscribes; the shared client stops only when
+    no subscriber remains."""
+    __slots__ = ("key", "dispatch_fn")
+
+    def __init__(self, key: str, dispatch_fn):
+        self.key = key
+        self.dispatch_fn = dispatch_fn
+
+    @property
+    def client(self):
+        _e = _SHARED_OBSERVERS.get(self.key)
+        return _e.get("client") if _e else None
+
+
+def _shared_dispatch(entry: dict, item: dict) -> None:
+    """Route a detected message to the active (first) subscriber only."""
+    fns = entry.get("dispatchers") or []
+    if fns:
+        fns[0](item)
+
+
 async def start_ws_shadow_observer(session: Any, target_id: str, label: str = "",
                                    dispatch_fn=None) -> Any:
     """Start the WS observer.  Returns the CDP client (so the caller can stop it on
@@ -192,12 +227,8 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
     (log-only).  When dispatch is on, the caller is expected to suppress the DOM
     monitor's own dispatch so the two paths don't double-fire (the WS text is
     full while the DOM sidebar preview can be truncated, so they don't dedup)."""
-    ws_session.set_dispatch_live(False)   # reset; only flips True once we confirm-start below
     if not ws_session.ws_enabled("reader"):
         return None
-    _dump_feige_env()   # ws079: record the env config so the run log is self-describing
-    do_dispatch = dispatch_fn is not None and ws_session.ws_enabled("dispatch")
-    do_read_ack = ws_session.ws_enabled("read_ack")
 
     cdp_url = getattr(session, "cdp_url", None)
     if not cdp_url:
@@ -207,11 +238,45 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         logger.warning("[FEIGE-WS-SHADOW] no cdp_url on session — observer not started")
         return None
 
+    # ws190: reuse the observer already watching this Chrome (see registry note).
+    _key = f"{cdp_url}|{label}"
+    _existing = _SHARED_OBSERVERS.get(_key)
+    if _existing is not None and _existing.get("alive"):
+        _probe_ok = False
+        try:
+            await asyncio.wait_for(_existing["client"].send_raw("Target.getTargets", {}), timeout=3.0)
+            _probe_ok = True
+        except Exception as _probe_err:
+            logger.warning(f"[FEIGE-WS-SHADOW] ws190 shared observer probe failed ({_probe_err}) — starting fresh")
+        if _probe_ok:
+            if dispatch_fn is not None:
+                _existing["dispatchers"].append(dispatch_fn)
+            _h = _SharedObserverHandle(_key, dispatch_fn)
+            _existing["handles"].add(_h)
+            logger.info(
+                f"[FEIGE-WS-SHADOW] ws190 reusing shared observer for {cdp_url} label={label!r} "
+                f"(subscribers={len(_existing['handles'])}) — NOT starting a second observer "
+                f"(one per session dispatched every frame N×, live 2026-09-04)")
+            return _h
+        _SHARED_OBSERVERS.pop(_key, None)
+
+    _entry: dict = {"client": None, "dispatchers": ([dispatch_fn] if dispatch_fn is not None else []),
+                    "handles": set(), "alive": True}
+
+    def _dispatch_current(item: dict) -> None:
+        _shared_dispatch(_entry, item)
+
+    ws_session.set_dispatch_live(False)   # reset; only flips True once we confirm-start below
+    _dump_feige_env()   # ws079: record the env config so the run log is self-describing
+    do_dispatch = dispatch_fn is not None and ws_session.ws_enabled("dispatch")
+    do_read_ack = ws_session.ws_enabled("read_ack")
+
     try:
         from cdp_use import CDPClient
 
         client = CDPClient(url=cdp_url)
         await client.start()
+        _entry["client"] = client
 
         # The Frontier WS lives on the real Feige SPA tab.  Attach to the monitor
         # tab plus any other jinritemai tabs (main + dedicated detection) so we
@@ -749,10 +814,10 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                             and str(m.customer_name or "").startswith("card:")
                             and os.environ.get("ECAN_FEIGE_CARD_PARK", "1") != "0"
                         ):
-                            _park_card_dispatch(item, m.conversation_id, dispatch_fn)
+                            _park_card_dispatch(item, m.conversation_id, _dispatch_current)
                         else:
                             try:
-                                dispatch_fn(item)
+                                _dispatch_current(item)
                             except Exception as _de:
                                 logger.debug(f"[FEIGE-WS-SHADOW] dispatch_fn error: {_de}")
             except Exception:
@@ -1144,14 +1209,37 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             f"dispatch={do_dispatch} — {'WS will own dispatch on first frame' if do_dispatch else 'log-only shadow'}; "
             f"DOM monitor stays active until then; diff vs DOM dom_observed for detection-latency"
         )
-        return client
+        _SHARED_OBSERVERS[_key] = _entry
+        _h0 = _SharedObserverHandle(_key, dispatch_fn)
+        _entry["handles"].add(_h0)
+        return _h0
     except Exception as exc:
         logger.warning(f"[FEIGE-WS-SHADOW] failed to start: {exc}")
         return None
 
 
 async def stop_ws_shadow_observer(client: Any) -> None:
-    """Best-effort teardown."""
+    """Best-effort teardown. ws190: a _SharedObserverHandle only unsubscribes —
+    the shared CDP client (and the WS-owns-dispatch flag) is torn down with the
+    LAST subscriber, so one session's monitor stop can't blind the others."""
+    if isinstance(client, _SharedObserverHandle):
+        _entry = _SHARED_OBSERVERS.get(client.key)
+        if _entry is None:
+            return
+        _entry["handles"].discard(client)
+        if client.dispatch_fn is not None:
+            try:
+                _entry["dispatchers"].remove(client.dispatch_fn)
+            except ValueError:
+                pass
+        if _entry["handles"]:
+            logger.info(
+                f"[FEIGE-WS-SHADOW] ws190 shared observer kept alive "
+                f"(subscribers={len(_entry['handles'])}); dispatcher handed to the next session")
+            return
+        _SHARED_OBSERVERS.pop(client.key, None)
+        _entry["alive"] = False
+        client = _entry.get("client")
     if ws_coverage.enabled():             # ws075: final coverage snapshot at teardown
         try:
             logger.info(ws_coverage.format_line())
