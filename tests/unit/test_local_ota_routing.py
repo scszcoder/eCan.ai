@@ -113,6 +113,47 @@ class TestAppcastBaseOverride:
         assert "127.0.0.1" not in base
         assert "localhost" not in base
 
+    @pytest.mark.parametrize("env", ["development", "test", "staging", "simulation", "production"])
+    @pytest.mark.parametrize("app_id", ["intl", "cn"])
+    def test_every_env_routes_via_yaml_only(self, app_id, env):
+        """Regression guard for the user's invariant:
+
+            "Only changing ``environment:`` in ota_config.yaml should
+            swap OTA endpoints."
+
+        For each (env × app_id) pair, ``get_appcast_url`` and
+        ``get_latest_json_url`` must produce the URL declared in the
+        YAML — no code change required. If anyone later hard-codes a
+        branch that bypasses ``appcast_base`` for one environment, this
+        test fails before the change ships.
+        """
+        config = _fresh_config(app_id, env)
+        env_block = config._config["environments"][env]
+        expected_base = (
+            env_block.get("appcast_base_cos")
+            if app_id == "cn"
+            else env_block.get("appcast_base")
+        )
+        expected_channel = env_block["channel"]
+
+        # get_appcast_url builds {base}/channels/{channel}/{filename}.
+        url = config.get_appcast_url("macos", "aarch64")
+        assert url == (
+            f"{expected_base}/channels/{expected_channel}/"
+            f"appcast-macos-aarch64.xml"
+        )
+
+        # get_latest_json_url is {base}/latest.json (no channel segment).
+        latest = config.get_latest_json_url()
+        assert latest == f"{expected_base}/latest.json"
+
+        # And the language suffix is preserved even on the override path.
+        url_zh = config.get_appcast_url("macos", "aarch64", "zh-CN")
+        assert url_zh == (
+            f"{expected_base}/channels/{expected_channel}/"
+            f"appcast-macos-aarch64.zh-CN.xml"
+        )
+
     def test_development_env_local_override_honored(self):
         """``development`` env declares ``appcast_base = 127.0.0.1:8080``;
         the override must be honored so the local OTA test server is
