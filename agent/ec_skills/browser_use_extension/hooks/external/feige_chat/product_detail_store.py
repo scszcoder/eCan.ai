@@ -179,19 +179,39 @@ def detail_for(goods_id: str = "", title: str = "") -> str:
     return hit[1] if hit else ""
 
 
+# Markers that begin the price/coupon/shipping tail of a card text, i.e. where
+# the clean product title ends. Used to recover the title from a slim DOM card
+# ("[商品卡片] <title> ￥38.00 (券:立减10元) …") so the authoritative detail can
+# be looked up by title when the slim card carries no 商品ID.
+_TITLE_TAIL_RE = re.compile(r"\s*(?:商品ID[:：]|[￥¥]|[（(]?券|未发货|已发货|[（(]服务|发货|价格[:：])")
+
+
 def enrich_card_text(text: str) -> str:
-    """ws186: append the JSON detail to a '[商品卡片] <title> 商品ID:<id>' text
-    when we have it and the text doesn't already carry detail markers. Used by
-    the ws184 park dispatch (direct-QA lane never passes through ws101)."""
+    """ws186/ws191: make a '[商品卡片] …' text carry the AUTHORITATIVE
+    getTemplateCardDataV2 detail (券后价/原价/优惠/发货).
+
+    Two cases:
+      * bare card, no price markers yet → append the detail (original ws186).
+      * slim DOM card that ALREADY shows an ambiguous price
+        ("￥38.00 (券:立减10元)") → REPLACE it with the authoritative detail
+        when we have it, so the two dispatch lanes never disagree on price
+        (live 2026-09-05: same product answered 券后28元 on the slim card and
+        券后38元 on the authoritative card). When no authoritative detail is
+        stored, the text is returned unchanged (never fabricated)."""
     t = str(text or "")
-    if not t.startswith("[商品卡片]") or any(m in t for m in ("￥", "¥", "券", "发货")):
+    if not t.startswith("[商品卡片]"):
         return t
+    body = t[len("[商品卡片]"):].strip()
     m = _GOODS_ID_RE.search(t)
     gid = m.group(1) if m else ""
-    title = t[len("[商品卡片]"):].strip()
-    if gid and f"商品ID:{gid}" in title:
-        title = title.split("商品ID", 1)[0].strip().rstrip(":：")
+    # Clean title = body up to the first price/id/coupon/shipping marker.
+    title = _TITLE_TAIL_RE.split(body, 1)[0].strip().rstrip(":：|").strip()
     detail = detail_for(gid, title)
     if not detail:
+        # No authoritative detail: preserve prior behaviour exactly — only the
+        # already-priced card is left untouched; a bare card gets nothing to add.
         return t
-    return f"{t} | {detail}"
+    canonical = "[商品卡片] " + title
+    if gid:
+        canonical += f" 商品ID:{gid}"
+    return f"{canonical} | {detail}"

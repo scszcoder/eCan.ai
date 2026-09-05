@@ -136,6 +136,23 @@ def _park_card_dispatch(item: dict, talk_id: str, dispatch_fn) -> None:
                     f"text={_et[:100]!r}")
         except Exception:
             pass
+        # ws191: the park path is, by design, the DELAYED second path (it waited
+        # up to park_s for a name bind). If the same talk was already dispatched
+        # under another identity (the named WS frame / DOM front-desk), sending
+        # here duplicates the answer to one conversation (live 2026-09-05:
+        # talk 7682040317431907610 answered 券后28元 AND 券后38元). Drop instead.
+        try:
+            from . import dispatch_state as _ds191
+            _mid = str(item.get("msg_id") or "")
+            if _ds191.talk_recently_dispatched(talk, _mid):
+                logger.info(
+                    f"[FEIGE-WS-CARD] ws191 conv {talk} already dispatched under "
+                    f"another identity — dropping duplicate parked dispatch "
+                    f"(cust={item.get('customer_name')!r})")
+                return
+            _ds191.note_talk_dispatched(talk, _mid)
+        except Exception:
+            pass
         try:
             dispatch_fn(item)
         except Exception as _de:
@@ -816,6 +833,29 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                         ):
                             _park_card_dispatch(item, m.conversation_id, _dispatch_current)
                         else:
+                            # ws191: this is a primary (non-parked) dispatch — record
+                            # the talk claim so a later parked card for the SAME
+                            # conversation is dropped instead of answering twice.
+                            # ws186: also enrich the card text with the authoritative
+                            # getTemplateCardDataV2 detail so this fast path cites the
+                            # same 券后价/原价 the parked lane would (fixes the
+                            # 券后28元 vs 券后38元 split on the same product).
+                            try:
+                                from . import dispatch_state as _ds191b
+                                _talk_n = str(getattr(m, "conversation_id", "") or "")
+                                if _talk_n:
+                                    _ds191b.note_talk_dispatched(
+                                        _talk_n, str(item.get("msg_id") or ""))
+                            except Exception:
+                                pass
+                            try:
+                                from . import product_detail_store as _pds191
+                                _etn = _pds191.enrich_card_text(str(item.get("last_message") or ""))
+                                if _etn and _etn != item.get("last_message"):
+                                    item["last_message"] = _etn
+                                    item["latest_message"] = _etn
+                            except Exception:
+                                pass
                             try:
                                 _dispatch_current(item)
                             except Exception as _de:

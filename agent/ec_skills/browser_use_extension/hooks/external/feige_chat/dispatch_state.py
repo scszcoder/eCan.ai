@@ -45,6 +45,56 @@ _recent_sends_lock = threading.Lock()
 DEDUP_TTL_S = 15.0
 SOURCE_TURN_DEDUP_TTL_S = 600.0
 
+# ── ws191: talk-level cross-identity dispatch dedup ──────────────────
+# A nameless product card dispatches under the synthetic ``card:<talk>``
+# identity while the SAME conversation also surfaces as a named sidebar row
+# and dispatches under the real name. They are one talk_id and must not both
+# be answered (live 2026-09-05: talk 7682040317431907610 = 陆地飞鱼 answered
+# twice, 券后28元 + 券后38元 — the ws184 park expired to a synthetic dispatch
+# while the named WS frame had already dispatched). The per-customer dedup
+# above can't see this: card:<talk> and the real name are different customer
+# keys. This talk-scoped ledger collapses the flip.
+#
+# Keyed on talk_id, short TTL (a talk flips card→name exactly once, at name
+# bind — that is the whole duplicate window). msg_id disambiguates a genuine
+# follow-up turn: when both sides carry a msg_id and they DIFFER, it is a new
+# customer message, not the flip, so it is allowed through.
+_talk_dispatch_at: dict[str, tuple[float, str]] = {}   # talk -> (ts, msg_id)
+_talk_dispatch_lock = threading.Lock()
+TALK_DISPATCH_TTL_S = 15.0
+
+
+def note_talk_dispatched(talk_id: str, msg_id: str = "") -> None:
+    """Record that *talk_id* has just been dispatched (under any identity)."""
+    talk = str(talk_id or "").strip()
+    if not talk:
+        return
+    with _talk_dispatch_lock:
+        _talk_dispatch_at[talk] = (time.time(), str(msg_id or ""))
+
+
+def talk_recently_dispatched(talk_id: str, msg_id: str = "",
+                             ttl: float = TALK_DISPATCH_TTL_S) -> bool:
+    """True if *talk_id* was dispatched within *ttl* (possibly under a different
+    identity), i.e. this would be a cross-identity duplicate. Returns False when
+    both msg_ids are known and differ (a genuinely new customer turn)."""
+    talk = str(talk_id or "").strip()
+    if not talk:
+        return False
+    now = time.time()
+    with _talk_dispatch_lock:
+        prev = _talk_dispatch_at.get(talk)
+        if not prev:
+            return False
+        ts, prev_msg = prev
+        if now - ts >= ttl:
+            _talk_dispatch_at.pop(talk, None)
+            return False
+        cur_msg = str(msg_id or "")
+        if prev_msg and cur_msg and prev_msg != cur_msg:
+            return False
+        return True
+
 # ws003e: long-window ledger of REAL replies that were actually DELIVERED, keyed by
 # (customer, sha1(reply)). The claim caches above suppress concurrent/near dups but
 # expire in 15-600s; a stale direct-delivery retry (CDP cooldown/circuit deferring a

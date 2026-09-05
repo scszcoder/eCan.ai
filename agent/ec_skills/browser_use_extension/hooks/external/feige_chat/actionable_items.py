@@ -923,6 +923,22 @@ async def _try_auto_dispatch(
             if _ident:
                 _dispatched_identity_keys[_ident] = now
 
+            # ws191: record the talk-level claim so a later parked card:<talk>
+            # dispatch for the SAME conversation is dropped instead of producing
+            # a second answer. Resolve talk from the (possibly synthetic) cust_id.
+            try:
+                from . import dispatch_state as _ds191c, ws_session as _wss191
+                _talk191 = ""
+                if cust_id.startswith("card:"):
+                    _talk191 = cust_id[len("card:"):]
+                else:
+                    _talk191 = str(_wss191.talk_for_name(cust_id) or "")
+                if _talk191:
+                    _ds191c.note_talk_dispatched(
+                        _talk191, str(item.get("msg_id") or ""))
+            except Exception:
+                pass
+
             # Record in Fix A caches
             if use_dedup:
                 try:
