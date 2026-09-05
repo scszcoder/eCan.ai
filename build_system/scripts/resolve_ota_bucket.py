@@ -22,9 +22,20 @@ Usage
 Emits lines like:
     OTA_BUCKET=ecan-releases-1251680599
     OTA_REGION=ap-shanghai
+    BUCKET_NAME=ecan-releases-1251680599
+    BUCKET_REGION=ap-shanghai
     OTA_BASE_PATH=
     OTA_PREFIX=production
     OTA_APP=cn
+
+`BUCKET_NAME` / `BUCKET_REGION` are aliases of `OTA_BUCKET` / `OTA_REGION`
+emitted under the names `render_download_links.py` reads. They cannot live
+in `jobs.<id>.env:` in the caller workflow because GHA's schema lint
+resolves `env.X` against the static job-env dict before any step runs,
+so a `BUCKET_NAME: ${{ env.OTA_BUCKET }}` line there trips
+"Unrecognized named-value: 'env'". Aliasing them here keeps the renderer
+and the workflow agreeing on a single source (`ota_config.yaml`) without
+a shell-variable write/read round-trip.
 
 Exit codes
 ----------
@@ -108,6 +119,11 @@ def _resolve_from_path(config_path: Path, app: str, env: str) -> dict[str, str]:
     return {
         "OTA_BUCKET": str(bucket),
         "OTA_REGION": str(region),
+        # Aliases consumed by `render_download_links.py`. See module
+        # docstring for why they're emitted here rather than echoed
+        # separately by the caller workflow.
+        "BUCKET_NAME": str(bucket),
+        "BUCKET_REGION": str(region),
         "OTA_PREFIX": str(prefix),
         "OTA_BASE_PATH": str(common.get("s3_base_path") or ""),
         "OTA_APP": app,

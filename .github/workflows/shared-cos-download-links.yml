@@ -146,21 +146,19 @@ jobs:
           # Read the bucket / region / prefix from ota/config/ota_config.yaml
           # — same source upload_to_cos.py reads — and export to env.
           #
-          # Render-side variables (BUCKET_NAME / BUCKET_REGION) are the
-          # ones render_download_links.py reads directly, so we re-export
-          # them here too. They cannot live in jobs.<id>.env: because
-          # GHA's schema lint resolves `env.X` against the static
-          # job-env dict before any step runs, so a `BUCKET_NAME:
-          # ${{ env.OTA_BUCKET }}` line there would always trip
-          # "Unrecognized named-value: 'env'". Teeing the aliases into
-          # $GITHUB_ENV lets the step-scoped env (and the Python
-          # script) see them, and keeps `ota_config.yaml` as the
-          # single source of truth on both sides.
+          # The renderer (`render_download_links.py`) reads `BUCKET_NAME`
+          # and `BUCKET_REGION` directly. The script also emits aliases
+          # under those names so the redirect below captures both the
+          # `OTA_*` (upload-side contract) and `BUCKET_*` (render-side
+          # contract) keys from a single source of truth. Echoing them
+          # again here would silently produce empty values — shell
+          # variables written via `$GITHUB_ENV` are only materialised
+          # after the step exits, so `echo "BUCKET_NAME=${OTA_BUCKET}"`
+          # in this same step expands `${OTA_BUCKET}` as the empty
+          # string. Let the Python script own the alias.
           python3 build_system/scripts/resolve_ota_bucket.py \
             --app cn \
             --env "${ENVIRONMENT}" >> "$GITHUB_ENV"
-          echo "BUCKET_NAME=${OTA_BUCKET}" >> "$GITHUB_ENV"
-          echo "BUCKET_REGION=${OTA_REGION}" >> "$GITHUB_ENV"
       - name: Download Windows artifacts
         if: >-
           inputs.windows-build-result == 'success' &&

@@ -307,7 +307,7 @@ def test_build_windows_rows_uses_remote_size_for_direct_upload(tmp_path):
     assert row["size_bytes"] == fake_size
     assert "Setup.exe" in row["url"]
     assert row["source"] == "remote"
-    assert row["gate_label"] == "✅ built"
+    assert row["gate_label"] == "✅ Built"
 
 
 def test_build_windows_rows_prefers_local_when_artifact_present(tmp_path):
@@ -355,7 +355,7 @@ def test_build_windows_rows_skipped_build_shows_gate_label(tmp_path):
         remote_sizes={},
     )
     assert len(rows) == 1
-    assert rows[0]["gate_label"] == "⏭ skipped"
+    assert rows[0]["gate_label"] == "⏭ Skipped"
     assert rows[0]["size_bytes"] is None
 
 
@@ -461,7 +461,7 @@ def test_render_cli_produces_markdown_and_text(tmp_path, monkeypatch):
     # 145823441 bytes → 139.1 MB (renderer humanises with one decimal).
     assert "139.1 MB" in md
     # Skipped macOS row must surface its reason, not be silently dropped.
-    assert "⏭ skipped" in md
+    assert "⏭ Skipped" in md or "Skipped" in md
     # URL pattern footer must be present so operators know how the
     # public URL is built.
     assert "URL Format" in md
@@ -471,3 +471,269 @@ def test_render_cli_produces_markdown_and_text(tmp_path, monkeypatch):
     assert "Environment: test" in txt
     assert "139.1 MB" in txt
     assert "https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/test/releases/v0.7.0/windows/amd64/eCan.cn-0.7.0-windows-amd64-Setup.exe" in txt
+
+
+# ---------------------------------------------------------------------------
+# render_build_status — the build-status mini-table between header
+# and per-platform sections.
+# ---------------------------------------------------------------------------
+
+
+def test_render_build_status_shows_all_three_platforms():
+    """The build-status mini-table must list all three platforms with
+    their result, artifact count, and notes — operators glance at this
+    before scrolling to per-platform tables.
+    """
+    renderer = _load_renderer()
+    out = "\n".join(renderer.render_build_status(
+        windows_result="success",
+        macos_result="failure",
+        linux_result="skipped",
+        windows_count=1,
+        macos_count=0,
+        linux_count=0,
+    ))
+    assert "Windows" in out
+    assert "macOS" in out
+    assert "Linux" in out
+    assert "✅ Built" in out
+    assert "❌ Failed" in out
+    assert "⏭ Skipped" in out
+    # The "1 artifact" / "0 artifacts" grammar should be correct.
+    assert "1 artifact" in out  # singular
+    assert "0 artifacts" in out  # plural
+
+
+def test_render_build_status_handles_unknown_result():
+    """A previously-unseen build result (e.g. a new GHA job type) must
+    not blow up the renderer; it should fall back to the raw value."""
+    renderer = _load_renderer()
+    out = "\n".join(renderer.render_build_status(
+        windows_result="pending",
+        macos_result="success",
+        linux_result="skipped",
+        windows_count=0,
+        macos_count=1,
+        linux_count=0,
+    ))
+    # Unknown result falls through to the raw string in the Status column.
+    assert "pending" in out
+
+
+# ---------------------------------------------------------------------------
+# render_windows_section / render_macos_section / render_linux_section
+# ---------------------------------------------------------------------------
+
+
+def test_render_windows_section_skipped_emits_status_message():
+    """When Windows was skipped, the section must NOT contain a fake
+    table with placeholder text — it must emit a clean status message."""
+    renderer = _load_renderer()
+    rows = renderer.build_windows_rows(
+        version="0.7.0",
+        release_dir="v0.7.0",
+        bucket_url_prefix="https://x.cos.ap-shanghai.myqcloud.com",
+        env_prefix="test",
+        windows_artifacts_dir=Path(__file__).parent / "_unused_",
+        windows_build_result="skipped",
+        windows_direct_upload=False,
+        app_name="eCan",
+        remote_sizes={},
+    )
+    out = "\n".join(renderer.render_windows_section(rows, "skipped"))
+    assert "skipped" in out.lower()
+    # Must NOT contain the confusing placeholder row from the previous version.
+    assert "(no Windows artifact)" not in out
+    assert "(missing — check bucket)" not in out
+
+
+def test_render_macos_section_partial_coverage(tmp_path):
+    """When macOS was scoped to only one arch, the section heading must
+    call out the missing arch explicitly so the operator doesn't think
+    the build simply missed uploading the second arch."""
+    renderer = _load_renderer()
+    rows = renderer.build_macos_rows(
+        version="0.7.0",
+        release_dir="v0.7.0",
+        bucket_url_prefix="https://x.cos.ap-shanghai.myqcloud.com",
+        env_prefix="test",
+        macos_artifacts_dir=tmp_path,
+        macos_build_result="success",
+        macos_built_amd64=True,
+        macos_built_aarch64=False,
+        app_name="eCan",
+        remote_sizes={
+            "test/releases/v0.7.0/macos/amd64/eCan-0.7.0-macos-amd64.pkg": 52_345_678,
+        },
+    )
+    out = "\n".join(renderer.render_macos_section(
+        rows, "success", macos_built_amd64=True, macos_built_aarch64=False,
+    ))
+    assert "1 of 2 architectures" in out
+    assert "Apple Silicon" in out  # the missing arch is named explicitly
+
+
+def test_render_macos_section_full_coverage_no_partial_warning(tmp_path):
+    """When both arches are built, the section heading must NOT mention
+    'partial' or 'X of Y architectures' — that warning is for partial
+    coverage only."""
+    renderer = _load_renderer()
+    rows = renderer.build_macos_rows(
+        version="0.7.0",
+        release_dir="v0.7.0",
+        bucket_url_prefix="https://x.cos.ap-shanghai.myqcloud.com",
+        env_prefix="test",
+        macos_artifacts_dir=tmp_path,
+        macos_build_result="success",
+        macos_built_amd64=True,
+        macos_built_aarch64=True,
+        app_name="eCan",
+        remote_sizes={
+            "test/releases/v0.7.0/macos/amd64/eCan-0.7.0-macos-amd64.pkg": 52_345_678,
+            "test/releases/v0.7.0/macos/aarch64/eCan-0.7.0-macos-aarch64.pkg": 51_987_654,
+        },
+    )
+    out = "\n".join(renderer.render_macos_section(
+        rows, "success", macos_built_amd64=True, macos_built_aarch64=True,
+    ))
+    assert "of 2 architectures" not in out
+    assert "2 installers available" in out  # plural form
+
+
+def test_render_linux_section_failure_emits_status_message():
+    """Linux failure path must NOT contain a fake table with a placeholder row."""
+    renderer = _load_renderer()
+    rows = renderer.build_linux_rows(
+        version="0.7.0",
+        release_dir="v0.7.0",
+        bucket_url_prefix="https://x.cos.ap-shanghai.myqcloud.com",
+        env_prefix="test",
+        linux_artifacts_dir=Path(__file__).parent / "_unused_",
+        linux_result="failure",
+        app_name="eCan",
+        remote_sizes={},
+    )
+    out = "\n".join(renderer.render_linux_section(rows, "failure"))
+    assert "Linux build failed" in out
+    assert "(missing — check bucket)" not in out
+
+
+# ---------------------------------------------------------------------------
+# render_header — metadata table
+# ---------------------------------------------------------------------------
+
+
+def test_render_header_shows_bucket_with_region():
+    renderer = _load_renderer()
+    out = "\n".join(renderer.render_header({
+        "version": "0.7.0",
+        "environment": "test",
+        "channel": "stable",
+        "bucket": "ecan-releases-1251680599",
+        "region": "ap-shanghai",
+        "generated_at": "2026-09-05T07:57:41Z",
+    }))
+    # Bucket and region must appear together (the bucket-cell format
+    # that the old version rendered as "(region)" with empty bucket).
+    assert "ecan-releases-1251680599" in out
+    assert "ap-shanghai" in out
+    # And the header must be a table (starts with `|` not `-`).
+    assert "| Field | Value |" in out
+
+
+def test_render_header_handles_missing_bucket():
+    """Regression guard: the previous version rendered
+    `Bucket: `` (region ``)` when bucket was missing — a confusing
+    pair of empty backticks. The new version emits `_(unset)_` instead.
+    """
+    renderer = _load_renderer()
+    out = "\n".join(renderer.render_header({
+        "version": "0.7.0",
+        "environment": "test",
+        "channel": "stable",
+        "bucket": "",
+        "region": "",
+        "generated_at": "2026-09-05T07:57:41Z",
+    }))
+    assert "_(unset)_" in out
+    assert "(region ``" not in out  # the old broken shape
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: full summary now contains the build-status mini-table
+# ---------------------------------------------------------------------------
+
+
+def test_render_cli_summary_contains_build_status_mini_table(tmp_path, monkeypatch):
+    monkeypatch.setenv("VERSION", "0.7.0")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("CHANNEL", "stable")
+    monkeypatch.setenv("BUCKET_NAME", "ecan-releases-1251680599")
+    monkeypatch.setenv("BUCKET_REGION", "ap-shanghai")
+    monkeypatch.setenv("OTA_PREFIX", "test")
+    monkeypatch.setenv("WINDOWS_BUILD_RESULT", "success")
+    monkeypatch.setenv("MACOS_BUILD_RESULT", "failure")
+    monkeypatch.setenv("LINUX_RESULT", "skipped")
+    monkeypatch.setenv("WINDOWS_DIRECT_UPLOAD", "true")
+    monkeypatch.setenv("APP_NAME", "eCan.cn")
+
+    win = tmp_path / "windows-artifacts"
+    win.mkdir()
+    (win / "eCan.cn-0.7.0-windows-amd64-Setup.exe").write_bytes(b"")
+    sizes = tmp_path / "sizes.env"
+    sizes.write_text(
+        "test/releases/v0.7.0/windows/amd64/eCan.cn-0.7.0-windows-amd64-Setup.exe=145823441\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("COS_SIZES_FILE", str(sizes))
+
+    summary = tmp_path / "summary.md"
+    text = tmp_path / "text.txt"
+    rc = subprocess.run(
+        [
+            sys.executable, str(RENDERER),
+            "--scheme", "cos",
+            "--summary-out", str(summary),
+            "--text-out", str(text),
+            "--url-pattern", "https://{bucket-with-APPID}.cos.{region}.myqcloud.com/{env}/releases/v{ver}/{platform}/{arch}/{file}",
+            "--workflow-name", "test",
+        ],
+        cwd=tmp_path,
+        capture_output=True, text=True,
+    ).returncode
+    assert rc == 0
+
+    md = summary.read_text()
+
+    # The summary must have the build-status mini-table, in the right
+    # vertical order: header → build-status → per-platform sections.
+    header_pos = md.index("## 📦 Download Links")
+    status_pos = md.index("### 🛠 Build Status")
+    win_pos = md.index("### 🪟 Windows Installers")
+    mac_pos = md.index("### 🍎 macOS Installers")
+    lin_pos = md.index("### 🐧 Linux Packages")
+    assert header_pos < status_pos < win_pos < mac_pos < lin_pos, (
+        "build-status mini-table must sit between the header and the "
+        "per-platform sections, in the same vertical order"
+    )
+
+    # The skipped/failed status labels must surface (not be hidden as
+    # lowercase text or placeholder rows).
+    assert "✅ Built" in md     # Windows success
+    assert "❌ Failed" in md    # macOS failure
+    assert "⏭ Skipped" in md   # Linux skipped
+
+    # Bucket cell must contain the real bucket value, not "(region)".
+    assert "ecan-releases-1251680599" in md
+    assert "ap-shanghai" in md
+    assert "(region `ap-shanghai`)" in md or "region `ap-shanghai`" in md
+
+    # And the URL must be constructed from the bucket value (the bug
+    # the user reported was "Bucket: (region)" with empty URL).
+    assert "https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com" in md
+
+    # Text artifact must contain the same metadata, not break apart.
+    txt = text.read_text()
+    assert "ecan-releases-1251680599" in txt
+    assert "ap-shanghai" in txt
+    assert "Build Status" in txt

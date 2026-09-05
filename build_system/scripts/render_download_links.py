@@ -198,120 +198,329 @@ def size_for(local_path: Path | None, cos_key: str | None, remote_sizes: dict[st
 # Rendering
 # ---------------------------------------------------------------------------
 
-# Per-platform gate text shown in the "missing" rows so it's obvious why
-# a row is empty (build skipped vs. failure is in WINDOWS_BUILD_RESULT etc).
+# Per-platform gate text shown in the per-row "Build" column. Different
+# from the platform-level status icon used in the build-status mini-table
+# below — the per-row label sits inside a tight table cell, so it stays
+# compact.
 _BUILD_RESULT_LABELS = {
-    "success": "✅ built",
-    "skipped": "⏭ skipped",
-    "failure": "❌ failed",
+    "success":   "✅ built",
+    "skipped":   "⏭ skipped",
+    "failure":   "❌ failed",
     "cancelled": "🚫 cancelled",
 }
 
+# Platform-level status labels — used in the build-status mini-table
+# AND in the per-platform section heading when the build did not run.
+_PLATFORM_STATUS_LABELS = {
+    "success":   "✅ Built",
+    "skipped":   "⏭ Skipped",
+    "failure":   "❌ Failed",
+    "cancelled": "🚫 Cancelled",
+}
 
-def _format_size_cell(size_bytes: int | None) -> str:
+# Single-icon column for the build-status mini-table.
+_PLATFORM_ICONS = {
+    "windows": "🪟",
+    "macos":   "🍎",
+    "linux":   "🐧",
+}
+
+# Compact build result shown in the "Status" column of the per-row
+# artifact table. Keeps "✅ Built" / "❌ Failed" consistent with the
+# mini-table at the top of the summary.
+_ROW_STATUS_LABELS = {
+    "success":   "✅",
+    "skipped":   "⏭",
+    "failure":   "❌",
+    "cancelled": "🚫",
+}
+
+
+def _has_real_artifact(rows: list[dict]) -> bool:
+    """True if any row represents an actually-uploaded object (not a placeholder)."""
+    return any(r.get("source") in ("local", "remote") for r in rows)
+
+
+def _count_real_artifacts(rows: list[dict]) -> int:
+    """Number of rows that represent an actually-uploaded object."""
+    return sum(1 for r in rows if r.get("source") in ("local", "remote"))
+
+
+# Convenience aliases used by `main()` when building the build-status
+# mini-table — keeps the call site readable.
+def windows_artifact_count(rows: list[dict]) -> int:
+    return _count_real_artifacts(rows)
+
+
+def macos_artifact_count(rows: list[dict]) -> int:
+    return _count_real_artifacts(rows)
+
+
+def linux_artifact_count(rows: list[dict]) -> int:
+    return _count_real_artifacts(rows)
+
+
+def _format_size_cell(size_bytes: int | None, source: str | None) -> str:
+    """Render the size column.
+
+    Returns "—" (em-dash) when the artifact exists but its size couldn't
+    be resolved — visually clean, and clearly distinct from "missing"
+    which means the artifact itself isn't on the bucket.
+    """
     if size_bytes is None:
-        return "_(missing — check bucket)_"
+        return "—"
     return humanize_size(size_bytes)
 
 
-def render_windows_table(rows: list[dict]) -> list[str]:
-    """Render the Windows section as a Markdown table.
-
-    `rows` is a list of dicts with keys:
-        filename, arch_label, size_bytes, source, url, gate_label
+def _size_source_note(size_bytes: int | None, source: str | None) -> str:
+    """Italic footnote explaining where the size came from (GHA artifact
+    vs HeadObject query). Returned as a small markdown fragment; the
+    caller embeds it next to the size cell when the artifact exists but
+    the source isn't obvious from the table itself.
     """
-    if not rows:
-        return [
-            "### Windows Installers (x86_64)",
-            "",
-            "_No Windows installers available for this release._",
-            "",
-        ]
-    lines = ["### Windows Installers (x86_64)", ""]
-    lines.append("| File | Arch | Size | Build | URL |")
-    lines.append("| --- | --- | ---: | --- | --- |")
-    for row in rows:
-        lines.append(
-            f"| `{row['filename']}` "
-            f"| {row['arch_label']} "
-            f"| {_format_size_cell(row['size_bytes'])} "
-            f"| {row['gate_label']} "
-            f"| [Download]({row['url']}) |"
-        )
-    lines.append("")
-    return lines
-
-
-def render_macos_table(rows: list[dict]) -> list[str]:
-    if not rows:
-        return [
-            "### macOS Installers",
-            "",
-            "_No macOS installers available for this release._",
-            "",
-        ]
-    lines = ["### macOS Installers", ""]
-    lines.append("| File | Arch | Size | Build | URL |")
-    lines.append("| --- | --- | ---: | --- | --- |")
-    for row in rows:
-        lines.append(
-            f"| `{row['filename']}` "
-            f"| {row['arch_label']} "
-            f"| {_format_size_cell(row['size_bytes'])} "
-            f"| {row['gate_label']} "
-            f"| [Download]({row['url']}) |"
-        )
-    lines.append("")
-    return lines
-
-
-def render_linux_table(rows: list[dict]) -> list[str]:
-    if not rows:
-        return [
-            "### Linux Packages",
-            "",
-            "_No Linux packages available for this release._",
-            "",
-        ]
-    lines = ["### Linux Packages", ""]
-    lines.append("| File | Type | Arch | Size | Build | URL |")
-    lines.append("| --- | --- | --- | ---: | --- | --- |")
-    for row in rows:
-        lines.append(
-            f"| `{row['filename']}` "
-            f"| {row['pkg_type']} "
-            f"| {row['arch_label']} "
-            f"| {_format_size_cell(row['size_bytes'])} "
-            f"| {row['gate_label']} "
-            f"| [Download]({row['url']}) |"
-        )
-    lines.append("")
-    return lines
+    if source == "local":
+        return ""  # GHA artifact path is the default; no footnote needed.
+    if source == "remote":
+        return " <sub>(via HeadObject)</sub>"
+    return ""
 
 
 def render_header(meta: dict) -> list[str]:
-    """Render the summary header (title + version/env/channel)."""
+    """Render the summary header — a metadata table for at-a-glance scanning.
+
+    Returns markdown lines (no trailing newline). When bucket / region
+    are unknown (e.g. a local dry-run), the row renders `_(unset)_`
+    instead of a literal empty cell, so the summary never produces the
+    confusing "Bucket: (region)" output that the previous version did.
+    """
+    bucket = meta.get("bucket") or ""
+    region = meta.get("region") or ""
+    bucket_cell = f"`{bucket}` (region `{region}`)" if bucket and region else "_(unset)_"
     return [
         "## 📦 Download Links",
         "",
-        f"- **Version**: `{meta['version']}`",
-        f"- **Environment**: `{meta['environment']}`",
-        f"- **Channel**: `{meta['channel']}`",
-        f"- **Bucket**: `{meta['bucket']}` (region `{meta['region']}`)",
+        "| Field | Value |",
+        "| --- | --- |",
+        f"| **Version** | `{meta.get('version') or '_(unset)_'}` |",
+        f"| **Environment** | `{meta.get('environment') or '_(unset)_'}` |",
+        f"| **Channel** | `{meta.get('channel') or '_(unset)_'}` |",
+        f"| **Bucket** | {bucket_cell} |",
+        f"| **Generated** | `{meta.get('generated_at') or '_(unset)_'}` |",
         "",
     ]
 
 
+def render_build_status(
+    windows_result: str,
+    macos_result: str,
+    linux_result: str,
+    windows_count: int,
+    macos_count: int,
+    linux_count: int,
+) -> list[str]:
+    """Render the build-status mini-table.
+
+    This sits between the metadata header and the per-platform sections,
+    giving operators a single glance at what was built before they have
+    to scroll through artifact tables.
+    """
+    def row(platform_key: str, platform_label: str, result: str, count: int) -> str:
+        icon = _PLATFORM_ICONS[platform_key]
+        status = _PLATFORM_STATUS_LABELS.get(result, result or "unknown")
+        count_cell = f"{count} artifact" + ("s" if count != 1 else "")
+        # Notes column: surface the reason the build was skipped, or
+        # the upload path for a direct-uploaded Windows build.
+        notes = ""
+        if result == "success" and count == 0:
+            notes = "build succeeded but no artifacts were uploaded"
+        elif result == "failure":
+            notes = "see build job log"
+        return f"| {icon} {platform_label} | {status} | {count_cell} | {notes or '—'} |"
+
+    lines = [
+        "---",
+        "",
+        "### 🛠 Build Status",
+        "",
+        "| Platform | Status | Artifacts | Notes |",
+        "| --- | --- | --- | --- |",
+        row("windows", "Windows", windows_result, windows_count),
+        row("macos",   "macOS",   macos_result,   macos_count),
+        row("linux",   "Linux",   linux_result,   linux_count),
+        "",
+    ]
+    return lines
+
+
+def _render_status_message(build_result: str, platform_label: str, expected_count: int = 0) -> list[str]:
+    """Render a clean per-platform section when the build did not run.
+
+    Replaces the previous behaviour of emitting a fake row with
+    `(no macOS artifact)` / `(missing — check bucket)` placeholders,
+    which made the table look broken instead of honestly reporting
+    "this build didn't run".
+    """
+    if build_result == "skipped":
+        return [
+            f"_{platform_label} build was skipped for this release._",
+            "",
+        ]
+    if build_result == "failure":
+        return [
+            f"❌ **{platform_label} build failed** — no artifacts produced.",
+            "",
+            f"_See the build job log for the failing step. Expected: {expected_count} artifact(s)._",
+            "",
+        ]
+    if build_result == "cancelled":
+        return [
+            f"🚫 **{platform_label} build was cancelled** — no artifacts produced.",
+            "",
+        ]
+    # success but no rows (e.g. COS/S3 HeadObject failed and the
+    # artifact dir was also empty).
+    return [
+        f"⚠️ **{platform_label} build reported success but no artifacts were found.**",
+        "",
+        f"_Expected: {expected_count} artifact(s). Check that upload_to_*.py actually ran._",
+        "",
+    ]
+
+
+def render_windows_section(rows: list[dict], build_result: str) -> list[str]:
+    """Render the Windows section.
+
+    When the build succeeded with real artifacts: artifact table.
+    Otherwise: a clean status message explaining what happened.
+    """
+    lines = ["### 🪟 Windows Installers", ""]
+
+    if build_result != "success" or not _has_real_artifact(rows):
+        lines.extend(_render_status_message(build_result, "Windows", expected_count=1))
+        return lines
+
+    real_rows = [r for r in rows if r.get("source") in ("local", "remote")]
+    noun = "installer" if len(real_rows) == 1 else "installers"
+    lines.append(f"✅ **{len(real_rows)} {noun} available**")
+    lines.append("| File | Size | Build | Download |")
+    lines.append("| --- | ---: | --- | --- |")
+    for row in real_rows:
+        size_cell = _format_size_cell(row.get("size_bytes"), row.get("source"))
+        size_cell += _size_source_note(row.get("size_bytes"), row.get("source"))
+        lines.append(
+            f"| `{row['filename']}` "
+            f"| {size_cell} "
+            f"| {_BUILD_RESULT_LABELS.get(build_result, build_result)} "
+            f"| [⬇ Download]({row['url']}) |"
+        )
+    lines.append("")
+    return lines
+
+
+def render_macos_section(
+    rows: list[dict],
+    build_result: str,
+    macos_built_amd64: bool,
+    macos_built_aarch64: bool,
+) -> list[str]:
+    """Render the macOS section.
+
+    When the build ran, distinguishes between "all arches built" and
+    "partial coverage" (one arch reported success, the other wasn't in
+    the build matrix).
+    """
+    lines = ["### 🍎 macOS Installers", ""]
+
+    if build_result != "success" or not _has_real_artifact(rows):
+        expected = sum(1 for x in (macos_built_amd64, macos_built_aarch64) if x)
+        lines.extend(_render_status_message(build_result, "macOS", expected_count=expected))
+        return lines
+
+    real_rows = [r for r in rows if r.get("source") in ("local", "remote")]
+    # macOS always supports two arches (Intel + Apple Silicon). If only
+    # one came back from the bucket, surface the missing arch explicitly
+    # so the operator understands the matrix was narrow (not just that
+    # the upload silently dropped an artifact).
+    POSSIBLE_MACOS_ARCHES = ("Intel (x86_64)", "Apple Silicon (ARM64)")
+    built_archs = {r["arch_label"] for r in real_rows}
+    missing_archs = [a for a in POSSIBLE_MACOS_ARCHES if a not in built_archs]
+
+    if missing_archs:
+        lines.append(
+            f"⚠️ **{len(built_archs)} of {len(POSSIBLE_MACOS_ARCHES)} architectures built** "
+            f"({' / '.join(sorted(built_archs)) or 'none'}). "
+            f"**Not built this run:** {', '.join(missing_archs)}."
+        )
+        lines.append("")
+    else:
+        noun = "installer" if len(real_rows) == 1 else "installers"
+        lines.append(f"✅ **{len(real_rows)} {noun} available**")
+        lines.append("")
+
+    lines.append("| File | Arch | Size | Build | Download |")
+    lines.append("| --- | --- | ---: | --- | --- |")
+    for row in real_rows:
+        size_cell = _format_size_cell(row.get("size_bytes"), row.get("source"))
+        size_cell += _size_source_note(row.get("size_bytes"), row.get("source"))
+        lines.append(
+            f"| `{row['filename']}` "
+            f"| {row['arch_label']} "
+            f"| {size_cell} "
+            f"| {_BUILD_RESULT_LABELS.get(build_result, build_result)} "
+            f"| [⬇ Download]({row['url']}) |"
+        )
+    lines.append("")
+    return lines
+
+
+def render_linux_section(rows: list[dict], build_result: str) -> list[str]:
+    """Render the Linux section — same shape as Windows."""
+    lines = ["### 🐧 Linux Packages", ""]
+
+    if build_result != "success" or not _has_real_artifact(rows):
+        lines.extend(_render_status_message(build_result, "Linux", expected_count=1))
+        return lines
+
+    real_rows = [r for r in rows if r.get("source") in ("local", "remote")]
+    noun = "package" if len(real_rows) == 1 else "packages"
+    lines.append(f"✅ **{len(real_rows)} {noun} available**")
+    lines.append("| File | Type | Arch | Size | Build | Download |")
+    lines.append("| --- | --- | --- | ---: | --- | --- |")
+    for row in real_rows:
+        size_cell = _format_size_cell(row.get("size_bytes"), row.get("source"))
+        size_cell += _size_source_note(row.get("size_bytes"), row.get("source"))
+        lines.append(
+            f"| `{row['filename']}` "
+            f"| {row.get('pkg_type', 'Package')} "
+            f"| {row['arch_label']} "
+            f"| {size_cell} "
+            f"| {_BUILD_RESULT_LABELS.get(build_result, build_result)} "
+            f"| [⬇ Download]({row['url']}) |"
+        )
+    lines.append("")
+    return lines
+
+
 def render_footer(url_pattern: str) -> list[str]:
+    """Render the URL format footer.
+
+    Concise — just the pattern + the size-source explanation. Keeps the
+    4-line "Size column is read from…" paragraph that the previous
+    version produced, but inside a blockquote so it reads as a note
+    rather than the body of the summary.
+    """
     return [
         "---",
         "",
         "### 📝 URL Format",
         "",
-        f"- Pattern: `{url_pattern}`",
-        "- Size column is read from the GHA artifact when the build job uploaded",
-        "  through `actions/upload-artifact`, and queried via `HeadObject` on the",
-        "  storage backend when the build job took the direct-upload fast path.",
+        f"```\n{url_pattern}\n```",
+        "",
+        "> 💡 **Size column source**: when the build job uploaded through",
+        "> `actions/upload-artifact`, the size is read from the local",
+        "> artifact on disk. When the build took the direct-upload fast",
+        "> path (no GHA artifact), the size is queried via `HeadObject`",
+        "> on the storage backend (COS for `cn`, S3 for `intl`).",
         "",
     ]
 
@@ -319,6 +528,26 @@ def render_footer(url_pattern: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # Per-row construction
 # ---------------------------------------------------------------------------
+
+# Display labels for build-result values from the parent workflow. Used
+# both in the per-row `Build` column and the platform-level status header.
+_BUILD_RESULT_LABELS = {
+    "success":   "✅ Built",
+    "skipped":   "⏭ Skipped",
+    "failure":   "❌ Failed",
+    "cancelled": "🚫 Cancelled",
+}
+
+
+def _platform_status_icon(build_result: str) -> str:
+    """One-character icon for the build-status mini table."""
+    return {
+        "success":   "✅",
+        "skipped":   "⏭",
+        "failure":   "❌",
+        "cancelled": "🚫",
+    }.get(build_result, "❔")
+
 
 def build_windows_rows(
     *,
@@ -533,44 +762,80 @@ def render_text(
     windows_rows: list[dict],
     macos_rows: list[dict],
     linux_rows: list[dict],
+    windows_result: str,
+    macos_result: str,
+    linux_result: str,
 ) -> str:
+    """Render the plain-text artifact uploaded alongside the markdown summary.
+
+    Mirrors the markdown layout (header → build status → per-platform
+    sections → footer) so operators who open the .txt artifact get the
+    same picture they'd see in the GHA step summary, minus the emoji.
+    """
+    def real(rows: list[dict]) -> list[dict]:
+        return [r for r in rows if r.get("source") in ("local", "remote")]
+
     lines = [
+        "=" * 72,
         f"{meta['app_name']} Download Links",
+        "=" * 72,
         "",
         f"Version:     {meta['version']}",
         f"Environment: {meta['environment']}",
         f"Channel:     {meta['channel']}",
-        f"Bucket:      {meta['bucket']} ({meta['region']})",
+        f"Bucket:      {meta['bucket']} (region: {meta['region']})",
         f"Generated:   {meta['generated_at']}",
         "",
     ]
 
-    def emit_section(title: str, rows: list[dict], extra_fields: tuple[str, ...] = ()) -> None:
-        lines.append(f"[{title}]")
-        lines.append("")
-        if not rows or all(r.get("source") == "missing" for r in rows):
-            lines.append(f"  (no {title.lower()} artifacts in this release)")
+    # ---- Build status ----
+    def status_line(platform: str, result: str, count: int) -> str:
+        label = _PLATFORM_STATUS_LABELS.get(result, result or "unknown")
+        return f"  {platform:<8} {label:<14} {count} artifact(s)"
+
+    lines.append("-" * 72)
+    lines.append("Build Status")
+    lines.append("-" * 72)
+    lines.append(status_line("Windows", windows_result, len(real(windows_rows))))
+    lines.append(status_line("macOS",   macos_result,   len(real(macos_rows))))
+    lines.append(status_line("Linux",   linux_result,   len(real(linux_rows))))
+    lines.append("")
+
+    def emit_section(
+        title: str,
+        rows: list[dict],
+        result: str,
+        extra_fields: tuple[str, ...] = (),
+    ) -> None:
+        lines.append("-" * 72)
+        lines.append(title)
+        lines.append("-" * 72)
+        if result != "success" or not _has_real_artifact(rows):
+            msg_map = {
+                "skipped":   f"{title} build was skipped for this release.",
+                "failure":   f"{title} build FAILED — no artifacts produced.",
+                "cancelled": f"{title} build was cancelled — no artifacts produced.",
+            }
+            lines.append(f"  {msg_map.get(result, f'{title} build produced no artifacts.')}")
             lines.append("")
             return
-        for r in rows:
-            if r.get("source") == "missing":
-                continue
-            lines.append(f"  {r['filename']}")
+        for r in real(rows):
+            lines.append(f"  File:  {r['filename']}")
             for field in extra_fields:
                 value = r.get(field)
                 if value:
                     label, _ = _format_extra_field(field)
-                    lines.append(f"    {label:<10} {value}")
-            lines.append(f"    Size:      {_format_size_text(r['size_bytes'])}")
-            lines.append(f"    Build:     {r['gate_label']}")
-            lines.append(f"    URL:       {r['url']}")
+                    lines.append(f"  {label + ':':<8} {value}")
+            lines.append(f"  Size:  {_format_size_text(r['size_bytes'])} ({r.get('source', '?')})")
+            lines.append(f"  Build: {_BUILD_RESULT_LABELS.get(result, result)}")
+            lines.append(f"  URL:   {r['url']}")
             lines.append("")
 
-    emit_section("Windows", windows_rows)
-    emit_section("macOS", macos_rows, extra_fields=("arch_label",))
-    emit_section("Linux", linux_rows, extra_fields=("pkg_type", "arch_label"))
+    emit_section("Windows", windows_rows, windows_result)
+    emit_section("macOS",   macos_rows,   macos_result, extra_fields=("arch_label",))
+    emit_section("Linux",   linux_rows,   linux_result, extra_fields=("pkg_type", "arch_label"))
 
-    lines.append("---")
+    lines.append("=" * 72)
     lines.append(f"Generated by {meta['workflow']} at {meta['generated_at']}")
     lines.append("")
     return "\n".join(lines)
@@ -696,14 +961,30 @@ def main() -> int:
 
     summary_lines: list[str] = []
     summary_lines.extend(render_header(meta))
-    summary_lines.extend(render_windows_table(windows_rows))
-    summary_lines.extend(render_macos_table(macos_rows))
-    summary_lines.extend(render_linux_table(linux_rows))
+    summary_lines.extend(render_build_status(
+        windows_build_result, macos_build_result, linux_result,
+        windows_artifact_count(windows_rows),
+        macos_artifact_count(macos_rows),
+        linux_artifact_count(linux_rows),
+    ))
+    summary_lines.extend(render_windows_section(windows_rows, windows_build_result))
+    summary_lines.extend(render_macos_section(
+        macos_rows, macos_build_result, macos_built_amd64, macos_built_aarch64,
+    ))
+    summary_lines.extend(render_linux_section(linux_rows, linux_result))
     summary_lines.extend(render_footer(args.url_pattern))
 
     Path(args.summary_out).write_text("\n".join(summary_lines), encoding="utf-8")
     Path(args.text_out).write_text(
-        render_text(meta, windows_rows, macos_rows, linux_rows),
+        render_text(
+            meta,
+            windows_rows,
+            macos_rows,
+            linux_rows,
+            windows_build_result,
+            macos_build_result,
+            linux_result,
+        ),
         encoding="utf-8",
     )
     return 0

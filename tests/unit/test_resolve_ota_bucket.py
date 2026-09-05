@@ -73,6 +73,11 @@ class TestCliArgs:
         parsed = _parse_keyvalue_lines(result.stdout)
         assert parsed["OTA_BUCKET"] == "ecan-releases-1251680599"
         assert parsed["OTA_REGION"] == "ap-shanghai"
+        # Aliases consumed by `render_download_links.py`. Must match
+        # the OTA_* values exactly so the rendered URL prefix is built
+        # from the same source-of-truth.
+        assert parsed["BUCKET_NAME"] == parsed["OTA_BUCKET"]
+        assert parsed["BUCKET_REGION"] == parsed["OTA_REGION"]
         assert parsed["OTA_PREFIX"] == "production"
         assert parsed["OTA_APP"] == "cn"
         assert parsed["OTA_ENV"] == "production"
@@ -86,6 +91,8 @@ class TestCliArgs:
         parsed = _parse_keyvalue_lines(result.stdout)
         assert parsed["OTA_BUCKET"] == "ecan-releases"
         assert parsed["OTA_REGION"] == "us-east-1"
+        assert parsed["BUCKET_NAME"] == parsed["OTA_BUCKET"]
+        assert parsed["BUCKET_REGION"] == parsed["OTA_REGION"]
         assert parsed["OTA_PREFIX"] == "production"
         assert parsed["OTA_APP"] == "intl"
         # COS fields must NOT leak into intl output.
@@ -161,6 +168,31 @@ class TestOutputFormat:
     def test_stderr_clean_when_successful(self):
         result = _run(["--app", "cn", "--env", "production"])
         assert result.stderr.strip() == ""
+
+    def test_bucket_aliases_match_ota_values(self):
+        """Regression guard: the script used to be called from the
+        workflow followed by two `echo "BUCKET_NAME=${OTA_BUCKET}"`
+        lines, but `$OTA_BUCKET` was empty in that same step (shell
+        variables from `$GITHUB_ENV` are only materialised after the
+        step exits), so the echo wrote `BUCKET_NAME=`. We now emit the
+        aliases from the script itself; verify they match.
+        """
+        for app, env in (("cn", "production"), ("cn", "test"),
+                         ("intl", "production"), ("intl", "test")):
+            result = _run(["--app", app, "--env", env])
+            assert result.returncode == 0, f"{app}/{env}: {result.stderr}"
+            parsed = _parse_keyvalue_lines(result.stdout)
+            assert parsed["BUCKET_NAME"] == parsed["OTA_BUCKET"], (
+                f"{app}/{env}: BUCKET_NAME={parsed['BUCKET_NAME']!r} != "
+                f"OTA_BUCKET={parsed['OTA_BUCKET']!r}"
+            )
+            assert parsed["BUCKET_REGION"] == parsed["OTA_REGION"], (
+                f"{app}/{env}: BUCKET_REGION={parsed['BUCKET_REGION']!r} != "
+                f"OTA_REGION={parsed['OTA_REGION']!r}"
+            )
+            # Sanity: neither alias should be empty (the original bug).
+            assert parsed["BUCKET_NAME"], f"{app}/{env}: BUCKET_NAME is empty"
+            assert parsed["BUCKET_REGION"], f"{app}/{env}: BUCKET_REGION is empty"
 
 
 # ----------------------------------------------------------------------------
