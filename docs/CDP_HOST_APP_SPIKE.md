@@ -3,7 +3,34 @@
 _Status 2026-09-05: code shipped behind `ECAN_CDP_HOST_EXE` (default OFF),
 build tags `v0.9.96y-spike-doudian-app-cdp-1` (GitHub-hosted, run 33982842382)
 and `-2` (same commit 22ffe60, China self-hosted `win-runner`, run 33983963626).
-Either installer works for the spike. Live verdict PENDING._
+Either installer works for the spike._
+
+## LIVE VERDICT 2026-09-06: 抖店工作台 REJECTS the debug port
+
+Customer machine, app version 1.1.9. The real Electron exe is
+`D:\抖店工作台\1.1.9\doudian.exe` (the top-level `抖店工作台.exe` is a
+launcher shell that forwards argv). Launched directly with
+`--remote-debugging-port=9333`:
+
+- Flag propagated: the main process `processArgs` shows
+  `doudian.exe --remote-debugging-port=9333`.
+- Port never opened: `Get-NetTCPConnection -State Listen` on 9333 empty,
+  curl `/json/version` connection-refused, app fully up.
+
+=> Hardened ByteDance Electron (log shows `seraphInstalled:true`, `rust-sdk`,
+`agreeSeraphCloudSafe` security SDK). The DevTools server is disabled in the
+build. **Option 2 (CDP attach) is DEAD for this app.** `ECAN_CDP_HOST_EXE`
+stays in the tree for other Chromium-shell apps but not this one.
+
+Feige pages the client loads (same web app, "desk" variant from a local
+gecko offline bundle — differ from the browser URLs our patterns match):
+- `im.jinritemai.com/pc_seller_desk_v2/`  (CS workspace; rewritten from pc_seller_v2)
+- `fxg.jinritemai.com/ffa_desk/`, `pigeon.jinritemai.com`, `darenim.jinritemai.com`
+
+Product answer for app-using merchants: dedicated 客服子账号 in eCan's own
+Chrome. If a debug port ever becomes available, add the `_desk_v2` / `ffa_desk`
+URL variants to the skill `page_url_patterns`.
+
 
 ## Question
 
