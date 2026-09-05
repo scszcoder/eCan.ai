@@ -36,6 +36,11 @@ on:
         description: 'Release channel (dev/beta/stable)'
         required: true
         type: string
+      user-prefix:
+        description: 'Optional per-user release prefix'
+        required: false
+        type: string
+        default: ''
       app:
         description: 'intl | cn'
         required: true
@@ -99,11 +104,19 @@ jobs:
           echo "APP=${APP}  PLATFORM=${PLATFORM}  ARCH=${ARCH}"
           echo "ECAN_TENCENT_REGION=${ECAN_TENCENT_REGION:-<unset>}"
           echo "::endgroup::"
-          python3 - <<'PY'
-          import os
-          print("latest.json stub for", os.environ.get("APP"))
-          print("env:", os.environ.get("CHANNEL"), os.environ.get("ENVIRONMENT"))
-          # TODO: invoke build_system/scripts/release/generate_latest_json.py
-          # once that script is split out of the monolithic release.yml.
-          PY
-          echo "success=true" >> $GITHUB_OUTPUT
+          CMD="python3 build_system/scripts/generate_latest_json.py --env ${ENVIRONMENT} --version ${VERSION} --app ${APP}"
+          if [ -n "${CHANNEL}" ]; then
+            CMD="$CMD --channel ${CHANNEL}"
+          fi
+          if [ -n "${{ inputs.user-prefix }}" ]; then
+            CMD="$CMD --user-prefix ${{ inputs.user-prefix }}"
+          fi
+          $CMD
+          rc=$?
+          if [ $rc -eq 0 ]; then
+            echo "success=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::generate_latest_json.py exited with $rc"
+            echo "success=false" >> "$GITHUB_OUTPUT"
+            exit $rc
+          fi

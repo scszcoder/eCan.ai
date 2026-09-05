@@ -53,7 +53,6 @@
 真正的构建工具在 `build_system/scripts/`：
 - `upload_to_s3.py` - 上传到 S3
 - `generate_appcast.py` - 生成生产环境 appcast
-- `auto_update_signatures.py` - 自动更新签名（已移动）
 - 这些工具：
   - 在 CI/CD 环境运行
   - 不依赖应用代码

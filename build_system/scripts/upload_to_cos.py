@@ -388,7 +388,17 @@ class COSUploader:
         if stop_requested():
             return 0
         print(f"\n[INFO] Uploading Windows artifacts for {self.app_name}...")
-        patterns = [f'{self.app_prefix}-*-windows-*.exe', f'{self.app_prefix}-*-windows-*.msi']
+        # Anchor the glob on the current version. Without this,
+        # self-hosted runner workspace persistence leaves behind
+        # installers from previous runs (the artifact staging dir
+        # is not auto-cleared between invocations), and the previous
+        # `*-windows-*.exe` glob happily matched every one — which
+        # then got uploaded under the current run's version prefix,
+        # polluting the bucket with dead links in the appcast.
+        patterns = [
+            f'{self.app_prefix}-{self.version}-windows-*.exe',
+            f'{self.app_prefix}-{self.version}-windows-*.msi',
+        ]
         count = 0
         
         # Debug: List all files in dist directory
@@ -451,7 +461,14 @@ class COSUploader:
         if stop_requested():
             return 0
         print(f"\n[INFO] Uploading Linux artifacts for {self.app_name}...")
-        patterns = [f'{self.app_prefix}-*.AppImage', f'{self.app_prefix}-*.deb']
+        # Same version-anchor as upload_windows_artifacts — see the
+        # comment there for the full rationale. Without this, stale
+        # .deb / .AppImage files from previous runs get re-uploaded
+        # under the current version prefix and corrupt the appcast.
+        patterns = [
+            f'{self.app_prefix}-{self.version}-*.AppImage',
+            f'{self.app_prefix}-{self.version}-*.deb',
+        ]
         count = 0
         for pattern in patterns:
             for pkg in self.dist_dir.glob(pattern):
@@ -485,7 +502,12 @@ class COSUploader:
         if stop_requested():
             return 0
         print(f"\n[INFO] Uploading macOS artifacts for {self.app_name}...")
-        patterns = [f'{self.app_prefix}-*-aarch64.pkg', f'{self.app_prefix}-*-amd64.pkg']
+        # Same version-anchor as upload_windows_artifacts — see the
+        # comment there for the full rationale.
+        patterns = [
+            f'{self.app_prefix}-{self.version}-*-aarch64.pkg',
+            f'{self.app_prefix}-{self.version}-*-amd64.pkg',
+        ]
         count = 0
         for pattern in patterns:
             for pkg in self.dist_dir.glob(pattern):

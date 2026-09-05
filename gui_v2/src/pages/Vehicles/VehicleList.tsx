@@ -137,9 +137,9 @@ const VehicleList: React.FC<VehicleListProps> = ({
             {/* List View */}
             {!isEmpty && !isGrid && (
                 <ListScrollArea>
-                    {vehicles.map(vehicle => (
+                    {vehicles.map((vehicle, index) => (
                         <VehicleItem
-                            key={vehicle.id}
+                            key={`${vehicle.id || vehicle.vid || 'veh'}-${index}`}
                             vehicle={vehicle}
                             selected={selectedVehicle?.id === vehicle.id}
                             onClick={onSelect}
@@ -154,9 +154,9 @@ const VehicleList: React.FC<VehicleListProps> = ({
             {!isEmpty && isGrid && (
                 <GridScrollArea>
                     <GridContainer>
-                        {vehicles.map(vehicle => (
+                        {vehicles.map((vehicle, index) => (
                             <VehicleItem
-                                key={vehicle.id}
+                                key={`${vehicle.id || vehicle.vid || 'veh'}-${index}`}
                                 vehicle={vehicle}
                                 selected={selectedVehicle?.id === vehicle.id}
                                 onClick={onSelect}

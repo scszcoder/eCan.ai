@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "prebuild": "npm run copy-monaco",
-    "build": "npm run copy-monaco && vite build",
+    "build": "vite build",
     "build:web": "VITE_PLATFORM=web vite build",
     "lint": "eslint .",
     "preview": "vite preview",

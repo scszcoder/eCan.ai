@@ -226,8 +226,18 @@ class S3Uploader:
         print("\n[INFO] Uploading Windows artifacts...")
         count = 0
         
-        # Find Windows installers
-        patterns = ['*-windows-*.exe', '*-windows-*.msi']
+        # Find Windows installers. Anchor the glob on the current
+        # version (`self.version`) — without this, self-hosted runner
+        # workspace persistence leaves behind installers from previous
+        # runs, and the previous `*-windows-*.exe` glob happily matched
+        # every one — which then got uploaded under the current run's
+        # version prefix, polluting the bucket with dead links in the
+        # appcast. The build system intentionally uses the literal
+        # `eCan` / `eCan.cn` prefix (`DIST_APP`) in filenames, so the
+        # glob below is `eCan-{version}-windows-*.exe` for intl.
+        # See upload_to_cos.py's upload_windows_artifacts for the CN
+        # mirror of the same fix.
+        patterns = [f'*-{self.version}-windows-*.exe', f'*-{self.version}-windows-*.msi']
         for pattern in patterns:
             for pkg in self.dist_dir.glob(pattern):
                 # Determine architecture from filename
@@ -285,8 +295,10 @@ class S3Uploader:
         print("\n[INFO] Uploading Linux artifacts...")
         count = 0
         
-        # Find Linux packages (AppImage and DEB)
-        patterns = ['*.AppImage', '*.deb']
+        # Find Linux packages (AppImage and DEB). Same version-anchor
+        # rationale as the Windows glob above — see the long comment
+        # there for the full reasoning.
+        patterns = [f'*-{self.version}-*.AppImage', f'*-{self.version}-*.deb']
         for pattern in patterns:
             for pkg in self.dist_dir.glob(pattern):
                 # Determine architecture from filename

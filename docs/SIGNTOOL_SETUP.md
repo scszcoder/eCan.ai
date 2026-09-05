@@ -164,7 +164,11 @@ jobs:
         path: |
           dist/*.exe
           dist/*.msi
-          ota/server/signatures_*.json
+
+          # Note: the historical ``ota/server/signatures_*.json`` aggregate is no
+          # longer produced or consumed. Per-artifact ``.sig`` Ed25519 files are
+          # written by ``build_system/signing_manager.py::OTASigningManager.sign_for_ota``
+          # and uploaded alongside the installers as part of the release workflow.
           
     - name: Create Release (on tag)
       if: startsWith(github.ref, 'refs/tags/v')

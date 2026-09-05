@@ -22,6 +22,7 @@ from PySide6.QtGui import QFont
 from utils.logger_helper import logger_helper as logger
 from .i18n import get_translator
 from ota.core.download_manager import download_manager, DownloadState
+from ota.config.loader import ota_config
 
 
 # Get translator instance
@@ -327,7 +328,7 @@ class InstallConfirmDialog(QDialog):
         # can grab the installer directly if they prefer skipping this flow.
         manual_install_label = QLabel(
             'Or install manually via the links in '
-            '<a href="https://ecan-releases.s3.us-east-1.amazonaws.com/production/latest.json" '
+            f'<a href="{ota_config.get_latest_json_url()}" '
             'style="color:#58a6ff; text-decoration:underline;">latest.json</a>.'
         )
         manual_install_label.setTextFormat(Qt.RichText)
@@ -490,7 +491,7 @@ class UpdateDialog(QDialog):
         # when auto-update is unavailable or fails.
         manual_install_label = QLabel(
             'You can always install the latest version manually using the '
-            'links in <a href="https://ecan-releases.s3.us-east-1.amazonaws.com/production/latest.json" '
+            f'links in <a href="{ota_config.get_latest_json_url()}" '
             'style="color:#58a6ff; text-decoration:underline;">latest.json</a>.'
         )
         manual_install_label.setTextFormat(Qt.RichText)
@@ -1289,7 +1290,7 @@ class UpdateNotificationDialog(QDialog):
         # so the user has a direct path to the latest installer.
         manual_install_label = QLabel(
             'Or install manually via '
-            '<a href="https://ecan-releases.s3.us-east-1.amazonaws.com/production/latest.json" '
+            f'<a href="{ota_config.get_latest_json_url()}" '
             'style="color:#58a6ff; text-decoration:underline;">latest.json</a>.'
         )
         manual_install_label.setTextFormat(Qt.RichText)

@@ -159,53 +159,142 @@ class OTAConfig:
         """Return application display name from common config (e.g. 'eCan')."""
         return str(self.get_common('app_name', 'eCan'))
     
+    def get_latest_json_url(self) -> str:
+        """
+        Get latest.json URL for the current environment (with CN/INTL support).
+
+        CN app uses Tencent Cloud COS, INTL app uses AWS S3.
+        The returned path matches what
+        ``build_system/scripts/generate_appcast.py::generate_latest_json``
+        writes (``{prefix}/latest.json``) — same shape as
+        ``get_appcast_url``'s ``channels/...`` siblings.
+
+        Used by the "manual install" fallback link in the OTA dialogs so
+        the user is sent to the correct bucket (COS vs S3) and the
+        correct environment prefix (``dev``, ``test``, ``staging``,
+        ``simulation``, ``production``) instead of always pointing at
+        the hardcoded INTL/production S3 URL.
+
+        Returns:
+            Empty string if OTA is disabled; otherwise the full
+            COS/S3 URL to ``{prefix}/latest.json``.
+
+        Example:
+            # CN app (ECAN_APP_ID=cn), test env (active)
+            get_latest_json_url()
+            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/test/latest.json
+
+            # INTL app (ECAN_APP_ID=intl), test env (active)
+            get_latest_json_url()
+            → https://ecan-releases.s3.us-east-1.amazonaws.com/test/latest.json
+        """
+        if not self.enabled:
+            return ""
+
+        # Active env (default: test) declares ``appcast_base`` /
+        # ``appcast_base_cos`` — the override is the canonical way to
+        # reach the bucket (works for local dev server AND remote
+        # test/staging/production hosts). Fall through only when no
+        # override is declared at all.
+        local_base = self._local_appcast_base()
+        if local_base:
+            return f"{local_base.rstrip('/')}/latest.json"
+
+        return self.get_storage_url("latest.json")
+
+    def _local_appcast_base(self) -> str:
+        """
+        Return the active environment's ``appcast_base`` URL when one
+        is explicitly declared, else ``""``.
+
+        Reads ``appcast_base`` (INTL) or ``appcast_base_cos`` (CN) from
+        the current environment block. Any non-empty value is honored
+        as an override of the public S3/COS bucket — both local
+        (``http://127.0.0.1:8080``) and remote public hosts
+        (``https://ecan-releases.s3.us-east-1.amazonaws.com/test``,
+        etc.) qualify. staging/simulation/production/test all set this
+        field to their public host and the override is the canonical
+        way they reach the bucket — falling through to
+        ``get_storage_url`` would silently use a different bucket
+        (INTL/COS mismatch) or drop the channel segment.
+
+        Returns:
+            Base URL with trailing ``/`` stripped, or ``""`` when no
+            override is declared.
+        """
+        env_config = self._config.get('environments', {}).get(self.environment, {}) or {}
+        if self._is_cn:
+            base = env_config.get('appcast_base_cos') or env_config.get('appcast_base')
+        else:
+            base = env_config.get('appcast_base')
+        if not base:
+            return ""
+        return base.rstrip('/')
+
     def get_appcast_url(self, platform: str, arch: Optional[str] = None, language: Optional[str] = None) -> str:
         """
         Get appcast URL for platform and architecture (with CN/INTL support)
-        
+
         CN app uses Tencent Cloud COS, INTL app uses AWS S3.
-        
+
         Args:
             platform: Platform name (macos, windows, linux)
             arch: Architecture (aarch64, amd64), optional
             language: Language code (e.g., 'en-US', 'zh-CN'), optional
-            
-        Returns:
-            Appcast URL (COS for CN app, S3 for INTL app)
-            
-        Example:
-            # CN app (ECAN_APP_ID=cn)
-            get_appcast_url('macos', 'aarch64')
-            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/appcast-macos-aarch64.xml
 
-            # INTL app (ECAN_APP_ID=intl)
+        Returns:
+            Appcast URL (COS for CN app, S3 for INTL app). When the
+            current environment declares ``appcast_base`` (INTL) /
+            ``appcast_base_cos`` (CN) — which the canonical
+            environments ``test`` / ``staging`` / ``simulation`` /
+            ``production`` all do, and ``development`` does for the
+            local OTA test server — the URL is built off that base as
+            ``{base}/channels/{channel}/{filename}`` so the path
+            matches whatever upload pipeline (``upload_to_s3.py`` /
+            ``upload_to_cos.py``) wrote. The ``language`` suffix is
+            always honored so per-language copies (e.g.
+            ``appcast-macos-aarch64.zh-CN.xml``) are addressable
+            whether the artifact lives in S3/COS or on the local
+            server.
+
+        Example:
+            # CN app (ECAN_APP_ID=cn), test env (active)
             get_appcast_url('macos', 'aarch64')
-            → https://ecan-releases.s3.us-east-1.amazonaws.com/production/channels/stable/appcast-macos-aarch64.xml
+            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/test/channels/beta/appcast-macos-aarch64.xml
+
+            # INTL app (ECAN_APP_ID=intl), test env (active)
+            get_appcast_url('macos', 'aarch64')
+            → https://ecan-releases.s3.us-east-1.amazonaws.com/test/channels/beta/appcast-macos-aarch64.xml
 
             # With language support
             get_appcast_url('macos', 'aarch64', 'zh-CN')
-            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/appcast-macos-aarch64.zh-CN.xml
+            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/test/channels/beta/appcast-macos-aarch64.zh-CN.xml
         """
         if not self.enabled:
             return ""
-        
-        # Get channel for current environment
-        channel = self.get_channel()
-        
+
         # Build appcast filename with language support
         if arch:
             base_filename = f"appcast-{platform}-{arch}"
         else:
             base_filename = f"appcast-{platform}"
-        
+
         # Add language suffix if not English
         if language and language != 'en-US':
             filename = f"{base_filename}.{language}.xml"
         else:
             filename = f"{base_filename}.xml"
-        
-        # Use storage URL based on app type (CN uses COS, INTL uses S3)
-        return self.get_storage_url(f"channels/{channel}/{filename}")
+
+        # Active environment declares ``appcast_base`` → build URL off
+        # that base. Path mirrors ``get_storage_url`` so a client that
+        # uploads via the public pipeline reads identically whether
+        # it later resolves the URL via the override or the fallback.
+        local_base = self._local_appcast_base()
+        if local_base:
+            return f"{local_base}/channels/{self.get_channel()}/{filename}"
+
+        # No override declared → fall through to public S3/COS storage.
+        return self.get_storage_url(f"channels/{self.get_channel()}/{filename}")
     
     def get_s3_prefix(self) -> str:
         """
@@ -270,36 +359,39 @@ class OTAConfig:
     def get_s3_url(self, path: str) -> str:
         """
         Construct S3 URL for a given path (INTL app only)
-        
+
         Args:
             path: Path relative to environment prefix (e.g., 'releases/v1.0.0/...')
-            
+
         Returns:
             Full S3 URL with base path and environment prefix
-            
+
         Example:
             get_s3_url('releases/v1.0.0/macos/aarch64/eCan.pkg')
-            → https://ecan-releases.s3.us-east-1.amazonaws.com/releases/production/releases/v1.0.0/macos/aarch64/eCan.pkg
+            → https://ecan-releases.s3.us-east-1.amazonaws.com/production/releases/v1.0.0/macos/aarch64/eCan.pkg
         """
         if not self.enabled:
             return ""
-        
+
         # Warn if CN app is trying to use S3
         if self._is_cn:
             logger.warning("[OTA Config] INTL S3 URL requested for CN app, use get_cos_url() instead")
-        
+
         s3_bucket = self.get_common('s3_bucket', 'ecan-releases')
         s3_region = self.get_common('s3_region', 'us-east-1')
         s3_base_path = self.get_common('s3_base_path', '')
         s3_prefix = self.get_s3_prefix()
-        
-        # Combine: bucket + base_path + environment prefix + path
-        # Example: ecan-releases/releases/production/releases/v1.0.0/...
+
+        # Combine: bucket + (base_path)? + environment prefix + path
+        # With the default empty s3_base_path this yields {prefix}/{path},
+        # e.g. production/releases/v1.0.0/... (single ``releases``).
+        # When s3_base_path is configured (e.g. "releases") the URL has the
+        # form {base_path}/{prefix}/{path}.
         if s3_base_path:
             full_path = f"{s3_base_path}/{s3_prefix}/{path}"
         else:
             full_path = f"{s3_prefix}/{path}"
-        
+
         return f"https://{s3_bucket}.s3.{s3_region}.amazonaws.com/{full_path}"
     
     def is_cn_app(self) -> bool:

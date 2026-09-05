@@ -51,10 +51,40 @@ on:
         description: 'Release channel (dev/beta/stable)'
         required: true
         type: string
+      user-prefix:
+        description: >-
+          Optional lowercase user prefix for per-user preview builds
+          (e.g. 'songc' produces `songc_v<version>` COS prefixes). When
+          non-empty, the rendered URLs and COS size probes target
+          `<prefix>/releases/<user_prefix>_v<version>/...` to mirror
+          where `upload_to_cos.py` actually wrote the artifacts. Must
+          be empty for normal semver / branch builds.
+        required: false
+        type: string
+        default: ''
       windows-build-result:
         description: 'Result of Windows build job (success/skipped/failure)'
         required: true
         type: string
+      windows-direct-upload:
+        description: >-
+          When 'true', the Windows build job uploaded to COS directly
+          (the direct-upload fast path is in effect). In that case no
+          `*-installer` artifact is in GHA artifact store; download-links
+          synthesises the expected installer filename from `version` /
+          `app-name` and lists the COS URL without a size column.
+        required: false
+        type: boolean
+        default: false
+      app-name:
+        description: >-
+          The DIST_APP / installer prefix (e.g. 'eCan' for intl,
+          'eCan.cn' for CN). Used to construct the installer filename
+          when the build job took the direct-upload fast path and the
+          `*-installer` artifact is absent.
+        required: false
+        type: string
+        default: 'eCan'
       macos-build-result:
         description: 'Result of macOS build job (success/skipped/failure)'
         required: true
@@ -85,6 +115,14 @@ jobs:
       VERSION:                 ${{ inputs.version }}
       ENVIRONMENT:             ${{ inputs.environment }}
       CHANNEL:                 ${{ inputs.channel }}
+      USER_PREFIX:             ${{ inputs.user-prefix }}
+      APP_NAME:                ${{ inputs.app-name }}
+      WINDOWS_BUILD_RESULT:    ${{ inputs.windows-build-result }}
+      MACOS_BUILD_RESULT:      ${{ inputs.macos-build-result }}
+      LINUX_RESULT:            ${{ inputs.linux-result }}
+      WINDOWS_DIRECT_UPLOAD:   ${{ inputs.windows-direct-upload && 'true' || 'false' }}
+      MACOS_BUILT_AMD64:       ${{ inputs.macos-built-amd64 && 'true' || 'false' }}
+      MACOS_BUILT_AARCH64:     ${{ inputs.macos-built-aarch64 && 'true' || 'false' }}
 
     steps:
       - name: Checkout code
@@ -107,16 +145,66 @@ jobs:
         run: |
           # Read the bucket / region / prefix from ota/config/ota_config.yaml
           # — same source upload_to_cos.py reads — and export to env.
+          #
+          # The renderer (`render_download_links.py`) reads `BUCKET_NAME`
+          # and `BUCKET_REGION` directly. The script also emits aliases
+          # under those names so the redirect below captures both the
+          # `OTA_*` (upload-side contract) and `BUCKET_*` (render-side
+          # contract) keys from a single source of truth. Echoing them
+          # again here would silently produce empty values — shell
+          # variables written via `$GITHUB_ENV` are only materialised
+          # after the step exits, so `echo "BUCKET_NAME=${OTA_BUCKET}"`
+          # in this same step expands `${OTA_BUCKET}` as the empty
+          # string. Let the Python script own the alias.
           python3 build_system/scripts/resolve_ota_bucket.py \
             --app cn \
             --env "${ENVIRONMENT}" >> "$GITHUB_ENV"
       - name: Download Windows artifacts
-        if: inputs.windows-build-result == 'success'
+        if: >-
+          inputs.windows-build-result == 'success' &&
+          inputs.windows-direct-upload != true
         uses: actions/download-artifact@v7
         with:
           name: eCan-windows-amd64-${{ inputs.version }}-installer
           path: windows-artifacts
         continue-on-error: true
+
+      # Direct-upload fast path: when the build job uploaded to COS/S3
+      # directly (no `*-installer` artifact in GHA artifact store), fall
+      # back to synthesising the expected installer filename from
+      # `version` + `app-name`. The bucket URL is still constructed from
+      # the same `{prefix}/releases/v{ver}/...` template the upload
+      # scripts use, so the resulting link is byte-identical to what the
+      # GHA-artifact-store path would have produced. We only lose the
+      # file-size column (which is not authoritative anyway — the COS
+      # object metadata is the source of truth).
+      - name: Synthesize Windows installer filename (direct-upload fallback)
+        if: >-
+          inputs.windows-build-result == 'success' &&
+          inputs.windows-direct-upload == true
+        shell: bash
+        env:
+          VERSION:  ${{ inputs.version }}
+          APP_NAME: ${{ inputs.app-name }}
+        run: |
+          mkdir -p windows-artifacts
+          # build.py's installer filename template is
+          # `<APP_NAME>-{version}-windows-amd64-Setup.exe` (see
+          # build_system/ecan_build.py:installer_filename). Touch an
+          # empty stub file with that name so the downstream
+          # `for file in windows-artifacts/*.exe` loop finds it; the
+          # Size column will be empty because we don't have the actual
+          # file, which the loop already handles (`du -sh` returns
+          # `0K` for an empty file).
+          installer="${APP_NAME}-${VERSION}-windows-amd64-Setup.exe"
+          : > "windows-artifacts/${installer}"
+          echo "[INFO] Synthesized direct-upload fallback: ${installer}"
+          # The `Resolve COS object sizes` step runs after this and
+          # queries COS HeadObject for the real byte count. The
+          # renderer then substitutes that count into the Size
+          # column. We deliberately do NOT write anything to
+          # $GITHUB_STEP_SUMMARY here — the final summary is
+          # rendered once, in one place, by the renderer step.
 
       - name: Download macOS amd64 artifacts
         if: inputs.macos-build-result == 'success' && inputs.macos-built-amd64 == true
@@ -152,154 +240,52 @@ jobs:
             fi
           done
 
-      - name: Generate COS download links summary
+      # When any build took the direct-upload fast path, the GHA
+      # artifact store does not have the file, so we have to ask COS for
+      # its real size via HeadObject. Without this step, the summary
+      # would show "(missing — check bucket)" for those rows. Even when
+      # the artifact IS in GHA, the local copy's size is authoritative
+      # for that row (render_download_links.py picks local over remote
+      # when both are present), so we only need the COS probe for
+      # direct-uploaded artifacts.
+      #
+      # Probing is best-effort: if the SDK is unavailable or auth fails,
+      # the step warns and continues with empty sizes — the summary
+      # simply falls back to the GHA-artifact / "missing" path.
+      - name: Resolve COS object sizes (direct-upload fallback)
+        id: cos-sizes
+        if: >-
+          (inputs.windows-build-result == 'success' && inputs.windows-direct-upload == true)
         env:
-          BUCKET_NAME: ${{ env.OTA_BUCKET }}
-          BUCKET_REGION: ${{ env.OTA_REGION }}
-        run: |
-          echo "=== Generating COS Download Links ==="
-          echo ""
-
-          # Map environment to COS prefix (mirrors the cos_prefix field in
-          # ota_config.yaml; resolve_ota_bucket.py already exported it as
-          # OTA_PREFIX, but we keep the case here as a defensive fallback
-          # for callers that hit the step via a different path).
-          COS_PREFIX="${OTA_PREFIX}"
-          case "${ENVIRONMENT}" in
-            development) COS_PREFIX="${COS_PREFIX:-dev}" ;;
-            test)        COS_PREFIX="${COS_PREFIX:-test}" ;;
-            staging)     COS_PREFIX="${COS_PREFIX:-staging}" ;;
-            production)  COS_PREFIX="${COS_PREFIX:-production}" ;;
-            *)           COS_PREFIX="${COS_PREFIX:-${ENVIRONMENT}}" ;;
-          esac
-
-          echo "Environment: ${ENVIRONMENT}"
-          echo "Channel: ${CHANNEL}"
-          echo "COS Prefix: ${COS_PREFIX}"
-          echo ""
-
-          # Render GH Actions Summary.
-          echo "## 📦 Download Links (CN — 腾讯云 COS)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Version: **${VERSION}**" >> $GITHUB_STEP_SUMMARY
-          echo "Environment: **${ENVIRONMENT}**" >> $GITHUB_STEP_SUMMARY
-          echo "Channel: **${CHANNEL}**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          BASE_URL="https://${BUCKET_NAME}.cos.${BUCKET_REGION}.myqcloud.com"
-
-          # ── Windows installers ────────────────────────────────────────────
-          echo "### Windows Installers (x86_64)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts 2>/dev/null)" ]; then
-            for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
-              [ -f "$file" ] || continue
-              filename=$(basename "$file")
-              size=$(du -sh "$file" | cut -f1)
-              url="${BASE_URL}/${COS_PREFIX}/releases/v${VERSION}/windows/amd64/${filename}"
-              echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "- **Size**: ${size}" >> $GITHUB_STEP_SUMMARY
-              echo "- **URL**: [Download](${url})" >> $GITHUB_STEP_SUMMARY
-              echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-              echo "  ${url}" >> $GITHUB_STEP_SUMMARY
-              echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-            done
-          else
-            echo "_No Windows installers available_" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          # ── macOS installers ──────────────────────────────────────────────
-          echo "### macOS Installers" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
-            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
-              [ -f "$file" ] || continue
-              filename=$(basename "$file")
-              size=$(du -sh "$file" | cut -f1)
-              if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
-                arch_label="Intel (x86_64)"
-                arch_path="amd64"
-              elif [[ "$filename" == *"aarch64"* ]]; then
-                arch_label="Apple Silicon (ARM64)"
-                arch_path="aarch64"
-              else
-                arch_label="Universal"
-                arch_path="universal"
-              fi
-              url="${BASE_URL}/${COS_PREFIX}/releases/v${VERSION}/macos/${arch_path}/${filename}"
-              echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "- **Architecture**: ${arch_label}" >> $GITHUB_STEP_SUMMARY
-              echo "- **Size**: ${size}" >> $GITHUB_STEP_SUMMARY
-              echo "- **URL**: [Download](${url})" >> $GITHUB_STEP_SUMMARY
-              echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-              echo "  ${url}" >> $GITHUB_STEP_SUMMARY
-              echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-            done
-          else
-            echo "_No macOS installers available_" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          # ── Linux packages ────────────────────────────────────────────────
-          echo "### Linux Packages" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -d "linux-artifacts" ] && [ "$(ls -A linux-artifacts 2>/dev/null)" ]; then
-            for file in linux-artifacts/*.AppImage linux-artifacts/*.deb; do
-              [ -f "$file" ] || continue
-              filename=$(basename "$file")
-              size=$(du -sh "$file" | cut -f1)
-              if [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
-                arch_label="ARM64"
-                arch_path="aarch64"
-              else
-                arch_label="x86_64"
-                arch_path="amd64"
-              fi
-              if [[ "$filename" == *.AppImage ]]; then
-                pkg_type="AppImage"
-              elif [[ "$filename" == *.deb ]]; then
-                pkg_type="DEB Package"
-              else
-                pkg_type="Package"
-              fi
-              url="${BASE_URL}/${COS_PREFIX}/releases/v${VERSION}/linux/${arch_path}/${filename}"
-              echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "- **Type**: ${pkg_type}" >> $GITHUB_STEP_SUMMARY
-              echo "- **Architecture**: ${arch_label}" >> $GITHUB_STEP_SUMMARY
-              echo "- **Size**: ${size}" >> $GITHUB_STEP_SUMMARY
-              echo "- **URL**: [Download](${url})" >> $GITHUB_STEP_SUMMARY
-              echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-              echo "  ${url}" >> $GITHUB_STEP_SUMMARY
-              echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-            done
-          else
-            echo "_No Linux packages available_" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          # ── Documentation footer ──────────────────────────────────────────
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📝 URL Format" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- COS public URL pattern: \`https://{bucket-with-APPID}.cos.{region}.myqcloud.com/{env}/releases/v{ver}/{platform}/{arch}/{file}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-      - name: Generate download links text artifact
-        env:
-          BUCKET_NAME: ${{ env.OTA_BUCKET }}
-          BUCKET_REGION: ${{ env.OTA_REGION }}
+          EXPECTED: >-
+            windows/amd64/${{ inputs.app-name }}-${{ inputs.version }}-windows-amd64-Setup.exe
         run: |
           set -euo pipefail
-          OUTPUT_FILE="download-links-cn-${VERSION}.txt"
+          COS_PREFIX="${OTA_PREFIX}"
+          case "${ENVIRONMENT}" in
+            development) COS_PREFIX="${COS_PREFIX:-dev}" ;;
+            test)        COS_PREFIX="${COS_PREFIX:-test}" ;;
+            staging)     COS_PREFIX="${COS_PREFIX:-staging}" ;;
+            production)  COS_PREFIX="${COS_PREFIX:-production}" ;;
+            *)           COS_PREFIX="${COS_PREFIX:-${ENVIRONMENT}}" ;;
+          esac
+          # shellcheck disable=SC2086
+          python3 build_system/scripts/resolve_cos_sizes.py \
+            --bucket   "${OTA_BUCKET}" \
+            --region   "${OTA_REGION}" \
+            --env-prefix "${COS_PREFIX}" \
+            --version  "${VERSION}" \
+            --user-prefix "${USER_PREFIX}" \
+            --expected ${EXPECTED} \
+            --out      cos-sizes.env \
+          || echo "[WARN] COS size resolution failed; summary will show 'missing' for direct-uploaded rows." >&2
+          echo "COS_SIZES_FILE=${GITHUB_WORKSPACE}/cos-sizes.env" >> "$GITHUB_ENV"
 
+      - name: Render download links summary
+        env:
+          COS_SIZES_FILE: ${{ env.COS_SIZES_FILE }}
+        run: |
+          set -euo pipefail
           COS_PREFIX="${OTA_PREFIX}"
           case "${ENVIRONMENT}" in
             development) COS_PREFIX="${COS_PREFIX:-dev}" ;;
@@ -309,65 +295,25 @@ jobs:
             *)           COS_PREFIX="${COS_PREFIX:-${ENVIRONMENT}}" ;;
           esac
 
-          BASE_URL="https://${BUCKET_NAME}.cos.${BUCKET_REGION}.myqcloud.com"
+          python3 build_system/scripts/render_download_links.py \
+            --scheme      cos \
+            --summary-out download-links-summary.md \
+            --text-out    "download-links-cn-${VERSION}.txt" \
+            --url-pattern "https://{bucket-with-APPID}.cos.{region}.myqcloud.com/{env}/releases/v{ver}/{platform}/{arch}/{file}" \
+            --workflow-name "release-cn.yml / shared-cos-download-links.yml"
 
-          echo "eCan.cn Download Links" > "$OUTPUT_FILE"
-          echo "" >> "$OUTPUT_FILE"
-          echo "Version: ${VERSION}" >> "$OUTPUT_FILE"
-          echo "Environment: ${ENVIRONMENT}" >> "$OUTPUT_FILE"
-          echo "Channel: ${CHANNEL}" >> "$OUTPUT_FILE"
-          echo "" >> "$OUTPUT_FILE"
-
-          for section in windows linux; do
-            echo "[${section^}]" >> "$OUTPUT_FILE"
-            echo "" >> "$OUTPUT_FILE"
-            if [ -d "${section}-artifacts" ] && [ "$(ls -A ${section}-artifacts 2>/dev/null)" ]; then
-              for file in ${section}-artifacts/*; do
-                [ -f "$file" ] || continue
-                filename=$(basename "$file")
-                size=$(du -sh "$file" | cut -f1)
-                url="${BASE_URL}/${COS_PREFIX}/releases/v${VERSION}/${section}/amd64/${filename}"
-                echo "${filename}" >> "$OUTPUT_FILE"
-                echo "  Size:   ${size}" >> "$OUTPUT_FILE"
-                echo "  URL:    ${url}" >> "$OUTPUT_FILE"
-                echo "" >> "$OUTPUT_FILE"
-              done
-            else
-              echo "  No ${section} artifacts available" >> "$OUTPUT_FILE"
-              echo "" >> "$OUTPUT_FILE"
-            fi
-          done
-
-          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
-            echo "[macOS]" >> "$OUTPUT_FILE"
-            echo "" >> "$OUTPUT_FILE"
-            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
-              [ -f "$file" ] || continue
-              filename=$(basename "$file")
-              size=$(du -sh "$file" | cut -f1)
-              if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
-                arch_path="amd64"
-              elif [[ "$filename" == *"aarch64"* ]]; then
-                arch_path="aarch64"
-              else
-                arch_path="universal"
-              fi
-              url="${BASE_URL}/${COS_PREFIX}/releases/v${VERSION}/macos/${arch_path}/${filename}"
-              echo "${filename}" >> "$OUTPUT_FILE"
-              echo "  Arch:   ${arch_path}" >> "$OUTPUT_FILE"
-              echo "  Size:   ${size}" >> "$OUTPUT_FILE"
-              echo "  URL:    ${url}" >> "$OUTPUT_FILE"
-              echo "" >> "$OUTPUT_FILE"
-            done
+      - name: Append Markdown summary to step summary
+        if: always()
+        run: |
+          # The renderer writes Markdown to a file; we append it to the
+          # GitHub Actions step summary in a separate step so that any
+          # error in the renderer is reported on its own (rather than
+          # silently dropping the whole summary).
+          if [ -f download-links-summary.md ]; then
+            cat download-links-summary.md >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "[macOS]" >> "$OUTPUT_FILE"
-            echo "  No macOS artifacts available" >> "$OUTPUT_FILE"
-            echo "" >> "$OUTPUT_FILE"
+            echo "_Download-links summary was not generated (renderer failed)._" >> "$GITHUB_STEP_SUMMARY"
           fi
-
-          echo "---" >> "$OUTPUT_FILE"
-          echo "Generated by release-cn.yml at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$OUTPUT_FILE"
-          echo "Download links document generated: ${OUTPUT_FILE}"
 
       - name: Upload download links document artifact
         uses: actions/upload-artifact@v6

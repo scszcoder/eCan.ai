@@ -177,6 +177,83 @@ class TestExprEnvRealWorldMacosBug:
         assert result == expected
 
 
+class TestExprEnvMacosBuildResultSkippedRegression:
+    """Pins the 3-state macos-build-result expression that lives at
+    release-{intl,cn}.yml::generate-download-links.
+
+    The original 2-state expression collapsed `skipped` into `failure`,
+    so any windows-only build (or platform=all under ecan-windows-amd64)
+    published a summary that said
+
+        ❌ macOS build failed — no artifacts produced.
+        See the build job log for the failing step. Expected: 0 artifact(s).
+
+    even though both macOS jobs had been correctly gated by `if:` and
+    skipped — not failed. The fix extends the expression to emit a
+    3-way value (success / failure / skipped) so render_download_links.py
+    routes to the right status message in _render_status_message.
+
+    These cases MUST keep passing; a refactor that reverts to the
+    2-state shape will silently regress this contract.
+    """
+
+    EXPRESSION = (
+        "(needs.build-macos-amd64.result == 'success' "
+        "|| needs.build-macos-aarch64.result == 'success') && 'success' "
+        "|| (needs.build-macos-amd64.result == 'failure' "
+        "|| needs.build-macos-aarch64.result == 'failure') && 'failure' "
+        "|| 'skipped'"
+    )
+
+    @pytest.mark.parametrize(
+        "amd,aarch,expected",
+        [
+            ("success", "success", "success"),
+            ("success", "failure", "success"),
+            ("failure", "success", "success"),
+            ("failure", "failure", "failure"),
+            # The bug fix — both skipped is *not* a failure.
+            ("skipped", "skipped", "skipped"),
+            # Mixed skipped + failure: still a failure (one arch tried
+            # and crashed; the other was never asked to run).
+            ("skipped", "failure", "failure"),
+            ("failure", "skipped", "failure"),
+            # Mixed skipped + success: success.
+            ("skipped", "success", "success"),
+            ("success", "skipped", "success"),
+        ],
+    )
+    def test_macos_build_result_three_state(self, amd, aarch, expected):
+        env = sim.ExprEnv({
+            "needs": {
+                "build-macos-amd64":   {"result": amd},
+                "build-macos-aarch64": {"result": aarch},
+            }
+        })
+        assert env.eval(self.EXPRESSION) == expected
+
+    def test_macos_build_result_pins_three_state_shape(self):
+        """Guard against a future refactor that reverts to the
+        2-state `success || failure` shape. Any such change would
+        make the (skipped, skipped) case evaluate to 'failure'
+        again — exactly the user-visible bug this test exists to
+        prevent."""
+        env = sim.ExprEnv({
+            "needs": {
+                "build-macos-amd64":   {"result": "skipped"},
+                "build-macos-aarch64": {"result": "skipped"},
+            }
+        })
+        # If a refactor removes the trailing `|| 'skipped'`, the
+        # expression collapses to (false && 'success') || (false && 'failure')
+        # → 'failure' (any truthy fallback wins). We pin 'skipped' here.
+        assert env.eval(self.EXPRESSION) == "skipped", (
+            "macos-build-result must distinguish skipped from failure. "
+            "If this regresses, release-{intl,cn}.yml will again publish "
+            "'❌ macOS build failed' for windows-only / non-macOS runs."
+        )
+
+
 # ============================================================================
 # run_validate_tag: pure-Python mirror of the bash heuristic
 # ============================================================================

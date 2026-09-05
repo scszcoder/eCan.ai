@@ -358,3 +358,340 @@ def test_release_intl_final_status_synthesizes_upload_label(release_intl):
     ):
         assert f"{token} " in release_intl
     assert "'skipped'" in release_intl
+
+
+# ---------------------------------------------------------------------------
+# Cross-cutting invariants — bugs that surfaced in run #91863220176
+# ---------------------------------------------------------------------------
+#
+# 1. Direct-upload path used to leave the GHA artifact store empty,
+#    so `Generate Download Links` couldn't list the installer. Lock
+#    in the fallback (synthesised filename from `version` + `app-name`)
+#    so a future refactor doesn't regress this UX.
+# 2. Prepare artifacts used to leave .sig and .sha256 behind in dist/.
+#    Appcast reads `<bucket>/releases/.../Setup.exe.sig` from COS;
+#    without the .sig it writes the `<enclosure>` entry without
+#    `edSignature="..."`, and Sparkle-based clients silently reject
+#    the update. Lock in that Prepare artifacts copies both.
+# 3. upload_to_cos.py / upload_to_s3.py used to glob
+#    `*-windows-*.exe` (no version anchor). Self-hosted runner
+#    workspace persistence left behind installers from previous
+#    runs, and the broad glob matched every one — uploading them
+#    all under the current version prefix. Pin the glob to
+#    `*-{version}-*.exe` so a future "simplification" can't widen
+#    it back.
+# 4. macOS attempt 2 / final-attempt `if:` blocks used mixed YAML
+#    literal text + `${{ ... }}`, which GitHub Actions flags as
+#    "literal text outside replacement tokens" — the entire if
+#    expression then evaluated to truthy and the step ran on
+#    every runner. Pin that the if block is fully inside `${{ }}`.
+
+
+def test_generate_cos_download_links_supports_direct_upload():
+    """`Generate CN Download Links` must accept a `windows-direct-upload`
+    input that, when true, makes the workflow synthesise the expected
+    installer filename from `version` instead of trying (and failing)
+    to download it from the GHA artifact store. Without this the
+    download-links summary shows "_No Windows installers available_"
+    on every self-hosted release even though COS has the file.
+    """
+    text = (REPO_ROOT
+            / ".github/workflows/shared-cos-download-links.yml").read_text()
+    # The workflow_call input must exist on the reusable workflow
+    assert "windows-direct-upload:" in text
+    # The synthesise step must be guarded by it
+    assert "Synthesize Windows installer filename" in text
+    assert "windows-direct-upload == true" in text
+    # The fallback must produce a recognisable installer filename
+    assert "{APP_NAME}-${VERSION}-windows-amd64-Setup.exe" in text
+
+
+def test_generate_intl_download_links_supports_direct_upload():
+    """Same invariant for intl — `shared-download-links.yml` (S3)."""
+    text = (REPO_ROOT
+            / ".github/workflows/shared-download-links.yml").read_text()
+    assert "windows-direct-upload:" in text
+    assert "Synthesize Windows installer filename" in text
+
+
+def test_prepare_artifacts_copies_sig_and_sha256(release_cn):
+    """Windows Prepare artifacts must copy `<installer>.sig` and
+    `<installer>.sha256` alongside `<installer>.exe`. Without this
+    the OTA appcast entry is written without an ed25519 signature
+    and Sparkle-based clients reject the update.
+    """
+    # The Prepare artifacts step should iterate over both extensions
+    assert "'.sha256', '.sig'" in release_cn, (
+        "release-cn.yml: Prepare artifacts must copy "
+        "`<installer>.sha256` and `<installer>.sig` alongside "
+        "`<installer>.exe`. Appcast reads `<bucket>/.../Setup.exe.sig` "
+        "from COS to populate `edSignature`; without it Sparkle "
+        "silently rejects updates."
+    )
+
+
+def test_prepare_artifacts_intl_copies_sig_and_sha256(release_intl):
+    assert "'.sha256', '.sig'" in release_intl
+
+
+def test_prepare_artifacts_wipes_stale_files(release_cn):
+    """Self-hosted runners keep a persistent workspace. Without
+    wiping artifacts/ at the top of Prepare artifacts, installers
+    from previous runs survive into the next release's upload
+    glob and get re-uploaded under the current version prefix,
+    polluting the bucket with stale-but-reachable links.
+    """
+    assert "Remove-Item" in release_cn
+    # Make sure it targets the artifacts/ directory specifically
+    assert "artifacts\\*" in release_cn or "artifacts/*" in release_cn
+
+
+def test_prepare_artifacts_intl_wipes_stale_files(release_intl):
+    assert "Remove-Item" in release_intl
+    assert "artifacts\\*" in release_intl or "artifacts/*" in release_intl
+
+
+def test_upload_to_cos_glob_anchored_to_version():
+    """The upload script's glob must include `{self.version}` so a
+    polluted dist/ (e.g. self-hosted runner workspace with stale
+    installers from a previous run) cannot leak the wrong-version
+    files into the current release's bucket prefix.
+    """
+    from pathlib import Path
+    text = (Path(__file__).parent.parent.parent
+            / "build_system/scripts/upload_to_cos.py").read_text()
+    # Every `patterns = [` block in the upload functions must use
+    # self.version, not the bare `*-windows-*` form that used to
+    # match every prior run's leftovers.
+    for fn in (
+        "upload_windows_artifacts",
+        "upload_macos_artifacts",
+        "upload_linux_artifacts",
+    ):
+        # Find the patterns = [...] assignment inside the function.
+        # Easiest: assert that for each function, the substring
+        # `{self.app_prefix}-{self.version}-` appears between its
+        # `def ` and the next `def `.
+        start = text.find(f"def {fn}(")
+        assert start != -1, f"upload_to_cos.py: missing function {fn}"
+        end = text.find("\n    def ", start + 1)
+        if end == -1:
+            end = len(text)
+        block = text[start:end]
+        assert "{self.version}" in block, (
+            f"upload_to_cos.py::{fn}() must anchor its glob to "
+            f"`{{self.version}}` so self-hosted workspace leftovers "
+            f"don't get re-uploaded under the current version prefix."
+        )
+
+
+def test_upload_to_s3_glob_anchored_to_version():
+    from pathlib import Path
+    text = (Path(__file__).parent.parent.parent
+            / "build_system/scripts/upload_to_s3.py").read_text()
+    for fn in ("upload_windows_artifacts", "upload_linux_artifacts"):
+        start = text.find(f"def {fn}(")
+        assert start != -1, f"upload_to_s3.py: missing function {fn}"
+        end = text.find("\n    def ", start + 1)
+        if end == -1:
+            end = len(text)
+        block = text[start:end]
+        assert "{self.version}" in block, (
+            f"upload_to_s3.py::{fn}() must anchor its glob to "
+            f"`{{self.version}}`."
+        )
+
+
+def test_macos_amd64_attempt_if_fully_inside_expression(release_cn):
+    """The macOS amd64 retry chain's `if:` block must be entirely
+    inside `${{ ... }}`. A mixed literal/Expression form (e.g. plain
+    `steps.X.outcome == 'failure'` followed by `${{ runner_group ... }}`)
+    is parsed as truthy by GHA and the step runs on every runner —
+    which defeats the entire `if: runner_group == 'github-hosted'`
+    gate. Symptom: workflow syntax warning at lines 2001 / 2021.
+    """
+    # Walk every "Upload macOS amd64 installer artifact" step in
+    # release-cn.yml and assert its `if:` body starts with `${{`
+    # and ends with `}}`. The body is the indented block under
+    # `if: >-` (folded scalar) — first indented line through the
+    # line whose column matches `id:` / `uses:` / `with:`.
+    step_re = re.compile(
+        r"- name: Upload macOS amd64 installer artifact[^\n]*\n"
+        r"\s+if: >-\n"
+        r"((?:[ \t]+[^\n]*\n)+?)"
+        r"\s+(?:id:|uses:|with:)",
+        re.MULTILINE,
+    )
+    matched_any = False
+    for m in step_re.finditer(release_cn):
+        matched_any = True
+        # Collapse folded-scalar continuation lines into one string.
+        body = " ".join(line.strip() for line in m.group(1).splitlines())
+        assert body.startswith("${{"), (
+            f"macOS amd64 retry step `if:` must start with `${{`. "
+            f"Got: {body!r}"
+        )
+        assert body.endswith("}}"), (
+            f"macOS amd64 retry step `if:` must end with `}}`. "
+            f"Got: {body!r}"
+        )
+    assert matched_any, (
+        "test_macos_amd64_attempt_if_fully_inside_expression: no "
+        "macOS amd64 retry step matched — the regex or the workflow "
+        "may have changed. Update this test."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Recovery-upload rename contract
+#
+# The historical `upload-to-cos` / `upload-to-s3` jobs were renamed to
+# `recovery-upload-to-cos` / `recovery-upload-to-s3` to make it obvious
+# in the Actions UI that they're fallbacks for when the direct-upload
+# fast path failed. Removing the old jobs would silently drop releases
+# onto a half-empty bucket whenever a single build runner hiccups, so
+# the rename was the safer change. These tests pin that:
+#
+#   * the old name does not appear in the production workflow files
+#     (catches accidental reverts / partial renames);
+#   * every `needs:` reference and every `needs.<old>.outputs.<key>`
+#     reference was updated (catches half-renames where the job is
+#     renamed but a downstream `if:` still points at the old key).
+# ---------------------------------------------------------------------------
+
+
+def _grep_outside_fenced_comments(text: str, pattern: str) -> list[tuple[int, str]]:
+    """Return [(line_no, line)] for every non-comment occurrence.
+
+    The pattern is a *literal* token (no regex); the match must appear
+    as a stand-alone word to avoid false positives (e.g. we want
+    `upload-to-cos` but not `recovery-upload-to-cos`).
+    """
+    import re
+    word_re = re.compile(rf"(?<![A-Za-z0-9-]){re.escape(pattern)}(?![A-Za-z0-9-])")
+    out = []
+    for i, line in enumerate(text.splitlines(), 1):
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        if word_re.search(line):
+            out.append((i, line.rstrip()))
+    return out
+
+
+def test_release_cn_no_legacy_upload_to_cos_key(release_cn):
+    """No non-comment reference to the old `upload-to-cos` key.
+
+    The rename must be total: any remaining reference would be a
+    dangling `needs.upload-to-cos.outputs.*` that resolves to '' at
+    runtime, silently skipping the appcast / latest-json / download-links
+    gates.
+    """
+    leftovers = _grep_outside_fenced_comments(release_cn, "upload-to-cos")
+    assert not leftovers, (
+        "release-cn.yml still references the old `upload-to-cos` "
+        "job key (in non-comment lines):\n"
+        + "\n".join(f"  L{ln}: {line}" for ln, line in leftovers)
+        + "\nThe rename to `recovery-upload-to-cos` was incomplete. "
+        "Every `needs:` and `needs.upload-to-cos.outputs.*` reference "
+        "must be updated together — partial renames resolve to '' at "
+        "runtime and silently skip downstream gates."
+    )
+
+
+def test_release_intl_no_legacy_upload_to_s3_key(release_intl):
+    leftovers = _grep_outside_fenced_comments(release_intl, "upload-to-s3")
+    assert not leftovers, (
+        "release-intl.yml still references the old `upload-to-s3` "
+        "job key (in non-comment lines):\n"
+        + "\n".join(f"  L{ln}: {line}" for ln, line in leftovers)
+        + "\nThe rename to `recovery-upload-to-s3` was incomplete."
+    )
+
+
+def test_release_cn_recovery_upload_to_cos_job_exists(release_cn):
+    """The new key must exist and be referenced consistently."""
+    assert "  recovery-upload-to-cos:" in release_cn, (
+        "release-cn.yml: missing `recovery-upload-to-cos:` job "
+        "definition. The historical upload job must be renamed, not "
+        "deleted — it's still the fallback for direct-upload failures."
+    )
+    # Every reference to the new key must use the same hyphenation.
+    assert "needs.recovery-upload-to-cos" in release_cn
+    assert "recovery-upload-to-cos," in release_cn
+
+
+def test_release_intl_recovery_upload_to_s3_job_exists(release_intl):
+    assert "  recovery-upload-to-s3:" in release_intl, (
+        "release-intl.yml: missing `recovery-upload-to-s3:` job "
+        "definition."
+    )
+    assert "needs.recovery-upload-to-s3" in release_intl
+
+
+# ---------------------------------------------------------------------------
+# Download-links summary: COS/S3 size-resolution contract
+#
+# The summary used to print "unknown" for every direct-uploaded
+# Windows installer because the bash loop read `du -sh` against an
+# empty stub file. The fix adds a `Resolve <C|S>3 object sizes` step
+# that uses HeadObject to fetch ContentLength and emits the size map
+# for the renderer. These tests pin both that the step exists and
+# that it gates on the same `windows-direct-upload` input the
+# synthesised-filename step does.
+# ---------------------------------------------------------------------------
+
+
+def test_shared_cos_download_links_resolves_cos_sizes():
+    """The COS download-links workflow must have a step that calls
+    `resolve_cos_sizes.py` when `windows-direct-upload` is true.
+    Without it, the renderer prints "missing — check bucket" for the
+    Size column on every self-hosted release.
+    """
+    text = (REPO_ROOT
+            / ".github/workflows/shared-cos-download-links.yml").read_text()
+    assert "Resolve COS object sizes" in text, (
+        "shared-cos-download-links.yml: missing the "
+        "`Resolve COS object sizes (direct-upload fallback)` step. "
+        "Without it, direct-uploaded Windows installers show "
+        "'missing — check bucket' in the summary instead of the real "
+        "byte count from COS HeadObject."
+    )
+    assert "resolve_cos_sizes.py" in text
+    # Must gate on windows-direct-upload so the step doesn't run when
+    # the GHA artifact path was used (avoids the per-file HeadObject
+    # cost on the happy path).
+    assert "windows-direct-upload == true" in text
+
+
+def test_shared_download_links_resolves_s3_sizes():
+    text = (REPO_ROOT
+            / ".github/workflows/shared-download-links.yml").read_text()
+    assert "Resolve S3 object sizes" in text
+    assert "resolve_s3_sizes.py" in text
+    assert "windows-direct-upload == true" in text
+
+
+def test_shared_cos_download_links_uses_python_renderer():
+    """The bash summary step was replaced by a Python renderer call.
+    Pin that so a future refactor doesn't re-introduce the inline bash
+    loop and regress the size column.
+    """
+    text = (REPO_ROOT
+            / ".github/workflows/shared-cos-download-links.yml").read_text()
+    assert "render_download_links.py" in text
+    # The `--scheme` flag is whitespace-aligned but still present;
+    # collapse the run-block whitespace before searching.
+    collapsed = " ".join(text.split())
+    assert "--scheme cos" in collapsed, (
+        "shared-cos-download-links.yml: render step must pass "
+        "`--scheme cos` so the renderer picks COS URL construction."
+    )
+
+
+def test_shared_download_links_uses_python_renderer():
+    text = (REPO_ROOT
+            / ".github/workflows/shared-download-links.yml").read_text()
+    assert "render_download_links.py" in text
+    collapsed = " ".join(text.split())
+    assert "--scheme s3" in collapsed

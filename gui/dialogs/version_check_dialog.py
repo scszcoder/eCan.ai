@@ -8,7 +8,16 @@ import os
 
 # Manual install fallback — surfaced on every update check pop-up so users can
 # grab the latest installer directly when auto-update is unavailable or fails.
-MANUAL_INSTALL_URL = "https://ecan-releases.s3.us-east-1.amazonaws.com/production/latest.json"
+# Resolved via ``ota_config.get_latest_json_url()`` so the link respects the
+# current app type (CN→COS / INTL→S3) and the active environment
+# (development→``dev/`` … production→``production/``) instead of always
+# pointing at the hardcoded INTL/production S3 URL.
+from ota.config.loader import ota_config
+
+def _manual_install_url() -> str:
+    """Return the latest.json URL for the running app type + environment."""
+    return ota_config.get_latest_json_url() or \
+        "https://ecan-releases.s3.us-east-1.amazonaws.com/production/latest.json"
 
 class VersionCheckDialog(QDialog):
     def __init__(self, parent=None, is_latest=True, version="1.0.0", error_msg=None):
@@ -89,7 +98,7 @@ class VersionCheckDialog(QDialog):
         manual_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
         manual_label.setText(
             'You can always install the latest version manually using the '
-            f'links in <a href="{MANUAL_INSTALL_URL}" '
+            f'links in <a href="{_manual_install_url()}" '
             'style="color:#58a6ff; text-decoration:underline;">latest.json</a>.'
         )
         main_layout.addSpacing(10)

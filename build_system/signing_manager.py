@@ -838,6 +838,14 @@ class OTASigningManager:
             
             if signatures:
                 # Save signature information
+                # NOTE: Historically this wrote ``ota/server/signatures_{version}.json``
+                # alongside the per-artifact ``.sig`` files. The JSON sidecar is not
+                # read by ``build_system/scripts/generate_appcast.py``, not uploaded
+                # by ``build_system/scripts/upload_to_{s3,cos}.py``, and not consulted
+                # by the client (see ``ota/core/appcast.py``). The ``.sig`` files
+                # are the single source of truth, so the JSON write is now a no-op.
+                # Kept as a log-only shim so external callers (if any) still get
+                # back a callable that doesn't write misleading files.
                 self._save_signatures(version, signatures)
                 print(f"[OTA-SIGN] [OK] OTA signing completed: {len(signatures)} files")
                 return True
@@ -853,20 +861,22 @@ class OTASigningManager:
             return False
     
     def _save_signatures(self, version: str, signatures: Dict[str, Any]):
-        """Save signature information to JSON file"""
+        """Deprecated log-only shim. Previously wrote
+        ``ota/server/signatures_{version}.json``; that sidecar is no longer
+        produced or consumed. Per-artifact ``.sig`` files are the single
+        source of truth for OTA signatures.
+        """
+        # Intentionally do NOT write a JSON sidecar. Keeping a callable here
+        # so any external import still resolves and so the function name
+        # remains discoverable in stack traces during the deprecation window.
         try:
-            ota_server_dir = self.project_root / "ota" / "server"
-            ota_server_dir.mkdir(parents=True, exist_ok=True)
-            
-            signatures_file = ota_server_dir / f"signatures_{version}.json"
-            
-            with open(signatures_file, 'w', encoding='utf-8') as f:
-                json.dump(signatures, f, indent=2, ensure_ascii=False)
-            
-            print(f"[OTA-SIGN] [OK] Signature information saved: {signatures_file}")
-            
+            print(
+                f"[OTA-SIGN] [DEPRECATED] _save_signatures is a no-op; "
+                f"per-artifact .sig files for {len(signatures)} artifact(s) "
+                f"are the single source of truth for version {version}."
+            )
         except Exception as e:
-            print(f"[OTA-SIGN] [WARNING] Failed to save signature information: {e}")
+            print(f"[OTA-SIGN] [WARNING] Failed to log deprecation notice: {e}")
 
 def create_signing_manager(project_root: Path = None, config: Dict[str, Any] = None) -> SigningManager:
     """Create signing manager instance"""

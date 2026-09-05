@@ -66,9 +66,11 @@
   gap: 6px;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  border: 1px solid;
+  border: 1px solid var(--ant-color-border, #303030);
   line-height: 1;
   white-space: nowrap;
+  background: var(--ant-color-bg-container, transparent);
+  color: var(--ant-color-text, inherit);
 }
 [data-ec-scope="lightrag-ported"] .ec-btn:disabled {
   opacity: 0.5;

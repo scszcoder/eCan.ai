@@ -53,7 +53,7 @@
 #                  ├── build-macos-aarch64 ──────┤│
 #                  └── build-linux ──────────────┤│
 #                                                ▼│
-#                                            upload-to-cos
+#                                            recovery-upload-to-cos
 #                                                │
 #                                                ▼
 #                                          generate-appcast
@@ -1086,13 +1086,8 @@ jobs:
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
         with:
+          prefer-system-node: 'true'
           npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
-
-      - name: Setup WhatsApp Baileys Bridge Environment
-        uses: ./.github/actions/setup-wabaileys-bridge
-        with:
-          node-version: '20'
-          bridge-dir: wabaileys-bridge
 
       - name: Install Windows-specific packages
         shell: pwsh
@@ -1321,6 +1316,22 @@ jobs:
       - name: Prepare artifacts
         shell: pwsh
         run: |
+          # Wipe artifacts/ first. Self-hosted runners keep a persistent
+          # workspace across runs (actions/checkout reuses `C:\actions-runner\_work\...`
+          # without clearing it), so files from a previous build — including
+          # installers for OTHER versions — would otherwise survive into
+          # upload_to_cos.py's glob and get uploaded to the bucket under the
+          # wrong version's prefix. Symptom: 4 stale .exe files (a766bad,
+          # d1f5704, ddf0db7, d671373) all uploaded to
+          # test/releases/v0.7.0-lq_dev_multi-final-a766bad/... corrupting the
+          # appcast URL list with dead-but-reachable installers.
+          #
+          # Use -Recurse -Force to catch nested files in case a previous
+          # build left a subdirectory here too. -ErrorAction SilentlyContinue
+          # swallows "file not found" if artifacts/ is already empty.
+          if (Test-Path artifacts) {
+              Remove-Item -Path artifacts\* -Recurse -Force -ErrorAction SilentlyContinue
+          }
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           # The Windows installer is produced by build.py at
           # dist/<DIST_APP>-{version}-windows-amd64-Setup.exe
@@ -1344,13 +1355,41 @@ jobs:
               throw "Expected Windows installer not found: $installer - build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build Windows installer' step above before retrying."
           }
           Copy-Item $installer artifacts\
+          # The same build also produces two companion files in dist/ that
+          # the OTA pipeline and the appcast generator both rely on:
+          #   <installer>.sha256  — integrity digest; upload_to_cos.py
+          #                           uploads this alongside the .exe, and
+          #                           downstream consumers use it to detect
+          #                           partial downloads.
+          #   <installer>.sig     — ed25519 OTA signature consumed by the
+          #                           appcast generator (`generate_appcast.py`
+          #                           reads `<cos-prefix>/releases/v.../
+          #                           <file>.sig`). Without it the appcast
+          #                           entry is written without an `edSignature`
+          #                           attribute, which the Sparkle-based client
+          #                           rejects on update — silently leaving
+          #                           installed users on the previous release.
+          # Both files are produced next to the installer by build.py's
+          # OTA signing step (see [OTA-SIGN] log lines in Build Windows
+          # amd64.txt); we just need to bring them along. They're optional
+          # in the sense that an upstream signing failure shouldn't fail
+          # the upload, but if they exist on disk the upload MUST include
+          # them — silently dropping them leaves the bucket in a half-
+          # populated state where the .exe is reachable but the client
+          # can't verify it.
+          foreach ($ext in @('.sha256', '.sig')) {
+              $companion = "dist\${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe$ext"
+              if (Test-Path $companion) {
+                  Copy-Item $companion artifacts\
+              }
+          }
 
       - name: Upload Windows installer to COS (direct, fast path)
         id: upload-windows-cos
         # Skip on GitHub-hosted runners: they don't have a fast CN-side
         # network path to ap-shanghai COS, so the historical
         # upload-artifact → download-artifact → upload_to_cos.py path
-        # (via upload-to-cos job on ubuntu-latest) is faster there than
+        # (via recovery-upload-to-cos job on ubuntu-latest) is faster there than
         # a direct python invocation. The fast path matters for
         # self-hosted runners in CN where every public-internet hop is
         # bandwidth-bound.
@@ -1373,11 +1412,11 @@ jobs:
               --platform windows `
               --dist-dir artifacts
           # Map python exit codes to the GitHub Actions output convention
-          # the downstream upload-to-cos job gates on:
+          # the downstream recovery-upload-to-cos job gates on:
           #   rc=0  -> success=true  (direct upload took effect, skip fallback)
           #   rc=2  -> success=error (hard precondition -- the prepare
           #            step already threw, so this branch is unreachable;
-          #            treat as failed fast path so the upload-to-cos
+          #            treat as failed fast path so the recovery-upload-to-cos
           #            fallback can still attempt a retry from GHA
           #            artifact store)
           #   other -> success=error
@@ -1385,14 +1424,14 @@ jobs:
               'success=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           } else {
               'success=error' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-              Write-Host "[WARN] Direct COS upload failed (rc=$LASTEXITCODE); upload-to-cos fallback will retry from GHA artifact store" -ForegroundColor Yellow
+              Write-Host "[WARN] Direct COS upload failed (rc=$LASTEXITCODE); recovery-upload-to-cos fallback will retry from GHA artifact store" -ForegroundColor Yellow
           }
 
       - name: Upload Windows installer artifact
         # Skipped on self-hosted CN runners whose build job just uploaded
         # directly to COS (the upstream step's `if:` is mutually
         # exclusive with this one). On GitHub-hosted runners, this step
-        # remains the bridge that feeds upload-to-cos's
+        # remains the bridge that feeds recovery-upload-to-cos's
         # actions/download-artifact@v7 step.
         if: ${{ github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
@@ -1451,7 +1490,7 @@ jobs:
     timeout-minutes: 60
     # Per-job outputs for the CN direct-upload fast path. See
     # release-cn.yml::build-windows for the full design rationale; the
-    # short version is `cos-uploaded` lets upload-to-cos skip the slow
+    # short version is `cos-uploaded` lets recovery-upload-to-cos skip the slow
     # GitHub-Artifact-Store round-trip when self-hosted macOS runners
     # already uploaded directly.
     outputs:
@@ -1879,6 +1918,7 @@ jobs:
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
         with:
+          prefer-system-node: 'true'
           npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
 
       - name: Setup OTA signing key
@@ -1984,7 +2024,7 @@ jobs:
         # Skipped on self-hosted CN runners whose build job just uploaded
         # directly to COS (the upstream step's `if:` is mutually
         # exclusive with this one). On GitHub-hosted runners, this step
-        # remains the bridge that feeds upload-to-cos's
+        # remains the bridge that feeds recovery-upload-to-cos's
         # actions/download-artifact@v7 step.
         if: ${{ github.event.inputs.runner_group == 'github-hosted' }}
         id: upload_macos_amd64_cos
@@ -1999,8 +2039,8 @@ jobs:
           overwrite: true
       - name: Upload macOS amd64 installer artifact — attempt 2
         if: >-
-          steps.upload_macos_amd64_cos.outcome == 'failure' &&
-          ${{ github.event.inputs.runner_group == 'github-hosted' }}
+          ${{ steps.upload_macos_amd64_cos.outcome == 'failure' &&
+          github.event.inputs.runner_group == 'github-hosted' }}
         id: upload_macos_amd64_cos_2
         uses: actions/upload-artifact@v6
         continue-on-error: true
@@ -2019,9 +2059,9 @@ jobs:
         # chain stop early when attempt 2 succeeds — otherwise the final
         # step would re-upload a successful artifact.
         if: >-
-          steps.upload_macos_amd64_cos.outcome == 'failure' &&
+          ${{ steps.upload_macos_amd64_cos.outcome == 'failure' &&
           steps.upload_macos_amd64_cos_2.outcome == 'failure' &&
-          ${{ github.event.inputs.runner_group == 'github-hosted' }}
+          github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
         with:
           name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-installer
@@ -2495,6 +2535,7 @@ jobs:
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
         with:
+          prefer-system-node: 'true'
           npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
 
       - name: Setup OTA signing key
@@ -2578,7 +2619,7 @@ jobs:
       - name: Upload macOS aarch64 installer artifact
         # Skipped on self-hosted CN runners whose build job just uploaded
         # directly to COS. On GitHub-hosted runners, this step remains
-        # the bridge that feeds upload-to-cos's
+        # the bridge that feeds recovery-upload-to-cos's
         # actions/download-artifact@v7 step.
         if: ${{ github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
@@ -3045,13 +3086,8 @@ jobs:
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
         with:
+          prefer-system-node: 'true'
           npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
-
-      - name: Setup WhatsApp Baileys Bridge Environment
-        uses: ./.github/actions/setup-wabaileys-bridge
-        with:
-          node-version: '20'
-          bridge-dir: wabaileys-bridge
 
       - name: Install Linux system dependencies
         run: |
@@ -3198,7 +3234,7 @@ jobs:
       - name: Upload Linux packages artifact
         # Skipped on self-hosted CN runners whose build job just uploaded
         # directly to COS. On GitHub-hosted runners, this step remains
-        # the bridge that feeds upload-to-cos's
+        # the bridge that feeds recovery-upload-to-cos's
         # actions/download-artifact@v7 step.
         if: ${{ github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
@@ -3227,16 +3263,28 @@ jobs:
   # Stage 3 — Upload to COS, generate appcast + links + summary
   # ──────────────────────────────────────────────────────────────────────
 
-  upload-to-cos:
-    name: Upload to COS
+  # ──────────────────────────────────────────────────────────────────────
+  # `recovery-upload-to-cos` is a *fallback*. On the happy path every
+  # build job uploads to COS in-place (direct-upload fast path) and this
+  # job is skipped (its `if:` evaluates to false). It only runs when at
+  # least one succeeded build job failed to direct-upload — e.g. cloud
+  # SDK auth expired or the self-hosted runner lost connectivity — so
+  # the public CDN can be repopulated from the GHA artifact store. The
+  # job's `upload-success` output is what the downstream appcast /
+  # latest-json / download-links jobs gate on. Removing this job would
+  # silently drop releases onto a half-empty bucket whenever a single
+  # build runner hiccups, so it stays.
+
+  recovery-upload-to-cos:
+    name: Recovery upload to COS (fallback)
     needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
     # Skip when every succeeded build job already uploaded directly
     # to COS (CN direct-upload fast path on self-hosted runners).
     # Otherwise fall back to the historical
     # upload-artifact → download-artifact → upload_to_cos.py path.
     # Each clause is "build succeeded AND didn't direct-upload"; if
-    # any clause is true, the slow upload-to-cos path still has
-    # something to do.
+    # any clause is true, the slow recovery-upload-to-cos path still
+    # has something to do.
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
@@ -3265,10 +3313,10 @@ jobs:
 
   generate-appcast:
     name: Generate Appcast (all platforms × archs)
-    needs: [validate-tag, upload-to-cos, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
-    # `upload-success == 'true'` covers the historical upload-to-cos path.
+    needs: [validate-tag, recovery-upload-to-cos, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
+    # `upload-success == 'true'` covers the historical recovery-upload-to-cos path.
     # The OR-clauses cover the CN direct-upload fast path: when every
-    # succeeded build job already uploaded to COS in-place, upload-to-cos
+    # succeeded build job already uploaded to COS in-place, recovery-upload-to-cos
     # is skipped (its outputs are empty), and we must still generate the
     # appcast from the in-place artifacts. Each clause is "build
     # succeeded AND direct-uploaded"; together they say "at least one
@@ -3277,7 +3325,7 @@ jobs:
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (
-        needs.upload-to-cos.outputs.upload-success == 'true' ||
+        needs.recovery-upload-to-cos.outputs.upload-success == 'true' ||
         (needs.build-windows.result      == 'success' && needs.build-windows.outputs.cos-uploaded      == 'true') ||
         (needs.build-macos-amd64.result  == 'success' && needs.build-macos-amd64.outputs.cos-uploaded  == 'true') ||
         (needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.cos-uploaded == 'true') ||
@@ -3300,16 +3348,24 @@ jobs:
 
   generate-latest-json:
     name: Generate latest.json
-    needs: [validate-tag, generate-appcast, upload-to-cos]
+    needs: [validate-tag, generate-appcast, recovery-upload-to-cos, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
+      (
+        needs.recovery-upload-to-cos.outputs.upload-success == 'true' ||
+        (needs.build-windows.result      == 'success' && needs.build-windows.outputs.cos-uploaded      == 'true') ||
+        (needs.build-macos-amd64.result  == 'success' && needs.build-macos-amd64.outputs.cos-uploaded  == 'true') ||
+        (needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.cos-uploaded == 'true') ||
+        (needs.build-linux.result        == 'success' && needs.build-linux.outputs.cos-uploaded        == 'true')
+      ) &&
       needs.generate-appcast.result == 'success'
     uses: ./.github/workflows/shared-cos-latest-json.yml
     with:
       version:     ${{ needs.validate-tag.outputs.version }}
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel:     ${{ needs.validate-tag.outputs.channel }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       app:         cn
       platform:    all
       arch:        all
@@ -3317,16 +3373,16 @@ jobs:
 
   generate-download-links:
     name: Generate Download Links
-    needs: [validate-tag, upload-to-cos, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
+    needs: [validate-tag, recovery-upload-to-cos, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
     # Same direct-upload-aware gate as generate-appcast. See that job's
-    # comment for the full rationale; in short, when upload-to-cos is
+    # comment for the full rationale; in short, when recovery-upload-to-cos is
     # skipped because all succeeded build jobs direct-uploaded, this
     # job must still run so end-users get correct download links.
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (
-        needs.upload-to-cos.outputs.upload-success == 'true' ||
+        needs.recovery-upload-to-cos.outputs.upload-success == 'true' ||
         (needs.build-windows.result      == 'success' && needs.build-windows.outputs.cos-uploaded      == 'true') ||
         (needs.build-macos-amd64.result  == 'success' && needs.build-macos-amd64.outputs.cos-uploaded  == 'true') ||
         (needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.cos-uploaded == 'true') ||
@@ -3337,8 +3393,25 @@ jobs:
       version:        ${{ needs.validate-tag.outputs.version }}
       environment:    ${{ needs.validate-tag.outputs.environment }}
       channel:        ${{ needs.validate-tag.outputs.channel }}
+      user-prefix:    ${{ needs.validate-tag.outputs.user-prefix }}
       windows-build-result:  ${{ needs.build-windows.result }}
-      macos-build-result:    ${{ (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success') && 'success' || 'failure' }}
+      windows-direct-upload: ${{ needs.build-windows.outputs.cos-uploaded == 'true' }}
+      app-name:              eCan.cn
+      # macOS "result" is a 3-state string — success / failure / skipped —
+      # that the shared download-links workflow uses to render the macOS
+      # section of the GHA summary (see render_download_links.py:
+      # `_render_status_message`). Collapsing `skipped` into `failure` made
+      # any non-macOS build (windows-only, or platform=all under
+      # ecan-windows-amd64 where the runner_group gate skips macOS)
+      # look like a macOS build failure in the published summary, with
+      # the misleading line "❌ macOS build failed — no artifacts produced.
+      # Expected: 0 artifact(s)." The 3-way ternary below distinguishes:
+      #   • any arch success → 'success'
+      #   • any arch failure (no success) → 'failure'
+      #   • both skipped → 'skipped'
+      # cancelled still maps to 'skipped' (it was previously indistinguishable
+      # from failure in this expression too); tightening that is out of scope.
+      macos-build-result:    ${{ (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success') && 'success' || (needs.build-macos-amd64.result == 'failure' || needs.build-macos-aarch64.result == 'failure') && 'failure' || 'skipped' }}
       linux-result:          ${{ needs.build-linux.result }}
       macos-built-amd64:     ${{ needs.build-macos-amd64.result == 'success' }}
       macos-built-aarch64:   ${{ needs.build-macos-aarch64.result == 'success' }}
@@ -3346,7 +3419,7 @@ jobs:
 
   final-status:
     name: Final Status Summary
-    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, upload-to-cos, generate-appcast, generate-latest-json, generate-download-links]
+    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, recovery-upload-to-cos, generate-appcast, generate-latest-json, generate-download-links]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -3358,12 +3431,12 @@ jobs:
           MACOS_AARCH64:     ${{ needs.build-macos-aarch64.result }}
           LINUX_RESULT:      ${{ needs.build-linux.result }}
           # When the build jobs direct-uploaded to COS (CN fast path),
-          # upload-to-cos is skipped and its output is empty. Map
+          # recovery-upload-to-cos is skipped and its output is empty. Map
           # "empty + at least one cos-uploaded=true" to "direct" so the
           # summary makes sense instead of reading "COS upload: ".
           # Each OR-clause is "build succeeded AND direct-uploaded →
           # 'direct'", short-circuited so an early true stops the chain.
-          UPLOAD_RESULT: ${{ needs.upload-to-cos.outputs.upload-success || (needs.build-windows.outputs.cos-uploaded == 'true' && needs.build-windows.result == 'success' && 'direct') || (needs.build-macos-amd64.outputs.cos-uploaded == 'true' && needs.build-macos-amd64.result == 'success' && 'direct') || (needs.build-macos-aarch64.outputs.cos-uploaded == 'true' && needs.build-macos-aarch64.result == 'success' && 'direct') || (needs.build-linux.outputs.cos-uploaded == 'true' && needs.build-linux.result == 'success' && 'direct') || 'skipped' }}
+          UPLOAD_RESULT: ${{ needs.recovery-upload-to-cos.outputs.upload-success || (needs.build-windows.outputs.cos-uploaded == 'true' && needs.build-windows.result == 'success' && 'direct') || (needs.build-macos-amd64.outputs.cos-uploaded == 'true' && needs.build-macos-amd64.result == 'success' && 'direct') || (needs.build-macos-aarch64.outputs.cos-uploaded == 'true' && needs.build-macos-aarch64.result == 'success' && 'direct') || (needs.build-linux.outputs.cos-uploaded == 'true' && needs.build-linux.result == 'success' && 'direct') || 'skipped' }}
           APPCAST_RESULT:    ${{ needs.generate-appcast.result }}
           LATEST_RESULT:     ${{ needs.generate-latest-json.result }}
           LINKS_RESULT:      ${{ needs.generate-download-links.result }}
@@ -3419,14 +3492,14 @@ jobs:
 
   print-gha-fallback-downloads:
     name: Print GHA Artifact Fallback URLs
-    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, upload-to-cos]
+    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, recovery-upload-to-cos]
     # Only run when COS upload did not actually succeed but at least
     # one build succeeded — that's the scenario where the public CDN
     # has no files but the GHA artifact store does.
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      needs.upload-to-cos.outputs.upload-success == 'false' &&
+      needs.recovery-upload-to-cos.outputs.upload-success == 'false' &&
       (needs.build-windows.result == 'success' ||
        needs.build-linux.result == 'success' ||
        needs.build-macos-amd64.result == 'success' ||
