@@ -88,6 +88,183 @@ def _is_port_in_use(port: int) -> bool:
             return False
 
 
+# ── External CDP host (Electron / Chromium-shell apps) ──────────────────────
+# ``ECAN_CDP_HOST_EXE=<full path | installed-app display name>``: instead of
+# Google Chrome, launch THAT executable with ``--remote-debugging-port=<port>``
+# and attach to it.  Electron apps (a vendor's desktop workbench that embeds
+# the same web pages we automate) honour the Chromium switch unless the vendor
+# strips it.  Only the debugging switch is passed — no --user-data-dir /
+# --profile-directory — so the app keeps its own login state.  Default OFF.
+_CDP_HOST_EXE_ENV = "ECAN_CDP_HOST_EXE"
+_CDP_HOST_BOOT_WAIT_S = 30  # Electron apps boot slower than bare Chrome
+
+
+def _resolve_cdp_host_exe() -> Optional[str]:
+    """Executable named by ``ECAN_CDP_HOST_EXE``, or None when unset."""
+    spec = os.getenv(_CDP_HOST_EXE_ENV, "").strip().strip('"')
+    if not spec:
+        return None
+    if os.path.isfile(spec):
+        return spec
+    import platform
+    if platform.system() != "Windows":
+        logger.warning(
+            f"[CDP-HOST] {_CDP_HOST_EXE_ENV}={spec!r} is not a file; "
+            f"name lookup is Windows-only"
+        )
+        return None
+    hit = _find_installed_app_exe(spec)
+    if hit:
+        logger.info(f"[CDP-HOST] resolved {spec!r} -> {hit}")
+    else:
+        logger.error(
+            f"[CDP-HOST] no installed app matches {spec!r}; set "
+            f"{_CDP_HOST_EXE_ENV} to the full .exe path"
+        )
+    return hit
+
+
+def _find_installed_app_exe(name: str) -> Optional[str]:
+    """Windows: main .exe of an installed app whose Uninstall DisplayName or
+    install folder contains *name* (case-insensitive)."""
+    import glob
+    import winreg
+
+    needle = name.lower()
+    roots = [
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+    ]
+    for root, sub in roots:
+        try:
+            with winreg.OpenKey(root, sub) as k:
+                for i in range(winreg.QueryInfoKey(k)[0]):
+                    try:
+                        with winreg.OpenKey(k, winreg.EnumKey(k, i)) as app:
+                            def _val(n: str) -> str:
+                                try:
+                                    return str(winreg.QueryValueEx(app, n)[0])
+                                except OSError:
+                                    return ""
+                            if needle not in _val("DisplayName").lower():
+                                continue
+                            icon = _val("DisplayIcon").split(",")[0].strip().strip('"')
+                            if icon.lower().endswith(".exe") and os.path.isfile(icon):
+                                return icon
+                            loc = _val("InstallLocation").strip().strip('"')
+                            for exe in (sorted(glob.glob(os.path.join(loc, "*.exe"))) if loc else []):
+                                if "uninst" not in os.path.basename(exe).lower():
+                                    return exe
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    for base in (
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs"),
+        os.path.expandvars(r"%LOCALAPPDATA%"),
+        os.path.expandvars(r"%PROGRAMFILES%"),
+        os.path.expandvars(r"%PROGRAMFILES(X86)%"),
+    ):
+        for exe in sorted(glob.glob(os.path.join(base, f"*{name}*", "*.exe"))):
+            if "uninst" not in os.path.basename(exe).lower():
+                return exe
+    return None
+
+
+def _log_cdp_targets(port: int) -> None:
+    """Spike telemetry: what the host app exposes over CDP.  The target URLs
+    decide whether our page_url_patterns / site hooks can match at all."""
+    import json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=3) as r:
+            ver = json.loads(r.read().decode("utf-8"))
+        logger.info(f"[CDP-HOST] browser={ver.get('Browser')!r} ua={ver.get('User-Agent')!r}")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=3) as r:
+            targets = json.loads(r.read().decode("utf-8"))
+        for t in targets:
+            logger.info(
+                f"[CDP-HOST] target type={t.get('type')} url={t.get('url')!r} "
+                f"title={t.get('title')!r}"
+            )
+        logger.info(f"[CDP-HOST] {len(targets)} targets on port {port}")
+    except Exception as e:
+        logger.warning(f"[CDP-HOST] target listing on port {port} failed: {e}")
+
+
+def _kill_running_host_app(exe: str, port: int) -> None:
+    """Electron apps hold a single-instance lock: a second launch merely
+    focuses the running one and drops our switch, so the running instance
+    has to go before we relaunch it with CDP."""
+    import psutil
+    name = os.path.basename(exe).lower()
+    victims = [p for p in psutil.process_iter(["name"])
+               if (p.info.get("name") or "").lower() == name]
+    if not victims:
+        return
+    logger.warning(
+        f"[CDP-HOST] {name} already running without CDP ({len(victims)} procs) — "
+        f"terminating so it can relaunch with --remote-debugging-port={port}"
+    )
+    for p in victims:
+        try:
+            p.kill()
+        except psutil.Error:
+            pass
+    psutil.wait_procs(victims, timeout=8)
+
+
+def _start_cdp_host_app(exe: str, port: int) -> bool:
+    """Launch *exe* with the CDP switch and wait for the port. Returns True
+    when the port opened; logs WHY when it did not (the spike's verdict)."""
+    import subprocess
+    import threading
+    import time
+
+    name = os.path.basename(exe)
+    try:
+        _kill_running_host_app(exe, port)
+    except Exception as e:
+        logger.warning(f"[CDP-HOST] running-instance check failed: {e}")
+
+    args = [exe, f"--remote-debugging-port={port}"]
+    logger.info(f"[CDP-HOST] launching {args}")
+    try:
+        proc = subprocess.Popen(
+            args,
+            cwd=os.path.dirname(exe) or None,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        logger.error(f"[CDP-HOST] failed to launch {exe}: {e}")
+        return False
+    _chrome_processes[port] = proc
+
+    for _ in range(_CDP_HOST_BOOT_WAIT_S * 2):
+        if _is_port_in_use(port):
+            logger.info(f"[CDP-HOST] {name} up with CDP on port {port}")
+            _log_cdp_targets(port)
+            # Electron shells load their real content well after the port
+            # opens; a second snapshot shows what the agent will actually see.
+            threading.Timer(20.0, _log_cdp_targets, args=(port,)).start()
+            return True
+        if proc.poll() is not None:
+            logger.error(
+                f"[CDP-HOST] VERDICT: {name} exited (code {proc.returncode}) before "
+                f"CDP port {port} opened — the app rejects --remote-debugging-port"
+            )
+            return False
+        time.sleep(0.5)
+    logger.error(
+        f"[CDP-HOST] VERDICT: {name} is running but CDP port {port} never opened "
+        f"in {_CDP_HOST_BOOT_WAIT_S}s — the app ignores --remote-debugging-port"
+    )
+    return False
+
+
 def _start_chrome_with_cdp(
     port: int = 9228,
     headless: bool = False,
@@ -112,7 +289,11 @@ def _start_chrome_with_cdp(
     if _is_port_in_use(port):
         logger.info(f"[BrowserManager] Chrome already running on port {port}")
         return True
-    
+
+    host_exe = _resolve_cdp_host_exe()
+    if host_exe:
+        return _start_cdp_host_app(host_exe, port)
+
     import subprocess
     import platform
     import time

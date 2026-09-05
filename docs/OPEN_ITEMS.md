@@ -187,6 +187,16 @@ _Last updated: 2026-09-04_
 
 ## 🟢 In progress
 
+- **Vendor desktop-workbench (Electron) CDP attach spike (2026-09-05)**.
+  `ECAN_CDP_HOST_EXE` (default OFF) makes `_start_chrome_with_cdp` launch
+  that exe with only `--remote-debugging-port` and log `[CDP-HOST]`
+  target URLs / a VERDICT line. Build tag `spike-doudian-app-cdp-1`.
+  **Open**: (a) live verdict on a machine with 抖店工作台 installed;
+  (b) if attach works, compare target URLs vs the skill's
+  `page_url_patterns`; (c) same-window coexistence with the human
+  (row-click / typing collisions) is unsolved by design — the safer
+  product answer remains a dedicated 客服子账号 in eCan's own Chrome.
+  See docs/CDP_HOST_APP_SPIKE.md.
 - **CN presigned-flow convergence (2026-08-27, LIVE-VERIFIED)**. 95n
   retest "no diff" root cause: the client's CN file APIs didn't match
   the DEPLOYED SDL — listSkillFiles/readSkillFile return TYPED results
