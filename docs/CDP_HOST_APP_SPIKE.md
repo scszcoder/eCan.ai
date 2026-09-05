@@ -1,7 +1,9 @@
 # Spike: attach to a vendor desktop workbench (Electron) via CDP
 
 _Status 2026-09-05: code shipped behind `ECAN_CDP_HOST_EXE` (default OFF),
-build tag `v0.9.96y-spike-doudian-app-cdp-1`. Live verdict PENDING._
+build tags `v0.9.96y-spike-doudian-app-cdp-1` (GitHub-hosted, run 33982842382)
+and `-2` (same commit 22ffe60, China self-hosted `win-runner`, run 33983963626).
+Either installer works for the spike. Live verdict PENDING._
 
 ## Question
 
