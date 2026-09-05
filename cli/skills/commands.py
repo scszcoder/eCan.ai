@@ -265,6 +265,143 @@ def update(skill_id, name, description, status):
 @skills.command()
 @requires_auth
 @click.argument('skill_id')
+@click.option('--new-name', '-n', required=True,
+              help='Name for the copied skill (without _skill suffix)')
+@click.option('--dir', 'target_dir', type=click.Path(),
+              help='Target directory for the copied skill folder (default: alongside the source)')
+def copy(skill_id, new_name, target_dir):
+    """
+    Copy a skill under a new name (CLI equivalent of the GUI "Save As").
+
+    OPERATION command - duplicates the skill's on-disk folder
+    (my_skills/<name>_skill/ with diagram, bundle, and data mapping) under
+    the new name and registers the copy as a new skill record. If the skill
+    has no on-disk folder, only the database record is copied.
+
+    Requires authentication. Use 'ecan auth login' first.
+
+    Examples:
+      ecan skills copy rt_chat_bot00 --new-name rt_chat_bot01
+      ecan skills copy abc123 -n my_variant --dir /path/to/skills
+    """
+    import json as json_module
+    import shutil
+    from pathlib import Path
+
+    ctx = get_context()
+    out = get_output()
+
+    src_id = _resolve_skill(ctx, out, skill_id)
+    result = ctx.db.skill_service.get_skill_by_id(src_id)
+    if not result.get('success'):
+        out.error(f"Skill not found: {src_id}")
+        raise SystemExit(1)
+    src = result['data']
+
+    new_base = new_name[:-6] if new_name.endswith('_skill') else new_name
+    existing = ctx.db.skill_service.query_skills(name=new_base).get('data') or []
+    if any((s.get('name') or '').lower() == new_base.lower() for s in existing):
+        out.error(f"A skill named '{new_base}' already exists")
+        raise SystemExit(1)
+
+    # Locate the on-disk skill tree (nested my_skills convention:
+    # <base>_skill/diagram_dir/<base>_skill.json), via the record's path
+    # first, then the user skills root by name.
+    src_diagram = None
+    if src.get('path'):
+        cand = Path(src['path']).expanduser()
+        if not cand.is_absolute():
+            cand = Path.cwd() / cand
+        if cand.is_file() and cand.parent.name == 'diagram_dir' \
+                and cand.parent.parent.name.endswith('_skill'):
+            src_diagram = cand.resolve()
+    if src_diagram is None:
+        from agent.ec_skills.extern_skills.extern_skills import user_skills_root
+        src_base = src.get('name') or ''
+        src_base = src_base[:-6] if src_base.endswith('_skill') else src_base
+        cand = user_skills_root() / f"{src_base}_skill" / 'diagram_dir' / f"{src_base}_skill.json"
+        if cand.is_file():
+            src_diagram = cand.resolve()
+
+    new_root = None
+    new_diagram_path = None
+    skill_json = None
+    if src_diagram is not None:
+        old_root = src_diagram.parent.parent
+        old_base = old_root.name[:-6]
+        parent_dir = Path(target_dir).resolve() if target_dir else old_root.parent
+        new_root = parent_dir / f"{new_base}_skill"
+        if new_root.exists():
+            out.error(f"Destination already exists: {new_root}")
+            raise SystemExit(1)
+        parent_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copytree(old_root, new_root)
+            new_dd = new_root / 'diagram_dir'
+            for suffix in ('_skill.json', '_skill_bundle.json'):
+                old_f = new_dd / f"{old_base}{suffix}"
+                if old_f.exists():
+                    old_f.rename(new_dd / f"{new_base}{suffix}")
+            new_diagram_path = new_dd / f"{new_base}_skill.json"
+            skill_json = json_module.loads(new_diagram_path.read_text(encoding='utf-8'))
+            skill_json['skillName'] = new_base
+            skill_json.pop('skillId', None)
+            skill_json.pop('id', None)
+            new_diagram_path.write_text(
+                json_module.dumps(skill_json, indent=2, ensure_ascii=False),
+                encoding='utf-8')
+        except Exception as e:
+            if new_root.exists():
+                shutil.rmtree(new_root, ignore_errors=True)
+            out.error(f"Failed to copy skill folder: {e}")
+            raise SystemExit(1)
+        out.info(f"Copied skill folder -> {new_root}")
+    else:
+        out.warning("No on-disk skill folder found; copying the database record only")
+
+    carry = ('description', 'version', 'level', 'config', 'tags',
+             'examples', 'inputModes', 'outputModes', 'apps', 'limitations')
+    skill_data = {k: src.get(k) for k in carry if src.get(k) is not None}
+    skill_data.update({
+        'name': new_base,
+        'owner': ctx.username,
+        'status': 'active',
+        'source': 'ui',
+    })
+    if isinstance(skill_json, dict):
+        diagram = skill_json.get('workFlow') or skill_json.get('diagram') or src.get('diagram')
+    else:
+        diagram = src.get('diagram')
+    if diagram is not None:
+        skill_data['diagram'] = diagram
+    if new_diagram_path is not None:
+        try:
+            skill_data['path'] = str(new_diagram_path.relative_to(Path.cwd())).replace('\\', '/')
+        except ValueError:
+            skill_data['path'] = str(new_diagram_path)
+
+    try:
+        r = ctx.db.skill_service.add_skill(skill_data)
+    except Exception as e:
+        if new_root is not None:
+            shutil.rmtree(new_root, ignore_errors=True)
+        out.error(f"Failed to register copied skill: {e}")
+        raise SystemExit(1)
+    if not r.get('success'):
+        if new_root is not None:
+            shutil.rmtree(new_root, ignore_errors=True)
+        out.error(f"Failed: {r.get('error')}")
+        raise SystemExit(1)
+
+    out.success(f"Skill copied: '{src.get('name')}' -> '{new_base}' (id {r.get('id')})")
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+    cloud_sync(DataType.SKILL, r.get('data') or {**skill_data, 'id': r.get('id')}, Operation.ADD)
+
+
+@skills.command()
+@requires_auth
+@click.argument('skill_id')
 @click.option('--force', '-f', is_flag=True,
               help='Skip confirmation prompt')
 def remove(skill_id, force):
@@ -302,7 +439,6 @@ def remove(skill_id, force):
     from ..base.sync import cloud_sync
     from agent.cloud_api.constants import DataType, Operation
     cloud_sync(DataType.SKILL, {'id': skill_id}, Operation.DELETE)
-
 
 
 @skills.command()

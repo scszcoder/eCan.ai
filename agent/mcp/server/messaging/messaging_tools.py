@@ -31,7 +31,7 @@ def add_send_sms_tool_schema(tool_schemas):
         name="send_sms",
         description=(
             "<category>Messaging</category><sub-category>SMS</sub-category>"
-            "Send an SMS to a phone number via AWS End User Messaging SMS. "
+            "Send an SMS to a phone number on the merchant's behalf through the eCan platform. "
             "Use for short notifications, alerts, or 2FA-style confirmations. "
             "Returns {success, messageId, error}."
         ),
@@ -71,8 +71,9 @@ def add_send_email_tool_schema(tool_schemas):
         name="send_email",
         description=(
             "<category>Messaging</category><sub-category>Email</sub-category>"
-            "Send an email via AWS SES. Supports plain-text and/or HTML body, "
-            "with an optional reply-to address. Returns {success, messageId, error}."
+            "Send an email on the merchant's behalf through the eCan platform; use reply_to "
+            "for the merchant's own address. Supports plain-text and/or HTML body. "
+            "Returns {success, messageId, error}."
         ),
         inputSchema={
             "type": "object",

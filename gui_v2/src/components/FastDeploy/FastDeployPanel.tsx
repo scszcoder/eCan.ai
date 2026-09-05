@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Button, Input, InputNumber, Typography, message } from 'antd';
+import { Button, Input, InputNumber, Radio, Typography, message } from 'antd';
 import {
     CloseOutlined,
     PlusOutlined,
@@ -26,6 +26,28 @@ interface FastDeployPanelProps {
 }
 
 type CreateResult = 'success' | 'failure' | null;
+
+// Backend status lines can carry a URL the user must act on (e.g. the Chrome
+// download link from the douyin_cs pre-check) — render it as a clickable link.
+const URL_RE = /(https?:\/\/[^\s"'”“]+)/g;
+function linkify(line: string): React.ReactNode {
+    const parts = line.split(URL_RE);
+    if (parts.length === 1) return line;
+    return parts.map((p, i) =>
+        /^https?:\/\//.test(p) ? (
+            <a
+                key={i}
+                href={p}
+                onClick={(e) => { e.preventDefault(); window.open(p, '_blank'); }}
+                style={{ color: '#60a5fa', textDecoration: 'underline', cursor: 'pointer' }}
+            >
+                {p}
+            </a>
+        ) : (
+            <React.Fragment key={i}>{p}</React.Fragment>
+        )
+    );
+}
 
 const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
     const { t, i18n } = useTranslation();
@@ -74,6 +96,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
             config: {
                 store_urls: urls,
                 ...(selected.schema.qaAgents ? { qa_agents: config.qaAgents } : {}),
+                ...(selected.schema.replaceMode ? { mode: config.mode || 'add' } : {}),
             },
         };
 
@@ -268,6 +291,32 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                     </div>
                                 </div>
                             )}
+
+                            {/* add / replace */}
+                            {selected.schema.replaceMode && (
+                                <div style={{ marginTop: 16 }}>
+                                    <Text style={{ color: '#94a3b8', fontSize: 13 }}>
+                                        {t('pages.agents.fast_deploy_mode', 'Mode')}
+                                    </Text>
+                                    <div style={{ marginTop: 8 }}>
+                                        <Radio.Group
+                                            value={config.mode || 'add'}
+                                            onChange={(e) => setConfig((c) => ({ ...c, mode: e.target.value }))}
+                                            options={[
+                                                { label: t('pages.agents.fast_deploy_mode_add', 'Add'), value: 'add' },
+                                                { label: t('pages.agents.fast_deploy_mode_replace', 'Replace'), value: 'replace' },
+                                            ]}
+                                            optionType="button"
+                                            buttonStyle="solid"
+                                        />
+                                        <div style={{ color: '#64748b', marginTop: 6, fontSize: 12 }}>
+                                            {config.mode === 'replace'
+                                                ? t('pages.agents.fast_deploy_mode_replace_hint', 'Deletes your existing tasks on these skills and the agents assigned to them, then creates fresh ones.')
+                                                : t('pages.agents.fast_deploy_mode_add_hint', 'Keeps existing tasks and agents; adds new ones.')}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Right: status sub-panel (collapsible), appears after Create */}
@@ -312,7 +361,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                     </div>
                                     <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 12, fontFamily: 'monospace', fontSize: 12, color: '#cbd5e1' }}>
                                         {statusLines.map((line, i) => (
-                                            <div key={i} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginBottom: 4 }}>{line}</div>
+                                            <div key={i} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginBottom: 4 }}>{linkify(line)}</div>
                                         ))}
                                         {result === 'success' && (
                                             <div style={{ marginTop: 8, color: '#22c55e', fontWeight: 700 }}>

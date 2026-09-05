@@ -250,7 +250,7 @@ class LoggerHelper:
         target_handlers = []
 
         console_formatter = colorlog.ColoredFormatter(
-            "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s%(ecan_scope)s",
             log_colors={
                 "DEBUG": "cyan",
                 "INFO": "green",
@@ -281,7 +281,11 @@ class LoggerHelper:
         # ws035: preserve the prior build's log before opening the fresh one.
         self._build_tag = _snapshot_log_on_version_change(log_file)
 
-        file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        # Run-scope suffix ("[agent=… task=…]", utils/log_scope.py) — stamped on
+        # each record by ScopeFilter in the EMITTING thread (on the QueueHandler),
+        # rendered here. ScopedFormatter tolerates records without the stamp.
+        from utils.log_scope import ScopeFilter as _ScopeFilter, ScopedFormatter as _ScopedFormatter
+        file_formatter = _ScopedFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s%(ecan_scope)s')
         file_handler = WindowsSafeRotatingFileHandler(
             log_file,
             maxBytes=1024 * 1024 * 10,
@@ -291,12 +295,18 @@ class LoggerHelper:
         )
         file_handler.setFormatter(file_formatter)
         target_handlers.append(file_handler)
+        # The file handler lives behind the QueueListener (not on self.logger),
+        # so remember its path for get_crash_log_info() / the Help > 查看日志 viewer.
+        self._log_file_path = file_handler.baseFilename
 
         # Async logging: callers enqueue records in ~μs; a dedicated listener thread
         # drains the queue to the real handlers. Worker threads no longer block
         # on the main thread's log lock / disk I/O.
         self._log_queue = Queue(-1)
         queue_handler = QueueHandler(self._log_queue)
+        queue_handler.addFilter(_ScopeFilter())
+        for _h in target_handlers:
+            _h.addFilter(_ScopeFilter())  # safety net: records that bypass the queue
         self.logger.addHandler(queue_handler)
 
         self._log_listener = QueueListener(
@@ -328,6 +338,7 @@ class LoggerHelper:
                         errors='replace'
                     )
                     cap_handler.setFormatter(file_formatter)
+                    cap_handler.addFilter(_ScopeFilter())
                     self._cap_queue = Queue(-1)
                     cap_logger.addHandler(QueueHandler(self._cap_queue))
                     self._cap_listener = QueueListener(
@@ -448,17 +459,20 @@ class LoggerHelper:
         # Detect runtime environment
         environment = 'production' if getattr(sys, 'frozen', False) else 'development'
 
-        # Get log file path
-        log_path = getattr(self, 'logger', None)
-        if log_path and hasattr(log_path, 'handlers'):
-            for handler in log_path.handlers:
-                if isinstance(handler, RotatingFileHandler):
-                    log_file = handler.baseFilename
-                    break
-            else:
-                log_file = "Unknown"
+        # Get log file path. Since async logging, self.logger only carries a
+        # QueueHandler — the RotatingFileHandler is owned by the QueueListener —
+        # so look there too (the viewer showed "未找到日志文件" otherwise).
+        log_file = "Unknown"
+        candidates = list(getattr(getattr(self, 'logger', None), 'handlers', None) or [])
+        candidates += list(getattr(getattr(self, '_log_listener', None), 'handlers', None) or [])
+        for handler in candidates:
+            if isinstance(handler, RotatingFileHandler):
+                log_file = handler.baseFilename
+                break
         else:
-            log_file = "Unknown"
+            stored = getattr(self, '_log_file_path', None)
+            if stored:
+                log_file = stored
 
         return {
             'environment': environment,

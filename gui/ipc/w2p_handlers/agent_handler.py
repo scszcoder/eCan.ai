@@ -1865,6 +1865,7 @@ def handle_get_all_agents_runtime_status(request: IPCRequest, params: Optional[D
                     'runtime_status': 'disabled',
                     'enabled': False,
                     'active_task_count': 0,
+                    'readiness': {},
                 })
                 continue
 
@@ -1875,6 +1876,7 @@ def handle_get_all_agents_runtime_status(request: IPCRequest, params: Optional[D
                     'runtime_status': 'stopped',
                     'enabled': True,
                     'active_task_count': 0,
+                    'readiness': {},
                 })
                 continue
 
@@ -1894,12 +1896,18 @@ def handle_get_all_agents_runtime_status(request: IPCRequest, params: Optional[D
                         break
 
             runtime_status = 'working' if has_non_chat_task else 'standby'
+            try:
+                from utils import agent_status as _agent_status
+                _readiness = _agent_status.snapshot(agent_id)
+            except Exception:
+                _readiness = {}
             results.append({
                 'agent_id': agent_id,
                 'agent_name': agent_name or getattr(getattr(ec_agent, 'card', None), 'name', '?'),
                 'runtime_status': runtime_status,
                 'enabled': True,
                 'active_task_count': active_count,
+                'readiness': _readiness,
             })
 
         # Log summary at debug level to avoid I/O overhead on every poll

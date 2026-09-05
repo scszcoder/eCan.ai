@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
+from utils import agent_status as _agent_status
 
 if TYPE_CHECKING:
     from browser_use import BrowserSession
@@ -1057,8 +1058,11 @@ class BrowserManager:
 
                 # Auto-start Chrome if not running
                 from gui.unified_browser_manager import _is_port_in_use, _start_chrome_with_cdp
+                _chrome_auto_started = False
                 if not _is_port_in_use(final_cdp_port):
                     logger.info(f"[BrowserManager] Chrome not detected on port {final_cdp_port}, auto-starting...")
+                    _chrome_auto_started = True
+                    _agent_status.report(chrome="auto_starting", chrome_port=final_cdp_port)
                     headless = False  # Default to non-headless for better debugging
                     if not _start_chrome_with_cdp(
                         final_cdp_port,
@@ -1067,14 +1071,18 @@ class BrowserManager:
                         profile_directory=chrome_profile_directory,
                     ):
                         logger.warning(f"[BrowserManager] Failed to auto-start Chrome on port {final_cdp_port}")
+                        _agent_status.report(chrome="unreachable", chrome_port=final_cdp_port)
                         logger.warning(f"[BrowserManager] Please manually start Chrome with: chrome --remote-debugging-port={final_cdp_port}")
                     else:
                         logger.info(f"[BrowserManager] ✅ Chrome auto-started successfully on port {final_cdp_port}")
+                        _agent_status.report(chrome="auto_started", chrome_port=final_cdp_port)
                 
                 # For webdriver, we need just the address without protocol
                 selenium_address = f"127.0.0.1:{cdp_port}"
                 
                 logger.info(f"[BrowserManager] Connecting to existing {browser_type.value} at {final_cdp_url}")
+                if not _chrome_auto_started:
+                    _agent_status.report(chrome="attached_existing", chrome_port=final_cdp_port)
             
             # =================================================================
             # Create WebDriver connection

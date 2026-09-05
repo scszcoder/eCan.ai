@@ -143,7 +143,11 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
             
             # Emit signal and wait for result
             helper.show_dialog.emit(start_dir)
-            if not helper.done_event.wait(timeout=60):  # 60 second timeout
+            # Human-scale timeout: the dialog blocks on the user browsing and
+            # typing a filename (often via IME) — must comfortably exceed that.
+            # The frontend waits 630s (file-api.ts DIALOG_TIMEOUT_MS) so this
+            # timeout response still reaches it.
+            if not helper.done_event.wait(timeout=600):
                 logger.error("[SKILL_IO][BACKEND][OPEN_DIALOG] Dialog timeout")
                 return create_error_response(
                     request,
@@ -318,7 +322,11 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
             
             # Emit signal and wait for result
             helper.show_dialog.emit(dialog_path)
-            if not helper.done_event.wait(timeout=60):  # 60 second timeout
+            # Human-scale timeout: the dialog blocks on the user browsing and
+            # typing a filename (often via IME) — must comfortably exceed that.
+            # The frontend waits 630s (file-api.ts DIALOG_TIMEOUT_MS) so this
+            # timeout response still reaches it.
+            if not helper.done_event.wait(timeout=600):
                 logger.error("[SKILL_IO][BACKEND][SAVE_DIALOG] Dialog timeout")
                 return create_error_response(
                     request,

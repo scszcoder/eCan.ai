@@ -45,7 +45,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.fixture(scope="module")
 def release_cn() -> str:
-    return (REPO_ROOT / ".github/workflows/release-cn.yml").read_text()
+    return (REPO_ROOT / ".github/workflows/release-cn.yml").read_text(encoding="utf-8")
 
 
 def test_release_cn_windows_job_has_cos_uploaded_output(release_cn):
@@ -166,7 +166,7 @@ def test_release_cn_final_status_synthesizes_upload_label(release_cn):
 
 @pytest.fixture(scope="module")
 def release_intl() -> str:
-    return (REPO_ROOT / ".github/workflows/release-intl.yml").read_text()
+    return (REPO_ROOT / ".github/workflows/release-intl.yml").read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

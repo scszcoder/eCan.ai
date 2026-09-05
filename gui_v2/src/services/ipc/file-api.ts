@@ -188,16 +188,23 @@ declare module './api' {
   }
 }
 
+// Native file dialogs block on human input (browsing, typing a filename via
+// IME) — the default 30s request timeout routinely fires while the dialog is
+// still open, discarding the user's selection. Wait slightly longer than the
+// backend's own dialog wait (600s in file_handler.py) so its timeout/cancel
+// response reaches us instead of an abort.
+const DIALOG_TIMEOUT_MS = 630_000;
+
 // Extend the IPCAPI prototype with file operation methods
 IPCAPI.prototype.showOpenDialog = function<T = FileDialogResponse>(filters?: FileFilter[]): Promise<APIResponse<T>> {
-  return this.executeRequest<T>('show_open_dialog', { filters });
+  return this.executeRequest<T>('show_open_dialog', { filters }, DIALOG_TIMEOUT_MS);
 };
 
 IPCAPI.prototype.showSaveDialog = function<T = FileDialogResponse>(
-  defaultFilename?: string, 
+  defaultFilename?: string,
   filters?: FileFilter[]
 ): Promise<APIResponse<T>> {
-  return this.executeRequest<T>('show_save_dialog', { defaultFilename, filters });
+  return this.executeRequest<T>('show_save_dialog', { defaultFilename, filters }, DIALOG_TIMEOUT_MS);
 };
 
 IPCAPI.prototype.readSkillFile = function<T = FileContentResponse>(filePath: string): Promise<APIResponse<T>> {
