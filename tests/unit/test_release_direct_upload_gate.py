@@ -540,3 +540,158 @@ def test_macos_amd64_attempt_if_fully_inside_expression(release_cn):
         "macOS amd64 retry step matched — the regex or the workflow "
         "may have changed. Update this test."
     )
+
+
+# ---------------------------------------------------------------------------
+# Recovery-upload rename contract
+#
+# The historical `upload-to-cos` / `upload-to-s3` jobs were renamed to
+# `recovery-upload-to-cos` / `recovery-upload-to-s3` to make it obvious
+# in the Actions UI that they're fallbacks for when the direct-upload
+# fast path failed. Removing the old jobs would silently drop releases
+# onto a half-empty bucket whenever a single build runner hiccups, so
+# the rename was the safer change. These tests pin that:
+#
+#   * the old name does not appear in the production workflow files
+#     (catches accidental reverts / partial renames);
+#   * every `needs:` reference and every `needs.<old>.outputs.<key>`
+#     reference was updated (catches half-renames where the job is
+#     renamed but a downstream `if:` still points at the old key).
+# ---------------------------------------------------------------------------
+
+
+def _grep_outside_fenced_comments(text: str, pattern: str) -> list[tuple[int, str]]:
+    """Return [(line_no, line)] for every non-comment occurrence.
+
+    The pattern is a *literal* token (no regex); the match must appear
+    as a stand-alone word to avoid false positives (e.g. we want
+    `upload-to-cos` but not `recovery-upload-to-cos`).
+    """
+    import re
+    word_re = re.compile(rf"(?<![A-Za-z0-9-]){re.escape(pattern)}(?![A-Za-z0-9-])")
+    out = []
+    for i, line in enumerate(text.splitlines(), 1):
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        if word_re.search(line):
+            out.append((i, line.rstrip()))
+    return out
+
+
+def test_release_cn_no_legacy_upload_to_cos_key(release_cn):
+    """No non-comment reference to the old `upload-to-cos` key.
+
+    The rename must be total: any remaining reference would be a
+    dangling `needs.upload-to-cos.outputs.*` that resolves to '' at
+    runtime, silently skipping the appcast / latest-json / download-links
+    gates.
+    """
+    leftovers = _grep_outside_fenced_comments(release_cn, "upload-to-cos")
+    assert not leftovers, (
+        "release-cn.yml still references the old `upload-to-cos` "
+        "job key (in non-comment lines):\n"
+        + "\n".join(f"  L{ln}: {line}" for ln, line in leftovers)
+        + "\nThe rename to `recovery-upload-to-cos` was incomplete. "
+        "Every `needs:` and `needs.upload-to-cos.outputs.*` reference "
+        "must be updated together — partial renames resolve to '' at "
+        "runtime and silently skip downstream gates."
+    )
+
+
+def test_release_intl_no_legacy_upload_to_s3_key(release_intl):
+    leftovers = _grep_outside_fenced_comments(release_intl, "upload-to-s3")
+    assert not leftovers, (
+        "release-intl.yml still references the old `upload-to-s3` "
+        "job key (in non-comment lines):\n"
+        + "\n".join(f"  L{ln}: {line}" for ln, line in leftovers)
+        + "\nThe rename to `recovery-upload-to-s3` was incomplete."
+    )
+
+
+def test_release_cn_recovery_upload_to_cos_job_exists(release_cn):
+    """The new key must exist and be referenced consistently."""
+    assert "  recovery-upload-to-cos:" in release_cn, (
+        "release-cn.yml: missing `recovery-upload-to-cos:` job "
+        "definition. The historical upload job must be renamed, not "
+        "deleted — it's still the fallback for direct-upload failures."
+    )
+    # Every reference to the new key must use the same hyphenation.
+    assert "needs.recovery-upload-to-cos" in release_cn
+    assert "recovery-upload-to-cos," in release_cn
+
+
+def test_release_intl_recovery_upload_to_s3_job_exists(release_intl):
+    assert "  recovery-upload-to-s3:" in release_intl, (
+        "release-intl.yml: missing `recovery-upload-to-s3:` job "
+        "definition."
+    )
+    assert "needs.recovery-upload-to-s3" in release_intl
+
+
+# ---------------------------------------------------------------------------
+# Download-links summary: COS/S3 size-resolution contract
+#
+# The summary used to print "unknown" for every direct-uploaded
+# Windows installer because the bash loop read `du -sh` against an
+# empty stub file. The fix adds a `Resolve <C|S>3 object sizes` step
+# that uses HeadObject to fetch ContentLength and emits the size map
+# for the renderer. These tests pin both that the step exists and
+# that it gates on the same `windows-direct-upload` input the
+# synthesised-filename step does.
+# ---------------------------------------------------------------------------
+
+
+def test_shared_cos_download_links_resolves_cos_sizes():
+    """The COS download-links workflow must have a step that calls
+    `resolve_cos_sizes.py` when `windows-direct-upload` is true.
+    Without it, the renderer prints "missing — check bucket" for the
+    Size column on every self-hosted release.
+    """
+    text = (REPO_ROOT
+            / ".github/workflows/shared-cos-download-links.yml").read_text()
+    assert "Resolve COS object sizes" in text, (
+        "shared-cos-download-links.yml: missing the "
+        "`Resolve COS object sizes (direct-upload fallback)` step. "
+        "Without it, direct-uploaded Windows installers show "
+        "'missing — check bucket' in the summary instead of the real "
+        "byte count from COS HeadObject."
+    )
+    assert "resolve_cos_sizes.py" in text
+    # Must gate on windows-direct-upload so the step doesn't run when
+    # the GHA artifact path was used (avoids the per-file HeadObject
+    # cost on the happy path).
+    assert "windows-direct-upload == true" in text
+
+
+def test_shared_download_links_resolves_s3_sizes():
+    text = (REPO_ROOT
+            / ".github/workflows/shared-download-links.yml").read_text()
+    assert "Resolve S3 object sizes" in text
+    assert "resolve_s3_sizes.py" in text
+    assert "windows-direct-upload == true" in text
+
+
+def test_shared_cos_download_links_uses_python_renderer():
+    """The bash summary step was replaced by a Python renderer call.
+    Pin that so a future refactor doesn't re-introduce the inline bash
+    loop and regress the size column.
+    """
+    text = (REPO_ROOT
+            / ".github/workflows/shared-cos-download-links.yml").read_text()
+    assert "render_download_links.py" in text
+    # The `--scheme` flag is whitespace-aligned but still present;
+    # collapse the run-block whitespace before searching.
+    collapsed = " ".join(text.split())
+    assert "--scheme cos" in collapsed, (
+        "shared-cos-download-links.yml: render step must pass "
+        "`--scheme cos` so the renderer picks COS URL construction."
+    )
+
+
+def test_shared_download_links_uses_python_renderer():
+    text = (REPO_ROOT
+            / ".github/workflows/shared-download-links.yml").read_text()
+    assert "render_download_links.py" in text
+    collapsed = " ".join(text.split())
+    assert "--scheme s3" in collapsed

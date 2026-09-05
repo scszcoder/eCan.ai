@@ -31,7 +31,7 @@
 #                  ├── build-macos-aarch64 ──────┤│
 #                  └── build-linux ──────────────┤│
 #                                                ▼│
-#                                            upload-to-s3
+#                                            recovery-upload-to-s3
 #                                                │
 #                                                ▼
 #                                          generate-appcast
@@ -518,7 +518,7 @@ jobs:
     timeout-minutes: 60
     # Per-job outputs for the intl direct-upload fast path. See
     # release-cn.yml::build-windows for the full design rationale; the
-    # short version is `s3-uploaded` lets upload-to-s3 skip the slow
+    # short version is `s3-uploaded` lets recovery-upload-to-s3 skip the slow
     # GitHub-Artifact-Store round-trip when self-hosted Windows runners
     # already uploaded directly to AWS S3.
     outputs:
@@ -995,7 +995,7 @@ jobs:
         id: upload-windows-s3
         # Skip on GitHub-hosted runners: they don't have a fast path
         # to AWS S3, so the historical upload-artifact →
-        # download-artifact → upload_to_s3.py chain (via upload-to-s3
+        # download-artifact → upload_to_s3.py chain (via recovery-upload-to-s3
         # job on ubuntu-latest) is faster there than a direct python
         # invocation. The fast path matters for self-hosted runners
         # in CN where every public-internet hop is bandwidth-bound.
@@ -1021,14 +1021,14 @@ jobs:
               'success=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           } else {
               'success=error' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-              Write-Host "[WARN] Direct S3 upload failed (rc=$LASTEXITCODE); upload-to-s3 fallback will retry from GHA artifact store" -ForegroundColor Yellow
+              Write-Host "[WARN] Direct S3 upload failed (rc=$LASTEXITCODE); recovery-upload-to-s3 fallback will retry from GHA artifact store" -ForegroundColor Yellow
           }
 
       - name: Upload Windows installer artifact
         # Skipped on self-hosted intl runners whose build job just
         # uploaded directly to S3 (the upstream step's `if:` is
         # mutually exclusive with this one). On GitHub-hosted runners,
-        # this step remains the bridge that feeds upload-to-s3's
+        # this step remains the bridge that feeds recovery-upload-to-s3's
         # actions/download-artifact@v7 step.
         if: ${{ github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
@@ -1379,7 +1379,7 @@ jobs:
         # Skipped on self-hosted intl runners whose build job just
         # uploaded directly to S3 (the upstream step's `if:` is
         # mutually exclusive with this one). On GitHub-hosted runners,
-        # this step remains the bridge that feeds upload-to-s3's
+        # this step remains the bridge that feeds recovery-upload-to-s3's
         # actions/download-artifact@v7 step.
         if: ${{ github.event.inputs.runner_group == 'github-hosted' }}
         id: upload_macos_amd64_s3
@@ -1735,7 +1735,7 @@ jobs:
       - name: Upload macOS aarch64 installer artifact
         # Skipped on self-hosted intl runners whose build job just
         # uploaded directly to S3. On GitHub-hosted runners, this step
-        # remains the bridge that feeds upload-to-s3's
+        # remains the bridge that feeds recovery-upload-to-s3's
         # actions/download-artifact@v7 step.
         if: ${{ github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
@@ -2104,7 +2104,7 @@ jobs:
       - name: Upload Linux packages artifact
         # Skipped on self-hosted intl runners whose build job just
         # uploaded directly to S3. On GitHub-hosted runners, this step
-        # remains the bridge that feeds upload-to-s3's
+        # remains the bridge that feeds recovery-upload-to-s3's
         # actions/download-artifact@v7 step.
         if: ${{ github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
@@ -2130,11 +2130,19 @@ jobs:
           compression-level: 6
 
   # ──────────────────────────────────────────────────────────────────────
-  # Stage 3 — Upload to S3, generate appcast + links + summary
+  # Stage 3 — Recovery upload to S3, generate appcast + links + summary
   # ──────────────────────────────────────────────────────────────────────
+  # `recovery-upload-to-s3` is a *fallback*. On the happy path every
+  # build job uploads to S3 in-place (direct-upload fast path) and this
+  # job is skipped (its `if:` evaluates to false). It only runs when at
+  # least one succeeded build job failed to direct-upload — e.g. AWS
+  # credentials expired or the runner lost connectivity — so the public
+  # CDN can be repopulated from the GHA artifact store. Removing this
+  # job would silently drop releases onto a half-empty bucket whenever
+  # a single build runner hiccups, so it stays.
 
-  upload-to-s3:
-    name: Upload to S3
+  recovery-upload-to-s3:
+    name: Recovery upload to S3 (fallback)
     needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
     # Skip when every succeeded build job already uploaded directly
     # to S3 (intl direct-upload fast path on self-hosted runners).
@@ -2168,11 +2176,11 @@ jobs:
 
   generate-appcast:
     name: Generate Appcast (all platforms × archs)
-    needs: [validate-tag, upload-to-s3, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
-    # `upload-success == 'true'` covers the historical upload-to-s3 path.
+    needs: [validate-tag, recovery-upload-to-s3, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
+    # `upload-success == 'true'` covers the historical recovery-upload-to-s3 path.
     # The OR-clauses cover the intl direct-upload fast path: when
     # every succeeded build job already uploaded to S3 in-place,
-    # upload-to-s3 is skipped (its outputs are empty), and we must
+    # recovery-upload-to-s3 is skipped (its outputs are empty), and we must
     # still generate the appcast from the in-place artifacts. Each
     # clause is "build succeeded AND direct-uploaded"; together they
     # say "at least one succeeded build direct-uploaded", which is
@@ -2181,7 +2189,7 @@ jobs:
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (
-        needs.upload-to-s3.outputs.upload-success == 'true' ||
+        needs.recovery-upload-to-s3.outputs.upload-success == 'true' ||
         (needs.build-windows.result       == 'success' && needs.build-windows.outputs.s3-uploaded       == 'true') ||
         (needs.build-macos-amd64.result   == 'success' && needs.build-macos-amd64.outputs.s3-uploaded   == 'true') ||
         (needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.s3-uploaded == 'true') ||
@@ -2204,12 +2212,12 @@ jobs:
 
   generate-latest-json:
     name: Generate latest.json
-    needs: [validate-tag, generate-appcast, upload-to-s3, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
+    needs: [validate-tag, generate-appcast, recovery-upload-to-s3, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (
-        needs.upload-to-s3.outputs.upload-success == 'true' ||
+        needs.recovery-upload-to-s3.outputs.upload-success == 'true' ||
         (needs.build-windows.result       == 'success' && needs.build-windows.outputs.s3-uploaded       == 'true') ||
         (needs.build-macos-amd64.result   == 'success' && needs.build-macos-amd64.outputs.s3-uploaded   == 'true') ||
         (needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.s3-uploaded == 'true') ||
@@ -2229,17 +2237,17 @@ jobs:
 
   generate-download-links:
     name: Generate Download Links
-    needs: [validate-tag, upload-to-s3, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
+    needs: [validate-tag, recovery-upload-to-s3, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
     # Same direct-upload-aware gate as generate-appcast. See that
     # job's comment for the full rationale; in short, when
-    # upload-to-s3 is skipped because all succeeded build jobs
+    # recovery-upload-to-s3 is skipped because all succeeded build jobs
     # direct-uploaded, this job must still run so end-users get
     # correct download links.
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (
-        needs.upload-to-s3.outputs.upload-success == 'true' ||
+        needs.recovery-upload-to-s3.outputs.upload-success == 'true' ||
         (needs.build-windows.result       == 'success' && needs.build-windows.outputs.s3-uploaded       == 'true') ||
         (needs.build-macos-amd64.result   == 'success' && needs.build-macos-amd64.outputs.s3-uploaded   == 'true') ||
         (needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.s3-uploaded == 'true') ||
@@ -2261,7 +2269,7 @@ jobs:
 
   final-status:
     name: Final Status Summary
-    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, upload-to-s3, generate-appcast, generate-latest-json, generate-download-links]
+    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, recovery-upload-to-s3, generate-appcast, generate-latest-json, generate-download-links]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -2273,12 +2281,12 @@ jobs:
           MACOS_AARCH64:     ${{ needs.build-macos-aarch64.result }}
           LINUX_RESULT:      ${{ needs.build-linux.result }}
           # When the build jobs direct-uploaded to S3 (intl fast path),
-          # upload-to-s3 is skipped and its output is empty. Map
+          # recovery-upload-to-s3 is skipped and its output is empty. Map
           # "empty + at least one s3-uploaded=true" to "direct" so the
           # summary makes sense instead of reading "S3 upload: ".
           # Each OR-clause is "build succeeded AND direct-uploaded →
           # 'direct'", short-circuited so an early true stops the chain.
-          UPLOAD_RESULT: ${{ needs.upload-to-s3.outputs.upload-success || (needs.build-windows.outputs.s3-uploaded == 'true' && needs.build-windows.result == 'success' && 'direct') || (needs.build-macos-amd64.outputs.s3-uploaded == 'true' && needs.build-macos-amd64.result == 'success' && 'direct') || (needs.build-macos-aarch64.outputs.s3-uploaded == 'true' && needs.build-macos-aarch64.result == 'success' && 'direct') || (needs.build-linux.outputs.s3-uploaded == 'true' && needs.build-linux.result == 'success' && 'direct') || 'skipped' }}
+          UPLOAD_RESULT: ${{ needs.recovery-upload-to-s3.outputs.upload-success || (needs.build-windows.outputs.s3-uploaded == 'true' && needs.build-windows.result == 'success' && 'direct') || (needs.build-macos-amd64.outputs.s3-uploaded == 'true' && needs.build-macos-amd64.result == 'success' && 'direct') || (needs.build-macos-aarch64.outputs.s3-uploaded == 'true' && needs.build-macos-aarch64.result == 'success' && 'direct') || (needs.build-linux.outputs.s3-uploaded == 'true' && needs.build-linux.result == 'success' && 'direct') || 'skipped' }}
           APPCAST_RESULT:    ${{ needs.generate-appcast.result }}
           LATEST_RESULT:     ${{ needs.generate-latest-json.result }}
           LINKS_RESULT:      ${{ needs.generate-download-links.result }}
@@ -2338,14 +2346,14 @@ jobs:
 
   print-gha-fallback-downloads:
     name: Print GHA Artifact Fallback URLs
-    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, upload-to-s3]
+    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, recovery-upload-to-s3]
     # Only run when S3 upload did not actually succeed but at least
     # one build succeeded — that's the scenario where the public CDN
     # has no files but the GHA artifact store does.
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      needs.upload-to-s3.outputs.upload-success == 'false' &&
+      needs.recovery-upload-to-s3.outputs.upload-success == 'false' &&
       (needs.build-windows.result == 'success' ||
        needs.build-linux.result == 'success' ||
        needs.build-macos-amd64.result == 'success' ||

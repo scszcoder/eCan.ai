@@ -95,9 +95,19 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'NOT_SET' }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || 'NOT_SET' }}
       VERSION: ${{ inputs.version }}
       ENVIRONMENT: ${{ inputs.environment }}
       CHANNEL: ${{ inputs.channel }}
+      BUCKET_NAME: ${{ env.OTA_BUCKET }}
+      BUCKET_REGION: ${{ env.OTA_REGION }}
+      APP_NAME:                ${{ inputs.app-name }}
+      WINDOWS_BUILD_RESULT:    ${{ inputs.windows-build-result }}
+      MACOS_BUILD_RESULT:      ${{ inputs.macos-build-result }}
+      LINUX_RESULT:            ${{ inputs.linux-result }}
+      WINDOWS_DIRECT_UPLOAD:   ${{ inputs.windows-direct-upload && 'true' || 'false' }}
+      MACOS_BUILT_AMD64:       ${{ inputs.macos-built-amd64 && 'true' || 'false' }}
+      MACOS_BUILT_AARCH64:     ${{ inputs.macos-built-aarch64 && 'true' || 'false' }}
 
     steps:
       - name: Checkout code
@@ -201,232 +211,45 @@ jobs:
             fi
           done
 
-      # ------------------------------------------------------------------------
-      # Step Group 2: Generate GitHub Actions Summary
-      # ------------------------------------------------------------------------
-      - name: Generate S3 download links summary
+      # S3 mirror of the COS size-resolver step. The S3 HeadObject
+      # response is cheaper than downloading the installer just to read
+      # its byte count, and is authoritative for objects the build job
+      # uploaded directly (bypassing the GHA artifact store). Failure
+      # here is non-fatal: the renderer will fall back to local-file
+      # sizes / "missing" markers.
+      - name: Resolve S3 object sizes (direct-upload fallback)
+        id: s3-sizes
+        if: >-
+          (inputs.windows-build-result == 'success' && inputs.windows-direct-upload == true)
         env:
-          BUCKET_NAME: ${{ env.OTA_BUCKET }}
-          BUCKET_REGION: ${{ env.OTA_REGION }}
-        run: |
-          echo "=== Generating S3 Download Links ==="
-          echo ""
-
-          # Map environment to S3 prefix (mirrors the s3_prefix field in
-          # ota_config.yaml; resolve_ota_bucket.py already exported it as
-          # OTA_PREFIX, but we keep the case here as a defensive fallback).
-          S3_PREFIX="${OTA_PREFIX}"
-          case "${ENVIRONMENT}" in
-            development) S3_PREFIX="${S3_PREFIX:-dev}" ;;
-            test)        S3_PREFIX="${S3_PREFIX:-test}" ;;
-            staging)     S3_PREFIX="${S3_PREFIX:-staging}" ;;
-            production)  S3_PREFIX="${S3_PREFIX:-production}" ;;
-            *)           S3_PREFIX="${S3_PREFIX:-${ENVIRONMENT}}" ;;
-          esac
-          
-          echo "Environment: ${ENVIRONMENT}"
-          echo "Channel: ${CHANNEL}"
-          echo "S3 Prefix: ${S3_PREFIX}"
-          echo ""
-          
-          # Display in GitHub Actions Summary
-          echo "## 📦 Download Links" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Version: **${VERSION}**" >> $GITHUB_STEP_SUMMARY
-          echo "Environment: **${ENVIRONMENT}**" >> $GITHUB_STEP_SUMMARY
-          echo "Channel: **${CHANNEL}**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Windows Installers
-          echo "### Windows Installers (x86_64)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts 2>/dev/null)" ]; then
-            for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
-              if [ -f "$file" ]; then
-                filename=$(basename "$file")
-                size=$(du -sh "$file" | cut -f1)
-                # `du -sh` reports `0K` for an empty stub file (which is
-                # what the direct-upload-fallback step above synthesises
-                # when the build job skipped the upload-artifact path).
-                # Show "unknown" instead — the S3 object metadata is the
-                # authoritative size, not the local filesystem.
-                if [ "$size" = "0" ] || [ "$size" = "0K" ] || [ "$size" = "0B" ]; then
-                    size="unknown (direct-upload — see S3 object metadata)"
-                fi
-
-                # Standard S3 URL with environment prefix
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/windows/amd64/${filename}"
-                
-                # S3 Transfer Acceleration URL
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/windows/amd64/${filename}"
-                
-                echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
-                echo "" >> $GITHUB_STEP_SUMMARY
-                echo "- **Size**: ${size}" >> $GITHUB_STEP_SUMMARY
-                echo "- **Standard URL**: [Download](${standard_url})" >> $GITHUB_STEP_SUMMARY
-                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "  ${standard_url}" >> $GITHUB_STEP_SUMMARY
-                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "- **Accelerated URL** (faster for global users): [Download](${accelerate_url})" >> $GITHUB_STEP_SUMMARY
-                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "  ${accelerate_url}" >> $GITHUB_STEP_SUMMARY
-                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "" >> $GITHUB_STEP_SUMMARY
-              fi
-            done
-          else
-            echo "_No Windows installers available_" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          # macOS Installers
-          echo "### macOS Installers" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
-            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
-              if [ -f "$file" ]; then
-                filename=$(basename "$file")
-                size=$(du -sh "$file" | cut -f1)
-                
-                # Determine architecture from filename
-                if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
-                  arch_label="Intel (x86_64)"
-                  arch_path="amd64"
-                elif [[ "$filename" == *"aarch64"* ]]; then
-                  arch_label="Apple Silicon (ARM64)"
-                  arch_path="aarch64"
-                else
-                  arch_label="Universal"
-                  arch_path="universal"
-                fi
-                
-                # Standard S3 URL with environment prefix
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/macos/${arch_path}/${filename}"
-                
-                # S3 Transfer Acceleration URL
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/macos/${arch_path}/${filename}"
-                
-                echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
-                echo "" >> $GITHUB_STEP_SUMMARY
-                echo "- **Architecture**: ${arch_label}" >> $GITHUB_STEP_SUMMARY
-                echo "- **Size**: ${size}" >> $GITHUB_STEP_SUMMARY
-                echo "- **Standard URL**: [Download](${standard_url})" >> $GITHUB_STEP_SUMMARY
-                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "  ${standard_url}" >> $GITHUB_STEP_SUMMARY
-                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "- **Accelerated URL** (faster for global users): [Download](${accelerate_url})" >> $GITHUB_STEP_SUMMARY
-                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "  ${accelerate_url}" >> $GITHUB_STEP_SUMMARY
-                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "" >> $GITHUB_STEP_SUMMARY
-              fi
-            done
-          else
-            echo "_No macOS installers available_" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          # Linux Packages
-          echo "### Linux Packages" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -d "linux-artifacts" ] && [ "$(ls -A linux-artifacts 2>/dev/null)" ]; then
-            for file in linux-artifacts/*.AppImage linux-artifacts/*.deb; do
-              if [ -f "$file" ]; then
-                filename=$(basename "$file")
-                size=$(du -sh "$file" | cut -f1)
-                
-                # Determine architecture from filename
-                if [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
-                  arch_label="ARM64"
-                  arch_path="aarch64"
-                else
-                  arch_label="x86_64"
-                  arch_path="amd64"
-                fi
-                
-                # Determine package type
-                if [[ "$filename" == *.AppImage ]]; then
-                  pkg_type="AppImage"
-                elif [[ "$filename" == *.deb ]]; then
-                  pkg_type="DEB Package"
-                else
-                  pkg_type="Package"
-                fi
-                
-                # Standard S3 URL with environment prefix
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/linux/${arch_path}/${filename}"
-                
-                # S3 Transfer Acceleration URL
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/linux/${arch_path}/${filename}"
-                
-                echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
-                echo "" >> $GITHUB_STEP_SUMMARY
-                echo "- **Type**: ${pkg_type}" >> $GITHUB_STEP_SUMMARY
-                echo "- **Architecture**: ${arch_label}" >> $GITHUB_STEP_SUMMARY
-                echo "- **Size**: ${size}" >> $GITHUB_STEP_SUMMARY
-                echo "- **Standard URL**: [Download](${standard_url})" >> $GITHUB_STEP_SUMMARY
-                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "  ${standard_url}" >> $GITHUB_STEP_SUMMARY
-                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "- **Accelerated URL** (faster for global users): [Download](${accelerate_url})" >> $GITHUB_STEP_SUMMARY
-                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "  ${accelerate_url}" >> $GITHUB_STEP_SUMMARY
-                echo "  \`\`\`" >> $GITHUB_STEP_SUMMARY
-                echo "" >> $GITHUB_STEP_SUMMARY
-              fi
-            done
-          else
-            echo "_No Linux packages available_" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          # Documentation section
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📝 Download Information" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### URL Types" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Standard URL**: Direct S3 access from the bucket's region" >> $GITHUB_STEP_SUMMARY
-          echo "  - Best for: Users in the same AWS region" >> $GITHUB_STEP_SUMMARY
-          echo "  - Format: \`https://{bucket}.s3.{region}.amazonaws.com/{path}/{file}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Accelerated URL**: Uses AWS S3 Transfer Acceleration" >> $GITHUB_STEP_SUMMARY
-          echo "  - Best for: Global users, faster downloads worldwide" >> $GITHUB_STEP_SUMMARY
-          echo "  - Format: \`https://{bucket}.s3-accelerate.amazonaws.com/{path}/{file}\`" >> $GITHUB_STEP_SUMMARY
-          echo "  - Requires: Transfer Acceleration enabled on S3 bucket" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### Platform Support" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Windows**: x86_64 (64-bit) only" >> $GITHUB_STEP_SUMMARY
-          echo "  - \`.exe\`: Inno Setup installer (recommended)" >> $GITHUB_STEP_SUMMARY
-          echo "  - \`.msi\`: Windows Installer package" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **macOS**: Intel and Apple Silicon" >> $GITHUB_STEP_SUMMARY
-          echo "  - \`amd64\`: Intel processors (x86_64)" >> $GITHUB_STEP_SUMMARY
-          echo "  - \`aarch64\`: Apple Silicon (M1/M2/M3)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Linux**: x86_64 (64-bit)" >> $GITHUB_STEP_SUMMARY
-          echo "  - \`.deb\`: Debian/Ubuntu package (recommended)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-      # ------------------------------------------------------------------------
-      # Step Group 3: Generate Text File
-      # ------------------------------------------------------------------------
-      - name: Generate download links text artifact
-        env:
-          BUCKET_NAME: ${{ env.OTA_BUCKET }}
-          BUCKET_REGION: ${{ env.OTA_REGION }}
+          EXPECTED: >-
+            windows/amd64/${{ inputs.app-name }}-${{ inputs.version }}-windows-amd64-Setup.exe
         run: |
           set -euo pipefail
-          OUTPUT_FILE="download-links-${VERSION}.txt"
+          S3_PREFIX="${OTA_PREFIX}"
+          case "${ENVIRONMENT}" in
+            development) S3_PREFIX="${S3_PREFIX:-dev}" ;;
+            test)        S3_PREFIX="${S3_PREFIX:-test}" ;;
+            staging)     S3_PREFIX="${S3_PREFIX:-staging}" ;;
+            production)  S3_PREFIX="${S3_PREFIX:-production}" ;;
+            *)           S3_PREFIX="${S3_PREFIX:-${ENVIRONMENT}}" ;;
+          esac
+          # shellcheck disable=SC2086
+          python3 build_system/scripts/resolve_s3_sizes.py \
+            --bucket   "${OTA_BUCKET}" \
+            --region   "${OTA_REGION}" \
+            --env-prefix "${S3_PREFIX}" \
+            --version  "${VERSION}" \
+            --expected ${EXPECTED} \
+            --out      s3-sizes.env \
+          || echo "[WARN] S3 size resolution failed; summary will show 'missing' for direct-uploaded rows." >&2
+          echo "S3_SIZES_FILE=${GITHUB_WORKSPACE}/s3-sizes.env" >> "$GITHUB_ENV"
 
-          # Map environment to S3 prefix (mirrors the s3_prefix field in
-          # ota_config.yaml; resolve_ota_bucket.py already exported it as
-          # OTA_PREFIX, but we keep the case here as a defensive fallback).
+      - name: Render download links summary
+        env:
+          S3_SIZES_FILE: ${{ env.S3_SIZES_FILE }}
+        run: |
+          set -euo pipefail
           S3_PREFIX="${OTA_PREFIX}"
           case "${ENVIRONMENT}" in
             development) S3_PREFIX="${S3_PREFIX:-dev}" ;;
@@ -436,126 +259,21 @@ jobs:
             *)           S3_PREFIX="${S3_PREFIX:-${ENVIRONMENT}}" ;;
           esac
 
-          echo "eCan Download Links" > "$OUTPUT_FILE"
-          echo "" >> "$OUTPUT_FILE"
-          echo "Version: ${VERSION}" >> "$OUTPUT_FILE"
-          echo "Environment: ${ENVIRONMENT}" >> "$OUTPUT_FILE"
-          echo "Channel: ${CHANNEL}" >> "$OUTPUT_FILE"
-          echo "" >> "$OUTPUT_FILE"
+          python3 build_system/scripts/render_download_links.py \
+            --scheme      s3 \
+            --summary-out download-links-summary.md \
+            --text-out    "download-links-${VERSION}.txt" \
+            --url-pattern "https://{bucket}.s3.{region}.amazonaws.com/{env}/releases/v{ver}/{platform}/{arch}/{file} (also: https://{bucket}.s3-accelerate.amazonaws.com/...)" \
+            --workflow-name "release-intl.yml / shared-download-links.yml"
 
-          # Windows section
-          if [ -d "windows-artifacts" ] && [ "$(ls -A windows-artifacts 2>/dev/null)" ]; then
-            echo "[Windows]" >> "$OUTPUT_FILE"
-            echo "" >> "$OUTPUT_FILE"
-
-            for file in windows-artifacts/*.exe windows-artifacts/*.msi; do
-              if [ -f "$file" ]; then
-                filename=$(basename "$file")
-                size=$(du -sh "$file" | cut -f1)
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/windows/amd64/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/windows/amd64/${filename}"
-
-                echo "${filename}" >> "$OUTPUT_FILE"
-                echo "  Size:       ${size}" >> "$OUTPUT_FILE"
-                echo "  Standard:   ${standard_url}" >> "$OUTPUT_FILE"
-                echo "  Accelerate: ${accelerate_url}" >> "$OUTPUT_FILE"
-                echo "" >> "$OUTPUT_FILE"
-              fi
-            done
-            echo "" >> "$OUTPUT_FILE"
+      - name: Append Markdown summary to step summary
+        if: always()
+        run: |
+          if [ -f download-links-summary.md ]; then
+            cat download-links-summary.md >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "[Windows]" >> "$OUTPUT_FILE"
-            echo "  No Windows installers available" >> "$OUTPUT_FILE"
-            echo "" >> "$OUTPUT_FILE"
+            echo "_Download-links summary was not generated (renderer failed)._" >> "$GITHUB_STEP_SUMMARY"
           fi
-
-          # macOS section
-          if [ -d "macos-artifacts" ] && [ "$(ls -A macos-artifacts 2>/dev/null)" ]; then
-            echo "[macOS]" >> "$OUTPUT_FILE"
-            echo "" >> "$OUTPUT_FILE"
-
-            for file in macos-artifacts/*.pkg macos-artifacts/*.zip; do
-              if [ -f "$file" ]; then
-                filename=$(basename "$file")
-                size=$(du -sh "$file" | cut -f1)
-                if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
-                  arch_label="Intel (x86_64)"
-                  arch_path="amd64"
-                elif [[ "$filename" == *"aarch64"* ]]; then
-                  arch_label="Apple Silicon (ARM64)"
-                  arch_path="aarch64"
-                else
-                  arch_label="Universal"
-                  arch_path="universal"
-                fi
-
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/macos/${arch_path}/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/macos/${arch_path}/${filename}"
-
-                echo "${filename}" >> "$OUTPUT_FILE"
-                echo "  Arch:       ${arch_label}" >> "$OUTPUT_FILE"
-                echo "  Size:       ${size}" >> "$OUTPUT_FILE"
-                echo "  Standard:   ${standard_url}" >> "$OUTPUT_FILE"
-                echo "  Accelerate: ${accelerate_url}" >> "$OUTPUT_FILE"
-                echo "" >> "$OUTPUT_FILE"
-              fi
-            done
-            echo "" >> "$OUTPUT_FILE"
-          else
-            echo "[macOS]" >> "$OUTPUT_FILE"
-            echo "  No macOS installers available" >> "$OUTPUT_FILE"
-            echo "" >> "$OUTPUT_FILE"
-          fi
-
-          # Linux section
-          if [ -d "linux-artifacts" ] && [ "$(ls -A linux-artifacts 2>/dev/null)" ]; then
-            echo "[Linux]" >> "$OUTPUT_FILE"
-            echo "" >> "$OUTPUT_FILE"
-
-            for file in linux-artifacts/*.AppImage linux-artifacts/*.deb; do
-              if [ -f "$file" ]; then
-                filename=$(basename "$file")
-                size=$(du -sh "$file" | cut -f1)
-                if [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
-                  arch_label="ARM64"
-                  arch_path="aarch64"
-                else
-                  arch_label="x86_64"
-                  arch_path="amd64"
-                fi
-                
-                if [[ "$filename" == *.AppImage ]]; then
-                  pkg_type="AppImage"
-                elif [[ "$filename" == *.deb ]]; then
-                  pkg_type="DEB Package"
-                else
-                  pkg_type="Package"
-                fi
-
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/linux/${arch_path}/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/linux/${arch_path}/${filename}"
-
-                echo "${filename}" >> "$OUTPUT_FILE"
-                echo "  Type:       ${pkg_type}" >> "$OUTPUT_FILE"
-                echo "  Arch:       ${arch_label}" >> "$OUTPUT_FILE"
-                echo "  Size:       ${size}" >> "$OUTPUT_FILE"
-                echo "  Standard:   ${standard_url}" >> "$OUTPUT_FILE"
-                echo "  Accelerate: ${accelerate_url}" >> "$OUTPUT_FILE"
-                echo "" >> "$OUTPUT_FILE"
-              fi
-            done
-            echo "" >> "$OUTPUT_FILE"
-          else
-            echo "[Linux]" >> "$OUTPUT_FILE"
-            echo "  No Linux packages available" >> "$OUTPUT_FILE"
-            echo "" >> "$OUTPUT_FILE"
-          fi
-
-          echo "---" >> "$OUTPUT_FILE"
-          echo "This file contains all download URLs for this build." >> "$OUTPUT_FILE"
-          echo "Generated by the release workflow at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$OUTPUT_FILE"
-
-          echo "Download links document generated: ${OUTPUT_FILE}"
 
       - name: Upload download links document artifact
         uses: actions/upload-artifact@v6
