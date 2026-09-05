@@ -1101,3 +1101,95 @@ def test_real_workflow_no_winget_in_shell_powershell():
                                 f"`shell: pwsh` to fix. "
                                 f"Line: {line.strip()!r}"
                             )
+
+
+def test_download_links_skips_windows_artifact_when_direct_upload():
+    """`shared-cos-download-links.yml` > `Download Windows artifacts`
+    must NOT download the GHA artifact when the build job took the
+    direct-upload fast path (`windows-direct-upload == true`). Without
+    this guard the step emits an
+    "Unable to download artifact(s): Artifact not found for name: ...-installer"
+    annotation even though the `Synthesize ... direct-upload fallback`
+    step would otherwise produce a working stub. Pin the fix from
+    commit that suppressed this regression.
+
+    We don't have a structured RunBlock.if_expr field, so we slice
+    the raw YAML by step name and inspect the `if:` line that
+    immediately precedes it.
+    """
+    path = Path(".github/workflows/shared-cos-download-links.yml")
+    if not path.exists():
+        pytest.skip(f"{path} not present")
+    text = path.read_text()
+
+    # Locate the `Download Windows artifacts` step and the `if:` line
+    # that immediately precedes (or is inside the same step block).
+    lines = text.splitlines()
+    download_idx = None
+    for i, line in enumerate(lines):
+        # Match the bullet + name only (avoid matching comment lines).
+        if re.search(
+            r"^\s*-\s+name:\s*['\"]?Download Windows artifacts['\"]?\s*$",
+            line,
+        ):
+            download_idx = i
+            break
+    assert download_idx is not None, (
+        "shared-cos-download-links.yml: 'Download Windows artifacts' "
+        "step not found — cannot verify direct-upload guard"
+    )
+
+    # Look at the `if:` line. It may be a one-liner `if: <expr>` or a
+    # multi-line block `if: >-\n  <expr>\n  <expr>`. Collect up to the
+    # next `- name:` / `uses:` / `with:` / `run:` key.
+    if_match = re.match(r"^\s*-\s+name:\s*['\"]?Download Windows artifacts['\"]?\s*$", lines[download_idx])
+    assert if_match, "regex drifted"
+
+    if_line = lines[download_idx + 1] if download_idx + 1 < len(lines) else ""
+    if re.match(r"^\s*if\s*:", if_line):
+        # Single-line form. Collect until next non-indented `uses:`,
+        # `with:`, `run:`, or `- name:`.
+        if_parts = [if_line]
+        j = download_idx + 2
+        while j < len(lines):
+            nxt = lines[j]
+            if re.match(r"^\s*(-\s+name:|uses:|with:|run:|shell:|env:|continue-on-error)", nxt):
+                break
+            if_parts.append(nxt)
+            j += 1
+        if_expr = "\n".join(if_parts)
+    else:
+        if_expr = if_line  # bare line; the assertion below will fail clearly
+
+    assert "windows-direct-upload" in if_expr, (
+        "shared-cos-download-links.yml > 'Download Windows artifacts' "
+        "step is missing `inputs.windows-direct-upload` in its `if:` "
+        "expression. When the build job took the direct-upload fast "
+        "path, no `*-installer` GHA artifact exists; the download step "
+        "would fail with 'Artifact not found' (continue-on-error keeps "
+        "the run green but pollutes the UI with red annotations). "
+        "Fix: add `inputs.windows-direct-upload != true` to the `if:`. "
+        f"Found `if:`: {if_expr!r}"
+    )
+
+    assert re.search(
+        r"windows-direct-upload\s*(==\s*['\"]?false['\"]?|!=\s*['\"]?true['\"]?)",
+        if_expr,
+    ), (
+        "shared-cos-download-links.yml > 'Download Windows artifacts' "
+        "step references `windows-direct-upload` but does not branch "
+        "on it. The `if:` must explicitly exclude the direct-upload "
+        "case (e.g. `inputs.windows-direct-upload != true`). "
+        f"Found `if:`: {if_expr!r}"
+    )
+
+    # The synthesize fallback must still exist (this is the whole
+    # reason the guard above matters — without a producer, skipping
+    # the consumer leaves `windows-artifacts/` empty).
+    assert "Synthesize" in text and "direct-upload" in text, (
+        "shared-cos-download-links.yml: missing the "
+        "'Synthesize ... direct-upload fallback' producer step. "
+        "Without it, the download-skips-artifact guard above leaves "
+        "the summary link list empty."
+    )
+

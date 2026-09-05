@@ -130,7 +130,9 @@ jobs:
             --app cn \
             --env "${ENVIRONMENT}" >> "$GITHUB_ENV"
       - name: Download Windows artifacts
-        if: inputs.windows-build-result == 'success'
+        if: >-
+          inputs.windows-build-result == 'success' &&
+          inputs.windows-direct-upload != true
         uses: actions/download-artifact@v7
         with:
           name: eCan-windows-amd64-${{ inputs.version }}-installer
