@@ -270,36 +270,39 @@ class OTAConfig:
     def get_s3_url(self, path: str) -> str:
         """
         Construct S3 URL for a given path (INTL app only)
-        
+
         Args:
             path: Path relative to environment prefix (e.g., 'releases/v1.0.0/...')
-            
+
         Returns:
             Full S3 URL with base path and environment prefix
-            
+
         Example:
             get_s3_url('releases/v1.0.0/macos/aarch64/eCan.pkg')
-            → https://ecan-releases.s3.us-east-1.amazonaws.com/releases/production/releases/v1.0.0/macos/aarch64/eCan.pkg
+            → https://ecan-releases.s3.us-east-1.amazonaws.com/production/releases/v1.0.0/macos/aarch64/eCan.pkg
         """
         if not self.enabled:
             return ""
-        
+
         # Warn if CN app is trying to use S3
         if self._is_cn:
             logger.warning("[OTA Config] INTL S3 URL requested for CN app, use get_cos_url() instead")
-        
+
         s3_bucket = self.get_common('s3_bucket', 'ecan-releases')
         s3_region = self.get_common('s3_region', 'us-east-1')
         s3_base_path = self.get_common('s3_base_path', '')
         s3_prefix = self.get_s3_prefix()
-        
-        # Combine: bucket + base_path + environment prefix + path
-        # Example: ecan-releases/releases/production/releases/v1.0.0/...
+
+        # Combine: bucket + (base_path)? + environment prefix + path
+        # With the default empty s3_base_path this yields {prefix}/{path},
+        # e.g. production/releases/v1.0.0/... (single ``releases``).
+        # When s3_base_path is configured (e.g. "releases") the URL has the
+        # form {base_path}/{prefix}/{path}.
         if s3_base_path:
             full_path = f"{s3_base_path}/{s3_prefix}/{path}"
         else:
             full_path = f"{s3_prefix}/{path}"
-        
+
         return f"https://{s3_bucket}.s3.{s3_region}.amazonaws.com/{full_path}"
     
     def is_cn_app(self) -> bool:
