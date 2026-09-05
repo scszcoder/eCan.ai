@@ -1086,13 +1086,8 @@ jobs:
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
         with:
+          prefer-system-node: 'true'
           npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
-
-      - name: Setup WhatsApp Baileys Bridge Environment
-        uses: ./.github/actions/setup-wabaileys-bridge
-        with:
-          node-version: '20'
-          bridge-dir: wabaileys-bridge
 
       - name: Install Windows-specific packages
         shell: pwsh
@@ -1923,6 +1918,7 @@ jobs:
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
         with:
+          prefer-system-node: 'true'
           npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
 
       - name: Setup OTA signing key
@@ -2539,6 +2535,7 @@ jobs:
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
         with:
+          prefer-system-node: 'true'
           npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
 
       - name: Setup OTA signing key
@@ -3089,13 +3086,8 @@ jobs:
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-node-env
         with:
+          prefer-system-node: 'true'
           npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
-
-      - name: Setup WhatsApp Baileys Bridge Environment
-        uses: ./.github/actions/setup-wabaileys-bridge
-        with:
-          node-version: '20'
-          bridge-dir: wabaileys-bridge
 
       - name: Install Linux system dependencies
         run: |
@@ -3344,16 +3336,24 @@ jobs:
 
   generate-latest-json:
     name: Generate latest.json
-    needs: [validate-tag, generate-appcast, upload-to-cos]
+    needs: [validate-tag, generate-appcast, upload-to-cos, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
+      (
+        needs.upload-to-cos.outputs.upload-success == 'true' ||
+        (needs.build-windows.result      == 'success' && needs.build-windows.outputs.cos-uploaded      == 'true') ||
+        (needs.build-macos-amd64.result  == 'success' && needs.build-macos-amd64.outputs.cos-uploaded  == 'true') ||
+        (needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.cos-uploaded == 'true') ||
+        (needs.build-linux.result        == 'success' && needs.build-linux.outputs.cos-uploaded        == 'true')
+      ) &&
       needs.generate-appcast.result == 'success'
     uses: ./.github/workflows/shared-cos-latest-json.yml
     with:
       version:     ${{ needs.validate-tag.outputs.version }}
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel:     ${{ needs.validate-tag.outputs.channel }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
       app:         cn
       platform:    all
       arch:        all

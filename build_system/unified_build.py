@@ -19,7 +19,7 @@ from build_system.build_cleaner import BuildCleaner
 from build_system.build_utils import standardize_artifact_names, show_build_results
 from build_system.ecan_build import BuildConfig, BuildEnvironment, FrontendBuilder, InstallerBuilder, WABaileysBridgeBuilder
 from build_system.minibuild_core import MiniSpecBuilder
-from build_system.build_utils import URLSchemeBuildConfig
+from build_system.url_scheme_config import URLSchemeBuildConfig
 from build_system.signing_manager import create_signing_manager, create_ota_signing_manager
 
 # Note: do NOT import utils.app_config_loader at module level. It transitively
@@ -248,10 +248,13 @@ class UnifiedBuildSystem:
             return False
     
     def setup_url_scheme(self) -> bool:
-        """Setup URL scheme configuration for the build"""
+        """Validate the Windows URL scheme before building."""
         print("[URL-SCHEME] Setting up URL scheme configuration...")
         try:
-            success = URLSchemeBuildConfig.setup_url_scheme_for_build()
+            if not platform_handler.is_windows:
+                return True
+
+            success = URLSchemeBuildConfig._setup_windows_build()
             if success:
                 print("[URL-SCHEME] URL scheme configuration ready")
             else:

@@ -6,13 +6,6 @@
 # Tencent Cloud set) and the default region. Everything else (job shape,
 # steps, environment variables, dependencies) is byte-identical.
 #
-# This is currently a STUB. The previous monolithic release.yml had the
-# real latest.json builder; it has been moved to its own script
-# (`build_system/scripts/release/generate_latest_json.py`) and will be
-# re-wired in once the script has been split into its own deployable
-# artefact. Until then, this reusable just prints the resolved inputs
-# so the wiring can be verified.
-#
 # Inputs:
 #   - version / environment / channel: standard release metadata.
 #   - app: intl | cn  (which app's latest.json we're producing)
@@ -39,6 +32,11 @@ on:
         description: 'Release channel (dev/beta/stable)'
         required: true
         type: string
+      user-prefix:
+        description: 'Optional per-user release prefix'
+        required: false
+        type: string
+        default: ''
       app:
         description: 'intl | cn'
         required: true
@@ -74,10 +72,10 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
-          cache-dependency-path: 'requirements-intl.txt'
+          cache-dependency-path: 'build_system/scripts/requirements.txt'
 
       - name: Install dependencies
-        run: pip install -r requirements-intl.txt
+        run: pip install -r build_system/scripts/requirements.txt
 
       - name: Generate latest.json
         id: run
@@ -97,11 +95,19 @@ jobs:
           echo "APP=${APP}  PLATFORM=${PLATFORM}  ARCH=${ARCH}"
           echo "AWS_REGION=${AWS_REGION:-<unset>}"
           echo "::endgroup::"
-          python3 - <<'PY'
-          import os
-          print("latest.json stub for", os.environ.get("APP"))
-          print("env:", os.environ.get("CHANNEL"), os.environ.get("ENVIRONMENT"))
-          # TODO: invoke build_system/scripts/release/generate_latest_json.py
-          # once that script is split out of the monolithic release.yml.
-          PY
-          echo "success=true" >> $GITHUB_OUTPUT
+          CMD="python3 build_system/scripts/generate_latest_json.py --env ${ENVIRONMENT} --version ${VERSION} --app ${APP}"
+          if [ -n "${CHANNEL}" ]; then
+            CMD="$CMD --channel ${CHANNEL}"
+          fi
+          if [ -n "${{ inputs.user-prefix }}" ]; then
+            CMD="$CMD --user-prefix ${{ inputs.user-prefix }}"
+          fi
+          $CMD
+          rc=$?
+          if [ $rc -eq 0 ]; then
+            echo "success=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::generate_latest_json.py exited with $rc"
+            echo "success=false" >> "$GITHUB_OUTPUT"
+            exit $rc
+          fi
