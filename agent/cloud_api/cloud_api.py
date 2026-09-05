@@ -6032,7 +6032,7 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
         target=_appsync_ws_reconnect_loop,
         args=("CloudLLMTask", resolved_ws_url, id_token, build_ws),
         daemon=True,
-        name=f"CloudLLMTask-ws-{id(token) % 10000}",  # Named for leak debugging
+        name=f"CloudLLMTask-ws-{id(id_token) % 10000}",  # Named for leak debugging
     )
     _track_appsync_ws_thread(t)
     t.start()
@@ -6169,7 +6169,7 @@ def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[
         target=_appsync_ws_reconnect_loop,
         args=("AccountNotification", resolved_ws_url, id_token, build_ws),
         daemon=True,
-        name=f"AccountNotification-ws-{id(token) % 10000}",
+        name=f"AccountNotification-ws-{id(id_token) % 10000}",
     )
     _track_appsync_ws_thread(t)
     t.start()
@@ -6412,7 +6412,7 @@ def subscribe_agent_scene_events(acct_site_id: str, id_token: str, ws_url: Optio
         target=_appsync_ws_reconnect_loop,
         args=("AgentSceneEvent", resolved_ws_url, id_token, build_ws),
         daemon=True,
-        name=f"AgentSceneEvent-ws-{id(token) % 10000}",
+        name=f"AgentSceneEvent-ws-{id(id_token) % 10000}",
     )
     _track_appsync_ws_thread(t)
     t.start()
@@ -6547,7 +6547,7 @@ def subscribe_puzzle_results(id_token: str, ws_url: Optional[str] = None,
         target=_appsync_ws_reconnect_loop,
         args=("PuzzleResult", resolved_ws_url, id_token, build_ws),
         daemon=True,
-        name=f"PuzzleResult-ws-{id(token) % 10000}",
+        name=f"PuzzleResult-ws-{id(id_token) % 10000}",
     )
     _track_appsync_ws_thread(t)
     t.start()
@@ -6694,7 +6694,7 @@ def subscribe_scene_complete(acct_site_id: str, id_token: str, ws_url: Optional[
         target=_appsync_ws_reconnect_loop,
         args=("SceneComplete", resolved_ws_url, id_token, build_ws),
         daemon=True,
-        name=f"SceneComplete-ws-{id(token) % 10000}",
+        name=f"SceneComplete-ws-{id(id_token) % 10000}",
     )
     _track_appsync_ws_thread(t)
     t.start()
@@ -7061,7 +7061,7 @@ def subscribe_story_updates(acct_site_id: str, id_token: str, ws_url: Optional[s
         target=_appsync_ws_reconnect_loop,
         args=("StoryUpdate", resolved_ws_url, id_token, build_ws),
         daemon=True,
-        name=f"StoryUpdate-ws-{id(token) % 10000}",
+        name=f"StoryUpdate-ws-{id(id_token) % 10000}",
     )
     _track_appsync_ws_thread(t)
     t.start()
