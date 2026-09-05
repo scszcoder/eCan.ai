@@ -31,8 +31,14 @@ ota_enabled: true
 # Current Environment
 # Valid values: simulation, development, test, staging, production
 # Note: This value should be set during build time, do not modify manually
+#
+# Active value: ``test`` — dev clients point at the remote TEST bucket
+# so end-to-end OTA behavior can be validated against the same code path
+# as a real user (S3/COS, signed URLs, channels/.../appcast-*.xml), with
+# the test bucket acting as a sandbox. Switch back to ``development``
+# only when iterating locally against the in-tree OTA test server.
 # ============================================
-environment: development
+environment: test
 
 # ============================================
 # Common Configuration
