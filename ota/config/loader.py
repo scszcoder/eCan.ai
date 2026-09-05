@@ -159,6 +159,39 @@ class OTAConfig:
         """Return application display name from common config (e.g. 'eCan')."""
         return str(self.get_common('app_name', 'eCan'))
     
+    def get_latest_json_url(self) -> str:
+        """
+        Get latest.json URL for the current environment (with CN/INTL support).
+
+        CN app uses Tencent Cloud COS, INTL app uses AWS S3.
+        The returned path matches what
+        ``build_system/scripts/generate_appcast.py::generate_latest_json``
+        writes (``{prefix}/latest.json``) — same shape as
+        ``get_appcast_url``'s ``channels/...`` siblings.
+
+        Used by the "manual install" fallback link in the OTA dialogs so
+        the user is sent to the correct bucket (COS vs S3) and the
+        correct environment prefix (``dev``, ``test``, ``staging``,
+        ``simulation``, ``production``) instead of always pointing at
+        the hardcoded INTL/production S3 URL.
+
+        Returns:
+            Empty string if OTA is disabled; otherwise the full
+            COS/S3 URL to ``{prefix}/latest.json``.
+
+        Example:
+            # CN app (ECAN_APP_ID=cn), environment=development
+            get_latest_json_url()
+            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/dev/latest.json
+
+            # INTL app (ECAN_APP_ID=intl), environment=production
+            get_latest_json_url()
+            → https://ecan-releases.s3.us-east-1.amazonaws.com/production/latest.json
+        """
+        if not self.enabled:
+            return ""
+        return self.get_storage_url("latest.json")
+
     def get_appcast_url(self, platform: str, arch: Optional[str] = None, language: Optional[str] = None) -> str:
         """
         Get appcast URL for platform and architecture (with CN/INTL support)
