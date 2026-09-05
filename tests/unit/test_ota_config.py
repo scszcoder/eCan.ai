@@ -206,28 +206,30 @@ class TestOTAConfigAppcastURL:
         assert "s3.us-east-1.amazonaws.com" in url
     
     def test_appcast_url_windows_platform(self, monkeypatch):
-        """Appcast URL includes windows platform."""
-        monkeypatch.setenv("ECAN_APP_ID", "cn")
-        _clear_ota_cache()
-        from ota.config.loader import get_ota_config
-        config = get_ota_config(reload=True)
-        
-        url = config.get_appcast_url("windows", "amd64")
-        
-        assert "windows" in url
-        assert "amd64" in url
-    
-    def test_appcast_url_linux_platform(self, monkeypatch):
-        """Appcast URL includes linux platform."""
+        """Appcast URL includes windows platform (test env, INTL)."""
         monkeypatch.setenv("ECAN_APP_ID", "intl")
         _clear_ota_cache()
         from ota.config.loader import get_ota_config
         config = get_ota_config(reload=True)
-        
+
+        url = config.get_appcast_url("windows", "amd64")
+
+        assert "windows" in url
+        assert "amd64" in url
+        assert "channels/beta/appcast-windows-amd64.xml" in url
+
+    def test_appcast_url_linux_platform(self, monkeypatch):
+        """Appcast URL includes linux platform (test env, INTL)."""
+        monkeypatch.setenv("ECAN_APP_ID", "intl")
+        _clear_ota_cache()
+        from ota.config.loader import get_ota_config
+        config = get_ota_config(reload=True)
+
         url = config.get_appcast_url("linux", "amd64")
-        
+
         assert "linux" in url
         assert "amd64" in url
+        assert "channels/beta/appcast-linux-amd64.xml" in url
     
     def test_appcast_url_channel_included(self, monkeypatch):
         """Appcast URL includes channel path (public-bucket path)."""
@@ -235,8 +237,9 @@ class TestOTAConfigAppcastURL:
         _clear_ota_cache()
         from ota.config.loader import get_ota_config
         config = get_ota_config(reload=True)
-        # Public bucket path requires a non-dev environment; see
-        # ``TestOTAConfigAppcastURL`` docstring.
+        # Active env is ``test`` (see ota_config.yaml) which already
+        # routes through the public-bucket path. Pin to ``production``
+        # so the test stays scoped to the channels/.../ stable channel.
         config._config["environment"] = "production"
 
         url = config.get_appcast_url("macos", "amd64")
@@ -249,18 +252,18 @@ class TestOTAConfigAppcastURL:
 class TestOTAConfigEnvironments:
     """Tests for environment-specific configuration."""
     
-    def test_production_environment(self, monkeypatch):
-        """Production environment has correct settings."""
+    def test_default_environment_is_test(self, monkeypatch):
+        """Default environment is ``test`` so dev clients point at the
+        remote TEST bucket for end-to-end OTA validation."""
         monkeypatch.setenv("ECAN_APP_ID", "cn")
         _clear_ota_cache()
         from ota.config.loader import get_ota_config
         config = get_ota_config(reload=True)
-        
-        # Default should be development
-        assert config.environment == "development"
-        
+
+        assert config.environment == "test"
+
         full_config = config.get_full_config()
-        assert full_config['environment'] == "development"
+        assert full_config['environment'] == "test"
     
     def test_full_config_includes_storage_info(self, monkeypatch):
         """get_full_config() includes storage backend info."""

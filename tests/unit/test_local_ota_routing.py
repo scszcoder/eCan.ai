@@ -1,29 +1,37 @@
 """
-Tests for dev-environment routing of ``get_appcast_url`` /
-``get_latest_json_url`` and the local OTA server's ``/latest.json``
-endpoint.
+Tests for OTA ``appcast_base`` override routing and the local OTA
+server's ``/latest.json`` endpoint.
 
 The contract under test:
 
-  - When ``environment == "development"`` AND
-    ``appcast_base`` (INTL) / ``appcast_base_cos`` (CN) points at a
-    local host (``127.0.0.1`` / ``localhost``), both
-    ``get_appcast_url`` and ``get_latest_json_url`` must build URLs off
-    that local base instead of the public S3/COS bucket.
+  - ``_local_appcast_base()`` honors ANY non-empty
+    ``appcast_base`` (INTL) / ``appcast_base_cos`` (CN) on the active
+    environment — both local (``http://127.0.0.1:8080``) and remote
+    public hosts (``https://ecan-releases.s3.us-east-1.amazonaws.com/test``
+    etc.) qualify. The previous "127.0.0.1/localhost only" heuristic
+    is gone: it forced the canonical environments (``test`` /
+    ``staging`` / ``simulation`` / ``production``) to silently fall
+    through to ``get_storage_url``, which works for INTL but for the
+    CN app picks the wrong bucket family in some configs and loses
+    the bucket-name override that ``appcast_base_cos`` is meant to
+    carry.
 
-  - For ``test`` / ``staging`` / ``simulation`` / ``production``, the
-    public bucket URLs must continue to be returned even if the
-    same ``appcast_base`` field happens to be set to a public host
-    (the loader only treats the field as a local override when it
-    parses as ``127.0.0.1`` or ``localhost``).
+  - When an override IS declared, ``get_appcast_url`` builds
+    ``{base}/channels/{channel}/{filename}`` — same path shape as
+    ``get_storage_url`` so a client uploaded via the public pipeline
+    reads identically whether it resolves through the override or
+    the fallback.
+
+  - The ``language`` suffix is ALWAYS honored (no longer dropped for
+    dev) so per-language copies (e.g. ``appcast-...zh-CN.xml``)
+    resolve whether they live in S3/COS or on the local server.
 
   - ``AppcastGenerator.build_latest_json`` emits a payload whose
     top-level shape (``version`` / ``channel`` / ``environment`` /
     ``platforms``) and per-platform sub-shape (``version`` /
     ``url`` / ``file_size`` / ``sha256`` / ``signature``) match what
     ``build_system/scripts/generate_appcast.py::generate_latest_json``
-    uploads to S3/COS, so a dev client reads either source
-    identically.
+    uploads to S3/COS.
 
   - The local ``/latest.json`` route returns ``Cache-Control: max-age=60``
     so dev iteration loops don't hammer disk scans.
@@ -77,66 +85,183 @@ def _fresh_config(app_id: str, environment: str):
 # ---------------------------------------------------------------------------
 
 
-class TestLocalAppcastBase:
-    """``get_appcast_url`` / ``get_latest_json_url`` route dev traffic
-    to the local OTA test server and leave non-dev traffic on the
-    public bucket."""
+class TestAppcastBaseOverride:
+    """``_local_appcast_base`` honors any non-empty ``appcast_base``
+    field — local AND remote public hosts both count. The override
+    path is the canonical way ``test`` / ``staging`` / ``simulation``
+    / ``production`` reach the bucket."""
+
+    @pytest.mark.parametrize("app_id,expected_base", [
+        ("intl", "https://ecan-releases.s3.us-east-1.amazonaws.com/test"),
+        ("cn",   "https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/test"),
+    ])
+    def test_test_env_override_honored(self, app_id, expected_base):
+        config = _fresh_config(app_id, "test")
+        assert config._local_appcast_base() == expected_base
+
+    @pytest.mark.parametrize("env", ["staging", "simulation", "production"])
+    @pytest.mark.parametrize("app_id", ["intl", "cn"])
+    def test_non_test_env_override_honored(self, app_id, env):
+        """``staging`` / ``simulation`` / ``production`` also declare
+        ``appcast_base`` to a public host — the override must be
+        honored so the bucket/region routing lives in YAML, not in
+        hardcoded URL-building code."""
+        config = _fresh_config(app_id, env)
+        base = config._local_appcast_base()
+        assert base != ""
+        assert base.startswith("https://")
+        assert "127.0.0.1" not in base
+        assert "localhost" not in base
+
+    def test_development_env_local_override_honored(self):
+        """``development`` env declares ``appcast_base = 127.0.0.1:8080``;
+        the override must be honored so the local OTA test server is
+        reachable."""
+        config = _fresh_config("intl", "development")
+        assert config._local_appcast_base() == "http://127.0.0.1:8080"
+
+    def test_undeclared_base_returns_empty(self):
+        """An env block with no ``appcast_base`` declared must NOT
+        silently fall back to anything — the caller should fall
+        through to ``get_storage_url``."""
+        config = _fresh_config("intl", "development")
+        config._config["environments"]["development"].pop("appcast_base", None)
+        assert config._local_appcast_base() == ""
+
+    def test_cn_falls_back_to_appcast_base_when_cos_missing(self):
+        """CN loader falls back from ``appcast_base_cos`` to plain
+        ``appcast_base`` so a CN app that's missing the COS-specific
+        override still resolves something rather than failing closed."""
+        config = _fresh_config("cn", "test")
+        # Strip appcast_base_cos; appcast_base (the INTL field) stays.
+        config._config["environments"]["test"].pop("appcast_base_cos", None)
+        base = config._local_appcast_base()
+        assert base != ""
+        # Falls back to the INTL-shape field, which on CN routes
+        # through ``get_storage_url`` anyway — the override returns
+        # the value the env block actually has.
+        assert base == "https://ecan-releases.s3.us-east-1.amazonaws.com/test"
+
+    def test_intl_does_not_read_appcast_base_cos(self):
+        """INTL loader must not accidentally read the CN-specific
+        field (and vice versa) — keeps the two app families' bucket
+        routing independent."""
+        config = _fresh_config("intl", "test")
+        # Replace the INTL field with a sentinel; populate COS field
+        # with a different URL. INTL should ignore the COS field.
+        config._config["environments"]["test"]["appcast_base"] = (
+            "https://intl.example/test"
+        )
+        config._config["environments"]["test"]["appcast_base_cos"] = (
+            "https://cos.example/test"
+        )
+        assert config._local_appcast_base() == "https://intl.example/test"
+
+
+class TestGetAppcastUrlOverride:
+    """``get_appcast_url`` builds ``{base}/channels/{channel}/{filename}``
+    when an override is declared. Path shape matches
+    ``get_storage_url`` so upload + read paths agree."""
 
     @pytest.mark.parametrize("app_id", ["intl", "cn"])
-    def test_dev_env_appcast_url_uses_local_base(self, app_id):
-        config = _fresh_config(app_id, "development")
+    def test_test_env_appcast_url_uses_declared_base(self, app_id):
+        config = _fresh_config(app_id, "test")
         url = config.get_appcast_url("macos", "aarch64")
-        assert url == "http://127.0.0.1:8080/appcast-macos-aarch64.xml"
+        # test channel = "beta" (see ota_config.yaml)
+        if app_id == "intl":
+            assert url == (
+                "https://ecan-releases.s3.us-east-1.amazonaws.com/test/"
+                "channels/beta/appcast-macos-aarch64.xml"
+            )
+        else:
+            assert url == (
+                "https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/test/"
+                "channels/beta/appcast-macos-aarch64.xml"
+            )
 
     @pytest.mark.parametrize("app_id", ["intl", "cn"])
-    def test_dev_env_latest_json_url_uses_local_base(self, app_id):
+    def test_production_env_appcast_url_uses_declared_base(self, app_id):
+        config = _fresh_config(app_id, "production")
+        url = config.get_appcast_url("macos", "aarch64")
+        # production channel = "stable"
+        if app_id == "intl":
+            assert url == (
+                "https://ecan-releases.s3.us-east-1.amazonaws.com/production/"
+                "channels/stable/appcast-macos-aarch64.xml"
+            )
+        else:
+            assert url == (
+                "https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/"
+                "channels/stable/appcast-macos-aarch64.xml"
+            )
+
+    @pytest.mark.parametrize("app_id", ["intl", "cn"])
+    def test_language_suffix_honored_under_override(self, app_id):
+        """Per-language copies (e.g. ``appcast-...zh-CN.xml``) live in
+        S3/COS under ``channels/{channel}/`` — the override path must
+        preserve the suffix (it was previously dropped for dev, which
+        would have broken CN locale clients against a remote test
+        bucket that DOES ship per-language copies)."""
+        config = _fresh_config(app_id, "test")
+        url = config.get_appcast_url("macos", "aarch64", "zh-CN")
+        assert url.endswith("/test/channels/beta/appcast-macos-aarch64.zh-CN.xml")
+
+    def test_undeclared_base_falls_through_to_storage_url(self):
+        """When no ``appcast_base`` is declared, ``get_appcast_url``
+        falls through to ``get_storage_url`` so the path shape
+        (``{prefix}/channels/...``) is the same."""
+        config = _fresh_config("intl", "development")
+        config._config["environments"]["development"].pop("appcast_base", None)
+        url = config.get_appcast_url("macos", "aarch64")
+        # ``development`` has no ``appcast_base`` → falls through to
+        # ``get_storage_url`` which yields {s3_prefix}/channels/...
+        assert url == (
+            "https://ecan-releases.s3.us-east-1.amazonaws.com/dev/"
+            "channels/dev/appcast-macos-aarch64.xml"
+        )
+
+    def test_development_env_local_base_routes_to_8080(self):
+        """Regression guard for the original dev-routing behavior:
+        a development build pointed at the in-tree OTA test server
+        must continue to resolve to ``127.0.0.1:8080``."""
+        config = _fresh_config("intl", "development")
+        url = config.get_appcast_url("macos", "aarch64")
+        assert url == (
+            "http://127.0.0.1:8080/channels/dev/appcast-macos-aarch64.xml"
+        )
+
+
+class TestGetLatestJsonUrlOverride:
+    """``get_latest_json_url`` honors ``appcast_base`` the same way
+    ``get_appcast_url`` does — appends ``/latest.json`` to the
+    declared base instead of going through ``get_storage_url``."""
+
+    @pytest.mark.parametrize("app_id", ["intl", "cn"])
+    def test_test_env_latest_json_uses_declared_base(self, app_id):
+        config = _fresh_config(app_id, "test")
+        url = config.get_latest_json_url()
+        if app_id == "intl":
+            assert url == (
+                "https://ecan-releases.s3.us-east-1.amazonaws.com/test/latest.json"
+            )
+        else:
+            assert url == (
+                "https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/test/latest.json"
+            )
+
+    @pytest.mark.parametrize("app_id", ["intl", "cn"])
+    def test_development_env_latest_json_uses_local_base(self, app_id):
         config = _fresh_config(app_id, "development")
         url = config.get_latest_json_url()
         assert url == "http://127.0.0.1:8080/latest.json"
 
-    def test_dev_env_appcast_url_ignores_language_suffix(self):
-        """Local server's appcast doesn't ship per-language copies;
-        the URL must collapse to the bare ``appcast-*.xml`` even when
-        the caller passes ``language='zh-CN'``."""
-        config = _fresh_config("cn", "development")
-        url = config.get_appcast_url("macos", "aarch64", "zh-CN")
-        assert url == "http://127.0.0.1:8080/appcast-macos-aarch64.xml"
-
-    @pytest.mark.parametrize("env", ["test", "staging", "simulation", "production"])
-    @pytest.mark.parametrize("app_id", ["intl", "cn"])
-    def test_non_dev_env_uses_public_bucket(self, app_id, env):
-        """Even if ``appcast_base`` happens to be set on the env block
-        (test/staging/simulation/production all set it to the public
-        S3/COS host), the loader must NOT treat public hosts as local
-        overrides — it only honors the override when the base parses
-        as ``127.0.0.1`` / ``localhost``."""
-        config = _fresh_config(app_id, env)
-        url = config.get_appcast_url("macos", "aarch64")
-        assert "127.0.0.1" not in url
-        assert "localhost" not in url
-        assert "channels/" in url  # public path is ``channels/{channel}/...``
-
-    @pytest.mark.parametrize("env", ["test", "staging", "simulation", "production"])
-    def test_non_dev_env_latest_json_uses_public_bucket(self, env):
-        config = _fresh_config("intl", env)
-        url = config.get_latest_json_url()
-        assert url.endswith(f"/{env}/latest.json")
-        assert "127.0.0.1" not in url
-
-    def test_local_base_heuristic_rejects_public_https(self):
-        """Defense-in-depth: if a future env block accidentally sets
-        ``appcast_base`` to a real S3/COS host in dev (misconfig), the
-        loader must not silently rewrite URLs — it must fall through
-        to the public bucket path so the misconfig is visible (not
-        silently "working" against the wrong host)."""
+    def test_undeclared_base_falls_through_to_storage_url(self):
         config = _fresh_config("intl", "development")
-        # Replace dev's appcast_base with a public S3 URL.
-        config._config["environments"]["development"]["appcast_base"] = (
-            "https://ecan-releases.s3.us-east-1.amazonaws.com"
+        config._config["environments"]["development"].pop("appcast_base", None)
+        url = config.get_latest_json_url()
+        assert url == (
+            "https://ecan-releases.s3.us-east-1.amazonaws.com/dev/latest.json"
         )
-        url = config.get_appcast_url("macos", "aarch64")
-        assert url.startswith("https://ecan-releases.s3.us-east-1.amazonaws.com/")
-        assert "127.0.0.1" not in url
 
 
 # ---------------------------------------------------------------------------
