@@ -460,6 +460,55 @@ def appcast():
         traceback.print_exc()
         return f"Error serving appcast: {str(e)}", 500
 
+@app.route('/latest.json', methods=['GET'])
+def latest_json():
+    """Build a ``latest.json`` payload from the local ``dist/`` directory.
+
+    Mirrors the schema of the file uploaded by
+    ``build_system/scripts/generate_appcast.py::generate_latest_json`` so
+    dev-environment clients can read either source identically. The
+    ``url`` fields point back at this server's ``/downloads/{filename}``
+    mount instead of S3/COS, so a click-through on a dev build serves
+    the local file.
+
+    Used by the manual-install fallback link surfaced in
+    ``ota.gui.update_dialog`` and ``gui.dialogs.version_check_dialog``
+    when the running app's environment is ``development`` (the loader
+    resolves ``appcast_base`` → ``http://127.0.0.1:8080``).
+    """
+    try:
+        project_root = Path(__file__).parent.parent.parent
+        dist_dir = project_root / "dist"
+
+        # base_url defaults to the host that served the request so a
+        # download link stays usable whether the client hits
+        # 127.0.0.1, the LAN IP, or a forwarded tunnel.
+        base_url = request.args.get('base_url', f"{request.scheme}://{request.host}").rstrip('/')
+        channel = request.args.get('channel', 'dev')
+        environment = request.args.get('environment', 'development')
+
+        payload = appcast_gen.build_latest_json(
+            base_url=base_url,
+            dist_dir=dist_dir,
+            channel=channel,
+            environment=environment,
+        )
+        if payload is None:
+            logger.error("[LATEST] ❌ No packages in dist directory")
+            return jsonify({"error": "No packages in dist directory"}), 404
+
+        response = jsonify(payload)
+        # Latest.json changes per build but a stale read is harmless;
+        # cap at 60s so local iteration loops don't hammer disk scans.
+        response.headers['Cache-Control'] = 'max-age=60'
+        return response
+
+    except Exception as e:
+        logger.error(f"[LATEST] ❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/admin/generate-appcast', methods=['POST'])
 def generate_appcast_admin():
     """Admin API: manually trigger dynamic appcast generation"""

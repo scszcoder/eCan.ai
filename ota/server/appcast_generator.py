@@ -4,6 +4,7 @@ import hashlib
 import re
 from pathlib import Path
 from datetime import datetime
+from typing import Dict, Optional
 from jinja2 import Environment, FileSystemLoader
 from utils.logger_helper import logger_helper as logger
 
@@ -157,15 +158,23 @@ class AppcastGenerator:
     def _scan_dist_directory(self, dist_dir):
         """
         Scan dist directory and dynamically calculate file info
-        
+
         Returns:
-            dict: {filename: {file_size, signature, version}}
+            dict: ``{filename: {file_size, sha256, version, os_type, arch}}``
+
+            ``os_type`` is one of ``"macos"``, ``"windows"``, ``"linux"``.
+            ``arch`` is one of ``"amd64"``, ``"aarch64"``. Existing appcast
+            callers (Sparkle XML render) only read ``file_size`` /
+            ``sha256`` / ``version``; the new keys are additive and let
+            ``build_latest_json`` map packages to the
+            ``platforms.{platform}-{arch}`` slots used by the public
+            latest.json schema.
         """
         dist_path = Path(dist_dir)
         if not dist_path.exists():
             logger.warning(f"[APPCAST] Dist directory not found: {dist_dir}")
             return {}
-        
+
         # Package patterns to search for
         # NOTE: Pattern order matters - more specific patterns first to avoid false matches
         patterns = [
@@ -179,37 +188,63 @@ class AppcastGenerator:
             "eCan-*-linux-amd64.deb",
             "eCan-*-linux-aarch64.deb",
         ]
-        
+
         packages = {}
-        
+
         for pattern in patterns:
             for pkg_file in dist_path.glob(pattern):
                 if not pkg_file.is_file():
                     continue
-                
+
                 logger.info(f"[APPCAST] 📦 Found package: {pkg_file.name}")
-                
+
                 # Extract version from filename
                 version = self._extract_version_from_filename(pkg_file.name)
                 if version:
                     logger.info(f"[APPCAST]    Version: {version}")
-                
+
                 # Calculate file size
                 file_size = pkg_file.stat().st_size
                 logger.info(f"[APPCAST]    Size: {file_size:,} bytes ({file_size / (1024**3):.2f} GB)")
-                
+
                 # Calculate SHA256
                 logger.info(f"[APPCAST]    Calculating SHA256...")
                 signature = self._calculate_sha256(pkg_file)
                 logger.info(f"[APPCAST]    SHA256: {signature[:16]}...")
-                
+
+                os_type = (
+                    "macos" if ("darwin" in pkg_file.name or "macos" in pkg_file.name)
+                    else "windows" if "windows" in pkg_file.name
+                    else "linux"
+                )
+                arch = self._extract_arch_from_filename(pkg_file.name)
+
                 packages[pkg_file.name] = {
                     "file_size": file_size,
+                    "sha256": signature,
+                    # Keep ``signature`` for backward compat with the existing
+                    # Sparkle XML template (``item.signature``).
                     "signature": signature,
-                    "version": version
+                    "version": version,
+                    "os_type": os_type,
+                    "arch": arch,
                 }
-        
+
         return packages
+
+    def _extract_arch_from_filename(self, filename: str) -> Optional[str]:
+        """Extract CPU arch from an ``eCan-{version}-{platform}-{arch}.ext``
+        filename.
+
+        Returns ``"aarch64"`` / ``"amd64"`` / ``"x86_64"`` / ``"arm64"`` or
+        ``None`` if no arch token is found. Only one arch is reported per
+        filename — callers that need a canonical key should map ``arm64``
+        and ``x86_64`` to ``aarch64`` / ``amd64`` themselves.
+        """
+        for arch_token in ("aarch64", "amd64", "arm64", "x86_64"):
+            if f"-{arch_token}" in filename or f"_{arch_token}" in filename:
+                return arch_token
+        return None
 
     # Legacy methods removed - use generate_dynamic() instead
     # Old signature-file-based methods are no longer needed
@@ -308,4 +343,134 @@ class AppcastGenerator:
 
     # Legacy generate_appcast() method removed
     # Use generate_dynamic() instead - it scans dist directory automatically
+
+    def build_latest_json(self, base_url: str, dist_dir=None,
+                          channel: str = "stable",
+                          environment: str = "development") -> Optional[dict]:
+        """
+        Build a ``latest.json`` payload that mirrors what
+        ``build_system/scripts/generate_appcast.py::generate_latest_json``
+        uploads to S3/COS. Used by the local OTA test server's
+        ``/latest.json`` route so dev-environment builds don't have to
+        round-trip through public storage.
+
+        The schema is intentionally the same on-wire shape (same
+        top-level keys, same per-platform sub-keys) so a dev client
+        reads either source identically. Differences vs the remote
+        upload path:
+
+          - ``url`` is built from ``base_url + /downloads/{filename}``
+            (the local server's static download mount), not from the
+            S3/COS bucket.
+          - ``accelerated_url`` is omitted because the local server
+            has no CloudFront / COS CDN variant.
+          - No incremental merge: each request rebuilds from ``dist/``
+            in full. This is fine for the dev test server (single
+            producer, single consumer) and avoids the read-modify-write
+            state that the remote pipeline needs.
+
+        Args:
+            base_url: Origin serving this server, e.g.
+                ``"http://127.0.0.1:8080"``. Used to build per-platform
+                ``url`` fields so a click-through on dev downloads
+                from the local file, not from S3.
+            dist_dir: Directory to scan for built packages. Defaults
+                to ``<project_root>/dist``.
+            channel: Release channel label written into the payload
+                (``"stable"`` unless caller overrides).
+            environment: Environment label written into the payload
+                (``"development"`` unless caller overrides).
+
+        Returns:
+            ``dict`` ready to ``json.dumps(...)`` or ``None`` if no
+            packages were found in ``dist_dir``.
+        """
+        from packaging import version as _pkg_version
+
+        if dist_dir is None:
+            project_root = Path(self.server_root).parent.parent
+            dist_dir = project_root / "dist"
+        else:
+            dist_dir = Path(dist_dir)
+
+        packages = self._scan_dist_directory(dist_dir)
+        if not packages:
+            logger.warning("[LATEST] ⚠️  No packages found in dist — cannot build latest.json")
+            return None
+
+        # Group packages by ``{os_type}-{arch}`` slot. The remote
+        # generator iterates (platform × arch) explicitly; we recover
+        # the same slot from each filename so the local server does
+        # not need a hardcoded platform/arch list.
+        # Map filename-token arch keys to the canonical pair the
+        # public schema uses (aarch64 / amd64).
+        arch_aliases = {
+            "aarch64": "aarch64", "arm64": "aarch64",
+            "amd64": "amd64", "x86_64": "amd64",
+        }
+        slots: Dict[str, dict] = {}
+        for filename, data in packages.items():
+            os_type = data.get("os_type")
+            arch_raw = data.get("arch")
+            if not os_type or not arch_raw:
+                logger.warning(
+                    f"[LATEST] Skipping {filename} — cannot derive "
+                    f"(os_type, arch) from filename"
+                )
+                continue
+            arch = arch_aliases.get(arch_raw, arch_raw)
+            slot = f"{os_type}-{arch}"
+            # If multiple builds share a slot, keep the one with the
+            # highest version so the dev client sees the most recent
+            # drop (mirrors the remote "max over platforms" rule).
+            existing = slots.get(slot)
+            if existing is None:
+                slots[slot] = {"filename": filename, **data}
+            else:
+                try:
+                    if _pkg_version.parse(data.get("version") or "0.0.0") > \
+                       _pkg_version.parse(existing.get("version") or "0.0.0"):
+                        slots[slot] = {"filename": filename, **data}
+                except Exception:
+                    # Fall back to lexical compare if ``packaging``
+                    # can't parse either version.
+                    if (data.get("version") or "") > (existing.get("version") or ""):
+                        slots[slot] = {"filename": filename, **data}
+
+        if not slots:
+            logger.warning("[LATEST] ⚠️  No usable platform/arch slots — cannot build latest.json")
+            return None
+
+        base_url = base_url.rstrip("/")
+        platforms: Dict[str, dict] = {}
+        for slot, info in slots.items():
+            version = info.get("version") or "0.0.0"
+            platforms[slot] = {
+                "version": version,
+                "url": f"{base_url}/downloads/{info['filename']}",
+                "file_size": info.get("file_size", 0),
+                "sha256": info.get("sha256") or info.get("signature", ""),
+                "signature": info.get("signature", ""),
+            }
+
+        # Global ``version`` is the max version across all platforms
+        # (mirrors the remote generator's invariant).
+        all_versions = [p.get("version", "0.0.0") for p in platforms.values()]
+        try:
+            global_version = max(all_versions, key=lambda v: _pkg_version.parse(v))
+        except Exception:
+            global_version = max(all_versions) if all_versions else "0.0.0"
+
+        payload = {
+            "version": global_version,
+            "channel": channel,
+            "environment": environment,
+            "updated_at": datetime.now().isoformat(),
+            "platforms": platforms,
+        }
+        logger.info(
+            f"[LATEST] ✅ Built latest.json: version={global_version}, "
+            f"platforms={sorted(platforms.keys())}"
+        )
+        return payload
 

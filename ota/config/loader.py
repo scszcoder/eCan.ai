@@ -182,7 +182,7 @@ class OTAConfig:
         Example:
             # CN app (ECAN_APP_ID=cn), environment=development
             get_latest_json_url()
-            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/dev/latest.json
+            → http://127.0.0.1:8080/latest.json
 
             # INTL app (ECAN_APP_ID=intl), environment=production
             get_latest_json_url()
@@ -190,28 +190,81 @@ class OTAConfig:
         """
         if not self.enabled:
             return ""
+
+        # Development env routes OTA through the local server (see
+        # ``appcast_base`` / ``appcast_base_cos`` in ota_config.yaml).
+        # Both CN and INTL apps share 127.0.0.1:8080 in dev, so the
+        # COS/S3 distinction collapses to a single base URL.
+        local_base = self._local_appcast_base()
+        if local_base:
+            return f"{local_base.rstrip('/')}/latest.json"
+
         return self.get_storage_url("latest.json")
+
+    def _local_appcast_base(self) -> str:
+        """
+        Return the local OTA test server base URL when the active
+        environment points at one, else ``""``.
+
+        Reads ``appcast_base`` (INTL) or ``appcast_base_cos`` (CN) from
+        the current environment block. Only non-empty values count —
+        staging/simulation/production all leave these fields unset
+        (or set them to public S3/COS hosts) and the caller should
+        fall through to ``get_storage_url``.
+
+        Returns:
+            Base URL like ``"http://127.0.0.1:8080"`` or ``""``.
+        """
+        env_config = self._config.get('environments', {}).get(self.environment, {}) or {}
+        if self._is_cn:
+            base = env_config.get('appcast_base_cos') or env_config.get('appcast_base')
+        else:
+            base = env_config.get('appcast_base')
+        if not base:
+            return ""
+        # Heuristic: only treat clearly-local hosts as local. Public
+        # S3/COS URLs in the same field (e.g. staging pointing at the
+        # real bucket) must continue to resolve through ``get_storage_url``
+        # to keep the bucket/region routing logic intact.
+        lowered = base.lower()
+        if lowered.startswith('http://127.0.0.1') or lowered.startswith('http://localhost') \
+                or lowered.startswith('https://127.0.0.1') or lowered.startswith('https://localhost'):
+            return base.rstrip('/')
+        return ""
 
     def get_appcast_url(self, platform: str, arch: Optional[str] = None, language: Optional[str] = None) -> str:
         """
         Get appcast URL for platform and architecture (with CN/INTL support)
-        
+
         CN app uses Tencent Cloud COS, INTL app uses AWS S3.
-        
+
         Args:
             platform: Platform name (macos, windows, linux)
             arch: Architecture (aarch64, amd64), optional
             language: Language code (e.g., 'en-US', 'zh-CN'), optional
-            
+
         Returns:
-            Appcast URL (COS for CN app, S3 for INTL app)
-            
+            Appcast URL (COS for CN app, S3 for INTL app). When the
+            current environment is ``development`` AND
+            ``appcast_base`` (INTL) / ``appcast_base_cos`` (CN) points
+            at a local host (``127.0.0.1`` / ``localhost``), the URL
+            is built off that local base instead of the public bucket.
+            In that local case the ``language`` suffix is dropped —
+            the dev OTA test server serves a single ``appcast-*.xml``
+            per platform/arch (no per-language copies) so a non-empty
+            ``language`` arg must NOT add a ``.zh-CN.xml`` suffix that
+            would 404 on the local server.
+
         Example:
-            # CN app (ECAN_APP_ID=cn)
+            # CN app (ECAN_APP_ID=cn), development env
+            get_appcast_url('macos', 'aarch64')
+            → http://127.0.0.1:8080/appcast-macos-aarch64.xml
+
+            # CN app (ECAN_APP_ID=cn), production env
             get_appcast_url('macos', 'aarch64')
             → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/appcast-macos-aarch64.xml
 
-            # INTL app (ECAN_APP_ID=intl)
+            # INTL app (ECAN_APP_ID=intl), production env
             get_appcast_url('macos', 'aarch64')
             → https://ecan-releases.s3.us-east-1.amazonaws.com/production/channels/stable/appcast-macos-aarch64.xml
 
@@ -221,22 +274,33 @@ class OTAConfig:
         """
         if not self.enabled:
             return ""
-        
-        # Get channel for current environment
-        channel = self.get_channel()
-        
+
         # Build appcast filename with language support
         if arch:
             base_filename = f"appcast-{platform}-{arch}"
         else:
             base_filename = f"appcast-{platform}"
-        
+
         # Add language suffix if not English
         if language and language != 'en-US':
             filename = f"{base_filename}.{language}.xml"
         else:
             filename = f"{base_filename}.xml"
-        
+
+        # Development env may route through the local OTA server
+        # (``appcast_base`` / ``appcast_base_cos`` in ota_config.yaml).
+        # Otherwise fall through to public S3/COS storage.
+        local_base = self._local_appcast_base()
+        if local_base:
+            # Local server serves ONE appcast per platform/arch (no
+            # per-language copies); drop the language suffix so a
+            # caller asking for ``language='zh-CN'`` still resolves
+            # to a file the local server actually has.
+            return f"{local_base.rstrip('/')}/{base_filename}.xml"
+
+        # Get channel for current environment
+        channel = self.get_channel()
+
         # Use storage URL based on app type (CN uses COS, INTL uses S3)
         return self.get_storage_url(f"channels/{channel}/{filename}")
     
