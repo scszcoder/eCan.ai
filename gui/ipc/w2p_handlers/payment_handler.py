@@ -101,6 +101,15 @@ def handle_payment_topup(request: IPCRequest,
             sep = "&" if "?" in url else "?"
             url = f"{url}{sep}amount={amount}"
 
+        # Forward a coupon code so the payment page / create_payment_order can
+        # apply it server-side (the server is authoritative — the client never
+        # computes the discount). Empty/None is omitted.
+        coupon_code = str((params or {}).get("coupon_code") or "").strip()
+        if coupon_code:
+            from urllib.parse import quote as _qc
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}coupon_code={_qc(coupon_code)}"
+
         # Payment-crediting contract (2026-09-02): the payment PHP must call
         # ecbAccountManager create_payment_order (user bearer) BEFORE showing
         # the QR — using the returned orderID as out_trade_no — so the notify

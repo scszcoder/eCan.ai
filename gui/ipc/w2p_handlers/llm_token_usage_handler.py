@@ -335,3 +335,233 @@ def handle_set_token_alarm_levels(request: IPCRequest, params: Optional[Dict[str
         import traceback
         logger.error(traceback.format_exc())
         return create_error_response(request, 'TOKEN_USAGE_ERROR', str(e))
+
+
+# ─── Billing drill-down (2026-09-06): daily → hourly → per-model ──────────────
+# Reads the local token_usage DB. Buckets by the CLIENT's local timezone (the
+# rows store UTC in usage_timestamp), and splits each (vendor, model) group's
+# authoritative stored cost_usd into an input/output share. The split RATIO
+# uses a compact price map — even if a price is stale the group TOTAL is always
+# the stored cost_usd, so only the apportionment shifts, never the billed total.
+# Top-ups are server-side (cloud getBillingHistory); the frontend merges those
+# into the day rows. See docs/BILLING_TOPUP_API_CONTRACT.md.
+
+# Ratio-only per-1K USD prices (input, output). Total cost is authoritative from
+# the DB; this table only decides how a group's total is split in/out.
+_SPLIT_PRICING = {
+    'openai': {
+        'gpt-5': (0.005, 0.015), 'gpt-4.1': (0.002, 0.008), 'gpt-4o': (0.005, 0.015),
+        'gpt-4o-mini': (0.00015, 0.0006), 'gpt-4-turbo': (0.01, 0.03),
+        'gpt-4': (0.03, 0.06), 'gpt-3.5-turbo': (0.0005, 0.0015),
+        'o4-mini': (0.0011, 0.0044), 'o3': (0.002, 0.008),
+        'text-embedding-3-small': (0.00002, 0.0), 'text-embedding-3-large': (0.00013, 0.0),
+    },
+    'anthropic': {
+        'claude-3-opus': (0.015, 0.075), 'claude-3-sonnet': (0.003, 0.015),
+        'claude-3-haiku': (0.00025, 0.00125),
+    },
+    'deepseek': {'deepseek-chat': (0.00014, 0.00028), 'deepseek-coder': (0.00014, 0.00028)},
+    'google': {'gemini-pro': (0.00025, 0.0005), 'gemini-1.5-pro': (0.00125, 0.005)},
+    'default': (0.01, 0.02),
+}
+
+
+def _split_price(vendor, model):
+    """(input_price, output_price) per 1K tokens for the split ratio only."""
+    vmap = _SPLIT_PRICING.get((vendor or '').lower())
+    if isinstance(vmap, dict):
+        ml = (model or '').lower()
+        for key, price in vmap.items():
+            if key in ml:
+                return price
+    return _SPLIT_PRICING['default']
+
+
+def _split_cost(cost_usd, in_tokens, out_tokens, vendor, model):
+    """Apportion an authoritative *cost_usd* into (input_cost, output_cost) so
+    the two always sum back to cost_usd."""
+    pin, pout = _split_price(vendor, model)
+    w_in = (in_tokens / 1000.0) * pin
+    w_out = (out_tokens / 1000.0) * pout
+    denom = w_in + w_out
+    if denom <= 0:
+        tt = (in_tokens + out_tokens) or 1
+        frac_in = in_tokens / tt
+    else:
+        frac_in = w_in / denom
+    in_cost = round(cost_usd * frac_in, 6)
+    out_cost = round(cost_usd - in_cost, 6)
+    return in_cost, out_cost
+
+
+def _tz_window(local_dt, offset_min):
+    """UTC datetime for a local naive datetime given the client's tz offset
+    (minutes east of UTC, i.e. JS -getTimezoneOffset())."""
+    return local_dt - timedelta(minutes=int(offset_min or 0))
+
+
+def _local(ts, offset_min):
+    """Shift a stored UTC timestamp into the client's local wall clock."""
+    return ts + timedelta(minutes=int(offset_min or 0))
+
+
+def _cost_display(cost_usd):
+    """Cost in the app variant's display currency (RMB on CN, else USD)."""
+    return _display_currency_fields(cost_usd).get('cost', round(cost_usd, 4))
+
+
+def _billing_token_service():
+    from app_context import AppContext
+    ec_db_mgr = AppContext.get_ec_db_mgr()
+    if not ec_db_mgr or not hasattr(ec_db_mgr, 'token_usage_service'):
+        return None
+    return ec_db_mgr.token_usage_service
+
+
+@IPCHandlerRegistry.handler('llm.getBillingDaily')
+def handle_get_billing_daily(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Per-day usage totals for a local month.
+
+    Params: { year:int, month:int, tz_offset_minutes:int }
+    Returns: { currency, days:[{date, input_tokens, output_tokens, total_tokens, cost, cost_usd}] }
+    """
+    try:
+        p = params or {}
+        now = datetime.utcnow()
+        year = int(p.get('year') or now.year)
+        month = int(p.get('month') or now.month)
+        off = int(p.get('tz_offset_minutes') or 0)
+
+        svc = _billing_token_service()
+        if not svc:
+            return create_success_response(request, {'currency': _display_currency_fields(0.0)['currency'], 'days': []})
+
+        local_start = datetime(year, month, 1)
+        local_end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
+        rows = svc.get_usage_rows(_tz_window(local_start, off), _tz_window(local_end, off))
+
+        by_day = {}
+        for r in rows:
+            d = _local(r['usage_timestamp'], off).strftime('%Y-%m-%d')
+            b = by_day.setdefault(d, {'date': d, 'input_tokens': 0, 'output_tokens': 0,
+                                      'total_tokens': 0, 'cost_usd': 0.0})
+            b['input_tokens'] += r['input_tokens']
+            b['output_tokens'] += r['output_tokens']
+            b['total_tokens'] += r['total_tokens']
+            b['cost_usd'] += r['cost_usd']
+
+        days = []
+        for d in sorted(by_day):
+            b = by_day[d]
+            b['cost_usd'] = round(b['cost_usd'], 6)
+            b['cost'] = _cost_display(b['cost_usd'])
+            days.append(b)
+        return create_success_response(request, {
+            'currency': _display_currency_fields(0.0)['currency'],
+            'year': year, 'month': month, 'days': days,
+        })
+    except Exception as e:
+        logger.error(f"[llm_token_usage] getBillingDaily error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return create_error_response(request, 'TOKEN_USAGE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('llm.getBillingHourly')
+def handle_get_billing_hourly(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """24 hourly usage totals for a local day (only hours with usage).
+
+    Params: { date:"YYYY-MM-DD", tz_offset_minutes:int }
+    Returns: { currency, date, hours:[{hour, input_tokens, output_tokens, total_tokens, cost, cost_usd}] }
+    """
+    try:
+        p = params or {}
+        off = int(p.get('tz_offset_minutes') or 0)
+        date_str = str(p.get('date') or datetime.utcnow().strftime('%Y-%m-%d'))
+        local_start = datetime.strptime(date_str, '%Y-%m-%d')
+        local_end = local_start + timedelta(days=1)
+
+        svc = _billing_token_service()
+        if not svc:
+            return create_success_response(request, {'currency': _display_currency_fields(0.0)['currency'], 'date': date_str, 'hours': []})
+
+        rows = svc.get_usage_rows(_tz_window(local_start, off), _tz_window(local_end, off))
+        by_hour = {}
+        for r in rows:
+            h = _local(r['usage_timestamp'], off).hour
+            b = by_hour.setdefault(h, {'hour': h, 'input_tokens': 0, 'output_tokens': 0,
+                                       'total_tokens': 0, 'cost_usd': 0.0})
+            b['input_tokens'] += r['input_tokens']
+            b['output_tokens'] += r['output_tokens']
+            b['total_tokens'] += r['total_tokens']
+            b['cost_usd'] += r['cost_usd']
+
+        hours = []
+        for h in sorted(by_hour):
+            b = by_hour[h]
+            b['cost_usd'] = round(b['cost_usd'], 6)
+            b['cost'] = _cost_display(b['cost_usd'])
+            hours.append(b)
+        return create_success_response(request, {
+            'currency': _display_currency_fields(0.0)['currency'],
+            'date': date_str, 'hours': hours,
+        })
+    except Exception as e:
+        logger.error(f"[llm_token_usage] getBillingHourly error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return create_error_response(request, 'TOKEN_USAGE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('llm.getBillingHourModels')
+def handle_get_billing_hour_models(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Per-(vendor, model) rows for one local hour of one local day.
+
+    Params: { date:"YYYY-MM-DD", hour:0..23, tz_offset_minutes:int }
+    Returns: { currency, rows:[{vendor, model, input_tokens, output_tokens,
+                                input_cost, output_cost, total_cost}] }
+    (input_cost/output_cost are the display currency; they sum to total_cost.)
+    """
+    try:
+        p = params or {}
+        off = int(p.get('tz_offset_minutes') or 0)
+        date_str = str(p.get('date') or datetime.utcnow().strftime('%Y-%m-%d'))
+        hour = int(p.get('hour'))
+        local_start = datetime.strptime(date_str, '%Y-%m-%d') + timedelta(hours=hour)
+        local_end = local_start + timedelta(hours=1)
+
+        svc = _billing_token_service()
+        if not svc:
+            return create_success_response(request, {'currency': _display_currency_fields(0.0)['currency'], 'rows': []})
+
+        rows = svc.get_usage_rows(_tz_window(local_start, off), _tz_window(local_end, off))
+        by_model = {}
+        for r in rows:
+            key = (r['vendor'], r['model'])
+            b = by_model.setdefault(key, {'vendor': r['vendor'], 'model': r['model'],
+                                          'input_tokens': 0, 'output_tokens': 0, 'cost_usd': 0.0})
+            b['input_tokens'] += r['input_tokens']
+            b['output_tokens'] += r['output_tokens']
+            b['cost_usd'] += r['cost_usd']
+
+        out_rows = []
+        for b in by_model.values():
+            in_cost_usd, out_cost_usd = _split_cost(
+                b['cost_usd'], b['input_tokens'], b['output_tokens'], b['vendor'], b['model'])
+            out_rows.append({
+                'vendor': b['vendor'], 'model': b['model'],
+                'input_tokens': b['input_tokens'], 'output_tokens': b['output_tokens'],
+                'input_cost': _cost_display(in_cost_usd),
+                'output_cost': _cost_display(out_cost_usd),
+                'total_cost': _cost_display(round(b['cost_usd'], 6)),
+            })
+        out_rows.sort(key=lambda x: x['total_cost'], reverse=True)
+        return create_success_response(request, {
+            'currency': _display_currency_fields(0.0)['currency'],
+            'date': date_str, 'hour': hour, 'rows': out_rows,
+        })
+    except Exception as e:
+        logger.error(f"[llm_token_usage] getBillingHourModels error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return create_error_response(request, 'TOKEN_USAGE_ERROR', str(e))

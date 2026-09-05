@@ -9,6 +9,7 @@ import { getCachedAppConfig, useIsCN } from '../../contexts/AppConfigContext';
 import { isWebPlatform } from '../../config/platform';
 import { eventBus } from '../../utils/eventBus';
 import TokenUsageSection from './TokenUsageSection';
+import BillingDrilldown from './BillingDrilldown';
 import ContactVerification from './ContactVerification';
 
 const { Title, Text } = Typography;
@@ -493,6 +494,9 @@ const Account: React.FC = () => {
 
             {/* Token Usage Analytics - expandable section at the bottom */}
             <TokenUsageSection />
+
+            {/* Billing drill-down: daily → hourly → per-model, with top-ups merged */}
+            <BillingDrilldown />
         </div>
     );
 };

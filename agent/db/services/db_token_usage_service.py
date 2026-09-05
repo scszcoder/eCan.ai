@@ -118,6 +118,53 @@ class DBTokenUsageService(BaseService):
             logger.error(f"[TokenUsageService] Error recording usage: {e}")
             return None
     
+    def get_usage_rows(
+        self,
+        start_utc: datetime,
+        end_utc: datetime,
+        user_email: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Raw usage rows in the half-open UTC window [start_utc, end_utc).
+
+        Returns lightweight dicts (detached from the session) so the caller can
+        bucket by local time and apportion cost. Used by the billing drill-down
+        (daily → hourly → per-model); the window is always bounded to at most a
+        month, so the row count stays modest.
+        """
+        try:
+            with self.session_scope() as session:
+                q = session.query(
+                    TokenUsage.usage_timestamp,
+                    TokenUsage.vendor,
+                    TokenUsage.model,
+                    TokenUsage.input_tokens,
+                    TokenUsage.output_tokens,
+                    TokenUsage.total_tokens,
+                    TokenUsage.cost_usd,
+                ).filter(
+                    and_(
+                        TokenUsage.usage_timestamp >= start_utc,
+                        TokenUsage.usage_timestamp < end_utc,
+                    )
+                )
+                if user_email:
+                    q = q.filter(TokenUsage.user_email == user_email)
+                rows = []
+                for r in q.all():
+                    rows.append({
+                        'usage_timestamp': r.usage_timestamp,
+                        'vendor': r.vendor or '',
+                        'model': r.model or '',
+                        'input_tokens': int(r.input_tokens or 0),
+                        'output_tokens': int(r.output_tokens or 0),
+                        'total_tokens': int(r.total_tokens or 0),
+                        'cost_usd': float(r.cost_usd or 0.0),
+                    })
+                return rows
+        except Exception as e:
+            logger.error(f"[TokenUsageService] Error getting usage rows: {e}")
+            return []
+
     def get_monthly_usage(
         self,
         year: int,

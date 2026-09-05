@@ -2886,6 +2886,34 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'llm.getTokenUsageAlarms' });
     }
 
+    // Billing drill-down (local usage DB). tz_offset_minutes = -getTimezoneOffset()
+    // so day/hour buckets render in the viewer's local time.
+    public async getBillingDaily<T>(year: number, month: number): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'llm.getBillingDaily' },
+            { year, month, tz_offset_minutes: -new Date().getTimezoneOffset() });
+    }
+
+    public async getBillingHourly<T>(date: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'llm.getBillingHourly' },
+            { date, tz_offset_minutes: -new Date().getTimezoneOffset() });
+    }
+
+    public async getBillingHourModels<T>(date: string, hour: number): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'llm.getBillingHourModels' },
+            { date, hour, tz_offset_minutes: -new Date().getTimezoneOffset() });
+    }
+
+    // Cloud billing history (top-ups/charges). Server-authoritative; may be
+    // absent until the backend ships getBillingHistory — callers degrade.
+    public async getBillingHistory<T>(startDate: string, endDate: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'billing.getHistory' }, { start_date: startDate, end_date: endDate });
+    }
+
+    // Coupon preview for top-up. Advisory; the server re-validates at order time.
+    public async validateCoupon<T>(code: string, amount: number, currency: string, purpose = 'topup'): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'billing.validateCoupon' }, { code, amount, currency, purpose });
+    }
+
     public async setTokenAlarmLevels<T>(daily_token_limit: number, monthly_token_limit: number): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'llm.setTokenAlarmLevels' }, { daily_token_limit, monthly_token_limit });
     }
