@@ -29,6 +29,9 @@ from browser_use import BrowserSession
 from browser_use.agent.views import ActionResult
 
 from utils.logger_helper import logger_helper as logger
+from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.sidebar_preview_js import (
+    ROW_PREVIEW_FALLBACK_JS as _ROW_PREVIEW_FALLBACK_JS,
+)
 
 from agent.ec_skills.browser_use_extension.extension_tools_service import (
     _LIVE_CHAT_SEND_CDP_EVALUATE_TIMEOUT_S,
@@ -520,6 +523,7 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 
 _FEIGE_SEND_MESSAGE_JS = r"""
 (async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText, bypassOlderBubbleMatch, allowNoMsgIdSend, allowSimilarSource) {
+""" + _ROW_PREVIEW_FALLBACK_JS + r"""
   function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
   var __feigeSendStartedAt = Date.now();
   var __feigeSendPhase = 'start';
@@ -905,7 +909,11 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   function readRowPreview(row) {
     var preview = row && row.querySelector ? row.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span') : null;
     if (!preview && row && row.querySelector) preview = row.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde');
-    return preview ? (preview.textContent || '').trim() : '';
+    var pv = preview ? (preview.textContent || '').trim() : '';
+    if (pv) return pv;
+    // ws189: selector drift on the rebuilt frame — structural fallback (shared
+    // with the backstop scan / card resolver in sidebar_preview_js.py).
+    return __ecanRowPreviewFallback(row, readRowName(row));
   }
   function readRowMsgId(row) {
     var idEl = row && row.querySelector ? row.querySelector('[data-btm]') : null;
