@@ -13,6 +13,15 @@ Usage
         --version 0.7.0-lq_dev_multi-ca3fb6c \
         --expected windows/amd64/eCan-...Setup.exe ...
 
+    # User-prefixed preview build:
+    python3 build_system/scripts/resolve_s3_sizes.py \
+        --bucket ecan-releases \
+        --region us-east-1 \
+        --env-prefix test \
+        --version 26.05.04.09.11 \
+        --user-prefix songc \
+        --expected windows/amd64/eCan-...Setup.exe ...
+
 Exit codes: same as the COS variant.
 """
 
@@ -66,16 +75,29 @@ def main() -> int:
     parser.add_argument("--region", required=True)
     parser.add_argument("--env-prefix", required=True)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--user-prefix", default="",
+                        help="Lowercase user-prefix segment for per-user "
+                             "preview builds (e.g. 'songc' produces "
+                             "'songc_v<version>'). Must match what "
+                             "upload_to_s3.py::S3Uploader.release_dir "
+                             "wrote, otherwise HeadObject 404s. "
+                             "Default '' = regular semver/branch build.")
     parser.add_argument("--expected", nargs="+", default=[])
     parser.add_argument("--out", default="-")
     args = parser.parse_args()
 
     client = _build_client(args.region)
+    # Mirrors upload_to_s3.py::S3Uploader.release_dir — both sides must
+    # agree on the on-bucket directory name or HeadObject will 404.
+    release_dir = (
+        f"{args.user_prefix}_v{args.version}"
+        if args.user_prefix else f"v{args.version}"
+    )
     resolved = 0
     lines: list[str] = []
     for rel in args.expected:
         rel = rel.lstrip("/")
-        key = f"{args.env_prefix}/releases/v{args.version}/{rel}"
+        key = f"{args.env_prefix}/releases/{release_dir}/{rel}"
         size = _head_object(client, args.bucket, key)
         if size is None:
             continue

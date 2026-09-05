@@ -142,6 +142,140 @@ def test_classify_linux(filename, arch_label, arch_path, pkg_type):
 
 
 # ---------------------------------------------------------------------------
+# release_dir_for — mirrors upload_to_*.py's release_dir contract
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "version,user_prefix,expected",
+    [
+        ("1.0.0",        "",       "v1.0.0"),
+        ("0.7.0-lq_dev", "",       "v0.7.0-lq_dev"),
+        ("1.0.0",        "songc",  "songc_v1.0.0"),
+        ("26.05.04.09",  "SongC",  "songc_v26.05.04.09"),
+        ("26.05.04.09",  " songc ", "songc_v26.05.04.09"),  # whitespace stripped
+        ("",             "songc",  ""),                    # empty version passthrough
+        ("v1.0.0",       "",       "v1.0.0"),               # already in dir form
+        ("songc_v1.0.0", "",       "songc_v1.0.0"),         # already in dir form
+    ],
+)
+def test_release_dir_for(version, user_prefix, expected):
+    renderer = _load_renderer()
+    assert renderer.release_dir_for(version, user_prefix) == expected
+
+
+def test_build_windows_rows_uses_user_prefixed_release_dir(tmp_path):
+    """Regression guard: when the build was a per-user preview build
+    (e.g. tag ``songc_v26.05.04.09.11``), upload_to_s3.py wrote the
+    artifacts under ``releases/songc_v26.05.04.09.11/...``. The
+    renderer must mirror that path so the link resolves — a previous
+    version hard-coded ``v{version}`` and produced 404s for every row.
+    """
+    renderer = _load_renderer()
+    remote_sizes = {
+        "test/releases/songc_v26.05.04.09.11/windows/amd64/"
+        "eCan-26.05.04.09.11-windows-amd64-Setup.exe": 145_823_441,
+    }
+    rows = renderer.build_windows_rows(
+        version="26.05.04.09.11",
+        release_dir="songc_v26.05.04.09.11",
+        bucket_url_prefix="https://ecan-releases.s3.us-east-1.amazonaws.com",
+        env_prefix="test",
+        windows_artifacts_dir=tmp_path,  # empty — direct-upload path
+        windows_build_result="success",
+        windows_direct_upload=True,
+        app_name="eCan",
+        remote_sizes=remote_sizes,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    # URL must contain the user-prefixed release directory, NOT v<version>.
+    assert "/releases/songc_v26.05.04.09.11/" in row["url"]
+    assert "/releases/v26.05.04.09.11/" not in row["url"]
+    # And the size lookup must find the matching remote entry by that
+    # exact key — if the renderer had built the wrong key, size_for
+    # would fall through to "missing".
+    assert row["size_bytes"] == 145_823_441
+    assert row["source"] == "remote"
+
+
+def test_build_macos_rows_uses_user_prefixed_release_dir(tmp_path):
+    """Same regression guard as the Windows test, applied to macOS rows."""
+    renderer = _load_renderer()
+    rows = renderer.build_macos_rows(
+        version="26.05.04.09.11",
+        release_dir="songc_v26.05.04.09.11",
+        bucket_url_prefix="https://x.s3.us-east-1.amazonaws.com",
+        env_prefix="test",
+        macos_artifacts_dir=tmp_path,
+        macos_build_result="success",
+        macos_built_amd64=True,
+        macos_built_aarch64=False,
+        app_name="eCan",
+        remote_sizes={
+            "test/releases/songc_v26.05.04.09.11/macos/amd64/"
+            "eCan-26.05.04.09.11-macos-amd64.pkg": 52_345_678,
+        },
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert "/releases/songc_v26.05.04.09.11/macos/amd64/" in row["url"]
+    assert row["size_bytes"] == 52_345_678
+    assert row["source"] == "remote"
+
+
+def test_render_cli_honors_user_prefix(tmp_path, monkeypatch):
+    """End-to-end: when USER_PREFIX is set in the env, the Markdown
+    summary must contain ``songc_v<version>`` URLs (not
+    ``v<version>``). Mirrors what the workflow will see after the
+    parent ``generate-download-links`` job forwards ``user-prefix``.
+    """
+    monkeypatch.setenv("VERSION", "26.05.04.09.11")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("CHANNEL", "stable")
+    monkeypatch.setenv("BUCKET_NAME", "ecan-releases")
+    monkeypatch.setenv("BUCKET_REGION", "us-east-1")
+    monkeypatch.setenv("OTA_PREFIX", "test")
+    monkeypatch.setenv("USER_PREFIX", "songc")
+    monkeypatch.setenv("WINDOWS_BUILD_RESULT", "success")
+    monkeypatch.setenv("MACOS_BUILD_RESULT", "skipped")
+    monkeypatch.setenv("LINUX_RESULT", "skipped")
+    monkeypatch.setenv("WINDOWS_DIRECT_UPLOAD", "true")
+    monkeypatch.setenv("APP_NAME", "eCan")
+
+    win = tmp_path / "windows-artifacts"
+    win.mkdir()
+    (win / "eCan-26.05.04.09.11-windows-amd64-Setup.exe").write_bytes(b"")
+    sizes = tmp_path / "sizes.env"
+    sizes.write_text(
+        "test/releases/songc_v26.05.04.09.11/windows/amd64/"
+        "eCan-26.05.04.09.11-windows-amd64-Setup.exe=145823441\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("S3_SIZES_FILE", str(sizes))
+
+    summary = tmp_path / "summary.md"
+    text = tmp_path / "text.txt"
+    rc = subprocess.run(
+        [
+            sys.executable, str(RENDERER),
+            "--scheme", "s3",
+            "--summary-out", str(summary),
+            "--text-out", str(text),
+            "--url-pattern", "https://{bucket}.s3.{region}.amazonaws.com/{env}/releases/v{ver}/{platform}/{arch}/{file}",
+            "--workflow-name", "test",
+        ],
+        cwd=tmp_path,
+        capture_output=True, text=True,
+    ).returncode
+    assert rc == 0
+
+    md = summary.read_text()
+    assert "songc_v26.05.04.09.11" in md
+    assert "/releases/v26.05.04.09.11/" not in md  # must NOT use bare v{version}
+    assert "139.1 MB" in md
+
+
+# ---------------------------------------------------------------------------
 # build_windows_rows — the user-visible regression we set out to fix
 # ---------------------------------------------------------------------------
 
@@ -158,6 +292,7 @@ def test_build_windows_rows_uses_remote_size_for_direct_upload(tmp_path):
     }
     rows = renderer.build_windows_rows(
         version="0.7.0",
+        release_dir="v0.7.0",
         bucket_url_prefix="https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com",
         env_prefix="test",
         windows_artifacts_dir=tmp_path,  # empty
@@ -188,6 +323,7 @@ def test_build_windows_rows_prefers_local_when_artifact_present(tmp_path):
     }
     rows = renderer.build_windows_rows(
         version="0.7.0",
+        release_dir="v0.7.0",
         bucket_url_prefix="https://x.cos.ap-shanghai.myqcloud.com",
         env_prefix="test",
         windows_artifacts_dir=tmp_path,
@@ -209,6 +345,7 @@ def test_build_windows_rows_skipped_build_shows_gate_label(tmp_path):
     renderer = _load_renderer()
     rows = renderer.build_windows_rows(
         version="0.7.0",
+        release_dir="v0.7.0",
         bucket_url_prefix="https://x.cos.ap-shanghai.myqcloud.com",
         env_prefix="test",
         windows_artifacts_dir=tmp_path,
@@ -235,6 +372,7 @@ def test_build_macos_rows_skipped_arch_marks_placeholder(tmp_path):
     renderer = _load_renderer()
     rows = renderer.build_macos_rows(
         version="0.7.0",
+        release_dir="v0.7.0",
         bucket_url_prefix="https://x.cos.ap-shanghai.myqcloud.com",
         env_prefix="test",
         macos_artifacts_dir=tmp_path,
@@ -254,6 +392,7 @@ def test_build_macos_rows_uses_remote_sizes_when_no_local_artifact(tmp_path):
     renderer = _load_renderer()
     rows = renderer.build_macos_rows(
         version="0.7.0",
+        release_dir="v0.7.0",
         bucket_url_prefix="https://x.cos.ap-shanghai.myqcloud.com",
         env_prefix="test",
         macos_artifacts_dir=tmp_path,

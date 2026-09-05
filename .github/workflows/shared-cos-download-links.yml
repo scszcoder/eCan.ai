@@ -51,6 +51,17 @@ on:
         description: 'Release channel (dev/beta/stable)'
         required: true
         type: string
+      user-prefix:
+        description: >-
+          Optional lowercase user prefix for per-user preview builds
+          (e.g. 'songc' produces `songc_v<version>` COS prefixes). When
+          non-empty, the rendered URLs and COS size probes target
+          `<prefix>/releases/<user_prefix>_v<version>/...` to mirror
+          where `upload_to_cos.py` actually wrote the artifacts. Must
+          be empty for normal semver / branch builds.
+        required: false
+        type: string
+        default: ''
       windows-build-result:
         description: 'Result of Windows build job (success/skipped/failure)'
         required: true
@@ -104,8 +115,7 @@ jobs:
       VERSION:                 ${{ inputs.version }}
       ENVIRONMENT:             ${{ inputs.environment }}
       CHANNEL:                 ${{ inputs.channel }}
-      BUCKET_NAME:             ${{ env.OTA_BUCKET }}
-      BUCKET_REGION:           ${{ env.OTA_REGION }}
+      USER_PREFIX:             ${{ inputs.user-prefix }}
       APP_NAME:                ${{ inputs.app-name }}
       WINDOWS_BUILD_RESULT:    ${{ inputs.windows-build-result }}
       MACOS_BUILD_RESULT:      ${{ inputs.macos-build-result }}
@@ -135,9 +145,22 @@ jobs:
         run: |
           # Read the bucket / region / prefix from ota/config/ota_config.yaml
           # — same source upload_to_cos.py reads — and export to env.
+          #
+          # Render-side variables (BUCKET_NAME / BUCKET_REGION) are the
+          # ones render_download_links.py reads directly, so we re-export
+          # them here too. They cannot live in jobs.<id>.env: because
+          # GHA's schema lint resolves `env.X` against the static
+          # job-env dict before any step runs, so a `BUCKET_NAME:
+          # ${{ env.OTA_BUCKET }}` line there would always trip
+          # "Unrecognized named-value: 'env'". Teeing the aliases into
+          # $GITHUB_ENV lets the step-scoped env (and the Python
+          # script) see them, and keeps `ota_config.yaml` as the
+          # single source of truth on both sides.
           python3 build_system/scripts/resolve_ota_bucket.py \
             --app cn \
             --env "${ENVIRONMENT}" >> "$GITHUB_ENV"
+          echo "BUCKET_NAME=${OTA_BUCKET}" >> "$GITHUB_ENV"
+          echo "BUCKET_REGION=${OTA_REGION}" >> "$GITHUB_ENV"
       - name: Download Windows artifacts
         if: >-
           inputs.windows-build-result == 'success' &&
@@ -254,6 +277,7 @@ jobs:
             --region   "${OTA_REGION}" \
             --env-prefix "${COS_PREFIX}" \
             --version  "${VERSION}" \
+            --user-prefix "${USER_PREFIX}" \
             --expected ${EXPECTED} \
             --out      cos-sizes.env \
           || echo "[WARN] COS size resolution failed; summary will show 'missing' for direct-uploaded rows." >&2

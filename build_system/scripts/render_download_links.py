@@ -11,6 +11,10 @@ Inputs (env vars):
     BUCKET_NAME              bucket name (with APPID for COS, plain name for S3)
     BUCKET_REGION            e.g. ap-shanghai / us-east-1
     OTA_PREFIX               env-level prefix (dev/test/staging/production/…)
+    USER_PREFIX              optional lowercase per-user prefix (e.g. 'songc');
+                            when set, URLs target `<prefix>_v<version>/...`
+                            to match where `upload_to_*.py` actually wrote.
+                            Empty for normal semver / branch builds.
     BASE_URL                 public URL prefix, e.g. https://ecan-….myqcloud.com
                             or https://ecan-releases.s3.us-east-1.amazonaws.com.
                             If unset, computed from BUCKET_NAME + BUCKET_REGION.
@@ -45,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -52,6 +57,39 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Size helpers
 # ---------------------------------------------------------------------------
+
+# Matches "<prefix>_v<version>" where prefix is 1-32 chars starting with
+# a letter. Same shape as `upload_to_s3.py::S3Uploader.release_dir` and
+# the on-bucket convention documented in ota/docs/multi_version_picker.md
+# — kept in sync so the render side never picks a different directory
+# than the upload side wrote to.
+_PREFIXED_DIR_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]{0,31})_v(\d.*)$")
+
+
+def release_dir_for(version: str, user_prefix: str = "") -> str:
+    """Return the on-bucket directory name for this release.
+
+    Mirrors `build_system/scripts/generate_appcast.py::_to_release_dir`
+    (and, transitively, the write-side logic in upload_to_s3.py /
+    upload_to_cos.py) so the rendered URLs and the keys the resolve_*.py
+    scripts probe match where the upload script actually wrote.
+
+    `version` is expected to be the bare ``X.Y.Z[-suffix]`` shape coming
+    out of validate-tag (no leading 'v' and no user-prefix segment).
+    When `version` is already in directory form (``v1.0.0`` or
+    ``songc_v1.0.0``), it is returned verbatim — same idempotency as
+    the appcast helper, so re-feeding the dir form back through this
+    function can't drift.
+    """
+    if not version:
+        return version
+    user_prefix = (user_prefix or "").strip().lower()
+    if version.startswith("v") or _PREFIXED_DIR_RE.match(version):
+        return version
+    if user_prefix:
+        return f"{user_prefix}_v{version}"
+    return f"v{version}"
+
 
 def humanize_size(num_bytes: int) -> str:
     """Render a byte count as a human-readable string.
@@ -285,6 +323,7 @@ def render_footer(url_pattern: str) -> list[str]:
 def build_windows_rows(
     *,
     version: str,
+    release_dir: str,
     bucket_url_prefix: str,
     env_prefix: str,
     windows_artifacts_dir: Path,
@@ -311,7 +350,7 @@ def build_windows_rows(
             "filename": f"{app_name}-{version}-windows-amd64-Setup.exe",
             "arch_label": "x86_64",
             "size_bytes": None,
-            "url": f"{bucket_url_prefix}/{env_prefix}/releases/v{version}/windows/amd64/{app_name}-{version}-windows-amd64-Setup.exe",
+            "url": f"{bucket_url_prefix}/{env_prefix}/releases/{release_dir}/windows/amd64/{app_name}-{version}-windows-amd64-Setup.exe",
             "gate_label": gate_label,
             "source": "missing",
         }]
@@ -331,7 +370,7 @@ def build_windows_rows(
     for path in candidates:
         filename = path.name if isinstance(path, Path) else str(path)
         local_path = local_paths.get(filename) if local_paths else None
-        key = f"{env_prefix}/releases/v{version}/windows/amd64/{filename}"
+        key = f"{env_prefix}/releases/{release_dir}/windows/amd64/{filename}"
         size, source = size_for(local_path, key, remote_sizes)
         rows.append({
             "filename": filename,
@@ -347,6 +386,7 @@ def build_windows_rows(
 def build_macos_rows(
     *,
     version: str,
+    release_dir: str,
     bucket_url_prefix: str,
     env_prefix: str,
     macos_artifacts_dir: Path,
@@ -403,7 +443,7 @@ def build_macos_rows(
             continue
         seen.add(filename)
         local_path = local_paths.get(filename)
-        key = f"{env_prefix}/releases/v{version}/macos/{arch_path}/{filename}"
+        key = f"{env_prefix}/releases/{release_dir}/macos/{arch_path}/{filename}"
         size, source = size_for(local_path, key, remote_sizes)
         arch_label, _ = classify_macos(filename)
         rows.append({
@@ -430,6 +470,7 @@ def build_macos_rows(
 def build_linux_rows(
     *,
     version: str,
+    release_dir: str,
     bucket_url_prefix: str,
     env_prefix: str,
     linux_artifacts_dir: Path,
@@ -446,7 +487,7 @@ def build_linux_rows(
             "arch_label": "x86_64",
             "pkg_type": "DEB Package",
             "size_bytes": None,
-            "url": f"{bucket_url_prefix}/{env_prefix}/releases/v{version}/linux/amd64/{app_name}-{version}-linux-amd64.deb",
+            "url": f"{bucket_url_prefix}/{env_prefix}/releases/{release_dir}/linux/amd64/{app_name}-{version}-linux-amd64.deb",
             "gate_label": gate_label,
             "source": "missing",
         }]
@@ -454,7 +495,7 @@ def build_linux_rows(
     local_paths = {p.name: p for p in discover_files(linux_artifacts_dir, (".AppImage", ".deb", ".rpm", ".tar.gz"))}
     for filename, local_path in local_paths.items():
         arch_label, arch_path, pkg_type = classify_linux(filename)
-        key = f"{env_prefix}/releases/v{version}/linux/{arch_path}/{filename}"
+        key = f"{env_prefix}/releases/{release_dir}/linux/{arch_path}/{filename}"
         size, source = size_for(local_path, key, remote_sizes)
         rows.append({
             "filename": filename,
@@ -581,6 +622,8 @@ def main() -> int:
     env_prefix = os.environ.get("OTA_PREFIX") or environment
     base_url_override = os.environ.get("BASE_URL", "")
     base_url = _resolve_base_url(bucket, region, base_url_override, args.scheme)
+    user_prefix = os.environ.get("USER_PREFIX", "")
+    release_dir = release_dir_for(version, user_prefix)
 
     windows_build_result = os.environ.get("WINDOWS_BUILD_RESULT", "skipped")
     macos_build_result = os.environ.get("MACOS_BUILD_RESULT", "skipped")
@@ -600,6 +643,7 @@ def main() -> int:
 
     windows_rows = build_windows_rows(
         version=version,
+        release_dir=release_dir,
         bucket_url_prefix=base_url,
         env_prefix=env_prefix,
         windows_artifacts_dir=Path("windows-artifacts"),
@@ -610,6 +654,7 @@ def main() -> int:
     )
     macos_rows = build_macos_rows(
         version=version,
+        release_dir=release_dir,
         bucket_url_prefix=base_url,
         env_prefix=env_prefix,
         macos_artifacts_dir=Path("macos-artifacts"),
@@ -621,6 +666,7 @@ def main() -> int:
     )
     linux_rows = build_linux_rows(
         version=version,
+        release_dir=release_dir,
         bucket_url_prefix=base_url,
         env_prefix=env_prefix,
         linux_artifacts_dir=Path("linux-artifacts"),

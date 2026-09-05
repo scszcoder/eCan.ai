@@ -3393,6 +3393,7 @@ jobs:
       version:        ${{ needs.validate-tag.outputs.version }}
       environment:    ${{ needs.validate-tag.outputs.environment }}
       channel:        ${{ needs.validate-tag.outputs.channel }}
+      user-prefix:    ${{ needs.validate-tag.outputs.user-prefix }}
       windows-build-result:  ${{ needs.build-windows.result }}
       windows-direct-upload: ${{ needs.build-windows.outputs.cos-uploaded == 'true' }}
       app-name:              eCan.cn

@@ -115,6 +115,12 @@ def main() -> int:
     parser.add_argument("--env-prefix", required=True,
                         help="COS prefix (dev/test/staging/production/...).")
     parser.add_argument("--version", required=True)
+    parser.add_argument("--user-prefix", default="",
+                        help="Lowercase user-prefix segment for per-user "
+                             "preview builds (e.g. 'songc' produces "
+                             "'songc_v<version>'). Must match what "
+                             "upload_to_cos.py wrote, otherwise HeadObject "
+                             "404s. Default '' = regular semver/branch build.")
     parser.add_argument("--expected", nargs="+", default=[],
                         help="Relative object keys (without the prefix / "
                              "version part), e.g. "
@@ -124,6 +130,12 @@ def main() -> int:
                              "Default '-' = stdout.")
     args = parser.parse_args()
 
+    # Mirrors upload_to_cos.py — both sides must agree on the on-bucket
+    # directory name or HeadObject will 404.
+    release_dir = (
+        f"{args.user_prefix}_v{args.version}"
+        if args.user_prefix else f"v{args.version}"
+    )
     client = _build_client(args.region)
     resolved = 0
     failures = 0
@@ -131,9 +143,9 @@ def main() -> int:
 
     for rel in args.expected:
         # rel is "platform/arch/filename"; prepend the env prefix and
-        # the version segment to form the full COS key.
+        # the release directory to form the full COS key.
         rel = rel.lstrip("/")
-        key = f"{args.env_prefix}/releases/v{args.version}/{rel}"
+        key = f"{args.env_prefix}/releases/{release_dir}/{rel}"
         size = _head_object(client, args.bucket, key)
         if size is None:
             failures += 1
