@@ -50,6 +50,25 @@ on:
         description: 'Result of Windows build job (success/skipped/failure)'
         required: true
         type: string
+      windows-direct-upload:
+        description: >-
+          When 'true', the Windows build job uploaded to S3 directly
+          (the direct-upload fast path is in effect). In that case no
+          `*-installer` artifact is in GHA artifact store; download-links
+          synthesises the expected installer filename from `version` /
+          `app-name` and lists the S3 URL without a size column.
+        required: false
+        type: boolean
+        default: false
+      app-name:
+        description: >-
+          The DIST_APP / installer prefix (e.g. 'eCan' for intl,
+          'eCan.cn' for CN). Used to construct the installer filename
+          when the build job took the direct-upload fast path and the
+          `*-installer` artifact is absent.
+        required: false
+        type: string
+        default: 'eCan'
       macos-build-result:
         description: 'Result of macOS build job (success/skipped/failure)'
         required: true
@@ -115,6 +134,38 @@ jobs:
           name: eCan-windows-amd64-${{ inputs.version }}-installer
           path: windows-artifacts
         continue-on-error: true
+
+      # Direct-upload fast path: when the build job uploaded to S3 directly
+      # (no `*-installer` artifact in GHA artifact store), fall back to
+      # synthesising the expected installer filename from `version` +
+      # `app-name`. The bucket URL is still constructed from the same
+      # `{prefix}/releases/v{ver}/...` template the upload script uses,
+      # so the resulting link is byte-identical to what the
+      # GHA-artifact-store path would have produced. We only lose the
+      # file-size column (which is not authoritative anyway — the S3
+      # object metadata is the source of truth).
+      - name: Synthesize Windows installer filename (direct-upload fallback)
+        if: >-
+          inputs.windows-build-result == 'success' &&
+          inputs.windows-direct-upload == true
+        shell: bash
+        env:
+          VERSION:  ${{ inputs.version }}
+          APP_NAME: ${{ inputs.app-name }}
+        run: |
+          mkdir -p windows-artifacts
+          # build.py's installer filename template is
+          # `<APP_NAME>-{version}-windows-amd64-Setup.exe` (see
+          # build_system/ecan_build.py:installer_filename). Touch an
+          # empty stub file with that name so the downstream
+          # `for file in windows-artifacts/*.exe` loop finds it; the
+          # Size column will be empty because we don't have the actual
+          # file, which the loop already handles (`du -sh` returns
+          # `0K` for an empty file).
+          installer="${APP_NAME}-${VERSION}-windows-amd64-Setup.exe"
+          : > "windows-artifacts/${installer}"
+          echo "[INFO] Synthesized direct-upload fallback: ${installer}"
+
 
       - name: Download macOS amd64 artifacts
         if: inputs.macos-build-result == 'success' && env.AWS_ACCESS_KEY_ID != 'NOT_SET' && inputs.macos-built-amd64 == true
@@ -195,7 +246,15 @@ jobs:
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
-                
+                # `du -sh` reports `0K` for an empty stub file (which is
+                # what the direct-upload-fallback step above synthesises
+                # when the build job skipped the upload-artifact path).
+                # Show "unknown" instead — the S3 object metadata is the
+                # authoritative size, not the local filesystem.
+                if [ "$size" = "0" ] || [ "$size" = "0K" ] || [ "$size" = "0B" ]; then
+                    size="unknown (direct-upload — see S3 object metadata)"
+                fi
+
                 # Standard S3 URL with environment prefix
                 standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/windows/amd64/${filename}"
                 

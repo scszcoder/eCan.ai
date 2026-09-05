@@ -1321,6 +1321,22 @@ jobs:
       - name: Prepare artifacts
         shell: pwsh
         run: |
+          # Wipe artifacts/ first. Self-hosted runners keep a persistent
+          # workspace across runs (actions/checkout reuses `C:\actions-runner\_work\...`
+          # without clearing it), so files from a previous build — including
+          # installers for OTHER versions — would otherwise survive into
+          # upload_to_cos.py's glob and get uploaded to the bucket under the
+          # wrong version's prefix. Symptom: 4 stale .exe files (a766bad,
+          # d1f5704, ddf0db7, d671373) all uploaded to
+          # test/releases/v0.7.0-lq_dev_multi-final-a766bad/... corrupting the
+          # appcast URL list with dead-but-reachable installers.
+          #
+          # Use -Recurse -Force to catch nested files in case a previous
+          # build left a subdirectory here too. -ErrorAction SilentlyContinue
+          # swallows "file not found" if artifacts/ is already empty.
+          if (Test-Path artifacts) {
+              Remove-Item -Path artifacts\* -Recurse -Force -ErrorAction SilentlyContinue
+          }
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           # The Windows installer is produced by build.py at
           # dist/<DIST_APP>-{version}-windows-amd64-Setup.exe
@@ -1344,6 +1360,34 @@ jobs:
               throw "Expected Windows installer not found: $installer - build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build Windows installer' step above before retrying."
           }
           Copy-Item $installer artifacts\
+          # The same build also produces two companion files in dist/ that
+          # the OTA pipeline and the appcast generator both rely on:
+          #   <installer>.sha256  — integrity digest; upload_to_cos.py
+          #                           uploads this alongside the .exe, and
+          #                           downstream consumers use it to detect
+          #                           partial downloads.
+          #   <installer>.sig     — ed25519 OTA signature consumed by the
+          #                           appcast generator (`generate_appcast.py`
+          #                           reads `<cos-prefix>/releases/v.../
+          #                           <file>.sig`). Without it the appcast
+          #                           entry is written without an `edSignature`
+          #                           attribute, which the Sparkle-based client
+          #                           rejects on update — silently leaving
+          #                           installed users on the previous release.
+          # Both files are produced next to the installer by build.py's
+          # OTA signing step (see [OTA-SIGN] log lines in Build Windows
+          # amd64.txt); we just need to bring them along. They're optional
+          # in the sense that an upstream signing failure shouldn't fail
+          # the upload, but if they exist on disk the upload MUST include
+          # them — silently dropping them leaves the bucket in a half-
+          # populated state where the .exe is reachable but the client
+          # can't verify it.
+          foreach ($ext in @('.sha256', '.sig')) {
+              $companion = "dist\${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe$ext"
+              if (Test-Path $companion) {
+                  Copy-Item $companion artifacts\
+              }
+          }
 
       - name: Upload Windows installer to COS (direct, fast path)
         id: upload-windows-cos
@@ -1999,8 +2043,8 @@ jobs:
           overwrite: true
       - name: Upload macOS amd64 installer artifact — attempt 2
         if: >-
-          steps.upload_macos_amd64_cos.outcome == 'failure' &&
-          ${{ github.event.inputs.runner_group == 'github-hosted' }}
+          ${{ steps.upload_macos_amd64_cos.outcome == 'failure' &&
+          github.event.inputs.runner_group == 'github-hosted' }}
         id: upload_macos_amd64_cos_2
         uses: actions/upload-artifact@v6
         continue-on-error: true
@@ -2019,9 +2063,9 @@ jobs:
         # chain stop early when attempt 2 succeeds — otherwise the final
         # step would re-upload a successful artifact.
         if: >-
-          steps.upload_macos_amd64_cos.outcome == 'failure' &&
+          ${{ steps.upload_macos_amd64_cos.outcome == 'failure' &&
           steps.upload_macos_amd64_cos_2.outcome == 'failure' &&
-          ${{ github.event.inputs.runner_group == 'github-hosted' }}
+          github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
         with:
           name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-installer
@@ -3338,6 +3382,8 @@ jobs:
       environment:    ${{ needs.validate-tag.outputs.environment }}
       channel:        ${{ needs.validate-tag.outputs.channel }}
       windows-build-result:  ${{ needs.build-windows.result }}
+      windows-direct-upload: ${{ needs.build-windows.outputs.cos-uploaded == 'true' }}
+      app-name:              eCan.cn
       macos-build-result:    ${{ (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success') && 'success' || 'failure' }}
       linux-result:          ${{ needs.build-linux.result }}
       macos-built-amd64:     ${{ needs.build-macos-amd64.result == 'success' }}

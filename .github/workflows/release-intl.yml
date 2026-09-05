@@ -946,6 +946,16 @@ jobs:
       - name: Prepare artifacts
         shell: pwsh
         run: |
+          # Wipe artifacts/ first. Self-hosted runners keep a persistent
+          # workspace across runs, so files from a previous build — including
+          # installers for OTHER versions — would otherwise survive into
+          # upload_to_s3.py's glob and get uploaded to the bucket under the
+          # wrong version's prefix. Use -Recurse -Force to catch any nested
+          # leftovers; -ErrorAction SilentlyContinue swallows "file not
+          # found" if artifacts/ is already empty.
+          if (Test-Path artifacts) {
+              Remove-Item -Path artifacts\* -Recurse -Force -ErrorAction SilentlyContinue
+          }
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           # The Windows installer is produced by build.py at
           # dist/<DIST_APP>-{version}-windows-amd64-Setup.exe
@@ -969,6 +979,21 @@ jobs:
               throw "Expected Windows installer not found: $installer — build.py prod did not produce an installer. The build pipeline is broken; investigate the 'Build Windows installer' step above before retrying."
           }
           Copy-Item $installer artifacts\
+          # Companion .sig (OTA ed25519 signature) and .sha256 (integrity
+          # digest) live next to the installer in dist/. Upload_to_s3.py
+          # uploads them alongside the .exe, and generate_appcast.py
+          # reads `<cos-prefix>/releases/.../Setup.exe.sig` from the bucket
+          # to populate the Sparkle `<enclosure edSignature="..." />`
+          # attribute. Without the .sig the appcast entry is written
+          # without that attribute and Sparkle-based clients reject the
+          # update — silently leaving installed users on the previous
+          # release even though a new build was published.
+          foreach ($ext in @('.sha256', '.sig')) {
+              $companion = "dist\${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe$ext"
+              if (Test-Path $companion) {
+                  Copy-Item $companion artifacts\
+              }
+          }
 
       - name: Upload Windows installer to S3 (direct, fast path)
         id: upload-windows-s3
@@ -1371,8 +1396,8 @@ jobs:
           overwrite: true
       - name: Upload macOS amd64 installer artifact — attempt 2
         if: >-
-          steps.upload_macos_amd64_s3.outcome == 'failure' &&
-          ${{ github.event.inputs.runner_group == 'github-hosted' }}
+          ${{ steps.upload_macos_amd64_s3.outcome == 'failure' &&
+          github.event.inputs.runner_group == 'github-hosted' }}
         id: upload_macos_amd64_s3_2
         uses: actions/upload-artifact@v6
         continue-on-error: true
@@ -1391,9 +1416,9 @@ jobs:
         # chain stop early when attempt 2 succeeds — otherwise the final
         # step would re-upload a successful artifact.
         if: >-
-          steps.upload_macos_amd64_s3.outcome == 'failure' &&
+          ${{ steps.upload_macos_amd64_s3.outcome == 'failure' &&
           steps.upload_macos_amd64_s3_2.outcome == 'failure' &&
-          ${{ github.event.inputs.runner_group == 'github-hosted' }}
+          github.event.inputs.runner_group == 'github-hosted' }}
         uses: actions/upload-artifact@v6
         with:
           name: eCan-macos-amd64-${{ needs.validate-tag.outputs.version }}-installer
@@ -2222,6 +2247,8 @@ jobs:
       environment:    ${{ needs.validate-tag.outputs.environment }}
       channel:        ${{ needs.validate-tag.outputs.channel }}
       windows-build-result: ${{ needs.build-windows.result }}
+      windows-direct-upload: ${{ needs.build-windows.outputs.s3-uploaded == 'true' }}
+      app-name:              eCan
       macos-build-result:  ${{ (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success') && 'success' || 'failure' }}
       linux-result:        ${{ needs.build-linux.result }}
       macos-built-amd64:   ${{ needs.build-macos-amd64.result == 'success' }}
