@@ -130,58 +130,78 @@ class TestOTAConfigStorageURLs:
 
 
 class TestOTAConfigAppcastURL:
-    """Tests for appcast URL generation."""
-    
+    """Tests for appcast URL generation.
+
+    NOTE: These assertions all target the public S3/COS bucket path.
+    That path is only reached when ``environment`` is NOT
+    ``development`` (in dev the local OTA test server
+    ``http://127.0.0.1:8080`` takes over — see
+    ``tests/unit/test_local_ota_routing.py`` for the dev-environment
+    coverage). Each test below therefore pins ``environment`` to
+    ``production`` before asserting.
+    """
+
+    def _switch_to_production(self, config):
+        # The OTAConfig exposes ``environment`` as a getter over the
+        # top-level ``environment`` key in the loaded YAML; mutating
+        # that key is the documented test seam (see
+        # ``TestOTAConfigEnvironments`` elsewhere in this file).
+        config._config["environment"] = "production"
+
     def test_cn_app_uses_cos_for_appcast(self, monkeypatch):
         """CN app generates appcast URLs pointing to COS."""
         monkeypatch.setenv("ECAN_APP_ID", "cn")
         _clear_ota_cache()
         from ota.config.loader import get_ota_config
         config = get_ota_config(reload=True)
-        
+        self._switch_to_production(config)
+
         url = config.get_appcast_url("macos", "amd64")
-        
+
         assert "ecan-releases-1251680599" in url
         assert "cos.ap-shanghai.myqcloud.com" in url
         assert "macos" in url
         assert "amd64" in url
-    
+
     def test_intl_app_uses_s3_for_appcast(self, monkeypatch):
         """INTL app generates appcast URLs pointing to S3."""
         monkeypatch.setenv("ECAN_APP_ID", "intl")
         _clear_ota_cache()
         from ota.config.loader import get_ota_config
         config = get_ota_config(reload=True)
-        
+        self._switch_to_production(config)
+
         url = config.get_appcast_url("macos", "amd64")
-        
+
         assert "ecan-releases" in url
         assert "s3.us-east-1.amazonaws.com" in url
         assert "macos" in url
         assert "amd64" in url
-    
+
     def test_appcast_url_with_language_cn(self, monkeypatch):
         """CN app generates localized appcast URLs."""
         monkeypatch.setenv("ECAN_APP_ID", "cn")
         _clear_ota_cache()
         from ota.config.loader import get_ota_config
         config = get_ota_config(reload=True)
-        
+        self._switch_to_production(config)
+
         url = config.get_appcast_url("macos", "aarch64", "zh-CN")
-        
+
         assert "ecan-releases-1251680599" in url
         assert "cos.ap-shanghai.myqcloud.com" in url
         assert "zh-CN" in url
-    
+
     def test_appcast_url_with_language_intl(self, monkeypatch):
         """INTL app generates localized appcast URLs."""
         monkeypatch.setenv("ECAN_APP_ID", "intl")
         _clear_ota_cache()
         from ota.config.loader import get_ota_config
         config = get_ota_config(reload=True)
-        
+        self._switch_to_production(config)
+
         url = config.get_appcast_url("windows", "amd64", "en-US")
-        
+
         assert "ecan-releases" in url
         assert "s3.us-east-1.amazonaws.com" in url
     
@@ -210,14 +230,17 @@ class TestOTAConfigAppcastURL:
         assert "amd64" in url
     
     def test_appcast_url_channel_included(self, monkeypatch):
-        """Appcast URL includes channel path."""
+        """Appcast URL includes channel path (public-bucket path)."""
         monkeypatch.setenv("ECAN_APP_ID", "cn")
         _clear_ota_cache()
         from ota.config.loader import get_ota_config
         config = get_ota_config(reload=True)
-        
+        # Public bucket path requires a non-dev environment; see
+        # ``TestOTAConfigAppcastURL`` docstring.
+        config._config["environment"] = "production"
+
         url = config.get_appcast_url("macos", "amd64")
-        
+
         # Should include channels/{channel}/ in path
         assert "channels/" in url
         assert "appcast-macos-amd64.xml" in url
