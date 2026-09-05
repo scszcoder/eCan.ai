@@ -15,6 +15,7 @@ from functools import wraps
 from agent.playwright import get_playwright_manager
 from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
+from utils import agent_status as _agent_status
 from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
 from agent.agent_service import get_agent_by_id
 from dotenv import load_dotenv
@@ -86,6 +87,120 @@ def _is_port_in_use(port: int) -> bool:
             return True
         except (ConnectionRefusedError, OSError):
             return False
+
+
+# ── Two-Chrome trap preflight ───────────────────────────────────────────────
+# eCan drives whatever Chrome sits on the debug port. The trap: eCan attaches
+# to (or auto-starts) a debug Chrome that is blank/not-logged-in, while the
+# customer's real work happens in a SEPARATE ordinary Chrome that has no debug
+# port and is therefore invisible to eCan. Symptom on the wire: our debug
+# Chrome shows only about:blank/newtab targets AND another chrome.exe browser
+# process (no --remote-debugging-port, or a different one) is running. This
+# preflight only WARNS — it never blocks a run — and is generic browser infra
+# (no site-specific strings), so it lives here, not in any site hook.
+_BLANK_TARGET_URLS = ("", "about:blank", "chrome://newtab/", "chrome://new-tab-page/", "edge://newtab/")
+
+
+def _list_chrome_browser_processes(exe_names=("chrome.exe", "chrome", "msedge.exe")):
+    """Main (non-child) Chromium browser processes with their debug port.
+
+    Child processes (renderer/gpu/utility) carry ``--type=`` and are skipped,
+    so each real browser window-owner appears once. Returns a list of
+    ``{pid, port}`` where ``port`` is the ``--remote-debugging-port`` value or
+    None. Best-effort: returns [] if psutil is unavailable or access is denied.
+    """
+    try:
+        import psutil
+    except Exception:
+        return []
+    wanted = {n.lower() for n in exe_names}
+    out = []
+    for p in psutil.process_iter(["name"]):
+        try:
+            if (p.info.get("name") or "").lower() not in wanted:
+                continue
+            cmd = p.cmdline()
+        except Exception:
+            continue
+        joined = " ".join(cmd)
+        if "--type=" in joined:  # renderer/gpu/utility child — not a browser owner
+            continue
+        port = None
+        for a in cmd:
+            if a.startswith("--remote-debugging-port="):
+                try:
+                    port = int(a.split("=", 1)[1])
+                except ValueError:
+                    port = None
+                break
+        out.append({"pid": p.pid, "port": port})
+    return out
+
+
+def _debug_chrome_targets(port: int):
+    """Page/tab targets from the debug endpoint's /json, or None if unreachable."""
+    import json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=3) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        return [t for t in data if t.get("type") in ("page", "tab")]
+    except Exception:
+        return None
+
+
+def preflight_chrome_conflict(port: int, auto_started: bool = False):
+    """Detect the two-Chrome trap for the debug Chrome on *port*. WARNS only.
+
+    Returns a summary dict ``{trap, reason, our_blank, other_pids, page_count}``
+    and, when a trap is detected, emits one WARNING with an operator hint plus
+    an ``[AGENT-STATUS] chrome=conflict`` line so the Agents page can surface it.
+    """
+    result = {"trap": False, "reason": "", "our_blank": None,
+              "other_pids": [], "page_count": None}
+    try:
+        procs = _list_chrome_browser_processes()
+        others = [p["pid"] for p in procs if p.get("port") != port]
+        result["other_pids"] = others
+
+        targets = _debug_chrome_targets(port)
+        if targets is not None:
+            result["page_count"] = len(targets)
+            non_blank = [t for t in targets
+                         if str(t.get("url", "")).split("#", 1)[0] not in _BLANK_TARGET_URLS]
+            result["our_blank"] = (len(non_blank) == 0)
+
+        # Trap = our debug Chrome is empty/blank AND a separate Chrome exists.
+        # (When our Chrome already shows real pages, a second Chrome is
+        # harmless — eCan is on the right one.)
+        if result["our_blank"] and others:
+            result["trap"] = True
+            result["reason"] = "debug Chrome blank while a separate Chrome is running"
+        elif auto_started and others:
+            # We just launched our OWN blank Chrome and another Chrome is up:
+            # the customer's logged-in window is almost certainly the other one.
+            result["trap"] = True
+            result["reason"] = "auto-started a new Chrome while another Chrome is already running"
+
+        if result["trap"]:
+            logger.warning(
+                f"[BrowserManager][PREFLIGHT] Two-Chrome trap on port {port}: "
+                f"{result['reason']}. eCan can only see the Chrome on the debug "
+                f"port; other Chrome PIDs {others} are invisible to it. "
+                f"Fix: close ALL Chrome windows, then let eCan start Chrome "
+                f"(or launch Chrome with --remote-debugging-port={port}) and log "
+                f"into the store IN THAT window. "
+                f"提示：请关闭所有 Chrome 窗口，改由 eCan 启动的 Chrome 登录店铺，"
+                f"否则 eCan 连接的是空白 Chrome，看不到你正在使用的窗口。"
+            )
+            try:
+                _agent_status.report(chrome="conflict", chrome_port=port,
+                                     chrome_conflict=result["reason"])
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.debug(f"[BrowserManager][PREFLIGHT] conflict check skipped: {exc}")
+    return result
 
 
 # ── External CDP host (Electron / Chromium-shell apps) ──────────────────────

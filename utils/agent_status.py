@@ -9,8 +9,9 @@ activity), and serves the latest snapshot to the Agents page.
 
 Keys (all optional, string/number values; unknown keys are allowed):
 
-    chrome            attached_existing | auto_started | unreachable
+    chrome            attached_existing | auto_started | unreachable | conflict
     chrome_port       CDP port
+    chrome_conflict   two-Chrome-trap reason (set when chrome=conflict)
     site_tab          found | missing
     site_tab_url      matched URL (truncated)
     monitor           running | stopped

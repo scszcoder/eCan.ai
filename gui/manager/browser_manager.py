@@ -1083,6 +1083,15 @@ class BrowserManager:
                 logger.info(f"[BrowserManager] Connecting to existing {browser_type.value} at {final_cdp_url}")
                 if not _chrome_auto_started:
                     _agent_status.report(chrome="attached_existing", chrome_port=final_cdp_port)
+
+                # Preflight: warn (never block) if we're about to drive a blank
+                # debug Chrome while the customer's real Chrome is a separate,
+                # invisible window (the two-Chrome trap).
+                try:
+                    from gui.unified_browser_manager import preflight_chrome_conflict
+                    preflight_chrome_conflict(final_cdp_port, auto_started=_chrome_auto_started)
+                except Exception as _pf_exc:
+                    logger.debug(f"[BrowserManager] preflight_chrome_conflict skipped: {_pf_exc}")
             
             # =================================================================
             # Create WebDriver connection
