@@ -190,7 +190,7 @@ _Last updated: 2026-09-04_
 - **Vendor desktop-workbench (Electron) CDP attach spike (2026-09-05)**.
   `ECAN_CDP_HOST_EXE` (default OFF) makes `_start_chrome_with_cdp` launch
   that exe with only `--remote-debugging-port` and log `[CDP-HOST]`
-  target URLs / a VERDICT line. Build tag `spike-doudian-app-cdp-1`.
+  target URLs / a VERDICT line. Build tag `v0.9.96y-spike-doudian-app-cdp-1`.
   **Open**: (a) live verdict on a machine with 抖店工作台 installed;
   (b) if attach works, compare target URLs vs the skill's
   `page_url_patterns`; (c) same-window coexistence with the human

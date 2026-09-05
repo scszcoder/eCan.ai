@@ -1,7 +1,7 @@
 # Spike: attach to a vendor desktop workbench (Electron) via CDP
 
 _Status 2026-09-05: code shipped behind `ECAN_CDP_HOST_EXE` (default OFF),
-build tag `spike-doudian-app-cdp-1`. Live verdict PENDING._
+build tag `v0.9.96y-spike-doudian-app-cdp-1`. Live verdict PENDING._
 
 ## Question
 
