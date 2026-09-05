@@ -2262,7 +2262,21 @@ jobs:
       windows-build-result: ${{ needs.build-windows.result }}
       windows-direct-upload: ${{ needs.build-windows.outputs.s3-uploaded == 'true' }}
       app-name:              eCan
-      macos-build-result:  ${{ (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success') && 'success' || 'failure' }}
+      # macOS "result" is a 3-state string — success / failure / skipped —
+      # that the shared download-links workflow uses to render the macOS
+      # section of the GHA summary (see render_download_links.py:
+      # `_render_status_message`). Collapsing `skipped` into `failure` made
+      # any non-macOS build (windows-only, or platform=all under
+      # ecan-windows-amd64 where the runner_group gate skips macOS)
+      # look like a macOS build failure in the published summary, with
+      # the misleading line "❌ macOS build failed — no artifacts produced.
+      # Expected: 0 artifact(s)." The 3-way ternary below distinguishes:
+      #   • any arch success → 'success'
+      #   • any arch failure (no success) → 'failure'
+      #   • both skipped → 'skipped'
+      # cancelled still maps to 'skipped' (it was previously indistinguishable
+      # from failure in this expression too); tightening that is out of scope.
+      macos-build-result:  ${{ (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success') && 'success' || (needs.build-macos-amd64.result == 'failure' || needs.build-macos-aarch64.result == 'failure') && 'failure' || 'skipped' }}
       linux-result:        ${{ needs.build-linux.result }}
       macos-built-amd64:   ${{ needs.build-macos-amd64.result == 'success' }}
       macos-built-aarch64: ${{ needs.build-macos-aarch64.result == 'success' }}
