@@ -307,10 +307,12 @@ _FEIGE_OPEN_SESSION_JS = _ROW_NAME_JS + ";\n" + r"""
       if (name === customerName) { target = items[i]; break; }
     }
   }
-  // ws193: rebuilt-frame fallback — see feige_send_message JS. All rows are
-  // '.recent' on the redesigned sidebar, so the current-filter empties `items`;
-  // exact-name search of the full list, only when the filtered view is empty.
-  if (!target && customerName && items.length === 0 && allItems.length > 0) {
+  // ws194: rebuilt-frame fallback — see feige_send_message JS. A reopened cold
+  // conversation sits in '.recent', which the current-filter drops even when
+  // OTHER rows survive into `items` (so the old items.length===0 guard never
+  // fired and the send reported "Session not found"). Fire the full-list
+  // exact-name search whenever the filtered view missed the target.
+  if (!target && customerName && allItems.length > 0) {
     for (var fb = 0; fb < allItems.length; fb++) {
       if (__ecanRowName(allItems[fb]) === customerName) { target = allItems[fb]; break; }
     }
@@ -543,7 +545,7 @@ async def feige_get_chat_thread(params: FeigeGetChatThreadAction, browser_sessio
 
 _FEIGE_SEND_MESSAGE_JS = r"""
 (async function(text, expectedCustomer, expectedSourceMsgId, expectedSourceText, bypassOlderBubbleMatch, allowNoMsgIdSend, allowSimilarSource) {
-""" + _ROW_PREVIEW_FALLBACK_JS + r"""
+""" + _ROW_NAME_JS + ";\n" + _ROW_PREVIEW_FALLBACK_JS + r"""
   function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
   var __feigeSendStartedAt = Date.now();
   var __feigeSendPhase = 'start';
@@ -902,6 +904,12 @@ _FEIGE_SEND_MESSAGE_JS = r"""
   }
   function readRowName(row) {
     if (!row || !row.querySelector) return '';
+    // ws194: delegate to the shared redesign-resilient reader first (same parser
+    // the ws108 scan uses), so the SEND path can't drift off the current frame
+    // like the open/list JS did in ws193. Legacy per-selector fallbacks below
+    // stay as a secondary net.
+    var _sn = (typeof __ecanRowName === 'function') ? __ecanRowName(row) : '';
+    if (_sn) return _sn;
     var wrap = row.querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
     if (wrap) {
       var t = (wrap.getAttribute('title') || wrap.textContent || '').trim();
@@ -1033,7 +1041,14 @@ _FEIGE_SEND_MESSAGE_JS = r"""
     // only, and the Python-side post-open verify still checks the opened
     // conversation header. Old-frame behavior unchanged (its 待回复 box keeps
     // rows passing rowIsCurrent, so the fallback never triggers there).
-    if (!target && items.length === 0 && allConvRows.length > 0) {
+    // ws194: a REOPENED cold conversation (肽斯特, 97d 2026-09-06) sits in
+    // '.recent' and gets filtered OUT of `items` even while OTHER rows survive
+    // into it — so current_visible was 3, the items.length===0 guard never
+    // fired, and the send died "Session not found" on the SAME tab where the
+    // ws108 scan read the name. Fire the full-list exact-name search whenever
+    // the filtered view MISSED the target, not only when it was empty. Still
+    // mis-delivery-safe: exact name match only + Python post-open header verify.
+    if (!target && allConvRows.length > 0) {
       for (var rf = 0; rf < allConvRows.length; rf++) {
         if (readRowName(allConvRows[rf]) === expectedCustomer) {
           target = allConvRows[rf];

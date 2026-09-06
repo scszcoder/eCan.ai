@@ -65,3 +65,27 @@ def test_scan_reader_still_has_all_title_iteration():
         "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/front_desk.py"
     ).read_text(encoding="utf-8")
     assert "querySelectorAll('[title]')" in src
+
+
+def test_ws194_send_js_uses_shared_reader_and_broad_fallback():
+    # ws194 (97d cold-start stuck): the ACTUAL customer send path
+    # (_FEIGE_SEND_MESSAGE_JS) had its OWN readRowName (fourth divergent copy)
+    # and only fell back to the full row list when the current-filter was EMPTY.
+    # A reopened '.recent' row (肽斯特) was filtered out while OTHER rows survived
+    # (current_visible=3), so the send died "Session not found" on the same tab
+    # the scan read. Fix: inject the shared reader + delegate, and fire the
+    # full-list search whenever the filtered view MISSED the target.
+    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import site_tools
+    js = site_tools._FEIGE_SEND_MESSAGE_JS
+    assert js.count("function __ecanRowName(row)") == 1
+    assert "var _sn = (typeof __ecanRowName === 'function') ? __ecanRowName(row)" in js
+    # broadened recent-row fallback (no longer gated on items.length === 0).
+    assert "if (!target && allConvRows.length > 0) {" in js
+    assert "items.length === 0 && allConvRows.length > 0" not in js
+
+
+def test_ws194_open_js_broad_fallback():
+    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import site_tools
+    oj = site_tools._FEIGE_OPEN_SESSION_JS
+    assert "if (!target && customerName && allItems.length > 0) {" in oj
+    assert "items.length === 0 && allItems.length > 0" not in oj

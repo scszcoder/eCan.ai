@@ -205,3 +205,41 @@ zero names) so the next redesign is fixed from evidence, not a stuck customer.
 found … seen_names=[]` while the ws108 scan reports non-empty `names=[...]` = a
 parser has drifted off the current frame. The two readers must agree; when they
 disagree, the newer-frame one (scan) is right.
+
+---
+
+## Addendum 2026-09-06 (b) — ws194: send-side `.recent` filter-out + fourth parser copy
+
+97d (cust 肽斯特, "有运费险吗") reproduced the stuck symptom AFTER ws193 fixed
+detection. This time detection worked (ws108 scan `names=['肽斯特',...]`) and the
+answer was generated — but every send failed `Session not found in current
+conversations` (`current_visible=3`, 8 `feige_send_tool_failed`), on the SAME
+CDP tab the scan read (confirmed: both used target suffix `855F3BE8`). So NOT a
+tab divergence.
+
+Two root causes on the SEND path, both in `_FEIGE_SEND_MESSAGE_JS`
+(`site_tools.py`) — the JS the real customer send runs, which ws193 did NOT
+touch (ws193 only fixed the open/list JS):
+
+1. **Fourth divergent name parser.** The send JS carried its OWN `readRowName`,
+   never wired to the shared `__ecanRowName`. It was hardened (2026-09-03 title
+   fallback) so it mostly read names, but it was still a separate copy free to
+   drift.
+2. **`.recent` filter-out with a too-narrow fallback.** A REOPENED cold
+   conversation sits in `.recent`; `rowIsCurrent` drops it, so it never enters
+   the filtered `items`. The full-list exact-name fallback was gated on
+   `items.length === 0` — but OTHER rows survived into `items`
+   (`current_visible=3`), so the fallback never fired and the reopened row was
+   never found.
+
+**Fix (ws194):** inject `_ROW_NAME_JS` into the send JS and delegate
+`readRowName` to `__ecanRowName` first (all four sidebar parsers now share one
+reader); broaden the recent-row fallback to fire whenever the filtered view
+MISSED the target, not only when it was empty. Same broadening applied to
+`_FEIGE_OPEN_SESSION_JS`. Still mis-delivery-safe: exact name match only, plus
+the Python post-open header verify. Tests: `tests/test_ws193_shared_name_parser.py`
+(`test_ws194_*`).
+
+**Lesson:** `current_visible>0` + `Session not found` + a name the scan CAN read
+= a `.recent`/reopened row filtered out of the current box; the full-list
+exact-name fallback must fire on ANY miss, not just an empty box.
