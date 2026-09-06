@@ -366,66 +366,10 @@ class TokenTracker:
             return 'unknown'
     
     def _calculate_cost(self, vendor: str, model: str, input_tokens: int, output_tokens: int) -> float:
-        """
-        Calculate cost in USD based on vendor, model, and token counts.
-        
-        Uses pricing from llm_token_usage_handler.py as reference.
-        """
-        # Pricing per 1K tokens
-        pricing_table = {
-            'openai': {
-                'gpt-5': {'input': 0.005, 'output': 0.015},
-                'gpt-4.1': {'input': 0.002, 'output': 0.008},
-                'gpt-4.1-mini': {'input': 0.0004, 'output': 0.0016},
-                'gpt-4.1-nano': {'input': 0.0001, 'output': 0.0004},
-                'gpt-4o': {'input': 0.005, 'output': 0.015},
-                'gpt-4o-mini': {'input': 0.00015, 'output': 0.0006},
-                'gpt-4-turbo': {'input': 0.01, 'output': 0.03},
-                'gpt-4': {'input': 0.03, 'output': 0.06},
-                'gpt-3.5-turbo': {'input': 0.0005, 'output': 0.0015},
-                'o4-mini': {'input': 0.0011, 'output': 0.0044},
-                'o3': {'input': 0.002, 'output': 0.008},
-                'o3-mini': {'input': 0.0011, 'output': 0.0044},
-                'o1-preview': {'input': 0.015, 'output': 0.06},
-                'o1-mini': {'input': 0.003, 'output': 0.012},
-                'text-embedding-3-small': {'input': 0.00002, 'output': 0},
-                'text-embedding-3-large': {'input': 0.00013, 'output': 0},
-            },
-            'anthropic': {
-                'claude-3-opus': {'input': 0.015, 'output': 0.075},
-                'claude-3-sonnet': {'input': 0.003, 'output': 0.015},
-                'claude-3-haiku': {'input': 0.00025, 'output': 0.00125},
-            },
-            'deepseek': {
-                'deepseek-chat': {'input': 0.00014, 'output': 0.00028},
-                'deepseek-coder': {'input': 0.00014, 'output': 0.00028},
-            },
-            'google': {
-                'gemini-pro': {'input': 0.00025, 'output': 0.0005},
-                'gemini-1.5-pro': {'input': 0.00125, 'output': 0.005},
-            },
-            'default': {'input': 0.01, 'output': 0.02}
-        }
-        
-        # Find pricing
-        vendor_pricing = pricing_table.get(vendor, {})
-        model_pricing = None
-        
-        # Try exact match first
-        for model_key in vendor_pricing:
-            if model_key in model.lower():
-                model_pricing = vendor_pricing[model_key]
-                break
-        
-        # Fallback to default
-        if not model_pricing:
-            model_pricing = pricing_table['default']
-        
-        # Calculate cost
-        input_cost = (input_tokens / 1000) * model_pricing['input']
-        output_cost = (output_tokens / 1000) * model_pricing['output']
-        
-        return input_cost + output_cost
+        """Calculate cost in USD. Pricing is the single source of truth in
+        agent/ec_skills/llm_pricing.py (shared with the billing handlers)."""
+        from agent.ec_skills.llm_pricing import calc_cost
+        return calc_cost(vendor, model, input_tokens, output_tokens)
 
 
 # Global singleton instance

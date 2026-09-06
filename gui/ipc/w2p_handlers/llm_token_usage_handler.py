@@ -29,23 +29,12 @@ def _display_currency_fields(cost_usd: float) -> Dict[str, Any]:
     return {'cost': round(float(cost_usd or 0.0), 4), 'currency': 'USD'}
 
 
-# Placeholder pricing (per 1K tokens)
-DEFAULT_PRICING = {
-    'gpt-4': {'input': 0.03, 'output': 0.06},
-    'gpt-4-turbo': {'input': 0.01, 'output': 0.03},
-    'gpt-3.5-turbo': {'input': 0.0005, 'output': 0.0015},
-    'claude-3-opus': {'input': 0.015, 'output': 0.075},
-    'claude-3-sonnet': {'input': 0.003, 'output': 0.015},
-    'default': {'input': 0.01, 'output': 0.02}  # Fallback pricing
-}
-
-
-def calculate_cost(input_tokens: int, output_tokens: int, model: str = 'default') -> float:
-    """Calculate cost in USD based on token counts and model pricing"""
-    pricing = DEFAULT_PRICING.get(model, DEFAULT_PRICING['default'])
-    input_cost = (input_tokens / 1000) * pricing['input']
-    output_cost = (output_tokens / 1000) * pricing['output']
-    return input_cost + output_cost
+def calculate_cost(input_tokens: int, output_tokens: int, model: str = 'default',
+                   vendor: str = '') -> float:
+    """Calculate cost in USD. Pricing is the single source of truth in
+    agent/ec_skills/llm_pricing.py (shared with token_tracker ingest)."""
+    from agent.ec_skills.llm_pricing import calc_cost
+    return calc_cost(vendor, model, input_tokens, output_tokens)
 
 
 @IPCHandlerRegistry.handler('llm.getMonthlyTokenUsage')
@@ -346,41 +335,13 @@ def handle_set_token_alarm_levels(request: IPCRequest, params: Optional[Dict[str
 # Top-ups are server-side (cloud getBillingHistory); the frontend merges those
 # into the day rows. See docs/BILLING_TOPUP_API_CONTRACT.md.
 
-# Ratio-only per-1K USD prices (input, output). Total cost is authoritative from
-# the DB; this table only decides how a group's total is split in/out.
-_SPLIT_PRICING = {
-    'openai': {
-        'gpt-5': (0.005, 0.015), 'gpt-4.1': (0.002, 0.008), 'gpt-4o': (0.005, 0.015),
-        'gpt-4o-mini': (0.00015, 0.0006), 'gpt-4-turbo': (0.01, 0.03),
-        'gpt-4': (0.03, 0.06), 'gpt-3.5-turbo': (0.0005, 0.0015),
-        'o4-mini': (0.0011, 0.0044), 'o3': (0.002, 0.008),
-        'text-embedding-3-small': (0.00002, 0.0), 'text-embedding-3-large': (0.00013, 0.0),
-    },
-    'anthropic': {
-        'claude-3-opus': (0.015, 0.075), 'claude-3-sonnet': (0.003, 0.015),
-        'claude-3-haiku': (0.00025, 0.00125),
-    },
-    'deepseek': {'deepseek-chat': (0.00014, 0.00028), 'deepseek-coder': (0.00014, 0.00028)},
-    'google': {'gemini-pro': (0.00025, 0.0005), 'gemini-1.5-pro': (0.00125, 0.005)},
-    'default': (0.01, 0.02),
-}
-
-
-def _split_price(vendor, model):
-    """(input_price, output_price) per 1K tokens for the split ratio only."""
-    vmap = _SPLIT_PRICING.get((vendor or '').lower())
-    if isinstance(vmap, dict):
-        ml = (model or '').lower()
-        for key, price in vmap.items():
-            if key in ml:
-                return price
-    return _SPLIT_PRICING['default']
-
-
 def _split_cost(cost_usd, in_tokens, out_tokens, vendor, model):
     """Apportion an authoritative *cost_usd* into (input_cost, output_cost) so
-    the two always sum back to cost_usd."""
-    pin, pout = _split_price(vendor, model)
+    the two always sum back to cost_usd. The split RATIO uses the shared price
+    table (agent/ec_skills/llm_pricing.py) — the total is always the stored
+    cost_usd, so a stale price only shifts the apportionment, never the total."""
+    from agent.ec_skills.llm_pricing import get_model_price
+    pin, pout = get_model_price(vendor, model)
     w_in = (in_tokens / 1000.0) * pin
     w_out = (out_tokens / 1000.0) * pout
     denom = w_in + w_out

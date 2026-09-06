@@ -39,7 +39,8 @@ def test_split_cost_zero_tokens_no_crash():
 
 
 def test_split_price_falls_back_to_default():
-    assert h._split_price('nobody', 'nothing') == h._SPLIT_PRICING['default']
+    from agent.ec_skills.llm_pricing import get_model_price, DEFAULT_PRICE
+    assert get_model_price('nobody', 'nothing') == DEFAULT_PRICE
 
 
 # ── daily bucketing with a timezone offset ───────────────────────────────────

@@ -19,13 +19,10 @@ export interface TokenUsageData {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const INPUT_COST_PER_1K = 0.01;
-const OUTPUT_COST_PER_1K = 0.03;
 const MONTHLY_TOKEN_LIMIT = 10_000_000;
-
-const calculateCost = (inputTokens: number, outputTokens: number): number => {
-  return (inputTokens / 1000) * INPUT_COST_PER_1K + (outputTokens / 1000) * OUTPUT_COST_PER_1K;
-};
+// Cost is computed and stored server-side (token_tracker at ingest); this
+// component only displays what the backend returns — it never recomputes cost.
+const CACHE_KEY = 'ecan.tokenUsage.month.v1';
 
 // ─── Helper Functions ────────────────────────────────────────────────────────
 
@@ -196,6 +193,9 @@ export const TokenUsageDisplay: React.FC = () => {
       if (response.success && response.data) {
         setData(response.data);
         logger.debug('[TokenUsageDisplay] Fetched:', response.data);
+        // Persist the last networked reading so the pill isn't blank on next
+        // launch or while offline.
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(response.data)); } catch { /* storage may be unavailable */ }
       }
     } catch (error) {
       logger.error('[TokenUsageDisplay] Error:', error);
@@ -205,6 +205,11 @@ export const TokenUsageDisplay: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Seed from the last saved reading immediately, then refresh from backend.
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (raw) setData(JSON.parse(raw));
+    } catch { /* ignore */ }
     fetchTokenUsage();
     const interval = setInterval(fetchTokenUsage, 5 * 60 * 1000);
     return () => clearInterval(interval);
@@ -221,7 +226,7 @@ export const TokenUsageDisplay: React.FC = () => {
   const outputTokens = data?.output_tokens ?? 0;
   const totalTokens = data?.total_tokens ?? inputTokens + outputTokens;
   const currency = data?.currency ?? 'USD';
-  const totalCost = data?.cost ?? data?.cost_usd ?? calculateCost(inputTokens, outputTokens);
+  const totalCost = data?.cost ?? data?.cost_usd ?? 0;
 
   const usagePercentage = (totalTokens / MONTHLY_TOKEN_LIMIT) * 100;
   const usageLevel = getUsageLevel(usagePercentage);
