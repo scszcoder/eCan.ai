@@ -1,0 +1,115 @@
+# ============================================================================
+# Reusable Workflow: OTA smoke test (end-to-end reachability check)
+# ============================================================================
+#
+# Byte-equivalent intl/cn versions. Both apps run the SAME Python
+# script (`build_system/scripts/smoke_test_ota.py`) - the script
+# picks bucket/region/prefix from `ota/ota_config.yaml` based on
+# `--app`. The only differences between the two callers are:
+#
+#   * AWS_* secrets                  → ECAN_TENCENT_* secrets
+#   * AWS_REGION (us-east-1)         → ECAN_TENCENT_REGION (ap-guangzhou)
+#   * python deps                    → requirements-cos.txt for CN
+#
+# Inputs:
+#   - app:        intl | cn
+#   - environment:dev/test/staging/production
+#   - channel:    dev/beta/stable/lts
+#   - version:    the version we just published (used to cross-check
+#                 the per-platform appcast XML; if omitted we skip
+#                 the version match and only check reachability)
+#   - user-prefix:optional per-user release prefix
+#
+# Triggers (release pipeline gates this on):
+#   needs: [validate-tag (tag-valid), generate-latest-json (success)]
+#
+# Behavior:
+#   * Pulls latest.json, HEAD-installers, GET-appcasts - NO binary
+#     downloads. ~2 seconds per platform.
+#   * Exits 0 on all-OK or warnings (staggered rollouts).
+#   * Exits 1 on any unreachable URL / wrong metadata / appcast
+#     version mismatch. CI turns red.
+# ============================================================================
+
+name: Shared OTA smoke test
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: 'intl | cn'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment'
+        required: true
+        type: string
+      channel:
+        description: 'Release channel'
+        required: true
+        type: string
+      version:
+        description: 'Version just published (for appcast cross-check)'
+        required: false
+        type: string
+        default: ''
+      user-prefix:
+        description: 'Optional per-user release prefix'
+        required: false
+        type: string
+        default: ''
+    secrets:
+      inherit: true
+
+jobs:
+  smoke-test:
+    name: Smoke-test OTA endpoints
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          # Use the umbrella intl requirements; CN-side callers pin
+          # their own (cos-python-sdk-v5 etc.) at the caller workflow.
+          cache-dependency-path: 'build_system/scripts/requirements.txt'
+
+      - name: Install dependencies
+        run: pip install -r build_system/scripts/requirements.txt
+
+      - name: Run OTA smoke test
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION:            ${{ secrets.AWS_REGION || 'us-east-1' }}
+          ECAN_TENCENT_SECRET_ID:  ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+          ECAN_TENCENT_REGION:     ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+          APP:         ${{ inputs.app }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          CHANNEL:     ${{ inputs.channel }}
+          VERSION:     ${{ inputs.version }}
+          USER_PREFIX: ${{ inputs.user-prefix }}
+        run: |
+          echo "::group::OTA smoke test inputs"
+          echo "APP=${APP}  ENVIRONMENT=${ENVIRONMENT}  CHANNEL=${CHANNEL}"
+          echo "VERSION=${VERSION}  USER_PREFIX=${USER_PREFIX}"
+          echo "::endgroup::"
+          CMD="python3 build_system/scripts/smoke_test_ota.py --app ${APP} --env ${ENVIRONMENT} --channel ${CHANNEL}"
+          if [ -n "${VERSION}" ]; then
+            CMD="$CMD --version ${VERSION}"
+          fi
+          if [ -n "${USER_PREFIX}" ]; then
+            CMD="$CMD --user-prefix ${USER_PREFIX}"
+          fi
+          $CMD
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "::error::OTA smoke test failed (exit $rc)"
+            exit $rc
+          fi

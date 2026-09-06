@@ -2282,9 +2282,28 @@ jobs:
       macos-built-aarch64: ${{ needs.build-macos-aarch64.result == 'success' }}
     secrets: inherit
 
+  smoke-test-ota:
+    name: Smoke-test OTA endpoints
+    # Run after generate-latest-json so the file we're testing
+    # actually exists. validate-tag gates this on a valid release
+    # tag - if the tag is bad we don't want a smoke-test failure to
+    # mask the real issue.
+    needs: [validate-tag, generate-latest-json]
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.generate-latest-json.result == 'success'
+    uses: ./.github/workflows/shared-ota-smoke-test.yml
+    with:
+      app: intl
+      environment: production
+      channel: stable
+      version: ${{ needs.validate-tag.outputs.version }}
+      user-prefix: ${{ needs.validate-tag.outputs.user-prefix }}
+    secrets: inherit
+
   final-status:
     name: Final Status Summary
-    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, recovery-upload-to-s3, generate-appcast, generate-latest-json, generate-download-links]
+    needs: [validate-tag, build-windows, build-macos-amd64, build-macos-aarch64, build-linux, recovery-upload-to-s3, generate-appcast, generate-latest-json, generate-download-links, smoke-test-ota]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -2305,6 +2324,7 @@ jobs:
           APPCAST_RESULT:    ${{ needs.generate-appcast.result }}
           LATEST_RESULT:     ${{ needs.generate-latest-json.result }}
           LINKS_RESULT:      ${{ needs.generate-download-links.result }}
+          SMOKE_RESULT:      ${{ needs.smoke-test-ota.result }}
         run: |
           echo ""
           echo "================ Release (Intl) Summary ================"
@@ -2336,7 +2356,8 @@ jobs:
                        "S3 upload:${UPLOAD_RESULT}" \
                        "Appcast:${APPCAST_RESULT}" \
                        "latest.json:${LATEST_RESULT}" \
-                       "Download links:${LINKS_RESULT}"; do
+                       "Download links:${LINKS_RESULT}" \
+                       "OTA smoke test:${SMOKE_RESULT}"; do
             name="${entry%%:*}"
             val="${entry#*:}"
             # Treat empty, "failure", "false", "cancelled" as bad.
