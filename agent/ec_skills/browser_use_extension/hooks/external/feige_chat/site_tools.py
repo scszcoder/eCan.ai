@@ -31,6 +31,7 @@ from browser_use.agent.views import ActionResult
 from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.sidebar_preview_js import (
     ROW_PREVIEW_FALLBACK_JS as _ROW_PREVIEW_FALLBACK_JS,
+    ROW_NAME_JS as _ROW_NAME_JS,
 )
 
 from agent.ec_skills.browser_use_extension.extension_tools_service import (
@@ -148,7 +149,7 @@ _FEIGE_LAST_MSG = '[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span'
 _FEIGE_TIMESTAMP = '[class*="timerParticular"], .CEnLM8MEGksTdgi_8Lqf'
 _FEIGE_UNREAD = '[class*="badge-count"], .rxAvaVFJHvpEGMc1ejm1'
 
-_FEIGE_LIST_SESSIONS_JS = r"""
+_FEIGE_LIST_SESSIONS_JS = _ROW_NAME_JS + ";\n" + r"""
 (function(includeRead, maxSessions) {
   var __rebuiltFrame = null;
   function rowIsCurrent(row) {
@@ -177,12 +178,9 @@ _FEIGE_LIST_SESSIONS_JS = r"""
   var results = [];
   for (var i = 0; i < Math.min(items.length, maxSessions); i++) {
     var el = items[i];
-    var nameEl = el.querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
-    var name = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
-    if (!name) {
-      var nameEl2 = el.querySelector('[class*="NameContent"], .Jv6FtqUv5VoYARd2pp4y');
-      name = nameEl2 ? nameEl2.textContent.trim() : '';
-    }
+    // ws193: shared redesign-resilient name reader (mt062 selectors returned ''
+    // on the rebuilt frame).
+    var name = __ecanRowName(el);
     var lastMsgEl = el.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span');
     var lastMsg = lastMsgEl ? lastMsgEl.textContent.trim() : '';
     var tsEl = el.querySelector('[class*="timerParticular"], .CEnLM8MEGksTdgi_8Lqf');
@@ -256,7 +254,7 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
         return ActionResult(error=f"feige_list_sessions failed: {e}")
 
 
-_FEIGE_OPEN_SESSION_JS = r"""
+_FEIGE_OPEN_SESSION_JS = _ROW_NAME_JS + ";\n" + r"""
 (function(customerName, sessionIndex) {
   // NOTE (2026-05-13): an earlier "Fix 11" added a click → await sleep
   // → verify → retry loop here to self-heal Feige sidebar misroutes
@@ -302,12 +300,10 @@ _FEIGE_OPEN_SESSION_JS = r"""
   var target = null;
   if (customerName) {
     for (var i = 0; i < items.length; i++) {
-      var nameEl = items[i].querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
-      var name = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
-      if (!name) {
-        var nameEl2 = items[i].querySelector('[class*="NameContent"], .Jv6FtqUv5VoYARd2pp4y');
-        name = nameEl2 ? nameEl2.textContent.trim() : '';
-      }
+      // ws193: shared redesign-resilient name reader (was mt062 selectors that
+      // returned '' on the rebuilt frame → "Session not found" → the cold-start
+      // first reply/greeting was dropped, live 97c 2026-09-06 cust 肽斯特/sc).
+      var name = __ecanRowName(items[i]);
       if (name === customerName) { target = items[i]; break; }
     }
   }
@@ -316,13 +312,7 @@ _FEIGE_OPEN_SESSION_JS = r"""
   // exact-name search of the full list, only when the filtered view is empty.
   if (!target && customerName && items.length === 0 && allItems.length > 0) {
     for (var fb = 0; fb < allItems.length; fb++) {
-      var fbEl = allItems[fb].querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
-      var fbName = (fbEl && (fbEl.getAttribute('title') || fbEl.textContent || '')).trim();
-      if (!fbName) {
-        var fbEl2 = allItems[fb].querySelector('[class*="NameContent"], .Jv6FtqUv5VoYARd2pp4y');
-        fbName = fbEl2 ? fbEl2.textContent.trim() : '';
-      }
-      if (fbName === customerName) { target = allItems[fb]; break; }
+      if (__ecanRowName(allItems[fb]) === customerName) { target = allItems[fb]; break; }
     }
   }
   if (!target && sessionIndex >= 0 && sessionIndex < items.length) {
@@ -335,8 +325,7 @@ _FEIGE_OPEN_SESSION_JS = r"""
     total_visible: allItems.length
   });
   target.click();
-  var nameEl = target.querySelector('[class*="nameLine"], .MP1bk3ccfHC9V2SnPCGD');
-  var clickedName = (nameEl && (nameEl.getAttribute('title') || nameEl.textContent || '')).trim();
+  var clickedName = __ecanRowName(target);  // ws193 shared reader
   return JSON.stringify({ clicked: true, name: clickedName });
 })(CUSTOMER_NAME, SESSION_INDEX);
 """
