@@ -61,3 +61,43 @@ ROW_PREVIEW_FALLBACK_JS = r"""
     return parts.join('');
   }
 """
+
+
+# ws193 (2026-09-06): shared sidebar-row NAME reader — the redesign-resilient
+# parser that had lived ONLY in front_desk's ws108 scan (ws110 broad fallbacks +
+# ws183 all-[title] iteration). The click-to-open (FEIGE_CLICK_SIDEBAR_ROW_JS)
+# and active-customer-verify (FEIGE_ACTIVE_CUSTOMER_JS) readers in dom_assets
+# still used the mt062-era selectors and returned seen_names=[] on the rebuilt
+# frame (live 96z 2026-09-06 cust 'sc': ws108 scan saw names=['sc',...] but the
+# click reader could not find 'sc' → cold-start message never scraped → stuck).
+# Sharing ONE reader stops the three parsers drifting apart again — same lesson
+# as ROW_PREVIEW_FALLBACK_JS above, for the name.
+ROW_NAME_JS = r"""
+  function __ecanRowName(row){
+    if(!row||!row.querySelector) return '';
+    var nick=row.querySelector('[data-qa-id="qa-conversation-nickname"]');
+    if(nick){var nv=(nick.textContent||'').trim(); if(nv) return nv;}
+    var line=row.querySelector('[class*="nameLine"]');
+    if(line){var lt=(line.getAttribute('title')||'').trim(); if(lt) return lt;
+      var nc=line.querySelector('[class*="NameContent"]'); if(nc){var ncv=(nc.textContent||'').trim(); if(ncv) return ncv;}}
+    var nc2=row.querySelector('[class*="NameContent"]'); if(nc2){var v=(nc2.textContent||'').trim(); if(v) return v;}
+    // ws110: broad fallback for selector drift — any data-qa-id mentioning
+    // nickname/name, or a short title= that isn't a numeric preview/time.
+    var alt=row.querySelector('[data-qa-id*="nickname" i],[data-qa-id*="name" i]');
+    if(alt){var av=(alt.getAttribute('title')||alt.textContent||'').trim(); if(av&&av.length<=24) return av;}
+    // ws183: iterate ALL titled descendants — the 重复来访 revisit-row variant's
+    // FIRST [title] is the unread badge ('1'); the real name is a later one.
+    // Skip badge counts and time-ago strings.
+    var titledAll=row.querySelectorAll('[title]');
+    for(var t=0;t<titledAll.length&&t<6;t++){
+      var tv=(titledAll[t].getAttribute('title')||'').trim();
+      if(tv&&tv.length<=24&&!/^[\d:\s]+$/.test(tv)&&!/^\d+\s*(分钟|小时|秒|天)/.test(tv)) return tv;
+    }
+    // legacy hashed classes last (older layouts).
+    var wrap=row.querySelector('.MP1bk3ccfHC9V2SnPCGD');
+    if(wrap){var wt=(wrap.getAttribute('title')||'').trim(); if(wt) return wt;}
+    var span=row.querySelector('.Jv6FtqUv5VoYARd2pp4y');
+    if(span){var s=(span.textContent||'').trim(); if(s) return s;}
+    return '';
+  }
+"""

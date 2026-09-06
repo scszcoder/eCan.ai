@@ -50,6 +50,11 @@ import os
 import re
 import threading
 import time as _time
+
+# ws193: the shared, redesign-resilient sidebar-row name reader. Prepended into
+# the click-to-open and active-verify JS below so all three sidebar parsers
+# (scan / click / verify) use ONE name extractor and can't drift apart again.
+from .sidebar_preview_js import ROW_NAME_JS as _ROW_NAME_JS
 from typing import Any, Callable
 
 # CN builds name the app logger "eCan.cn" (propagate=False) — a bare
@@ -1111,7 +1116,7 @@ def _normalize_reply_text(text: str) -> str:
 #
 # Verification policy lives in Python — see ``verify_customer_match``.
 # ---------------------------------------------------------------------------
-FEIGE_ACTIVE_CUSTOMER_JS: str = r"""
+FEIGE_ACTIVE_CUSTOMER_JS: str = _ROW_NAME_JS + ";\n" + r"""
 (function() {
   var result = {
     ok: false, active: '',
@@ -1152,6 +1157,10 @@ FEIGE_ACTIVE_CUSTOMER_JS: str = r"""
   result.diagnostics.item_count = items.length;
 
   function readName(row) {
+    // ws193: shared redesign-resilient reader first (front_desk scan parity);
+    // the mt062 selectors below remain a harmless secondary fallback.
+    var _sn = (typeof __ecanRowName === 'function') ? __ecanRowName(row) : '';
+    if (_sn) return _sn;
     // mt062: Feige rotates hashed class names on each redesign (2026-06-02
     // shipped nameLine-*/newNameContent-* in place of .MP1bk.../.Jv6Ft...).
     // Try stable data-qa-id + semantic class-prefix selectors first, then the
@@ -1677,7 +1686,7 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
 # **Caller contract**: replace the literal token ``CUSTOMER_NAME`` with
 # ``json.dumps(name, ensure_ascii=False)`` before evaluating.
 # ---------------------------------------------------------------------------
-FEIGE_CLICK_SIDEBAR_ROW_JS: str = r"""
+FEIGE_CLICK_SIDEBAR_ROW_JS: str = _ROW_NAME_JS + ";\n" + r"""
 (function(customerName) {
   // Extract the customer display name from a chat-list row.  Real Feige
   // (and the emulation that mirrors it) renders the name in two
@@ -1693,6 +1702,10 @@ FEIGE_CLICK_SIDEBAR_ROW_JS: str = r"""
   // of the precise name nodes and leave an explicit diagnostic when no
   // node matches, to make future selector drift obvious in logs.
   function readName(row) {
+    // ws193: shared redesign-resilient reader first (front_desk scan parity);
+    // the mt062 selectors below remain a harmless secondary fallback.
+    var _sn = (typeof __ecanRowName === 'function') ? __ecanRowName(row) : '';
+    if (_sn) return _sn;
     // mt062: redesign-resilient name extraction — see the matching readName
     // above.  Stable data-qa-id + semantic class-prefix selectors first, then
     // legacy hashed classes as fallback.
@@ -1731,11 +1744,26 @@ FEIGE_CLICK_SIDEBAR_ROW_JS: str = r"""
     if (nm === customerName) { target = items[i]; break; }
   }
   if (!target) {
+    // ws193: when rows exist but NONE yield a name, the parser has drifted off
+    // the current frame — dump the first rows' structure so the next drift is
+    // fixed from evidence (like the ws178 nameless-row dump) instead of a stuck
+    // customer. Only when seen_names is empty (the drift signature).
+    var rows_dump = [];
+    if (seenNames.length === 0 && items.length) {
+      for (var d = 0; d < items.length && d < 3; d++) {
+        rows_dump.push({
+          titles: Array.from(items[d].querySelectorAll('[title]')).slice(0, 4)
+            .map(function(e){ return String(e.getAttribute('title') || '').slice(0, 24); }),
+          classes: String(items[d].className || '').slice(0, 160),
+          html: String(items[d].outerHTML || '').slice(0, 400)
+        });
+      }
+    }
     return JSON.stringify({
       ok: false,
       name: customerName,
       already_active: false,
-      diagnostics: { item_count: items.length, seen_names: seenNames.slice(0, 20) }
+      diagnostics: { item_count: items.length, seen_names: seenNames.slice(0, 20), rows_dump: rows_dump }
     });
   }
   var alreadyActive = target.classList.contains('active') ||
@@ -2877,12 +2905,21 @@ async def _scrape_locked_body(
             click_data = click_raw if isinstance(click_raw, dict) else {}
         if not click_data.get("ok"):
             _diag = click_data.get("diagnostics") or {}
+            _rows_dump = _diag.get('rows_dump')
             logger.info(
                 f"[BrowserAutomation] scrape-latest-customer: sidebar row not found "
                 f"for {customer_name!r} — falling back to sidebar preview "
                 f"(item_count={_diag.get('item_count')!r}, "
                 f"seen_names={_diag.get('seen_names')!r})"
             )
+            if _rows_dump:
+                # ws193: parser-drift signature (rows present, zero names) — dump
+                # the row structure so the next Feige redesign is fixable from
+                # evidence, not a stuck customer.
+                logger.warning(
+                    f"[BrowserAutomation] ws193 NAME-PARSER DRIFT for {customer_name!r}: "
+                    f"rows_dump={json.dumps(_rows_dump, ensure_ascii=False)[:1200]}"
+                )
             return empty
         # ws184: open the click-bind window — the page reacts to the row activation
         # with a read-ack carrying the conversation id, which binds talk->name
