@@ -168,3 +168,40 @@ Key indicators, with their meaning:
   fallback path.
 - **Backlog recovery answers only the newest unanswered question** (有包邮吗 was silently
   skipped after an outage; only the later 退货 question was answered).
+
+---
+
+## Addendum 2026-09-06 — resurfaced (ws193): the sidebar name parser drifted
+
+**Not a regression of the July stack** (all of it shipped in 96z; the
+`lq_dev_multi-final` squash/rebase only changed commit hashes). A LATER Feige
+sidebar redesign broke sidebar **name** extraction — but only in two of the
+three parsers.
+
+Cold-start recovery for a TEXT message needs two DOM parsers to read the
+redesigned sidebar: the ws108 **scan** (finds/routes the row) and the
+**click-to-open + active-verify** (opens the thread so the real bubble can be
+scraped). The redesign-resilient reader (ws110 broad fallbacks + ws183
+all-`[title]` iteration) lived only in the scan (`front_desk.py`); the
+click-open and verify readers in `dom_assets.py` still used the mt062-era hashed
+selectors. The redesign killed those → on 96z (cust 'sc') the scan saw
+`names=['sc',...]` but the click reader returned `seen_names=[]`, so the thread
+never opened, "有人吗" was never scraped, the preview stayed the store-assignment
+banner, and PreDispatch deferred it as `system_message` forever → stuck →
+转人工 → platform long-no-reply warning.
+
+Why this slips past layers 1-4: it's a NEW instance of the selector-drift class
+(layer 2), on the sibling parser July+ws189 didn't unify, and it only bites a
+**text** cold start (cards ride ws184's WS path; text has no WS frame when
+withheld, so DOM click-open-and-scrape is the sole recovery).
+
+**Fix (ws193, commit 6da0d3e09):** one shared `__ecanRowName` reader in
+`sidebar_preview_js.ROW_NAME_JS`, used by the click-open and active-verify JS
+(delegate first, mt062 selectors kept as secondary) — so all three parsers
+can't drift apart again. Plus a `[ws193 NAME-PARSER DRIFT]` dump (rows present,
+zero names) so the next redesign is fixed from evidence, not a stuck customer.
+
+**Lesson added to the dashboard:** `scrape-latest-customer: sidebar row not
+found … seen_names=[]` while the ws108 scan reports non-empty `names=[...]` = a
+parser has drifted off the current frame. The two readers must agree; when they
+disagree, the newer-frame one (scan) is right.
