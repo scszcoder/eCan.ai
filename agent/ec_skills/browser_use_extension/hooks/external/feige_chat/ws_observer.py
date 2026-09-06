@@ -97,8 +97,11 @@ def _park_card_dispatch(item: dict, talk_id: str, dispatch_fn) -> None:
         resolved = ""
         while time.time() < deadline:
             await asyncio.sleep(1.0)
-            _nm = str(ws_session.name_for_talk(talk) or "")
-            if _nm and not _nm.startswith("card:"):
+            # ws192: talk-match-guarded resolve — rejects a name that provably
+            # belongs to a DIFFERENT talk (stale/cross _talk_to_name or uid
+            # bridge), which would mis-deliver and split the dedup key.
+            _nm = str(ws_session.name_for_talk_verified(talk) or "")
+            if _nm:
                 resolved = _nm
                 break
         if resolved:

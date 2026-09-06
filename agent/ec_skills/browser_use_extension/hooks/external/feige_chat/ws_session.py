@@ -160,6 +160,27 @@ def name_for_talk(talk_id: str) -> str:
         return ""
 
 
+def name_for_talk_verified(talk_id: str) -> str:
+    """ws192: :func:`name_for_talk` with a talk-match guard.
+
+    Returns the resolved real name ONLY when its own talk is *talk_id* (or is
+    unknown, i.e. not yet routed). A stale or cross-contaminated
+    ``_talk_to_name`` / uid-bridge entry can make ``name_for_talk`` return a
+    DIFFERENT customer's name; binding a card to it mis-delivers the answer and
+    splits the dedup keys (live 96z: card talk …808602 '钛斯特' resolved to
+    '陆地飞鱼' / talk …179238 → duplicate + wrong-conversation delivery). When
+    the candidate provably belongs to another talk, return '' so the caller
+    keeps the synthetic ``card:<talk>`` identity (talk-keyed delivery still
+    reaches the right conversation)."""
+    nm = str(name_for_talk(talk_id) or "")
+    if not nm or nm.startswith("card:"):
+        return ""
+    kt = str(talk_for_name(nm) or "").strip()
+    if kt and kt != str(talk_id):
+        return ""
+    return nm
+
+
 def talk_for_name(customer_name: str) -> str:
     """ws046: forward lookup — the talk_id (conversation id) last seen for
     *customer_name*.  Inverse of :func:`name_for_talk`.  Used to bridge a

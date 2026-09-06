@@ -461,38 +461,42 @@ async def _scrape_and_override_last_message(
             # moment the customer types after the card (live 肽斯特 14:41: preview
             # became '白色款120码…' → no '[商品]' row → card-row match → stuck).
             _talk = str(item.get("talk_id") or item.get("conversation_id") or "").strip()
+            # ws192 (2026-09-06): use the talk-match-GUARDED resolver. The old
+            # name_for_talk PRIMARY path was not cross-checked (only the DOM
+            # fallback was, ws165), so a stale/wrong _talk_to_name or uid-bridge
+            # entry made name_for_talk(<card talk>) return a DIFFERENT customer's
+            # name (live 96z: card talk …808602 '钛斯特' → '陆地飞鱼' / talk
+            # …179238 → answer mis-delivered under 陆地飞鱼 AND dedup keys split
+            # → duplicate answer). name_for_talk_verified rejects a name whose
+            # own talk isn't this card's talk.
             if _talk:
                 try:
                     from . import ws_session as _wss_name
-                    _real_name = str(_wss_name.name_for_talk(_talk) or "").strip()
+                    _real_name = str(_wss_name.name_for_talk_verified(_talk) or "").strip()
                 except Exception:
                     _real_name = ""
             # Fall back to the DOM card-row matcher only for a true card-ONLY conv
             # (no named frame ever arrived → name_for_talk empty).
             if not _real_name:
                 _real_name = await _resolve_card_customer_name(browser_session, log_tag)
-                # ws165: cross-check the DOM candidate against the WS talk bridge —
-                # if the bridge knows the candidate's talk and it is NOT this card's
-                # conversation, the row-preview match picked the WRONG customer
-                # (live 2026-07-10 19:58: sc's cold-start card resolved to 'packet'
-                # via packet's stale '[商品' preview; the answer about 男童短袖球服
-                # went into packet's conversation). Keep the synthetic card:<talk>
-                # name — ws060 talk-keyed delivery still reaches the right conv.
+                # ws165+ws192: talk-match cross-check the DOM candidate too — if
+                # the bridge knows its talk and it is NOT this card's conversation,
+                # the row-preview match picked the WRONG customer (live 2026-07-10:
+                # sc's card resolved to 'packet' via a stale '[商品' preview). Keep
+                # the synthetic card:<talk>; ws060 talk-keyed delivery still reaches
+                # the right conv.
                 if _real_name and _talk:
                     try:
                         from . import ws_session as _wss_xchk
-                        _known_talk = str(
-                            _wss_xchk.talk_for_name(_real_name) or ""
-                        ).strip()
+                        _known_talk = str(_wss_xchk.talk_for_name(_real_name) or "").strip()
                     except Exception:
                         _known_talk = ""
                     if _known_talk and _known_talk != _talk:
                         logger.info(
-                            f"[BrowserAutomation] {log_tag} ws165 REJECT card-name "
-                            f"candidate {_real_name!r}: bridge says their talk is "
-                            f"{_known_talk[-8:]}..., card conv is {_talk[-8:]}... — "
-                            f"keeping synthetic identity (prevents cross-customer "
-                            f"mis-delivery)"
+                            f"[BrowserAutomation] {log_tag} ws192 REJECT DOM card-name "
+                            f"candidate {_real_name!r}: their talk is {_known_talk[-8:]}"
+                            f"..., card conv is {_talk[-8:]}... — keeping synthetic "
+                            f"identity (prevents cross-customer mis-delivery)"
                         )
                         _real_name = ""
             if _real_name and not _real_name.startswith("card:"):
