@@ -165,6 +165,7 @@ class CLIContext:
                     self.skill_service = ec_db_mgr.skill_service
                     self.task_service = ec_db_mgr.task_service
                     self.org_service = ec_db_mgr.org_service
+                    self.avatar_service = getattr(ec_db_mgr, 'avatar_service', None)
                     self._vehicle_service = None
 
                 @property

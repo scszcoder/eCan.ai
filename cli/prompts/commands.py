@@ -9,9 +9,11 @@ field. This is the same store the desktop app reads via
 ``agent.ec_skills.prompt_loader.load_prompt_by_id`` — so a prompt edited here is
 picked up by running agents.
 
-Writes are LOCAL ONLY. Cloud sync (DynamoDB ``Agent_Prompts``) happens through
-the GUI's ``prompt_cloud_sync`` path, which needs the running app's auth context;
-a short-lived CLI subprocess cannot reach it. The app reconciles on next load.
+Writes go to the local file store first, then push to the cloud through the
+offline sync queue (``cloud_sync`` -> ``DataType.PROMPT``), the same path
+``ecan skills`` uses — so ``add``/``update``/``copy``/``remove`` propagate to the
+cloud, not just the local files. Sync is best-effort: if the machine is offline
+or unauthenticated the local write still succeeds and the queue retries.
 """
 
 import os
@@ -283,7 +285,7 @@ def add(name, content, file_path, overwrite):
     doc["lastModified"] = datetime.utcnow().isoformat()
     _write_doc(doc, old_path=existing.get("__path") if existing else None)
     out.success(f"Prompt '{name}' (id {prompt_id}) {verb}!")
-    out.info("Saved locally; the running app syncs it to cloud.")
+    _prompt_cloud_sync(doc, "UPDATE" if existing else "ADD")
 
 
 @prompts.command()
@@ -321,7 +323,7 @@ def copy(name, new_name):
     doc["lastModified"] = datetime.utcnow().isoformat()
     _write_doc(doc)
     out.success(f"Prompt '{src.get('title')}' copied to '{new_name}' (id {doc['id']})!")
-    out.info("Saved locally; the running app syncs it to cloud.")
+    _prompt_cloud_sync(doc, "ADD")
 
 
 @prompts.command()
@@ -357,11 +359,71 @@ def remove(name, force):
         out.error(f"Failed to delete prompt: {exc}")
         raise SystemExit(1)
     out.success(f"Prompt '{doc.get('title')}' deleted!")
-    out.info(
-        "Deleted locally only. If this prompt exists in the cloud, the app's "
-        "next sync may restore it — delete it in the app's Prompts page to "
-        "remove it from the cloud as well."
-    )
+    _prompt_cloud_sync({"id": doc.get("id"), "title": doc.get("title")}, "DELETE")
+
+
+@prompts.command()
+@requires_auth
+@click.argument('name')
+@click.option('--new-name', '-N', help='Rename the prompt (its title)')
+@click.option('--content', '-c', help='Replace content (use \\n for newlines)')
+@click.option('--file', '-f', 'file_path', type=click.Path(exists=True),
+              help='Replace content from a file')
+def update(name, new_name, file_path, content):
+    """
+    Update a prompt in place.
+
+    OPERATION command - changes a prompt's title and/or content while KEEPING
+    its id, so agents that reference it stay wired up. Requires auth.
+
+    Examples:
+      ecan prompts update greeting -c "Hi there!"
+      ecan prompts update greeting -N welcome
+      ecan prompts update travel_agent0 -f ./new.md
+    """
+    out = get_output()
+
+    doc = _find_by_title(name)
+    if not doc:
+        out.error(f"Prompt not found: {name}")
+        raise SystemExit(1)
+
+    if file_path:
+        content = Path(file_path).read_text(encoding="utf-8")
+    if not new_name and content is None:
+        out.warning("Nothing to update (pass --new-name and/or --content/--file)")
+        return
+
+    old_path = doc.get("__path")
+    updated = {k: v for k, v in doc.items() if k != "__path"}
+    if new_name:
+        target = str(new_name).strip().lower()
+        if any(str(d.get("title") or "").strip().lower() == target and d.get("id") != updated.get("id")
+               for d in _load_prompt_docs()):
+            out.error(f"Prompt already exists: {new_name}")
+            raise SystemExit(1)
+        updated["title"] = new_name
+        updated["topic"] = new_name
+    if content is not None:
+        updated["mdContent"] = content
+        updated["format"] = "md"
+    updated["lastModified"] = datetime.utcnow().isoformat()
+
+    _write_doc(updated, old_path=old_path)
+    out.success(f"Prompt updated (id {updated.get('id')})!")
+    _prompt_cloud_sync(updated, "UPDATE")
+
+
+def _prompt_cloud_sync(doc: Dict[str, Any], op_name: str) -> None:
+    """Best-effort push to the cloud prompt store via the offline sync queue,
+    mirroring ``ecan skills``. Never fails the local write."""
+    try:
+        from ..base.sync import cloud_sync
+        from agent.cloud_api.constants import DataType, Operation
+        payload = {k: v for k, v in (doc or {}).items() if k != "__path"}
+        cloud_sync(DataType.PROMPT, payload, getattr(Operation, op_name))
+    except Exception:
+        pass
 
 
 @prompts.command()

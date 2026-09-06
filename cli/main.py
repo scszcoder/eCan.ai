@@ -236,6 +236,8 @@ def _import_subcommands():
     from cli.config.commands import config
     from cli.deploy.commands import deploy
     from cli.apikey.commands import apikey
+    from cli.organizations.commands import org
+    from cli.avatars.commands import avatar
 
     return {
         'auth': auth,
@@ -252,6 +254,8 @@ def _import_subcommands():
         'config': config,
         'deploy': deploy,
         'apikey': apikey,
+        'org': org,
+        'avatar': avatar,
     }
 
 
