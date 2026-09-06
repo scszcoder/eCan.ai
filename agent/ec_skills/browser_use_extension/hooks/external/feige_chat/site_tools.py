@@ -318,12 +318,32 @@ _FEIGE_OPEN_SESSION_JS = _ROW_NAME_JS + ";\n" + r"""
   if (!target && sessionIndex >= 0 && sessionIndex < items.length) {
     target = items[sessionIndex];
   }
-  if (!target) return JSON.stringify({
-    clicked: false,
-    error: 'Session not found in current conversations',
-    current_visible: items.length,
-    total_visible: allItems.length
-  });
+  if (!target) {
+    // ws193 diag (2026-09-06): open-by-name failed on the SAME tab the scan
+    // reads the customer from (confirmed same target). Report the names the
+    // open reader saw (current + all rows, with their btm-id state) so the
+    // next run shows whether __ecanRowName missed the row or rowIsCurrent
+    // filtered it out — instead of a bare "Session not found".
+    var seen_current = [];
+    for (var s1 = 0; s1 < items.length && s1 < 12; s1++) seen_current.push(__ecanRowName(items[s1]));
+    var seen_all = [];
+    for (var s2 = 0; s2 < allItems.length && s2 < 12; s2++) {
+      seen_all.push({
+        name: __ecanRowName(allItems[s2]),
+        btm: String(allItems[s2].getAttribute && allItems[s2].getAttribute('data-btm-id') || '').slice(-16),
+        current: rowIsCurrent(allItems[s2])
+      });
+    }
+    return JSON.stringify({
+      clicked: false,
+      error: 'Session not found in current conversations',
+      current_visible: items.length,
+      total_visible: allItems.length,
+      wanted: customerName,
+      seen_current: seen_current,
+      seen_all: seen_all
+    });
+  }
   target.click();
   var clickedName = __ecanRowName(target);  // ws193 shared reader
   return JSON.stringify({ clicked: true, name: clickedName });
@@ -396,6 +416,17 @@ async def feige_open_session(params: FeigeOpenSessionAction, browser_session: Br
             logger.info(f"[Feige] Opened session: name={data.get('name')}")
             return ActionResult(extracted_content=f"Opened session: {data.get('name', '(unknown)')}")
         err = data.get("error") if isinstance(data, dict) else str(data)
+        if isinstance(data, dict) and "not found" in str(err):
+            # ws193 diag: same-tab open-by-name miss — show what the open reader
+            # saw so we can tell a parser miss from a rowIsCurrent filter-out.
+            import json as _jd
+            logger.warning(
+                f"[Feige] ws193 open target_not_found wanted={data.get('wanted')!r} "
+                f"current_visible={data.get('current_visible')} "
+                f"total_visible={data.get('total_visible')} "
+                f"seen_current={data.get('seen_current')!r} "
+                f"seen_all={_jd.dumps(data.get('seen_all') or [], ensure_ascii=False)[:600]}"
+            )
         return ActionResult(error=f"feige_open_session: {err}")
     except Exception as e:
         logger.error(f"[Feige] feige_open_session error: {e}")
