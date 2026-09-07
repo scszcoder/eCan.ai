@@ -333,8 +333,14 @@ class RequestLogAnalysisDialog(QDialog):
         self._progress.hide()
         self._status_label.hide()
         self._ok_btn.setEnabled(True)
-        QMessageBox.information(self, _t("rla_complete_title"),
-                               message or _t("rla_complete_msg"))
+        # Lead with the localized success line (the server's message may be
+        # English); append the server detail only when it carries something
+        # beyond the generic English "uploaded successfully" fallback.
+        body = _t("rla_complete_msg")
+        detail = (message or "").strip()
+        if detail and detail.lower().rstrip(".") != "debug package uploaded successfully":
+            body = f"{body}\n\n{detail}"
+        QMessageBox.information(self, _t("rla_complete_title"), body)
         self.accept()
 
     def _on_upload_error(self, error: str):
