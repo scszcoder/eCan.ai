@@ -44,6 +44,106 @@ _MAC_CHROME_PATHS = [
 _LINUX_CHROME_NAMES = ["google-chrome", "google-chrome-stable", "chromium-browser", "chromium"]
 
 
+# Subpaths (relative to a drive root) where Chrome commonly lives — the
+# well-known installer dirs plus a few portable/green-copy layouts. Probed on
+# EVERY fixed drive as a last resort, so a Chrome on D:/E:… that never wrote an
+# App Paths registry entry (portable copy) and isn't on PATH is still found.
+_WINDOWS_CHROME_SUBPATHS = (
+    r"Program Files\Google\Chrome\Application\chrome.exe",
+    r"Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"Google\Chrome\Application\chrome.exe",
+    r"chrome\chrome.exe",
+    r"chrome-win\chrome.exe",
+    r"chrome-win64\chrome.exe",
+    r"Chrome\Application\chrome.exe",
+)
+
+
+def _fixed_drive_roots() -> List[str]:
+    """Roots of FIXED drives (C:\\, D:\\, …). Skips removable/network/CD so a
+    slow or absent network share never stalls the scan. Falls back to a plain
+    letter sweep when the Win32 calls are unavailable."""
+    roots: List[str] = []
+    try:
+        import ctypes
+        import string
+        DRIVE_FIXED = 3
+        mask = ctypes.windll.kernel32.GetLogicalDrives()
+        for i, letter in enumerate(string.ascii_uppercase):
+            if not (mask >> i) & 1:
+                continue
+            root = f"{letter}:\\"
+            try:
+                if ctypes.windll.kernel32.GetDriveTypeW(root) == DRIVE_FIXED:
+                    roots.append(root)
+            except Exception:
+                roots.append(root)
+    except Exception:
+        import string
+        for letter in string.ascii_uppercase:
+            root = f"{letter}:\\"
+            if os.path.isdir(root):
+                roots.append(root)
+    return roots
+
+
+def _scan_fixed_drives_for_chrome() -> Optional[str]:
+    """Last-resort: probe the well-known Chrome subpaths on every fixed drive.
+    os.path.isfile only — no recursive walk, so it stays fast."""
+    for root in _fixed_drive_roots():
+        for sub in _WINDOWS_CHROME_SUBPATHS:
+            cand = os.path.join(root, sub)
+            if os.path.isfile(cand):
+                logger.info(f"[chrome] found on non-standard drive: {cand}")
+                return cand
+    return None
+
+
+def _chrome_from_desktop_shortcut() -> Optional[str]:
+    """A desktop Chrome shortcut's target IS the real chrome.exe path, on any
+    drive — the cheapest drive-agnostic signal when registry/PATH miss (user
+    tip 2026-09-07). Best-effort: needs pywin32; returns None when unavailable."""
+    if platform.system() != "Windows":
+        return None
+    try:
+        import glob
+        import win32com.client  # pywin32
+    except Exception:
+        return None
+    dirs: List[str] = [os.path.join(os.path.expanduser("~"), "Desktop")]
+    try:
+        import winreg
+        with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as k:
+            val, _ = winreg.QueryValueEx(k, "Desktop")
+            if val:
+                dirs.append(os.path.expandvars(str(val)))
+    except Exception:
+        pass
+    pub = os.environ.get("PUBLIC")
+    if pub:
+        dirs.append(os.path.join(pub, "Desktop"))
+    try:
+        shell = win32com.client.Dispatch("WScript.Shell")
+    except Exception:
+        return None
+    seen: set = set()
+    for d in dirs:
+        if not d or d.lower() in seen or not os.path.isdir(d):
+            continue
+        seen.add(d.lower())
+        for lnk in glob.glob(os.path.join(d, "*.lnk")):
+            try:
+                target = str(shell.CreateShortcut(lnk).TargetPath or "")
+                if os.path.basename(target).lower() == "chrome.exe" and os.path.isfile(target):
+                    logger.info(f"[chrome] found via desktop shortcut {os.path.basename(lnk)}: {target}")
+                    return target
+            except Exception:
+                continue
+    return None
+
+
 def _which_chrome() -> Optional[str]:
     """Chrome resolved from PATH, or None."""
     names = (["chrome", "chrome.exe", "google-chrome"] if platform.system() == "Windows"
@@ -93,6 +193,19 @@ def find_chrome() -> Dict[str, Any]:
     for cand in candidates:
         if cand and os.path.isfile(cand):
             return {"found": True, "path": cand, "in_path": False}
+
+    # Windows, a portable/green Chrome on a non-C: drive leaves no App Paths
+    # registry entry and isn't on PATH, so it slips past everything above. Two
+    # cheap drive-agnostic fallbacks before giving up:
+    #   (a) a desktop Chrome shortcut's target is the real exe path (user tip);
+    #   (b) probe the well-known subpaths on every FIXED drive.
+    if system == "Windows":
+        hit = _chrome_from_desktop_shortcut()
+        if hit:
+            return {"found": True, "path": hit, "in_path": False}
+        hit = _scan_fixed_drives_for_chrome()
+        if hit:
+            return {"found": True, "path": hit, "in_path": False}
     return {"found": False, "path": "", "in_path": False}
 
 
