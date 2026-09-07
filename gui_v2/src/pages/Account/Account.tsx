@@ -65,6 +65,11 @@ const Account: React.FC = () => {
     const { t } = useTranslation();
     const [topUpAmount, setTopUpAmount] = useState<number | null>(50);
     const [toppingUp, setToppingUp] = useState(false);
+    const [couponCode, setCouponCode] = useState('');
+    const [couponChecking, setCouponChecking] = useState(false);
+    const [couponInfo, setCouponInfo] = useState<{
+        valid: boolean; pay_amount?: number; credit_amount?: number; currency?: string; reason?: string;
+    } | null>(null);
     const [refreshing, setRefreshing] = useState(false);
     const isCN = useIsCN();
     const [apiKey, setApiKey] = useState<string>('');
@@ -134,6 +139,28 @@ const Account: React.FC = () => {
         navigate('/account/payment-plan');
     };
 
+    // Preview the coupon against the current top-up amount (server is the
+    // authority; this just shows the discounted pay/credit before charging).
+    const previewCoupon = async () => {
+        const code = couponCode.trim();
+        if (!code || !topUpAmount || topUpAmount <= 0) { setCouponInfo(null); return; }
+        setCouponChecking(true);
+        try {
+            const res = await ipcApi.validateCoupon<any>(code, Math.round(topUpAmount * 100), 'CNY', 'topup');
+            const d = (res?.data as any) || {};
+            if (res?.success && d.valid) {
+                setCouponInfo({ valid: true, pay_amount: d.pay_amount, credit_amount: d.credit_amount, currency: d.currency || 'CNY' });
+            } else {
+                setCouponInfo({ valid: false, reason: d.reason || t('account.couponInvalid', 'Coupon is not valid') });
+            }
+        } catch {
+            setCouponInfo(null);
+            message.info(t('account.couponPreviewUnavailable', 'Coupon will be checked at payment'));
+        } finally {
+            setCouponChecking(false);
+        }
+    };
+
     const handleTopUp = async () => {
         if (!topUpAmount || topUpAmount <= 0) {
             return;
@@ -146,7 +173,7 @@ const Account: React.FC = () => {
         try {
             const response = await ipcApi.executeRequest(
                 'payment_topup',
-                { amount: topUpAmount },
+                { amount: topUpAmount, coupon_code: couponCode.trim() || undefined },
                 640_000,
             );
             const data = (response?.data as any) || {};
@@ -413,6 +440,33 @@ const Account: React.FC = () => {
                                     {t('account.topUp', 'Top up')}
                                 </Button>
                             </Space>
+                            {isCN && (
+                                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                                    <Text type="secondary">{t('account.couponCode', 'Coupon code')}</Text>
+                                    <Space>
+                                        <Input
+                                            placeholder={t('account.couponPlaceholder', 'Enter code (optional)')}
+                                            value={couponCode}
+                                            onChange={(e) => { setCouponCode(e.target.value); setCouponInfo(null); }}
+                                            style={{ width: 200 }}
+                                            allowClear
+                                        />
+                                        <Button loading={couponChecking} onClick={previewCoupon} disabled={!couponCode.trim()}>
+                                            {t('account.couponApply', 'Apply')}
+                                        </Button>
+                                    </Space>
+                                    {couponInfo?.valid && (
+                                        <Text type="success">
+                                            {t('account.couponOk', 'Applied')}: {t('account.pay', 'pay')} ¥{((couponInfo.pay_amount || 0) / 100).toFixed(2)}
+                                            {couponInfo.credit_amount && couponInfo.credit_amount !== couponInfo.pay_amount
+                                                ? ` · ${t('account.credit', 'credit')} ¥${((couponInfo.credit_amount || 0) / 100).toFixed(2)}` : ''}
+                                        </Text>
+                                    )}
+                                    {couponInfo && !couponInfo.valid && (
+                                        <Text type="danger">{couponInfo.reason}</Text>
+                                    )}
+                                </Space>
+                            )}
                         </Space>
                     </Card>
                 </Col>
