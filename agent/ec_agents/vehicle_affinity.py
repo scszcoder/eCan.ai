@@ -308,6 +308,67 @@ def agent_launch_allowed(agent) -> "tuple[bool, str]":
         return True, "gate-error"
 
 
+def agent_on_this_machine(agent) -> bool:
+    """True ONLY when *agent* is DEFINITELY pinned to this physical machine.
+
+    Unlike :func:`agent_launch_allowed`, an empty/unknown ``vehicle_id`` returns
+    **False** (not fail-open) — used to decide whether an A2A recipient can be
+    reached at ``127.0.0.1`` instead of its advertised LAN IP, so it must never
+    localize a recipient we aren't sure is co-located. Only a positive vehicle
+    match (this host's id, the legacy id, or a legacy row describing this host)
+    returns True.
+    """
+    try:
+        vid = getattr(agent, "vehicle_id", None) or getattr(agent, "vehicle", None)
+        vid = str(vid).strip() if vid else ""
+        if not vid:
+            return False
+        mainwin = getattr(agent, "mainwin", None)
+        local = resolve_local_vehicle_id(mainwin)
+        if local and vid == local:
+            return True
+        if vid == _local_legacy_vehicle_id(mainwin):
+            return True
+        if _vehicle_row_is_local(mainwin, vid):
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def localize_a2a_url(url: str, recipient_agent) -> str:
+    """Rewrite *url*'s host to ``127.0.0.1`` when *recipient_agent* runs on THIS
+    machine; otherwise return *url* unchanged.
+
+    The persisted/advertised agent URL bakes in the LAN IP captured by
+    ``get_a2a_server_url`` at agent creation. After a DHCP change (e.g. a router
+    power-cycle) that IP is stale, so cross-process **same-machine** A2A dispatch
+    hits a dead address and then falls back to the (flaky) WAN relay — the
+    2026-09-07 customer incident: all agents pinned to host ``AllOne-PC`` but
+    their endpoints frozen at ``192.168.10.100`` after the box moved to
+    ``192.168.10.102``, so every QA answer failed to return and customers saw
+    only placeholders. ``127.0.0.1`` is IP-change-proof for co-located agents.
+
+    No-op for remote recipients, already-local hosts, or unparseable URLs.
+    Kill switch: ``ECAN_A2A_NO_LOCALHOST_REWRITE=1``.
+    """
+    try:
+        if os.environ.get("ECAN_A2A_NO_LOCALHOST_REWRITE") == "1":
+            return url
+        if not url or not agent_on_this_machine(recipient_agent):
+            return url
+        from urllib.parse import urlparse, urlunparse
+
+        p = urlparse(url)
+        host = (p.hostname or "").strip()
+        if not host or host in ("127.0.0.1", "localhost", "::1"):
+            return url
+        netloc = "127.0.0.1" + (f":{p.port}" if p.port else "")
+        return urlunparse((p.scheme or "http", netloc, p.path, p.params, p.query, p.fragment))
+    except Exception:
+        return url
+
+
 def _reset_for_tests() -> None:
     """Test helper — drop process-level caches."""
     global _local_vehicle_id, _legacy_vehicle_id, _vehicle_registered

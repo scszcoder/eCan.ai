@@ -100,6 +100,10 @@ class AgentDirectory:
         with self._lock:
             self._self_machine_id = machine_id
 
+    def get_self_machine_id(self) -> Optional[str]:
+        with self._lock:
+            return self._self_machine_id
+
     # ---- mutation from LAN listener ----------------------------------------
 
     def update_lan_agent(

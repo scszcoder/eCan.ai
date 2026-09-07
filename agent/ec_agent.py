@@ -566,6 +566,22 @@ class EC_Agent(Agent):
 			recipient_url = recipient_agent.get_card().url
 			logger.info(f"[a2a_sync] Sending to {recipient_name} at {recipient_url}, message_keys={list(message.keys()) if isinstance(message, dict) else 'N/A'}")
 			a2a_end_point = recipient_agent.get_card().url.rstrip('/')
+			# Same-machine recipients: the advertised URL bakes in the LAN IP
+			# captured at agent creation; after a DHCP change (router power-cycle)
+			# it is stale and this cross-process LAN send hits a dead address, then
+			# limps onto the flaky WAN relay (2026-09-07 AllOne-PC incident: QA
+			# answers never returned). Route co-located agents via 127.0.0.1 — the
+			# port is stable, only the host IP drifts. No-op for remote recipients.
+			try:
+				from agent.ec_agents.vehicle_affinity import localize_a2a_url
+				_localized = localize_a2a_url(a2a_end_point, recipient_agent)
+				if _localized != a2a_end_point:
+					logger.info(
+						f"[a2a] same-machine recipient {recipient_name}: "
+						f"{a2a_end_point} -> {_localized} (IP-change-proof localhost route)")
+					a2a_end_point = _localized
+			except Exception as _loc_e:
+				logger.debug(f"[a2a] localhost localize skipped (non-fatal): {_loc_e}")
 			self.a2a_client.set_recipient(url=a2a_end_point)
 			if isinstance(message["attributes"]['params']['content'], str):
 				msg_text = message["attributes"]['params']['content']
