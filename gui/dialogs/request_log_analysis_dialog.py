@@ -65,8 +65,9 @@ class RequestLogAnalysisDialog(QDialog):
 
         # Description
         desc = QLabel("Select the skills involved in this debug session.\n"
-                      "The skill files, referenced prompts, and eCan.log will be\n"
-                      "packaged and uploaded to the support team.")
+                      "The skill files, referenced prompts, and the full runlogs\n"
+                      "folder (eCan.log, eCan.wscap.log, …) will be packaged and\n"
+                      "uploaded to the support team.")
         desc.setWordWrap(True)
         desc.setObjectName("descLabel")
         layout.addWidget(desc)

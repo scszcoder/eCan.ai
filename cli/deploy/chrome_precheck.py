@@ -25,11 +25,44 @@ from typing import Any, Dict, List, Optional, Tuple
 
 CHROME_DOWNLOAD_URL = "https://www.google.cn/chrome/"
 DEBUG_PORT = 9228
-USER_DATA_DIR = r"C:\chrome_data"
-CHROME_DEBUG_ARGS = (
-    f'--remote-debugging-port={DEBUG_PORT} --user-data-dir="{USER_DATA_DIR}" '
-    "--disable-features=SharedStorage,InterestCohort"
-)
+_MIN_FREE_GB = 2.0   # need at least this much free on the chosen profile drive
+
+
+def resolve_user_data_dir() -> str:
+    """Chrome profile dir for the desktop shortcut. Prefer ``C:\\chrome_data``,
+    but fall back to the FIXED drive with the most free space when C: is absent
+    or nearly full — some 抖店 machines ship a tiny system C: plus a large D:,
+    where a C:-pinned profile dir would fail to write."""
+    import shutil as _sh
+    preferred = r"C:\chrome_data"
+    try:
+        if os.path.isdir("C:\\"):
+            if _sh.disk_usage("C:\\").free / (1024 ** 3) >= _MIN_FREE_GB:
+                return preferred
+    except Exception:
+        return preferred
+    best, best_free = preferred, -1.0
+    try:
+        from agent.mcp.server.chrome_launcher import _fixed_drive_roots
+        for root in _fixed_drive_roots():
+            try:
+                free = _sh.disk_usage(root).free
+            except Exception:
+                continue
+            if free > best_free:
+                best_free, best = free, os.path.join(root, "chrome_data")
+    except Exception:
+        pass
+    return best
+
+
+def chrome_debug_args(user_data_dir: Optional[str] = None) -> str:
+    """The launch flags eCan attaches to, for a given profile dir."""
+    udd = user_data_dir or resolve_user_data_dir()
+    return (
+        f'--remote-debugging-port={DEBUG_PORT} --user-data-dir="{udd}" '
+        "--disable-features=SharedStorage,InterestCohort"
+    )
 
 
 def _desktop_dirs() -> List[str]:
@@ -57,13 +90,15 @@ def _desktop_dirs() -> List[str]:
     return seen
 
 
-def update_chrome_shortcuts(chrome_path: str, desktop_dirs: Optional[List[str]] = None) -> Dict[str, Any]:
+def update_chrome_shortcuts(chrome_path: str, desktop_dirs: Optional[List[str]] = None,
+                            debug_args: Optional[str] = None) -> Dict[str, Any]:
     """Retarget every desktop .lnk whose target is chrome.exe to launch with
-    CHROME_DEBUG_ARGS. Returns {updated: [...], skipped: [...], detail}."""
+    the debug flags. Returns {updated: [...], skipped: [...], detail}."""
     result: Dict[str, Any] = {"updated": [], "skipped": [], "detail": ""}
     if platform.system() != "Windows":
         result["detail"] = "not Windows"
         return result
+    args = debug_args or chrome_debug_args()
     try:
         import win32com.client  # pywin32 — in requirements-windows.txt
     except Exception as e:
@@ -82,10 +117,10 @@ def update_chrome_shortcuts(chrome_path: str, desktop_dirs: Optional[List[str]] 
                 target = str(sc.TargetPath or "")
                 if os.path.basename(target).lower() != chrome_exe:
                     continue
-                if str(sc.Arguments or "").strip() == CHROME_DEBUG_ARGS:
+                if str(sc.Arguments or "").strip() == args:
                     result["skipped"].append(lnk)
                     continue
-                sc.Arguments = CHROME_DEBUG_ARGS
+                sc.Arguments = args
                 sc.Save()
                 result["updated"].append(lnk)
             except Exception as e:  # public desktop may be read-only for non-admins
@@ -121,14 +156,18 @@ def run_chrome_precheck() -> Tuple[bool, List[str], str]:
             log.append(f"  • PATH unchanged: {r.get('detail') or r.get('method')}")
 
     if platform.system() == "Windows":
-        s = update_chrome_shortcuts(chrome_path)
+        udd = resolve_user_data_dir()
+        args = chrome_debug_args(udd)
+        if not udd.lower().startswith("c:"):
+            log.append(f"  • C: unavailable/low on space — using profile dir {udd}")
+        s = update_chrome_shortcuts(chrome_path, debug_args=args)
         for lnk in s["updated"]:
             log.append(f"  ✓ Desktop shortcut now launches Chrome with debug flags: {lnk}")
         if s["updated"]:
-            log.append(f"    args: {CHROME_DEBUG_ARGS}")
+            log.append(f"    args: {args}")
         if not s["updated"] and not s["skipped"]:
             log.append("  • No desktop Chrome shortcut found — launch Chrome manually with: "
-                       f"chrome.exe {CHROME_DEBUG_ARGS}")
+                       f"chrome.exe {args}")
         if s["skipped"] and not s["updated"]:
             log.append(f"  • Desktop shortcut already configured / skipped: {len(s['skipped'])}")
         if s.get("detail"):
