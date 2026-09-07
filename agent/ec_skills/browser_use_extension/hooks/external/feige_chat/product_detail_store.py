@@ -37,10 +37,28 @@ from utils.logger_helper import logger_helper as logger
 _lock = threading.Lock()
 _by_goods: dict[str, tuple[float, str]] = {}    # product_id -> (ts, detail)
 _by_title: dict[str, tuple[float, str]] = {}    # exact product_name -> (ts, detail)
+# ws195: product ATTRIBUTES kept in a SEPARATE store — they arrive on a
+# different body (get_product_list, data=list) than the price/发货 detail
+# (getTemplateCardDataV2), so a shared key would let one body's write clobber
+# the other's. detail_for() merges the two at read time.
+_by_goods_attrs: dict[str, tuple[float, str]] = {}   # product_id -> (ts, attr_line)
+_by_title_attrs: dict[str, tuple[float, str]] = {}   # exact product_name -> (ts, attr_line)
 _MAX_ENTRIES = 200
 
 _HARVEST_RE = re.compile(r"(发货|退款|退货|运费|无理由|包邮)")
 _GOODS_ID_RE = re.compile(r"商品ID[:：]\s*(\d+)")
+
+# ws195: CS-relevant product attributes to surface in the QA card context.
+# Kept TIGHT (project_qa_token_bloat): customer factual questions cluster on
+# material (掉色/起球/舒适), size/age fit, function and season — NOT the full
+# 15-attribute taxonomy (which reinflates the prompt and adds RAG-style noise).
+# Without material the QA agent fobs off "会不会掉色" with "稍后回复您" (the
+# 2026-09-07 customer report) even though the card JSON carries 面料材质.
+_ATTR_WHITELIST = ("面料材质", "材质", "里料材质", "适用年龄", "尺码", "功能",
+                   "适用季节", "裤长", "袖长", "领型", "版型", "厚薄", "弹力",
+                   "颜色", "服饰工艺")
+_ATTR_MAX = 5           # at most N whitelisted attributes
+_ATTR_LINE_MAX = 160    # chars cap on the whole 属性 segment
 
 
 def enabled() -> bool:
@@ -115,6 +133,61 @@ def _detail_from_goods(g: dict, coupons: list, harvest: list) -> tuple[str, str,
     return pid, name, " ".join(parts)
 
 
+def _resolve_pid_name(g: dict) -> "tuple[str, str]":
+    """product_id + name for a goods entry, checking the nested
+    product_item.product_base_info too — get_product_list entries carry the
+    real ids/title there, not at the top level (top-level product_id is '')."""
+    pid = str(g.get("product_id") or g.get("goods_id") or "").strip()
+    name = str(g.get("product_name") or g.get("name") or "").strip()
+    pi = g.get("product_item")
+    if isinstance(pi, dict):
+        pbi = pi.get("product_base_info")
+        if isinstance(pbi, dict):
+            pid = pid or str(pbi.get("product_id") or "").strip()
+            name = name or str(pbi.get("title") or "").strip()
+    return pid, name
+
+
+def _attrs_from_goods(g: dict) -> str:
+    """Compact, whitelisted 属性 line from a goods entry's
+    ``property_value_pair`` (present on get_product_list / some card bodies).
+
+    Answers the attribute questions the price/发货 detail can't — e.g.
+    '会不会掉色' needs 面料材质. Empty when no whitelisted attribute is present.
+    Capped for token budget (project_qa_token_bloat)."""
+    base = g
+    try:
+        pi = g.get("product_item")
+        if isinstance(pi, dict):
+            pbi = pi.get("product_base_info")
+            if isinstance(pbi, dict) and isinstance(pbi.get("property_value_pair"), list):
+                base = pbi
+    except Exception:
+        base = g
+    pvp = base.get("property_value_pair")
+    if not isinstance(pvp, list):
+        return ""
+    picked = []
+    for entry in pvp:
+        if not isinstance(entry, dict):
+            continue
+        pname = str(((entry.get("Property") or {}) or {}).get("PropertyName") or "").strip()
+        if not pname or not any(w in pname for w in _ATTR_WHITELIST):
+            continue
+        vals = []
+        for v in (entry.get("Values") or []):
+            if isinstance(v, dict):
+                vn = str(v.get("ValueName") or "").strip()
+                if vn:
+                    vals.append(vn)
+        if vals:
+            picked.append(f"{pname}={'/'.join(vals[:3])}")
+        if len(picked) >= _ATTR_MAX:
+            break
+    line = " ".join(picked)
+    return line[:_ATTR_LINE_MAX] if line else ""
+
+
 def note_detail_body(url: str, body: str) -> int:
     """Parse one captured product/card response body; returns entries stored."""
     if not enabled() or not body:
@@ -131,24 +204,49 @@ def note_detail_body(url: str, body: str) -> int:
     if not isinstance(obj, dict):
         return 0
     data = obj.get("data")
-    if not isinstance(data, dict):
-        return 0
+    # ws195: get_product_list returns ``data`` as a LIST of goods (the body that
+    # carries the full property_value_pair attributes) — it was dropped by the
+    # dict-only guard, so attributes never reached the store. Accept both shapes.
     goods_lists = []
-    for key in ("b_goods", "consulting_product", "product_list", "products", "goods"):
-        v = data.get(key)
-        if isinstance(v, list) and v:
-            goods_lists.append(v)
+    if isinstance(data, list) and data:
+        goods_lists.append(data)
+    elif isinstance(data, dict):
+        for key in ("b_goods", "consulting_product", "product_list", "products", "goods"):
+            v = data.get(key)
+            if isinstance(v, list) and v:
+                goods_lists.append(v)
+    else:
+        return 0
     if not goods_lists:
         return 0
-    coupons = _coupon_texts(data)
+    coupons = _coupon_texts(data) if isinstance(data, dict) else []
     harvest: list = []
     _walk_strings(data, harvest)
     stored = 0
+    stored_attrs = 0
     now = time.time()
     for lst in goods_lists:
         for g in lst[:10]:
             if not isinstance(g, dict):
                 continue
+            # ws195: attributes (面料材质/尺码/功能…) — stored independently of
+            # the price guard below, since the get_product_list body carries
+            # attributes but no card-shaped price. Nested-aware pid/name.
+            attrs = _attrs_from_goods(g)
+            if attrs:
+                apid, aname = _resolve_pid_name(g)
+                with _lock:
+                    if apid:
+                        _by_goods_attrs[apid] = (now, attrs)
+                        _trim(_by_goods_attrs)
+                    if aname:
+                        _by_title_attrs[aname] = (now, attrs)
+                        _trim(_by_title_attrs)
+                if apid or aname:
+                    stored_attrs += 1
+                    logger.info(
+                        f"[FEIGE-CARD-JSON] stored attrs goods={apid or '?'} "
+                        f"name={aname[:24]!r} attrs={attrs[:120]!r}")
             pid, name, detail = _detail_from_goods(g, coupons, harvest)
             # a detail line with no price/coupon/shipping content is useless
             if not detail or not re.search(r"[￥券]|发货", detail):
@@ -165,18 +263,34 @@ def note_detail_body(url: str, body: str) -> int:
                 f"[FEIGE-CARD-JSON] stored detail goods={pid or '?'} "
                 f"name={name[:24]!r} detail={detail[:120]!r} "
                 f"(src={'card' if 'TemplateCard' in url else 'workstation'})")
-    return stored
+    return stored + stored_attrs
 
 
 def detail_for(goods_id: str = "", title: str = "") -> str:
-    """Authoritative detail string for a card, by product_id or exact title."""
+    """Authoritative detail string for a card, by product_id or exact title.
+
+    ws195: merges the price/发货 detail with the separately-stored 属性 line
+    (面料材质/尺码/功能…) so the QA context can answer attribute questions
+    ('会不会掉色' → 面料材质) instead of fobbing the customer off. Either half
+    may be missing; returns whatever is available (never fabricated)."""
     if not enabled():
         return ""
+    gid = str(goods_id or "").strip()
+    ttl = str(title or "").strip()
     with _lock:
-        hit = _by_goods.get(str(goods_id or "").strip()) if goods_id else None
-        if hit is None and title:
-            hit = _by_title.get(str(title or "").strip())
-    return hit[1] if hit else ""
+        hit = _by_goods.get(gid) if gid else None
+        if hit is None and ttl:
+            hit = _by_title.get(ttl)
+        ahit = _by_goods_attrs.get(gid) if gid else None
+        if ahit is None and ttl:
+            ahit = _by_title_attrs.get(ttl)
+    price = hit[1] if hit else ""
+    attrs = ahit[1] if ahit else ""
+    if price and attrs:
+        return f"{price} 属性:{attrs}"
+    if attrs:
+        return f"属性:{attrs}"
+    return price
 
 
 # Markers that begin the price/coupon/shipping tail of a card text, i.e. where

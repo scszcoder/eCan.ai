@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -106,6 +107,27 @@ async def send_to_agent(
         return SendOutcome(SendResult.UNREACHABLE, False, error="agent unknown")
 
     sender = from_agent_id or _self_agent_id_default or "unknown"
+
+    # Same machine? The advertised lan_host bakes in the LAN IP captured at the
+    # agent's startup; after a DHCP change (router power-cycle) it is stale, so
+    # a same-machine send hits a dead address and then limps onto the flaky WAN
+    # relay (2026-09-07 AllOne-PC incident). A co-located agent is always
+    # reachable at 127.0.0.1:<port> — the port is stable, only the host IP
+    # drifts. Kill switch: ECAN_A2A_NO_LOCALHOST_REWRITE=1.
+    try:
+        self_mid = d.get_self_machine_id() if hasattr(d, "get_self_machine_id") else None
+    except Exception:
+        self_mid = None
+    if (self_mid and ep.machine_id and ep.machine_id == self_mid and ep.lan_port
+            and os.environ.get("ECAN_A2A_NO_LOCALHOST_REWRITE") != "1"):
+        local_url = f"http://127.0.0.1:{ep.lan_port}{ep.lan_path or '/a2a/'}"
+        try:
+            resp = await _post_lan(local_url, payload, timeout)
+            return SendOutcome(SendResult.LAN, True, response=resp)
+        except Exception as e:
+            logger.info(
+                f"[discovery.router] same-machine localhost to {agent_id} "
+                f"({local_url}) failed: {e}; trying advertised endpoint")
 
     # Try LAN first if endpoint advertises one and we don't have a recent
     # "unreachable" cache entry.
