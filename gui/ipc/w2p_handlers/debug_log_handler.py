@@ -226,6 +226,68 @@ def _appsync_request(query: str, ctx: Dict[str, Any], variables: Optional[Dict] 
 
 
 # ---------------------------------------------------------------------------
+# Runlogs packaging
+# ---------------------------------------------------------------------------
+# The whole runlogs folder goes into the package (eCan.log, eCan.wscap.log,
+# lightrag.log, memory.log, rotated backups, runs/…), not just eCan.log — the
+# ws-capture log is usually what support needs. Guard rails so a long-lived
+# install can't produce a multi-GB upload: previous upload zips are skipped, a
+# single file over MAX_RUNLOG_FILE_BYTES is skipped, and the walk stops once
+# MAX_RUNLOG_TOTAL_BYTES of uncompressed data has been added. Whatever was
+# skipped is listed in runlogs/_manifest.txt inside the zip.
+MAX_RUNLOG_FILE_BYTES = 200 * 1024 * 1024
+MAX_RUNLOG_TOTAL_BYTES = 1024 * 1024 * 1024
+
+
+def _add_runlogs_dir(zf: "zipfile.ZipFile", runlogs_dir: Path,
+                     exclude: Optional[Path] = None) -> Dict[str, Any]:
+    """Add every file under runlogs_dir to zf as runlogs/<relative path>.
+
+    Returns {"added": n, "bytes": total_uncompressed, "skipped": [(rel, reason), ...]}.
+    """
+    added, total, skipped = 0, 0, []
+    if not runlogs_dir.is_dir():
+        return {"added": 0, "bytes": 0, "skipped": [(str(runlogs_dir), "runlogs directory not found")]}
+    exclude_resolved = exclude.resolve() if exclude else None
+    # Newest files first so the budget, if hit, drops the oldest run artefacts.
+    entries = []
+    for root, _dirs, files in os.walk(runlogs_dir):
+        for fname in files:
+            abs_path = Path(root) / fname
+            try:
+                st = abs_path.stat()
+            except OSError:
+                continue
+            entries.append((st.st_mtime, st.st_size, abs_path))
+    entries.sort(key=lambda e: e[0], reverse=True)
+    for _mtime, size, abs_path in entries:
+        rel = abs_path.relative_to(runlogs_dir).as_posix()
+        if exclude_resolved and abs_path.resolve() == exclude_resolved:
+            continue
+        if abs_path.suffix.lower() == ".zip" and abs_path.name.startswith("log_"):
+            skipped.append((rel, "previous debug upload"))
+            continue
+        if size > MAX_RUNLOG_FILE_BYTES:
+            skipped.append((rel, f"file too large ({size // (1024 * 1024)} MB)"))
+            continue
+        if total + size > MAX_RUNLOG_TOTAL_BYTES:
+            skipped.append((rel, "total size budget exhausted"))
+            continue
+        try:
+            zf.write(abs_path, f"runlogs/{rel}")
+        except OSError as exc:  # locked / vanished mid-walk
+            skipped.append((rel, f"unreadable: {exc}"))
+            continue
+        added += 1
+        total += size
+    if skipped:
+        lines = [f"{rel}\t{reason}" for rel, reason in skipped]
+        zf.writestr("runlogs/_manifest.txt",
+                    "skipped files (relative to runlogs)\n" + "\n".join(lines) + "\n")
+    return {"added": added, "bytes": total, "skipped": skipped}
+
+
+# ---------------------------------------------------------------------------
 # Core upload logic
 # ---------------------------------------------------------------------------
 
@@ -261,12 +323,26 @@ def perform_log_analysis_upload(skill_ids: List[str]) -> str:
 
     try:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            # eCan.log
-            if log_path.exists():
+            # Whole runlogs folder — eCan.log, eCan.wscap.log (the ws-capture log
+            # support usually needs), lightrag.log, memory.log, rotated backups,
+            # runs/… — not just eCan.log. `_add_runlogs_dir` applies the size
+            # guards and writes runlogs/_manifest.txt for anything skipped, and
+            # excludes THIS run's in-progress zip. (Previously only eCan.log was
+            # added — the helper existed but was never wired in.)
+            runlogs_dir = log_path.parent
+            rl = _add_runlogs_dir(zf, runlogs_dir, exclude=zip_path)
+            if rl["added"]:
+                logger.info(
+                    f"[debug_log] Added runlogs dir: {rl['added']} file(s), "
+                    f"{rl['bytes'] // 1024} KB uncompressed, "
+                    f"{len(rl['skipped'])} skipped")
+            elif log_path.exists():
+                # Dir walk found nothing (e.g. runlogs not a dir) — fall back to
+                # the single log so support still gets something.
                 zf.write(log_path, "runlogs/eCan.log")
-                logger.debug(f"[debug_log] Added log: {log_path}")
+                logger.warning(f"[debug_log] runlogs dir empty; added eCan.log only: {log_path}")
             else:
-                logger.warning(f"[debug_log] Log not found: {log_path}")
+                logger.warning(f"[debug_log] No runlogs found at {runlogs_dir}")
 
             # Prompt files
             for pid in sorted(prompt_ids):
