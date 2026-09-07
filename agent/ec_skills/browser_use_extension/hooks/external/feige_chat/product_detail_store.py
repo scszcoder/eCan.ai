@@ -55,7 +55,8 @@ _GOODS_ID_RE = re.compile(r"商品ID[:：]\s*(\d+)")
 # Without material the QA agent fobs off "会不会掉色" with "稍后回复您" (the
 # 2026-09-07 customer report) even though the card JSON carries 面料材质.
 _ATTR_WHITELIST = ("面料材质", "材质", "里料材质", "适用年龄", "尺码", "功能",
-                   "适用季节", "裤长", "领型", "版型")
+                   "适用季节", "裤长", "袖长", "领型", "版型", "厚薄", "弹力",
+                   "颜色", "服饰工艺")
 _ATTR_MAX = 5           # at most N whitelisted attributes
 _ATTR_LINE_MAX = 160    # chars cap on the whole 属性 segment
 
