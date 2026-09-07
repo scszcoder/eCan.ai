@@ -20,8 +20,11 @@ balance. This handler returns the payment outcome so the UI can refresh
 the account once that server-side crediting is in place.
 """
 
+import json
 import os
 import traceback
+import urllib.error
+import urllib.request
 from typing import Any, Dict, Optional
 
 from utils.app_env import is_cn, get_app_id, get_payment_config
@@ -183,3 +186,97 @@ def handle_payment_topup(request: IPCRequest,
     except Exception as e:
         logger.error(f"[Payment] topup error: {e}\n{traceback.format_exc()}")
         return create_error_response(request, "PAYMENT_ERROR", str(e))
+
+
+def _coupon_bearer_token() -> str:
+    """Bearer for ecbAccountManager coupon calls. Prefer the CloudBase
+    AccessToken (email/phone logins — what create_payment_order verifies), fall
+    back to the eCan session token (WeChat logins have only this). Mirrors the
+    token selection in handle_payment_topup."""
+    try:
+        from app_context import AppContext
+        mainwin = AppContext.get_main_window()
+        if mainwin is None:
+            return ""
+        try:
+            am = getattr(mainwin, "auth_manager", None)
+            if am is not None:
+                raw = am.get_tokens() or {}
+                tok = str(raw.get("AccessToken") or raw.get("access_token") or "").strip()
+                if tok:
+                    return tok
+        except Exception:
+            pass
+        from agent.cloud_api.cloud_api import _http_auth_header
+        bearer = _http_auth_header(mainwin.get_auth_token() or "")
+        return bearer[7:] if bearer.lower().startswith("bearer ") else bearer
+    except Exception:
+        return ""
+
+
+@IPCHandlerRegistry.handler("billing.validateCoupon")
+def handle_validate_coupon(request: IPCRequest,
+                           params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """CN coupon preview — forward ``validate_coupon`` to ecbAccountManager.
+
+    Advisory only (no side effects): shows the discounted 实付/到账 before the
+    user pays. ``amount`` is in FEN (integer, ¥68.00 -> 6800) per the billing
+    contract; the actual discount is re-checked server-side when the payment
+    page calls create_payment_order. Returns the raw server payload
+    ({valid, pay_amount, credit_amount, currency, reason, ...}) as the IPC data.
+    """
+    try:
+        if not is_cn():
+            return create_error_response(request, "CN_ONLY", "Coupons are CN-only")
+        params = params or {}
+        code = str(params.get("code") or "").strip()
+        if not code:
+            return create_error_response(request, "INVALID_PARAMS", "coupon code is required")
+        try:
+            amount = int(params.get("amount") or 0)   # FEN
+        except (TypeError, ValueError):
+            amount = 0
+        purpose = str(params.get("purpose") or "topup").strip() or "topup"
+
+        from gui.ipc.w2p_handlers.account_verify_handler import _account_manager_url
+        url = _account_manager_url()
+        if not url:
+            return create_error_response(request, "NOT_CONFIGURED", "No GraphQL endpoint configured")
+        token = _coupon_bearer_token()
+        if not token:
+            return create_error_response(request, "NO_TOKEN", "Not signed in — no bearer token available")
+
+        body = {"action": "validate_coupon", "code": code, "amount": amount, "purpose": purpose}
+        req = urllib.request.Request(
+            url, data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+            method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                raw = resp.read(65536).decode("utf-8", "replace")
+                status = resp.status
+        except urllib.error.HTTPError as he:
+            raw = he.read(4096).decode("utf-8", "replace")
+            status = he.code
+        except Exception as exc:
+            logger.warning(f"[Coupon] validate transport error: {exc}")
+            return create_error_response(request, "NETWORK_ERROR", str(exc))
+
+        try:
+            payload = json.loads(raw) if raw.strip() else {}
+        except Exception:
+            payload = {"raw": raw[:500]}
+        if not isinstance(payload, dict):
+            payload = {"result": payload}
+
+        ok = status < 400 and bool(payload.get("success", True))
+        logger.info(f"[Coupon] validate code={code} amount={amount} "
+                    f"status={status} valid={payload.get('valid')} reason={payload.get('reason') or '-'}")
+        if ok:
+            return create_success_response(request, payload)
+        return create_error_response(
+            request, str(payload.get("error") or payload.get("code") or f"HTTP_{status}"),
+            str(payload.get("message") or "coupon validation failed"), details=payload)
+    except Exception as e:
+        logger.error(f"[Coupon] validate error: {e}")
+        return create_error_response(request, "COUPON_ERROR", str(e))
