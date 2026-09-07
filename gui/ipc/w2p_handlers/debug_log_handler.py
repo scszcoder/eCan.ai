@@ -189,19 +189,39 @@ def _get_cloud_context() -> Optional[Dict[str, Any]]:
         from app_context import AppContext
         from agent.cloud_api.cloud_api import normalize_cloud_owner
         mainwin = AppContext.get_main_window()
-        if mainwin is None:
-            return None
-        token = mainwin.get_auth_token()
+        token = mainwin.get_auth_token() if mainwin is not None else None
+        if mainwin is not None and token:
+            return {
+                "session": mainwin.session,
+                "token": token,
+                "endpoint": mainwin.getWanApiEndpoint() if hasattr(mainwin, "getWanApiEndpoint") else None,
+                "owner": normalize_cloud_owner(getattr(mainwin, "user", "") or ""),
+            }
+    except Exception as exc:
+        logger.warning(f"[debug_log] Failed to get GUI cloud context: {exc}")
+    # Headless fallback (CLI / agent, no GUI): auth from the CLI env token the
+    # app sets for its subprocesses (ECAN_CLI_AUTH_TOKEN), a plain requests
+    # session, and the standard AppSync endpoint. Lets `ecan support upload`
+    # run without a MainWindow.
+    return _get_cli_cloud_context()
+
+
+def _get_cli_cloud_context() -> Optional[Dict[str, Any]]:
+    try:
+        token = os.environ.get("ECAN_CLI_AUTH_TOKEN") or ""
         if not token:
             return None
+        user = (os.environ.get("ECAN_DEPLOY_OWNER")
+                or os.environ.get("ECAN_CLI_USER") or "")
+        from agent.cloud_api.cloud_api import normalize_cloud_owner, get_appsync_endpoint
         return {
-            "session": mainwin.session,
+            "session": http_requests.Session(),
             "token": token,
-            "endpoint": mainwin.getWanApiEndpoint() if hasattr(mainwin, "getWanApiEndpoint") else None,
-            "owner": normalize_cloud_owner(getattr(mainwin, "user", "") or ""),
+            "endpoint": get_appsync_endpoint(),
+            "owner": normalize_cloud_owner(user),
         }
     except Exception as exc:
-        logger.warning(f"[debug_log] Failed to get cloud context: {exc}")
+        logger.warning(f"[debug_log] CLI cloud context unavailable: {exc}")
         return None
 
 
@@ -288,10 +308,66 @@ def _add_runlogs_dir(zf: "zipfile.ZipFile", runlogs_dir: Path,
 
 
 # ---------------------------------------------------------------------------
+# Issue report (user problem description + attachments)
+# ---------------------------------------------------------------------------
+ISSUE_REPORT_NAME = "current_issues.md"     # per spec: description saved here
+ISSUE_ATTACH_SUBDIR = "issue_attachments"   # screenshots / screen recordings
+
+
+def save_issue_report(runlogs_dir: Path, description: str = "",
+                      attachments: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Write the user's problem description to runlogs/current_issues.md and copy
+    each attachment (screenshot / screen recording) into
+    runlogs/issue_attachments/, so the runlogs packager sweeps them into the
+    upload automatically. Pure file I/O — no cloud auth — so the GUI dialog, the
+    CLI, and an agent can all call it. Returns {report, copied, skipped}.
+    """
+    import shutil
+    from datetime import datetime as _dt
+    result: Dict[str, Any] = {"report": "", "copied": [], "skipped": []}
+    try:
+        runlogs_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    desc = (description or "").strip()
+    if desc:
+        report = runlogs_dir / ISSUE_REPORT_NAME
+        ts = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            report.write_text(f"# Issue report / 问题描述\n\n- Time: {ts}\n\n{desc}\n",
+                              encoding="utf-8")
+            result["report"] = str(report)
+        except Exception as e:
+            result["skipped"].append((ISSUE_REPORT_NAME, f"write failed: {e}"))
+    for src in (attachments or []):
+        try:
+            sp = Path(src)
+            if not sp.is_file():
+                result["skipped"].append((str(src), "not a file"))
+                continue
+            dest_dir = runlogs_dir / ISSUE_ATTACH_SUBDIR
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / sp.name
+            i = 1
+            while dest.exists() and dest.resolve() != sp.resolve():
+                dest = dest_dir / f"{sp.stem}_{i}{sp.suffix}"
+                i += 1
+            if dest.resolve() != sp.resolve():
+                shutil.copy2(sp, dest)
+            result["copied"].append(str(dest))
+        except Exception as e:
+            result["skipped"].append((str(src), f"copy failed: {e}"))
+    logger.info(f"[debug_log] issue report: desc={'yes' if desc else 'no'} "
+                f"copied={len(result['copied'])} skipped={len(result['skipped'])}")
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Core upload logic
 # ---------------------------------------------------------------------------
 
-def perform_log_analysis_upload(skill_ids: List[str]) -> str:
+def perform_log_analysis_upload(skill_ids: List[str], description: str = "",
+                                attachments: Optional[List[str]] = None) -> str:
     """
     Collect skills + prompts + log → zip → upload to S3 via presigned URL.
     Returns a success message string. Raises on fatal errors.
@@ -320,6 +396,12 @@ def perform_log_analysis_upload(skill_ids: List[str]) -> str:
     # 3. Build zip
     prompts_dir = _get_my_prompts_dir()
     log_path = _get_log_path()
+
+    # Persist the user's problem description + attachments INTO runlogs first, so
+    # the whole-folder packaging below includes current_issues.md and the
+    # issue_attachments/ files.
+    if description or attachments:
+        save_issue_report(log_path.parent, description, attachments)
 
     try:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:

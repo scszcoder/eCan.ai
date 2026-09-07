@@ -1,20 +1,31 @@
 """Request Log Analysis dialog.
 
-Shows a multi-select list of all skills. User picks which skills are involved,
-clicks OK, and the dialog zips everything up and uploads to S3 for support analysis.
+Lets the user pick the skills involved, describe the problem, and attach
+screenshots / a screen recording, then packages everything (skill files,
+referenced prompts, the description saved to current_issues.md, the attachments,
+and the full runlogs folder) and uploads it to support. All strings are
+localized via ``gui.messages`` (CN default). The heavy lifting lives in the
+shared ``debug_log_handler`` so the CLI (``ecan support upload``) and an agent
+can do the same thing headlessly.
 """
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QPushButton, QProgressBar, QMessageBox, QAbstractItemView,
+    QPushButton, QProgressBar, QMessageBox, QAbstractItemView, QTextEdit,
+    QFileDialog,
 )
 
 from gui.messages import get_message
 from utils.logger_helper import logger_helper as logger
+
+
+def _t(key: str, **kwargs) -> str:
+    """Localized string, falling back to the key so a missing entry is visible."""
+    return get_message(key, **kwargs) or key
 
 
 # ---------------------------------------------------------------------------
@@ -25,14 +36,18 @@ class _UploadWorker(QThread):
     finished = Signal(str)   # success message
     error = Signal(str)      # error message
 
-    def __init__(self, skill_ids: List[str]):
+    def __init__(self, skill_ids: List[str], description: str = "",
+                 attachments: Optional[List[str]] = None):
         super().__init__()
         self._skill_ids = skill_ids
+        self._description = description
+        self._attachments = attachments or []
 
     def run(self):
         try:
             from gui.ipc.w2p_handlers.debug_log_handler import perform_log_analysis_upload
-            message = perform_log_analysis_upload(self._skill_ids)
+            message = perform_log_analysis_upload(
+                self._skill_ids, self._description, self._attachments)
             self.finished.emit(message)
         except Exception as exc:
             logger.error(f"[RequestLogAnalysis] Upload failed: {exc}", exc_info=True)
@@ -46,10 +61,11 @@ class _UploadWorker(QThread):
 class RequestLogAnalysisDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(get_message("request_log_analysis") or "Request Log Analysis")
-        self.setFixedSize(520, 520)
+        self.setWindowTitle(_t("request_log_analysis").rstrip(". "))
+        self.setMinimumSize(560, 720)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
         self._worker: _UploadWorker | None = None
+        self._attachments: List[str] = []
         self._setup_ui()
         self._apply_styles()
         self._load_skills()
@@ -61,31 +77,35 @@ class RequestLogAnalysisDialog(QDialog):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(12)
+        layout.setSpacing(10)
 
-        # Description
-        desc = QLabel("Select the skills involved in this debug session.\n"
-                      "The skill files, referenced prompts, and the full runlogs\n"
-                      "folder (eCan.log, eCan.wscap.log, …) will be packaged and\n"
-                      "uploaded to the support team.")
+        desc = QLabel(_t("rla_desc"))
         desc.setWordWrap(True)
         desc.setObjectName("descLabel")
         layout.addWidget(desc)
 
-        # Skill list
+        # Problem description
+        layout.addWidget(self._section_label(_t("rla_problem_label")))
+        self._problem_edit = QTextEdit()
+        self._problem_edit.setObjectName("problemEdit")
+        self._problem_edit.setPlaceholderText(_t("rla_problem_placeholder"))
+        self._problem_edit.setFixedHeight(90)
+        layout.addWidget(self._problem_edit)
+
+        # Skills
+        layout.addWidget(self._section_label(_t("rla_skills_label")))
         self._skill_list = QListWidget()
         self._skill_list.setSelectionMode(QAbstractItemView.MultiSelection)
         self._skill_list.setObjectName("skillList")
         layout.addWidget(self._skill_list, stretch=1)
 
-        # Select-all / deselect-all row
         sel_row = QHBoxLayout()
         sel_row.setSpacing(8)
-        btn_all = QPushButton("Select All")
+        btn_all = QPushButton(_t("rla_select_all"))
         btn_all.setObjectName("secondaryBtn")
         btn_all.setFixedHeight(28)
         btn_all.clicked.connect(self._select_all)
-        btn_none = QPushButton("Deselect All")
+        btn_none = QPushButton(_t("rla_deselect_all"))
         btn_none.setObjectName("secondaryBtn")
         btn_none.setFixedHeight(28)
         btn_none.clicked.connect(self._deselect_all)
@@ -94,14 +114,36 @@ class RequestLogAnalysisDialog(QDialog):
         sel_row.addStretch()
         layout.addLayout(sel_row)
 
-        # Progress area (hidden until upload starts)
+        # Attachments
+        layout.addWidget(self._section_label(_t("rla_attach_label")))
+        self._attach_list = QListWidget()
+        self._attach_list.setObjectName("attachList")
+        self._attach_list.setFixedHeight(90)
+        layout.addWidget(self._attach_list)
+
+        att_row = QHBoxLayout()
+        att_row.setSpacing(8)
+        btn_add = QPushButton(_t("rla_attach_add"))
+        btn_add.setObjectName("secondaryBtn")
+        btn_add.setFixedHeight(28)
+        btn_add.clicked.connect(self._add_attachments)
+        btn_rm = QPushButton(_t("rla_attach_remove"))
+        btn_rm.setObjectName("secondaryBtn")
+        btn_rm.setFixedHeight(28)
+        btn_rm.clicked.connect(self._remove_attachment)
+        att_row.addWidget(btn_add)
+        att_row.addWidget(btn_rm)
+        att_row.addStretch()
+        layout.addLayout(att_row)
+
+        # Progress (hidden until upload)
         self._status_label = QLabel("")
         self._status_label.setObjectName("statusLabel")
         self._status_label.hide()
         layout.addWidget(self._status_label)
 
         self._progress = QProgressBar()
-        self._progress.setRange(0, 0)   # indeterminate
+        self._progress.setRange(0, 0)
         self._progress.setFixedHeight(6)
         self._progress.hide()
         layout.addWidget(self._progress)
@@ -110,86 +152,62 @@ class RequestLogAnalysisDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         btn_row.addStretch()
-        self._ok_btn = QPushButton("OK")
+        self._ok_btn = QPushButton(_t("rla_ok"))
         self._ok_btn.setObjectName("primaryBtn")
-        self._ok_btn.setFixedWidth(100)
+        self._ok_btn.setFixedWidth(110)
         self._ok_btn.setFixedHeight(32)
         self._ok_btn.clicked.connect(self._on_ok)
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton(_t("rla_cancel"))
         cancel_btn.setObjectName("secondaryBtn")
-        cancel_btn.setFixedWidth(100)
+        cancel_btn.setFixedWidth(110)
         cancel_btn.setFixedHeight(32)
         cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self._ok_btn)
         btn_row.addWidget(cancel_btn)
         layout.addLayout(btn_row)
 
+    def _section_label(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setObjectName("sectionLabel")
+        return lbl
+
     def _apply_styles(self):
         self.setStyleSheet("""
-        QDialog {
-            background-color: #1e2936;
+        QDialog { background-color: #1e2936; }
+        QLabel { color: #e6edf3; font-size: 13px; }
+        QLabel#descLabel { color: #c9d1d9; font-size: 13px; }
+        QLabel#sectionLabel { color: #e6edf3; font-size: 13px; font-weight: 600; }
+        QLabel#statusLabel { color: #8b949e; font-size: 12px; }
+        QTextEdit#problemEdit {
+            background-color: #161b22; color: #e6edf3;
+            border: 1px solid #30363d; border-radius: 6px; font-size: 13px; padding: 6px;
         }
-        QLabel {
-            color: #e6edf3;
-            font-size: 13px;
+        QListWidget#skillList, QListWidget#attachList {
+            background-color: #161b22; color: #e6edf3;
+            border: 1px solid #30363d; border-radius: 6px; font-size: 13px; padding: 4px;
         }
-        QLabel#descLabel {
-            color: #c9d1d9;
-            font-size: 13px;
-            line-height: 1.5;
+        QListWidget#skillList::item, QListWidget#attachList::item {
+            padding: 6px 8px; border-radius: 4px;
         }
-        QLabel#statusLabel {
-            color: #8b949e;
-            font-size: 12px;
+        QListWidget#skillList::item:selected, QListWidget#attachList::item:selected {
+            background-color: #1f6feb; color: white;
         }
-        QListWidget#skillList {
-            background-color: #161b22;
-            color: #e6edf3;
-            border: 1px solid #30363d;
-            border-radius: 6px;
-            font-size: 13px;
-            padding: 4px;
-        }
-        QListWidget#skillList::item {
-            padding: 6px 8px;
-            border-radius: 4px;
-        }
-        QListWidget#skillList::item:selected {
-            background-color: #1f6feb;
-            color: white;
-        }
-        QListWidget#skillList::item:hover:!selected {
-            background-color: #21262d;
-        }
+        QListWidget::item:hover:!selected { background-color: #21262d; }
         QPushButton#primaryBtn {
-            background-color: #238636;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 13px;
+            background-color: #238636; color: white; border: none;
+            border-radius: 6px; font-weight: 600; font-size: 13px;
         }
         QPushButton#primaryBtn:hover { background-color: #2ea043; }
         QPushButton#primaryBtn:pressed { background-color: #1a7f37; }
         QPushButton#primaryBtn:disabled { background-color: #3d4448; color: #6e7681; }
         QPushButton#secondaryBtn {
-            background-color: #21262d;
-            color: #c9d1d9;
-            border: 1px solid #30363d;
-            border-radius: 6px;
-            font-size: 12px;
+            background-color: #21262d; color: #c9d1d9;
+            border: 1px solid #30363d; border-radius: 6px; font-size: 12px;
         }
         QPushButton#secondaryBtn:hover { background-color: #30363d; }
         QPushButton#secondaryBtn:pressed { background-color: #161b22; }
-        QProgressBar {
-            background-color: #21262d;
-            border: none;
-            border-radius: 3px;
-        }
-        QProgressBar::chunk {
-            background-color: #1f6feb;
-            border-radius: 3px;
-        }
+        QProgressBar { background-color: #21262d; border: none; border-radius: 3px; }
+        QProgressBar::chunk { background-color: #1f6feb; border-radius: 3px; }
         """)
 
     # ------------------------------------------------------------------
@@ -197,11 +215,10 @@ class RequestLogAnalysisDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _load_skills(self):
-        """Populate the skill list from agent_skills in memory."""
         self._skill_list.clear()
         skills = self._get_skills()
         if not skills:
-            item = QListWidgetItem("(No skills found)")
+            item = QListWidgetItem(_t("rla_no_skills"))
             item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
             self._skill_list.addItem(item)
             return
@@ -211,7 +228,6 @@ class RequestLogAnalysisDialog(QDialog):
             self._skill_list.addItem(item)
 
     def _get_skills(self) -> list[tuple[str, str]]:
-        """Return list of (skill_id, skill_name) tuples."""
         try:
             from app_context import AppContext
             mainwin = AppContext.get_main_window()
@@ -226,7 +242,6 @@ class RequestLogAnalysisDialog(QDialog):
         except Exception as exc:
             logger.warning(f"[RequestLogAnalysis] Could not load skills from memory: {exc}")
 
-        # Fallback: scan my_skills directory
         try:
             from utils.user_path_helper import get_user_data_dir
             import json
@@ -237,7 +252,8 @@ class RequestLogAnalysisDialog(QDialog):
                 for skill_dir in skills_dir.iterdir():
                     if not skill_dir.is_dir():
                         continue
-                    for json_file in (skill_dir / "diagram_dir").glob("*.json") if (skill_dir / "diagram_dir").is_dir() else []:
+                    diagram_dir = skill_dir / "diagram_dir"
+                    for json_file in (diagram_dir.glob("*.json") if diagram_dir.is_dir() else []):
                         try:
                             data = json.loads(json_file.read_text(encoding="utf-8"))
                             sid = str(data.get("skillId") or data.get("id") or "")
@@ -258,27 +274,57 @@ class RequestLogAnalysisDialog(QDialog):
 
     def _select_all(self):
         for i in range(self._skill_list.count()):
-            self._skill_list.item(i).setSelected(True)
+            it = self._skill_list.item(i)
+            if it.flags() & Qt.ItemIsEnabled:
+                it.setSelected(True)
 
     def _deselect_all(self):
         self._skill_list.clearSelection()
 
+    def _add_attachments(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self, _t("rla_attach_dialog_title"), "",
+            "Media (*.png *.jpg *.jpeg *.gif *.bmp *.webp *.mp4 *.mov *.webm *.mkv *.avi);;All files (*.*)")
+        for f in files:
+            if f and f not in self._attachments:
+                self._attachments.append(f)
+                self._attach_list.addItem(QListWidgetItem(f))
+
+    def _remove_attachment(self):
+        for item in self._attach_list.selectedItems():
+            path = item.text()
+            if path in self._attachments:
+                self._attachments.remove(path)
+            self._attach_list.takeItem(self._attach_list.row(item))
+
     def _on_ok(self):
+        description = self._problem_edit.toPlainText().strip()
+        if not description:
+            QMessageBox.warning(self, _t("request_log_analysis").rstrip(". "),
+                                _t("rla_desc_required"))
+            self._problem_edit.setFocus()
+            return
         selected = [
             item.data(Qt.UserRole)
             for item in self._skill_list.selectedItems()
             if item.data(Qt.UserRole)
         ]
-        # Allow upload with no skills — the log file alone is useful for support.
-        self._start_upload(selected)
+        # Confirm before packaging + uploading (the user's "sequence" gate).
+        confirm = QMessageBox.question(
+            self, _t("rla_confirm_title"),
+            _t("rla_confirm_msg", n=len(self._attachments)),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if confirm != QMessageBox.Yes:
+            return
+        self._start_upload(selected, description, list(self._attachments))
 
-    def _start_upload(self, skill_ids: List[str]):
+    def _start_upload(self, skill_ids: List[str], description: str, attachments: List[str]):
         self._ok_btn.setEnabled(False)
-        self._status_label.setText("Packaging and uploading debug log…")
+        self._status_label.setText(_t("rla_packaging"))
         self._status_label.show()
         self._progress.show()
 
-        self._worker = _UploadWorker(skill_ids)
+        self._worker = _UploadWorker(skill_ids, description, attachments)
         self._worker.finished.connect(self._on_upload_done)
         self._worker.error.connect(self._on_upload_error)
         self._worker.start()
@@ -287,15 +333,16 @@ class RequestLogAnalysisDialog(QDialog):
         self._progress.hide()
         self._status_label.hide()
         self._ok_btn.setEnabled(True)
-        QMessageBox.information(self, "Upload Complete", message or "Debug package uploaded successfully.")
+        QMessageBox.information(self, _t("rla_complete_title"),
+                               message or _t("rla_complete_msg"))
         self.accept()
 
     def _on_upload_error(self, error: str):
         self._progress.hide()
         self._status_label.hide()
         self._ok_btn.setEnabled(True)
-        QMessageBox.critical(self, "Upload Failed",
-                             f"Failed to upload debug package:\n\n{error}")
+        QMessageBox.critical(self, _t("rla_failed_title"),
+                             _t("rla_failed_msg", error=error))
 
     def closeEvent(self, event):
         if self._worker and self._worker.isRunning():
