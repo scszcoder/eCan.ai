@@ -91,11 +91,17 @@ on:
           - all
           - amd64
           - aarch64
-      ref:
-        description: 'Git ref to build (empty = use workflow branch)'
-        required: false
-        default: ''
-        type: string
+      runner_group:
+        description: 'Runner family: github-hosted (default) or ecan-* self-hosted'
+        required: true
+        default: 'github-hosted'
+        type: choice
+        options:
+          - github-hosted
+          - ecan-linux-amd64
+          - ecan-windows-amd64
+          - ecan-macos-amd64
+          - ecan-macos-aarch64
 
       environment:
         description: 'Target environment: production/staging/test/development, or empty for auto-detect'
@@ -108,6 +114,12 @@ on:
           - staging
           - test
           - development
+
+      ref:
+        description: 'Git ref to build (empty = use workflow branch)'
+        required: false
+        default: ''
+        type: string
 
       channel:
         description: 'Release channel: stable/beta/nightly/dev, or empty for auto-detect'
@@ -129,18 +141,6 @@ on:
         options:
           - 'true'
           - 'false'
-
-      runner_group:
-        description: 'Runner family: github-hosted (default) or ecan-* self-hosted'
-        required: true
-        default: 'github-hosted'
-        type: choice
-        options:
-          - github-hosted
-          - ecan-linux-amd64
-          - ecan-windows-amd64
-          - ecan-macos-amd64
-          - ecan-macos-aarch64
 
 concurrency:
   # Per-ref × matrix × runner scope. Two manual runs with different
