@@ -1256,19 +1256,34 @@ class AppcastGenerator:
                     }
                     updated_platforms.append(platform_key)
         
-        # Update global version to the latest across all platforms
+        # Global `version` is the highest across all platforms
+        # currently in `latest.json`. Sort with our internal
+        # `parse_version` (the same rule `list_versions` uses to pick
+        # `latest_version` upstream) so the comparison rule is
+        # consistent. `packaging.version.parse` mishandles branch-build
+        # suffixes such as `0.7.0-v0.9.97d-53bdc77` and can rank a
+        # branch build above a numerically larger stable.
         all_platform_versions = [
-            info.get('version', '0.0.0') 
+            info.get('version', '0.0.0')
             for info in latest_data['platforms'].values()
         ]
         if all_platform_versions:
-            # Find the highest version among all platforms
-            from packaging import version as pkg_version
             try:
-                latest_data['version'] = max(all_platform_versions, key=lambda v: pkg_version.parse(v))
+                latest_data['version'] = max(
+                    all_platform_versions,
+                    key=lambda v: self.parse_version(v),
+                )
             except Exception:
-                # Fallback to simple string comparison if packaging is not available
+                # Last-resort string compare if parse_version fails.
                 latest_data['version'] = max(all_platform_versions)
+        else:
+            # No platforms present at all - fall back to the release
+            # dir we intended to publish (e.g. immediately after the
+            # first platform upload, before any sibling platform has
+            # landed). This keeps the top-level field non-empty
+            # rather than silently dropping it.
+            _bare_version = _split_release_dir(latest_version)[1]
+            latest_data['version'] = _bare_version
         
         # Upload to storage
         try:
