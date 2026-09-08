@@ -11900,19 +11900,46 @@ def _log_browser_use_result_summary(history: Any, *, skill_name: str, node_name:
 
 
 def _get_chat_llm(model_name: str, temperature: float = 0.0):
+    """Chat LLM for the tool picker.
+
+    ws197: route through the llm-proxy when proxy routing is enabled or CN-default
+    applies, so the tool picker's spend is TRACKED (produces a llm_usage_logs row)
+    and carries the same X-Ecan-* attribution as every other node. Previously it
+    called OpenAI directly with the user's own secure-store key — invisible to
+    billing and the admin token-usage view. The direct OpenAI client remains the
+    fallback when the proxy isn't configured / is explicitly opted out.
     """
-    Helper function to create a chat LLM instance for tool picker.
-    Defaults to OpenAI with credentials from secure_store.
-    """
+    # Proxy path (tracked + attributed via the ws197 request hook at send time).
     try:
-        # Get API key from secure store
+        use_proxy = _should_use_proxy() or _cn_llm_proxy_by_default('openai', None, None)
+    except Exception:
+        use_proxy = False
+    if use_proxy:
+        proxy_cfg = _get_proxy_config()
+        if proxy_cfg:
+            try:
+                from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
+                logger.info(f"[_get_chat_llm] tool picker via llm-proxy (model={model_name})")
+                return create_lambda_proxy_langchain(
+                    provider='openai',
+                    model=model_name,
+                    user_id=proxy_cfg['user_id'],
+                    lambda_endpoint=proxy_cfg['endpoint'],
+                    auth_token=proxy_cfg['auth_token'],
+                    temperature=temperature,
+                )
+            except Exception as e:
+                logger.warning(f"[_get_chat_llm] proxy build failed, falling back to direct OpenAI: {e}")
+
+    # Direct fallback: OpenAI with the secure-store key (untracked — only when
+    # the proxy is unavailable).
+    try:
         username = get_current_username()
         api_key = secure_store.get("OPENAI_API_KEY", username=username) or ""
-        
+
         if not api_key:
             raise ValueError("OPENAI_API_KEY not found in secure store")
-        
-        # Create OpenAI LLM instance
+
         llm = ChatOpenAI(
             model=model_name,
             api_key=api_key,
