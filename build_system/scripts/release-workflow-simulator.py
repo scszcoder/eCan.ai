@@ -330,8 +330,11 @@ RESERVED_PREFIXES = {"rc", "beta", "alpha", "dev", "nightly", "pre", "preview", 
 # this set (typos, feature/*, release/*, ad-hoc branches) used to
 # silently fall through to a <base>-<branch>-<sha> version, which
 # hid misconfigured ref inputs as legitimate-looking builds. Bug-B
-# fix: reject them loudly instead.
-KNOWN_BRANCHES = {"main", "master", "develop", "dev", "staging", "lq_dev_multi-final"}
+# fix: reject unknown refs outright instead of silently producing
+# <base>-<branch>-<sha>. But rather than hardcoding branch names,
+# we now accept ANY non-empty branch ref (wildcard); the downstream
+# environment/channel detection routes all non-main/master branches to
+# development, so no accidental prod publish can occur.
 
 
 @dataclass
@@ -374,21 +377,15 @@ def run_validate_tag(ref: str, input_env: str, input_channel: str, version_file:
         tag_name = ref_name
         version = version_core
     else:
-        # Branch path: explicit KNOWN_BRANCHES allowlist.
-        # Bug-B fix: reject unknown refs outright instead of silently
-        # producing <base>-<branch>-<sha>. Anything that doesn't match
-        # a tag pattern and isn't a named branch is a likely typo and
-        # must fail loudly here so the operator notices.
-        if ref_name not in KNOWN_BRANCHES:
+        # Branch path: any non-empty ref not matching a tag pattern → branch build.
+        # Malformed tags are caught above by the ref check (git show-ref in bash).
+        # Environment detection below routes main/master → production, staging → staging,
+        # and everything else → development (safe, no prod publish).
+        if not ref_name:
             return ValidateTagOutputs(
                 valid=False, is_branch=False, version="", user_prefix="",
                 tag_name="", environment="", channel="",
-                error=(
-                    f"unrecognized ref {ref_name!r}; expected a semver tag "
-                    f"(vX.Y.Z, vX.Y.Z<suffix>), a user-prefixed tag "
-                    f"(<user>_vX.Y.Z), or a known branch in "
-                    f"{sorted(KNOWN_BRANCHES)}"
-                ),
+                error=f"empty ref name (internal error)",
             )
         base = version_file or "0.0.0"
         # SHA + branch would normally be appended; for static eval use a stub.
@@ -401,9 +398,8 @@ def run_validate_tag(ref: str, input_env: str, input_channel: str, version_file:
     # is_tag (for env detect-env branch). Loosened to match SEMVER_RE so
     # letter-suffix patch tags (v0.9.97k) are treated as tags here too.
     is_tag = bool(re.match(r"^v[0-9]+(\.[0-9]+[A-Za-z]*)+", ref_name))
-    # KNOWN_BRANCHES covers main/master/develop/dev/staging. main/master
-    # are staging-eligible so that nightly/preview builds keep working;
-    # develop/dev route to development/test (not staging) by spec.
+    # main/master/staging are staging-eligible so that nightly/preview builds
+    # keep working; develop/dev route to development/test (not staging) by spec.
     is_staging_eligible = is_tag or ref_name in ("main", "master", "staging")
 
     # environment
@@ -736,10 +732,10 @@ REFS = [
     ("develop",                    True,  "development","dev",     "develop branch → dev"),
     ("dev",                        True,  "development","dev",     "dev branch → dev"),
     ("staging",                    True,  "staging",    "stable",  "staging branch → staging/stable"),
-    # Bug-B fix: feature/* branches used to silently fall through to a
-    # <base>-<branch>-<sha> version. They are NOT in KNOWN_BRANCHES, so
-    # any build against them must be rejected by validate-tag.
-    ("feature/foo",                False, "",           "",        "feature branch → BLOCKED (no silent fallback)"),
+    # Wildcard branch support: any non-empty ref not matching tag patterns above
+    # is accepted as a branch build and routed to development/dev. This avoids
+    # hardcoding branch names; environment detection controls the safe出口.
+    ("feature/foo",                True,  "development","dev",     "feature branch → dev"),
     ("v1.0.0",                     True,  "production", "stable",  "semver tag → prod/stable"),
     ("v1.0.0-rc.1",                True,  "production", "beta",    "rc tag → prod/beta"),
     ("v1.0.0-beta.1",              True,  "staging",    "beta",    "beta tag → staging/beta"),

@@ -510,15 +510,15 @@ jobs:
             echo "tag_name=${REF_NAME}" >> $GITHUB_OUTPUT
             echo "User-prefixed tag detected: prefix=$USER_PREFIX, core=$VERSION_CORE"
           else
-            # ── Bug-B fix: explicit branch allowlist (no silent fallback) ─────
-            # Only KNOWN_BRANCHES (main, master, develop, dev, staging, lq_dev_multi-final) are
-            # allowed to build without a tag.  Anything else used to silently
-            # fall through to <base>-<branch>-<sha>, which hid typos and
-            # produced misleading "successful" releases for the wrong ref.
-            # Reject loudly here so the operator notices.
+            # Allow any non-empty branch. Tag patterns are handled above (exit).
+            # Branch build below reads VERSION and appends branch+SHA so it never
+            # collides with any semver release tag. Downstream environment/channel
+            # detection routes main/master → production, staging → staging, and
+            # all other branches → development (safe, no prod publish).
             case "$REF_NAME" in
-              main|master|develop|dev|staging|lq_dev_multi-final)
-                # explicit allowlist hit — proceed to the branch build below
+              ?*)
+                # Any non-empty ref not caught by tag patterns → branch build.
+                # Malformed tags are caught by the git show-ref check below.
                 ;;
               *)
                 # Only intl has a fully-fetched mirror; cn's checkout step
@@ -536,13 +536,8 @@ jobs:
                   exit 1
                 fi
                 echo "[ERROR] Unrecognized ref '$REF_NAME'."
-                echo "Expected one of:"
-                echo "  - a semver tag (e.g., v0.9.97, v0.9.97k, v1.0.0-rc.1)"
-                echo "  - a user-prefixed tag (e.g., alice_v0.9.97)"
-                echo "  - a known branch: main | master | develop | dev | staging | lq_dev_multi-final"
-                echo "If 'feature/foo' (or any other ad-hoc branch) should be allowed,"
-                echo "add it to the KNOWN_BRANCHES allowlist above. There is no silent"
-                echo "VERSION-file fallback for unknown refs."
+                echo "Expected a semver tag (e.g. v0.9.97, v0.9.97k, v1.0.0-rc.1)"
+                echo "or a user-prefixed tag (e.g. alice_v0.9.97)."
                 exit 1
                 ;;
             esac

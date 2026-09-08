@@ -362,46 +362,43 @@ class TestRunValidateTag:
         assert out.version == "0.9.97k"
 
     def test_unrecognized_ref_is_rejected(self):
-        # Bug-B fix: an unknown ref (not a tag, not a KNOWN_BRANCHES
-        # branch) must fail loudly, not silently fall back to a
-        # <base>-<branch>-<sha> version. feature/* is the classic
-        # case — used to silently pass and build 0.0.0-feature-foo-<sha>.
-        out = sim.run_validate_tag("feature/foo", "", "")
+        # With wildcard branch support, any non-empty ref is accepted.
+        # Only an empty ref (internal error, not a real GitHub Actions push)
+        # is rejected. The git show-ref malformed-tag check is bash-only
+        # (not simulated), so it is out of scope for the simulator.
+        out = sim.run_validate_tag("", "", "")
         assert out.valid is False
-        assert "unrecognized ref" in out.error
-        assert "feature/foo" in out.error
-        assert out.is_branch is False
-        assert out.version == ""
+        assert "empty ref" in out.error
 
-    def test_typo_in_branch_is_rejected(self):
-        # Bug-B fix: typos in branch names used to silently fall back.
-        # They're now a hard error.
+    def test_typo_in_branch_routes_to_development(self):
+        # Wildcard branch support: typos like "mian" (misspelled main) are
+        # accepted as valid branches and routed to development/dev.
+        # Safety comes from environment gating (production requires
+        # main/master/tag), not from branch allowlisting.
         out = sim.run_validate_tag("mian", "", "")
-        assert out.valid is False
-        assert "unrecognized ref" in out.error
+        assert out.valid is True
+        assert out.environment == "development"
+        assert out.channel == "dev"
 
     def test_unrecognized_ref_with_input_env_still_rejects(self):
-        # Even when the operator supplies an env manually, an unknown
-        # ref short-circuits before env gating. The unknown-ref error
-        # must surface, not the env gate.
+        # With wildcard branch support, any non-empty ref is valid.
+        # The env-gate still rejects production on non-main/master branches.
         out = sim.run_validate_tag("feature/foo", "production", "stable")
         assert out.valid is False
-        assert "unrecognized ref" in out.error
+        assert "production" in out.error
 
     def test_production_stable_on_branch_is_blocked(self):
         # The hard gate: you cannot deploy production/stable from a non-tag
         # ref, even via manual input. With input_env=production and a
         # feature branch, the env-eligibility check fires first and rejects
         # with "production env requires tag or main/master". The
-        # production/stable + branch gate is the second line of defense
+        # production/stable + not-tag gate is the second line of defense
         # and only triggers for auto-detected env (input_env=""), or when
         # the ref IS main/master (which would otherwise sneak through).
         # See test_auto_production_stable_on_branch_is_blocked for that.
-        # Bug-B fix: feature/foo now short-circuits on the unknown-ref
-        # check before any env gate runs, so the error message changes.
         out = sim.run_validate_tag("feature/foo", "production", "stable")
         assert out.valid is False
-        assert "unrecognized ref" in out.error
+        assert "production" in out.error
 
     def test_auto_production_stable_on_branch_is_blocked(self):
         # The second-line gate: env=production AND channel=stable AND
@@ -421,13 +418,12 @@ class TestRunValidateTag:
         assert out2.valid is False
         assert "production/stable" in out2.error
 
-    def test_staging_env_on_unknown_branch_short_circuits(self):
-        # Bug-B fix: unknown branches (feature/foo, typos, etc.) are
-        # rejected before env gates run, so the error surfacing here
-        # is the unrecognized-ref message, not the staging-env gate.
+    def test_staging_env_on_feature_branch_short_circuits(self):
+        # Feature branches are not staging-eligible. When input_env=staging
+        # is forced, the staging-eligibility check fires and rejects.
         out = sim.run_validate_tag("feature/foo", "staging", "")
         assert out.valid is False
-        assert "unrecognized ref" in out.error
+        assert "staging" in out.error
 
     def test_staging_env_on_known_branch_works(self):
         # staging env on the staging branch is the legitimate
