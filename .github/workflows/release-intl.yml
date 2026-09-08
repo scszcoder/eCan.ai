@@ -334,9 +334,16 @@ jobs:
           # Reserved prefixes (rc, beta, alpha, dev, nightly, pre, preview,
           # snapshot) are forbidden so a tag like rc_v1.0.0 can never be
           # mistaken for a user build by the client-side splitter in
-          # ota/core/appcast.py::_split_user_prefix.
-          SEMVER_RE='^v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
-          PREFIXED_RE='^([A-Za-z][A-Za-z0-9]{0,31})_v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
+          # ── Bug-A fix: widen SEMVER_RE to accept letter-suffix patch tags ──────────
+          # e.g. v0.9.97k, v1.2.3a. The trailing [A-Za-z]* on each patch segment
+          # allows a letter suffix on the final segment without requiring a leading
+          # hyphen (which would be parsed as a prerelease instead).
+          # PREFIXED_RE uses the same pattern so <user>_v0.9.97k also works.
+          # Reserved prefixes (rc, beta, alpha, dev, nightly, pre, preview, snapshot)
+          # are forbidden so a tag like rc_v1.0.0 can never be mistaken for a user
+          # build by the client-side splitter in ota/core/appcast.py::_split_user_prefix.
+          SEMVER_RE='^v[0-9]+(\.[0-9]+[A-Za-z]*)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
+          PREFIXED_RE='^([A-Za-z][A-Za-z0-9]{0,31})_v[0-9]+(\.[0-9]+[A-Za-z]*)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
 
           if [[ "$REF_NAME" =~ $SEMVER_RE ]]; then
             echo "valid=true" >> $GITHUB_OUTPUT
@@ -364,7 +371,42 @@ jobs:
             echo "tag_name=${REF_NAME}" >> $GITHUB_OUTPUT
             echo "User-prefixed tag detected: prefix=$USER_PREFIX, core=$VERSION_CORE"
           else
-            # Branch: read VERSION file as base version
+            # ── Bug-B fix: explicit branch allowlist (no silent fallback) ─────
+            # Only KNOWN_BRANCHES (main, master, develop, dev, staging) are
+            # allowed to build without a tag.  Anything else used to silently
+            # fall through to <base>-<branch>-<sha>, which hid typos and
+            # produced misleading "successful" releases for the wrong ref.
+            # Reject loudly here so the operator notices.
+            case "$REF_NAME" in
+              main|master|develop|dev|staging)
+                # explicit allowlist hit — proceed to the branch build below
+                ;;
+              *)
+                if git show-ref --verify --quiet "refs/tags/$REF_NAME" 2>/dev/null; then
+                  echo "[ERROR] Tag '$REF_NAME' is not in a recognized format."
+                  echo "Expected: vX.Y.Z         (e.g. v0.9.97)"
+                  echo "          vX.Y.Z<suffix>  (e.g. v0.9.97k)"
+                  echo "          vX.Y.Z-prerelease  (e.g. v0.9.97-rc.1)"
+                  echo "          <user>_vX.Y.Z    (e.g. alice_v0.9.97)"
+                  echo "where <suffix> may be a trailing letter (k, alpha, etc.)."
+                  echo "The version must start with 'v' followed by a numeric major.minor.patch."
+                  exit 1
+                fi
+                echo "[ERROR] Unrecognized ref '$REF_NAME'."
+                echo "Expected one of:"
+                echo "  - a semver tag (e.g., v0.9.97, v0.9.97k, v1.0.0-rc.1)"
+                echo "  - a user-prefixed tag (e.g., alice_v0.9.97)"
+                echo "  - a known branch: main | master | develop | dev | staging"
+                echo "If 'feature/foo' (or any other ad-hoc branch) should be allowed,"
+                echo "add it to the KNOWN_BRANCHES allowlist above. There is no silent"
+                echo "VERSION-file fallback for unknown refs."
+                exit 1
+                ;;
+            esac
+            # Branch build (allowlist hit). Reads the base version from the
+            # VERSION file and appends the branch + short SHA so the result
+            # is unambiguous on the OTA side. Branches are clearly distinct
+            # from any vX.Y.Z release tag, so this never collides.
             if [ -f "VERSION" ]; then
               BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
               echo "Read base version from VERSION file: $BASE_VERSION"
@@ -372,7 +414,6 @@ jobs:
               BASE_VERSION="0.0.0"
               echo "VERSION file not found, using default: $BASE_VERSION"
             fi
-
             SHORT_SHA=$(git rev-parse --short HEAD)
             SAFE_BRANCH=$(echo "$REF_NAME" | tr '/' '-')
             FALLBACK="${BASE_VERSION}-${SAFE_BRANCH}-${SHORT_SHA}"
@@ -397,8 +438,9 @@ jobs:
           echo "Ref: $REF_NAME"
           echo "Version: $VERSION"
 
+          # ── Bug-A fix: same letter-suffix pattern as the validate regex ────────
           IS_TAG=false
-          if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+.*$ ]]; then
+          if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+[A-Za-z]*)+.*$ ]]; then
             IS_TAG=true
           fi
 
@@ -426,13 +468,14 @@ jobs:
 
             echo "Using manual environment: $ENV"
           else
-            if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
+            # ── Bug-A fix: widen patterns to accept letter-suffix patch tags ───────
+            if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+[A-Za-z]*)+$ ]]; then
               ENV="production"
-            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-rc\. ]]; then
+            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+[A-Za-z]*)+-rc\. ]]; then
               ENV="production"
-            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-beta ]]; then
+            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+[A-Za-z]*)+-beta ]]; then
               ENV="staging"
-            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-alpha ]]; then
+            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+[A-Za-z]*)+-alpha ]]; then
               ENV="test"
             elif [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
               ENV="production"
@@ -450,13 +493,14 @@ jobs:
             CHANNEL="$INPUT_CHANNEL"
             echo "Using manual channel: $CHANNEL"
           else
-            if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
+            # ── Bug-A fix: widen patterns to accept letter-suffix patch tags ───────
+            if [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+[A-Za-z]*)+$ ]]; then
               CHANNEL="stable"
-            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-rc\. ]]; then
+            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+[A-Za-z]*)+-rc\. ]]; then
               CHANNEL="beta"
-            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-beta ]]; then
+            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+[A-Za-z]*)+-beta ]]; then
               CHANNEL="beta"
-            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+)+-alpha ]]; then
+            elif [[ "$REF_NAME" =~ ^v[0-9]+(\.[0-9]+[A-Za-z]*)+-alpha ]]; then
               CHANNEL="dev"
             elif [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
               CHANNEL="nightly"
@@ -857,6 +901,26 @@ jobs:
 
       - name: Setup signtool environment
         uses: ./.github/actions/setup-signtool-env
+
+      - name: Inject build info
+        # ── Bug-B fix: update VERSION + ota_config.yaml before build ────────────
+        # inject_build_info.py writes the correct environment into
+        # ota/config/ota_config.yaml so the PyInstaller bundle embeds the RIGHT
+        # environment (production/stable) and the app queries the correct
+        # appcast path.  Without this, the bundle retains the source-default
+        # "environment: test" and the OTA check hits a 404 on the wrong path.
+        env:
+          ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
+        shell: powershell
+        run: |
+          $VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
+          if (-not (Test-Path $VenvPython)) {
+            throw "Venv python not found at $VenvPython — setup-python-env step likely failed"
+          }
+          & $VenvPython build_system/scripts/inject_build_info.py `
+            --version "${{ needs.validate-tag.outputs.version }}" `
+            --environment "${{ needs.validate-tag.outputs.environment }}"
+          if ($LASTEXITCODE -ne 0) { throw "inject_build_info.py failed (exit $LASTEXITCODE)" }
 
       - name: Build Windows installer
         env:
@@ -1290,6 +1354,20 @@ jobs:
             'import base64, os, pathlib; pathlib.Path("build_system/certificates/ed25519_private_key.pem").write_bytes(base64.b64decode(os.environ["OTA_PRIVATE_KEY"]))'
           chmod 600 build_system/certificates/ed25519_private_key.pem
 
+      - name: Inject build info
+        # ── Bug-B fix: update VERSION + ota_config.yaml before build ────────────
+        # See build-windows > Inject build info for the rationale.
+        env:
+          ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
+        run: |
+          python3 build_system/scripts/inject_build_info.py \
+            --version "${{ needs.validate-tag.outputs.version }}" \
+            --environment "${{ needs.validate-tag.outputs.environment }}"
+          if [ $? -ne 0 ]; then
+            echo "::error::inject_build_info.py failed (exit $?)"
+            exit 1
+          fi
+
       - name: Build macOS package
         shell: bash
         env:
@@ -1668,6 +1746,20 @@ jobs:
             'import base64, os, pathlib; pathlib.Path("build_system/certificates/ed25519_private_key.pem").write_bytes(base64.b64decode(os.environ["OTA_PRIVATE_KEY"]))'
           chmod 600 build_system/certificates/ed25519_private_key.pem
 
+      - name: Inject build info
+        # ── Bug-B fix: update VERSION + ota_config.yaml before build ────────────
+        # See build-windows > Inject build info for the rationale.
+        env:
+          ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
+        run: |
+          python3 build_system/scripts/inject_build_info.py \
+            --version "${{ needs.validate-tag.outputs.version }}" \
+            --environment "${{ needs.validate-tag.outputs.environment }}"
+          if [ $? -ne 0 ]; then
+            echo "::error::inject_build_info.py failed (exit $?)"
+            exit 1
+          fi
+
       - name: Build macOS package
         shell: bash
         env:
@@ -2007,6 +2099,20 @@ jobs:
           OTA_PRIVATE_KEY="$OTA_PRIVATE_KEY" python3 -c \
             'import base64, os, pathlib; pathlib.Path("build_system/certificates/ed25519_private_key.pem").write_bytes(base64.b64decode(os.environ["OTA_PRIVATE_KEY"]))'
           chmod 600 build_system/certificates/ed25519_private_key.pem
+
+      - name: Inject build info
+        # ── Bug-B fix: update VERSION + ota_config.yaml before build ────────────
+        # See build-windows > Inject build info for the rationale.
+        env:
+          ECAN_ENVIRONMENT: ${{ needs.validate-tag.outputs.environment }}
+        run: |
+          python3 build_system/scripts/inject_build_info.py \
+            --version "${{ needs.validate-tag.outputs.version }}" \
+            --environment "${{ needs.validate-tag.outputs.environment }}"
+          if [ $? -ne 0 ]; then
+            echo "::error::inject_build_info.py failed (exit $?)"
+            exit 1
+          fi
 
       - name: Build Linux packages
         shell: bash

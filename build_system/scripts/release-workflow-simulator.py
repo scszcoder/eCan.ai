@@ -313,12 +313,25 @@ class ExprEnv:
 # ---------------------------------------------------------------------------
 # validate-tag: pure-Python mirror of the bash heuristics
 # ---------------------------------------------------------------------------
-
-SEMVER_RE = re.compile(r"^v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$")
+#
+# SEMVER_RE / PREFIXED_RE mirror release-{intl,cn}.yml.
+# The patch-segment pattern `(\.[0-9]+[A-Za-z]*)+` allows a trailing
+# letter suffix (e.g. v0.9.97k, v1.2.3a) without treating it as a
+# prerelease. KEEP THIS IN SYNC with the bash regex below — drift
+# here hides tag-build bugs from the simulator's static matrix.
+SEMVER_RE = re.compile(r"^v[0-9]+(\.[0-9]+[A-Za-z]*)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$")
 PREFIXED_RE = re.compile(
-    r"^([A-Za-z][A-Za-z0-9]{0,31})_v[0-9]+(\.[0-9]+)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$"
+    r"^([A-Za-z][A-Za-z0-9]{0,31})_v[0-9]+(\.[0-9]+[A-Za-z]*)+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$"
 )
 RESERVED_PREFIXES = {"rc", "beta", "alpha", "dev", "nightly", "pre", "preview", "snapshot"}
+
+# Branches that may build without a tag. The bash heuristic in
+# release-{intl,cn}.yml uses the same allowlist. Anything outside
+# this set (typos, feature/*, release/*, ad-hoc branches) used to
+# silently fall through to a <base>-<branch>-<sha> version, which
+# hid misconfigured ref inputs as legitimate-looking builds. Bug-B
+# fix: reject them loudly instead.
+KNOWN_BRANCHES = {"main", "master", "develop", "dev", "staging"}
 
 
 @dataclass
@@ -361,18 +374,37 @@ def run_validate_tag(ref: str, input_env: str, input_channel: str, version_file:
         tag_name = ref_name
         version = version_core
     else:
-        # branch path
+        # Branch path: explicit KNOWN_BRANCHES allowlist.
+        # Bug-B fix: reject unknown refs outright instead of silently
+        # producing <base>-<branch>-<sha>. Anything that doesn't match
+        # a tag pattern and isn't a named branch is a likely typo and
+        # must fail loudly here so the operator notices.
+        if ref_name not in KNOWN_BRANCHES:
+            return ValidateTagOutputs(
+                valid=False, is_branch=False, version="", user_prefix="",
+                tag_name="", environment="", channel="",
+                error=(
+                    f"unrecognized ref {ref_name!r}; expected a semver tag "
+                    f"(vX.Y.Z, vX.Y.Z<suffix>), a user-prefixed tag "
+                    f"(<user>_vX.Y.Z), or a known branch in "
+                    f"{sorted(KNOWN_BRANCHES)}"
+                ),
+            )
         base = version_file or "0.0.0"
-        # SHA + branch would normally be appended; for static eval use a stub
-        version = f"{base}-branch"
+        # SHA + branch would normally be appended; for static eval use a stub.
+        version = f"{base}-{ref_name}"
         user_prefix = ""
         tag_name = ""
         is_branch = True
         valid = True
 
-    # is_tag (for env detect-env branch)
-    is_tag = bool(re.match(r"^v[0-9]+(\.[0-9]+)+", ref_name))
-    is_staging_eligible = is_tag or ref_name in ("main", "master")
+    # is_tag (for env detect-env branch). Loosened to match SEMVER_RE so
+    # letter-suffix patch tags (v0.9.97k) are treated as tags here too.
+    is_tag = bool(re.match(r"^v[0-9]+(\.[0-9]+[A-Za-z]*)+", ref_name))
+    # KNOWN_BRANCHES covers main/master/develop/dev/staging. main/master
+    # are staging-eligible so that nightly/preview builds keep working;
+    # develop/dev route to development/test (not staging) by spec.
+    is_staging_eligible = is_tag or ref_name in ("main", "master", "staging")
 
     # environment
     if input_env:
@@ -392,7 +424,9 @@ def run_validate_tag(ref: str, input_env: str, input_channel: str, version_file:
                 error="staging env requires tag or main/master/staging",
             )
     else:
-        if re.match(r"^v[0-9]+(\.[0-9]+)+$", ref_name):
+        # Loosened patterns match SEMVER_RE so letter-suffix patch tags
+        # (v0.9.97k) route to production/stable like a plain vX.Y.Z does.
+        if re.match(r"^v[0-9]+(\.[0-9]+[A-Za-z]*)+$", ref_name):
             env = "production"
         elif re.search(r"-rc\.", ref_name):
             env = "production"
@@ -413,7 +447,7 @@ def run_validate_tag(ref: str, input_env: str, input_channel: str, version_file:
     if input_channel:
         channel = input_channel
     else:
-        if re.match(r"^v[0-9]+(\.[0-9]+)+$", ref_name):
+        if re.match(r"^v[0-9]+(\.[0-9]+[A-Za-z]*)+$", ref_name):
             channel = "stable"
         elif re.search(r"-rc\.", ref_name):
             channel = "beta"
@@ -702,11 +736,17 @@ REFS = [
     ("develop",                    True,  "development","dev",     "develop branch → dev"),
     ("dev",                        True,  "development","dev",     "dev branch → dev"),
     ("staging",                    True,  "staging",    "stable",  "staging branch → staging/stable"),
-    ("feature/foo",                True,  "development","dev",     "feature branch → dev"),
+    # Bug-B fix: feature/* branches used to silently fall through to a
+    # <base>-<branch>-<sha> version. They are NOT in KNOWN_BRANCHES, so
+    # any build against them must be rejected by validate-tag.
+    ("feature/foo",                False, "",           "",        "feature branch → BLOCKED (no silent fallback)"),
     ("v1.0.0",                     True,  "production", "stable",  "semver tag → prod/stable"),
     ("v1.0.0-rc.1",                True,  "production", "beta",    "rc tag → prod/beta"),
     ("v1.0.0-beta.1",              True,  "staging",    "beta",    "beta tag → staging/beta"),
     ("v1.0.0-alpha.1",             True,  "test",       "dev",     "alpha tag → test/dev"),
+    # Bug-A fix: letter-suffix patch tags must route like a plain semver.
+    ("v0.9.97k",                   True,  "production", "stable",  "letter-suffix patch → prod/stable"),
+    ("v1.2.3a",                    True,  "production", "stable",  "letter-suffix patch → prod/stable"),
     ("songc_v0.1.0",               True,  "production", "stable",  "user-prefix tag → prod/stable"),
     ("rc_v1.0.0",                  False, "",           "",        "reserved prefix → BLOCKED"),
     ("beta_v1.0.0",                False, "",           "",        "reserved prefix → BLOCKED"),
