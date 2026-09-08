@@ -77,6 +77,40 @@ def attribution_headers() -> Dict[str, str]:
     return out
 
 
+def apply_attribution_to_request(request) -> None:
+    """httpx request event-hook: stamp X-Ecan-* from the CURRENT scope at SEND
+    time. Use with an OpenAI-compatible client (ChatOpenAI / OpenAIEmbeddings /
+    a raw rerank client) whose instance is cached/shared — reading the scope
+    per-request is what keeps concurrent runs from cross-attributing."""
+    try:
+        for k, v in attribution_headers().items():
+            request.headers[k] = v
+    except Exception:
+        pass
+
+
+def attribution_http_clients(timeout: Any = None):
+    """(sync httpx.Client, async httpx.AsyncClient) that inject X-Ecan-*
+    attribution per request from the active scope. Returns (None, None) when
+    httpx is unavailable so a caller can pass them straight through without
+    guarding construction. Pass both to OpenAIEmbeddings / ChatOpenAI /
+    OpenAI(...) as http_client= / http_async_client=."""
+    try:
+        import httpx
+
+        async def _ahook(request):
+            apply_attribution_to_request(request)
+
+        kw = {"event_hooks": {"request": [apply_attribution_to_request]}}
+        akw = {"event_hooks": {"request": [_ahook]}}
+        if timeout is not None:
+            kw["timeout"] = timeout
+            akw["timeout"] = timeout
+        return httpx.Client(**kw), httpx.AsyncClient(**akw)
+    except Exception:
+        return None, None
+
+
 def _header_safe(s: str) -> str:
     """Return *s* unchanged when it's a valid latin-1 HTTP header value;
     otherwise percent-encode it (the backend can decodeURIComponent)."""

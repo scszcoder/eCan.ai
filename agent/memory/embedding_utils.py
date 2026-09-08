@@ -294,11 +294,19 @@ class EmbeddingFactory:
                     if not api_key:
                         logger.error("[EmbeddingFactory] eCanAI requires ECANAI_EMBEDDING_API_KEY")
                         return FakeEmbeddings(size=1024)
-                    return OpenAIEmbeddings(
-                        model=model_name,
-                        api_key=api_key,
-                        base_url=base_url.rstrip('/'),
-                    )
+                    # ws197: attach the X-Ecan-* attribution (agent/task/skill/
+                    # vehicle) per request so embedding spend is tracked in the
+                    # admin token-usage view — this proxy client used only the
+                    # bare API-key bearer before (all attribution NULL).
+                    from utils.log_scope import attribution_http_clients
+                    _sc, _ac = attribution_http_clients()
+                    _emb_kwargs = dict(model=model_name, api_key=api_key,
+                                       base_url=base_url.rstrip('/'))
+                    if _sc is not None:
+                        _emb_kwargs['http_client'] = _sc
+                    if _ac is not None:
+                        _emb_kwargs['http_async_client'] = _ac
+                    return OpenAIEmbeddings(**_emb_kwargs)
                 except Exception as e:
                     logger.error(f"[EmbeddingFactory] eCanAI embeddings failed: {e}")
                     return FakeEmbeddings(size=1024)

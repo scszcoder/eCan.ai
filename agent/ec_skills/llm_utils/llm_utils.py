@@ -1318,12 +1318,16 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
                 logger.error("eCanAI requires ECANAI_LLM_API_KEY in secure_store")
                 return None
             base_url = (base_url or 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1').rstrip('/')
-            return ChatOpenAI(
-                model=model_name,
-                api_key=api_key,
-                base_url=base_url,
-                temperature=0,
-            )
+            # ws197: per-request X-Ecan-* attribution (this direct ecanai client
+            # used only the bare API-key bearer, so its spend landed unattributed).
+            from utils.log_scope import attribution_http_clients
+            _sc, _ac = attribution_http_clients()
+            _co_kwargs = dict(model=model_name, api_key=api_key, base_url=base_url, temperature=0)
+            if _sc is not None:
+                _co_kwargs['http_client'] = _sc
+            if _ac is not None:
+                _co_kwargs['http_async_client'] = _ac
+            return ChatOpenAI(**_co_kwargs)
 
         # Check for RyoAIS (uses class_name=chatopenai, must check before OpenAI)
         if 'ryoais' in provider_name.lower():

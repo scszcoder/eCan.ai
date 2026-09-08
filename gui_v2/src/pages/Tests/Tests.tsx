@@ -1976,15 +1976,15 @@ const Tests: React.FC = () => {
                         <Button
                             onClick={async () => {
                                 const text = testArgument || undefined;
-                                setTestOutput('Testing embedding via proxy...');
+                                setTestOutput('Testing embedding + rerank via proxy...');
                                 try {
                                     const resp: any = await Promise.race([
                                         get_ipc_api().testLambdaProxyEmbedding(text ? { text } : undefined),
-                                        new Promise((_, reject) => setTimeout(() => reject(new Error('EMBED_TIMEOUT (30s)')), 30000))
+                                        new Promise((_, reject) => setTimeout(() => reject(new Error('EMBED_RERANK_TIMEOUT (45s)')), 45000))
                                     ]);
-                                    setTestOutput('Proxy Embedding Test:\n' + JSON.stringify(resp, null, 2));
+                                    setTestOutput('Proxy Embedding + Rerank Test:\n' + JSON.stringify(resp, null, 2));
                                 } catch (e) {
-                                    setTestOutput('Proxy Embedding error: ' + (e instanceof Error ? e.message : String(e)));
+                                    setTestOutput('Proxy Embedding/Rerank error: ' + (e instanceof Error ? e.message : String(e)));
                                 }
                             }}
                             style={{
@@ -1994,7 +1994,7 @@ const Tests: React.FC = () => {
                                 color: '#fff',
                             }}
                         >
-                            Proxy Embed
+                            Proxy Embed + Rerank
                         </Button>
                         <Button
                             onClick={async () => {

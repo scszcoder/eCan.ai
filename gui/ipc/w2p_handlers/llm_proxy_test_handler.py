@@ -74,6 +74,78 @@ def _proxy_test_scope() -> Dict[str, Any]:
     }
 
 
+def _attribution_headers_safe() -> Dict[str, str]:
+    try:
+        from utils.log_scope import attribution_headers
+        return attribution_headers()
+    except Exception:
+        return {}
+
+
+def _default_rerank_model() -> str:
+    try:
+        from app_context import AppContext
+        gs = AppContext.get_main_window().config_manager.general_settings
+        return getattr(gs, 'default_rerank_model', None) or ''
+    except Exception:
+        return ''
+
+
+def _rerank_probe(p: Dict[str, Any]) -> Dict[str, Any]:
+    """Best-effort rerank self-test — never raises; returns a compact result so a
+    single embedding-button click validates embeddings AND rerank (both carry the
+    proxy_test attribution when called inside the test scope)."""
+    query = 'apple'
+    documents = ['a kind of fruit', 'a technology company', 'a shade of red']
+    model = (p or {}).get('rerank_model') or _default_rerank_model()
+    try:
+        if _is_cn():
+            cfg = _cn_v1_config()
+            body: Dict[str, Any] = {'query': query, 'documents': documents}
+            if model:
+                body['model'] = model
+            r = _cn_v1_request('POST', '/rerank', cfg, body, timeout=30.0)
+        else:
+            config = _get_proxy_config()
+            url = config['endpoint'].rstrip('/') + '/v1/rerank'
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f"Bearer {config['auth_token']}",
+                'X-User-Id': config['user_id'],
+            }
+            try:
+                from utils.log_scope import attribution_headers
+                headers.update(attribution_headers())
+            except Exception:
+                pass
+            body = {'query': query, 'documents': documents}
+            if model:
+                body['model'] = model
+            import httpx
+            import time as _t
+            t0 = _t.time()
+            resp = httpx.post(url, json=body, headers=headers, timeout=30.0)
+            r = {'mode': 'lambda', 'url': url, 'status': resp.status_code,
+                 'latency_ms': int((_t.time() - t0) * 1000)}
+            try:
+                r['body'] = resp.json()
+            except Exception:
+                r['body'] = resp.text[:300]
+        rb = r.get('body')
+        if isinstance(rb, dict):
+            results = rb.get('results') or rb.get('data') or []
+            r['count'] = len(results)
+            if results and isinstance(results[0], dict):
+                r['top_index'] = results[0].get('index')
+            rb.pop('results', None)
+            rb.pop('data', None)   # keep the panel output readable
+        r['ok'] = int(r.get('status', 200)) < 400
+        r['model'] = model or '(server default)'
+        return r
+    except Exception as e:
+        return {'ok': False, 'error': str(e), 'model': model or '(server default)'}
+
+
 def _cn_v1_config() -> Dict[str, str]:
     """{'base', 'api_key'} for the CN public v1 surface; raises with an
     actionable message when the account has no API key yet."""
@@ -366,7 +438,11 @@ def handle_test_lambda_proxy_embedding(request: IPCRequest, params: Optional[Dic
             body: Dict[str, Any] = {'input': text}
             if p.get('model'):
                 body['model'] = p['model']
-            result = _cn_v1_request('POST', '/embeddings', cfg, body, timeout=30.0)
+            from utils.log_scope import scope as _log_scope
+            with _log_scope(**_proxy_test_scope()):
+                result = _cn_v1_request('POST', '/embeddings', cfg, body, timeout=30.0)
+                # One click tests both: run the rerank probe in the same scope.
+                rerank_result = _rerank_probe(p)
             resp_body = result.get('body')
             if isinstance(resp_body, dict):
                 data = resp_body.get('data') or []
@@ -377,6 +453,7 @@ def handle_test_lambda_proxy_embedding(request: IPCRequest, params: Optional[Dic
                     resp_body.pop('data', None)  # keep the output readable
                 result['usage'] = resp_body.get('usage')
                 result['model'] = resp_body.get('model')
+            result['rerank'] = rerank_result
             return create_success_response(request, result)
 
         config = _get_proxy_config()
@@ -398,7 +475,11 @@ def handle_test_lambda_proxy_embedding(request: IPCRequest, params: Optional[Dic
         }
 
         logger.info(f"[llm_proxy_test] Embedding test: model={embed_model}, provider={headers['X-Provider']}, url={url}")
-        resp = httpx.post(url, json=payload, headers=headers, timeout=30.0)
+        from utils.log_scope import scope as _log_scope
+        with _log_scope(**_proxy_test_scope()):
+            headers.update(_attribution_headers_safe())
+            resp = httpx.post(url, json=payload, headers=headers, timeout=30.0)
+            rerank_result = _rerank_probe(p)
         if resp.status_code >= 400:
             body = resp.text[:500]
             logger.error(f"[llm_proxy_test] Embedding error {resp.status_code}: {body}")
@@ -416,6 +497,7 @@ def handle_test_lambda_proxy_embedding(request: IPCRequest, params: Optional[Dic
             'dimensions': len(embedding_vec),
             'embedding_preview': embedding_vec[:5] if embedding_vec else [],
             'usage': data.get('usage'),
+            'rerank': rerank_result,
         }
         return create_success_response(request, result)
 

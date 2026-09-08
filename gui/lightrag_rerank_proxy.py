@@ -614,6 +614,13 @@ class LightRAGRerankProxy:
                 headers = {}
                 if api_key and api_key != 'your_api_key':
                     headers['Authorization'] = f'Bearer {api_key}'
+                # ws197: per-request X-Ecan-* attribution so rerank spend is
+                # tracked in the admin token-usage view (was API-key bearer only).
+                try:
+                    from utils.log_scope import attribution_headers
+                    headers.update(attribution_headers())
+                except Exception:
+                    pass
 
                 response = await client.post(rerank_url, json=payload, headers=headers)
                 
@@ -754,6 +761,13 @@ class LightRAGRerankProxy:
                 headers = {}
                 if api_key and api_key != 'your_api_key':
                     headers['Authorization'] = f'Bearer {api_key}'
+                # ws197: per-request X-Ecan-* attribution so rerank spend is
+                # tracked in the admin token-usage view (was API-key bearer only).
+                try:
+                    from utils.log_scope import attribution_headers
+                    headers.update(attribution_headers())
+                except Exception:
+                    pass
 
                 response = await client.post(rerank_url, json=payload, headers=headers)
                 
