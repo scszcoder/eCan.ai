@@ -96,6 +96,14 @@ class ChatLambdaProxy(BaseChatModel):
         }
         if token:
             headers['Authorization'] = f'Bearer {token}'
+        # ws197: per-request token attribution (agent/task/skill/vehicle) from the
+        # active run scope. Read HERE, at request time, not off the (cached,
+        # shared) LLM instance — concurrent runs would otherwise cross-attribute.
+        try:
+            from utils.log_scope import attribution_headers
+            headers.update(attribution_headers())
+        except Exception:
+            pass
         return headers
 
     async def ainvoke(

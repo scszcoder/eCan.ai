@@ -6970,6 +6970,19 @@ class TaskRunner(Generic[Context]):
         next job. Behavior of the run itself is unchanged (see _impl)."""
         card = getattr(self.agent, 'card', None)
         _skill = getattr(task2run, 'skill', None) if task2run is not None else None
+        # ws197: carry skill_id + vehicle_id in the run scope too (alongside the
+        # existing agent_id/task_id) so the llm_proxy transports can stamp the
+        # X-Ecan-* attribution headers from the ContextVar at request time (the
+        # backend admin token-usage view groups by these ids). Not rendered in
+        # the [agent=… task=…] log suffix (only _KEYS are); best-effort.
+        _skill_id = (getattr(_skill, 'id', None) or getattr(_skill, 'skill_id', None)
+                     or (_skill.get('id') if isinstance(_skill, dict) else None))
+        _vehicle_id = None
+        try:
+            from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id
+            _vehicle_id = resolve_local_vehicle_id(getattr(self.agent, 'mainwin', None))
+        except Exception:
+            _vehicle_id = None
         with _log_scope(
             agent_id=getattr(card, 'id', None) or (card.get('id') if isinstance(card, dict) else None),
             agent_name=self._get_agent_name(),
@@ -6977,6 +6990,8 @@ class TaskRunner(Generic[Context]):
             task_name=getattr(task2run, 'name', None) if task2run is not None else None,
             skill_name=(getattr(_skill, 'name', None) or getattr(_skill, 'skill_name', None)
                         or (_skill.get('name') if isinstance(_skill, dict) else None)),
+            skill_id=_skill_id,
+            vehicle_id=_vehicle_id,
         ):
             return self._launch_unified_run_impl(
                 task2run, trigger_type,

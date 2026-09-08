@@ -44,6 +44,50 @@ def get_scope() -> Dict[str, Any]:
     return dict(_SCOPE.get() or {})
 
 
+_ATTR_HEADER_MAP = (
+    ("X-Ecan-Agent-Id", "agent_id"),
+    ("X-Ecan-Task-Id", "task_id"),
+    ("X-Ecan-Skill-Id", "skill_id"),
+    ("X-Ecan-Vehicle-Id", "vehicle_id"),
+)
+
+
+def attribution_headers() -> Dict[str, str]:
+    """``X-Ecan-*`` token-attribution headers from the CURRENT scope.
+
+    Read at REQUEST time (the scope is a ContextVar, so concurrent runs each see
+    their own values — never the cross-attribution you'd get from stamping a
+    shared/cached LLM instance). Sent as HEADERS, not body fields, so they can't
+    leak to a model vendor: the llm_proxy builds its own upstream header set.
+
+    Header-safe (latin-1) values pass through unchanged so the backend can match
+    IDs exactly; only a value that isn't latin-1-encodable (e.g. a Chinese skill
+    name) is percent-encoded, so it can't break HTTP header encoding. Only
+    non-empty values are included.
+    """
+    sc = get_scope()
+    out: Dict[str, str] = {}
+    for hdr, key in _ATTR_HEADER_MAP:
+        v = sc.get(key)
+        if v:
+            out[hdr] = _header_safe(str(v))
+    src = sc.get("skill_name") or sc.get("agent_name")
+    if src:
+        out["X-Ecan-Source"] = _header_safe(str(src))
+    return out
+
+
+def _header_safe(s: str) -> str:
+    """Return *s* unchanged when it's a valid latin-1 HTTP header value;
+    otherwise percent-encode it (the backend can decodeURIComponent)."""
+    try:
+        s.encode("latin-1")
+        return s
+    except UnicodeEncodeError:
+        from urllib.parse import quote
+        return quote(s, safe="")
+
+
 def set_scope(**fields: Any) -> contextvars.Token:
     """Replace the current scope; returns a token for :func:`reset_scope`.
     ``None``/empty values are dropped so the suffix only shows what is known."""

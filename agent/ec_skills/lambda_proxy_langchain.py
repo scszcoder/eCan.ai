@@ -72,6 +72,34 @@ class LambdaProxyChatOpenAI(ChatOpenAI):
             self._raise_friendly(exc)
 
 
+def _apply_attribution_headers(request) -> None:
+    """httpx request hook: stamp X-Ecan-* attribution from the CURRENT log scope
+    at SEND time (race-safe for the cached, shared LLM instance)."""
+    try:
+        from utils.log_scope import attribution_headers
+        for k, v in attribution_headers().items():
+            request.headers[k] = v
+    except Exception:
+        pass
+
+
+def _attribution_http_clients(timeout):
+    """(sync, async) httpx clients that inject per-request X-Ecan-* headers.
+    Returns (None, None) if httpx is unavailable so construction never fails."""
+    try:
+        import httpx
+
+        async def _ahook(request):
+            _apply_attribution_headers(request)
+
+        sync_c = httpx.Client(timeout=timeout, event_hooks={"request": [_apply_attribution_headers]})
+        async_c = httpx.AsyncClient(timeout=timeout, event_hooks={"request": [_ahook]})
+        return sync_c, async_c
+    except Exception as exc:
+        logger.warning(f"[LambdaProxyLangChain] attribution http client unavailable: {exc}")
+        return None, None
+
+
 def create_lambda_proxy_langchain(
     *,
     provider: str,
@@ -125,6 +153,14 @@ def create_lambda_proxy_langchain(
     # Build base_url — Lambda Function URL serves /v1/chat/completions
     base_url = lambda_endpoint.rstrip('/') + '/v1'
 
+    # ws197: per-request token attribution. This LLM instance is CACHED and
+    # shared across runs, so static default_headers can't carry per-run
+    # agent/task/skill/vehicle without cross-attributing concurrent runs. Inject
+    # the X-Ecan-* headers via an httpx request hook that reads the log scope at
+    # SEND time (ContextVar → the calling run's scope). Headers, not body, so
+    # they never reach a model vendor (the proxy builds its own upstream set).
+    http_client, http_async_client = _attribution_http_clients(timeout)
+
     llm = LambdaProxyChatOpenAI(
         model=model,
         api_key=auth_token or 'lambda-proxy',  # OpenAI SDK requires non-empty api_key
@@ -133,6 +169,8 @@ def create_lambda_proxy_langchain(
         timeout=timeout,
         max_retries=max_retries,
         default_headers=default_headers,
+        http_client=http_client,
+        http_async_client=http_async_client,
         **kwargs,
     )
 
