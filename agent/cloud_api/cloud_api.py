@@ -1507,10 +1507,23 @@ def normalize_cloud_owner(owner: str) -> str:
     username and rejects the suffixed form with FORBIDDEN
     ("Cross-owner access is forbidden" — verified empirically 2026-08-20).
     Real emails (Intl logins) pass through unchanged.
+
+    WeChat prefix (2026-09-08): the client also tags the user with a
+    ``wechat_`` prefix (``self.user = f"{user}@local"`` where user is literally
+    ``wechat_<openid>``), but the cloud's ``identity.sub`` for the same session
+    is the BARE openid. Owner-enforced resolvers do strict equality against
+    ``identity.sub``, so leaving the prefix on made every owner-filtered fetch
+    (prompts, and equally agents/skills lists) FORBIDDEN → silently ``[]`` for
+    WeChat-logged-in users — the owner "couldn't see their own prompt" report.
+    Strip the prefix too so the cloud owner == identity.sub. Other login types
+    (email / CIAM / phone) carry no ``wechat_`` prefix and pass through.
     """
-    if owner and owner.endswith("@local"):
-        return owner[: -len("@local")]
-    return owner
+    o = owner or ""
+    if o.endswith("@local"):
+        o = o[: -len("@local")]
+    if o.startswith("wechat_"):
+        o = o[len("wechat_"):]
+    return o
 
 
 def _http_auth_header(token: str) -> str:
