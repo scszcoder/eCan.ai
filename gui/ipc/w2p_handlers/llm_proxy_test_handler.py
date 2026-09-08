@@ -57,6 +57,23 @@ def _is_cn() -> bool:
         return False
 
 
+def _proxy_test_scope() -> Dict[str, Any]:
+    """Attribution scope for a proxy self-test, so the test's spend is tracked
+    and findable in the admin token-usage view under source 'proxy_test'."""
+    vehicle_id = None
+    try:
+        from app_context import AppContext
+        from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id
+        vehicle_id = resolve_local_vehicle_id(AppContext.get_main_window())
+    except Exception:
+        vehicle_id = None
+    return {
+        'agent_id': 'proxy_test', 'agent_name': 'proxy_test',
+        'task_id': 'proxy_test', 'skill_id': 'proxy_test',
+        'skill_name': 'proxy_test', 'vehicle_id': vehicle_id,
+    }
+
+
 def _cn_v1_config() -> Dict[str, str]:
     """{'base', 'api_key'} for the CN public v1 surface; raises with an
     actionable message when the account has no API key yet."""
@@ -85,6 +102,14 @@ def _cn_v1_request(method: str, path: str, cfg: Dict[str, str],
     url = cfg['base'] + path
     t0 = time.time()
     headers = {'Authorization': f"Bearer {cfg['api_key']}"}
+    # ws197: carry the X-Ecan-* attribution from the active scope (set by the
+    # LLM self-test), so a test click also validates the token-attribution
+    # pipeline end-to-end (produces a tracked row the admin view can show).
+    try:
+        from utils.log_scope import attribution_headers
+        headers.update(attribution_headers())
+    except Exception:
+        pass
     if method == 'GET':
         resp = httpx.get(url, timeout=timeout, headers=headers)
     else:
@@ -205,7 +230,9 @@ def handle_test_lambda_proxy_llm(request: IPCRequest, params: Optional[Dict[str,
                 body['model'] = p['model']
             if p.get('provider'):
                 body['provider'] = p['provider']
-            result = _cn_v1_request('POST', '/chat/completions', cfg, body)
+            from utils.log_scope import scope as _log_scope
+            with _log_scope(**_proxy_test_scope()):
+                result = _cn_v1_request('POST', '/chat/completions', cfg, body)
             resp_body = result.get('body')
             if isinstance(resp_body, dict):
                 choices = resp_body.get('choices') or []
@@ -234,7 +261,9 @@ def handle_test_lambda_proxy_llm(request: IPCRequest, params: Optional[Dict[str,
 
         # Use sync invoke — background_handler already runs in a thread
         messages = [HumanMessage(content=prompt)]
-        response = llm.invoke(messages)
+        from utils.log_scope import scope as _log_scope
+        with _log_scope(**_proxy_test_scope()):
+            response = llm.invoke(messages)
 
         result = {
             'provider': provider,
