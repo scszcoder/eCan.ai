@@ -511,13 +511,13 @@ jobs:
             echo "User-prefixed tag detected: prefix=$USER_PREFIX, core=$VERSION_CORE"
           else
             # ── Bug-B fix: explicit branch allowlist (no silent fallback) ─────
-            # Only KNOWN_BRANCHES (main, master, develop, dev, staging) are
+            # Only KNOWN_BRANCHES (main, master, develop, dev, staging, lq_dev_multi-final) are
             # allowed to build without a tag.  Anything else used to silently
             # fall through to <base>-<branch>-<sha>, which hid typos and
             # produced misleading "successful" releases for the wrong ref.
             # Reject loudly here so the operator notices.
             case "$REF_NAME" in
-              main|master|develop|dev|staging)
+              main|master|develop|dev|staging|lq_dev_multi-final)
                 # explicit allowlist hit — proceed to the branch build below
                 ;;
               *)
@@ -539,7 +539,7 @@ jobs:
                 echo "Expected one of:"
                 echo "  - a semver tag (e.g., v0.9.97, v0.9.97k, v1.0.0-rc.1)"
                 echo "  - a user-prefixed tag (e.g., alice_v0.9.97)"
-                echo "  - a known branch: main | master | develop | dev | staging"
+                echo "  - a known branch: main | master | develop | dev | staging | lq_dev_multi-final"
                 echo "If 'feature/foo' (or any other ad-hoc branch) should be allowed,"
                 echo "add it to the KNOWN_BRANCHES allowlist above. There is no silent"
                 echo "VERSION-file fallback for unknown refs."

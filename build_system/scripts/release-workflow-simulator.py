@@ -331,7 +331,7 @@ RESERVED_PREFIXES = {"rc", "beta", "alpha", "dev", "nightly", "pre", "preview", 
 # silently fall through to a <base>-<branch>-<sha> version, which
 # hid misconfigured ref inputs as legitimate-looking builds. Bug-B
 # fix: reject them loudly instead.
-KNOWN_BRANCHES = {"main", "master", "develop", "dev", "staging"}
+KNOWN_BRANCHES = {"main", "master", "develop", "dev", "staging", "lq_dev_multi-final"}
 
 
 @dataclass
