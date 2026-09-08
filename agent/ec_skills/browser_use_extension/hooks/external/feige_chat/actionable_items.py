@@ -150,6 +150,26 @@ _CARD_PREFIX = "[商品"          # product-card latest_message marker ("[商品
 _pinned_card: dict[str, tuple[float, str]] = {}
 _PINNED_CARD_TTL_S = 1800      # 30 min — product context outlives the 600s message TTL
 
+# ws196: a SECOND, much longer-lived product anchor for the "pulled away and
+# came back" case. A customer who leaves a chat mid-way and returns after >30min
+# trips the cold-start path — to US it's a new conversation, but to THEM the
+# come-back message ("会不会过敏") is a natural follow-up about the SAME product.
+# By then the 30-min pin above has expired, so the follow-up reaches the LLM
+# with no product and it guesses (answered price for an allergy question,
+# 2026-09-08, 99-min gap). Mirror every pin here with a long TTL and use it as a
+# FALLBACK anchor only when the primary pin has aged out — active-customer
+# behaviour is unchanged (a newer card still pins over it). Kill:
+# ECAN_FEIGE_CONV_CARD=0.
+_conv_card: dict[str, tuple[float, str]] = {}
+try:
+    _CONV_CARD_TTL_S = int(os.environ.get("ECAN_FEIGE_CONV_CARD_TTL_S", "21600") or 21600)  # 6h
+except (TypeError, ValueError):
+    _CONV_CARD_TTL_S = 21600
+
+
+def _conv_card_enabled() -> bool:
+    return os.environ.get("ECAN_FEIGE_CONV_CARD", "1") != "0"
+
 
 def _append_recent_message(customer_id: str, text: str) -> None:
     """Append a customer message preview to the ring buffer.  Caps at
@@ -181,6 +201,11 @@ def _append_recent_message(customer_id: str, text: str) -> None:
         _existing = _pinned_card.get(customer_id)
         if not (_existing and _card_text_has_detail(_existing[1]) and not _card_text_has_detail(txt)):
             _pinned_card[customer_id] = (now, txt)
+        # ws196: mirror into the long-TTL anchor (same don't-clobber-richer guard).
+        if _conv_card_enabled():
+            _cc = _conv_card.get(customer_id)
+            if not (_cc and _card_text_has_detail(_cc[1]) and not _card_text_has_detail(txt)):
+                _conv_card[customer_id] = (now, txt)
 
 
 # ws187: parallel ring buffer of OUR OWN recent replies per customer. The Q&A
@@ -257,6 +282,8 @@ def pin_card_detail(identity_keys: list[str], rich_text: str) -> None:
         k = str(k or "").strip()
         if k:
             _pinned_card[k] = (now, txt)
+            if _conv_card_enabled():   # ws196: long-TTL anchor (authoritative)
+                _conv_card[k] = (now, txt)
 
 
 def _prune_buffer(customer_id: str) -> list[tuple[float, str]]:
@@ -314,11 +341,27 @@ def _get_recent_messages(customer_id: str) -> list[str]:
     if os.environ.get("ECAN_FEIGE_CARD_RESHARE", "1") != "0":
         _pin_now = time.time()
         _pin_seen = {txt for (_ts, txt) in merged}
-        for _pk in ([str(customer_id)] + ([f"card:{_talk}"] if _talk else [])):
+        _pin_keys = [str(customer_id)] + ([f"card:{_talk}"] if _talk else [])
+        _added_pin = False
+        for _pk in _pin_keys:
             _pc = _pinned_card.get(_pk)
             if _pc and (_pin_now - _pc[0]) < _PINNED_CARD_TTL_S and _pc[1] not in _pin_seen:
                 merged.append(_pc)
                 _pin_seen.add(_pc[1])
+                _added_pin = True
+        # ws196: come-back-after-a-gap fallback. No fresh 30-min pin AND no card
+        # already in the merged context → reach for the long-TTL conversation
+        # anchor so the follow-up still carries the product the customer was
+        # viewing before they were pulled away. Only fires when nothing fresher
+        # exists, so an active customer with a newer card is unaffected.
+        if (not _added_pin and _conv_card_enabled()
+                and not any(str(t).startswith(_CARD_PREFIX) for (_ts, t) in merged)):
+            for _pk in _pin_keys:
+                _cc = _conv_card.get(_pk)
+                if _cc and (_pin_now - _cc[0]) < _CONV_CARD_TTL_S and _cc[1] not in _pin_seen:
+                    merged.append(_cc)
+                    _pin_seen.add(_cc[1])
+                    break
     if not merged:
         return []
     # ws047: bound the merged size. A flat "keep last N" would drop the CARD —
