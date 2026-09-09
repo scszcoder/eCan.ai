@@ -2113,6 +2113,30 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
         return None
 
 
+def _attach_ecanai_attribution(client):
+    """ws197: make the browser-use ecanai client carry X-Ecan-* attribution.
+
+    Append the request hook to the existing no-corporate-proxy async client
+    (bypass client) when one was built; otherwise return a fresh attribution-only
+    async client so ecanai still gets the headers when no corporate proxy is set.
+    Best-effort — returns the input unchanged on any failure.
+    """
+    try:
+        from utils.log_scope import apply_attribution_to_request, attribution_http_clients
+        if client is not None:
+            async def _ahook(request):
+                apply_attribution_to_request(request)
+            try:
+                client.event_hooks.setdefault('request', []).append(_ahook)
+            except Exception:
+                pass
+            return client
+        _, aclient = attribution_http_clients()
+        return aclient
+    except Exception:
+        return client
+
+
 def create_browser_use_llm_by_provider_type(
     provider_type: str,
     model_name: str = None,
@@ -2378,7 +2402,12 @@ def create_browser_use_llm_by_provider_type(
             # Note: browser-use requires AsyncClient for http_client parameter (despite the name)
             # This is because browser-use operates in async context
             sync_client, async_client = _create_no_proxy_http_client()
-            
+            # ws197: ecanai routes to the eCan llm-proxy — ensure X-Ecan-*
+            # attribution rides each request (it used the bare API-key bearer
+            # before, so its usage rows had all attribution NULL).
+            if provider_type_id == 'ecanai':
+                async_client = _attach_ecanai_attribution(async_client)
+
             if async_client:
                 # Proxy is configured - use no-proxy ASYNC client (bypass proxy for domestic APIs)
                 logger.debug(

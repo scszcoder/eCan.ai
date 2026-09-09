@@ -1103,14 +1103,43 @@ class SkillEditorAgent:
         requirement collection where speed matters more than deep reasoning."""
         import os
         fast_model = os.environ.get("SKILL_EDITOR_FAST_MODEL", "gpt-4.1-mini")
+        from utils.log_scope import scope as _log_scope
+        _src = 'log_analysis' if 'log' in (action or '').lower() else 'skill_dev'
         try:
+            # ws197: route the fast model through the llm-proxy when available so
+            # its spend is tracked + attributed (source=skill_dev). Direct OpenAI
+            # (the user's own key, hits api.openai.com, untracked) only remains
+            # the fallback when the proxy isn't configured.
+            try:
+                from agent.ec_skills.build_node import (
+                    _should_use_proxy, _cn_llm_proxy_by_default, _get_proxy_config,
+                )
+                _use_proxy = _should_use_proxy() or _cn_llm_proxy_by_default('openai', None, None)
+            except Exception:
+                _use_proxy, _get_proxy_config = False, None
+            if _use_proxy and _get_proxy_config:
+                cfg = _get_proxy_config()
+                if cfg:
+                    from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
+                    llm = create_lambda_proxy_langchain(
+                        provider='openai', model=fast_model,
+                        user_id=cfg['user_id'], lambda_endpoint=cfg['endpoint'],
+                        auth_token=cfg['auth_token'], temperature=0.3,
+                    )
+                    logger.info(f"[SkillEditorAgent] Fast LLM via proxy — model={fast_model}, prompt_len={len(prompt):,}")
+                    with _log_scope(source=_src):
+                        resp = await llm.ainvoke(prompt)
+                    token_tracker.record(resp, agent="SkillEditorAgent", action=action)
+                    return resp.content if hasattr(resp, "content") else str(resp)
+
             from langchain_openai import ChatOpenAI
             api_key = os.environ.get("OPENAI_API_KEY", "")
             if not api_key:
                 return await self._invoke_llm_async(prompt, action=action)
             llm = ChatOpenAI(model=fast_model, api_key=api_key, temperature=0.3)
-            logger.info(f"[SkillEditorAgent] Fast LLM call — model={fast_model}, prompt_len={len(prompt):,}")
-            resp = await llm.ainvoke(prompt)
+            logger.info(f"[SkillEditorAgent] Fast LLM call (direct) — model={fast_model}, prompt_len={len(prompt):,}")
+            with _log_scope(source=_src):
+                resp = await llm.ainvoke(prompt)
             token_tracker.record(resp, agent="SkillEditorAgent", action=action)
             return resp.content if hasattr(resp, "content") else str(resp)
         except Exception as e:
