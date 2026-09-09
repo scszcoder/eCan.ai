@@ -324,18 +324,81 @@ class TestRunValidateTag:
         assert out.environment == "development"
         assert out.channel == "dev"
 
+    def test_branch_master_is_also_in_allowlist(self):
+        # master is a KNOWN_BRANCH and must work the same way as main
+        # (both route through the dev branch's branch-build path).
+        out = sim.run_validate_tag("master", "", "")
+        assert out.valid is True
+        assert out.is_branch is True
+        assert out.environment == "production"
+
+    def test_letter_suffix_patch_tag_routes_like_semver(self):
+        # Bug-A regression guard: v0.9.97k must be treated as a plain
+        # semver tag, not as an unknown branch. The simulator's regex
+        # is the only place that decides whether is_tag flips on; if it
+        # ever drifts away from the workflow's SEMVER_RE, this test
+        # catches it.
+        out = sim.run_validate_tag("v0.9.97k", "", "")
+        assert out.valid is True
+        assert out.is_branch is False
+        assert out.version == "0.9.97k"
+        assert out.tag_name == "v0.9.97k"
+        assert out.environment == "production"
+        assert out.channel == "stable"
+
+    def test_letter_suffix_tag_with_build_metadata(self):
+        # +build.<id> is part of semver; the suffix must coexist with
+        # the letter-suffix patch.
+        out = sim.run_validate_tag("v0.9.97k+build.42", "", "")
+        assert out.valid is True
+        assert out.is_branch is False
+
+    def test_user_prefixed_letter_suffix_tag(self):
+        # PREFIXED_RE also needs the [A-Za-z]* suffix. alice_v0.9.97k
+        # must parse as user_prefix=alice, version=0.9.97k.
+        out = sim.run_validate_tag("alice_v0.9.97k", "", "")
+        assert out.valid is True
+        assert out.user_prefix == "alice"
+        assert out.version == "0.9.97k"
+
+    def test_unrecognized_ref_is_rejected(self):
+        # With wildcard branch support, any non-empty ref is accepted.
+        # Only an empty ref (internal error, not a real GitHub Actions push)
+        # is rejected. The git show-ref malformed-tag check is bash-only
+        # (not simulated), so it is out of scope for the simulator.
+        out = sim.run_validate_tag("", "", "")
+        assert out.valid is False
+        assert "empty ref" in out.error
+
+    def test_typo_in_branch_routes_to_development(self):
+        # Wildcard branch support: typos like "mian" (misspelled main) are
+        # accepted as valid branches and routed to development/dev.
+        # Safety comes from environment gating (production requires
+        # main/master/tag), not from branch allowlisting.
+        out = sim.run_validate_tag("mian", "", "")
+        assert out.valid is True
+        assert out.environment == "development"
+        assert out.channel == "dev"
+
+    def test_unrecognized_ref_with_input_env_still_rejects(self):
+        # With wildcard branch support, any non-empty ref is valid.
+        # The env-gate still rejects production on non-main/master branches.
+        out = sim.run_validate_tag("feature/foo", "production", "stable")
+        assert out.valid is False
+        assert "production" in out.error
+
     def test_production_stable_on_branch_is_blocked(self):
         # The hard gate: you cannot deploy production/stable from a non-tag
         # ref, even via manual input. With input_env=production and a
         # feature branch, the env-eligibility check fires first and rejects
         # with "production env requires tag or main/master". The
-        # production/stable + branch gate is the second line of defense
+        # production/stable + not-tag gate is the second line of defense
         # and only triggers for auto-detected env (input_env=""), or when
         # the ref IS main/master (which would otherwise sneak through).
         # See test_auto_production_stable_on_branch_is_blocked for that.
         out = sim.run_validate_tag("feature/foo", "production", "stable")
         assert out.valid is False
-        assert "production" in out.error.lower()
+        assert "production" in out.error
 
     def test_auto_production_stable_on_branch_is_blocked(self):
         # The second-line gate: env=production AND channel=stable AND
@@ -355,10 +418,20 @@ class TestRunValidateTag:
         assert out2.valid is False
         assert "production/stable" in out2.error
 
-    def test_staging_env_on_feature_branch_is_blocked(self):
+    def test_staging_env_on_feature_branch_short_circuits(self):
+        # Feature branches are not staging-eligible. When input_env=staging
+        # is forced, the staging-eligibility check fires and rejects.
         out = sim.run_validate_tag("feature/foo", "staging", "")
         assert out.valid is False
         assert "staging" in out.error
+
+    def test_staging_env_on_known_branch_works(self):
+        # staging env on the staging branch is the legitimate
+        # staging/stable build path; this must remain valid.
+        out = sim.run_validate_tag("staging", "staging", "")
+        assert out.valid is True
+        assert out.environment == "staging"
+        assert out.channel == "stable"
 
     def test_manual_environment_overrides(self):
         out = sim.run_validate_tag("v1.0.0", "test", "")
