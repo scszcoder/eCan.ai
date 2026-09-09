@@ -6992,6 +6992,7 @@ class TaskRunner(Generic[Context]):
                         or (_skill.get('name') if isinstance(_skill, dict) else None)),
             skill_id=_skill_id,
             vehicle_id=_vehicle_id,
+            source='agent_run',   # ws197: the ordinary operational bill (vs skill_dev / log_analysis)
         ):
             return self._launch_unified_run_impl(
                 task2run, trigger_type,

@@ -71,7 +71,13 @@ def attribution_headers() -> Dict[str, str]:
         v = sc.get(key)
         if v:
             out[hdr] = _header_safe(str(v))
-    src = sc.get("skill_name") or sc.get("agent_name")
+    # X-Ecan-Source is a deliberate SUBSYSTEM category (chat / skill_dev /
+    # log_analysis / tool_picker / proxy_test …), set explicitly by each entry
+    # point — it's the dimension that separates skill-dev and log-analysis spend
+    # from ordinary chat once pricier models show up on the bill, which skill_id
+    # alone can't. Falls back to the skill/agent name only when no category was
+    # set, so nothing is ever unlabelled.
+    src = sc.get("source") or sc.get("skill_name") or sc.get("agent_name")
     if src:
         out["X-Ecan-Source"] = _header_safe(str(src))
     return out

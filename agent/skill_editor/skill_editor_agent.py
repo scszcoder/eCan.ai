@@ -1083,13 +1083,20 @@ class SkillEditorAgent:
             f"model={llm_info['model']}, class={llm_info['class']}, "
             f"prompt_len={len(prompt):,} chars"
         )
-        if hasattr(llm, "ainvoke"):
-            resp = await llm.ainvoke(prompt)
+        # ws197: tag the billing source so skill-dev / log-analysis spend is
+        # separable from ordinary chat on the dashboard (this LLM runs outside
+        # the agent task scope, so nothing sets 'source' otherwise). Log-analysis
+        # actions get their own bucket.
+        from utils.log_scope import scope as _log_scope
+        _src = 'log_analysis' if 'log' in (action or '').lower() else 'skill_dev'
+        with _log_scope(source=_src):
+            if hasattr(llm, "ainvoke"):
+                resp = await llm.ainvoke(prompt)
+                token_tracker.record(resp, agent="SkillEditorAgent", action=action)
+                return resp.content if hasattr(resp, "content") else str(resp)
+            resp = llm.invoke(prompt)
             token_tracker.record(resp, agent="SkillEditorAgent", action=action)
             return resp.content if hasattr(resp, "content") else str(resp)
-        resp = llm.invoke(prompt)
-        token_tracker.record(resp, agent="SkillEditorAgent", action=action)
-        return resp.content if hasattr(resp, "content") else str(resp)
 
     async def _invoke_llm_fast(self, prompt: str, *, action: str = "") -> str:
         """Use a lighter/faster model for structured-output tasks like

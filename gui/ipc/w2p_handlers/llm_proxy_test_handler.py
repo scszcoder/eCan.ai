@@ -71,6 +71,7 @@ def _proxy_test_scope() -> Dict[str, Any]:
         'agent_id': 'proxy_test', 'agent_name': 'proxy_test',
         'task_id': 'proxy_test', 'skill_id': 'proxy_test',
         'skill_name': 'proxy_test', 'vehicle_id': vehicle_id,
+        'source': 'proxy_test',
     }
 
 

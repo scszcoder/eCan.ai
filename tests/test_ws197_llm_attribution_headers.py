@@ -51,3 +51,12 @@ def test_langchain_request_hook_injects_headers():
         _apply_attribution_headers(req)
     assert req.headers["X-Ecan-Agent-Id"] == "agent_abc"
     assert req.headers["X-Ecan-Skill-Id"] == "pr-1"
+
+
+def test_explicit_source_wins_over_name():
+    with ls.scope(skill_name="飞鸽客服问答00", source="skill_dev"):
+        h = ls.attribution_headers()
+    assert h["X-Ecan-Source"] == "skill_dev"
+    with ls.scope(skill_name="plainName"):
+        h2 = ls.attribution_headers()
+    assert h2["X-Ecan-Source"] == "plainName"   # fallback when no explicit source
