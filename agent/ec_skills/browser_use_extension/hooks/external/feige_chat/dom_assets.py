@@ -1496,16 +1496,33 @@ FEIGE_LATEST_CUSTOMER_BUBBLE_JS: str = r"""
   var __BND__ = /以上为历史消息|关闭会话/;
   if ((typeof window === 'undefined' || window.__ECAN_POST_DIVIDER__ !== '0')
       && __threadScope__ && __BND__.test(__threadScope__.textContent || '')) {
-    var __div__ = null;
-    var __cands__ = Array.from(__threadScope__.querySelectorAll('div,span,p'));
-    for (var __dc = __cands__.length - 1; __dc >= 0; __dc--) {
-      var __tc = (__cands__[__dc].textContent || '').trim();
-      if (__tc.length < 40 && __BND__.test(__tc)) { __div__ = __cands__[__dc]; break; }
+    // ws198: scan the WRAPPERS list itself for the newest boundary and floor
+    // AFTER it. The prior approach searched for a small div/span/p carrying the
+    // marker then mapped it back with compareDocumentPosition — that silently
+    // failed on the 2026-09-09 reopen (the fresh post-divider message idx15 was
+    // walked past and a stale pre-divider bubble idx10 was picked → perpetual
+    // dedup-skip → the cold-start text never dispatched). The boundary notice is
+    // itself a msgItemWrap in `wrappers`, so matching it there is reliable.
+    for (var __bw = wrappers.length - 1; __bw >= scanStart; __bw--) {
+      if (__BND__.test(wrappers[__bw].textContent || '')) {
+        __dividerFloor__ = Math.min(wrappers.length - 1, __bw + 1);
+        break;
+      }
     }
-    if (__div__) {
-      for (var __wf = scanStart; __wf < wrappers.length; __wf++) {
-        if (__div__.compareDocumentPosition(wrappers[__wf]) & Node.DOCUMENT_POSITION_FOLLOWING) {
-          __dividerFloor__ = __wf; break;
+    // Fallback to the legacy element search if the wrappers scan found nothing
+    // (boundary rendered outside the wrapper list).
+    if (!__dividerFloor__) {
+      var __div__ = null;
+      var __cands__ = Array.from(__threadScope__.querySelectorAll('div,span,p'));
+      for (var __dc = __cands__.length - 1; __dc >= 0; __dc--) {
+        var __tc = (__cands__[__dc].textContent || '').trim();
+        if (__tc.length < 40 && __BND__.test(__tc)) { __div__ = __cands__[__dc]; break; }
+      }
+      if (__div__) {
+        for (var __wf = scanStart; __wf < wrappers.length; __wf++) {
+          if (__div__.compareDocumentPosition(wrappers[__wf]) & Node.DOCUMENT_POSITION_FOLLOWING) {
+            __dividerFloor__ = __wf; break;
+          }
         }
       }
     }
