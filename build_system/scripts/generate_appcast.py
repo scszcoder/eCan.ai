@@ -457,6 +457,25 @@ def _normalize_last_modified(value) -> datetime:
     return value
 
 
+def _letter_suffix_to_ordinal(s: str) -> int:
+    """Convert a pure letter suffix (e.g. 'o', 'abc') to a single ordinal
+    value so that 'o' (15) < 'q' (17) and 'abc' (1,2,3) < 'abd' (1,2,4).
+
+    Multi-letter suffixes are compared as a base-27 number: 'a' = 1,
+    'b' = 2, …, 'z' = 26; each position is weighted by 27^position. This
+    is a simplification — it gives the correct ordering for all practical
+    single-to-triple-letter suffixes used by eCan builds.
+
+    Used by :meth:`AppcastGenerator.parse_version` so that ``v0.9.97q`` is
+    recognised as newer than ``v0.9.97o`` on the server-side sort, matching
+    the client-side ``compare_versions`` in ``ota/core/appcast.py``.
+    """
+    total = 0
+    for ch in s.lower():
+        total = total * 27 + (ord(ch) - ord('a') + 1)
+    return total
+
+
 class AppcastGenerator:
     """
     Generate Appcast XML files from S3 artifacts
@@ -638,41 +657,58 @@ class AppcastGenerator:
             print(f"[ERROR] Error loading configuration: {e}")
             sys.exit(1)
     
-    def parse_version(self, version_str: str) -> Tuple[int, int, int, int]:
+    def parse_version(self, version_str: str) -> Tuple[int, int, int, int, int]:
         """
         Parse version string to tuple for comparison.
 
         Accepts every shape we may see on S3:
 
-          * Bare numeric:        ``1.0.0`` (legacy callers)
-          * Sparkle-style:       ``v1.0.0``
-          * Pre-release/builds:  ``v1.0.0-rc.1``, ``v1.0.0-gui-v2-abc``
-          * User-tagged:         ``songc_v26.05.04.09.11`` (prefix stripped first)
+          * Bare numeric:          ``1.0.0`` (legacy callers)
+          * Sparkle-style:         ``v1.0.0``
+          * Patch letter suffix:   ``0.9.97o``, ``0.9.97q``  (ordinal in position 5)
+          * Pre-release/builds:    ``v1.0.0-rc.1``, ``v1.0.0-gui-v2-abc``
+          * User-tagged:           ``songc_v26.05.04.09.11`` (prefix stripped first)
 
-        Args:
-            version_str: Version string in any of the shapes above.
+        Returns a 5-element tuple so the server-side sort order matches the
+        client-side :func:`compare_versions` in ``ota/core/appcast.py``:
 
-        Returns:
-            Version tuple (major, minor, patch, priority)
-            Priority: 1000 = standard, 900 = rc, 800 = beta, 0 = branch builds.
-            Used as a tiebreaker for the chronological sort in
-            ``generate_appcast``; not the primary sort key any more.
+            (major, minor, patch, priority, patch_letter_ordinal)
+
+        - ``priority``: 1000 = standard, 900 = rc, 800 = beta, 0 = branch/unknown.
+        - ``patch_letter_ordinal``: 0 if no letter suffix; otherwise the ordinal
+          value of the patch suffix (e.g. 15 for 'o', 17 for 'q').
         """
         # Strip the user prefix (if any) and the leading 'v' so the
         # numeric regex below works for both `v1.0.0` and
         # `songc_v26.05.04.09.11`.
         _prefix, core = _split_release_dir(version_str)
 
-        # Extract numeric parts
+        # Extract the fixed X.Y.Z part
         match = re.match(r'(\d+)\.(\d+)\.(\d+)', core)
         if not match:
-            return (0, 0, 0, 0)
+            return (0, 0, 0, 0, 0)
 
         major, minor, patch = map(int, match.groups())
 
-        # Determine priority based on suffix
+        # Determine priority and extract patch letter suffix
         remainder = core[match.end():]
-        
+
+        # Patch letter suffix: digit prefix + pure letters only (e.g. '97o', '97abc')
+        # OR a pure letter suffix with no digit prefix (e.g. remainder 'o'
+        # after matching the numeric '0.9.97' core). These are NOT prereleases —
+        # they are ordinal suffixes on the patch field.
+        m_patch_letter = re.match(r'^(\d+)([A-Za-z]+)$', remainder)
+        m_patch_letter_only = re.match(r'^([A-Za-z]+)$', remainder)
+        if m_patch_letter:
+            patch_letter_ordinal = _letter_suffix_to_ordinal(m_patch_letter.group(2))
+            # Priority is standard for pure letter suffixes
+            priority = 1000
+            return (major, minor, patch, priority, patch_letter_ordinal)
+        if m_patch_letter_only:
+            patch_letter_ordinal = _letter_suffix_to_ordinal(m_patch_letter_only.group(1))
+            priority = 1000
+            return (major, minor, patch, priority, patch_letter_ordinal)
+
         if not remainder or re.match(r'^(\.\d+)+$', remainder):
             # Standard version (e.g., '1.0.0') OR a longer purely-numeric
             # tail used by date-coded user builds (e.g.,
@@ -689,8 +725,8 @@ class AppcastGenerator:
         else:
             # Branch builds or other suffixes (e.g., '1.0.0-gui-v2-abc')
             priority = 0
-        
-        return (major, minor, patch, priority)
+
+        return (major, minor, patch, priority, 0)
     
     def list_versions(self) -> List[str]:
         """
