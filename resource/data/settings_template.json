@@ -114,7 +114,7 @@
     "default_embedding": "ecanai",
     "default_embedding_model": "text-embedding-v3",
     "default_rerank": "ecanai",
-    "default_rerank_model": "gte-rerank",
+    "default_rerank_model": "gte-rerank-v2",
     "skill_use_git": false,
     "browser_slots": [],
     "browser_max_agents_per_instance": 0,

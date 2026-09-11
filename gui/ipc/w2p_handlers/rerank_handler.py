@@ -59,14 +59,17 @@ def handle_get_rerank_providers(request: IPCRequest, params: Optional[Dict[str, 
         
         logger.info(f"Retrieved {len(providers)} Rerank providers")
 
-        # Include current settings for frontend
+        # Include current settings for frontend.
+        # Use raw _data values so the frontend sees the true state (empty string = not set).
+        # The property getter fallbacks to "ecanai" are for internal use only (startup, etc.);
+        # the API contract must reflect what the user actually has configured, not a default.
         ctx = get_handler_context(request, params)
         settings = {}
         if ctx:
-            general_settings = ctx.get_config_manager().general_settings
+            gs = ctx.get_config_manager().general_settings
             settings = {
-                'default_rerank': general_settings.default_rerank,
-                'default_rerank_model': general_settings.default_rerank_model
+                'default_rerank': gs._data.get("default_rerank", "") or "",
+                'default_rerank_model': gs._data.get("default_rerank_model", "") or "",
             }
 
         return create_success_response(request, {
@@ -516,23 +519,86 @@ def handle_delete_rerank_provider_config(request: IPCRequest, params: Optional[D
 
 @IPCHandlerRegistry.handler('set_default_rerank')
 def handle_set_default_rerank(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Set default Rerank provider"""
+    """Set default Rerank provider, or disable rerank if name is empty/null sentinel."""
     try:
         is_valid, data, error = validate_params(params, ['name'])
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
 
-        name = data['name']  # May be name or provider identifier
+        name = data.get('name') or ''  # May be name, provider identifier, or empty/null to disable
         model = data.get('model')  # Optional model parameter from frontend
 
         rerank_manager = get_rerank_manager(request, params)
         ctx = get_handler_context(request, params)
 
+        # ── Disable path: name is empty or a recognized disable sentinel ──────────
+        from knowledge.lightrag_constants import RERANK_DISABLE_SENTINELS
+        if name.strip().lower() in RERANK_DISABLE_SENTINELS:
+            general_settings = ctx.get_config_manager().general_settings
+            # Read raw _data so the log reflects the user's actual saved value,
+            # not the property fallback (which returns 'ecanai' when unset).
+            old_default = general_settings._data.get('default_rerank', '') or ''
+
+            # Clear default rerank in settings.json
+            general_settings.default_rerank = ''
+            general_settings.default_rerank_model = ''
+            save_result = general_settings.save()
+
+            # Write a complete "off" state to lightrag.env:
+            #   RERANK_BINDING=null        → proxy sentinel, no 3× retry on every query
+            #   RERANK_MODEL=''            → no stale model survives re-enable
+            #   RERANK_BINDING_HOST=''     → clear any provider-specific endpoint
+            #   RERANK_BINDING_API_KEY=''  → clear any stale secret
+            #   RERANK_BY_DEFAULT=false    → LightRAG won't rerank by default on restart
+            try:
+                from knowledge.lightrag_config_manager import get_config_manager
+                lr_cfg = get_config_manager()
+                lr_cfg.update_config({
+                    'RERANK_BINDING': 'null',
+                    'RERANK_MODEL': '',
+                    'RERANK_BINDING_HOST': '',
+                    'RERANK_BINDING_API_KEY': '',
+                    'RERANK_BY_DEFAULT': 'false',
+                })
+            except Exception as lr_err:
+                logger.warning(f"[Rerank] Failed to write rerank disable state to lightrag.env: {lr_err}")
+
+            # Invalidate LightRAG so it restarts with rerank disabled
+            from gui.manager.provider_settings_helper import invalidate_lightrag_provider_cache
+            invalidate_lightrag_provider_cache('rerank', 'null')
+
+            # Clear hot-update state on all agents
+            try:
+                cleared_agents = 0
+                for agent in ctx.get_agents():
+                    if hasattr(agent, 'mem_manager') and agent.mem_manager:
+                        try:
+                            agent.mem_manager.update_reranks(provider_name='', model_name='')
+                            cleared_agents += 1
+                        except Exception:
+                            pass
+                logger.info(f"[Rerank] ✅ Cleared rerank config for {cleared_agents} agents")
+            except Exception:
+                pass
+
+            logger.info(f"[Rerank] Rerank disabled (was: {old_default!r})")
+            return create_success_response(request, {
+                'default_rerank': '',
+                'model_name': '',
+                'message': 'Rerank disabled',
+                'provider': None,
+                'settings': {
+                    'default_rerank': '',
+                    'default_rerank_model': '',
+                }
+            })
+
+        # ── Enable path: name is a real provider ─────────────────────────────────
         # Verify provider exists and is configured
         provider = rerank_manager.get_provider(name)
         if not provider:
             return create_error_response(request, 'RERANK_ERROR', f"Provider {name} not found")
-        
+
         # Use provider identifier for all operations
         provider_identifier = provider.get('provider')
         if not provider_identifier:
@@ -547,7 +613,7 @@ def handle_set_default_rerank(request: IPCRequest, params: Optional[Dict[str, An
 
         # Update default_rerank and default_rerank_model in general_settings
         ctx.get_config_manager().general_settings.default_rerank = provider_identifier
-        
+
         # Use model from frontend if provided, otherwise fallback to provider's preferred/default model
         if model:
             provider_model = model
@@ -555,7 +621,7 @@ def handle_set_default_rerank(request: IPCRequest, params: Optional[Dict[str, An
         else:
             provider_model = provider.get('preferred_model') or provider.get('default_model') or ''
             logger.info(f"[Rerank] Using provider's model: {provider_model}")
-        
+
         # Validate model belongs to this provider (safety check)
         supported_models = provider.get('supported_models', [])
         if supported_models:
@@ -564,16 +630,16 @@ def handle_set_default_rerank(request: IPCRequest, params: Optional[Dict[str, An
                 logger.warning(f"Model '{provider_model}' not found in provider '{name}' supported models: {model_ids}")
                 logger.warning("Using provider's default model instead")
                 provider_model = provider.get('default_model', '')
-        
+
         ctx.get_config_manager().general_settings.default_rerank_model = provider_model
-        
+
         save_result = ctx.get_config_manager().general_settings.save()
 
         if not save_result:
             return create_error_response(request, 'RERANK_ERROR', f"Failed to save default Rerank setting")
 
         logger.info(f"Default Rerank set to {provider_identifier} with model {provider_model}")
-        
+
         # Hot-update: Update all agents' memoryManager reranks (similar to update_all_llms)
         try:
             updated_agents = 0
@@ -586,17 +652,29 @@ def handle_set_default_rerank(request: IPCRequest, params: Optional[Dict[str, An
                         logger.debug(f"[Rerank] Updated reranks for agent: {agent.card.name}")
                     except Exception as e:
                         logger.warning(f"[Rerank] Failed to update reranks for agent {agent.card.name}: {e}")
-            
+
             logger.info(f"[Rerank] ✅ Updated reranks for {updated_agents} agents")
         except Exception as e:
             logger.error(f"[Rerank] ❌ Error updating agent reranks: {e}")
             # Don't fail the request if agent update fails, but log the error
-        
+
         # Get updated provider info for frontend
         updated_provider = rerank_manager.get_provider(provider_identifier)
+
+        # Write RERANK_BY_DEFAULT=true to lightrag.env so LightRAG reranks on
+        # restart even if the user previously had rerank disabled. Without this,
+        # a previous RERANK_BY_DEFAULT=false survives the enable and LightRAG
+        # won't rerank by default until the user also toggles the per-query switch.
+        try:
+            from knowledge.lightrag_config_manager import get_config_manager
+            lr_cfg = get_config_manager()
+            lr_cfg.update_config({'RERANK_BY_DEFAULT': 'true'})
+        except Exception as by_default_err:
+            logger.warning(f"[Rerank] Failed to write RERANK_BY_DEFAULT=true to lightrag.env: {by_default_err}")
+
         from gui.manager.provider_settings_helper import invalidate_lightrag_provider_cache
         invalidate_lightrag_provider_cache('rerank', provider_identifier)
-        
+
         return create_success_response(request, {
             'default_rerank': provider_identifier,
             'model_name': provider_model,
