@@ -321,7 +321,14 @@ def mark_conv_dormant(name_or_talk: str) -> None:
     """ws167: re-enter dormant on a 关闭会话 close marker — the server stops
     pushing this conversation's frames after a close (verified live 2026-07-10:
     'sc' WS-live at 19:44, manually closed, 21:38 转人工 arrived with ZERO
-    frames), so the DOM watcher must own its next (cold-start) message."""
+    frames), so the DOM watcher must own its next (cold-start) message.
+
+    Also drops the conversation's cached per-talk send TEMPLATE (`_templates`):
+    without this, frame_for()/can_send() keep treating the reopened conversation
+    as "warm" off a template captured before the close, so reply-#1 after a
+    reopen takes the raw WS send path (which then has no way to notice the
+    close happened) instead of falling to the DOM path the way a genuine
+    first-contact/cold-start reply does."""
     k = str(name_or_talk or "").strip()
     if not k:
         return
@@ -329,9 +336,11 @@ def mark_conv_dormant(name_or_talk: str) -> None:
         k = k[5:]
     with _lock:
         _talk_last_frame.pop(k, None)
+        _templates.pop(k, None)
         _talk = str(_routing.get(k) or "")
         if _talk:
             _talk_last_frame.pop(_talk, None)
+            _templates.pop(_talk, None)
 
 
 def sticky_identity(talk_id: str, customer_name: str) -> str:
