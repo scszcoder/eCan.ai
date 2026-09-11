@@ -86,3 +86,18 @@ def is_native_rerank_provider(provider: str) -> bool:
 def is_proxy_rerank_provider(provider: str) -> bool:
     """Check if a provider requires proxy routing."""
     return provider.lower() in get_lightrag_proxy_rerank_providers()
+
+
+# ── Shared disable sentinels ─────────────────────────────────────────────
+# Used by both the UI disable path and the server/proxy passthrough paths.
+# Centralizing here ensures all three layers agree on what "rerank disabled" means.
+# The proxy additionally checks ``not binding`` (empty string) to cover the case
+# where RERANK_BINDING is absent from lightrag.env entirely.
+RERANK_DISABLE_SENTINELS: frozenset = frozenset({
+    '', 'null', 'none', 'disabled', 'off', 'false', '0',
+})
+
+
+def is_rerank_disabled(binding: str) -> bool:
+    """Return True when ``binding`` represents a disabled rerank state."""
+    return not binding or binding.lower() in RERANK_DISABLE_SENTINELS

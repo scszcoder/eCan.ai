@@ -2,11 +2,11 @@
   "regions": {
     "cn": {
       "default_provider": "eCanAI",
-      "default_model": "gte-rerank"
+      "default_model": "gte-rerank-v2"
     },
     "intl": {
       "default_provider": "eCanAI",
-      "default_model": "gte-rerank"
+      "default_model": "gte-rerank-v2"
     }
   },
   "providers": {
@@ -228,7 +228,7 @@
       "regions": ["cn", "intl"],
       "api_key_env_vars": ["ECANAI_RERANK_API_KEY"],
       "base_url": "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1",
-      "default_model": "gte-rerank",
+      "default_model": "gte-rerank-v2",
       "description": "eCanAI rerank proxy with dynamic model discovery",
       "is_local": false,
       "special_features": {"requires_api_key": true, "dynamic_models": true},

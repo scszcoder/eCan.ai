@@ -445,10 +445,44 @@ class LightragServer:
         # Rerank binding: map non-native providers to 'jina' (launcher may further process)
         # Ollama is routed through the local compatibility proxy. Other
         # non-native rerank providers use LightRAG's Jina-compatible client.
-        rerank_binding = env.get('RERANK_BINDING')
-        if rerank_binding and rerank_binding.lower() not in ('null', 'none', ''):
-            if rerank_binding.lower() != 'ollama':
-                _map_binding(rerank_binding, LIGHTRAG_RERANK_SUPPORTED, 'RERANK_BINDING', default='jina')
+        #
+        # When rerank is disabled (null/none/empty), route through the proxy so the
+        # proxy can return passthrough results immediately — without this, LightRAG's
+        # native rerank clients (Jina/Cohere/Aliyun) retry 3× against their endpoints
+        # on every query, adding ~30 s of latency per failed call.  The proxy's
+        # _RERANK_DISABLED_SENTINELS check only fires for non-native providers that
+        # go through /api/rerank; native providers call LightRAG's built-in clients
+        # directly and bypass that guard.  Setting RERANK_BINDING=ollama + the proxy
+        # host ensures ALL rerank traffic (native + non-native) is absorbed by the
+        # proxy and short-circuited to passthrough results.
+        rerank_binding = env.get('RERANK_BINDING', '').lower()
+        if not rerank_binding or rerank_binding in ('null', 'none', '', 'disabled', 'off', 'false', '0'):
+            # Rerank is disabled — route through proxy for immediate passthrough
+            env['RERANK_BINDING'] = 'ollama'
+            # Resolve proxy port via AppContext (same source as the rest of this
+            # module).  ``self.get_local_server_port`` doesn't exist on LightragServer;
+            # the only callable source is main_window.get_local_server_port().
+            port = None
+            try:
+                from app_context import AppContext
+                _main_window = AppContext.get_main_window()
+                if _main_window and hasattr(_main_window, 'get_local_server_port'):
+                    port = _main_window.get_local_server_port()
+            except Exception as _port_err:
+                logger.debug(f"[LightragServer] Failed to resolve local server port for disabled-rerank redirect: {_port_err}")
+            if port:
+                env['RERANK_BINDING_HOST'] = f'http://localhost:{port}/api/rerank'
+            else:
+                # No main_window available (e.g. unit test that builds a bare
+                # LightragServer).  Fall back to the canonical default port so
+                # the proxy URL is well-formed even if it can't actually serve.
+                env['RERANK_BINDING_HOST'] = 'http://localhost:4668/api/rerank'
+            logger.info(
+                f"[LightragServer] RERANK_BINDING is disabled ({rerank_binding!r}); "
+                f"redirecting to proxy at {env['RERANK_BINDING_HOST']} for passthrough"
+            )
+        elif rerank_binding != 'ollama':
+            _map_binding(rerank_binding, LIGHTRAG_RERANK_SUPPORTED, 'RERANK_BINDING', default='jina')
         
         # 7. Add SSL/TLS configuration to fix certificate errors
         # Disable SSL verification for development/testing (can be overridden by extra_env)

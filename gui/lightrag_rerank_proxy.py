@@ -359,7 +359,7 @@ class LightRAGRerankProxy:
             if provider_type == 'ollama':
                 results = await self._rerank_ollama(base_url, model, query, documents)
             elif provider_type in ('ryoais', 'ecanai'):
-                results = await self._rerank_ryoais(base_url, model, query, documents, api_key)
+                results = await self._rerank_ryoais(base_url, model, query, documents, api_key, provider_type)
             else:
                 # Default to OpenAI-compatible format for other providers
                 results = await self._rerank_openai_compatible(base_url, model, query, documents, api_key)
@@ -423,7 +423,31 @@ class LightRAGRerankProxy:
         The embedding output represents relevance features.
         
         Implementation based on ollama_proxy.py for compatibility.
+        
+        Note: When rerank is globally disabled, the launcher redirects RERANK_BINDING=ollama
+        through the proxy so this handler can return passthrough results without contacting
+        Ollama. See lightrag_server.py for the redirect logic.
         """
+        # ── Passthrough shortcut: rerank disabled ────────────────────────────────────
+        # The launcher redirects null/disabled RERANK_BINDING → ollama + proxy URL.
+        # Detect this by checking if the base_url points at our own proxy (not a real
+        # Ollama server). When the proxy is in the loop, return passthrough without
+        # attempting any Ollama HTTP call — this avoids the 3× retry tax that would
+        # otherwise be paid on every query when rerank is disabled.
+        is_proxy_loopback = (
+            'localhost' in (base_url or '')
+            and '/api/rerank' in (base_url or '')
+        )
+        if is_proxy_loopback:
+            logger.info(
+                f"[Rerank Proxy][Ollama] Proxy loopback detected (rerank disabled); "
+                f"returning passthrough for {len(documents)} documents"
+            )
+            return [
+                {"index": idx, "relevance_score": 1.0, "document": doc}
+                for idx, doc in enumerate(documents)
+            ]
+
         logger.info(f"[Rerank Proxy] Using Ollama provider: {base_url}, model: {model}")
         
         # Log target service URL
@@ -526,26 +550,33 @@ class LightRAGRerankProxy:
         model: str,
         query: str,
         documents: List[str],
-        api_key: str = ''
+        api_key: str = '',
+        provider_type: str = 'ryoais'
     ) -> List[Dict[str, Any]]:
         """
         Rerank using RyoAIS OpenAI-compatible rerank API.
         
         RyoAIS uses standard Jina/Cohere format: /v1/rerank
-        """
-        # Map generic model names to RyoAIS actual models
-        # LightRAG sends generic names like "jina-reranker-v2-base-multilingual"
-        # We need to map them to RyoAIS's actual BGE model
-        MODEL_MAPPING = {
-            'jina-reranker-v2-base-multilingual': 'bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q6_K.gguf',
-            'jina-reranker-v1-base-en': 'bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q6_K.gguf',
-            'jina-reranker-v3': 'bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q6_K.gguf',
-        }
         
-        original_model = model
-        if model in MODEL_MAPPING:
-            model = MODEL_MAPPING[model]
-            logger.info(f"[Rerank Proxy] Mapped model: {original_model} → {model}")
+        provider_type determines the routing:
+        - 'ryoais': maps generic Jina model names to RyoAIS's GGUF model format
+        - 'ecanai': passes the model name as-is (eCanAI cloud proxy handles routing)
+        """
+        # Map generic model names to RyoAIS actual GGUF models.
+        # Only applies to RyoAIS (which uses GGUF format). eCanAI and other
+        # cloud providers accept the canonical model name directly.
+        if provider_type == 'ryoais':
+            MODEL_MAPPING = {
+                'jina-reranker-v2-base-multilingual': 'bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q6_K.gguf',
+                'jina-reranker-v1-base-en': 'bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q6_K.gguf',
+                'jina-reranker-v3': 'bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q6_K.gguf',
+            }
+            original_model = model
+            if model in MODEL_MAPPING:
+                model = MODEL_MAPPING[model]
+                logger.info(f"[Rerank Proxy] RyoAIS model mapped: {original_model} → {model}")
+        else:
+            logger.info(f"[Rerank Proxy] Using {provider_type} provider with model: {model} (no mapping applied)")
         
         logger.info(f"[Rerank Proxy] Using RyoAIS provider: {base_url}, model: {model}")
         

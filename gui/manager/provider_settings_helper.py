@@ -449,9 +449,48 @@ def sync_default_provider_to_lightrag_env(provider_type: str = '', provider_iden
             if manager is None:
                 continue
 
-            new_provider = str(getattr(general_settings, default_attr, '') or '').strip()
+            # Read raw _data so we see the user's actual setting, NOT the
+            # property fallback.  The fallback (e.g. 'ecanai' for rerank when
+            # _data["default_rerank"] == "") would otherwise trick this helper
+            # into re-enabling a provider the user just disabled.
+            new_provider = str(general_settings._data.get(default_attr, '') or '').strip()
+
             if not new_provider:
-                continue
+                # Rerank is disabled — write a complete "off" state to
+                # lightrag.env so the running child sees the change and the
+                # proxy passthrough fires on the next query without needing a
+                # separate restart trigger.
+                # (LLM / embedding: an empty default is valid — we skip them.)
+                if role != 'rerank':
+                    continue
+                rerank_clears: Dict[str, str] = {
+                    binding_key: 'null',
+                    model_key: '',
+                    host_key: '',
+                    api_key_key: '',
+                }
+                # Also clear any per-provider-only keys from the old binding
+                # so a stale API key doesn't survive a disable→re-enable cycle
+                # of the same provider.
+                old_binding = str(lr_config.get_value(binding_key, '') or '').strip()
+                if old_binding:
+                    for stale_key in provider_only_keys:
+                        try:
+                            if lr_config.get_value(stale_key, '') is not None:
+                                rerank_clears[stale_key] = ''
+                        except Exception:
+                            pass
+                try:
+                    lr_config.update_config(rerank_clears)
+                    logger.info(
+                        f"[ProviderUtils] Rerank disabled; cleared env keys: "
+                        f"{sorted(rerank_clears)}"
+                    )
+                except Exception as write_err:
+                    logger.warning(
+                        f"[ProviderUtils] Failed to clear rerank env on disable: {write_err}"
+                    )
+                return True  # signals needs_restart=True downstream
 
             # Resolve provider config from the matching manager. The
             # provider identifier in System Settings is lowercase, so
@@ -1042,6 +1081,14 @@ def handle_provider_model_update(
             
             # Step 3: Hot-update active instances
             _perform_hot_update(ctx, provider_type, provider_identifier, model_name, updated_provider)
+        
+        # Step 4: Sync to lightrag.env and restart LightRAG so the new model takes effect.
+        # Without this, LightRAG's child process keeps using the old binding from its startup
+        # env — the change only applies after a manual LightRAG Settings save.
+        # Applies to ALL provider types (LLM, Embedding, Rerank) since LightRAG's child
+        # process uses all three for document processing and querying.
+        from gui.manager.provider_settings_helper import invalidate_lightrag_provider_cache
+        invalidate_lightrag_provider_cache(provider_type, provider_identifier)
         
         return True, None
         

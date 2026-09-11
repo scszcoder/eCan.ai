@@ -482,7 +482,7 @@ class GeneralSettings:
     _ECANAI_ROLE_MODEL_DEFAULTS = {
         "llm": "qwen-plus",
         "embedding": "text-embedding-v3",
-        "rerank": "gte-rerank",
+        "rerank": "gte-rerank-v2",
     }
 
     def _default_role_model(self, role: str) -> str:

@@ -613,8 +613,23 @@ class LightRAGConfigManager:
                     logger.info(f"[LightRAG Config] rerank_provider = {rerank_provider.get('name') if rerank_provider else None}")
                     
                     if rerank_provider:
+                        from knowledge.lightrag_constants import is_native_rerank_provider
                         base_url = rerank_provider.get('base_url')
-                        if base_url:
+
+                        # Non-native providers (ecanai, ryoais, ollama, etc.) must route
+                        # through the local rerank proxy at localhost:4668. The proxy injects
+                        # the correct API key and model name before forwarding to the real backend.
+                        # Without this, ecanai/ryoais bindings set base_url = cloud URL and
+                        # LightRAG calls the cloud directly with no API key → 404 every time.
+                        if base_url and not is_native_rerank_provider(rerank_binding):
+                            local_server_port = main_window.get_local_server_port()
+                            keys['RERANK_BINDING_HOST'] = f"http://localhost:{local_server_port}/api/rerank"
+                            logger.info(
+                                f"[LightRAG Config] Non-native rerank provider '{rerank_binding}' "
+                                f"→ redirecting RERANK_BINDING_HOST to localhost proxy "
+                                f"(original base_url={base_url})"
+                            )
+                        elif base_url:
                             keys['RERANK_BINDING_HOST'] = base_url
                         # Retrieve API keys if needed
                         api_key_env_vars = rerank_provider.get('api_key_env_vars', [])
