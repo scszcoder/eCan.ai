@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Support commands — request-log-analysis package + upload.
+"""Support commands — bug report package + upload.
 
-Same action as the GUI Help → Request Log Analysis dialog, exposed on the CLI so
+Same action as the GUI Help → Report Bug dialog, exposed on the CLI so
 an agent (or a user in a headless/remote session) can file a support bundle:
 the user's problem description (saved to runlogs/current_issues.md), attachments
 (screenshots / screen recordings copied into runlogs/issue_attachments/), the
 selected skills + their referenced prompts, and the whole runlogs folder — zipped
 and uploaded to support.
+
+The problem description goes through the same server-side intake gate the GUI
+uses: a description the server can't act on comes back as "incomplete" (exit 2,
+with the follow-up question on stderr) or "rejected" (exit 3) and nothing is
+packaged or uploaded. An agent driving this should answer the question and
+re-run with a fuller --description.
 
 The heavy lifting is the shared ``debug_log_handler.perform_log_analysis_upload``
 (one code path with the GUI). Cloud auth uses the CLI env token
@@ -38,7 +44,11 @@ def support():
 @click.option('--skill', '-s', 'skill_ids', multiple=True, help='Skill id to include (repeatable).')
 @click.option('--yes', '-y', is_flag=True, help='Skip the confirmation prompt.')
 def upload(description, description_file, attachments, skill_ids, yes):
-    """Package the runlogs + a problem report and upload to support. WRITE command."""
+    """Package the runlogs + a problem report and upload to support. WRITE command.
+
+    Exit codes: 0 uploaded, 1 error, 2 description incomplete (see stderr for the
+    follow-up question), 3 report rejected.
+    """
     ctx = get_context()
     out = get_output()
 
@@ -69,9 +79,36 @@ def upload(description, description_file, attachments, skill_ids, yes):
     if ctx.username and not os.environ.get("ECAN_CLI_USER"):
         os.environ["ECAN_CLI_USER"] = str(ctx.username)
 
+    from gui.ipc.w2p_handlers.debug_log_handler import (
+        local_description_issue, validate_bug_description, perform_log_analysis_upload)
+
+    # Local pre-check first — no server round-trip for an obviously thin report.
+    issue = local_description_issue(description)
+    if issue:
+        out.error("The description is too thin to act on "
+                  f"({issue}). Say what you were doing, what you expected, "
+                  "and what actually happened.")
+        raise SystemExit(2)
+
+    # Server-side intake gate. Nothing is packaged until it says ok.
     try:
-        from gui.ipc.w2p_handlers.debug_log_handler import perform_log_analysis_upload
-        message = perform_log_analysis_upload(skill_ids, description, attachments)
+        verdict = validate_bug_description(description, skill_ids)
+    except Exception as e:
+        out.error(f"Description check failed: {e}")
+        raise SystemExit(1)
+
+    status = verdict.get("status") or "rejected"
+    if status == "incomplete":
+        out.error(verdict.get("question")
+                  or "More detail needed: what were you doing, and what happened on screen?")
+        raise SystemExit(2)
+    if status != "ok":
+        out.error(verdict.get("message") or "Report not accepted.")
+        raise SystemExit(3)
+
+    try:
+        message = perform_log_analysis_upload(
+            skill_ids, description, attachments, verdict.get("grant") or None)
     except Exception as e:
         out.error(f"Upload failed: {e}")
         raise SystemExit(1)
