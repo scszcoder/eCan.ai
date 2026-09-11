@@ -221,8 +221,53 @@ def _normalize_version_text(v: str) -> str:
     return s
 
 
+def _letter_suffix_to_ordinal(s: str) -> int:
+    """Convert a pure letter suffix (e.g. 'o', 'abc') to a single ordinal
+    value so that 'o' (15) < 'q' (17) and 'abc' (1,2,3 → 786) < 'abd' (787).
+
+    Multi-letter suffixes are encoded as a base-27 number: 'a' = 1,
+    'b' = 2, …, 'z' = 26; each subsequent letter is weighted by 27^position.
+    This gives the same lexicographic ordering as the server-side
+    ``_letter_suffix_to_ordinal`` in ``build_system/scripts/generate_appcast.py``,
+    so client-side ``compare_versions`` and server-side sort produce identical
+    results.
+
+    Examples::
+
+        _letter_suffix_to_ordinal('a')   == 1
+        _letter_suffix_to_ordinal('o')   == 15
+        _letter_suffix_to_ordinal('q')   == 17
+        _letter_suffix_to_ordinal('z')   == 26
+        _letter_suffix_to_ordinal('aa')  == 28   # 1*27 + 1
+        _letter_suffix_to_ordinal('ab')  == 29   # 1*27 + 2
+        _letter_suffix_to_ordinal('abc') == 786  # 1*27² + 2*27 + 3
+    """
+    total = 0
+    for ch in s.lower():
+        total = total * 27 + (ord(ch) - ord('a') + 1)
+    return total
+
+
 def _parse_main_version_parts(v: str) -> List[int]:
-    """Parse main numeric version parts, supporting multi-segment versions."""
+    """Parse main numeric version parts, supporting multi-segment versions
+    and patch-level letter suffixes (e.g. 0.9.97o, 0.9.97q).
+
+    Each '.'-separated token is processed as follows:
+
+    1. Pure digit token (e.g. '97')                → int(97)
+    2. Digit prefix + pure letters (e.g. '97o')    → [97, ordinal('o')]
+       where the ordinal uses base-27 encoding so 'ab' (29) > 'a' (1) > 'z' (26)
+       and 'aa' (28) > 'z' (26) — matches lexicographic order.
+    3. Digit prefix + mixed tail (e.g. '97rc1')   → int(97); stop parsing
+    4. Non-digit token (e.g. 'alpha')              → stop; go to prerelease
+
+    The ordinal approach guarantees that within the same major.minor.patch
+    segment, a higher letter is always newer (0.9.97o < 0.9.97q because
+    [0,9,97,15] < [0,9,97,17]).
+
+    Prerelease / build metadata continues after the first '-' and is handled
+    by :func:`_parse_prerelease_parts`.
+    """
     main = _normalize_version_text(v).split('-', 1)[0]
     parts = main.split('.') if main else []
     nums: List[int] = []
@@ -233,11 +278,23 @@ def _parse_main_version_parts(v: str) -> List[int]:
         if token.isdigit():
             nums.append(int(token))
             continue
-        # Fallback: keep leading numeric prefix (e.g. "1rc1" -> 1)
-        m = re.match(r'^(\d+)', token)
-        if m:
-            nums.append(int(m.group(1)))
+        # Try: digit prefix + pure letter suffix  (e.g. '97o', '97abc', '10beta')
+        m_digit_letter = re.match(r'^(\d+)([A-Za-z]+)$', token)
+        if m_digit_letter:
+            nums.append(int(m_digit_letter.group(1)))
+            # Single ordinal for the entire letter suffix (base-27) so
+            # that server-side sort and client-side compare produce the
+            # same total order. See _letter_suffix_to_ordinal.
+            nums.append(_letter_suffix_to_ordinal(m_digit_letter.group(2)))
             continue
+        # Try: digit prefix + mixed tail (e.g. '97rc1')  → take digits only, stop
+        m_digit_mixed = re.match(r'^(\d+)', token)
+        if m_digit_mixed:
+            nums.append(int(m_digit_mixed.group(1)))
+            # Mixed tail is not a clean letter suffix; stop parsing here so
+            # the remainder flows into prerelease (e.g. 'rc1' for 1.0.97rc1).
+            break
+        # Non-digit token (e.g. 'alpha', 'v0'): stop; goes to prerelease
         break
     return nums or [0]
 
