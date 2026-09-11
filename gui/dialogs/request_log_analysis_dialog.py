@@ -1,12 +1,19 @@
-"""Request Log Analysis dialog.
+"""Report Bug dialog.
 
-Lets the user pick the skills involved, describe the problem, and attach
-screenshots / a screen recording, then packages everything (skill files,
-referenced prompts, the description saved to current_issues.md, the attachments,
-and the full runlogs folder) and uploads it to support. All strings are
-localized via ``gui.messages`` (CN default). The heavy lifting lives in the
-shared ``debug_log_handler`` so the CLI (``ecan support upload``) and an agent
-can do the same thing headlessly.
+A sequence, not a single submit: the user describes the problem, the description
+goes through the server-side intake gate, and only an accepted description gets
+packaged and uploaded.
+
+    describe -> [local pre-check] -> validate (server) -> ok? -> confirm -> zip + upload
+                                                       -> incomplete? -> ask, revise, retry
+                                                       -> rejected? -> stop
+
+The user picks the skills involved and may attach screenshots / a screen
+recording; everything (skill files, referenced prompts, the description saved to
+current_issues.md, the attachments, and the full runlogs folder) is zipped and
+uploaded to support. All strings are localized via ``gui.messages`` (CN
+default). The heavy lifting lives in the shared ``debug_log_handler`` so the CLI
+(``ecan support upload``) and an agent can do the same thing headlessly.
 """
 from __future__ import annotations
 
@@ -32,25 +39,47 @@ def _t(key: str, **kwargs) -> str:
 # Background worker
 # ---------------------------------------------------------------------------
 
+class _ValidateWorker(QThread):
+    """Runs the server-side intake gate off the UI thread."""
+
+    finished = Signal(dict)  # {status, question, message, grant}
+    error = Signal(str)
+
+    def __init__(self, description: str, skill_ids: List[str]):
+        super().__init__()
+        self._description = description
+        self._skill_ids = skill_ids
+
+    def run(self):
+        try:
+            from gui.ipc.w2p_handlers.debug_log_handler import validate_bug_description
+            self.finished.emit(validate_bug_description(self._description, self._skill_ids))
+        except Exception as exc:
+            logger.error(f"[ReportBug] Description check failed: {exc}", exc_info=True)
+            self.error.emit(str(exc))
+
+
 class _UploadWorker(QThread):
     finished = Signal(str)   # success message
     error = Signal(str)      # error message
 
     def __init__(self, skill_ids: List[str], description: str = "",
-                 attachments: Optional[List[str]] = None):
+                 attachments: Optional[List[str]] = None,
+                 grant: Optional[dict] = None):
         super().__init__()
         self._skill_ids = skill_ids
         self._description = description
         self._attachments = attachments or []
+        self._grant = grant or None
 
     def run(self):
         try:
             from gui.ipc.w2p_handlers.debug_log_handler import perform_log_analysis_upload
             message = perform_log_analysis_upload(
-                self._skill_ids, self._description, self._attachments)
+                self._skill_ids, self._description, self._attachments, self._grant)
             self.finished.emit(message)
         except Exception as exc:
-            logger.error(f"[RequestLogAnalysis] Upload failed: {exc}", exc_info=True)
+            logger.error(f"[ReportBug] Upload failed: {exc}", exc_info=True)
             self.error.emit(str(exc))
 
 
@@ -59,13 +88,23 @@ class _UploadWorker(QThread):
 # ---------------------------------------------------------------------------
 
 class RequestLogAnalysisDialog(QDialog):
+    # Gate rounds before we stop asking and hand off to support.
+    _MAX_GATE_ROUNDS = 3
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(_t("request_log_analysis").rstrip(". "))
         self.setMinimumSize(560, 720)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
         self._worker: _UploadWorker | None = None
+        self._validator: _ValidateWorker | None = None
         self._attachments: List[str] = []
+        # Intake-gate state. The round cap stops an unbounded "still not enough
+        # detail" loop (each round costs a server classifier call); the last
+        # submitted text stops a resubmit of the same string.
+        self._gate_rounds = 0
+        self._last_submitted: str | None = None
+        self._grant: dict = {}
         self._setup_ui()
         self._apply_styles()
         self._load_skills()
@@ -136,6 +175,14 @@ class RequestLogAnalysisDialog(QDialog):
         att_row.addStretch()
         layout.addLayout(att_row)
 
+        # Intake-gate feedback (the server's follow-up question), shown inline
+        # so it stays readable while the user edits the description.
+        self._gate_label = QLabel("")
+        self._gate_label.setWordWrap(True)
+        self._gate_label.setObjectName("gateLabel")
+        self._gate_label.hide()
+        layout.addWidget(self._gate_label)
+
         # Progress (hidden until upload)
         self._status_label = QLabel("")
         self._status_label.setObjectName("statusLabel")
@@ -178,6 +225,11 @@ class RequestLogAnalysisDialog(QDialog):
         QLabel#descLabel { color: #c9d1d9; font-size: 13px; }
         QLabel#sectionLabel { color: #e6edf3; font-size: 13px; font-weight: 600; }
         QLabel#statusLabel { color: #8b949e; font-size: 12px; }
+        QLabel#gateLabel {
+            color: #e3b341; font-size: 12px;
+            background-color: #2b2213; border: 1px solid #5c4813;
+            border-radius: 6px; padding: 8px;
+        }
         QTextEdit#problemEdit {
             background-color: #161b22; color: #e6edf3;
             border: 1px solid #30363d; border-radius: 6px; font-size: 13px; padding: 6px;
@@ -297,34 +349,105 @@ class RequestLogAnalysisDialog(QDialog):
                 self._attachments.remove(path)
             self._attach_list.takeItem(self._attach_list.row(item))
 
-    def _on_ok(self):
-        description = self._problem_edit.toPlainText().strip()
-        if not description:
-            QMessageBox.warning(self, _t("request_log_analysis").rstrip(". "),
-                                _t("rla_desc_required"))
-            self._problem_edit.setFocus()
-            return
-        selected = [
+    def _selected_skill_ids(self) -> List[str]:
+        return [
             item.data(Qt.UserRole)
             for item in self._skill_list.selectedItems()
             if item.data(Qt.UserRole)
         ]
-        # Confirm before packaging + uploading (the user's "sequence" gate).
-        confirm = QMessageBox.question(
-            self, _t("rla_confirm_title"),
-            _t("rla_confirm_msg", n=len(self._attachments)),
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-        if confirm != QMessageBox.Yes:
-            return
-        self._start_upload(selected, description, list(self._attachments))
 
-    def _start_upload(self, skill_ids: List[str], description: str, attachments: List[str]):
+    def _show_gate(self, text: str):
+        self._gate_label.setText(text)
+        self._gate_label.show()
+        self._problem_edit.setFocus()
+
+    def _on_ok(self):
+        """Step 1 of the sequence: pre-check locally, then ask the server."""
+        description = self._problem_edit.toPlainText().strip()
+
+        # Local pre-check — an obviously empty/thin description never costs a
+        # server round-trip.
+        from gui.ipc.w2p_handlers.debug_log_handler import local_description_issue
+        issue = local_description_issue(description)
+        if issue:
+            self._show_gate(_t("rla_desc_required") if issue == "empty"
+                            else _t("rla_desc_too_short"))
+            return
+
+        # Never auto-resubmit the same text: it just burns another classifier
+        # call and comes back with the same question.
+        if self._last_submitted is not None and description == self._last_submitted:
+            self._show_gate(_t("rla_gate_edit_required"))
+            return
+
+        self._start_validation(description)
+
+    def _start_validation(self, description: str):
+        self._ok_btn.setEnabled(False)
+        self._gate_label.hide()
+        self._status_label.setText(_t("rla_checking"))
+        self._status_label.show()
+        self._progress.show()
+
+        self._validator = _ValidateWorker(description, self._selected_skill_ids())
+        self._validator.finished.connect(self._on_validated)
+        self._validator.error.connect(self._on_validate_error)
+        self._validator.start()
+
+    def _on_validated(self, result: dict):
+        """Step 2: ok -> confirm + upload, incomplete -> ask, rejected -> stop."""
+        self._progress.hide()
+        self._status_label.hide()
+        self._ok_btn.setEnabled(True)
+
+        description = self._problem_edit.toPlainText().strip()
+        status = (result or {}).get("status") or "rejected"
+
+        if status == "ok":
+            self._grant = (result or {}).get("grant") or {}
+            confirm = QMessageBox.question(
+                self, _t("rla_confirm_title"),
+                _t("rla_confirm_msg", n=len(self._attachments)),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if confirm != QMessageBox.Yes:
+                return
+            self._start_upload(self._selected_skill_ids(), description,
+                               list(self._attachments), self._grant)
+            return
+
+        # Either way the user must edit before we ask the server again.
+        self._last_submitted = description
+
+        if status == "rejected":
+            QMessageBox.warning(self, _t("rla_gate_rejected_title"),
+                                (result or {}).get("message") or _t("rla_gate_default_question"))
+            return
+
+        # incomplete
+        self._gate_rounds += 1
+        question = (result or {}).get("question") or _t("rla_gate_default_question")
+        if self._gate_rounds >= self._MAX_GATE_ROUNDS:
+            # Cap reached — hand off rather than loop forever.
+            QMessageBox.information(self, _t("rla_gate_title"), _t("rla_gate_exhausted"))
+            self._show_gate(_t("rla_gate_exhausted"))
+            return
+        self._show_gate(question)
+
+    def _on_validate_error(self, error: str):
+        self._progress.hide()
+        self._status_label.hide()
+        self._ok_btn.setEnabled(True)
+        QMessageBox.critical(self, _t("rla_failed_title"),
+                             _t("rla_failed_msg", error=error))
+
+    def _start_upload(self, skill_ids: List[str], description: str,
+                      attachments: List[str], grant: Optional[dict] = None):
         self._ok_btn.setEnabled(False)
         self._status_label.setText(_t("rla_packaging"))
         self._status_label.show()
         self._progress.show()
 
-        self._worker = _UploadWorker(skill_ids, description, attachments)
+        self._worker = _UploadWorker(skill_ids, description, attachments, grant)
         self._worker.finished.connect(self._on_upload_done)
         self._worker.error.connect(self._on_upload_error)
         self._worker.start()
@@ -351,7 +474,8 @@ class RequestLogAnalysisDialog(QDialog):
                              _t("rla_failed_msg", error=error))
 
     def closeEvent(self, event):
-        if self._worker and self._worker.isRunning():
-            self._worker.quit()
-            self._worker.wait(3000)
+        for w in (self._validator, self._worker):
+            if w and w.isRunning():
+                w.quit()
+                w.wait(3000)
         super().closeEvent(event)

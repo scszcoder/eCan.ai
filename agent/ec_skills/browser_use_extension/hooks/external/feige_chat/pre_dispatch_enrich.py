@@ -1563,6 +1563,17 @@ _WS170_CARD_DOM_DUMP_JS = r"""(function(){
     if ((cardLike || /商品|推荐/.test(text)) && !rec.has_chatd_card) {
       rec.html_head = String(w.outerHTML || '').slice(0, 500);
     }
+    // ws198: capture the structure of bubbles _customerBubble can't classify —
+    // no semantic side marker (messageIsMe/messageNotMe) AND no legacy .Ie29C7
+    // row. On a cold reopen the FRESH message renders this way and is silently
+    // dropped (2026-09-09 '现在店铺有折扣吗' idx15 skipped → stale bubble picked →
+    // dedup-skip → never answered). Its outerHTML pins the correct selector.
+    var _hasSide = w.querySelector('[class*="messageIsMe"],[class*="messageNotMe"]');
+    var _hasRow = w.querySelector('.Ie29C7uLyEjZzd8JeS8A');
+    if (!rec.html_head && !_hasSide && !_hasRow && text) {
+      rec.html_head = String(w.outerHTML || '').slice(0, 900);
+      rec.unrecognized = true;
+    }
     out.push(rec);
   }
   return JSON.stringify({total: wrappers.length, tail: out});

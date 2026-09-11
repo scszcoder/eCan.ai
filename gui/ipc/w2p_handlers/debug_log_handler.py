@@ -4,16 +4,27 @@ Collects skill JSON files, prompt files, and the main eCan.log, zips them,
 uploads to S3 via a presigned URL obtained from AppSync, then notifies the
 server that the upload is complete.
 
-IPC method: request_log_analysis
-  params: { skillIds: ["skill-id-1", ...] }
+Before anything is packaged, the problem description goes through the
+server-side intake gate (``requestDebug`` answers ok / incomplete / rejected),
+so a report that says only "it broke" is turned back with a follow-up question
+instead of costing an upload. The gate judges intent, not tone — an
+angry-but-detailed report passes.
 
-Public function: perform_log_analysis_upload(skill_ids) -> str
-  Called directly by the GUI dialog (runs in a QThread).
+IPC methods:
+  validate_bug_description  params: { description, skillIds? }
+  request_log_analysis      params: { skillIds, description?, attachments?, grant? }
+
+Public functions:
+  local_description_issue(description)          -> 'empty' | 'too_short' | None
+  validate_bug_description(description, skills) -> {status, question, message, grant}
+  perform_log_analysis_upload(skill_ids, ...)   -> str
+  Called directly by the GUI dialog (runs in a QThread) and by the CLI.
 """
 from __future__ import annotations
 
 import json
 import os
+import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -167,6 +178,25 @@ def _find_skill_dirs(skill_ids: List[str]) -> Dict[str, Path]:
 _REQUEST_DEBUG_MUTATION = """
 mutation RequestDebug($input: RequestDebugInput!) {
   requestDebug(input: $input) {
+    status
+    uploadUrl
+    zipKey
+    expiresIn
+    question
+    message
+  }
+}
+"""
+
+# The shape this client spoke before the intake gate shipped. eCan runs on two
+# backends (AWS AppSync + Tencent TCB) that are not guaranteed to carry the same
+# SDL at the same moment; if one still predates the gate it answers
+# GRAPHQL_VALIDATION_FAILED for the new fields and we retry with this. The gate
+# is a quality filter, not a security boundary (the server itself fails open),
+# so an ungated backend is a degraded path, not an error.
+_REQUEST_DEBUG_MUTATION_LEGACY = """
+mutation RequestDebug($input: RequestDebugInput!) {
+  requestDebug(input: $input) {
     uploadUrl
     zipKey
     expiresIn
@@ -175,6 +205,15 @@ mutation RequestDebug($input: RequestDebugInput!) {
 """
 
 _REQUEST_DEBUG_DONE_MUTATION = """
+mutation RequestDebugDone($zipKey: String!, $owner: String!, $description: String) {
+  requestDebugDone(zipKey: $zipKey, owner: $owner, description: $description) {
+    success
+    message
+  }
+}
+"""
+
+_REQUEST_DEBUG_DONE_MUTATION_LEGACY = """
 mutation RequestDebugDone($zipKey: String!, $owner: String!) {
   requestDebugDone(zipKey: $zipKey, owner: $owner) {
     success
@@ -182,6 +221,129 @@ mutation RequestDebugDone($zipKey: String!, $owner: String!) {
   }
 }
 """
+
+
+class BugIntakeNotAccepted(RuntimeError):
+    """The intake gate did not accept the problem description.
+
+    ``status`` is "incomplete" (ask ``question`` and let the user revise) or
+    "rejected" (show ``message`` and stop — no retry loop).
+    """
+
+    def __init__(self, status: str, question: str = "", message: str = ""):
+        self.status = status or "rejected"
+        self.question = question or ""
+        self.message = message or ""
+        super().__init__(self.question or self.message
+                         or "Bug report not accepted ({}).".format(self.status))
+
+
+# Weighted length below which we turn the description back locally instead of
+# spending a server round-trip (every gate round costs a classifier call).
+MIN_DESCRIPTION_WEIGHT = 12
+
+_GATE_FIELD_NAMES = ("status", "question", "message", "description")
+
+
+def _description_weight(text: str) -> int:
+    """Length weighted so CJK isn't under-counted.
+
+    A CJK character carries far more meaning than a Latin one, so "点击登录后闪退"
+    (7 chars) is a real report while "it broke" (8 chars) is not. Counting CJK
+    double keeps the local pre-check from turning back legitimate short Chinese.
+    """
+    return sum(2 if "\u4e00" <= ch <= "\u9fff" else 1 for ch in text)
+
+
+def local_description_issue(description: str) -> Optional[str]:
+    """Cheap local pre-check. Returns 'empty', 'too_short', or None.
+
+    None means "worth asking the server" — it is NOT a verdict of acceptable.
+    """
+    text = (description or "").strip()
+    if not text:
+        return "empty"
+    if _description_weight(text) < MIN_DESCRIPTION_WEIGHT:
+        return "too_short"
+    return None
+
+
+def _is_gate_schema_error(resp: Dict[str, Any]) -> bool:
+    """True when the backend's SDL doesn't know the intake-gate fields yet."""
+    for err in (resp.get("errors") or []):
+        msg = str(err.get("message") or "")
+        code = str(((err.get("extensions") or {}).get("code")) or "")
+        looks_schema = ("GRAPHQL_VALIDATION_FAILED" in code
+                        or "Cannot query field" in msg
+                        or "Unknown field" in msg
+                        or "Unknown argument" in msg
+                        or "unknown field" in msg)
+        if looks_schema and any(f in msg for f in _GATE_FIELD_NAMES):
+            return True
+    return False
+
+
+def _request_debug(ctx: Dict[str, Any], owner: str, skill_ids: List[str],
+                   description: str):
+    """Call requestDebug. Returns (status, payload).
+
+    ``status`` is "ok" | "incomplete" | "rejected". A backend that predates the
+    gate returns no status; we read that as ungated "ok" when a URL came back.
+    """
+    variables: Dict[str, Any] = {
+        "input": {"owner": owner, "skillIds": list(skill_ids or [])}}
+    if description:
+        variables["input"]["description"] = description
+
+    resp = _appsync_request(_REQUEST_DEBUG_MUTATION, ctx, variables)
+    if _is_gate_schema_error(resp):
+        logger.warning("[debug_log] Backend predates the bug-intake gate; "
+                       "falling back to the legacy requestDebug shape (ungated)")
+        resp = _appsync_request(
+            _REQUEST_DEBUG_MUTATION_LEGACY, ctx,
+            {"input": {"owner": owner, "skillIds": list(skill_ids or [])}})
+
+    if "errors" in resp or not (resp.get("data") or {}).get("requestDebug"):
+        errs = resp.get("errors", [{}])
+        raise RuntimeError("requestDebug failed: {}".format(
+            errs[0].get("message", str(errs))))
+
+    payload = resp["data"]["requestDebug"] or {}
+    status = str(payload.get("status") or "").strip().lower()
+    if not status:
+        status = "ok" if payload.get("uploadUrl") else "rejected"
+    return status, payload
+
+
+def validate_bug_description(description: str,
+                             skill_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Run the intake gate WITHOUT packaging or uploading anything.
+
+    On "ok" the returned ``grant`` carries the presigned uploadUrl/zipKey; hand
+    it to ``perform_log_analysis_upload(..., grant=grant)`` so an already
+    accepted description is not classified a second time.
+    """
+    ctx = _get_cloud_context()
+    if not ctx:
+        raise RuntimeError("Not logged in or no cloud connection available.")
+
+    status, payload = _request_debug(ctx, ctx["owner"], list(skill_ids or []), description)
+    result: Dict[str, Any] = {
+        "status": status,
+        "question": payload.get("question") or "",
+        "message": payload.get("message") or "",
+        "grant": {},
+    }
+    if status == "ok" and payload.get("uploadUrl") and payload.get("zipKey"):
+        result["grant"] = {
+            "uploadUrl": payload["uploadUrl"],
+            "zipKey": payload["zipKey"],
+            "expiresIn": payload.get("expiresIn"),
+            "grantedAt": time.time(),
+        }
+    logger.info("[debug_log] Intake gate: status={} desc_len={}".format(
+        status, len((description or "").strip())))
+    return result
 
 
 def _get_cloud_context() -> Optional[Dict[str, Any]]:
@@ -366,10 +528,29 @@ def save_issue_report(runlogs_dir: Path, description: str = "",
 # Core upload logic
 # ---------------------------------------------------------------------------
 
+def _put_zip(upload_url: str, zip_path: Path):
+    """PUT the package to the presigned URL."""
+    with open(zip_path, "rb") as f:
+        return http_requests.put(
+            upload_url,
+            data=f,
+            headers={"Content-Type": "application/zip"},
+            timeout=300,
+        )
+
+
 def perform_log_analysis_upload(skill_ids: List[str], description: str = "",
-                                attachments: Optional[List[str]] = None) -> str:
+                                attachments: Optional[List[str]] = None,
+                                grant: Optional[Dict[str, Any]] = None) -> str:
     """
-    Collect skills + prompts + log → zip → upload to S3 via presigned URL.
+    Collect skills + prompts + logs → zip → upload to S3 via presigned URL.
+
+    ``grant`` is the {uploadUrl, zipKey} handed back by
+    ``validate_bug_description`` when the intake gate accepted the description;
+    passing it avoids classifying the same text twice. Without it this runs the
+    gate itself and raises ``BugIntakeNotAccepted`` when the description is
+    turned back — callers that can prompt the user should validate first.
+
     Returns a success message string. Raises on fatal errors.
     """
     ts = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -455,39 +636,46 @@ def perform_log_analysis_upload(skill_ids: List[str], description: str = "",
 
         logger.info(f"[debug_log] Zip created: {zip_path} ({zip_path.stat().st_size // 1024} KB)")
 
-        # 4. Request presigned upload URL
-        resp = _appsync_request(
-            _REQUEST_DEBUG_MUTATION,
-            ctx,
-            {"input": {"owner": owner, "skillIds": skill_ids}},
-        )
-        if "errors" in resp or not resp.get("data", {}).get("requestDebug"):
-            errs = resp.get("errors", [{}])
-            raise RuntimeError(f"requestDebug failed: {errs[0].get('message', str(errs))}")
-
-        debug_result = resp["data"]["requestDebug"]
-        upload_url = debug_result["uploadUrl"]
-        zip_key = debug_result["zipKey"]
-        logger.info(f"[debug_log] Got presigned URL, key={zip_key}")
+        # 4. Presigned upload URL. Reuse the grant the intake gate already
+        #    issued so an accepted description isn't classified twice; callers
+        #    that skipped validation get gated here instead.
+        if grant and grant.get("uploadUrl") and grant.get("zipKey"):
+            upload_url = grant["uploadUrl"]
+            zip_key = grant["zipKey"]
+            logger.info(f"[debug_log] Reusing intake grant, key={zip_key}")
+        else:
+            status, payload = _request_debug(ctx, owner, skill_ids, description)
+            if status != "ok":
+                raise BugIntakeNotAccepted(
+                    status, payload.get("question"), payload.get("message"))
+            upload_url = payload["uploadUrl"]
+            zip_key = payload["zipKey"]
+            logger.info(f"[debug_log] Got presigned URL, key={zip_key}")
 
         # 5. PUT zip to S3
-        with open(zip_path, "rb") as f:
-            put_resp = http_requests.put(
-                upload_url,
-                data=f,
-                headers={"Content-Type": "application/zip"},
-                timeout=300,
-            )
+        put_resp = _put_zip(upload_url, zip_path)
+        if put_resp.status_code == 403 and grant:
+            # The grant is issued before packaging now, so a large runlogs zip
+            # can outlive the presigned URL. Re-request once with the already
+            # accepted description and retry.
+            logger.warning("[debug_log] Upload URL expired (403); re-requesting")
+            status, payload = _request_debug(ctx, owner, skill_ids, description)
+            if status == "ok" and payload.get("uploadUrl"):
+                upload_url = payload["uploadUrl"]
+                zip_key = payload["zipKey"]
+                put_resp = _put_zip(upload_url, zip_path)
         if put_resp.status_code not in (200, 204):
             raise RuntimeError(f"S3 upload failed: HTTP {put_resp.status_code}")
         logger.info(f"[debug_log] Upload complete: {zip_key}")
 
-        # 6. Notify server
-        resp2 = _appsync_request(
-            _REQUEST_DEBUG_DONE_MUTATION,
-            ctx,
-            {"zipKey": zip_key, "owner": owner},
-        )
+        # 6. Notify server (the accepted description is stored on the job and
+        #    fed to the analysis agent).
+        done_vars = {"zipKey": zip_key, "owner": owner, "description": description or None}
+        resp2 = _appsync_request(_REQUEST_DEBUG_DONE_MUTATION, ctx, done_vars)
+        if _is_gate_schema_error(resp2):
+            resp2 = _appsync_request(
+                _REQUEST_DEBUG_DONE_MUTATION_LEGACY, ctx,
+                {"zipKey": zip_key, "owner": owner})
         done_data = (resp2.get("data") or {}).get("requestDebugDone") or {}
         logger.info(f"[debug_log] requestDebugDone: {done_data}")
 
@@ -506,14 +694,42 @@ def perform_log_analysis_upload(skill_ids: List[str], description: str = "",
 # IPC handler wrapper
 # ---------------------------------------------------------------------------
 
+@IPCHandlerRegistry.background_handler("validate_bug_description")
+def handle_validate_bug_description(request: IPCRequest,
+                                    params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Run the intake gate on a description. No packaging, no upload."""
+    p = params or {}
+    description = (p.get("description") or "").strip()
+    issue = local_description_issue(description)
+    if issue:
+        # Caught locally — no server round-trip, no classifier call.
+        return create_success_response({"status": "incomplete", "localIssue": issue,
+                                        "question": "", "message": "", "grant": {}})
+    try:
+        return create_success_response(validate_bug_description(description, p.get("skillIds") or []))
+    except Exception as exc:
+        logger.error(f"[debug_log] Description validation failed: {exc}", exc_info=True)
+        return create_error_response(str(exc))
+
+
 @IPCHandlerRegistry.background_handler("request_log_analysis")
 def handle_request_log_analysis(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    skill_ids = (params or {}).get("skillIds") or []
+    p = params or {}
+    skill_ids = p.get("skillIds") or []
     if not skill_ids:
         return create_error_response("No skill IDs provided.")
     try:
-        message = perform_log_analysis_upload(skill_ids)
+        message = perform_log_analysis_upload(
+            skill_ids,
+            p.get("description") or "",
+            p.get("attachments") or [],
+            p.get("grant") or None,
+        )
         return create_success_response({"message": message})
+    except BugIntakeNotAccepted as exc:
+        # Not a failure — the gate wants a better description.
+        return create_success_response({"status": exc.status, "question": exc.question,
+                                        "message": exc.message})
     except Exception as exc:
         logger.error(f"[debug_log] Upload failed: {exc}", exc_info=True)
         return create_error_response(str(exc))

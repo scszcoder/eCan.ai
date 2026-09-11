@@ -29,8 +29,8 @@ class MenuMessages:
             'keyboard_shortcuts': 'Keyboard Shortcuts',
             'view_logs': 'View Logs...',
             'view_lightrag_logs': 'View LightRAG Logs...',
-            'request_log_analysis': 'Request Log Analysis...',
-            # Request Log Analysis dialog
+            'request_log_analysis': 'Report Bug...',
+            # Report Bug dialog
             'rla_desc': 'Select the skills involved, describe the problem, and (optionally) attach screenshots or a screen recording. The skill files, referenced prompts, your description, the attachments, and the full runlogs folder will be packaged and uploaded to the support team.',
             'rla_skills_label': 'Skills involved',
             'rla_select_all': 'Select All',
@@ -52,6 +52,15 @@ class MenuMessages:
             'rla_complete_msg': 'Debug package uploaded successfully.',
             'rla_failed_title': 'Upload Failed',
             'rla_failed_msg': 'Failed to upload debug package:\n\n{error}',
+            # Intake gate — the server judges whether the description is
+            # actionable before anything is packaged or uploaded.
+            'rla_checking': 'Checking your description…',
+            'rla_desc_too_short': 'Please add a bit more detail — what were you doing, and what happened on screen?',
+            'rla_gate_title': 'A bit more detail, please',
+            'rla_gate_default_question': 'Could you add what you were doing when it happened, and what you saw on screen?',
+            'rla_gate_edit_required': 'Please revise the description before sending again.',
+            'rla_gate_exhausted': 'We still need more detail to investigate. Please add what you were doing, what you expected, and what actually happened — or contact support directly.',
+            'rla_gate_rejected_title': 'Report not sent',
             'sqlite_merge': 'SQLite Merge...',
             'test': 'Test',
             
@@ -197,7 +206,7 @@ class MenuMessages:
             'keyboard_shortcuts': '键盘快捷键',
             'view_logs': '查看日志...',
             'view_lightrag_logs': '查看 LightRAG 日志...',
-            'request_log_analysis': '请求日志分析...',
+            'request_log_analysis': '报告Bug现象...',
             # 请求日志分析对话框
             'rla_desc': '选择涉及的技能，描述遇到的问题，并（可选）附上截图或录屏。技能文件、引用的提示词、您的问题描述、附件以及完整的 runlogs 日志目录将被打包上传给支持团队。',
             'rla_skills_label': '涉及的技能',
@@ -220,6 +229,14 @@ class MenuMessages:
             'rla_complete_msg': '调试包已成功上传。',
             'rla_failed_title': '上传失败',
             'rla_failed_msg': '上传调试包失败：\n\n{error}',
+            # 问题描述校验（服务端在打包上传前判断描述是否可定位问题）
+            'rla_checking': '正在检查问题描述…',
+            'rla_desc_too_short': '请再补充一些细节——您当时在做什么？屏幕上出现了什么？',
+            'rla_gate_title': '请补充问题描述',
+            'rla_gate_default_question': '能否补充一下：出现问题时您在做什么？屏幕上显示了什么？',
+            'rla_gate_edit_required': '请先修改问题描述再重新提交。',
+            'rla_gate_exhausted': '我们仍需要更多细节才能定位问题。请补充您当时的操作、期望的结果和实际发生的情况，或直接联系支持团队。',
+            'rla_gate_rejected_title': '未提交',
             'sqlite_merge': 'SQLite 合并...',
             'test': '测试',
             
