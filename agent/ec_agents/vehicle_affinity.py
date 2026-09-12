@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import platform as _platform
 import socket
+from datetime import datetime, timezone
 import threading
 
 from utils.logger_helper import logger_helper as logger
@@ -82,6 +83,124 @@ def _resolve_legacy_vehicle_id(mainwin=None, username: str = "") -> str:
         return ""
 
 
+# ---------------------------------------------------------------------------
+# Phase 6 — fleet membership
+#
+# A desktop install IS its machine, so the vehicle id is derived from a machine
+# fingerprint. A cloud pod is not: it is interchangeable, and which vehicle it
+# counts as is the scheduler's call. ``ECAN_VEHICLE_ID`` (or
+# ``set_assigned_vehicle_id``) supplies that assignment; everything else about
+# affinity — the fail-open behaviour and the ECAN_DISABLE_VEHICLE_AFFINITY kill
+# switch — is untouched.
+# ---------------------------------------------------------------------------
+
+ENV_ASSIGNED_VEHICLE_ID = "ECAN_VEHICLE_ID"
+
+_assigned_vehicle_id: str = ""
+
+
+def set_assigned_vehicle_id(vehicle_id: str) -> None:
+    """Accept a scheduler-assigned vehicle id (cloud pods).
+
+    Must be called before the first id resolution to take effect, since the
+    resolved id is cached per process.
+    """
+    global _assigned_vehicle_id, _local_vehicle_id
+    _assigned_vehicle_id = str(vehicle_id or "").strip()
+    if _assigned_vehicle_id:
+        _local_vehicle_id = ""  # drop any cached local id so the assignment wins
+
+
+def assigned_vehicle_id() -> str:
+    """The scheduler-assigned id, from set_assigned_vehicle_id or the env."""
+    if _assigned_vehicle_id:
+        return _assigned_vehicle_id
+    return str(os.getenv(ENV_ASSIGNED_VEHICLE_ID, "") or "").strip()
+
+
+def register_cloud_vehicle(
+    service,
+    *,
+    owner: str,
+    capacity: int = 1,
+    capabilities: "list[str] | None" = None,
+    vehicle_id: str = "",
+    hostname: str = "",
+) -> str:
+    """Register this pod as a cloud Vehicle with capacity + heartbeat.
+
+    Mirrors ``register_local_vehicle`` but for a pod: ``vehicle_type='cloud'``,
+    an explicit concurrency capacity, and declared capabilities the scheduler
+    can place ``requires=[...]`` work against (Phase 0.3). Non-fatal on every
+    failure, like its desktop sibling — a fleet that cannot register should
+    degrade, not refuse to serve.
+
+    Returns the vehicle id used, or "" when registration did not happen.
+    """
+    try:
+        vid = str(vehicle_id or "").strip() or resolve_local_vehicle_id()
+        if not vid or service is None:
+            return ""
+
+        if not hostname:
+            try:
+                hostname = socket.gethostname() or ""
+            except Exception:
+                hostname = ""
+
+        payload = {
+            "name": hostname or f"pod-{vid[:8]}",
+            "owner": owner or "",
+            "vehicle_type": "cloud",
+            "platform": _platform.system().lower(),
+            "hostname": hostname,
+            "status": "online",
+            "max_concurrent_tasks": max(1, int(capacity)),
+            "capabilities": list(capabilities or []),
+            "last_heartbeat": datetime.now(timezone.utc),
+        }
+
+        existing = None
+        try:
+            existing = _get_vehicle_row(service, vid)
+        except Exception:
+            existing = None
+
+        if existing:
+            service.update_vehicle(vid, payload)
+        else:
+            service.add_vehicle({"id": vid, **payload})
+            logger.info(
+                f"[VehicleAffinity] registered CLOUD vehicle id={vid[:8]}.. "
+                f"capacity={payload['max_concurrent_tasks']} "
+                f"capabilities={payload['capabilities']}"
+            )
+        return vid
+    except Exception as e:
+        logger.warning(f"[VehicleAffinity] cloud vehicle registration failed (non-fatal): {e}")
+        return ""
+
+
+def heartbeat_vehicle(service, vehicle_id: str = "", *, status: str = "online") -> bool:
+    """Refresh this vehicle's heartbeat. Non-fatal; returns whether it landed.
+
+    A pod that stops heartbeating should be drained by the scheduler, so this
+    is the liveness signal — not a health check of the work itself.
+    """
+    try:
+        vid = str(vehicle_id or "").strip() or resolve_local_vehicle_id()
+        if not vid or service is None:
+            return False
+        service.update_vehicle(vid, {
+            "status": status,
+            "last_heartbeat": datetime.now(timezone.utc),
+        })
+        return True
+    except Exception as e:
+        logger.debug(f"[VehicleAffinity] heartbeat failed (non-fatal): {e}")
+        return False
+
+
 def resolve_local_vehicle_id(mainwin=None, username: str = "") -> str:
     """Return this host's vehicle id, or "" on failure.
 
@@ -97,6 +216,15 @@ def resolve_local_vehicle_id(mainwin=None, username: str = "") -> str:
         return _local_vehicle_id
     with _lock:
         if _local_vehicle_id:
+            return _local_vehicle_id
+        # 0) Scheduler-assigned id (Phase 6). A cloud pod has no meaningful
+        # machine fingerprint — it is cattle, and the fleet scheduler decides
+        # which vehicle it is. When assigned, that wins over anything derived
+        # locally; otherwise this is a no-op and desktop behaviour is unchanged.
+        assigned = assigned_vehicle_id()
+        if assigned:
+            _local_vehicle_id = assigned
+            logger.info(f"[VehicleAffinity] using scheduler-assigned vehicle id={assigned[:8]}..")
             return _local_vehicle_id
         # 1) OS-native fingerprint — path-independent, primary. Local module
         # (no zeroconf), so this resolves even in worker/CI environments.
@@ -372,7 +500,9 @@ def localize_a2a_url(url: str, recipient_agent) -> str:
 def _reset_for_tests() -> None:
     """Test helper — drop process-level caches."""
     global _local_vehicle_id, _legacy_vehicle_id, _vehicle_registered
+    global _assigned_vehicle_id
     with _lock:
         _local_vehicle_id = None
         _legacy_vehicle_id = None
         _vehicle_registered = False
+        _assigned_vehicle_id = ""

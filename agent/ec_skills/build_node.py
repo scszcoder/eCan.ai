@@ -866,13 +866,36 @@ def get_default_node_schemas():
     return schemas
 
 
-def add_to_history(state, messages, max_entries: int = 200):
+# Phase 4 (memory model): this is the binding limit on how much a Q&A agent
+# remembers ONCE the per-turn history clear stops applying. Today the clear
+# (ECAN_QA_HISTORY_ISOLATION, default on) makes the effective window one turn;
+# the moment conversation threads let that clear be retired, the window becomes
+# this number. Exposed as an env override so the product decision — one turn,
+# N entries, or summarised (langmem SummarizationNode, still commented out in
+# ec_customer_support_chat_skill.py, with NodeState.summary already typed
+# RunningSummary) — can be made without a code change.
+QA_HISTORY_MAX_ENTRIES_DEFAULT = 200
+
+
+def _qa_history_max_entries(default: int = QA_HISTORY_MAX_ENTRIES_DEFAULT) -> int:
+    try:
+        raw = (os.environ.get("ECAN_QA_MEMORY_ENTRIES") or "").strip()
+        return max(1, int(raw)) if raw else default
+    except (TypeError, ValueError):
+        return default
+
+
+def add_to_history(state, messages, max_entries: int | None = None):
     """Append messages to state["history"] with automatic pruning.
 
     To prevent unbounded memory growth during long-running skill executions,
     the history is trimmed to the most recent ``max_entries`` items whenever
-    it exceeds that threshold.
+    it exceeds that threshold. ``None`` means "use the configured window"
+    (ECAN_QA_MEMORY_ENTRIES, default 200) — an explicit value still wins, so
+    existing callers are unaffected.
     """
+    if max_entries is None:
+        max_entries = _qa_history_max_entries()
     if not isinstance(state.get("history"), list):
         state["history"] = []
 

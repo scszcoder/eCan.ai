@@ -18,6 +18,11 @@ Input (either form):
   env ECAN_TASK_OWNER / ECAN_TASK_ID / ECAN_TASK_PARAMS   (TKE launcher shape)
 
 Auth: ECAN_TCB_ACCESS_TOKEN or ECAN_TCB_REFRESH_TOKEN (see cn_backend.py).
+Modes:
+  --mode single   one task, then exit (the launcher contract above)
+  --mode serve    stay up and take work item after work item (Phase 5;
+                  loop in cn_serve.py, same per-item core)
+
 Not yet ported from the AWS worker: WS control listener (cancel/pause),
 passive browser (L2C) transport, cloud prompt loader.
 """
@@ -284,9 +289,19 @@ async def run_single_cn_with_timeout(message_json: str, timeout_seconds: int) ->
         raise SystemExit(f"cn_worker timed out after {timeout_seconds}s")
 
 
+async def _serve_cn() -> None:
+    """Phase 5: stay up and take work item after work item.
+
+    The loop lives in cn_serve; the per-item core is run_single_cn, so serving
+    and single-shot execute identical code.
+    """
+    from agent.cloud_worker.cn_serve import serve, stdin_intake
+    await serve(stdin_intake())
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="ecan-cn-cloud-worker")
-    parser.add_argument("--mode", choices=["single"], default="single")
+    parser.add_argument("--mode", choices=["single", "serve"], default="single")
     parser.add_argument("--message-json", default=os.getenv("ECAN_WORKER_MESSAGE_JSON", ""))
     parser.add_argument(
         "--timeout", type=int,
@@ -297,7 +312,10 @@ def main() -> None:
     t0 = time.time()
     logger.info(f"[cn_worker] starting mode={args.mode} timeout={args.timeout}s")
     try:
-        if args.timeout > 0:
+        if args.mode == "serve":
+            # No wall-clock timeout: a serving pod is supposed to stay up.
+            asyncio.run(_serve_cn())
+        elif args.timeout > 0:
             asyncio.run(run_single_cn_with_timeout(args.message_json, args.timeout))
         else:
             asyncio.run(run_single_cn(args.message_json))
