@@ -306,7 +306,7 @@ async def _serve_cn(intake_kind: str = "stdin") -> None:
     ``fleet`` (claim from the server-side turn queue, heartbeat what we hold,
     report the outcome with cost).
     """
-    from agent.cloud_worker.cn_serve import fleet_intake, make_turn_handler, serve, stdin_intake
+    from agent.cloud_worker.cn_serve import Capacity, fleet_intake, make_turn_handler, serve, stdin_intake
 
     if intake_kind != "fleet":
         await serve(stdin_intake())
@@ -328,7 +328,16 @@ async def _serve_cn(intake_kind: str = "stdin") -> None:
         f"capabilities={fleet.capabilities} capacity={fleet.capacity} -> {vehicle}"
     )
 
-    await serve(fleet_intake(fleet), handler=make_turn_handler(fleet))
+    # One Capacity shared by the loop and the intake: the loop bounds how many
+    # turns run at once, the intake stops CLAIMING while full. Same number the
+    # pod advertised as max_concurrent_tasks a moment ago, so what the scheduler
+    # believes and what the pod does cannot drift apart.
+    capacity = Capacity(fleet.capacity)
+    await serve(
+        fleet_intake(fleet, capacity=capacity),
+        handler=make_turn_handler(fleet),
+        capacity=capacity,
+    )
 
 
 def main() -> None:

@@ -46,6 +46,58 @@ from utils.logger_helper import logger_helper as logger
 STOP = object()
 
 
+class Capacity:
+    """How many turns this pod may hold at once.
+
+    Shared deliberately between ``serve`` and ``fleet_intake``: the loop marks a
+    slot taken when it starts a turn and frees it when the turn ends, and the
+    intake refuses to CLAIM while full. Without that second half a pod at
+    capacity keeps taking turns off the queue and sitting on them — hoarding
+    work other pods could be running, and heartbeating turns it has not started.
+
+    The number must match what ``vehicle_register`` advertises as
+    ``max_concurrent_tasks``; a pod that claims more than it can run tells the
+    placement side something untrue.
+    """
+
+    __slots__ = ("limit", "in_use", "_slot_freed")
+
+    def __init__(self, limit: int = 1) -> None:
+        self.limit = max(1, int(limit or 1))
+        self.in_use = 0
+        # Set whenever a slot frees. serve() waits on this; fleet_intake only
+        # peeks with free(), because it must keep looping to heartbeat.
+        self._slot_freed = asyncio.Event()
+        self._slot_freed.set()
+
+    def free(self) -> bool:
+        return self.in_use < self.limit
+
+    async def acquire(self) -> None:
+        """Block until a slot is free, then take it.
+
+        serve() enforces the bound HERE rather than trusting the intake to do
+        it. The first version only tracked usage and let the intake gate
+        claiming, which meant any intake that did not know about capacity —
+        stdin_intake, or a test feeding a plain list — ran every item at once.
+        A bound the owner does not enforce is not a bound.
+        """
+        while not self.free():
+            self._slot_freed.clear()
+            await self._slot_freed.wait()
+        self.take()
+
+    def take(self) -> None:
+        self.in_use += 1
+
+    def give(self) -> None:
+        self.in_use = max(0, self.in_use - 1)
+        self._slot_freed.set()
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"Capacity({self.in_use}/{self.limit})"
+
+
 @dataclass
 class ServeStats:
     accepted: int = 0
@@ -165,6 +217,7 @@ async def fleet_intake(
     idle_backoff_max: float = DEFAULT_IDLE_BACKOFF_MAX,
     vehicle_heartbeat_interval: float = DEFAULT_VEHICLE_HEARTBEAT,
     max_turns: Optional[int] = None,
+    capacity: Optional[Capacity] = None,
 ) -> AsyncIterator[str]:
     """Yield claimed turns as JSON strings, forever.
 
@@ -184,6 +237,13 @@ async def fleet_intake(
                 await fleet.heartbeat_vehicle()
             except Exception as exc:
                 logger.warning(f"[cn_serve] vehicle heartbeat failed (non-fatal): {exc}")
+
+        # Full: do not claim. Keep looping anyway — the vehicle heartbeat above
+        # is what keeps this pod in the roster, and skipping it while busy would
+        # get a perfectly healthy pod reaped as dead.
+        if capacity is not None and not capacity.free():
+            await asyncio.sleep(poll_interval)
+            continue
 
         try:
             turn = await fleet.claim_turn()
@@ -443,11 +503,22 @@ async def serve(
     install_context: bool = True,
     allow_ephemeral: bool = False,
     max_items: Optional[int] = None,
+    capacity: Optional[Capacity] = None,
 ) -> ServeStats:
     """Serve work items until the intake is exhausted or STOP arrives.
 
     ``handler`` defaults to the one-shot execution core, so serving and
     single-shot run exactly the same code per item.
+
+    Up to ``capacity.limit`` turns run concurrently. This is not an
+    optimisation detail — it decides what the fleet costs. A turn is mostly
+    spent awaiting an LLM, so a pod that runs them one at a time is idle for
+    almost all of its billed life, and serving N concurrent conversations needs
+    N pods. At 256 peak that is 256 pods against roughly 8.
+
+    Concurrency is bounded rather than unbounded because each in-flight turn
+    holds a checkpointer connection and an LLM call; the bound is the same
+    number the pod advertises to the scheduler.
     """
     require_durable_checkpointer(allow_ephemeral=allow_ephemeral)
 
@@ -467,7 +538,22 @@ async def serve(
             )
 
     stats = ServeStats()
-    logger.info("[cn_serve] serving; waiting for work")
+    slots = capacity if capacity is not None else Capacity(1)
+    inflight: set = set()
+    logger.info(f"[cn_serve] serving; waiting for work (concurrency={slots.limit})")
+
+    async def _run_one(item: Any, item_id: str) -> None:
+        try:
+            await handler(item if isinstance(item, str) else json.dumps(item))
+            stats.completed += 1
+            logger.info(f"[cn_serve] item {item_id} completed "
+                        f"({stats.completed}/{stats.accepted})")
+        except Exception as exc:
+            # Per-item isolation: a bad item must not take the pod down.
+            stats.failed += 1
+            logger.error(f"[cn_serve] item {item_id} FAILED: {exc}", exc_info=True)
+        finally:
+            slots.give()
 
     try:
         async for item in intake:
@@ -475,22 +561,23 @@ async def serve(
                 logger.info("[cn_serve] STOP received; draining")
                 break
 
+            # Blocks while full. fleet_intake also declines to claim when
+            # full, which keeps unstartable work off this pod; this is the
+            # guard that holds regardless of which intake is wired in.
+            await slots.acquire()
             stats.accepted += 1
             item_id = _describe(item)
-            try:
-                await handler(item if isinstance(item, str) else json.dumps(item))
-                stats.completed += 1
-                logger.info(f"[cn_serve] item {item_id} completed "
-                            f"({stats.completed}/{stats.accepted})")
-            except Exception as exc:
-                # Per-item isolation: a bad item must not take the pod down.
-                stats.failed += 1
-                logger.error(f"[cn_serve] item {item_id} FAILED: {exc}", exc_info=True)
+            task = asyncio.create_task(_run_one(item, item_id))
+            inflight.add(task)
+            task.add_done_callback(inflight.discard)
 
             if max_items is not None and stats.accepted >= max_items:
                 logger.info(f"[cn_serve] reached max_items={max_items}; stopping")
                 break
     finally:
+        if inflight:
+            logger.info(f"[cn_serve] draining {len(inflight)} in-flight turn(s)")
+            await asyncio.gather(*inflight, return_exceptions=True)
         if install_context:
             from headless_context import uninstall_headless_context
             uninstall_headless_context()
