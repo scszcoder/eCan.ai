@@ -174,7 +174,7 @@ async def _save_run_state(
         logger.warning(f"[cn_worker] failed to save run state: {exc}")
 
 
-async def run_single_cn(message_json: str) -> None:
+async def run_single_cn(message_json: str) -> Optional[Dict[str, Any]]:
     msg = _parse_cn_message(message_json)
     client = CNBackendClient.from_env()
 
@@ -257,6 +257,10 @@ async def run_single_cn(message_json: str) -> None:
             prompt=json.dumps(test_inputs, ensure_ascii=False),
             task_vars=_tv if isinstance(_tv, dict) else None,
             browser_identity=_bi if isinstance(_bi, dict) else None,
+            # Phase 2.2: when the caller knows which conversation this run
+            # belongs to (serving mode does — the turn says so), the checkpoint
+            # thread is keyed on the conversation instead of this one run.
+            thread_id=str(msg.options.get("thread_id") or "") or None,
         )
         result = _run_skill_once(msg=worker_msg, skill_root=skill_root)
         logger.info(f"[cn_worker] run {run_id} completed: {str(result)[:500]}")
@@ -267,6 +271,9 @@ async def run_single_cn(message_json: str) -> None:
             client, owner=msg.owner_id, run_id=run_id, flowgram_id=skill_id,
             event_type="run_completed", payload={**base_payload, "status": "completed"},
         )
+        # Returned, not just logged: serving mode reports it back to the queue
+        # as the turn's result, which is what reaches the end user.
+        return result
     except Exception as exc:
         run_state.update(status="failed", error=str(exc), finished_at=time.time())
         await _save_run_state(client, run_id, run_state)
@@ -289,19 +296,49 @@ async def run_single_cn_with_timeout(message_json: str, timeout_seconds: int) ->
         raise SystemExit(f"cn_worker timed out after {timeout_seconds}s")
 
 
-async def _serve_cn() -> None:
+async def _serve_cn(intake_kind: str = "stdin") -> None:
     """Phase 5: stay up and take work item after work item.
 
     The loop lives in cn_serve; the per-item core is run_single_cn, so serving
     and single-shot execute identical code.
+
+    Two intakes: ``stdin`` (NDJSON, a sidecar or a local smoke test) and
+    ``fleet`` (claim from the server-side turn queue, heartbeat what we hold,
+    report the outcome with cost).
     """
-    from agent.cloud_worker.cn_serve import serve, stdin_intake
-    await serve(stdin_intake())
+    from agent.cloud_worker.cn_serve import fleet_intake, make_turn_handler, serve, stdin_intake
+
+    if intake_kind != "fleet":
+        await serve(stdin_intake())
+        return
+
+    from agent.cloud_worker.fleet_client import FleetClient
+    from agent.ec_agents.vehicle_affinity import set_assigned_vehicle_id
+
+    # A pod is cattle: the scheduler says which vehicle it is, and that has to
+    # be settled before anything resolves an id from the machine (Phase 6).
+    assigned = (os.getenv("ECAN_VEHICLE_ID") or "").strip()
+    if assigned:
+        set_assigned_vehicle_id(assigned)
+
+    fleet = FleetClient.from_env()
+    vehicle = await fleet.register_vehicle()
+    logger.info(
+        f"[cn_worker] joined fleet as vehicle={fleet.vehicle_id} "
+        f"capabilities={fleet.capabilities} capacity={fleet.capacity} -> {vehicle}"
+    )
+
+    await serve(fleet_intake(fleet), handler=make_turn_handler(fleet))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="ecan-cn-cloud-worker")
     parser.add_argument("--mode", choices=["single", "serve"], default="single")
+    parser.add_argument(
+        "--intake", choices=["stdin", "fleet"],
+        default=(os.getenv("ECAN_SERVE_INTAKE") or "stdin").strip() or "stdin",
+        help="serve mode only: where work comes from",
+    )
     parser.add_argument("--message-json", default=os.getenv("ECAN_WORKER_MESSAGE_JSON", ""))
     parser.add_argument(
         "--timeout", type=int,
@@ -310,11 +347,15 @@ def main() -> None:
     args = parser.parse_args()
 
     t0 = time.time()
-    logger.info(f"[cn_worker] starting mode={args.mode} timeout={args.timeout}s")
+    logger.info(
+        f"[cn_worker] starting mode={args.mode} "
+        f"{'intake=' + args.intake + ' ' if args.mode == 'serve' else ''}"
+        f"timeout={args.timeout}s"
+    )
     try:
         if args.mode == "serve":
             # No wall-clock timeout: a serving pod is supposed to stay up.
-            asyncio.run(_serve_cn())
+            asyncio.run(_serve_cn(args.intake))
         elif args.timeout > 0:
             asyncio.run(run_single_cn_with_timeout(args.message_json, args.timeout))
         else:

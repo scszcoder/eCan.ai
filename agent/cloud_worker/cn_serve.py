@@ -23,6 +23,12 @@ The transport is deliberately NOT invented here. ``serve`` consumes any async
 iterable of message strings; ``stdin_intake`` is a working default (newline
 -delimited JSON, which a sidecar can feed) and the injection point for whatever
 the CN control plane settles on — HTTP, WS, or a queue.
+
+That seam now has its real counterpart: ``fleet_intake`` polls the server-side
+turn queue (``turn_claim``) and yields turns, and ``make_turn_handler`` wraps
+the same per-item core with heartbeating and a ``turn_done`` report. Neither
+changes the loop — which is the point of having written the loop against an
+async iterable.
 """
 from __future__ import annotations
 
@@ -135,6 +141,295 @@ async def stdin_intake() -> AsyncIterator[str]:
         if not line:
             continue
         yield line
+
+
+# ---------------------------------------------------------------------------
+# Fleet intake — the turn queue
+#
+# The server hands out work through ``turn_claim``: one queued turn whose
+# ``requires[]`` this pod's ``capabilities[]`` satisfy, or nothing. "Nothing" is
+# the normal steady state, so an idle pod backs off instead of hammering the
+# control plane, and resets the moment it gets work.
+# ---------------------------------------------------------------------------
+
+DEFAULT_POLL_INTERVAL = 2.0
+DEFAULT_IDLE_BACKOFF_MAX = 15.0
+DEFAULT_VEHICLE_HEARTBEAT = 60.0
+DEFAULT_TURN_HEARTBEAT = 30.0
+
+
+async def fleet_intake(
+    fleet,
+    *,
+    poll_interval: float = DEFAULT_POLL_INTERVAL,
+    idle_backoff_max: float = DEFAULT_IDLE_BACKOFF_MAX,
+    vehicle_heartbeat_interval: float = DEFAULT_VEHICLE_HEARTBEAT,
+    max_turns: Optional[int] = None,
+) -> AsyncIterator[str]:
+    """Yield claimed turns as JSON strings, forever.
+
+    Errors claiming are logged and retried, never raised: a control plane blip
+    must not take a pod out of the fleet, and the server's own reaper requeues
+    anything this pod dropped.
+    """
+    claimed = 0
+    delay = poll_interval
+    last_vehicle_beat = 0.0
+
+    while max_turns is None or claimed < max_turns:
+        now = time.time()
+        if now - last_vehicle_beat >= vehicle_heartbeat_interval:
+            last_vehicle_beat = now
+            try:
+                await fleet.heartbeat_vehicle()
+            except Exception as exc:
+                logger.warning(f"[cn_serve] vehicle heartbeat failed (non-fatal): {exc}")
+
+        try:
+            turn = await fleet.claim_turn()
+        except Exception as exc:
+            logger.warning(f"[cn_serve] turn_claim failed, backing off: {exc}")
+            turn = None
+
+        if turn is None:
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, idle_backoff_max)
+            continue
+
+        delay = poll_interval
+        claimed += 1
+        logger.info(
+            f"[cn_serve] claimed turn {turn.get('id')} "
+            f"conversation={turn.get('conversationId')} attempt={turn.get('attempt')}"
+        )
+        yield json.dumps(turn, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# Turn -> work item
+# ---------------------------------------------------------------------------
+
+class TurnMappingError(ValueError):
+    """A claimed turn cannot be mapped to something this worker can run."""
+
+
+def turn_to_worker_message(turn: dict) -> str:
+    """Translate a claimed turn into the message ``run_single_cn`` parses.
+
+    The gap this has to bridge: a turn names an *owner, conversation, agent and
+    input text*, while the worker loads work by *task id*. Nothing on the turn
+    row carries one, so the task is resolved in this order, and a turn that
+    resolves to neither is a permanent failure, not a retry:
+
+    1. ``turn.input`` parsed as a JSON object carrying ``task_id`` — the
+       structured form an enqueuer can use to name the work exactly;
+    2. ``ECAN_TASK_ID`` — a pod pinned to one task, which is the single-tenant
+       serving shape.
+
+    ``run_id`` is the turn id, deliberately: a redelivered turn then overwrites
+    its own run state instead of opening a second one. The turn id is the
+    server's idempotency key and this client never mints its own.
+    """
+    if not isinstance(turn, dict):
+        raise TurnMappingError(f"turn must be an object, got {type(turn).__name__}")
+
+    turn_id = str(turn.get("id") or "").strip()
+    if not turn_id:
+        raise TurnMappingError("turn has no id")
+
+    raw_input = turn.get("input")
+    structured: dict = {}
+    text = ""
+    if isinstance(raw_input, dict):
+        structured = raw_input
+    elif isinstance(raw_input, str) and raw_input.strip():
+        try:
+            parsed = json.loads(raw_input)
+            structured = parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            structured = {}
+        if not structured:
+            text = raw_input
+
+    text = text or str(structured.get("text") or structured.get("latest_message") or "")
+
+    owner = str(
+        turn.get("owner")
+        or structured.get("owner_id")
+        or structured.get("owner")
+        or os.environ.get("ECAN_TASK_OWNER")
+        or ""
+    ).strip()
+    task_id = str(
+        structured.get("task_id")
+        or structured.get("taskId")
+        or os.environ.get("ECAN_TASK_ID")
+        or ""
+    ).strip()
+
+    if not owner:
+        raise TurnMappingError(f"turn {turn_id} has no owner and ECAN_TASK_OWNER is unset")
+    if not task_id:
+        raise TurnMappingError(
+            f"turn {turn_id} names no task: put task_id in the turn input JSON, "
+            f"or pin this pod to one with ECAN_TASK_ID"
+        )
+
+    conversation_id = str(turn.get("conversationId") or turn.get("conversation_id") or "")
+    agent_id = str(turn.get("agentId") or turn.get("agent_id") or "")
+
+    options = dict(structured.get("options") or {})
+    options.update({
+        "run_id": turn_id,
+        "turn_id": turn_id,
+        "conversation_id": conversation_id,
+        "agent_id": agent_id,
+    })
+
+    test_inputs = structured.get("testInputs") or structured.get("test_inputs")
+    options["testInputs"] = dict(test_inputs) if isinstance(test_inputs, dict) else {
+        "text": text,
+        "conversation_id": conversation_id,
+    }
+
+    # Phase 2.2, on the path where it is actually knowable: the turn names its
+    # conversation, so the thread key needs no payload sniffing. Still behind
+    # ECAN_CONVERSATION_THREADS — off, this is a per-turn thread exactly as
+    # before.
+    from agent.conversation_threads import conversation_threads_enabled, thread_id_for
+
+    if conversation_threads_enabled() and conversation_id:
+        options["thread_id"] = thread_id_for(agent_id, conversation_id)
+
+    return json.dumps(
+        {"owner_id": owner, "task_id": task_id, "options": options}, ensure_ascii=False
+    )
+
+
+# ---------------------------------------------------------------------------
+# Turn handler — heartbeat while running, report when done
+# ---------------------------------------------------------------------------
+
+async def _heartbeat_turn(fleet, turn_id: str, interval: float) -> None:
+    """Keep one claimed turn alive until cancelled.
+
+    A turn that legitimately runs longer than the server's stale window has to
+    heartbeat *during* the run — after it is too late, the reaper has already
+    requeued it and a second pod is answering the same customer.
+    """
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            alive = await fleet.heartbeat_turns([turn_id])
+            if turn_id not in alive:
+                logger.warning(
+                    f"[cn_serve] turn {turn_id} is no longer ours (reaped or reassigned); "
+                    f"still running it locally"
+                )
+        except Exception as exc:
+            logger.warning(f"[cn_serve] turn heartbeat failed (non-fatal): {exc}")
+
+
+def _json_safe_result(result: Any) -> dict:
+    """A turn result the server can store as jsonb.
+
+    The skill's return value is whatever the skill produced; anything that will
+    not serialise is reported as its text rather than failing the report, since
+    losing the outcome of a completed turn is worse than losing its shape.
+    """
+    if isinstance(result, dict):
+        try:
+            json.dumps(result, ensure_ascii=False)
+            return result
+        except Exception:
+            pass
+    if result is None:
+        return {}
+    return {"text": str(result)[:4000]}
+
+
+def make_turn_handler(
+    fleet,
+    *,
+    core: Optional[Callable[[str], Awaitable[Any]]] = None,
+    heartbeat_interval: float = DEFAULT_TURN_HEARTBEAT,
+) -> Callable[[str], Awaitable[None]]:
+    """Wrap the per-item core with turn heartbeating and a ``turn_done`` report.
+
+    Returned callable is a ``serve()`` handler: it takes the item the intake
+    yielded and raises on failure, so the loop's per-item isolation and its
+    failure counter keep working unchanged.
+    """
+    if core is None:
+        from agent.cloud_worker.cn_worker_main import run_single_cn
+        core = run_single_cn
+
+    async def handle(item: str) -> None:
+        from agent.ec_skills.usage_window import snapshot
+
+        turn = json.loads(item) if isinstance(item, str) else dict(item)
+        turn_id = str(turn.get("id") or "")
+
+        try:
+            message = turn_to_worker_message(turn)
+        except TurnMappingError as exc:
+            # Permanent: a second attempt maps to the same nothing. Reporting it
+            # as retryable would burn every attempt and read as a flaky worker.
+            logger.error(f"[cn_serve] turn {turn_id} unmappable: {exc}")
+            await _report(fleet, turn_id, status="failed", error=str(exc), retry=False)
+            raise
+
+        before = snapshot()
+        beat = asyncio.create_task(_heartbeat_turn(fleet, turn_id, heartbeat_interval))
+        try:
+            result = await core(message)
+        except Exception as exc:
+            await _report(
+                fleet, turn_id, status="failed", error=str(exc),
+                usage=snapshot() - before,
+            )
+            raise
+        else:
+            await _report(
+                fleet, turn_id, status="done", result=_json_safe_result(result),
+                usage=snapshot() - before,
+            )
+        finally:
+            beat.cancel()
+
+    return handle
+
+
+async def _report(fleet, turn_id: str, *, status: str, result: Optional[dict] = None,
+                  error: str = "", usage: Any = None, retry: Optional[bool] = None) -> None:
+    """Report an outcome. Never raises — the run already happened.
+
+    A failed report is a real loss (the server will reap and requeue the turn,
+    and the customer may be answered twice), so it is logged loudly; but raising
+    here would replace one problem with a dead pod.
+    """
+    try:
+        await fleet.finish_turn(
+            turn_id,
+            status=status,
+            result=result,
+            error=error,
+            cost_usd=getattr(usage, "cost_usd", 0.0) or 0.0,
+            input_tokens=getattr(usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(usage, "output_tokens", 0) or 0,
+            retry=retry,
+        )
+        if usage is not None:
+            logger.info(
+                f"[cn_serve] turn {turn_id} reported {status}: "
+                f"{getattr(usage, 'input_tokens', 0)}in/{getattr(usage, 'output_tokens', 0)}out "
+                f"${getattr(usage, 'cost_usd', 0.0):.4f}"
+            )
+    except Exception as exc:
+        logger.error(
+            f"[cn_serve] FAILED to report turn {turn_id} as {status}: {exc}. "
+            f"The server will treat it as abandoned and requeue it."
+        )
 
 
 # ---------------------------------------------------------------------------

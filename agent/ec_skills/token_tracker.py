@@ -113,7 +113,13 @@ class TokenTracker:
             
             # Calculate cost
             cost_usd = self._calculate_cost(vendor, model_name, input_tokens, output_tokens)
-            
+
+            # Count it before the service check: a cloud pod has no
+            # token_usage_service, and turn_done still has to report what the
+            # turn cost. See agent/ec_skills/usage_window.py.
+            from agent.ec_skills.usage_window import record_usage_sample
+            record_usage_sample(input_tokens, output_tokens, cost_usd)
+
             # Get token service
             service = self._get_token_service()
             if not service:
@@ -231,7 +237,10 @@ class TokenTracker:
             if input_tokens == 0 and output_tokens == 0:
                 logger.debug("[TokenTracker] No tokens in metadata")
                 return False
-            
+
+            from agent.ec_skills.usage_window import record_usage_sample
+            record_usage_sample(input_tokens, output_tokens, cost_usd)
+
             # Get token service
             service = self._get_token_service()
             if not service:

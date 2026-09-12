@@ -516,6 +516,11 @@ class WorkerMessage:
     # them; applied to the run state by _run_skill_once.
     task_vars: Optional[Dict[str, Any]] = None
     browser_identity: Optional[Dict[str, Any]] = None
+    # Path 1.5 Phase 2.2: the checkpoint thread this run belongs to. Default
+    # None keeps the per-run thread (chat_id) every existing caller gets; a
+    # caller that knows the conversation — serving mode does, the turn names it
+    # — passes a conversation-keyed id so turns resume each other's state.
+    thread_id: Optional[str] = None
 
 
 def _looks_like_auth_error(result: Any) -> bool:
@@ -765,6 +770,12 @@ def _run_skill_once(*, msg: WorkerMessage, skill_root: Path) -> Dict[str, Any]:
         task_metadata["task_vars"] = dict(msg.task_vars)
     if isinstance(msg.browser_identity, dict) and msg.browser_identity:
         task_metadata["browser_identity"] = dict(msg.browser_identity)
+    if msg.thread_id:
+        # prepare_config reuses task.metadata["config"] when present, so this is
+        # how a caller says which thread to resume rather than opening a new one.
+        task_metadata["config"] = {
+            "configurable": {"thread_id": msg.thread_id, "store": None}
+        }
 
     task = ManagedTask(
         run_id=msg.chat_id,

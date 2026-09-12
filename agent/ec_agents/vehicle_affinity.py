@@ -135,6 +135,13 @@ def register_cloud_vehicle(
     failure, like its desktop sibling — a fleet that cannot register should
     degrade, not refuse to serve.
 
+    **This writes the LOCAL agent_vehicles table, not the fleet roster.** The
+    fleet-facing registration is ``vehicle_register`` via
+    ``agent/cloud_worker/fleet_client.py`` — a pod that only calls this one is
+    invisible to the scheduler and will never be handed a turn. The two are
+    separate on purpose: this one is synchronous and desktop-shared, that one
+    speaks HTTP to the control plane.
+
     Returns the vehicle id used, or "" when registration did not happen.
     """
     try:
