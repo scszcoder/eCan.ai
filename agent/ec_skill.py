@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.graph.message import MessagesState, BaseMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.checkpoint.memory import InMemorySaver
+from agent.checkpointing import build_checkpointer
 #from sqlalchemy.testing.suite.test_reflection import metadata
 from langgraph.runtime import Runtime
 from langgraph.store.base import BaseStore
@@ -217,6 +217,25 @@ class EC_Skill(AgentSkill):
     # Skill status: active / inactive / deleted
     status: str = "active"
 
+    # ------------------------------------------------------------------
+    # Placement declarations (Path 1.5, Phase 0.3)
+    #
+    # Declarative only — nothing reads these yet.  They are what a cloud
+    # scheduler will place work with, and what turns hybrid from a mode into
+    # a per-step placement outcome.  ``long_running`` is how a skill declares
+    # it can never be checkpointed mid-run (e.g. a web-crawling research
+    # agent).  Defaults are permissive so every existing definition keeps
+    # today's behaviour.
+    #
+    # These deliberately do NOT derive from the older placement flags
+    # (run_in_cloud / hybrid_cloud_mode / task_type).  Two sources of truth
+    # reconciled by guesswork is how contracts drift; reconciling them is a
+    # deliberate decision for whoever wires the scheduler.
+    # ------------------------------------------------------------------
+    residency: Literal["local", "cloud", "any"] = "any"
+    lifetime: Literal["turn", "conversation", "long_running"] = "conversation"
+    requires: List[str] = []
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @model_validator(mode='after')
@@ -254,7 +273,10 @@ class EC_Skill(AgentSkill):
 
     def set_work_flow(self, wf):
         self.work_flow = wf
-        checkpointer = InMemorySaver()
+        # Phase 0.2: the saver is chosen by agent.checkpointing, never named
+        # here. Desktop keeps the in-memory saver; a cloud pod gets a durable
+        # one so a conversation outlives the pod serving it.
+        checkpointer = build_checkpointer()
         self.runnable = wf.compile(checkpointer=checkpointer)
 
     def get_work_flow(self):
@@ -306,6 +328,9 @@ class EC_Skill(AgentSkill):
             "mapping_rules": getattr(self, 'mapping_rules', {}),
             "diagram": getattr(self, 'diagram', None),
             "status": getattr(self, 'status', 'active'),
+            "residency": getattr(self, 'residency', 'any'),
+            "lifetime": getattr(self, 'lifetime', 'conversation'),
+            "requires": getattr(self, 'requires', []),
             "category": getattr(self, 'category', 'general'),
             "rating": getattr(self, 'rating', None),
             "usageCount": getattr(self, 'usageCount', 0),

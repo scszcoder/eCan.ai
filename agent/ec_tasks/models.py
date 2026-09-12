@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import Enum
 from queue import Queue
 import time
-from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple
+from typing import Any, Callable, ClassVar, Dict, List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
@@ -220,6 +220,25 @@ class ManagedTask(Task):
     task_type: str = "local"
     # Cloud execution hint (derived from task_type for backward compatibility)
     cloud_based: bool = False
+
+    # ------------------------------------------------------------------
+    # Placement declarations (Path 1.5, Phase 0.3)
+    #
+    # Declarative only — nothing reads these yet.  They are what a cloud
+    # scheduler will place work with, and what turns hybrid from a mode into
+    # a per-step placement outcome.  ``long_running`` is how a skill declares
+    # it can never be checkpointed mid-run (e.g. a web-crawling research
+    # agent).  Defaults are permissive so every existing definition keeps
+    # today's behaviour.
+    #
+    # These deliberately do NOT derive from the older placement flags
+    # (run_in_cloud / hybrid_cloud_mode / task_type).  Two sources of truth
+    # reconciled by guesswork is how contracts drift; reconciling them is a
+    # deliberate decision for whoever wires the scheduler.
+    # ------------------------------------------------------------------
+    residency: Literal["local", "cloud", "any"] = "any"
+    lifetime: Literal["turn", "conversation", "long_running"] = "conversation"
+    requires: List[str] = Field(default_factory=list)
     
     # State management
     state: dict = Field(default_factory=dict)

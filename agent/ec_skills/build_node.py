@@ -876,6 +876,15 @@ def add_to_history(state, messages, max_entries: int = 200):
     if not isinstance(state.get("history"), list):
         state["history"] = []
 
+    # Phase 0.1: no-op unless ECAN_STRICT_CHECKPOINT_STATE=1. History has to
+    # stay durable-checkpointer-safe; this makes a bad append fail where it
+    # happens instead of when a pod tries to rehydrate the conversation.
+    try:
+        from agent.checkpointing import assert_checkpoint_safe
+        assert_checkpoint_safe(messages, where="add_to_history")
+    except ImportError:
+        pass
+
     if isinstance(messages, list):
         state["history"].extend(messages)
     else:

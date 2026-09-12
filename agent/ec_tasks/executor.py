@@ -187,19 +187,30 @@ class TaskExecutor:
                         if saver is not None and thread_id:
                             if hasattr(saver, "delete_thread"):
                                 saver.delete_thread(thread_id)
-                            else:
-                                # Older langgraph-checkpoint without delete_thread:
-                                # storage is keyed by thread_id; writes/blobs by
-                                # tuples whose first element is the thread_id.
-                                storage = getattr(saver, "storage", None)
-                                if isinstance(storage, dict):
-                                    storage.pop(thread_id, None)
+                            elif isinstance(getattr(saver, "storage", None), dict):
+                                # Older langgraph-checkpoint without delete_thread.
+                                # IN-MEMORY SAVER ONLY: storage is keyed by
+                                # thread_id; writes/blobs by tuples whose first
+                                # element is the thread_id.  Phase 0.2 made the
+                                # saver pluggable, so this poke-at-internals path
+                                # must never run against a durable backend — hence
+                                # the storage-shape check instead of a bare else.
+                                storage = saver.storage
+                                storage.pop(thread_id, None)
                                 for attr in ("writes", "blobs"):
                                     coll = getattr(saver, attr, None)
                                     if isinstance(coll, dict):
                                         for k in list(coll.keys()):
                                             if isinstance(k, tuple) and k and k[0] == thread_id:
                                                 del coll[k]
+                            else:
+                                logger.warning(
+                                    f"[TaskExecutor] Checkpointer "
+                                    f"{type(saver).__name__} exposes neither "
+                                    f"delete_thread nor in-memory storage; "
+                                    f"thread_id={thread_id} NOT deleted "
+                                    f"(checkpoints may accumulate)"
+                                )
                             logger.info(
                                 f"[TaskExecutor] Deleted checkpoints for thread_id={thread_id} "
                                 f"(task='{getattr(self.task, 'name', '?')}', "
