@@ -7575,8 +7575,12 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             _is_cloud = os.environ.get("ECAN_MODE") == "worker"
             if not _is_cloud:
                 try:
-                    from app_context import AppContext
-                    _is_cloud = AppContext.get_main_window() is None
+                    from app_context import AppContext, headless_enabled
+                    # Phase 1.3: a headless runtime installs a service-locator
+                    # object as main_window, so "no main window" stopped being a
+                    # reliable cloud signal. Ask the explicit question first and
+                    # keep the old proxy as the fallback.
+                    _is_cloud = headless_enabled() or AppContext.get_main_window() is None
                 except Exception:
                     pass
 
@@ -7645,8 +7649,10 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 _is_cloud_mt = os.environ.get("ECAN_MODE") == "worker"
                 if not _is_cloud_mt:
                     try:
-                        from app_context import AppContext
-                        _is_cloud_mt = AppContext.get_main_window() is None
+                        from app_context import AppContext, headless_enabled
+                        # See the note at the sibling check above: a headless
+                        # main_window is no longer None.
+                        _is_cloud_mt = headless_enabled() or AppContext.get_main_window() is None
                     except Exception:
                         pass
                 if _is_cloud_mt:

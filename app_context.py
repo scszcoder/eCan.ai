@@ -1,6 +1,8 @@
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional, Any, Dict
+
+import os
+from typing import TYPE_CHECKING, Optional, Any, Dict, Set
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication
@@ -14,6 +16,96 @@ if TYPE_CHECKING:
     from gui.LoginoutGUI import Login
 
 
+# ---------------------------------------------------------------------------
+# Headless mode (Path 1.5, Phase 1.2)
+#
+# ``AppContext`` is a desktop GUI singleton, but skill code never touches a
+# widget — ``main_window`` is a *service locator*. On a cloud pod there is no
+# MainWindow, and an unprovided service currently reads back as ``None``.
+#
+# That is the expensive failure mode, because call sites guard defensively:
+#
+#     if mainwin and hasattr(mainwin, 'config_manager'):   # build_node.py
+#
+# On a pod that is False, the code takes a silent fallback, and a headless gap
+# looks like a working run with different behaviour rather than a failure. Two
+# further traps found while wiring this up:
+#
+#   * ``AppContext.__getattr__`` (instance) returning None means
+#     ``hasattr(instance, anything)`` is ALWAYS True — so the metaclass's own
+#     ``return None`` below was unreachable, and every ``hasattr(AppContext, …)``
+#     guard passes vacuously, then operates on None.
+#   * ``MissingService`` therefore must NOT subclass AttributeError: ``hasattr``
+#     swallows AttributeError, which would put us straight back to a silent
+#     fallback. It is a RuntimeError so it propagates through the guard.
+#
+# Desktop behaviour is unchanged: outside headless mode a missing attribute
+# still returns None.
+# ---------------------------------------------------------------------------
+
+ENV_HEADLESS = "ECAN_HEADLESS"
+ENV_MISSING = "ECAN_HEADLESS_MISSING"  # "raise" (default) | "warn"
+
+_TRUTHY = ("1", "true", "yes", "on")
+_headless_override: Optional[bool] = None
+_warned_missing: Set[str] = set()
+
+
+class MissingService(RuntimeError):
+    """A service the runtime asked for is not provided by this context.
+
+    Deliberately a RuntimeError, not an AttributeError: ``hasattr`` swallows
+    AttributeError, and a swallowed error here is the silent fallback this
+    whole mechanism exists to prevent.
+    """
+
+
+def set_headless(value: Optional[bool]) -> None:
+    """Force headless mode on/off for this process. None restores env control."""
+    global _headless_override
+    _headless_override = value
+
+
+def headless_enabled() -> bool:
+    if _headless_override is not None:
+        return _headless_override
+    return (os.environ.get(ENV_HEADLESS) or "").strip().lower() in _TRUTHY
+
+
+def reset_missing_service_warnings() -> None:
+    """Clear the log-once ledger (tests)."""
+    _warned_missing.clear()
+
+
+def _missing_service(owner: str, name: str) -> None:
+    """Central handler for an unprovided service.
+
+    Desktop: returns None, exactly as before. Headless: raises, or logs once
+    loudly per attribute when ECAN_HEADLESS_MISSING=warn (bring-up escape
+    hatch — limp rather than crash, but never silently).
+    """
+    if not headless_enabled():
+        return None
+
+    detail = (
+        f"'{owner}' has no service '{name}'. Headless runtimes must provide it "
+        f"(see HeadlessAppContext), or the skill must declare it as a capability "
+        f"requirement (e.g. requires=['browser_local'])."
+    )
+
+    if (os.environ.get(ENV_MISSING) or "raise").strip().lower() == "warn":
+        if name not in _warned_missing:
+            _warned_missing.add(name)
+            try:
+                from utils.logger_helper import logger_helper as _logger
+                _logger.error(f"[AppContext] MISSING SERVICE (continuing): {detail}")
+            except Exception:
+                pass
+        return None
+
+    raise MissingService(detail)
+
+
 class AppContextMeta(type):
     """Metaclass for AppContext, supports class-level attribute access"""
 
@@ -23,9 +115,13 @@ class AppContextMeta(type):
             raise AttributeError(f"'{cls.__name__}' object has no attribute '{name}'")
 
         instance = cls.get_instance()
+        # NB: instance.__getattr__ never raises, so this hasattr is always True
+        # and the branch below is effectively unreachable — the real decision
+        # happens in AppContext.__getattr__. Kept correct rather than removed so
+        # it cannot become a silent None if that ever changes.
         if hasattr(instance, name):
             return getattr(instance, name)
-        return None
+        return _missing_service(cls.__name__, name)
 
 
 class AppContext(metaclass=AppContextMeta):
@@ -62,11 +158,15 @@ class AppContext(metaclass=AppContextMeta):
         return cls._instance
 
     def __getattr__(self, name):
-        """Instance-level attribute access"""
+        """Instance-level attribute access.
+
+        Desktop: unknown attribute reads back as None (unchanged). Headless:
+        routed through _missing_service so the gap is loud instead of looking
+        like a working run with different behaviour.
+        """
         if name.startswith('_'):
             raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
-        # If attribute doesn't exist, return None (avoid raising exception)
-        return None
+        return _missing_service(self.__class__.__name__, name)
 
     def set_app(self, app: QApplication):
         self.app = app
