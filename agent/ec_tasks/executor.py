@@ -184,6 +184,24 @@ class TaskExecutor:
                         except Exception:
                             thread_id = None
 
+                        # Phase 2.3: a conversation-scoped thread outlives any
+                        # one task. Deleting it here because THIS task finished
+                        # would wipe state a later turn of the same conversation
+                        # still needs — and would look like the checkpointer
+                        # randomly losing conversations.
+                        if thread_id:
+                            try:
+                                from agent.conversation_threads import is_conversation_thread
+                                if is_conversation_thread(thread_id):
+                                    logger.info(
+                                        f"[TaskExecutor] thread_id={thread_id} is "
+                                        f"conversation-scoped; retained (task "
+                                        f"'{getattr(self.task, 'name', '?')}' finished)"
+                                    )
+                                    thread_id = None
+                            except ImportError:
+                                pass
+
                         if saver is not None and thread_id:
                             if hasattr(saver, "delete_thread"):
                                 saver.delete_thread(thread_id)

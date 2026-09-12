@@ -1322,6 +1322,28 @@ def _reset_qa_history_on_customer_change(
     tracks multi-customer state in its history.
     """
     try:
+        # ------------------------------------------------------------------
+        # Phase 3.1 kill switch. DEFAULT ON — do not turn this off in
+        # production until per-conversation threads are live AND a
+        # multi-customer run has proven isolation holds without it. This clear
+        # is currently the only thing standing between customers; the incident
+        # it prevents (2026-04-27, above) is customer-visible and took a
+        # production incident to find.
+        #
+        # ECAN_QA_HISTORY_ISOLATION=0 exists so Phase 2 can be A/B tested
+        # against it in a controlled run, and so the Phase 2.1 isolation test
+        # can assert that threads alone are sufficient before this code is
+        # deleted for good.
+        # ------------------------------------------------------------------
+        if (os.environ.get("ECAN_QA_HISTORY_ISOLATION") or "1").strip().lower() in ("0", "false", "no", "off"):
+            if logger_ is not None:
+                logger_.warning(
+                    f"[{node_name}] Q&A per-turn history isolation is DISABLED "
+                    f"(ECAN_QA_HISTORY_ISOLATION=0). Cross-customer answer bleed "
+                    f"is possible unless conversation threads are active."
+                )
+            return False
+
         if not _is_qa_inbound_payload(payload):
             # Fix 15 supplemental: surface why the reset declined so future
             # cross-talk regressions are diagnosable without code spelunking.
