@@ -296,6 +296,43 @@ def save_agents_to_cloud(mainwin, agents):
 
 
 
+def _carry_cloud_relations(local_agent, cloud_agent):
+    """Copy skill/task ids from a cloud agent row into the local dict.
+
+    The cloud stores them double-encoded — ``extra_data`` is a JSON string whose
+    ``notes`` value is itself a JSON string holding ``skills`` / ``tasks`` /
+    ``org_ids``. Tolerant on purpose: an agent with unreadable extra_data should
+    still appear in the list with no skills attached, rather than not appear.
+    """
+    skills, tasks = [], []
+    try:
+        extra = cloud_agent.get('extra_data') if isinstance(cloud_agent, dict) else None
+        if isinstance(extra, str) and extra.strip():
+            extra = json.loads(extra)
+        if isinstance(extra, dict):
+            notes = extra.get('notes')
+            if isinstance(notes, str) and notes.strip():
+                notes = json.loads(notes)
+            if isinstance(notes, dict):
+                skills = notes.get('skills') or []
+                tasks = notes.get('tasks') or []
+    except Exception as e:
+        logger.debug(f"[load_agents_from_cloud] unreadable extra_data for "
+                     f"{cloud_agent.get('id') if isinstance(cloud_agent, dict) else '?'}: {e}")
+
+    def _ids(value):
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (list, tuple)):
+            return ",".join(str(v).strip() for v in value if str(v).strip())
+        return ""
+
+    local_agent.setdefault('skills', _ids(skills))
+    local_agent.setdefault('tasks', _ids(tasks))
+    local_agent.setdefault('description', local_agent.get('description') or '')
+    return local_agent
+
+
 def load_agents_from_cloud(mainwin):
     """Load Agents from cloud"""
     cloud_agents = []
@@ -311,12 +348,26 @@ def load_agents_from_cloud(mainwin):
         session = requests.Session()
         jresp = send_get_agents_request_to_cloud(session, auth_token, mainwin.getWanApiEndpoint())
         
-        if isinstance(jresp, dict) and 'body' in jresp:
-            all_agents = json.loads(jresp['body'])
+        # send_get_agents_request_to_cloud returns the parsed queryAgents list
+        # ([Agent!]! — already dicts). The 'body' envelope below is the old
+        # Lambda-proxy shape and a list never matched it, so every cloud load
+        # took the else branch and reported "no agents" while holding them.
+        if isinstance(jresp, list):
+            all_agents = jresp
+        elif isinstance(jresp, dict) and 'body' in jresp:
+            all_agents = json.loads(jresp['body'])          # legacy envelope
         else:
-            logger.warning("No agents data returned from cloud")
+            # The error paths return the GraphQL error object rather than a
+            # list. Say what arrived: "no agents" on its own cannot be told
+            # apart from an account that genuinely has none.
+            logger.warning(
+                f"queryAgents returned no agent list (got {type(jresp).__name__}): "
+                f"{str(jresp)[:200]}"
+            )
             all_agents = []
-        
+
+        logger.info(f"[load_agents_from_cloud] cloud returned {len(all_agents)} agent(s)")
+
         # Convert cloud format to local format using Schema
         from agent.cloud_api.schema_registry import get_schema_registry
         schema_registry = get_schema_registry()
@@ -325,9 +376,20 @@ def load_agents_from_cloud(mainwin):
         for cloud_agent in all_agents:
             # Convert cloud format to local format
             local_agent = schema.from_cloud(cloud_agent)
+            # from_cloud keeps only the mapped columns, and the cloud carries an
+            # agent's skill/task ids inside extra_data. gen_new_agent reads them
+            # as comma-separated strings, so without this every cloud agent dies
+            # on KeyError('skills') and is silently dropped by the outer except.
+            _carry_cloud_relations(local_agent, cloud_agent)
             new_agent = gen_new_agent(mainwin, local_agent)
             if new_agent:
                 cloud_agents.append(new_agent)
+            else:
+                logger.warning(
+                    f"[load_agents_from_cloud] dropped cloud agent "
+                    f"{local_agent.get('id')} ({local_agent.get('name')}) — "
+                    f"gen_new_agent returned nothing"
+                )
 
         if cloud_agents:
             mainwin.agents = cloud_agents
@@ -400,21 +462,20 @@ def gen_agent_from_cloud_data(mainwin, ajs):
 def gen_new_agent(mainwin, ajs):
     try:
         llm = mainwin.llm
-        all_skills = mainwin.agent_skills
-        all_tasks = mainwin.agent_tasks
+        all_skills = mainwin.agent_skills or []
+        all_tasks = mainwin.agent_tasks or []
         logger.debug("ajs:", ajs)
-        if ajs['skills'].strip():
-            skids = [s.strip() for s in ajs['skills'].split(",") if s.strip()]
-        else:
-            skids = []
+        # .get: a caller that built this dict from a cloud row may legitimately
+        # not have these keys, and a KeyError here is swallowed by the except
+        # below — the agent just never appears, with nothing saying why.
+        skids = [s.strip() for s in str(ajs.get('skills') or '').split(",") if s.strip()]
 
-        logger.debug("skids:", skids, len(all_skills), all_skills[0])
+        # len(), not all_skills[0]: on a fresh profile there are no skills yet,
+        # and indexing an empty list here dropped every agent being loaded.
+        logger.debug("skids:", skids, len(all_skills))
         agent_skills = [sk for sk in all_skills if str(sk.id) in skids]
 
-        if ajs['tasks'].strip():
-            taskids = [s.strip() for s in ajs['tasks'].split(",") if s.strip()]
-        else:
-            taskids = []
+        taskids = [s.strip() for s in str(ajs.get('tasks') or '').split(",") if s.strip()]
         agent_tasks = [t for t in all_tasks if str(t.id) in taskids]
 
         # a2a client+server
@@ -423,7 +484,7 @@ def gen_new_agent(mainwin, ajs):
         agent_card = AgentCard(
             id = ajs['id'],
             name=ajs['name'],
-            description=ajs['description'],
+            description=ajs.get('description') or '',   # cloud sends null; AgentCard wants a str
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
             defaultInputModes=SUPPORTED_CONTENT_TYPES,
