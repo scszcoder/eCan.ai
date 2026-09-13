@@ -32,6 +32,7 @@ import asyncio
 import json
 import os
 import shutil
+import signal
 import tempfile
 import time
 import uuid
@@ -306,7 +307,7 @@ async def _serve_cn(intake_kind: str = "stdin") -> None:
     ``fleet`` (claim from the server-side turn queue, heartbeat what we hold,
     report the outcome with cost).
     """
-    from agent.cloud_worker.cn_serve import Capacity, fleet_intake, make_turn_handler, serve, stdin_intake
+    from agent.cloud_worker.cn_serve import Capacity, Shutdown, fleet_intake, make_turn_handler, serve, stdin_intake
 
     if intake_kind != "fleet":
         await serve(stdin_intake())
@@ -333,11 +334,36 @@ async def _serve_cn(intake_kind: str = "stdin") -> None:
     # pod advertised as max_concurrent_tasks a moment ago, so what the scheduler
     # believes and what the pod does cannot drift apart.
     capacity = Capacity(fleet.capacity)
-    await serve(
-        fleet_intake(fleet, capacity=capacity),
-        handler=make_turn_handler(fleet),
-        capacity=capacity,
-    )
+
+    # Kubernetes sends SIGTERM then waits terminationGracePeriodSeconds. Handle
+    # it: stop claiming at once, finish what is in flight, then exit. Without
+    # this a scale-down kills the pod mid-turn and the customer waits for the
+    # server's reaper to spot a stale heartbeat — silence for no reason.
+    shutdown = Shutdown()
+    loop = asyncio.get_running_loop()
+    for signame in ("SIGTERM", "SIGINT"):
+        sig = getattr(signal, signame, None)
+        if sig is None:
+            continue
+        try:
+            loop.add_signal_handler(sig, shutdown.request)
+        except NotImplementedError:
+            # Windows dev boxes: no add_signal_handler on the proactor loop.
+            signal.signal(sig, lambda *_: shutdown.request())
+
+    try:
+        await serve(
+            fleet_intake(fleet, capacity=capacity, shutdown=shutdown),
+            handler=make_turn_handler(fleet),
+            capacity=capacity,
+            shutdown=shutdown,
+        )
+    finally:
+        # Leave the roster deliberately rather than being reaped 6 minutes later.
+        try:
+            await fleet.offline_vehicle()
+        except Exception as exc:
+            logger.warning(f"[cn_worker] could not deregister cleanly: {exc}")
 
 
 def main() -> None:

@@ -46,6 +46,33 @@ from utils.logger_helper import logger_helper as logger
 STOP = object()
 
 
+class Shutdown:
+    """Set when the pod is asked to stop.
+
+    Kubernetes sends SIGTERM and then waits `terminationGracePeriodSeconds`
+    before SIGKILL. Without handling it the pod is killed mid-turn and the
+    customer waits for the server-side reaper to notice a stale heartbeat —
+    ~120s of silence for something that could have been clean.
+
+    Draining means two different things and both matter: stop CLAIMING at once
+    (so no new work is taken hostage), and finish what is already in flight.
+    """
+
+    __slots__ = ("_event",)
+
+    def __init__(self) -> None:
+        self._event = asyncio.Event()
+
+    def requested(self) -> bool:
+        return self._event.is_set()
+
+    def request(self) -> None:
+        self._event.set()
+
+    async def wait(self) -> None:
+        await self._event.wait()
+
+
 class Capacity:
     """How many turns this pod may hold at once.
 
@@ -218,6 +245,7 @@ async def fleet_intake(
     vehicle_heartbeat_interval: float = DEFAULT_VEHICLE_HEARTBEAT,
     max_turns: Optional[int] = None,
     capacity: Optional[Capacity] = None,
+    shutdown: Optional[Shutdown] = None,
 ) -> AsyncIterator[str]:
     """Yield claimed turns as JSON strings, forever.
 
@@ -230,6 +258,13 @@ async def fleet_intake(
     last_vehicle_beat = 0.0
 
     while max_turns is None or claimed < max_turns:
+        # Draining: stop taking new work immediately. Anything already claimed
+        # is finished by serve(); anything still queued stays queued for another
+        # pod, which is strictly better than claiming it and dying holding it.
+        if shutdown is not None and shutdown.requested():
+            logger.info("[cn_serve] shutdown requested; no longer claiming")
+            return
+
         now = time.time()
         if now - last_vehicle_beat >= vehicle_heartbeat_interval:
             last_vehicle_beat = now
@@ -320,8 +355,21 @@ def turn_to_worker_message(turn: dict) -> str:
         or os.environ.get("ECAN_TASK_OWNER")
         or ""
     ).strip()
+    # Resolution order, most specific first:
+    #   1. the turn's own task — the server resolves it from the routed agent at
+    #      enqueue (agent_task_rels) and stores it on the row, so the turn names
+    #      its own work;
+    #   2. a task_id embedded in a structured input, for callers that name it;
+    #   3. ECAN_TASK_ID — a pod pinned to ONE task, which is the single-tenant
+    #      shape and the reason this pod could previously only serve one task no
+    #      matter which agent a turn was routed to.
+    #
+    # 3 stays as a fallback because `agent_task_rels` is empty in production
+    # today; once agents have tasks linked, 1 wins and the env var can go.
     task_id = str(
-        structured.get("task_id")
+        turn.get("taskId")
+        or turn.get("task_id")
+        or structured.get("task_id")
         or structured.get("taskId")
         or os.environ.get("ECAN_TASK_ID")
         or ""
@@ -504,6 +552,7 @@ async def serve(
     allow_ephemeral: bool = False,
     max_items: Optional[int] = None,
     capacity: Optional[Capacity] = None,
+    shutdown: Optional[Shutdown] = None,
 ) -> ServeStats:
     """Serve work items until the intake is exhausted or STOP arrives.
 
@@ -560,11 +609,22 @@ async def serve(
             if item is STOP:
                 logger.info("[cn_serve] STOP received; draining")
                 break
+            if shutdown is not None and shutdown.requested():
+                logger.info("[cn_serve] shutdown requested; draining")
+                break
 
             # Blocks while full. fleet_intake also declines to claim when
             # full, which keeps unstartable work off this pod; this is the
             # guard that holds regardless of which intake is wired in.
             await slots.acquire()
+            # Re-check AFTER acquiring: waiting for a slot can take as long as
+            # the longest running turn, and SIGTERM may well arrive during that
+            # wait. Checking only before the wait let a turn start on a pod that
+            # had already been told to stop.
+            if shutdown is not None and shutdown.requested():
+                slots.give()
+                logger.info("[cn_serve] shutdown requested while waiting for a slot; draining")
+                break
             stats.accepted += 1
             item_id = _describe(item)
             task = asyncio.create_task(_run_one(item, item_id))

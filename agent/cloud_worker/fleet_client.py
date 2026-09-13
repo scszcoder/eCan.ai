@@ -211,6 +211,16 @@ class FleetClient:
         """Refresh this vehicle's liveness (a re-register; see above)."""
         return await self.register_vehicle()
 
+    async def offline_vehicle(self) -> Dict[str, Any]:
+        """Leave the roster on purpose.
+
+        A pod that just dies is discovered by the server's reaper ~6 minutes
+        later; until then the placement side still counts it as online capacity.
+        Saying so on the way out costs one call and keeps the roster honest.
+        """
+        data = await self._post("vehicle_offline", {"vehicle_id": self.vehicle_id})
+        return data.get("vehicle") or {}
+
     async def claim_turn(self) -> Optional[Dict[str, Any]]:
         """Claim one turn, or None when the queue has nothing for this pod.
 
