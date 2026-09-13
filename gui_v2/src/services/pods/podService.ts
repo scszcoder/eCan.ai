@@ -107,7 +107,20 @@ function poolView(row: any): Pod {
     // status='online' until the reaper notices it died, up to 6 minutes later.
     status: Number(row?.liveReplicas) > 0 ? 'online' : 'offline',
     last_heartbeat: row?.instances?.[0]?.lastHeartbeat ?? null,
-    cost: { monthly_fen: Number(row?.estimatedMonthlyFen) || 0 } as any,
+    // A FULL PodCost, not a partial one: the panel renders
+    // `cost.monthly_cny.toFixed(0)` directly, so a missing field is a TypeError
+    // and a blank page, not a blank number. The figure comes from the server's
+    // estimatedMonthlyFen, which uses the same rates runnerCostFen bills at, so
+    // the price beside a lifecycle toggle cannot drift from the charge.
+    cost: {
+      lifecycle: row?.lifecycle === 'on_demand' ? 'on_demand' : 'always_on',
+      replicas: Number(row?.desiredReplicas) || 0,
+      monthly_cny: (Number(row?.estimatedMonthlyFen) || 0) / 100,
+      hourly_cny: (Number(row?.estimatedMonthlyFen) || 0) / 100 / 730,
+      // on_demand only bills while it runs, so its monthly figure is a ceiling.
+      monthly_is_ceiling: row?.lifecycle === 'on_demand',
+      currency: 'CNY',
+    },
   } as Pod;
 }
 

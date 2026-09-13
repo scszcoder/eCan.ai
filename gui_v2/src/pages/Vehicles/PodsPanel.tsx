@@ -42,6 +42,8 @@ const Panel = styled.div`
 /** One pod as the fleet reports it (server `fleet_status`). */
 interface FleetVehicle {
   id: string;
+  /** Which pool spawned it, when one did. A hand-rolled Deployment has none. */
+  poolId?: string | null;
   name: string;
   status: string;
   live: boolean;
@@ -151,8 +153,16 @@ const PodsPanel: React.FC = () => {
     }
   };
 
+  // Indexed by BOTH ids. A pod card is a POOL (`pod_2acc…`), while the fleet
+  // reports the running instance (`pod-2acc…-<replicaset>-<suffix>`), so keying
+  // only by vehicle id makes a live pod render "not registered" — understating
+  // convergence, which misleads exactly as much as overstating it.
   const fleetById = new Map<string, FleetVehicle>(
-    (fleet?.vehicles || []).map((v) => [v.id, v]),
+    (fleet?.vehicles || []).flatMap((v) => {
+      const entries: [string, FleetVehicle][] = [[v.id, v]];
+      if (v.poolId) entries.push([v.poolId, v]);
+      return entries;
+    }),
   );
 
   // A turn queued far past the server's own ceiling is the customer's problem
