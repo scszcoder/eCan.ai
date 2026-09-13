@@ -623,3 +623,96 @@ def test_without_the_flag_each_run_keeps_its_own_thread(monkeypatch, captured_wo
     })
     _run(run_single_cn(message))
     assert captured_worker_message["msg"].thread_id is None
+
+
+# ===========================================================================
+# Concurrency correctness (after Capacity landed — tests/test_serve_concurrency.py)
+#
+# Two things that were silently wrong the moment a pod could hold more than one
+# turn at a time, both reproduced before being fixed.
+# ===========================================================================
+
+def test_each_turn_is_charged_only_its_own_usage(monkeypatch):
+    """Overlapping turns must not bill each other.
+
+    With a shared counter read before/after, turns spending 1000 and 10 tokens
+    in the same window were each reported as 1010 — every conversation charged
+    for its neighbours.
+    """
+    monkeypatch.setenv("ECAN_TASK_ID", "task_pinned")
+    usage_window.reset()
+    fleet = _FakeFleet()
+
+    async def core(message):
+        turn_id = json.loads(message)["options"]["turn_id"]
+        await asyncio.sleep(0.02)                      # ensure the turns overlap
+        usage_window.record_usage_sample(1000 if turn_id == "turn_a" else 10, 0, 0.0)
+        await asyncio.sleep(0.02)
+        return {}
+
+    handler = cn_serve.make_turn_handler(fleet, core=core)
+
+    async def go():
+        await asyncio.gather(*[
+            handler(json.dumps({"id": t, "owner": "o", "input": "x"}))
+            for t in ("turn_a", "turn_b")
+        ])
+
+    _run(go())
+    charged = {r["turn_id"]: r["input_tokens"] for r in fleet.reports}
+    assert charged == {"turn_a": 1000, "turn_b": 10}
+
+
+def test_usage_outside_a_turn_still_counts_process_wide():
+    """A sample with no window open is not lost, just unattributed."""
+    usage_window.reset()
+    usage_window.record_usage_sample(5, 1, 0.001)
+    assert usage_window.snapshot().input_tokens == 5
+
+
+def test_execution_core_runs_off_the_event_loop(monkeypatch, captured_worker_message):
+    """The core is synchronous and builds its own loop; it must not run on ours.
+
+    Called inline it raised "Cannot run the event loop while another loop is
+    running", silently fell back to sync execution, and blocked the serve loop
+    for the whole turn — so heartbeats could not fire (a turn past
+    TURN_STALE_SECONDS is reaped and answered twice) and turns serialised no
+    matter what capacity the pod advertised.
+    """
+    import threading
+    import time
+
+    from agent.cloud_worker import cn_worker_main, worker_main
+
+    monkeypatch.setenv("ECAN_TASK_ID", "task_pinned")
+    seen = {}
+
+    def blocking_run(*, msg, skill_root):
+        seen["thread"] = threading.current_thread().name
+        time.sleep(0.15)                               # a real turn blocks like this
+        return {"ok": True}
+
+    monkeypatch.setattr(worker_main, "_run_skill_once", blocking_run)
+
+    async def go():
+        ticks = 0
+
+        async def ticker():
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        beat = asyncio.create_task(ticker())
+        try:
+            await cn_worker_main.run_single_cn(cn_serve.turn_to_worker_message(
+                {"id": "turn_1", "owner": "o@example.com", "input": "hi"}))
+        finally:
+            beat.cancel()
+        return ticks
+
+    ticks = _run(go())
+    assert seen["thread"] != threading.main_thread().name
+    # The loop kept running while the turn did: this is what lets a long turn
+    # keep heartbeating.
+    assert ticks >= 5, f"event loop was blocked during the turn (ticks={ticks})"

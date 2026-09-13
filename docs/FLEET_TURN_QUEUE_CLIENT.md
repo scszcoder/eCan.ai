@@ -28,7 +28,7 @@ python -m agent.cloud_worker.cn_worker_main --mode serve --intake fleet
 | `ECAN_FLEET_INTERNAL_TOKEN` | The internal shared credential. These actions are worker↔control-plane, not user-facing; a 401 here is a wrong credential, never an expiry. |
 | `ECAN_VEHICLE_ID` | This pod's fleet identity. Without it the pod has no address and refuses to start. |
 | `ECAN_VEHICLE_CAPABILITIES` | Comma/semicolon list. Placement is a WHERE clause: a turn's `requires[]` must be a subset of this. |
-| `ECAN_VEHICLE_CAPACITY` | `max_concurrent_tasks` on the roster; feeds the autoscale signal. **The loop still runs one turn at a time** — see "concurrency" below. |
+| `ECAN_VEHICLE_CAPACITY` | How many turns run at once, and what the roster advertises as `max_concurrent_tasks` — one number, passed to both, so the two cannot drift. Feeds the autoscale signal. |
 | `ECAN_SERVE_INTAKE` | `stdin` (default) or `fleet`; `--intake` overrides. |
 
 `--intake stdin` is unchanged: NDJSON work items, no fleet, no reporting.
@@ -39,6 +39,17 @@ python -m agent.cloud_worker.cn_worker_main --mode serve --intake fleet
 turn_claim  ->  map to a worker message  ->  run_single_cn  ->  turn_done
                      (heartbeat every 30s while it runs)
 ```
+
+Up to `ECAN_VEHICLE_CAPACITY` turns run at once. **The execution core runs in a
+worker thread, and has to.** `_run_skill_once` is synchronous and ends in
+`execute_task_hybrid`, which builds its *own* event loop and calls
+`run_until_complete` — illegal from inside a running loop, so calling it inline
+raised `Cannot run the event loop while another loop is running` on every turn,
+silently took the sync fallback, and blocked the serve loop for the turn's whole
+duration. Two consequences, both live: heartbeats could not fire (a turn past
+`TURN_STALE_SECONDS` is reaped and answered again by another pod), and turns
+serialised no matter what capacity the pod advertised. `asyncio.to_thread` gives
+the core a loop-free thread and carries the usage context with it.
 
 * **Idempotency belongs to the server.** The client never mints or regenerates a
   turn id; `run_id` is set *to* the turn id, so a redelivered turn overwrites its
@@ -78,15 +89,22 @@ one task.
 `turn_done` carries `cost_usd` / `input_tokens` / `output_tokens`.
 `TokenTracker` already computes those per call — and then dropped them in a pod,
 because it returns early when `token_usage_service` is missing (no `ec_db_mgr`).
-`agent/ec_skills/usage_window.py` keeps them: a cumulative counter updated where
-the cost is computed, and a snapshot delta measured across each turn.
+`agent/ec_skills/usage_window.py` keeps them: a counter updated where the cost is
+computed, in a window opened per turn.
 
-**Concurrency constraint:** the counter is global. `serve()` runs one item at a
-time, so a delta is that turn's usage. If a pod ever runs turns concurrently,
-`usage_window` must become contextvar-scoped *first* — otherwise one turn is
-charged for another's tokens, and cost attribution that is quietly wrong is worse
-than none. `ECAN_VEHICLE_CAPACITY` advertises capacity to the scheduler; it does
-not make the loop concurrent.
+**Attribution under concurrency.** A pod runs several turns at once, so the
+window is a `ContextVar`, not a global delta: each turn opens its own and a
+sample lands in whichever is current. This is not theoretical — with a shared
+counter, two overlapping turns spending 1000 and 10 tokens were each reported as
+1010, every conversation billed for its neighbours.
+
+`contextvars` holds across the boundaries a turn actually crosses: an
+`asyncio.Task` copies the context (so `serve`'s turns are isolated) and
+`asyncio.to_thread` copies it (so the execution core, which runs off the loop,
+reports into its own turn). A raw `ThreadPoolExecutor` thread started deep in a
+skill does *not* inherit it — those samples land in the process-wide total and
+are missing from the turn's figure. An undercount for one turn, never a
+cross-charge to another.
 
 ## Phase 2.2 — where conversation threads now work, and where they don't
 

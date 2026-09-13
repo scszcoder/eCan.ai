@@ -262,7 +262,19 @@ async def run_single_cn(message_json: str) -> Optional[Dict[str, Any]]:
             # thread is keyed on the conversation instead of this one run.
             thread_id=str(msg.options.get("thread_id") or "") or None,
         )
-        result = _run_skill_once(msg=worker_msg, skill_root=skill_root)
+        # Off the event loop, deliberately. _run_skill_once is synchronous and
+        # ends in execute_task_hybrid, which builds its OWN event loop and calls
+        # run_until_complete — illegal from inside a running loop, so called
+        # here it raised "Cannot run the event loop while another loop is
+        # running" every time and silently took the sync fallback. Two costs:
+        # the whole turn blocked this loop, so heartbeats could not fire (a turn
+        # over TURN_STALE_SECONDS got reaped and answered twice by another pod),
+        # and turns serialised however much capacity the pod advertised.
+        # A thread gives the core a loop-free home; to_thread copies the context,
+        # so the turn's usage window comes with it.
+        result = await asyncio.to_thread(
+            _run_skill_once, msg=worker_msg, skill_root=skill_root
+        )
         logger.info(f"[cn_worker] run {run_id} completed: {str(result)[:500]}")
 
         run_state.update(status="completed", finished_at=time.time())

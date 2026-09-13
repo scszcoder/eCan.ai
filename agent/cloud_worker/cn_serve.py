@@ -425,7 +425,7 @@ def make_turn_handler(
         core = run_single_cn
 
     async def handle(item: str) -> None:
-        from agent.ec_skills.usage_window import snapshot
+        from agent.ec_skills.usage_window import turn_usage
 
         turn = json.loads(item) if isinstance(item, str) else dict(item)
         turn_id = str(turn.get("id") or "")
@@ -439,23 +439,26 @@ def make_turn_handler(
             await _report(fleet, turn_id, status="failed", error=str(exc), retry=False)
             raise
 
-        before = snapshot()
         beat = asyncio.create_task(_heartbeat_turn(fleet, turn_id, heartbeat_interval))
-        try:
-            result = await core(message)
-        except Exception as exc:
-            await _report(
-                fleet, turn_id, status="failed", error=str(exc),
-                usage=snapshot() - before,
-            )
-            raise
-        else:
-            await _report(
-                fleet, turn_id, status="done", result=_json_safe_result(result),
-                usage=snapshot() - before,
-            )
-        finally:
-            beat.cancel()
+        # A window per turn, not a delta of a shared counter: turns overlap, and
+        # a before/after read charges each of them for whatever its neighbours
+        # spent in the same window.
+        with turn_usage() as usage:
+            try:
+                result = await core(message)
+            except Exception as exc:
+                await _report(
+                    fleet, turn_id, status="failed", error=str(exc),
+                    usage=usage.totals,
+                )
+                raise
+            else:
+                await _report(
+                    fleet, turn_id, status="done", result=_json_safe_result(result),
+                    usage=usage.totals,
+                )
+            finally:
+                beat.cancel()
 
     return handle
 
