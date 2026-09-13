@@ -652,7 +652,24 @@ def flowgram2langgraph_v2(flow: dict, bundle_json: Optional[dict] = None, enable
                 sheets.append({'name': str(name), 'workFlow': doc})
     if not sheets:
         # Single sheet fallback
-        sheets.append({'name': base.get('sheetName', 'main'), 'workFlow': base.get('workFlow', {})})
+        wf_fallback = base.get('workFlow') or {}
+        # Some exports carry nodes/edges at the TOP level with no `workFlow`.
+        # v1 has this fallback (flowgram2langgraph.py, "using top-level
+        # nodes/edges fallback"); v2 did not, and the difference is silent and
+        # total: v2's preprocessing — which is where LOOP EXPANSION happens —
+        # saw `{}`, converted nothing, and delegated to v1 with
+        # `workFlow: <empty>`. v1 then hit its own top-level fallback and
+        # compiled the ORIGINAL, unexpanded graph. Since build_loop_node is a
+        # deliberate no-op ("loops are translated structurally by the
+        # compiler"), the loop ran as a no-op and everything inside it —
+        # the LLM node included — was unreachable. The symptom was a chat that
+        # completed in 0.05s with 0 tokens and an empty reply, with no error
+        # anywhere. Observed on the CN serving pod, 2026-09-14.
+        if not (isinstance(wf_fallback, dict) and wf_fallback.get('nodes')):
+            if isinstance(base.get('nodes'), list) and isinstance(base.get('edges'), list):
+                logger.debug('[v2] using top-level nodes/edges fallback')
+                wf_fallback = {'nodes': base.get('nodes') or [], 'edges': base.get('edges') or []}
+        sheets.append({'name': base.get('sheetName', 'main'), 'workFlow': wf_fallback})
 
     base_name = _v2_safe_base_name(flow)
 
@@ -751,9 +768,15 @@ def flowgram2langgraph_v2(flow: dict, bundle_json: Optional[dict] = None, enable
     _v2_debug_workflow('after_remove_dummy', stitched, base_name)
     _v2_save_mermaid('after_remove_dummy', stitched, base_name)
 
-    # Delegate to v1 by re-wrapping as a single-sheet flow
+    # Delegate to v1 by re-wrapping as a single-sheet flow.
+    #
+    # Top-level nodes/edges are dropped along with workFlow/bundle: once we have
+    # preprocessed, `stitched` IS the graph. Leaving them meant v1's own
+    # top-level fallback could quietly re-import the RAW, unexpanded nodes
+    # whenever `stitched` looked empty to it — which is how an unexpanded loop
+    # reached the runtime with no error to show for it.
     new_flow = {
-        **{k: v for k, v in base.items() if k not in ('workFlow', 'bundle')},
+        **{k: v for k, v in base.items() if k not in ('workFlow', 'bundle', 'nodes', 'edges')},
         'workFlow': stitched,
     }
     logger.debug('[v2] Delegating to v1 after preprocessing (flat mode)')
