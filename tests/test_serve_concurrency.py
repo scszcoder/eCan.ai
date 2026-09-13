@@ -131,3 +131,64 @@ def test_capacity_accounting():
     c.give(); c.give()          # over-release must not go negative
     assert c.in_use == 0
     assert Capacity(0).limit == 1, "a zero/None limit must floor at 1, not deadlock"
+
+
+# --- graceful shutdown -----------------------------------------------------
+
+def test_shutdown_stops_accepting_but_finishes_in_flight():
+    """SIGTERM means: stop claiming NOW, finish what you already hold.
+
+    Without this the pod is killed mid-turn and the customer waits ~120s for the
+    server's reaper to notice a stale heartbeat.
+    """
+    from agent.cloud_worker.cn_serve import Shutdown
+
+    shutdown = Shutdown()
+    started, finished = [], []
+
+    async def handler(item):
+        started.append(item)
+        # Ask to stop while the first turn is still running.
+        shutdown.request()
+        await asyncio.sleep(0.05)
+        finished.append(item)
+
+    stats = _run(serve(
+        _feed(["a", "b", "c"]),
+        handler=handler,
+        install_context=False,
+        allow_ephemeral=True,
+        capacity=Capacity(1),
+        shutdown=shutdown,
+    ))
+
+    assert started == ["a"], f"kept accepting after shutdown: {started}"
+    assert finished == ["a"], "abandoned an in-flight turn instead of draining it"
+    assert stats.completed == 1
+
+
+def test_fleet_intake_stops_claiming_on_shutdown():
+    """The intake must stop CLAIMING immediately — a turn claimed by a dying pod
+    is a turn nobody else can take until the reaper frees it."""
+    from agent.cloud_worker.cn_serve import Shutdown, fleet_intake
+
+    shutdown = Shutdown()
+    claims = []
+
+    class _Fleet:
+        async def heartbeat_vehicle(self):
+            return {}
+
+        async def claim_turn(self):
+            claims.append(1)
+            return {"id": f"t{len(claims)}", "conversationId": "c", "input": "hi"}
+
+    async def drive():
+        got = []
+        async for item in fleet_intake(_Fleet(), poll_interval=0.01, shutdown=shutdown):
+            got.append(item)
+            shutdown.request()          # stop after the first
+        return got
+
+    got = _run(drive())
+    assert len(got) == 1, f"claimed {len(got)} turns after shutdown was requested"
