@@ -32,6 +32,18 @@ def src():
     }
 
 
+def _strip_comments(ts: str) -> str:
+    """TypeScript source with // and /* */ comments removed.
+
+    Crude but adequate here: these checks ask what the code calls, and a
+    module that documents the call it deliberately avoids would otherwise
+    fail its own assertion.
+    """
+    out = re.sub(r'/\*.*?\*/', '', ts, flags=re.S)
+    out = re.sub(r'^\s*//.*$', '', out, flags=re.M)
+    return re.sub(r'(?<![:"\'])//.*$', '', out, flags=re.M)
+
+
 def test_both_sides_key_desired_state_on_the_same_settings_key(src):
     """If these diverge, each platform ignores the other's pods entirely."""
     py_key = re.search(r"POD_SETTINGS_KEY\s*=\s*'([^']+)'", src['py'])
@@ -79,16 +91,27 @@ def test_neither_side_sends_an_explicit_owner(src):
     assert 'owner:' not in src['service'], 'web pod path sends owner'
 
 
-def test_the_web_write_uses_camelcase_like_the_python_one(src):
-    """CN resolvers read item.cpuCores and spread into Prisma.
+def test_the_web_pod_write_goes_to_fleet_pools_not_vehicles(src):
+    """Pods are DESIRED state; `vehicles` is what the fleet OBSERVES.
 
-    A snake_case payload passes SDL validation via the aliases and is then
-    dropped by addVehicles or throws in updateVehicles.
+    This used to require camelCase vehicle fields, because the web path wrote
+    pods with addVehicles. That was the wrong table (c4079271a): the row
+    appeared and no pod was ever built from it. The path now goes through
+    ecbAccountManager pod_* actions, which write fleet_pools — so what is worth
+    pinning is the destination, not the casing.
+
+    The camelCase rule still governs the vehicle generators themselves; that is
+    covered in test_pods_are_cloud_backed.
     """
-    for camel in ('vehicleType', 'cpuCores', 'memoryGb', 'maxConcurrentTasks'):
-        assert camel in src['service'], f'{camel} missing from the web write'
-    for snake in ('cpu_cores:', 'memory_gb:', 'vehicle_type:'):
-        assert snake not in src['service'], f'{snake} would be dropped by the resolver'
+    code = _strip_comments(src['service'])
+    for action in ('pod_list', 'pod_save', 'pod_delete'):
+        assert action in code, f'{action} missing from the web pod path'
+    # Checked against code only: the module's own comments name addVehicles to
+    # explain why it is the wrong call, and matching prose would fail forever.
+    for vehicle_write in ('addVehicles(', 'updateVehicles(', 'ADD_VEHICLES', 'UPDATE_VEHICLES'):
+        assert vehicle_write not in code, (
+            f'{vehicle_write} writes observed state; '
+            'a pod saved that way never gets built')
 
 
 def test_the_web_query_does_not_select_columns_that_do_not_exist():

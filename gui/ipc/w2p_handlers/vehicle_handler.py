@@ -864,6 +864,115 @@ def handle_delete_pod(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
         return create_error_response(request, 'DELETE_POD_ERROR', str(e))
 
 
+# ---------------------------------------------------------------------------
+# ecbAccountManager, from the desktop
+#
+# Pods are not GraphQL: ecbAccountManager takes {action, input} over POST, and
+# `pod_list`/`pod_save`/`pod_delete` write `fleet_pools` — the desired state the
+# reconciler turns into a real Deployment.
+#
+# The web build calls it straight from the browser, which works because it is
+# served from the cloud origin. The desktop cannot: its UI runs on
+# http://localhost:3000 in dev and file:// when packaged, so the browser fetch
+# is refused by CORS — and `file://` sends `Origin: null`, which no server
+# allowlist can usefully admit. So the desktop makes the same call from here,
+# where there is no origin to check and the session token already lives.
+# ---------------------------------------------------------------------------
+
+# An allowlist, not a passthrough: this is a local HTTP endpoint holding the
+# user's bearer, and it should not become an open proxy to every action the
+# account manager will ever grow.
+_ACCOUNT_MANAGER_ACTIONS = frozenset({
+    'pod_list', 'pod_save', 'pod_delete', 'fleet_status',
+})
+
+
+def _call_account_manager(action: str, payload: Dict[str, Any]):
+    """POST one ecbAccountManager action as the signed-in user.
+
+    Returns ``(status, data)``. Raises on configuration/credential problems so
+    the caller can name them separately from a transport failure.
+    """
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    from agent.cloud_api.turn_queue import _account_manager_url, _session_bearer_token
+
+    url = _account_manager_url()
+    token = _session_bearer_token()
+    if not token:
+        raise PermissionError('Not signed in — no session token available')
+
+    body = _json.dumps({'action': action, 'input': payload or {}}).encode('utf-8')
+    req = urllib.request.Request(
+        url, data=body,
+        headers={'Content-Type': 'application/json',
+                 'Authorization': f'Bearer {token}'},
+        method='POST',
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read(262144).decode('utf-8', 'replace')
+            status = resp.status
+    except urllib.error.HTTPError as he:
+        raw = he.read(65536).decode('utf-8', 'replace')
+        status = he.code
+
+    try:
+        data = _json.loads(raw or '{}')
+    except Exception:
+        data = {'success': False, 'message': f'{action} returned non-JSON (HTTP {status})'}
+    return status, data
+
+
+@IPCHandlerRegistry.handler('account_manager_call')
+def handle_account_manager_call(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Proxy one allowlisted ecbAccountManager action for the desktop UI.
+
+    The response mirrors what the browser gets on the web build, so the two
+    platforms return the same shape to the same caller. The server's own
+    message is carried through untouched: the pod cap answers with the real
+    number ("that would put this account at 6 pods; the limit is 5"), and a
+    generic "failed" would throw away the only part the customer can act on.
+    """
+    from agent.cloud_api.turn_queue import TurnQueueNotConfigured
+
+    params = params or {}
+    action = str(params.get('action') or '').strip()
+    if action not in _ACCOUNT_MANAGER_ACTIONS:
+        return create_error_response(
+            request, 'ACTION_NOT_ALLOWED',
+            f"'{action}' is not an account-manager action this client may call")
+
+    payload = params.get('input')
+    if not isinstance(payload, dict):
+        payload = {}
+
+    try:
+        status, data = _call_account_manager(action, payload)
+    except TurnQueueNotConfigured as exc:
+        return create_error_response(request, 'NOT_CONFIGURED', str(exc))
+    except PermissionError as exc:
+        return create_error_response(request, 'TOKEN_REQUIRED', str(exc))
+    except Exception as exc:
+        logger.warning(f'[account_manager] {action} transport error: {exc}')
+        return create_error_response(request, 'NETWORK_ERROR', str(exc))
+
+    if status == 401:
+        return create_error_response(
+            request, 'UNAUTHORIZED', f'The session was rejected by {action}; sign in again.')
+    if status >= 400 or data.get('success') is False:
+        return create_error_response(
+            request,
+            str(data.get('error') or f'HTTP_{status}'),
+            str(data.get('message') or f'{action} failed'))
+
+    return create_success_response(
+        request, {k: v for k, v in data.items() if k != 'success'})
+
+
 @IPCHandlerRegistry.handler('get_fleet_status')
 def handle_get_fleet_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """What the fleet actually reports, as opposed to what was asked for.

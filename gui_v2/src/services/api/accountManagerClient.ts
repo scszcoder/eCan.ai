@@ -9,11 +9,22 @@
  * the row exists and no pod is ever created from it.
  * Contract: eCan_lambda/cn/tencent/POD_API_FOR_CLIENT.md
  *
- * Pods live only in the cloud, so this is used on BOTH platforms. The desktop's
- * local GraphQL endpoint is the Python backend and has nothing to do with it,
- * which is why the base URL is resolved from the cloud config rather than from
- * getGraphQLEndpoint().
+ * Pods live only in the cloud, so this is used on BOTH platforms — but not by
+ * the same transport. The web build is served from the cloud origin and calls
+ * ecbAccountManager directly. The desktop cannot: its UI runs on
+ * http://localhost:3000 in dev and file:// when packaged, so the browser fetch
+ * is refused by CORS ("blocked by CORS policy" -> "Failed to fetch"), and
+ * `file://` sends `Origin: null`, which no server allowlist can usefully admit.
+ * On the desktop the call therefore goes through the Python backend, which has
+ * no origin to check and already holds the session token.
  */
+import { detectPlatform } from '@/config/platform';
+// Static, not a dynamic import: api-router does not import this module
+// back (its only tie to ipc/api is a type-only import, erased at build),
+// so there is no cycle to dodge — and a new dynamic edge makes Vite
+// re-optimize deps, which breaks already-open pages with
+// 'Outdated Optimize Dep' until they are reloaded.
+import { apiRouter } from './api-router';
 import { userStorageManager } from '../storage/UserStorageManager';
 import { getCachedAppConfig } from '../../contexts/AppConfigContext';
 import { logger } from '../../utils/logger';
@@ -62,6 +73,16 @@ export async function callAccountManager<T = any>(
   action: string,
   input?: Record<string, any>,
 ): Promise<AccountManagerResponse<T>> {
+  // Desktop: proxy through the local backend. Same action, same response
+  // shape, no browser origin for the cloud to reject.
+  if (detectPlatform() === 'desktop') {
+    const resp = await apiRouter.execute<T>(
+      { method: 'account_manager_call' },
+      { action, input: input || {} },
+    );
+    return resp as AccountManagerResponse<T>;
+  }
+
   const token = userStorageManager.getToken();
   if (!token) {
     return { success: false, error: { code: 'TOKEN_REQUIRED', message: 'Not signed in.' } };
