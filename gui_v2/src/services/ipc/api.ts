@@ -8,6 +8,7 @@ import { createLightRAGApi } from './lightragApi';
 import { logoutManager } from '../LogoutManager';
 import { ipcClient } from './ipcClient';
 import { apiRouter } from '../api/api-router';
+import { callAccountManager } from '../api/accountManagerClient';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../api/api-config';
 import { useUserStore } from '../../stores/userStore';
 import { detectPlatform } from '../../config/platform';
@@ -882,18 +883,45 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'delete_vehicle' }, { vehicle_id });
     }
 
-    // Pods (unified execution C1): DB-backed cloud vehicles the customer owns,
-    // deliberately separate from the legacy machine handlers above.
+    // Pods (unified execution C1): what the customer ASKED for — a pool the
+    // fleet reconciler turns into a real Deployment.
+    //
+    // These go straight to ecbAccountManager on BOTH platforms rather than
+    // through apiRouter, for two reasons:
+    //   - apiRouter picks LOCAL (the desktop's Python server) or CLOUD (GraphQL)
+    //     by platform. Pods exist only in the cloud, so the platform is
+    //     irrelevant, and the CLOUD branch speaks GraphQL only — these three
+    //     carried no query, so in the web app every call failed with an empty
+    //     document. That is why the pods panel was blank there.
+    //   - The pod actions are not GraphQL. Writing a pod through addVehicles
+    //     puts DESIRED state into `vehicles`, which is OBSERVED state, and the
+    //     reconciler reads `fleet_pools` — the row would exist and no pod would
+    //     ever be built from it.
+    // Contract: eCan_lambda/cn/tencent/POD_API_FOR_CLIENT.md
     public async getPods<T>(): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'get_pods' }, { });
+        const resp = await callAccountManager<any>('pod_list');
+        if (!resp.success || !resp.data) return resp as APIResponse<T>;
+        // The server reports the CAP (`podCeiling`); the panel shows usage
+        // against it. Usage is the sum of what was ASKED for, not the number of
+        // rows — one pool of 3 replicas is 3 pods on the bill.
+        const pods = Array.isArray(resp.data.pods) ? resp.data.pods : [];
+        const used = pods.reduce((n: number, p: any) => n + (Number(p?.desiredReplicas) || 0), 0);
+        const ceiling = Number(resp.data.limits?.podCeiling) || 0;
+        return {
+            ...resp,
+            data: {
+                ...resp.data,
+                limits: { ...resp.data.limits, used_pods: used, max_pods: ceiling },
+            },
+        } as APIResponse<T>;
     }
 
     public async savePod<T>(pod: any): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'save_pod' }, pod);
+        return callAccountManager<T>('pod_save', pod) as Promise<APIResponse<T>>;
     }
 
     public async deletePod<T>(id: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'delete_pod' }, { id });
+        return callAccountManager<T>('pod_delete', { id }) as Promise<APIResponse<T>>;
     }
 
     // What the fleet reports, as opposed to what was asked for. Render its
