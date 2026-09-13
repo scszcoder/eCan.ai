@@ -105,9 +105,18 @@ def _account_manager_url() -> str:
 def _session_bearer_token() -> str:
     """The signed-in user's bearer for ecbAccountManager.
 
-    Same selection as the desktop's other calls there (payment / coupon): the
-    CloudBase AccessToken for email and phone logins, the eCan session token for
-    WeChat, which has only that.
+    ecbAccountManager is a sibling route of ``/api/graphql`` on the same
+    gateway, so it verifies the same credential — which on CN is the eCan
+    30-day session token (HS256, ``sub=openid``). ``_http_auth_header`` already
+    makes that choice for every GraphQL call, and delegating keeps the two from
+    drifting: intl still sends the Cognito token raw.
+
+    This used to read ``tokens["AccessToken"]`` first. For a WeChat login that
+    is the short-lived CloudBase *access* JWT (``sub=uid``), which the HTTP gate
+    cannot verify, so `pod_list`, `fleet_status` and `turn_enqueue` all came
+    back 401 — "The session was rejected; sign in again" — while the very same
+    session made GraphQL calls successfully with the other token. A WeChat
+    access JWT also cannot be refreshed, so it only ever got staler.
     """
     try:
         from app_context import AppContext
@@ -115,19 +124,24 @@ def _session_bearer_token() -> str:
         mainwin = AppContext.get_main_window()
         if mainwin is None:
             return ""
+
+        from agent.cloud_api.cloud_api import _http_auth_header
+
+        bearer = _http_auth_header(mainwin.get_auth_token() or "")
+        token = bearer[7:] if bearer.lower().startswith("bearer ") else bearer
+        if token:
+            return token
+
+        # No HTTP bearer yet — e.g. an email/CIAM login before its session
+        # token is minted. The access token is the only credential there is.
         auth_manager = getattr(mainwin, "auth_manager", None)
         if auth_manager is not None:
             try:
                 tokens = auth_manager.get_tokens() or {}
-                token = str(tokens.get("AccessToken") or tokens.get("access_token") or "").strip()
-                if token:
-                    return token
+                return str(tokens.get("AccessToken") or tokens.get("access_token") or "").strip()
             except Exception:
                 pass
-        from agent.cloud_api.cloud_api import _http_auth_header
-
-        bearer = _http_auth_header(mainwin.get_auth_token() or "")
-        return bearer[7:] if bearer.lower().startswith("bearer ") else bearer
+        return ""
     except Exception:
         return ""
 
