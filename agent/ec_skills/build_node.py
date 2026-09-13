@@ -470,10 +470,31 @@ def _cn_llm_proxy_by_default(
 
 
 def _get_proxy_config() -> dict:
-    """Get Lambda proxy configuration from settings.
+    """Get Lambda proxy configuration from settings, or from the environment.
 
     Returns dict with: endpoint, auth_token, user_id (or empty dict if unavailable).
+
+    The environment path exists for HEADLESS runtimes — the CN serving pod — which
+    have no `config_manager` to read settings from. Without it the CN routing
+    policy below (`_cn_llm_proxy_by_default`: on CN every provider goes through
+    the llm-proxy, because installs hold no provider keys and api.openai.com is
+    unreachable from the mainland) could never fire in a pod: `_get_proxy_config`
+    returned {}, `_make_proxy_llm` returned None, and the call fell through to a
+    direct provider with no key at all. Observed 2026-09-14 — the LLM node failed
+    to construct, the loop spun to its recursion limit, and the chat came back
+    empty with 0 tokens.
     """
+    env_endpoint = (os.getenv('ECAN_LLM_PROXY_ENDPOINT') or '').strip()
+    if env_endpoint:
+        # ECAN_TASK_OWNER is what the pod already carries for its tenant; the
+        # proxy meters usage per user, so billing follows the customer rather
+        # than a shared key.
+        return {
+            'endpoint': env_endpoint,
+            'auth_token': (os.getenv('ECAN_LLM_PROXY_TOKEN') or '').strip(),
+            'user_id': (os.getenv('ECAN_LLM_PROXY_USER')
+                        or os.getenv('ECAN_TASK_OWNER') or '').strip(),
+        }
     try:
         from app_context import AppContext
         mainwin = AppContext.get_main_window()
