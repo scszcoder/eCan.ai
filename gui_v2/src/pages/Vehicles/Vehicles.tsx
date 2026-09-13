@@ -38,6 +38,26 @@ const StyledActionButton = styled(Button)`
   }
 `;
 
+const ListColumn = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+`;
+
+const PodsSlot = styled.div`
+  /* Never shrink: this is what was clipping the panel's own text. */
+  flex: 0 0 auto;
+  padding: 8px 8px 0;
+`;
+
+const VehicleListSlot = styled.div`
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+`;
+
 const ViewToggleContainer = styled.div`
   display: flex;
   align-items: center;
@@ -370,24 +390,33 @@ const Vehicles: React.FC = () => {
         listTitle={listTitle}
         detailsTitle={t('pages.vehicles.vehicleInformation')}
         listContent={
-          <>
+          // DetailLayout's card body is a flex column, and VehicleList asks for
+          // height:100%. Two bare siblings therefore each want the full height
+          // and both get shrunk — which squashed the pods panel to a few pixels
+          // of clipped text. Pods take their natural height and never shrink;
+          // the vehicle list takes what is left.
+          <ListColumn>
             {/* Pods first: a machine is discovered, a pod is something the
                 customer created and is paying for. */}
-            <PodsPanel />
-            <VehicleList
-            vehicles={vehicles}
-            selectedVehicle={selectedVehicle}
-            onSelect={handleSelectVehicle}
-            filters={filters}
-            onFilterChange={handleFilterChange}
-            onSearch={handleSearch}
-            onReset={handleReset}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            viewMode={viewMode}
-            t={t}
-            />
-          </>
+            <PodsSlot>
+              <PodsPanel />
+            </PodsSlot>
+            <VehicleListSlot>
+              <VehicleList
+                vehicles={vehicles}
+                selectedVehicle={selectedVehicle}
+                onSelect={handleSelectVehicle}
+                filters={filters}
+                onFilterChange={handleFilterChange}
+                onSearch={handleSearch}
+                onReset={handleReset}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                viewMode={viewMode}
+                t={t}
+              />
+            </VehicleListSlot>
+          </ListColumn>
         }
         detailsContent={
           viewMode === 'list' && selectedVehicle ? (

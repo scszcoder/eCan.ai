@@ -11,6 +11,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Card, Empty, Popconfirm, Space, Spin, Tag, Tooltip, Typography, message } from 'antd';
 import { PlusOutlined, ReloadOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import styled from '@emotion/styled';
 import { IPCAPI } from '@/services/ipc/api';
 import { isDedicatedCapability } from '@/types/domain/placement';
 import { estimatePodCost, type Pod, type PodLimits } from '@/types/domain/pod';
@@ -18,6 +19,24 @@ import { logger } from '@/utils/logger';
 import PodFormModal from './PodFormModal';
 
 const { Text } = Typography;
+
+/**
+ * The page's list card styles `.ant-card-body` as a DESCENDANT selector, so its
+ * rules — `flex: 1 1 0`, `min-height: 0`, `overflow-y: auto`, `max-height: 100%`,
+ * `padding: 0 !important` — also land on THIS card's body, which is nested
+ * inside it. A body carrying those can collapse to a sliver of clipped text
+ * instead of sizing to its content. Take them back for our own card only.
+ */
+const Panel = styled.div`
+  .ant-card-body {
+    flex: 0 0 auto;
+    min-height: auto;
+    max-height: none;
+    overflow: visible;
+    display: block;
+    padding: 12px !important;
+  }
+`;
 
 /** One pod as the fleet reports it (server `fleet_status`). */
 interface FleetVehicle {
@@ -149,6 +168,7 @@ const PodsPanel: React.FC = () => {
   }, 0);
 
   return (
+    <Panel>
     <Card
       size="small"
       title={
@@ -199,7 +219,13 @@ const PodsPanel: React.FC = () => {
             description="No pods. Agents run on this machine until you create one."
           />
         ) : (
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          // Bounded: the panel does not shrink (see Vehicles.tsx), so without a
+          // ceiling a long pod list would push the vehicle list off the page.
+          <Space
+            direction="vertical"
+            size={8}
+            style={{ width: '100%', maxHeight: '38vh', overflowY: 'auto' }}
+          >
             {pods.map((pod) => {
               const cost =
                 pod.cost ||
@@ -312,6 +338,7 @@ const PodsPanel: React.FC = () => {
         onSubmit={handleSubmit}
       />
     </Card>
+    </Panel>
   );
 };
 
