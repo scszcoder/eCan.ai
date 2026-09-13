@@ -167,10 +167,15 @@ const PodsPanel: React.FC = () => {
 
   // A turn queued far past the server's own ceiling is the customer's problem
   // before it is anybody else's: otherwise they see slow replies with no cause.
+  // Read through optional chaining, not `fleet && fleet.queue.x`: a payload that
+  // arrives without `queue` is a partial answer, and a partial answer must
+  // degrade to "no queue figures" rather than throw and blank the page. This
+  // exact line took the whole vehicle page down on 2026-09-14.
+  const queue = fleet?.queue;
   const queueIsBacklogged = Boolean(
-    fleet &&
-      fleet.queue.maxQueuedSeconds > 0 &&
-      fleet.queue.oldestQueuedSeconds > fleet.queue.maxQueuedSeconds / 2,
+    queue &&
+      queue.maxQueuedSeconds > 0 &&
+      queue.oldestQueuedSeconds > queue.maxQueuedSeconds / 2,
   );
 
   const totalMonthly = pods.reduce((sum, pod) => {
@@ -197,15 +202,13 @@ const PodsPanel: React.FC = () => {
               {limits.used_pods} of {limits.max_pods} · about ¥{totalMonthly.toFixed(0)}/month
             </Text>
           )}
-          {fleet && (
+          {queue && (
             <Text
               type={queueIsBacklogged ? 'danger' : 'secondary'}
               style={{ fontWeight: 400 }}
             >
-              queue {fleet.queue.queued} waiting · {fleet.queue.running} running
-              {fleet.queue.queued > 0
-                ? ` · oldest ${ago(fleet.queue.oldestQueuedSeconds)}`
-                : ''}
+              queue {queue.queued} waiting · {queue.running} running
+              {queue.queued > 0 ? ` · oldest ${ago(queue.oldestQueuedSeconds)}` : ''}
             </Text>
           )}
         </Space>

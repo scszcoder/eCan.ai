@@ -927,8 +927,12 @@ export class IPCAPI {
     // What the fleet reports, as opposed to what was asked for. Render its
     // `live` flag, never `status` — a dead pod stays 'online' until the reaper
     // notices it, which can be minutes of showing a machine that is gone.
+    // fleet_status is an ecbAccountManager action, not GraphQL — the same shape
+    // as the pod actions. Left on apiRouter it took the CLOUD branch on web with
+    // no query to send and resolved to a truthy object WITHOUT `queue`, so
+    // `fleet.queue.maxQueuedSeconds` threw and blanked the whole vehicle page.
     public async getFleetStatus<T>(includeAll = false): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'get_fleet_status' }, { include_all: includeAll });
+        return callAccountManager<T>('fleet_status', { include_all: includeAll }) as Promise<APIResponse<T>>;
     }
 
     public async assignBotToVehicle<T>(bot_id: string, vehicle_id: number): Promise<APIResponse<T>> {
