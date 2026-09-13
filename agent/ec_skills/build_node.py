@@ -3338,12 +3338,28 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         model_provider = provider_mapping.get(raw_provider.lower(), raw_provider)
         llm_provider = model_provider.lower()
         try:
-            from app_context import AppContext
+            from app_context import AppContext, MissingService
             mainwin = AppContext.get_main_window()
             if mainwin and hasattr(mainwin, 'config_manager'):
                 provider_exists = mainwin.config_manager.llm_manager.get_provider(model_provider)
                 if not provider_exists:
                     raise RuntimeError(f"[build_llm_node] Node specified unknown provider '{raw_provider}'")
+        except MissingService as e:
+            # A headless context — the cloud worker — provides no
+            # `config_manager`, and MissingService is deliberately a RuntimeError
+            # so `hasattr` cannot swallow it. But the handler below re-raises
+            # EVERY RuntimeError, which conflated two different facts: "this node
+            # names a provider that does not exist" (fatal, and why that raise is
+            # there) and "this context has no provider registry to check against"
+            # (not fatal). The second killed build_llm_node outright in the pod,
+            # so the LLM node was never built, the loop body was unreachable, and
+            # a cloud chat came back empty with 0 tokens and no error anywhere.
+            # Validation is simply unavailable here; the node's own provider
+            # stands, as it does whenever the registry cannot be consulted.
+            logger.info(
+                f"[build_llm_node] no provider registry in this context "
+                f"({e.__class__.__name__}); using node provider "
+                f"'{raw_provider}' unvalidated")
         except Exception as e:
             if isinstance(e, RuntimeError):
                 raise
