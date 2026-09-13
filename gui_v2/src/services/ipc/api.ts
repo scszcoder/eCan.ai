@@ -866,7 +866,7 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'get_vehicles' }, { });
     }
 
-    public async updateVehicleStatus<T>(vehicle_id: number, status: string): Promise<APIResponse<T>> {
+    public async updateVehicleStatus<T>(vehicle_id: string | number, status: string): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'update_vehicle_status' }, { vehicle_id, status });
     }
 

@@ -160,7 +160,12 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
       
       // If只是UpdateStatus，使用专门的Interface
       if (updates.status && Object.keys(updates).length === 1) {
-        const vehicleId = updatedVehicle.vid || parseInt(id);
+        // The identifier has to survive as-is. In-memory vehicles serialize
+        // `vid` (a number) while DB-backed rows carry a non-numeric string
+        // `id`, and parseInt() turned the latter into NaN — which JSON
+        // encodes as null, so the handler was told no id had been sent at all
+        // and answered INVALID_PARAMS.
+        const vehicleId = updatedVehicle.vid ?? updatedVehicle.id ?? id;
         const response = await this.api.updateVehicleStatus(vehicleId, updates.status);
         
         if (response && response.success) {

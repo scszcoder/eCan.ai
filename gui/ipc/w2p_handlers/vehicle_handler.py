@@ -83,6 +83,32 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         )
 
 
+def _vehicle_db_service(ctx):
+    """The local vehicle DB service, or None."""
+    try:
+        ec_db_mgr = ctx.get_ec_db_mgr() if hasattr(ctx, 'get_ec_db_mgr') else None
+        return getattr(ec_db_mgr, 'vehicle_service', None)
+    except Exception as e:
+        logger.warning(f'[vehicles] vehicle DB service unavailable: {e}')
+        return None
+
+
+def _db_vehicle_row(ctx, vehicle_id):
+    """One DB-backed vehicle row by id, or None."""
+    service = _vehicle_db_service(ctx)
+    if service is None:
+        return None
+    try:
+        result = service.query_vehicles(id=str(vehicle_id))
+    except Exception as e:
+        logger.warning(f'[vehicles] DB lookup failed for {vehicle_id}: {e}')
+        return None
+    rows = result.get('data') if isinstance(result, dict) and result.get('success') else None
+    if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+        return rows[0]
+    return None
+
+
 @IPCHandlerRegistry.handler('update_vehicle_status')
 def handle_update_vehicle_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Update vehicle status
@@ -104,21 +130,49 @@ def handle_update_vehicle_status(request: IPCRequest, params: Optional[Dict[str,
             return create_error_response(request, 'INVALID_PARAMS', 'vehicle_id and status are required')
 
         ctx = get_handler_context(request, params)
-        vehicle = next((v for v in ctx.get_vehicles() if str(v.id) == str(vehicle_id)), None)
-
-        if not vehicle:
-            return create_error_response(request, 'VEHICLE_NOT_FOUND', f'Vehicle {vehicle_id} not found')
 
         # Status mapping: frontend active -> backend online
         status_map = {'active': 'online', 'offline': 'offline', 'maintenance': 'maintenance'}
         backend_status = status_map.get(new_status, new_status)
 
-        vehicle.setStatus(backend_status)
-        ctx.main_window.saveVehicle(vehicle)
+        vehicle = next((v for v in ctx.get_vehicles() if str(v.id) == str(vehicle_id)), None)
+        if vehicle is not None:
+            vehicle.setStatus(backend_status)
+            ctx.main_window.saveVehicle(vehicle)
 
-        logger.info(f"Updated vehicle {vehicle_id} status to {backend_status}")
+            logger.info(f"Updated vehicle {vehicle_id} status to {backend_status}")
+            return create_success_response(request, {
+                'vehicle': vehicle.to_dict(),
+                'message': 'Status updated successfully'
+            })
+
+        # Not a discovered machine. The list also shows DB-backed rows (merged
+        # in by get_vehicles), which have a string id and no `vid`, so they are
+        # never in the in-memory registry and used to fail here as
+        # VEHICLE_NOT_FOUND.
+        row = _db_vehicle_row(ctx, vehicle_id)
+        if row is None:
+            return create_error_response(request, 'VEHICLE_NOT_FOUND', f'Vehicle {vehicle_id} not found')
+
+        if row.get('vehicle_type') == POD_VEHICLE_TYPE:
+            # A pod's status is observed state: the fleet reports whether it is
+            # up, and writing 'online' into a row would not start anything. It
+            # would only make the UI claim a machine is serving when none is.
+            return create_error_response(
+                request, 'POD_STATUS_IS_REPORTED',
+                "A pod's status is reported by the fleet, not set by hand. "
+                "Change its lifecycle or replica count in the Pods panel instead.")
+
+        service = _vehicle_db_service(ctx)
+        result = service.update_vehicle(str(vehicle_id), {'status': backend_status})
+        if isinstance(result, dict) and not result.get('success', True):
+            return create_error_response(
+                request, 'UPDATE_STATUS_ERROR',
+                str(result.get('error') or 'Failed to update status'))
+
+        logger.info(f"Updated DB vehicle {vehicle_id} status to {backend_status}")
         return create_success_response(request, {
-            'vehicle': vehicle.to_dict(),
+            'vehicle': {**row, 'status': backend_status},
             'message': 'Status updated successfully'
         })
 
