@@ -393,3 +393,224 @@ def handle_remove_bot_from_vehicle(request: IPCRequest, params: Optional[Dict[st
     except Exception as e:
         logger.error(f"Error removing bot from vehicle: {e} {traceback.format_exc()}")
         return create_error_response(request, 'REMOVE_BOT_ERROR', str(e))
+
+# ===========================================================================
+# Pods — a vehicle the customer creates, sizes and pays for
+#
+# The handlers above manage the legacy machine registry (in-memory VEHICLE list
+# + vehicles JSON). A pod is not a discovered machine: it is a row in
+# agent_vehicles with vehicle_type='cloud' that the fleet scheduler places work
+# on. These handlers therefore go to the DB service, and deliberately leave the
+# machine handlers alone.
+#
+# Desired state (lifecycle, desired_replicas) is what the customer sets;
+# observed state (status, last_heartbeat, health_score) is what the fleet
+# reports. Both are returned, never merged — a customer raising replicas should
+# watch it converge, not be told it already happened.
+# ===========================================================================
+
+POD_VEHICLE_TYPE = 'cloud'
+
+
+def _pod_service(request, params):
+    """The vehicle DB service, or None (with the reason logged)."""
+    try:
+        from gui.ipc.context_bridge import get_ec_db_mgr
+
+        ec_db_mgr = get_ec_db_mgr(request, params)
+        service = getattr(ec_db_mgr, 'vehicle_service', None)
+        if service is None:
+            logger.warning('[pods] vehicle_service is not available on ec_db_mgr')
+        return service
+    except Exception as e:
+        logger.warning(f'[pods] could not reach the vehicle service: {e}')
+        return None
+
+
+def _pod_view(row: Dict[str, Any]) -> Dict[str, Any]:
+    """One pod as the GUI needs it: desired state, observed state, and cost."""
+    from agent.pod_sizing import estimate_pod_cost, normalize_lifecycle
+
+    cpu = row.get('cpu_cores') or 0
+    memory_gb = row.get('memory_gb') or 0
+    lifecycle = normalize_lifecycle(row.get('lifecycle'))
+    replicas = int(row.get('desired_replicas') or 1)
+
+    return {
+        **row,
+        'lifecycle': lifecycle,
+        'desired_replicas': replicas,
+        'idle_shutdown_minutes': row.get('idle_shutdown_minutes'),
+        'capabilities': row.get('capabilities') or [],
+        'cost': estimate_pod_cost(cpu, memory_gb, lifecycle=lifecycle, replicas=replicas),
+    }
+
+
+def _pod_limits() -> Dict[str, Any]:
+    """The per-owner ceilings, as far as the client knows them.
+
+    Advisory only: the server enforces caps at scale-up, and it is the
+    authority. Showing them here is so a customer does not walk into a refusal
+    — not so the client can decide who gets a pod.
+    """
+    import os
+
+    def _int(name, default):
+        try:
+            return int(os.environ.get(name) or default)
+        except ValueError:
+            return default
+
+    return {
+        'max_pods': _int('ECAN_MAX_PODS_PER_OWNER', 5),
+        'daily_spend_cny': _int('ECAN_MAX_DAILY_SPEND_CNY', 500),
+        'enforced_by': 'server',
+    }
+
+
+@IPCHandlerRegistry.handler('get_pods')
+def handle_get_pods(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """List this owner's pods, with sizes, costs and the caps that apply."""
+    try:
+        from agent.pod_sizing import POD_SIZES
+
+        service = _pod_service(request, params)
+        pods = []
+        if service is not None:
+            result = service.query_vehicles()
+            rows = result.get('data', []) if isinstance(result, dict) and result.get('success') else []
+            pods = [
+                _pod_view(row) for row in rows
+                if isinstance(row, dict) and row.get('vehicle_type') == POD_VEHICLE_TYPE
+            ]
+
+        limits = _pod_limits()
+        return create_success_response(request, {
+            'pods': pods,
+            'sizes': POD_SIZES,
+            'limits': {**limits, 'used_pods': len(pods)},
+        })
+    except Exception as e:
+        logger.error(f"Error listing pods: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'GET_PODS_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('save_pod')
+def handle_save_pod(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Create or update a pod (upsert on id).
+
+    Refuses rather than silently clamping: a customer who asked for four
+    replicas and got one without being told would read the fleet as broken.
+    """
+    try:
+        import uuid
+
+        from agent.placement import normalize_requires
+        from agent.pod_sizing import normalize_lifecycle, size_by_id
+        from gui.ipc.context_bridge import get_username
+
+        params = params or {}
+        name = str(params.get('name') or '').strip()
+        if not name:
+            return create_error_response(request, 'INVALID_PARAMS', 'name is required')
+
+        service = _pod_service(request, params)
+        if service is None:
+            return create_error_response(
+                request, 'NO_DB', 'The vehicle store is not available on this instance')
+
+        pod_id = str(params.get('id') or '').strip()
+        owner = str(params.get('owner') or get_username(request, params) or '')
+
+        size = size_by_id(str(params.get('size_id') or '')) or {}
+        cpu = params.get('cpu_cores', size.get('cpu'))
+        memory_gb = params.get('memory_gb', size.get('memory_gb'))
+        lifecycle = normalize_lifecycle(params.get('lifecycle'))
+        replicas = max(1, int(params.get('desired_replicas') or 1))
+
+        idle_minutes = params.get('idle_shutdown_minutes')
+        if lifecycle != 'on_demand':
+            # Meaningless on an always-on pod; storing it would show a shutdown
+            # rule in the UI that nothing will ever apply.
+            idle_minutes = None
+        elif idle_minutes is not None:
+            idle_minutes = max(1, int(idle_minutes))
+
+        limits = _pod_limits()
+        if not pod_id:
+            existing = service.query_vehicles()
+            rows = existing.get('data', []) if isinstance(existing, dict) and existing.get('success') else []
+            current = len([r for r in rows if isinstance(r, dict) and r.get('vehicle_type') == POD_VEHICLE_TYPE])
+            if current + 1 > limits['max_pods']:
+                return create_error_response(
+                    request, 'POD_LIMIT_REACHED',
+                    f"This account is limited to {limits['max_pods']} pods "
+                    f"({current} already exist). The server enforces this limit.")
+
+        fields: Dict[str, Any] = {
+            'name': name,
+            'owner': owner,
+            'vehicle_type': POD_VEHICLE_TYPE,
+            'description': params.get('description') or '',
+            'cpu_cores': int(cpu) if cpu is not None else None,
+            'memory_gb': float(memory_gb) if memory_gb is not None else None,
+            'capabilities': normalize_requires(params.get('capabilities')),
+            'max_concurrent_tasks': int(params.get('max_concurrent_tasks')
+                                        or size.get('concurrency') or 1),
+            'lifecycle': lifecycle,
+            'idle_shutdown_minutes': idle_minutes,
+            'desired_replicas': replicas,
+            'environment': params.get('environment') or 'production',
+        }
+
+        if pod_id:
+            result = service.update_vehicle(pod_id, fields)
+        else:
+            pod_id = f"pod_{uuid.uuid4().hex[:12]}"
+            # A pod the customer just created has not been seen by the fleet
+            # yet; saying offline is the truth until it registers itself.
+            result = service.add_vehicle({'id': pod_id, 'status': 'offline', **fields})
+
+        if isinstance(result, dict) and not result.get('success', True):
+            return create_error_response(
+                request, 'SAVE_POD_ERROR', str(result.get('error') or 'Failed to save pod'))
+
+        logger.info(f"[pods] saved pod {pod_id} ({name}) lifecycle={lifecycle} replicas={replicas}")
+        return create_success_response(request, {
+            'pod': _pod_view({'id': pod_id, 'status': 'offline', **fields}),
+            'message': 'Pod saved',
+        })
+    except Exception as e:
+        logger.error(f"Error saving pod: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'SAVE_POD_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('delete_pod')
+def handle_delete_pod(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Delete a pod.
+
+    Deletes the desired state only. Anything the pod is currently running keeps
+    running until the fleet reconciles it away, and turns it was holding are
+    requeued by the server's reaper rather than lost.
+    """
+    try:
+        params = params or {}
+        pod_id = str(params.get('id') or params.get('pod_id') or '').strip()
+        if not pod_id:
+            return create_error_response(request, 'INVALID_PARAMS', 'id is required')
+
+        service = _pod_service(request, params)
+        if service is None:
+            return create_error_response(
+                request, 'NO_DB', 'The vehicle store is not available on this instance')
+
+        result = service.delete_vehicle(pod_id)
+        if isinstance(result, dict) and not result.get('success', True):
+            return create_error_response(
+                request, 'DELETE_POD_ERROR', str(result.get('error') or 'Failed to delete pod'))
+
+        logger.info(f"[pods] deleted pod {pod_id}")
+        return create_success_response(request, {'id': pod_id, 'message': 'Pod deleted'})
+    except Exception as e:
+        logger.error(f"Error deleting pod: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'DELETE_POD_ERROR', str(e))

@@ -230,6 +230,14 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
             for carried_key in ('task_vars', 'browser_identity'):
                 if isinstance(db_settings.get(carried_key), dict):
                     runtime_metadata[carried_key] = dict(db_settings[carried_key])
+            # execution_path decides whether this task is dispatched to the
+            # launcher or enqueued as a turn (unified execution C4). It is a
+            # scalar, not a dict, so it needs its own line here — and without
+            # it the flip would silently never reach the runner, which is how
+            # a field added to a model ends up doing nothing.
+            exec_path = db_settings.get('execution_path')
+            if isinstance(exec_path, str) and exec_path.strip():
+                runtime_metadata['execution_path'] = exec_path.strip().lower()
 
         task_obj = ManagedTask(
             id=task_id,
@@ -248,7 +256,13 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
         # Set skill if found in task_dict
         if task_skill:
             task_obj.skill = task_skill
-        
+
+        # Placement the task declares for itself. Inheriting the skill's happens
+        # in _attach_skills_and_triggers, because `task_skill` here is only a
+        # name/id stub — the executable skill is resolved later.
+        from agent.placement import apply_placement
+        apply_placement(task_obj, db_settings if isinstance(db_settings, dict) else None)
+
         return task_obj
     except Exception as e:
         logger.error(f"[AgentConverter] Failed to convert task dict to object: {e}")
@@ -567,6 +581,32 @@ def _find_matching_skill_for_task(task_obj, skill_objects, compiled_skills):
     return matched_skill, old_skill_name
 
 
+def _inherit_skill_placement(task_obj, skill_obj) -> None:
+    """Fill the task's placement from its skill wherever the task is silent.
+
+    "Silent" means the default, which is also what an old task says — so a task
+    that genuinely wants the permissive default and a task that never declared
+    one are indistinguishable here. Inheriting is the right reading of both: the
+    skill is the thing that knows it needs a browser.
+    """
+    try:
+        from agent.placement import (
+            DEFAULT_LIFETIME, DEFAULT_RESIDENCY, placement_of,
+        )
+
+        task_placement = placement_of(task_obj)
+        skill_placement = placement_of(skill_obj)
+
+        if task_placement["residency"] == DEFAULT_RESIDENCY:
+            task_obj.residency = skill_placement["residency"]
+        if task_placement["lifetime"] == DEFAULT_LIFETIME:
+            task_obj.lifetime = skill_placement["lifetime"]
+        if not task_placement["requires"]:
+            task_obj.requires = list(skill_placement["requires"])
+    except Exception as e:
+        logger.warning(f"[AgentConverter] placement inheritance failed (non-fatal): {e}")
+
+
 def _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills):
     """Attach executable skills to tasks and ensure chat tasks have message trigger."""
     logger.info(f"[AgentConverter] _attach_skills_and_triggers: {len(task_objects)} tasks, {len(skill_objects)} agent skills, {len(compiled_skills)} compiled skills")
@@ -592,6 +632,11 @@ def _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills):
                 f"[AgentConverter] Attached skill to task '{task_obj.name}': "
                 f"'{old_skill_name}' → '{getattr(matched_skill, 'name', '?')}'"
             )
+            # A task is a skill plus a trigger: where the skill may run is where
+            # the task may run, unless the task said otherwise. The scheduler
+            # reads the task, so the inheritance has to happen here or a
+            # skill's requires[] never reaches placement.
+            _inherit_skill_placement(task_obj, matched_skill)
         else:
             task_name_lower = (getattr(task_obj, 'name', '') or '').lower()
             is_chat_task = 'chat' in task_name_lower

@@ -251,6 +251,11 @@ def _create_skill_from_workflow(
         sk.local_helper_skill_id = core_dict.get("local_helper_skill_id", config.get("local_helper_skill_id", None))
         sk.local_helper_machine = core_dict.get("local_helper_machine", config.get("local_helper_machine", None))
 
+        # Placement declarations: same two-places-one-precedence problem as the
+        # cloud flags above (top-level from the file, config dict from the DB).
+        from agent.placement import apply_placement
+        apply_placement(sk, core_dict, config)
+
         sk.set_work_flow(workflow)
         sk.source = source
         sk.path = str(json_path)
@@ -1048,6 +1053,11 @@ def _fill_skill_from_db_view(skill_obj: EC_Skill, v: DBAgentSkill) -> None:
     skill_obj.hybrid_cloud_mode = bool(config.get('hybrid_cloud_mode', False))
     skill_obj.local_helper_skill_id = config.get('local_helper_skill_id', None)
     skill_obj.local_helper_machine = config.get('local_helper_machine', None)
+
+    # Placement declarations travel in config for the same reason the cloud
+    # flags do — the DB row has no columns for them.
+    from agent.placement import apply_placement
+    apply_placement(skill_obj, config)
 
     # skill_owner tracks the original author (for prompt resolution on rented
     # skills). Persisted inside config JSON (no dedicated DB column — see

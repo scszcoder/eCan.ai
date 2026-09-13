@@ -60,6 +60,14 @@ class DBAgentVehicle(BaseModel, TimestampMixin, ExtensibleMixin):
     access_token = Column(String(512))                    # access token for authentication
     ssl_enabled = Column(Boolean, default=True)          # SSL/TLS enabled
 
+    # Pod lifecycle — desired state the owner sets, distinct from the observed
+    # columns above (status / last_heartbeat / health_score). A customer says how
+    # many replicas they want and watches the fleet converge; a form that showed
+    # only one of the two would be lying about one of them.
+    lifecycle = Column(String(32), default='always_on')   # always_on, on_demand
+    idle_shutdown_minutes = Column(Integer)               # on_demand only; NULL = never
+    desired_replicas = Column(Integer, default=1)         # how many of this pod to run
+
     # Metadata and settings
     settings = Column(JSON)                               # flexible settings storage
     extra_metadata = Column(JSON)                         # additional metadata

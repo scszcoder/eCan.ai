@@ -684,6 +684,7 @@
       "title": "职称",
       "updated_data_from_api": "从API更新数据",
       "vehicle": "电脑",
+      "preferredPod": "优先运行的 Pod",
       "hostPrefix": "在",
       "hostLocal": "本机",
       "hostViaCloud": "通过云端中继访问（跨网）",

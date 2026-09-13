@@ -6,6 +6,13 @@
 import { create } from 'zustand';
 import type { SkillInfo } from '../typings/skill-info';
 
+import {
+  DEFAULT_LIFETIME,
+  DEFAULT_RESIDENCY,
+  type Lifetime,
+  type Residency,
+} from '../../../types/domain/placement';
+
 export interface ToolsetDef {
   name: string;
   description?: string;
@@ -54,6 +61,15 @@ interface SkillInfoStoreState {
   // Local helper machine hostname for hybrid cloud mode
   localHelperMachine: string | null;
   setLocalHelperMachine: (machine: string | null) => void;
+  // Placement declarations — what the scheduler places this skill with.
+  // Independent of runInCloud/hybridCloudMode above, which stay the legacy
+  // launcher path until a task is moved onto the queue.
+  residency: Residency;
+  setResidency: (residency: Residency) => void;
+  lifetime: Lifetime;
+  setLifetime: (lifetime: Lifetime) => void;
+  requires: string[];
+  setRequires: (requires: string[]) => void;
   // Loading guard — true while a skill file is being loaded onto the canvas
   isSkillLoading: boolean;
   setIsSkillLoading: (loading: boolean) => void;
@@ -97,6 +113,13 @@ export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
   // Local helper machine hostname - default is null
   localHelperMachine: null,
   setLocalHelperMachine: (machine) => set({ localHelperMachine: machine }),
+  // Placement - permissive defaults, so an existing skill declares nothing new
+  residency: DEFAULT_RESIDENCY,
+  setResidency: (residency) => set({ residency }),
+  lifetime: DEFAULT_LIFETIME,
+  setLifetime: (lifetime) => set({ lifetime }),
+  requires: [],
+  setRequires: (requires) => set({ requires: Array.from(new Set(requires)) }),
   // Loading guard - true while a skill is being loaded
   isSkillLoading: false,
   setIsSkillLoading: (loading) => set({ isSkillLoading: loading }),

@@ -2135,3 +2135,77 @@ def handle_remove_agent_task_skill_rels(request: IPCRequest, params: Optional[Di
             'REMOVE_TASK_SKILL_RELS_ERROR',
             f"Error removing task-skill relationships: {str(e)}"
         )
+
+
+@IPCHandlerRegistry.handler('set_task_execution_path')
+def handle_set_task_execution_path(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Move one task between the launcher and the turn queue (unified C4).
+
+    Deliberately not a toggle in a settings panel. A task is executed by two
+    triggers — this desktop and the server's SCF timer — and they have to move
+    together: a task queued here while the timer still dispatches it runs twice,
+    answering one customer from two places. So the caller must state that the
+    server side has been flipped for this task (``server_flipped: true``), and
+    the change is logged loudly enough to find afterwards.
+
+    Params:
+        task_id: str
+        execution_path: 'queue' | 'launcher'
+        server_flipped: bool — required when moving TO the queue
+    """
+    try:
+        from agent.cloud_api.turn_queue import PATH_LAUNCHER, PATH_QUEUE
+
+        params = params or {}
+        task_id = str(params.get('task_id') or params.get('id') or '').strip()
+        path = str(params.get('execution_path') or '').strip().lower()
+
+        if not task_id:
+            return create_error_response(request, 'INVALID_PARAMS', 'task_id is required')
+        if path not in (PATH_QUEUE, PATH_LAUNCHER):
+            return create_error_response(
+                request, 'INVALID_PARAMS',
+                f"execution_path must be '{PATH_QUEUE}' or '{PATH_LAUNCHER}'")
+
+        if path == PATH_QUEUE and not params.get('server_flipped'):
+            return create_error_response(
+                request, 'SERVER_NOT_FLIPPED',
+                'Moving a task to the turn queue requires the server side to be '
+                'flipped for the same task first (the SCF timer must stop '
+                'dispatching it). Pass server_flipped=true once that is done — '
+                'a task live on both paths executes twice.')
+
+        task_service = _get_agent_task_service(request, params)
+        if not task_service:
+            return create_error_response(request, 'NO_DB', 'Task service is not available')
+
+        result = task_service.query_tasks(id=task_id)
+        rows = result.get('data', []) if isinstance(result, dict) else []
+        if not rows:
+            return create_error_response(request, 'TASK_NOT_FOUND', f'Task {task_id} not found')
+
+        row = rows[0] if isinstance(rows[0], dict) else {}
+        settings = row.get('metadata') or row.get('settings') or {}
+        if not isinstance(settings, dict):
+            settings = {}
+        previous = str(settings.get('execution_path') or PATH_LAUNCHER)
+        settings['execution_path'] = path
+
+        update = task_service.update_task(task_id, {'metadata': settings})
+        if isinstance(update, dict) and not update.get('success', True):
+            return create_error_response(
+                request, 'UPDATE_FAILED', str(update.get('error') or 'Failed to update task'))
+
+        logger.warning(
+            f"[UnifiedExecution] task {task_id} execution path {previous} -> {path} "
+            f"(server_flipped={bool(params.get('server_flipped'))}). "
+            f"If the other side has NOT moved, this task now runs twice or not at all."
+        )
+        return create_success_response(request, {
+            'task_id': task_id,
+            'execution_path': path,
+            'previous': previous,
+        })
+    except Exception as e:
+        logger.error(f"Error setting task execution path: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'SET_EXECUTION_PATH_ERROR', str(e))

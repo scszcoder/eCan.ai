@@ -882,6 +882,20 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'delete_vehicle' }, { vehicle_id });
     }
 
+    // Pods (unified execution C1): DB-backed cloud vehicles the customer owns,
+    // deliberately separate from the legacy machine handlers above.
+    public async getPods<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'get_pods' }, { });
+    }
+
+    public async savePod<T>(pod: any): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'save_pod' }, pod);
+    }
+
+    public async deletePod<T>(id: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'delete_pod' }, { id });
+    }
+
     public async assignBotToVehicle<T>(bot_id: string, vehicle_id: number): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'assign_bot_to_vehicle' }, { bot_id, vehicle_id });
     }

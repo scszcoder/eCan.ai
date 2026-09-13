@@ -652,6 +652,7 @@
       "title": "Title",
       "updated_data_from_api": "Updated_data_from_api",
       "vehicle": "Vehicle",
+      "preferredPod": "Preferred pod",
       "hostPrefix": "on",
       "hostLocal": "this PC",
       "hostViaCloud": "reachable via cloud relay (off-LAN)",

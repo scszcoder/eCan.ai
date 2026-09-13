@@ -18,6 +18,7 @@ import { useNodeNoteStore } from '../../stores/node-note-store';
 import { useConditionPortOrderStore } from '../../stores/condition-port-order-store';
 import { useOpenPickerStore } from '../../stores/open-picker-store';
 import { loadSkillFile, SkillLoadResult } from '../../services/skill-loader';
+import { readPlacement } from '../../../../types/domain/placement';
 
 type SkillFileItem = {
   filePath: string;
@@ -43,6 +44,9 @@ const OpenPickerModalContent = () => {
   const setDataMappingPath = useSkillInfoStore((state) => state.setDataMappingPath);
   const setRunInCloud = useSkillInfoStore((state) => state.setRunInCloud);
   const setHybridCloudMode = useSkillInfoStore((state) => state.setHybridCloudMode);
+  const setResidency = useSkillInfoStore((state) => state.setResidency);
+  const setLifetime = useSkillInfoStore((state) => state.setLifetime);
+  const setRequires = useSkillInfoStore((state) => state.setRequires);
   const setLocalHelperSkillId = useSkillInfoStore((state) => state.setLocalHelperSkillId);
   const setLocalHelperMachine = useSkillInfoStore((state) => state.setLocalHelperMachine);
   const setToolsets = useSkillInfoStore((state) => state.setToolsets);
@@ -131,6 +135,15 @@ const OpenPickerModalContent = () => {
           setHybridCloudMode((data as any).hybrid_cloud_mode === true || cfg.hybrid_cloud_mode === true);
           setLocalHelperSkillId((data as any).local_helper_skill_id || cfg.local_helper_skill_id || null);
           setLocalHelperMachine((data as any).local_helper_machine || cfg.local_helper_machine || null);
+          // Restore placement (same precedence: file top-level, then config)
+          const placement = readPlacement({
+            residency: (data as any).residency ?? cfg.residency,
+            lifetime: (data as any).lifetime ?? cfg.lifetime,
+            requires: (data as any).requires ?? cfg.requires,
+          });
+          setResidency(placement.residency);
+          setLifetime(placement.lifetime);
+          setRequires(placement.requires);
           // Restore toolsets/skillsets
           setToolsets((data as any).toolsets || []);
           setSkillsets((data as any).skillsets || []);

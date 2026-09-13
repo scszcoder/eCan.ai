@@ -8225,6 +8225,91 @@ class TaskRunner(Generic[Context]):
         hybrid_mode = getattr(skill, 'hybrid_cloud_mode', False)
         return bool(run_in_cloud and not hybrid_mode)
     
+    def _enqueue_cloud_task_turn(
+        self,
+        task: ManagedTask,
+        trigger_type: str,
+    ) -> Tuple[Optional[dict], bool]:
+        """Unified execution (C4): enqueue this task as a turn instead of
+        dispatching it to the launcher.
+
+        Returns ``(result, handled)``. ``handled`` False means this task is not
+        on the queue path and the caller should dispatch as before.
+
+        There is deliberately no fallback. A task marked for the queue has been
+        flipped on the server side too (the scheduler and the desktop flip
+        together, per task), so quietly taking the launcher path here would run
+        it twice — two processes answering one customer. Every failure below
+        therefore returns an error the operator can act on.
+        """
+        try:
+            from agent.cloud_api.turn_queue import (
+                ENV_ENABLED, TurnQueueError, enqueue_task_turn,
+                queue_enabled, task_uses_queue,
+            )
+        except Exception as e:
+            logger.warning(f"[TurnQueue] queue module unavailable, using the launcher: {e}")
+            return None, False
+
+        if not task_uses_queue(task):
+            return None, False
+
+        if not queue_enabled():
+            # Refuse rather than reroute: this task may already be served from
+            # the queue, in which case the launcher would be the second copy.
+            msg = (f"Task {task.name} is marked for the turn queue but the queue "
+                   f"path is disabled on this client ({ENV_ENABLED}). Refusing to "
+                   f"use the launcher, which would run it twice.")
+            logger.error(f"[TurnQueue] {msg}")
+            return {"success": False, "error": msg}, True
+
+        # Owner, the way the rest of this file resolves it. Deliberately NOT
+        # AppContext.get_user(): that attribute does not exist, and the
+        # metaclass returns None for unknown names, so it would resolve to
+        # None() -> TypeError swallowed by a bare except.
+        owner = ""
+        try:
+            owner = str(getattr(getattr(self.agent, 'mainwin', None), 'user', '') or '').strip()
+        except Exception:
+            owner = ""
+        if not owner:
+            try:
+                from app_context import AppContext
+                login = AppContext.get_login()
+                auth = getattr(login, 'auth_manager', None)
+                owner = str(getattr(auth, 'current_user', '') or '').strip()
+            except Exception:
+                owner = ""
+        if not owner:
+            owner = str(getattr(task, 'owner', '') or '')
+
+        try:
+            result = enqueue_task_turn(
+                task,
+                owner=owner,
+                trigger_type=trigger_type,
+                agent=getattr(self, 'agent', None),
+            )
+        except TurnQueueError as e:
+            logger.error(f"[TurnQueue] enqueue failed for task={task.name}: {e}")
+            return {"success": False, "error": str(e)}, True
+        except Exception as e:
+            logger.error(f"[TurnQueue] unexpected enqueue error for task={task.name}: {e}")
+            logger.error(traceback.format_exc())
+            return {"success": False, "error": f"turn_enqueue error: {e}"}, True
+
+        # The turn id is the server's, and it is the idempotency key: a repeat
+        # enqueue of the same id returns the existing row rather than answering
+        # the customer twice. Keep it where the run id used to go so status
+        # plumbing has something to correlate on.
+        turn_id = result.get("turn_id")
+        try:
+            task.state["turn_id"] = turn_id
+        except Exception:
+            pass
+        logger.info(f"[TurnQueue] task={task.name} enqueued as turn={turn_id}")
+        return {"success": True, "turn_id": turn_id}, True
+
     def _execute_pure_cloud_task(
         self,
         task: ManagedTask,
@@ -8242,6 +8327,14 @@ class TaskRunner(Generic[Context]):
 
         skill_name = getattr(task.skill, 'name', 'unknown') if task.skill else 'unknown'
         logger.info(f"[PureCloud] Launching cloud task on-demand: task={task.name}, skill={skill_name}, trigger={trigger_type}")
+
+        # Unified execution (C4): a task moved onto the turn queue is enqueued,
+        # not dispatched. One path per task — on failure this returns an error
+        # and does NOT fall back to the launcher, because a task live on both
+        # paths executes twice and answers one customer from two places.
+        queued, handled = self._enqueue_cloud_task_turn(task, trigger_type)
+        if handled:
+            return queued, True
 
         try:
             from app_context import AppContext

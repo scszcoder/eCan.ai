@@ -17,6 +17,7 @@ import { StyledFormItem } from '@/components/Common/StyledForm';
 import { AvatarManager, AvatarData } from '@/components/Avatar';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
+import PodAffinityField from './PodAffinityField';
 
 type Gender = 'gender_options.male' | 'gender_options.female';
 
@@ -2084,19 +2085,18 @@ const AgentDetails: React.FC = () => {
                 </StyledFormItem>
               </Col>
               <Col span={12}>
-                <StyledFormItem name="vehicle_id" label={t('pages.agents.vehicle') || 'Vehicle'} htmlFor="agent-vehicle">
-                  <Select
-                    id="agent-vehicle"
+                <StyledFormItem
+                  name="vehicle_id"
+                  label={t('pages.agents.preferredPod') || 'Preferred pod'}
+                  htmlFor="agent-vehicle"
+                >
+                  {/* "Prefer", never "runs on": assignment is an optimisation,
+                      and the word chosen here is what the next person will
+                      implement against. Dedication is the opt-in exception. */}
+                  <PodAffinityField
                     disabled={!editMode}
-                    allowClear
-                    placeholder={t('common.select_vehicle') || 'Select vehicle'}
-                    options={vehicles.map((v: any, index: number) => ({
-                      key: v.id || `vehicle-${index}`,  // Add唯一 key
-                      value: v.id,
-                      label: `${v.name || v.id}${v.ip ? ` (${v.ip})` : ''}`
-                    }))}
-                    getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
-                    aria-label={t('pages.agents.vehicle') || 'Vehicle'}
+                    agentId={resolvedAgentId}
+                    vehicles={vehicles}
                   />
                 </StyledFormItem>
               </Col>

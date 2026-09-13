@@ -11,6 +11,7 @@ import DetailLayout from '../../components/Layout/DetailLayout';
 import VehicleList, { type VehicleViewMode } from './VehicleList';
 import VehicleDetails from './VehicleDetails';
 import VehicleFormModal from './VehicleFormModal';
+import PodsPanel from './PodsPanel';
 import { logger } from '@/utils/logger';
 import { get_ipc_api } from '@/services/ipc_api';
 
@@ -369,7 +370,11 @@ const Vehicles: React.FC = () => {
         listTitle={listTitle}
         detailsTitle={t('pages.vehicles.vehicleInformation')}
         listContent={
-          <VehicleList
+          <>
+            {/* Pods first: a machine is discovered, a pod is something the
+                customer created and is paying for. */}
+            <PodsPanel />
+            <VehicleList
             vehicles={vehicles}
             selectedVehicle={selectedVehicle}
             onSelect={handleSelectVehicle}
@@ -381,7 +386,8 @@ const Vehicles: React.FC = () => {
             onDelete={handleDelete}
             viewMode={viewMode}
             t={t}
-          />
+            />
+          </>
         }
         detailsContent={
           viewMode === 'list' && selectedVehicle ? (

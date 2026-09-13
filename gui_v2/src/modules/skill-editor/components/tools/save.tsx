@@ -19,6 +19,7 @@ import { sanitizeNodeApiKeys, sanitizeApiKeysDeep, normalizeNodesForSave } from 
 import { traverseWorkflowNodes } from '../../utils/traverse-workflow-nodes';
 import { detectPlatform } from '../../../../config/platform';
 import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
+import { readPlacement } from '../../../../types/domain/placement';
 
 // ============================================================================
 // Common utilities for Save and SaveAs
@@ -511,6 +512,10 @@ async function syncSkillToDBAndStore(
       }
     })();
 
+    // Placement travels inside config for the same reason the cloud flags do:
+    // GraphQL SkillUpdateInput has no columns for it.
+    const placement = readPlacement(skillInfo as any);
+
     const updatedConfig = {
       ...existingConfig,
       run_in_cloud: runInCloud,
@@ -518,6 +523,9 @@ async function syncSkillToDBAndStore(
       local_helper_skill_id: localHelperSkillId,
       local_helper_skill_name: (existingConfig as any)?.local_helper_skill_name ?? helperNameFromStore ?? null,
       local_helper_machine: localHelperMachine,
+      residency: placement.residency,
+      lifetime: placement.lifetime,
+      requires: placement.requires,
     };
 
     // Resolve the real DB skill ID: prefer a match from the skill store (by path or name)
@@ -637,6 +645,9 @@ export const Save = ({ disabled }: SaveProps) => {
   const hybridCloudMode = useSkillInfoStore((state) => state.hybridCloudMode);
   const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
   const localHelperMachine = useSkillInfoStore((state) => state.localHelperMachine);
+  const residency = useSkillInfoStore((state) => state.residency);
+  const lifetime = useSkillInfoStore((state) => state.lifetime);
+  const requires = useSkillInfoStore((state) => state.requires);
   const toolsets = useSkillInfoStore((state) => state.toolsets);
   const skillsets = useSkillInfoStore((state) => state.skillsets);
   const localHelperSkillName = (() => {
@@ -679,6 +690,9 @@ export const Save = ({ disabled }: SaveProps) => {
         local_helper_skill_id: localHelperSkillId,
         local_helper_skill_name: localHelperSkillName,
         local_helper_machine: localHelperMachine,
+        residency,
+        lifetime,
+        requires,
         toolsets: toolsets.length > 0 ? toolsets : undefined,
         skillsets: skillsets.length > 0 ? skillsets : undefined,
         config: {
@@ -688,6 +702,9 @@ export const Save = ({ disabled }: SaveProps) => {
           local_helper_skill_id: localHelperSkillId,
           local_helper_skill_name: (skillInfo as any)?.config?.local_helper_skill_name ?? localHelperSkillName,
           local_helper_machine: localHelperMachine,
+          residency,
+          lifetime,
+          requires,
           nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
         },
       } as any;
@@ -897,6 +914,9 @@ export const SaveAs = ({ disabled }: SaveProps) => {
   const hybridCloudMode = useSkillInfoStore((state) => state.hybridCloudMode);
   const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
   const localHelperMachine = useSkillInfoStore((state) => state.localHelperMachine);
+  const residency = useSkillInfoStore((state) => state.residency);
+  const lifetime = useSkillInfoStore((state) => state.lifetime);
+  const requires = useSkillInfoStore((state) => state.requires);
   const username = useUserStore((state) => state.username);
 
   const handleSaveAs = useCallback(async () => {
@@ -1028,6 +1048,9 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
         local_helper_machine: localHelperMachine,
+        residency,
+        lifetime,
+        requires,
         toolsets: saveAsToolsets.length > 0 ? saveAsToolsets : undefined,
         skillsets: saveAsSkillsets.length > 0 ? saveAsSkillsets : undefined,
         config: {
@@ -1144,6 +1167,9 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
         local_helper_machine: localHelperMachine,
+        residency,
+        lifetime,
+        requires,
         toolsets: saveAsToolsets.length > 0 ? saveAsToolsets : undefined,
         skillsets: saveAsSkillsets.length > 0 ? saveAsSkillsets : undefined,
         config: {
@@ -1189,6 +1215,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
             local_helper_skill_id: localHelperSkillId,
             local_helper_skill_name: (existingConfig as any)?.local_helper_skill_name ?? null,
             local_helper_machine: localHelperMachine,
+            ...readPlacement(finalSkillInfo as any),
           },
           diagram: finalSkillInfo.workFlow || {},
           tags: finalSkillInfo.tags || [],

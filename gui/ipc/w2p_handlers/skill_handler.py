@@ -2746,6 +2746,12 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
     config['hybrid_cloud_mode'] = skill_info.get('hybrid_cloud_mode', config.get('hybrid_cloud_mode', False))
     config['local_helper_skill_id'] = skill_info.get('local_helper_skill_id', config.get('local_helper_skill_id', None))
     config['local_helper_machine'] = skill_info.get('local_helper_machine', config.get('local_helper_machine', None))
+    # Placement declarations (residency / lifetime / requires). Same home as the
+    # cloud flags — inside config, because GraphQL SkillUpdateInput has no
+    # columns for them — and the same precedence: what the editor just sent
+    # wins over the stored copy.
+    from agent.placement import read_placement
+    config.update(read_placement(skill_info, config))
     skill_data['config'] = config
     # Keep run_mode and mapping_rules at top level too for easier access
     skill_data['run_mode'] = run_mode
