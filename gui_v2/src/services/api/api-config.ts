@@ -58,6 +58,23 @@ export const GRAPHQL_QUERIES = {
     }
   `,
 
+  // ==================== Pods (cloud vehicles) ====================
+  // The pod desired-state columns (lifecycle, idle_shutdown_minutes,
+  // desired_replicas) are deliberately NOT selected: they do not exist on the
+  // CN Vehicle type yet and naming one fails the whole query with
+  // GRAPHQL_VALIDATION_FAILED. `podView` reads them out of `settings` instead,
+  // column-first once they land. The desktop's Python handler probes for them;
+  // the web does not need to, because the blob is always written too.
+  QUERY_VEHICLES: `
+    query QueryVehicles($input: VehicleQueryInput) {
+      queryVehicles(input: $input) {
+        id owner name description vehicle_type status
+        environment cpu_cores memory_gb max_concurrent_tasks
+        capabilities settings health_score last_heartbeat
+      }
+    }
+  `,
+
   // ==================== Settings ====================
   GET_SETTINGS: `
     query GetSettings($ids: [ID!], $username: String) {
@@ -425,6 +442,7 @@ export const GRAPHQL_QUERIES = {
  * GraphQL 变更定义
  */
 export const GRAPHQL_MUTATIONS = {
+
   // ==================== A2A Messages (Chat) ====================
   // ==================== Avatar Resources ====================
   ADD_AVATAR_RESOURCES: `
@@ -725,21 +743,29 @@ export const GRAPHQL_MUTATIONS = {
   `,
 
   // ==================== Vehicles Management ====================
+  // Input fields are camelCase: the CN resolvers read `item.cpuCores` directly
+  // and `updateVehicles` spreads its input straight into Prisma, so a
+  // snake_case payload passes SDL validation via the aliases and is then
+  // dropped by the first or throws in the second. `owner` is never sent — the
+  // resolver derives it from the verified identity.
   ADD_VEHICLES: `
     mutation AddVehicles($input: [VehicleInput!]!) {
       addVehicles(input: $input) { id success error }
     }
   `,
 
+  // VehicleUpdateInput, not VehicleInput: update requires `id` and makes every
+  // other field optional. Declaring the add-input made `id`-only updates invalid.
   UPDATE_VEHICLES: `
-    mutation UpdateVehicles($input: [VehicleInput!]!) {
+    mutation UpdateVehicles($input: [VehicleUpdateInput!]!) {
       updateVehicles(input: $input) { id success error }
     }
   `,
 
+  // The argument is `ids`, not `input` — matching removeVehicles(ids: [ID!]!).
   REMOVE_VEHICLES: `
-    mutation RemoveVehicles($input: [ID!]!) {
-      removeVehicles(input: $input) { id success error }
+    mutation RemoveVehicles($ids: [ID!]!) {
+      removeVehicles(ids: $ids) { id success error }
     }
   `,
 

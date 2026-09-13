@@ -15,6 +15,7 @@ import styled from '@emotion/styled';
 import { IPCAPI } from '@/services/ipc/api';
 import { isDedicatedCapability } from '@/types/domain/placement';
 import { estimatePodCost, type Pod, type PodLimits } from '@/types/domain/pod';
+import * as podService from '@/services/pods/podService';
 import { logger } from '@/utils/logger';
 import PodFormModal from './PodFormModal';
 
@@ -95,7 +96,7 @@ const PodsPanel: React.FC = () => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await IPCAPI.getInstance().getPods<any>();
+      const resp = await podService.getPods();
       if (resp?.success && resp.data) {
         setPods(resp.data.pods || []);
         setLimits(resp.data.limits || null);
@@ -128,7 +129,7 @@ const PodsPanel: React.FC = () => {
   }, [load]);
 
   const handleSubmit = async (values: Record<string, any>) => {
-    const resp = await IPCAPI.getInstance().savePod<any>(values);
+    const resp = await podService.savePod(values);
     if (resp?.success) {
       message.success(values.id ? 'Pod updated' : 'Pod created');
       setModalOpen(false);
@@ -141,7 +142,7 @@ const PodsPanel: React.FC = () => {
   };
 
   const handleDelete = async (pod: Pod) => {
-    const resp = await IPCAPI.getInstance().deletePod<any>(pod.id);
+    const resp = await podService.deletePod(pod.id);
     if (resp?.success) {
       message.success('Pod deleted');
       load();

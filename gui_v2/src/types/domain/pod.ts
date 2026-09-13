@@ -129,3 +129,103 @@ export const LIFECYCLE_OPTIONS: { value: PodLifecycle; label: string; help: stri
     help: 'Started when there is work and scaled away when idle. Cheaper, but the first reply after a quiet spell waits for a cold start (~80s).',
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Reading a cloud vehicle row as a pod
+//
+// The TypeScript twin of `_pod_view` / `_is_customer_pod` in
+// `gui/ipc/w2p_handlers/vehicle_handler.py`. The desktop reaches pods through
+// the Python IPC handler; the web talks to CloudBase directly and has no
+// Python, so the same rules have to exist on both sides. `tests/
+// test_pods_are_cloud_backed.py` and `podModel.test.ts` pin them together.
+// ---------------------------------------------------------------------------
+
+/** Desired state travels under this key in `settings` until CN grows columns. */
+export const POD_SETTINGS_KEY = 'pod';
+
+export interface PodDesiredState {
+  lifecycle: PodLifecycle;
+  idle_shutdown_minutes?: number | null;
+  desired_replicas: number;
+}
+
+/** A raw `queryVehicles` row. Snake and camel spellings both arrive. */
+export type VehicleRow = Record<string, any>;
+
+/** The desired-state blob this client wrote, or {}. */
+export function podSettingsBlob(row: VehicleRow): Partial<PodDesiredState> {
+  let settings = row?.settings ?? {};
+  if (typeof settings === 'string') {
+    try {
+      settings = JSON.parse(settings);
+    } catch {
+      return {};
+    }
+  }
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return {};
+  const blob = (settings as any)[POD_SETTINGS_KEY];
+  return blob && typeof blob === 'object' && !Array.isArray(blob) ? blob : {};
+}
+
+/**
+ * True for a pod the customer created, not a running instance.
+ *
+ * `vehicle_type` alone does not separate them: the fleet's own
+ * `vehicle_register` hard-codes 'cloud' for every pod that registers itself,
+ * and each Deployment rollout leaves the previous pod behind as an offline
+ * tombstone. Listing those as "your pods" shows invented costs and Delete
+ * buttons for rows nobody created, and counts them against the pod limit.
+ * Only `save_pod` writes the desired-state blob, so that is the discriminator.
+ */
+export function isCustomerPod(row: VehicleRow): boolean {
+  return row?.vehicle_type === 'cloud' && Object.keys(podSettingsBlob(row)).length > 0;
+}
+
+/** What `save_pod` stores, so a backend without the columns can read it back. */
+export function packPodSettings(desired: PodDesiredState): Record<string, any> {
+  return { [POD_SETTINGS_KEY]: desired };
+}
+
+function pick(row: VehicleRow, ...names: string[]): any {
+  for (const n of names) {
+    if (row?.[n] !== null && row?.[n] !== undefined) return row[n];
+  }
+  return undefined;
+}
+
+/**
+ * One cloud row as the UI needs it.
+ *
+ * Desired state is read column-first, blob-second: once CN has the columns the
+ * column is authoritative and a blob written before the migration loses. Both
+ * spellings of the sized fields are accepted because the server mirrors
+ * camelCase to snake_case on the way out and only one is guaranteed present.
+ */
+export function podView(row: VehicleRow): Pod {
+  const blob = podSettingsBlob(row);
+  const desired = <K extends keyof PodDesiredState>(name: K): PodDesiredState[K] | undefined =>
+    row?.[name] === null || row?.[name] === undefined ? blob[name] : row[name];
+
+  const cpu = pick(row, 'cpu_cores', 'cpuCores') ?? 0;
+  const memoryGb = pick(row, 'memory_gb', 'memoryGb') ?? 0;
+  const lifecycle: PodLifecycle =
+    desired('lifecycle') === 'on_demand' ? 'on_demand' : DEFAULT_LIFECYCLE;
+  const replicas = Math.max(1, Number(desired('desired_replicas') ?? 1) || 1);
+
+  return {
+    ...row,
+    id: row?.id,
+    name: row?.name,
+    status: row?.status || 'offline',
+    cpu_cores: cpu,
+    memory_gb: memoryGb,
+    max_concurrent_tasks: pick(row, 'max_concurrent_tasks', 'maxConcurrentTasks') ?? 1,
+    last_heartbeat: pick(row, 'last_heartbeat', 'lastHeartbeat') ?? null,
+    health_score: pick(row, 'health_score', 'healthScore'),
+    lifecycle,
+    desired_replicas: replicas,
+    idle_shutdown_minutes: desired('idle_shutdown_minutes') ?? null,
+    capabilities: Array.isArray(row?.capabilities) ? row.capabilities : [],
+    cost: estimatePodCost(cpu, memoryGb, lifecycle, replicas),
+  };
+}
