@@ -806,7 +806,80 @@ def _run_skill_once(*, msg: WorkerMessage, skill_root: Path) -> Dict[str, Any]:
         state["browser_use_run_id"] = msg.chat_id
     task.metadata["state"] = state
 
-    return execute_task_hybrid(task, state, use_async=True)
+    response = execute_task_hybrid(task, state, use_async=True)
+    return _auto_resume_pend_event(task, response, msg)
+
+
+def _interrupted_at_pend_event(response: Any) -> bool:
+    """True when the run stopped at an ``interrupt()`` rather than finishing."""
+    return (
+        isinstance(response, dict)
+        and response.get("success") is False
+        and isinstance(response.get("step"), dict)
+        and "__interrupt__" in response["step"]
+    )
+
+
+def _auto_resume_pend_event(task: Any, response: Any, msg: "WorkerMessage") -> Dict[str, Any]:
+    """Feed the turn's message to a skill that parks on ``pend_event``.
+
+    ``build_pend_event_node`` calls ``interrupt()`` unconditionally on entry —
+    there is no path that consumes an event already sitting in the state. So a
+    skill whose loop begins with ``pend_event`` interrupts on its FIRST node,
+    and the turn is reported done having asked the model nothing (0 in / 0 out).
+
+    The desktop does not hit this because its executor auto-resumes: see
+    ``ec_tasks/runner.py`` — "the message is already in the state but
+    pend_event always interrupts on first visit; auto-resume feeds the message
+    as a resume payload so the graph advances to the LLM node". The worker calls
+    ``execute_task_hybrid`` directly and skipped that, so this is the same move
+    on this path.
+
+    One turn stays one complete request/response: the graph is resumed inside
+    the same call, on the checkpoint it just parked at. Nothing is carried
+    across turns, so any pod can serve any turn and this needs neither
+    conversation-keyed threads nor a shared checkpoint.
+
+    ``event_type='chat_message'`` is what a skill waiting on ``human_chat``
+    accepts (build_node adds the alias), and unlike ``send_chat`` it is not
+    subject to the agent-self-echo guard.
+    """
+    # Both imported here, matching _run_skill_once: the module-level `logger`
+    # binding only exists when this file runs as __main__, and
+    # execute_task_hybrid is deliberately lazy (it pulls in the agent stack).
+    from agent.ec_tasks.executor import execute_task_hybrid
+    from utils.logger_helper import logger_helper as logger
+
+    if not _interrupted_at_pend_event(response):
+        return response
+
+    text = (msg.prompt or "").strip()
+    if not text:
+        # Nothing to deliver: parking is the honest outcome, and resuming with
+        # an empty message would ask the model to answer nothing.
+        logger.info("[worker] parked at pend_event with no message to deliver")
+        return response
+
+    from langgraph.types import Command
+
+    resume_payload = {
+        "event_type": "chat_message",
+        "human_text": text,
+        "data": {"human_text": text},
+        "context": {"senderType": "human", "chatId": msg.chat_id},
+    }
+    logger.info(
+        f"[worker] parked at pend_event on first visit — auto-resuming with the "
+        f"turn's message (len={len(text)})"
+    )
+    resumed = execute_task_hybrid(task, Command(resume=resume_payload), use_async=True)
+
+    if _interrupted_at_pend_event(resumed):
+        # Parked again: the skill wants a second event this turn, which a
+        # request/response turn has no way to supply. Say so rather than
+        # reporting a silent success.
+        logger.warning("[worker] still parked after auto-resume; the skill expects another event")
+    return resumed
 
 
 async def handle_one_message(
