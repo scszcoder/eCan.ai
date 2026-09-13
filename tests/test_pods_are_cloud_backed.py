@@ -304,6 +304,65 @@ def test_signed_out_is_told_so_rather_than_shown_nothing(monkeypatch):
     assert resp["error"]["code"] == "NO_CLOUD"
 
 
+def test_self_registered_pods_are_not_listed_as_the_customers(monkeypatch):
+    """The fleet's own vehicle_register hard-codes vehicle_type='cloud'.
+
+    So does every Deployment rollout, which registers a new row per pod name and
+    leaves the old ones as offline tombstones. Listing those as "your pods"
+    shows invented costs and Delete buttons for rows nobody created.
+    """
+    from gui.ipc.w2p_handlers import vehicle_handler as vh
+
+    monkeypatch.setattr(vh, "_cloud_ctx", lambda: {
+        "session": object(), "token": "t", "endpoint": "e"})
+    monkeypatch.setattr(vh, "_query_pod_rows", lambda ctx: [
+        # Registered by the pod itself: no desired-state blob.
+        {"id": "ecan-worker-7f4", "name": "ecan-worker-7f4", "vehicle_type": "cloud",
+         "status": "online", "cpu_cores": 2, "memory_gb": 4},
+        # Created by the customer here.
+        {"id": "pod_abc", "name": "cs-pod", "vehicle_type": "cloud",
+         "cpu_cores": 2, "memory_gb": 4,
+         "settings": {"pod": {"lifecycle": "always_on", "desired_replicas": 1}}},
+    ])
+
+    resp = vh.handle_get_pods(create_request("get_pods"), {})
+
+    assert [p["id"] for p in resp["result"]["pods"]] == ["pod_abc"]
+
+
+def test_running_instances_do_not_consume_the_pod_limit(monkeypatch):
+    """An owner with five running pods must still be able to create their first.
+
+    Counting vehicle_type='cloud' rows meant the fleet's own pods filled the
+    quota and save_pod refused with POD_LIMIT_REACHED.
+    """
+    from gui.ipc.w2p_handlers import vehicle_handler as vh
+
+    monkeypatch.setattr(vh, "_pod_columns_supported", False, raising=False)
+    monkeypatch.setattr(vh, "_cloud_ctx", lambda: {
+        "session": object(), "token": "t", "endpoint": "e"})
+    monkeypatch.setattr(vh, "_query_pod_rows", lambda ctx: [
+        {"id": f"ecan-worker-{i}", "name": f"w{i}", "vehicle_type": "cloud",
+         "cpu_cores": 2, "memory_gb": 4}
+        for i in range(5)
+    ])
+
+    sent = {}
+
+    def _add(session, vehicles, token, endpoint, **kw):
+        sent["add"] = vehicles
+        return [{"id": vehicles[0]["id"], "success": True}]
+
+    import agent.cloud_api.cloud_api as api
+    monkeypatch.setattr(api, "send_add_vehicles_request_to_cloud", _add)
+
+    resp = vh.handle_save_pod(create_request("save_pod"), {
+        "name": "cs-pod", "cpu_cores": 2, "memory_gb": 4})
+
+    assert resp["status"] == "success", resp
+    assert "add" in sent
+
+
 def test_get_pods_returns_only_pods_not_machines(monkeypatch):
     """The owner's cloud vehicles include desktops registered by affinity."""
     from gui.ipc.w2p_handlers import vehicle_handler as vh
@@ -312,7 +371,8 @@ def test_get_pods_returns_only_pods_not_machines(monkeypatch):
         "session": object(), "token": "t", "endpoint": "e"})
     monkeypatch.setattr(vh, "_query_pod_rows", lambda ctx: [
         {"id": "pod_1", "name": "p", "vehicle_type": "cloud",
-         "cpu_cores": 2, "memory_gb": 4},
+         "cpu_cores": 2, "memory_gb": 4,
+         "settings": {"pod": {"desired_replicas": 1}}},
         {"id": "m_1", "name": "laptop", "vehicle_type": "desktop",
          "cpu_cores": 8, "memory_gb": 16},
     ])

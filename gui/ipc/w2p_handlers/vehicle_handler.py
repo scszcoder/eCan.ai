@@ -506,6 +506,41 @@ def _query_pod_rows(ctx: Dict[str, Any]) -> list:
     return rows or []
 
 
+def _pod_settings_blob(row: Dict[str, Any]) -> Dict[str, Any]:
+    """The desired-state blob this client wrote, or {}."""
+    settings = row.get('settings') or {}
+    if isinstance(settings, str):
+        try:
+            import json as _json
+            settings = _json.loads(settings)
+        except Exception:
+            return {}
+    if not isinstance(settings, dict):
+        return {}
+    blob = settings.get(POD_SETTINGS_KEY)
+    return blob if isinstance(blob, dict) else {}
+
+
+def _is_customer_pod(row: Dict[str, Any]) -> bool:
+    """True for a pod the customer created here, not a running instance.
+
+    `vehicle_type` alone does NOT separate them: the fleet's own
+    `vehicle_register` hard-codes `'cloud'` for every pod that registers itself
+    (ecbAccountManager `vehicleRegister`), and a Deployment rollout registers a
+    NEW row per pod name while the old ones linger as offline tombstones. Both
+    would otherwise land in "your pods" — each with an invented cost and a
+    Delete button — and, worse, count against the pod limit, so an owner with
+    five running pods could not create a first one of their own.
+
+    The desired-state blob is the discriminator: only `save_pod` writes it, and
+    it keeps writing it even once the columns exist. Runtime instances never
+    have one. What the fleet is actually running belongs in `get_fleet_status`,
+    which reports it already.
+    """
+    return (row.get('vehicle_type') == POD_VEHICLE_TYPE
+            and bool(_pod_settings_blob(row)))
+
+
 def _pod_view(row: Dict[str, Any]) -> Dict[str, Any]:
     """One pod as the GUI needs it: desired state, observed state, and cost.
 
@@ -521,14 +556,7 @@ def _pod_view(row: Dict[str, Any]) -> Dict[str, Any]:
                 return row.get(n)
         return default
 
-    settings = row.get('settings') or {}
-    if isinstance(settings, str):
-        try:
-            import json as _json
-            settings = _json.loads(settings)
-        except Exception:
-            settings = {}
-    blob = settings.get(POD_SETTINGS_KEY) or {} if isinstance(settings, dict) else {}
+    blob = _pod_settings_blob(row)
 
     def _desired(name, default=None):
         value = row.get(name)
@@ -605,10 +633,8 @@ def handle_get_pods(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IP
                 request, 'CLOUD_UNREACHABLE',
                 f'Could not reach the fleet to list pods: {e}')
 
-        pods = [
-            _pod_view(row) for row in rows
-            if isinstance(row, dict) and row.get('vehicle_type') == POD_VEHICLE_TYPE
-        ]
+        pods = [_pod_view(row) for row in rows
+                if isinstance(row, dict) and _is_customer_pod(row)]
 
         limits = _pod_limits()
         return create_success_response(request, {
@@ -673,8 +699,7 @@ def handle_save_pod(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IP
                 return create_error_response(
                     request, 'CLOUD_UNREACHABLE',
                     f'Could not reach the fleet to create a pod: {e}')
-            current = len([r for r in rows if isinstance(r, dict)
-                           and r.get('vehicle_type') == POD_VEHICLE_TYPE])
+            current = len([r for r in rows if isinstance(r, dict) and _is_customer_pod(r)])
             if current + 1 > limits['max_pods']:
                 return create_error_response(
                     request, 'POD_LIMIT_REACHED',
