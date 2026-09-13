@@ -19,32 +19,51 @@ import PodFormModal from './PodFormModal';
 
 const { Text } = Typography;
 
-function statusColor(status?: string): string {
-  switch ((status || '').toLowerCase()) {
-    case 'online':
-      return 'green';
-    case 'busy':
-      return 'blue';
-    case 'maintenance':
-      return 'orange';
-    default:
-      return 'default';
-  }
+/** One pod as the fleet reports it (server `fleet_status`). */
+interface FleetVehicle {
+  id: string;
+  name: string;
+  status: string;
+  live: boolean;
+  secondsSinceHeartbeat: number | null;
+  inFlight: number;
+  capabilities: string[];
+}
+
+interface FleetQueue {
+  queued: number;
+  running: number;
+  oldestQueuedSeconds: number;
+  maxQueuedSeconds: number;
+}
+
+interface FleetStatus {
+  vehicles: FleetVehicle[];
+  liveVehicles: number;
+  hasLivePod: boolean;
+  queue: FleetQueue;
+  staleAfterSeconds?: number;
+}
+
+function ago(seconds: number | null | undefined): string {
+  if (seconds == null) return 'never';
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 90) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 90) return `${m}m ago`;
+  return `${Math.round(m / 60)}h ago`;
 }
 
 function heartbeatLabel(pod: Pod): string {
   if (!pod.last_heartbeat) return 'never seen';
   const seen = new Date(pod.last_heartbeat).getTime();
   if (Number.isNaN(seen)) return String(pod.last_heartbeat);
-  const seconds = Math.max(0, Math.round((Date.now() - seen) / 1000));
-  if (seconds < 90) return `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 90) return `${minutes}m ago`;
-  return `${Math.round(minutes / 60)}h ago`;
+  return ago((Date.now() - seen) / 1000);
 }
 
 const PodsPanel: React.FC = () => {
   const [pods, setPods] = useState<Pod[]>([]);
+  const [fleet, setFleet] = useState<FleetStatus | null>(null);
   const [limits, setLimits] = useState<PodLimits | null>(null);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -64,6 +83,17 @@ const PodsPanel: React.FC = () => {
       logger.warn('[PodsPanel] failed to load pods:', e);
     } finally {
       setLoading(false);
+    }
+
+    // Desired state came from the rows above; this is what the fleet actually
+    // reports. Kept separate on purpose — and non-fatal, because a pod list
+    // that cannot reach the control plane should still show what was asked for.
+    try {
+      const resp = await IPCAPI.getInstance().getFleetStatus<any>();
+      setFleet(resp?.success && resp.data ? (resp.data as FleetStatus) : null);
+    } catch (e) {
+      logger.warn('[PodsPanel] fleet status unavailable:', e);
+      setFleet(null);
     }
   }, []);
 
@@ -94,6 +124,18 @@ const PodsPanel: React.FC = () => {
     }
   };
 
+  const fleetById = new Map<string, FleetVehicle>(
+    (fleet?.vehicles || []).map((v) => [v.id, v]),
+  );
+
+  // A turn queued far past the server's own ceiling is the customer's problem
+  // before it is anybody else's: otherwise they see slow replies with no cause.
+  const queueIsBacklogged = Boolean(
+    fleet &&
+      fleet.queue.maxQueuedSeconds > 0 &&
+      fleet.queue.oldestQueuedSeconds > fleet.queue.maxQueuedSeconds / 2,
+  );
+
   const totalMonthly = pods.reduce((sum, pod) => {
     const cost =
       pod.cost ||
@@ -110,11 +152,22 @@ const PodsPanel: React.FC = () => {
     <Card
       size="small"
       title={
-        <Space>
+        <Space wrap>
           <span>Pods</span>
           {limits && (
             <Text type="secondary" style={{ fontWeight: 400 }}>
               {limits.used_pods} of {limits.max_pods} · about ¥{totalMonthly.toFixed(0)}/month
+            </Text>
+          )}
+          {fleet && (
+            <Text
+              type={queueIsBacklogged ? 'danger' : 'secondary'}
+              style={{ fontWeight: 400 }}
+            >
+              queue {fleet.queue.queued} waiting · {fleet.queue.running} running
+              {fleet.queue.queued > 0
+                ? ` · oldest ${ago(fleet.queue.oldestQueuedSeconds)}`
+                : ''}
             </Text>
           )}
         </Space>
@@ -162,9 +215,34 @@ const PodsPanel: React.FC = () => {
                     <div style={{ minWidth: 0 }}>
                       <Space size={6} wrap>
                         <Text strong>{pod.name}</Text>
-                        {/* Observed, not desired: what the fleet reports today */}
-                        <Tag color={statusColor(pod.status)}>{pod.status || 'offline'}</Tag>
-                        <Text type="secondary">{heartbeatLabel(pod)}</Text>
+                        {/* The fleet's `live`, never `status`: a dead pod keeps
+                            status='online' until the reaper notices it, which is
+                            minutes of showing a machine that is gone. */}
+                        {!fleet ? (
+                          <Tooltip title="The fleet view is unavailable; this is the last stored state.">
+                            <Tag>{pod.status || 'offline'} (unconfirmed)</Tag>
+                          </Tooltip>
+                        ) : !fleetById.has(pod.id) ? (
+                          <Tooltip title="This pod has never registered with the fleet.">
+                            <Tag>not registered</Tag>
+                          </Tooltip>
+                        ) : fleetById.get(pod.id)!.live ? (
+                          <Tag color="green">live</Tag>
+                        ) : (
+                          <Tooltip
+                            title={`Reported ${fleetById.get(pod.id)!.status}, but last heartbeat was ${ago(fleetById.get(pod.id)!.secondsSinceHeartbeat)}.`}
+                          >
+                            <Tag color="red">not live</Tag>
+                          </Tooltip>
+                        )}
+                        <Text type="secondary">
+                          {fleetById.has(pod.id)
+                            ? ago(fleetById.get(pod.id)!.secondsSinceHeartbeat)
+                            : heartbeatLabel(pod)}
+                        </Text>
+                        {(fleetById.get(pod.id)?.inFlight ?? 0) > 0 && (
+                          <Tag color="blue">{fleetById.get(pod.id)!.inFlight} in flight</Tag>
+                        )}
                       </Space>
                       <div style={{ marginTop: 6 }}>
                         <Space size={6} wrap>

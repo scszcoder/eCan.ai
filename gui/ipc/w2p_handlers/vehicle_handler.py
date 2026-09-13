@@ -614,3 +614,91 @@ def handle_delete_pod(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
     except Exception as e:
         logger.error(f"Error deleting pod: {e} {traceback.format_exc()}")
         return create_error_response(request, 'DELETE_POD_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('get_fleet_status')
+def handle_get_fleet_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """What the fleet actually reports, as opposed to what was asked for.
+
+    ``get_pods`` above returns desired state from the local row. This returns
+    the server's view: which pods are **live**, what each is holding, and how
+    deep the owner's queue is.
+
+    Liveness is the server's ``live`` flag, not ``status``. A pod that dies
+    keeps ``status='online'`` until the reaper notices — up to six minutes of
+    showing a green pod that is gone — so rendering ``status`` would mean
+    telling a customer their agent is being served by a machine that is not
+    there.
+
+    Authenticated as the user: the server derives the owner from the verified
+    identity, so this can only ever show the caller's own fleet.
+    """
+    try:
+        import json as _json
+        import urllib.error
+        import urllib.request
+
+        from agent.cloud_api.turn_queue import (
+            TurnQueueNotConfigured, _account_manager_url, _session_bearer_token,
+        )
+
+        try:
+            url = _account_manager_url()
+        except TurnQueueNotConfigured as exc:
+            return create_error_response(request, 'NOT_CONFIGURED', str(exc))
+
+        token = _session_bearer_token()
+        if not token:
+            return create_error_response(
+                request, 'NO_TOKEN', 'Not signed in — no session token available')
+
+        body = _json.dumps({
+            'action': 'fleet_status',
+            'input': {'include_all': bool((params or {}).get('include_all'))},
+        }).encode('utf-8')
+        req = urllib.request.Request(
+            url, data=body,
+            headers={'Content-Type': 'application/json',
+                     'Authorization': f'Bearer {token}'},
+            method='POST',
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                raw = resp.read(262144).decode('utf-8', 'replace')
+                status = resp.status
+        except urllib.error.HTTPError as he:
+            raw = he.read(8192).decode('utf-8', 'replace')
+            status = he.code
+        except Exception as exc:
+            # A fleet view that cannot be fetched is not an error the customer
+            # caused; the pod list still renders from desired state.
+            logger.warning(f"[fleet_status] transport error: {exc}")
+            return create_error_response(request, 'NETWORK_ERROR', str(exc))
+
+        try:
+            data = _json.loads(raw or '{}')
+        except Exception:
+            return create_error_response(
+                request, 'BAD_RESPONSE', f'fleet_status returned non-JSON (HTTP {status})')
+
+        if status == 401:
+            return create_error_response(
+                request, 'UNAUTHORIZED',
+                'The session was rejected by fleet_status; sign in again.')
+        if status >= 400 or not data.get('success'):
+            return create_error_response(
+                request, 'FLEET_STATUS_ERROR',
+                str(data.get('message') or data.get('error') or f'HTTP {status}'))
+
+        return create_success_response(request, {
+            'vehicles': data.get('vehicles') or [],
+            'liveVehicles': data.get('liveVehicles', 0),
+            'hasLivePod': bool(data.get('hasLivePod')),
+            'queue': data.get('queue') or {},
+            'limits': data.get('limits') or {},
+            'staleAfterSeconds': data.get('staleAfterSeconds'),
+        })
+    except Exception as e:
+        logger.error(f"Error fetching fleet status: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'FLEET_STATUS_ERROR', str(e))

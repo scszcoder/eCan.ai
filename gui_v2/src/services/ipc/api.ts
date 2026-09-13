@@ -896,6 +896,13 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'delete_pod' }, { id });
     }
 
+    // What the fleet reports, as opposed to what was asked for. Render its
+    // `live` flag, never `status` — a dead pod stays 'online' until the reaper
+    // notices it, which can be minutes of showing a machine that is gone.
+    public async getFleetStatus<T>(includeAll = false): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'get_fleet_status' }, { include_all: includeAll });
+    }
+
     public async assignBotToVehicle<T>(bot_id: string, vehicle_id: number): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'assign_bot_to_vehicle' }, { bot_id, vehicle_id });
     }

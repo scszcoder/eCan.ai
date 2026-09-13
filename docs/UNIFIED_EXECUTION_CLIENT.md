@@ -120,27 +120,64 @@ Flipping is `set_task_execution_path` (IPC), which **requires**
 not a settings toggle: the desktop and the server's SCF timer have to move
 together for a given task.
 
-### What still blocks C4 from being thrown
+### The three blockers are cleared
 
-1. **`turn_enqueue` does not accept a scheduled task** — it requires a
-   conversation, and a scheduled task has none (server S2).
-2. **A turn names no task** — the payload carries `task_id` inside the turn's
-   input JSON as a stopgap; the durable fix is server S0.
-3. **The desktop has no credential for it.** `turn_enqueue` authenticates with
-   the internal shared token, which a desktop install does not hold and should
-   not be given — whoever holds it can mint an end-user session for any owner
-   (server S7). The client fails with that explanation rather than an
-   uninterpretable 401.
+All three were server-side and all three are gone (2026-09-12):
 
-## C5 / C6 — not built
+1. **Credential.** `turn_enqueue` now accepts a **user session** under the same
+   action name, deriving `owner` from the verified identity and ignoring the
+   body — so a desktop can only ever enqueue for itself. That is the right
+   shape: a client should not have to know which credential the server wants.
+   The desktop uses its ordinary session bearer (CloudBase access token, or the
+   eCan session token for WeChat logins), the same selection as its payment and
+   coupon calls. `ECAN_FLEET_INTERNAL_TOKEN` still wins where a trusted
+   server-side caller sets it, and **a desktop build must never ship with it**:
+   that token mints end-user sessions for *any* owner.
+2. **`task_id` is a field on the turn**, resolved and stored at enqueue time
+   (server S0). The smuggling inside the input JSON is gone; `input` is now just
+   what the customer said. The worker's half of the same seam landed in
+   `cloud-worker` — it prefers `turn.taskId` over `ECAN_TASK_ID` — so both ends
+   meet.
+3. **A turn may have no conversation** (server S2), which is what a scheduled
+   task produces. `conversation_id` is nullable rather than synthetic — a fake
+   conversation would have filled the end-user-facing `conversation_list` with
+   rows no end user owns. A conversation-less turn must name a `task_id` or an
+   `agent_id`, which this payload always does.
 
-- **C5 (A2A as producer)** waits on server S8: sending an A2A message should
-  enqueue a turn for the recipient agent. The client side is a one-line producer
-  call once the server accepts it; building it now means writing against an
-  undeployed contract.
-- **C6 (observability)** waits on read APIs for `turns.cost_usd` /
-  `usage_stages` and queue depth per owner. The data exists per turn on the
-  server; nothing exposes it to a client yet.
+What remains before the flip is thrown is coordination, not code: a task must
+move on both sides at once, which is what `server_flipped: true` forces the
+operator to confirm.
+
+## C6 — queue depth and live state, via `fleet_status` (partly done)
+
+`fleet_status` (owner-authenticated) is the fleet's own view, and the pods panel
+now reads it alongside the desired state it already had.
+
+**It renders `live`, never `status`.** A pod that dies keeps `status='online'`
+until the reaper notices — up to six minutes of showing a green pod that is gone
+— so the server computes `live` from the heartbeat age and that is the only
+thing the UI trusts. A pod the fleet has never seen reads "not registered"; when
+`fleet_status` itself is unreachable the stored status is shown and explicitly
+marked unconfirmed, because a pod list that cannot reach the control plane
+should still show what was asked for.
+
+The panel header also carries the queue: how many turns are waiting, how many
+are running, and how old the oldest queued turn is — turning red past half the
+server's own `maxQueuedSeconds`. If turns are backing up, the customer sees that
+before they see slow replies.
+
+Still missing for full C6: the **per-agent / per-conversation cost rollup**. The
+data is there (`turns.cost_usd`, `usage_stages`, written per turn) but nothing
+aggregates it for a client yet, and rolling it up here would mean pulling every
+turn down to the desktop to add numbers.
+
+## C5 — not built
+
+Waits on server S8: sending an A2A message should enqueue a turn for the
+recipient agent. The client side is a one-line producer call once the server
+accepts it; building it now means writing against an undeployed contract. No pod
+registry was built for addressing, as instructed — a registry used for *routing*
+recreates the binding problem this design removed.
 
 ## Open questions from the TODO, answered here
 
@@ -151,8 +188,9 @@ together for a given task.
    `requires=['browser_local']`, and the placement fields can already express
    exactly that. The collapse is deliberately deferred to the per-task flip so
    there is a consumer to verify it against.
-3. **What does the customer see when no pod satisfies `requires[]`?** Still
-   silence, and still wrong. The pieces to fix it are now here — the editor
-   knows what a skill requires and the pod form knows what each pod advertises,
-   so the client can warn at edit time. It needs the server's queue-depth view
-   (C6) to warn at *runtime*, which is the case that actually hurts.
+3. **What does the customer see when no pod satisfies `requires[]`?** Partly
+   answered now: the pods panel shows queue depth and the oldest queued age from
+   `fleet_status`, so a turn nothing can claim shows up as a queue that is not
+   draining. Warning at *edit* time — "no pod advertises what this skill
+   requires" — is the remaining piece, and both halves of the comparison are now
+   in the client.

@@ -21,6 +21,13 @@ happen from here:
 Placement travels with the turn: ``requires[]`` is matched against a pod's
 capabilities as a WHERE clause, and ``lifetime`` tells the scheduler whether a
 cold pod will do. This is what makes the Phase 0.3 declarations load-bearing.
+
+Authentication is the user's own session. ``turn_enqueue`` accepts either that
+or the internal shared token under one action name, and under a session it takes
+``owner`` from the verified identity rather than the body — so a desktop can
+only ever enqueue for itself. That matters more than it looks: a desktop
+shipping with the internal token would hand every customer the keys to every
+other customer, because that token mints end-user sessions for any owner.
 """
 from __future__ import annotations
 
@@ -95,23 +102,62 @@ def _account_manager_url() -> str:
     return f"{parts.scheme}://{parts.netloc}/ecbAccountManager"
 
 
-def _credential() -> str:
-    """The credential ``turn_enqueue`` accepts today.
+def _session_bearer_token() -> str:
+    """The signed-in user's bearer for ecbAccountManager.
 
-    It is the internal shared token, which a desktop install does not have and
-    should not be given — whoever holds it can mint an end-user session for any
-    owner. Until the server accepts an owner-authenticated enqueue (server S7),
-    this path only works where that token is deliberately present, and says so
-    plainly rather than failing with a 401 nobody can interpret.
+    Same selection as the desktop's other calls there (payment / coupon): the
+    CloudBase AccessToken for email and phone logins, the eCan session token for
+    WeChat, which has only that.
     """
-    token = (os.environ.get(ENV_TOKEN) or "").strip()
-    if not token:
-        raise TurnQueueNotConfigured(
-            f"turn_enqueue needs a credential the desktop does not hold. Set "
-            f"{ENV_TOKEN} for a trusted client, or wait for the server to accept "
-            f"an owner-authenticated enqueue."
-        )
-    return token
+    try:
+        from app_context import AppContext
+
+        mainwin = AppContext.get_main_window()
+        if mainwin is None:
+            return ""
+        auth_manager = getattr(mainwin, "auth_manager", None)
+        if auth_manager is not None:
+            try:
+                tokens = auth_manager.get_tokens() or {}
+                token = str(tokens.get("AccessToken") or tokens.get("access_token") or "").strip()
+                if token:
+                    return token
+            except Exception:
+                pass
+        from agent.cloud_api.cloud_api import _http_auth_header
+
+        bearer = _http_auth_header(mainwin.get_auth_token() or "")
+        return bearer[7:] if bearer.lower().startswith("bearer ") else bearer
+    except Exception:
+        return ""
+
+
+def _credential() -> tuple:
+    """``(token, kind)`` for ``turn_enqueue``.
+
+    ``turn_enqueue`` takes either credential under one action name, which is the
+    right shape: a client should not have to know which one the server wants.
+
+    * ``session`` — the signed-in user. The server derives ``owner`` from the
+      verified identity and ignores whatever the body says, so a desktop can
+      enqueue only for itself. This is the desktop's path.
+    * ``internal`` — the shared token, only when deliberately configured. A
+      desktop must never ship with it: whoever holds it can mint an end-user
+      session for *any* owner, which would hand every customer the keys to every
+      other customer.
+    """
+    internal = (os.environ.get(ENV_TOKEN) or "").strip()
+    if internal:
+        return internal, "internal"
+
+    session = _session_bearer_token()
+    if session:
+        return session, "session"
+
+    raise TurnQueueNotConfigured(
+        "turn_enqueue needs a signed-in session. No CloudBase access token or "
+        "eCan session token is available on this client."
+    )
 
 
 def turn_requires(task: Any, agent: Any = None) -> List[str]:
@@ -145,7 +191,7 @@ def turn_requires(task: Any, agent: Any = None) -> List[str]:
 def build_enqueue_payload(
     task: Any,
     *,
-    owner: str,
+    owner: str = "",
     trigger_type: str = "",
     conversation_id: str = "",
     agent: Any = None,
@@ -153,33 +199,39 @@ def build_enqueue_payload(
 ) -> Dict[str, Any]:
     """The turn this task becomes.
 
-    ``input`` carries the task id as structured JSON because a turn row names an
-    owner, a conversation and an agent but never a task — the worker resolves
-    its work from this until the server carries the task itself (server S0).
+    ``task_id`` is a field on the turn, not something smuggled inside the input
+    text: the server resolves and stores the task at enqueue time, so a retry
+    cannot be handed to a different task if the agent's assignment changed in
+    between. ``input`` is therefore just what the customer said.
+
+    A turn with no conversation is legal and is what a scheduled task produces —
+    but it must name a task or an agent, or the server refuses it rather than
+    queueing work nothing can resolve. Naming the task is what this does.
+
+    ``owner`` is carried for the internal-credential path only. Under a user
+    session the server takes the owner from the verified identity and ignores
+    the body, which is what stops a client enqueuing for somebody else.
     """
     from agent.placement import placement_of
 
     task_id = str(getattr(task, "id", "") or "")
     if not task_id:
         raise TurnQueueError("cannot enqueue a task with no id")
-    if not owner:
-        raise TurnQueueError(f"cannot enqueue task {task_id} with no owner")
 
     place = placement_of(task)
     agent_id = str(getattr(task, "agent_id", "") or "")
 
     payload: Dict[str, Any] = {
-        "owner": owner,
+        "task_id": task_id,
         "agent_id": agent_id,
         "requires": turn_requires(task, agent),
         "lifetime": place["lifetime"],
         "residency": place["residency"],
-        "input": json.dumps({
-            "task_id": task_id,
-            "text": input_text or "",
-            "trigger": trigger_type or "",
-        }, ensure_ascii=False),
+        "input": input_text or "",
+        "trigger": trigger_type or "",
     }
+    if owner:
+        payload["owner"] = owner
     if conversation_id:
         payload["conversation_id"] = conversation_id
     return payload
@@ -188,7 +240,7 @@ def build_enqueue_payload(
 def enqueue_task_turn(
     task: Any,
     *,
-    owner: str,
+    owner: str = "",
     trigger_type: str = "",
     conversation_id: str = "",
     agent: Any = None,
@@ -204,7 +256,16 @@ def enqueue_task_turn(
     import requests
 
     url = _account_manager_url()
-    token = _credential()
+    token, kind = _credential()
+
+    if kind == "internal" and not owner:
+        # The internal path reads owner from the body, so an unknown owner
+        # would enqueue a turn belonging to nobody.
+        raise TurnQueueError(
+            f"cannot enqueue task {getattr(task, 'id', '?')} with no owner "
+            f"(the internal credential takes the owner from the request body)"
+        )
+
     payload = build_enqueue_payload(
         task, owner=owner, trigger_type=trigger_type,
         conversation_id=conversation_id, agent=agent, input_text=input_text,
@@ -230,9 +291,9 @@ def enqueue_task_turn(
 
     if status == 401:
         raise TurnQueueNotConfigured(
-            "turn_enqueue rejected this client's credential (HTTP 401). The "
-            "desktop cannot authenticate to the queue until the server accepts "
-            "an owner-authenticated enqueue."
+            f"turn_enqueue rejected this client's {kind} credential (HTTP 401): "
+            f"{data.get('message') or 'unauthorized'}. A session credential that "
+            f"is merely expired will work again after signing in."
         )
     if status >= 400 or not data.get("success"):
         raise TurnQueueError(
@@ -244,6 +305,7 @@ def enqueue_task_turn(
     created = data.get("created")
     logger.info(
         f"[TurnQueue] task={getattr(task, 'id', '?')} enqueued as turn={turn.get('id')} "
-        f"created={created} requires={payload['requires']} lifetime={payload['lifetime']}"
+        f"created={created} auth={kind} requires={payload['requires']} "
+        f"lifetime={payload['lifetime']}"
     )
     return {"turn_id": turn.get("id"), "created": created, "turn": turn}

@@ -92,23 +92,45 @@ def test_execution_path_survives_the_db_conversion():
 # What the turn carries
 # ===========================================================================
 
-def test_payload_carries_the_task_and_its_placement():
-    """A turn row names an owner/conversation/agent but never a task."""
+def test_payload_names_the_task_as_a_field():
+    """task_id is the turn's own column now, not smuggled inside the input text.
+
+    The server resolves and stores the task at enqueue time, so a retry cannot
+    be handed to a different task if the agent's assignment changed meanwhile.
+    """
     task = _Task(requires=["browser_local"], lifetime="turn", residency="cloud")
     payload = turn_queue.build_enqueue_payload(
-        task, owner="o@example.com", trigger_type="message")
+        task, owner="o@example.com", trigger_type="message", input_text="在吗")
 
-    assert payload["owner"] == "o@example.com"
+    assert payload["task_id"] == "task_1"
     assert payload["agent_id"] == "agent_1"
     assert payload["requires"] == ["browser_local"]
     assert payload["lifetime"] == "turn"
     assert payload["residency"] == "cloud"
-    assert json.loads(payload["input"])["task_id"] == "task_1"
+    # input is what the customer said, and nothing else
+    assert payload["input"] == "在吗"
 
 
-def test_payload_refuses_a_task_with_no_owner():
+def test_a_scheduled_turn_carries_no_conversation_but_names_its_work():
+    """A conversation-less turn is refused unless it names a task or an agent."""
+    payload = turn_queue.build_enqueue_payload(_Task(), owner="o@example.com")
+    assert "conversation_id" not in payload
+    assert payload["task_id"]
+
+
+def test_payload_refuses_a_task_with_no_id():
     with pytest.raises(turn_queue.TurnQueueError):
-        turn_queue.build_enqueue_payload(_Task(), owner="")
+        turn_queue.build_enqueue_payload(_Task(id=""), owner="o@example.com")
+
+
+def test_owner_is_optional_in_the_body_under_a_session():
+    """The server takes owner from the verified identity and ignores the body.
+
+    That is what stops a client enqueuing for somebody else, so the client has
+    no reason to insist on knowing it.
+    """
+    payload = turn_queue.build_enqueue_payload(_Task())
+    assert "owner" not in payload
 
 
 def test_dedication_travels_as_a_requirement_not_a_binding():
@@ -221,12 +243,28 @@ def test_a_successful_enqueue_keeps_the_server_turn_id(runner, monkeypatch):
 # Configuration failures say what to do about them
 # ===========================================================================
 
-def test_missing_credential_names_the_real_blocker(monkeypatch):
-    """A 401 nobody can interpret is worse than a refusal that explains itself."""
+def test_the_desktop_authenticates_as_the_user(monkeypatch):
+    """A desktop must never hold the internal token: it mints sessions for ANY
+    owner, so shipping with it hands every customer the keys to every other."""
     monkeypatch.delenv(turn_queue.ENV_TOKEN, raising=False)
+    monkeypatch.setattr(turn_queue, "_session_bearer_token", lambda: "session-token")
+
+    token, kind = turn_queue._credential()
+    assert (token, kind) == ("session-token", "session")
+
+
+def test_a_configured_internal_token_still_wins(monkeypatch):
+    """Trusted server-side callers keep working unchanged."""
+    monkeypatch.setenv(turn_queue.ENV_TOKEN, "internal-token")
+    assert turn_queue._credential() == ("internal-token", "internal")
+
+
+def test_no_session_at_all_says_so(monkeypatch):
+    monkeypatch.delenv(turn_queue.ENV_TOKEN, raising=False)
+    monkeypatch.setattr(turn_queue, "_session_bearer_token", lambda: "")
     with pytest.raises(turn_queue.TurnQueueNotConfigured) as exc:
         turn_queue._credential()
-    assert turn_queue.ENV_TOKEN in str(exc.value)
+    assert "signed-in session" in str(exc.value)
 
 
 def test_endpoint_is_derived_from_the_graphql_host(monkeypatch):
