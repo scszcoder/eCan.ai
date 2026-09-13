@@ -79,6 +79,31 @@ def _parse_cn_message(message_json: str) -> CNWorkerMessage:
     return CNWorkerMessage(owner_id=owner, task_id=task_id, options=dict(options))
 
 
+def _prompt_from_test_inputs(test_inputs: Any) -> str:
+    """The value for ``WorkerMessage.prompt`` — the visitor's bare sentence.
+
+    This is a contract, not a formatting choice. ``worker_main._run_skill_once``
+    puts ``msg.prompt`` into ``in_msg.params.message.parts[0].text``; that path
+    is the FIRST candidate in ``prep_skills_run._extract_chat_message_input_patch``,
+    which copies it (stripped) into ``state["input"]``; and an LLM node's
+    user-turn template defaults to ``{{input}}``. So whatever lands here is
+    literally what the model is asked.
+
+    It used to be ``json.dumps(test_inputs)``, so a serving turn asked the model
+    to answer ``{"text": "…", "conversation_id": ""}`` rather than the question
+    inside it.
+
+    Anything without a ``text`` string keeps the legacy envelope: a
+    launcher-run skill whose prompt template expects its testInputs as JSON
+    still receives them that way.
+    """
+    if isinstance(test_inputs, dict):
+        text = test_inputs.get("text")
+        if isinstance(text, str) and text.strip():
+            return text
+    return json.dumps(test_inputs, ensure_ascii=False)
+
+
 def _materialize_diagram_skill(skill: Dict[str, Any], work_dir: Path) -> Path:
     """Write a DB-held flowgram diagram as the on-disk folder layout that
     load_skill_from_folder expects (mirrors worker_main._save_flowgram_to_s3,
@@ -255,7 +280,7 @@ async def run_single_cn(message_json: str) -> Optional[Dict[str, Any]]:
             chat_id=run_id,
             sender_id=skill_id or msg.task_id,
             skill_name=skill_name,
-            prompt=json.dumps(test_inputs, ensure_ascii=False),
+            prompt=_prompt_from_test_inputs(test_inputs),
             task_vars=_tv if isinstance(_tv, dict) else None,
             browser_identity=_bi if isinstance(_bi, dict) else None,
             # Phase 2.2: when the caller knows which conversation this run

@@ -27,6 +27,12 @@ def _safe_get(d: Any, path: str, default: Any = None) -> Any:
 
     Example: _safe_get({"a": {"b": 1}}, "a.b") -> 1
     Returns `default` if any segment is missing.
+
+    A numeric segment indexes a list or tuple, so A2A-shaped paths work:
+    _safe_get({"parts": [{"text": "hi"}]}, "parts.0.text") -> "hi". Without
+    that, every such path silently yielded None — which is how a worker turn
+    reached the model with an empty ``state["input"]``: the only accessor
+    reading ``params.message.parts[0].text`` could never return it.
     """
     if d is None:
         return default
@@ -65,6 +71,15 @@ def _safe_get(d: Any, path: str, default: Any = None) -> Any:
                 continue
             else:
                 return default
+
+        # 1.5) Sequence index: a numeric segment against a list/tuple.
+        #      Checked after dicts so a dict with a "0" key still wins.
+        if isinstance(cur, (list, tuple)) and part.lstrip("-").isdigit():
+            idx = int(part)
+            if -len(cur) <= idx < len(cur):
+                cur = cur[idx]
+                continue
+            return default
 
         # 2) Attribute access on objects (e.g., Pydantic models)
         if hasattr(cur, part):
