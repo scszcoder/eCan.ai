@@ -12,20 +12,20 @@
  */
 
 import { detectPlatform } from '@/config/platform';
-import { GRAPHQL_MUTATIONS, GRAPHQL_QUERIES } from '../api/api-config';
-import { apiRouter } from '../api/api-router';
+// The vehicles GraphQL mappings are deliberately gone: pods are fleet_pools
+// rows, reached through ecbAccountManager, not vehicles rows reached through
+// GraphQL. packPodSettings/isCustomerPod/podView belonged to the vehicles
+// shape and have no reader left here — they stay in the domain module for the
+// desktop's own migration path.
+import { callAccountManager } from '../api/accountManagerClient';
 import type { APIResponse } from '../ipc/api';
 import { IPCAPI } from '../ipc/api';
 import {
   POD_SIZES,
-  packPodSettings,
-  isCustomerPod,
-  podView,
   sizeById,
   type Pod,
   type PodLifecycle,
   type PodLimits,
-  type VehicleRow,
 } from '@/types/domain/pod';
 import { logger } from '../../utils/logger';
 
@@ -57,22 +57,58 @@ function fail(code: string, message: string): APIResponse<any> {
 export async function getPods(): Promise<APIResponse<PodsResponse>> {
   if (!isWeb()) return IPCAPI.getInstance().getPods<PodsResponse>();
 
-  const resp = await apiRouter.execute<VehicleRow[]>(
-    { method: 'get_pods', graphql: { query: GRAPHQL_QUERIES.QUERY_VEHICLES, resultPath: 'queryVehicles' } },
-    { input: {} },
-  );
+  // `vehicles` is OBSERVED state — rows a running pod writes about itself. A pod
+  // the CUSTOMER asked for is a row in `fleet_pools`, which is what the fleet
+  // reconciler reads to build a real Deployment; one written through addVehicles
+  // exists in the database and no pod is ever created from it. So both platforms
+  // go to ecbAccountManager. Contract:
+  // eCan_lambda/cn/tencent/POD_API_FOR_CLIENT.md
+  const resp = await callAccountManager<any>('pod_list');
 
   // An unreachable cloud is an error, not an empty list: pods live only in the
   // cloud, so [] would render as "you have no pods" and invite a customer to
   // create a second one alongside the pod they are already paying for.
   if (!resp?.success) return resp as unknown as APIResponse<PodsResponse>;
 
-  const rows = Array.isArray(resp.data) ? resp.data : [];
-  const pods = rows.filter(isCustomerPod).map(podView);
+  const pods = (Array.isArray(resp.data?.pods) ? resp.data.pods : []).map(poolView);
+  // Usage counts DESIRED replicas, not rows — one pool of 3 is 3 pods on the bill.
+  const used = pods.reduce((n: number, p: Pod) => n + (Number(p.desired_replicas) || 0), 0);
   return {
     success: true,
-    data: { pods, sizes: POD_SIZES, limits: { ...DEFAULT_LIMITS, used_pods: pods.length } },
+    data: {
+      pods,
+      sizes: POD_SIZES,
+      limits: {
+        ...DEFAULT_LIMITS,
+        used_pods: used,
+        max_pods: Number(resp.data?.limits?.podCeiling) || DEFAULT_LIMITS.max_pods,
+      },
+    },
   } as APIResponse<PodsResponse>;
+}
+
+/**
+ * A fleet_pools row as the panel's Pod. Desired and observed stay separate:
+ * `desired_replicas` is what was asked for, `live_replicas` what the fleet
+ * actually has, and merging them into one number is how a UI ends up claiming a
+ * pod is running when it is not.
+ */
+function poolView(row: any): Pod {
+  return {
+    id: String(row?.id || ''),
+    name: String(row?.name || ''),
+    lifecycle: row?.lifecycle === 'on_demand' ? 'on_demand' : 'always_on',
+    idle_shutdown_minutes: row?.idleShutdownMinutes ?? null,
+    desired_replicas: Number(row?.desiredReplicas) || 0,
+    cpu_cores: row?.cpu ?? null,
+    memory_gb: row?.memoryGb ?? null,
+    capabilities: Array.isArray(row?.capabilities) ? row.capabilities.map(String) : [],
+    // `liveReplicas` comes from HEARTBEATS, not from a stored status: a pod keeps
+    // status='online' until the reaper notices it died, up to 6 minutes later.
+    status: Number(row?.liveReplicas) > 0 ? 'online' : 'offline',
+    last_heartbeat: row?.instances?.[0]?.lastHeartbeat ?? null,
+    cost: { monthly_fen: Number(row?.estimatedMonthlyFen) || 0 } as any,
+  } as Pod;
 }
 
 export async function savePod(params: Record<string, any>): Promise<APIResponse<any>> {
@@ -96,56 +132,32 @@ export async function savePod(params: Record<string, any>): Promise<APIResponse<
 
   const podId = String(params?.id || '').trim();
 
-  if (!podId) {
-    // Refuse rather than silently clamping: a customer who asked for four
-    // replicas and got one without being told would read the fleet as broken.
-    const existing = await getPods();
-    if (!existing?.success) return existing as APIResponse<any>;
-    const used = existing.data?.pods?.length ?? 0;
-    if (used + 1 > DEFAULT_LIMITS.max_pods) {
-      return fail(
-        'POD_LIMIT_REACHED',
-        `This account is limited to ${DEFAULT_LIMITS.max_pods} pods (${used} already exist). ` +
-          'The server enforces this limit.',
-      );
-    }
-  }
+  // No local cap pre-check: the server enforces it and answers 409 with the real
+  // number ("that would put this account at 6 pods; the limit is 5"). Guessing
+  // here can refuse a save the server would have allowed, and the guess was
+  // wrong before — it counted rows that runtime pods had registered.
 
-  const desired = { lifecycle, idle_shutdown_minutes: idleMinutes, desired_replicas: replicas };
-  const fields: Record<string, any> = {
+  // pod_save writes fleet_pools — the DESIRED state the reconciler converges.
+  // Omit `id` to create; the server mints it. No owner is sent: the server takes
+  // it from the verified bearer, and asserting it client-side is what returned
+  // "Cross-owner access is forbidden" for this WeChat account.
+  const resp = await callAccountManager<any>('pod_save', {
+    ...(podId ? { id: podId } : {}),
     name,
-    vehicleType: 'cloud',
-    description: params?.description || '',
-    cpuCores: cpu != null ? Number(cpu) : null,
-    memoryGb: memoryGb != null ? Number(memoryGb) : null,
+    lifecycle,
+    desired_replicas: replicas,
+    idle_shutdown_minutes: idleMinutes ?? undefined,
+    ...(cpu != null ? { cpu: Number(cpu) } : {}),
+    ...(memoryGb != null ? { memory_gb: Number(memoryGb) } : {}),
     capabilities: Array.isArray(params?.capabilities) ? params.capabilities : [],
-    maxConcurrentTasks: Number(params?.max_concurrent_tasks || size?.concurrency || 1),
-    environment: params?.environment || 'production',
-    // Always written, whether or not the columns exist: it is what a backend
-    // without them reads back, and how a pod is told apart from a runtime
-    // instance that registered itself.
-    settings: packPodSettings(desired),
-  };
+    ...(params?.task_id ? { task_id: String(params.task_id) } : {}),
+  });
 
-  const id = podId || `pod_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-  const resp = podId
-    ? await apiRouter.execute<any>(
-        { method: 'save_pod', graphql: { mutation: GRAPHQL_MUTATIONS.UPDATE_VEHICLES, resultPath: 'updateVehicles' } },
-        { input: [{ id, ...fields }] },
-      )
-    : await apiRouter.execute<any>(
-        { method: 'save_pod', graphql: { mutation: GRAPHQL_MUTATIONS.ADD_VEHICLES, resultPath: 'addVehicles' } },
-        // A pod the customer just created has not been seen by the fleet yet;
-        // saying offline is the truth until it registers itself.
-        { input: [{ id, status: 'offline', ...fields }] },
-      );
+  // Carry the server's own message: the 409 names the real limit, and replacing
+  // it with a generic failure leaves the customer nothing to act on.
+  if (!resp?.success) return resp as APIResponse<any>;
 
-  if (!resp?.success) return resp;
-
-  // addVehicles/updateVehicles report per-record success; a transport-level
-  // success carrying success:false is still a failed save.
-  const failure = (Array.isArray(resp.data) ? resp.data : []).find((r: any) => r && r.success === false);
-  if (failure) return fail('SAVE_POD_ERROR', String(failure.error || 'Failed to save pod'));
+  const id = String(resp.data?.pod?.id || podId || '');
 
   logger.debug(`[pods] saved pod ${id} (${name}) lifecycle=${lifecycle} replicas=${replicas}`);
   // The caller reloads from the cloud rather than trusting an echo, so there is
@@ -159,14 +171,15 @@ export async function deletePod(id: string): Promise<APIResponse<any>> {
   const podId = String(id || '').trim();
   if (!podId) return fail('INVALID_PARAMS', 'id is required');
 
-  const resp = await apiRouter.execute<any>(
-    { method: 'delete_pod', graphql: { mutation: GRAPHQL_MUTATIONS.REMOVE_VEHICLES, resultPath: 'removeVehicles' } },
-    { ids: [podId] },
-  );
-  if (!resp?.success) return resp;
+  // Soft delete: the reconciler has to see the row to scale the Deployment to
+  // zero. A row that vanishes first orphans a Deployment that keeps running and
+  // keeps billing.
+  const resp = await callAccountManager<any>('pod_delete', { id: podId });
+  if (!resp?.success) return resp as APIResponse<any>;
 
-  const failure = (Array.isArray(resp.data) ? resp.data : []).find((r: any) => r && r.success === false);
-  if (failure) return fail('DELETE_POD_ERROR', String(failure.error || 'Failed to delete pod'));
-
-  return { success: true, data: { id: podId, message: 'Pod deleted' } } as APIResponse<any>;
+  // The row survives until its pods are gone, so the honest word is "stopping".
+  return {
+    success: true,
+    data: { id: podId, message: resp.data?.note || 'Pod stopping' },
+  } as APIResponse<any>;
 }
