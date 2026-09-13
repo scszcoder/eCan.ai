@@ -202,6 +202,10 @@ class FleetClient:
             "capabilities": self.capabilities,
             "max_concurrent_tasks": self.capacity,
             "environment": self.environment,
+            # Which pool the reconciler spawned this pod for. Without it the
+            # server cannot tell a customer's pod from a hand-rolled one, and
+            # the GUI shows capacity belonging to no pod.
+            "pool_id": (os.getenv("ECAN_VEHICLE_POOL") or "").strip() or None,
         }
         payload.update({k: v for k, v in overrides.items() if v is not None})
         data = await self._post("vehicle_register", payload)
