@@ -8259,171 +8259,175 @@ def send_query_task_skill_relations_to_cloud(session, token, q_settings, endpoin
 # Vehicle Operations (missing remove and query)
 # ============================================================================
 
+# ---------------------------------------------------------------------------
+# Vehicle GraphQL strings
+#
+# These emit **camelCase** input fields. The SDL carries snake_case aliases
+# (add_snake_alias.js), so a snake_case payload passes validation -- but the
+# vehicle resolvers do not fold it back: ``addVehicles`` reads ``item.cpuCores``
+# directly (a snake key is silently dropped) and ``updateVehicles`` spreads the
+# input straight into Prisma (a snake key throws). There is no
+# VEHICLE_SNAKE_TO_CAMEL in the resolver the way AGENT and TASK have one.
+#
+# Callers still pass snake_case dicts, which is the convention everywhere else
+# in this file; the translation happens here.
+#
+# Reads are the other way round: ``withSnakeMirrors('Vehicle', rows)`` returns
+# both spellings, so the selection set below stays snake_case.
+# ---------------------------------------------------------------------------
+
+# (local snake_case key, cloud camelCase field)
+_VEHICLE_STR_FIELDS = (
+    ("name", "name"), ("description", "description"),
+    ("vehicle_type", "vehicleType"), ("status", "status"),
+    ("hostname", "hostname"), ("ip_address", "ipAddress"),
+    ("url", "url"), ("platform", "platform"),
+    ("architecture", "architecture"), ("environment", "environment"),
+    ("location", "location"), ("timezone", "timezone"),
+    ("security_level", "securityLevel"), ("access_token", "accessToken"),
+)
+_VEHICLE_NUM_FIELDS = (
+    ("port", "port"), ("cpu_cores", "cpuCores"), ("memory_gb", "memoryGb"),
+    ("storage_gb", "storageGb"),
+    ("max_concurrent_tasks", "maxConcurrentTasks"),
+    ("health_score", "healthScore"),
+)
+_VEHICLE_JSON_FIELDS = (
+    ("capabilities", "capabilities"), ("limitations", "limitations"),
+    ("settings", "settings"), ("extra_metadata", "extraMetadata"),
+    ("gpu_info", "gpuInfo"),
+)
+
+
+def gql_literal(value):
+    """Serialize *value* as a GraphQL literal.
+
+    Not the same as ``json.dumps``: GraphQL object keys are unquoted names, so
+    a JSON-encoded dict is a syntax error where a ``JSON`` scalar is expected.
+    Strings still go through ``json.dumps`` for escaping.
+
+    (The older vehicle code embedded JSON as a quoted *string* -- the AWSJSON
+    convention. CN declares these columns as the ``JSON`` scalar and stores
+    what it is given, so a quoted string would persist the literal text
+    ``'["a"]'`` rather than a list.)
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(gql_literal(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{k}: {gql_literal(v)}" for k, v in value.items()) + "}"
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def _vehicle_input_fields(v, only_present):
+    """Build the camelCase field list for one vehicle.
+
+    ``only_present`` is what separates add from update: add sends whatever it
+    has, update sends only the keys the caller actually set, so an omitted
+    field is left alone rather than blanked.
+    """
+    parts = []
+    for local, cloud in _VEHICLE_STR_FIELDS:
+        if (local in v) if only_present else v.get(local):
+            parts.append(f'{cloud}: {gql_literal(str(v.get(local) or ""))}')
+    for local, cloud in _VEHICLE_NUM_FIELDS:
+        if (local in v) if only_present else (v.get(local) is not None):
+            parts.append(f'{cloud}: {gql_literal(v.get(local))}')
+    for local, cloud in _VEHICLE_JSON_FIELDS:
+        if (local in v) if only_present else v.get(local):
+            parts.append(f'{cloud}: {gql_literal(v.get(local))}')
+    if v.get("ssl_enabled") is not None:
+        parts.append(f'sslEnabled: {gql_literal(bool(v.get("ssl_enabled")))}')
+    return parts
+
+
 def gen_add_vehicles_string(vehicles):
     """Generate GraphQL mutation string for adding vehicles
-    
-    New schema: addVehicles(input: [VehicleInput!]!): [VehicleMutationResult!]!
-    VehicleInput has: id, name (required), and many optional fields
+
+    Schema: addVehicles(input: [VehicleInput!]!): [VehicleMutationResult!]!
+    VehicleInput requires ``name``; ``owner`` is taken from the verified
+    identity when omitted, so it is only sent when the caller set it.
     """
-    query_string = """
-        mutation MyMutation {
-      addVehicles (input:[
-    """
-    rec_string = ""
-    for i, v in enumerate(vehicles):
-        rec_string += "{ "
+    records = []
+    for v in vehicles:
+        parts = []
         if v.get("id"):
-            rec_string += f'id: "{v.get("id")}", '
-        rec_string += f'name: "{v.get("name", "")}"'
-        if v.get("description"):
-            description = v.get("description", "").replace('"', '\\"').replace('\n', '\\n')
-            rec_string += f', description: "{description}"'
-        if v.get("vehicle_type"):
-            rec_string += f', vehicle_type: "{v.get("vehicle_type")}"'
-        if v.get("status"):
-            rec_string += f', status: "{v.get("status")}"'
-        if v.get("hostname"):
-            rec_string += f', hostname: "{v.get("hostname")}"'
-        if v.get("ip_address"):
-            rec_string += f', ip_address: "{v.get("ip_address")}"'
-        if v.get("port") is not None:
-            rec_string += f', port: {v.get("port")}'
-        if v.get("url"):
-            rec_string += f', url: "{v.get("url")}"'
-        if v.get("platform"):
-            rec_string += f', platform: "{v.get("platform")}"'
-        if v.get("architecture"):
-            rec_string += f', architecture: "{v.get("architecture")}"'
-        if v.get("environment"):
-            rec_string += f', environment: "{v.get("environment")}"'
-        if v.get("capabilities"):
-            caps = v.get("capabilities", {})
-            if isinstance(caps, dict):
-                caps = json.dumps(caps, ensure_ascii=False).replace('"', '\\"')
-            rec_string += f', capabilities: "{caps}"'
-        if v.get("settings"):
-            settings = v.get("settings", {})
-            if isinstance(settings, dict):
-                settings = json.dumps(settings, ensure_ascii=False).replace('"', '\\"')
-            rec_string += f', settings: "{settings}"'
-        rec_string += " }"
-        if i != len(vehicles) - 1:
-            rec_string += ', '
-        else:
-            rec_string += ']'
-    
-    query_string += rec_string
-    query_string += """
-        ) { id success error }
-    }
-    """
-    return query_string
+            parts.append(f'id: {gql_literal(str(v.get("id")))}')
+        if v.get("owner"):
+            parts.append(f'owner: {gql_literal(str(v.get("owner")))}')
+        parts.append(f'name: {gql_literal(str(v.get("name", "")))}')
+        parts.extend(
+            p for p in _vehicle_input_fields(v, only_present=False)
+            if not p.startswith("name: ")
+        )
+        records.append("{ " + ", ".join(parts) + " }")
+
+    return (
+        "mutation MyMutation {\n"
+        f"  addVehicles(input: [{', '.join(records)}]) {{ id success error }}\n"
+        "}"
+    )
 
 
 def gen_update_vehicles_new_string(vehicles):
     """Generate GraphQL mutation string for updating vehicles
-    
-    New schema: updateVehicles(input: [VehicleUpdateInput!]!): [VehicleMutationResult!]!
-    VehicleUpdateInput has: id (required), and many optional fields
+
+    Schema: updateVehicles(input: [VehicleUpdateInput!]!): [VehicleMutationResult!]!
+    ``id`` is required. ``owner`` is deliberately not sent -- the resolver
+    deletes it and scopes the update to the verified identity.
     """
-    query_string = """
-        mutation MyMutation {
-      updateVehicles (input:[
-    """
-    rec_string = ""
-    for i, v in enumerate(vehicles):
-        rec_string += "{ "
-        rec_string += f'id: "{v.get("id", "")}"'
-        if "name" in v:
-            rec_string += f', name: "{v.get("name", "")}"'
-        if "description" in v:
-            description = v.get("description", "").replace('"', '\\"').replace('\n', '\\n')
-            rec_string += f', description: "{description}"'
-        if "vehicle_type" in v:
-            rec_string += f', vehicle_type: "{v.get("vehicle_type", "")}"'
-        if "status" in v:
-            rec_string += f', status: "{v.get("status", "")}"'
-        if "hostname" in v:
-            rec_string += f', hostname: "{v.get("hostname", "")}"'
-        if "ip_address" in v:
-            rec_string += f', ip_address: "{v.get("ip_address", "")}"'
-        if "port" in v:
-            rec_string += f', port: {v.get("port")}'
-        if "url" in v:
-            rec_string += f', url: "{v.get("url", "")}"'
-        if "platform" in v:
-            rec_string += f', platform: "{v.get("platform", "")}"'
-        if "architecture" in v:
-            rec_string += f', architecture: "{v.get("architecture", "")}"'
-        if "environment" in v:
-            rec_string += f', environment: "{v.get("environment", "")}"'
-        if "capabilities" in v:
-            caps = v.get("capabilities", {})
-            if isinstance(caps, dict):
-                caps = json.dumps(caps, ensure_ascii=False).replace('"', '\\"')
-            rec_string += f', capabilities: "{caps}"'
-        if "settings" in v:
-            settings = v.get("settings", {})
-            if isinstance(settings, dict):
-                settings = json.dumps(settings, ensure_ascii=False).replace('"', '\\"')
-            rec_string += f', settings: "{settings}"'
-        rec_string += " }"
-        if i != len(vehicles) - 1:
-            rec_string += ', '
-        else:
-            rec_string += ']'
-    
-    query_string += rec_string
-    query_string += """
-        ) { id success error }
-    }
-    """
-    return query_string
+    records = []
+    for v in vehicles:
+        parts = [f'id: {gql_literal(str(v.get("id", "")))}']
+        parts.extend(_vehicle_input_fields(v, only_present=True))
+        records.append("{ " + ", ".join(parts) + " }")
+
+    return (
+        "mutation MyMutation {\n"
+        f"  updateVehicles(input: [{', '.join(records)}]) {{ id success error }}\n"
+        "}"
+    )
 
 
 def gen_remove_vehicles_string(removeOrders):
     """Generate GraphQL mutation string for removing vehicles
-    
-    New schema: removeVehicles(input: [ID!]!): [VehicleMutationResult!]!
-    Input is just an array of IDs
+
+    Schema: removeVehicles(ids: [ID!]!): [VehicleMutationResult!]!
+
+    The argument is ``ids``, not ``input``. This generator had no production
+    caller, so the mismatch never surfaced.
     """
-    # Extract IDs from removeOrders (can be list of strings or list of dicts)
     ids = []
     for item in removeOrders:
         if isinstance(item, str):
             ids.append(item)
         elif isinstance(item, dict):
             ids.append(item.get("id", item.get("vid", item.get("oid", ""))))
-    
-    ids_str = ', '.join([f'"{id}"' for id in ids])
-    
-    query_string = f'''
-        mutation MyMutation {{
-      removeVehicles (input: [{ids_str}]) {{ id success error }}
-    }}
-    '''
-    return query_string
+
+    ids_str = ", ".join(gql_literal(str(i)) for i in ids if i)
+    return (
+        "mutation MyMutation {\n"
+        f"  removeVehicles(ids: [{ids_str}]) {{ id success error }}\n"
+        "}"
+    )
 
 
-def gen_query_vehicles_string(q_settings):
-    """Generate GraphQL query string for querying vehicles
-    
-    New schema: queryVehicles(input: VehicleQueryInput): [Vehicle!]!
-    VehicleQueryInput has: id, name, description (all optional)
-    """
-    # Build input object based on q_settings
-    input_parts = []
-    if q_settings.get("id"):
-        input_parts.append(f'id: "{q_settings["id"]}"')
-    if q_settings.get("name"):
-        input_parts.append(f'name: "{q_settings["name"]}"')
-    if q_settings.get("description"):
-        input_parts.append(f'description: "{q_settings["description"]}"')
-    
-    input_str = ", ".join(input_parts) if input_parts else ""
-    
-    query_string = f'''query MyVehicleQuery {{
-  queryVehicles(input: {{ {input_str} }}) {{
+# Selection set for a vehicle read. snake_case because the resolver mirrors
+# every camelCase field to its snake spelling on the way out.
+#
+# The pod desired-state columns (lifecycle, idle_shutdown_minutes,
+# desired_replicas) are NOT here: they do not exist on the CN Vehicle type
+# yet, and naming one in a selection set fails the whole query with
+# GRAPHQL_VALIDATION_FAILED. They travel inside ``settings`` until the
+# columns land -- see ``gen_query_vehicles_string(..., with_pod_columns=True)``.
+_VEHICLE_SELECTION = """
     id
     owner
     name
@@ -8447,15 +8451,48 @@ def gen_query_vehicles_string(q_settings):
     extra_metadata
     max_concurrent_tasks
     health_score
+    last_heartbeat
     uptime_seconds
     timezone
     location
     security_level
     ssl_enabled
     access_token
-  }}
-}}'''
-    return query_string
+"""
+
+_VEHICLE_POD_COLUMNS = """    lifecycle
+    idle_shutdown_minutes
+    desired_replicas
+"""
+
+
+def gen_query_vehicles_string(q_settings, with_pod_columns=False):
+    """Generate GraphQL query string for querying vehicles
+
+    Schema: queryVehicles(input: VehicleQueryInput): [Vehicle!]!
+    VehicleQueryInput accepts ``id`` and ``owner`` only -- the resolver scopes
+    every read to the verified identity regardless, so ``owner`` narrows but
+    cannot widen.
+
+    ``with_pod_columns`` adds the pod desired-state columns to the selection.
+    Pass it only where a validation failure is handled as "this backend does
+    not have them yet".
+    """
+    input_parts = []
+    if q_settings.get("id"):
+        input_parts.append(f'id: {gql_literal(str(q_settings["id"]))}')
+    if q_settings.get("owner"):
+        input_parts.append(f'owner: {gql_literal(str(q_settings["owner"]))}')
+
+    selection = _VEHICLE_SELECTION
+    if with_pod_columns:
+        selection = selection + _VEHICLE_POD_COLUMNS
+
+    return (
+        "query MyVehicleQuery {\n"
+        f"  queryVehicles(input: {{ {', '.join(input_parts)} }}) {{{selection}  }}\n"
+        "}"
+    )
 
 
 @cloud_api(DataType.VEHICLE, Operation.DELETE)
@@ -8467,9 +8504,15 @@ def send_remove_vehicles_request_to_cloud(session, removes, token, endpoint, tim
 
 
 @cloud_api(DataType.VEHICLE, Operation.QUERY)
-def send_query_vehicles_request_to_cloud(session, token, q_settings, endpoint):
-    """Query Vehicle entities from cloud"""
-    queryInfo = gen_query_vehicles_string(q_settings)
+def send_query_vehicles_request_to_cloud(session, token, q_settings, endpoint,
+                                         with_pod_columns=False):
+    """Query Vehicle entities from cloud
+
+    ``with_pod_columns`` selects the pod desired-state columns as well. They do
+    not exist on every backend, and selecting a field a backend lacks fails the
+    whole query -- so only pass it where that failure is handled.
+    """
+    queryInfo = gen_query_vehicles_string(q_settings, with_pod_columns=with_pod_columns)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
     return safe_parse_response(jresp, "queryVehicles", "queryVehicles")
 

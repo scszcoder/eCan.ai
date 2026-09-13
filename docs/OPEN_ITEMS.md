@@ -10,6 +10,28 @@ _Last updated: 2026-09-04_
 
 ## 🔴 Bugs (unfixed)
 
+- **Pod desired state has no cloud columns — backend SDL gap (2026-09-13)**.
+  Pods are now cloud-backed (`save_pod`/`get_pods`/`delete_pod` read and write
+  `addVehicles`/`queryVehicles`/`removeVehicles`), but `lifecycle`,
+  `idle_shutdown_minutes` and `desired_replicas` exist on no cloud type —
+  not CN `Vehicle`/`VehicleInput`/`VehicleUpdateInput`
+  (`eCan_lambda/cn/tencent/cloudbase-graphql/scf/index.js:493,1198,1229`), and
+  AWS has no `VehicleInput` at all. Until they land, the client round-trips
+  them inside `settings.pod` and `_pod_view` reads column-first/blob-second, so
+  nothing is lost — but **the fleet scheduler cannot filter or index on
+  `desired_replicas`** while it is buried in a JSON blob.
+  **Backend ask**: add the three fields to `Vehicle`, `VehicleInput` and
+  `VehicleUpdateInput` plus the Prisma columns. The client needs no change —
+  `_query_pod_rows` probes for them once per process and switches over on its
+  own (`_is_missing_pod_columns`). Two adjacent gaps found while wiring it,
+  both backend-side: (a) there is no `VEHICLE_SNAKE_TO_CAMEL` fold in
+  `resolvers/entities.js` the way `AGENT`/`TASK` have one, so a snake_case
+  vehicle payload passes SDL validation and is then dropped by `addVehicles`
+  (reads `item.cpuCores`) or throws in `updateVehicles` (spreads into Prisma) —
+  the client now sends camelCase to work around this; (b) `VehicleQueryInput`
+  has no filter for `vehicleType`, so listing pods means fetching all of the
+  owner's vehicles (`take: 50`) and filtering client-side.
+
 - **Feige sidebar preview selector drift — cold-start row invisible to the
   backstop scan (2026-09-04, build 96s, customer 肽斯特)**. The rebuilt Feige
   frame no longer matches `[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span`,

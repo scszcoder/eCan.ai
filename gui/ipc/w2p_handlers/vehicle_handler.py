@@ -398,10 +398,15 @@ def handle_remove_bot_from_vehicle(request: IPCRequest, params: Optional[Dict[st
 # Pods — a vehicle the customer creates, sizes and pays for
 #
 # The handlers above manage the legacy machine registry (in-memory VEHICLE list
-# + vehicles JSON). A pod is not a discovered machine: it is a row in
-# agent_vehicles with vehicle_type='cloud' that the fleet scheduler places work
-# on. These handlers therefore go to the DB service, and deliberately leave the
-# machine handlers alone.
+# + vehicles JSON). A pod is not a discovered machine and it is not local: it
+# is a row in the CLOUD vehicles table that the fleet scheduler places work on.
+# The cloud is the source of truth — these handlers read and write it directly
+# and keep no local copy, so a pod created on one desktop is the same pod
+# everywhere the customer signs in. The machine handlers above are untouched.
+#
+# (The local agent_vehicles table still carries vehicle_type='cloud' rows, but
+# those are written by `vehicle_affinity.register_pod_vehicle` — a running pod
+# registering ITSELF on its own machine. Different producer, different box.)
 #
 # Desired state (lifecycle, desired_replicas) is what the customer sets;
 # observed state (status, last_heartbeat, health_score) is what the fleet
@@ -411,36 +416,142 @@ def handle_remove_bot_from_vehicle(request: IPCRequest, params: Optional[Dict[st
 
 POD_VEHICLE_TYPE = 'cloud'
 
+# The desired-state fields. They have no columns on the CN Vehicle type yet, so
+# they travel inside `settings` under this key. When the columns land, the
+# column wins and the blob becomes a fallback for rows written before the
+# migration — see `_pod_view`.
+POD_SETTINGS_KEY = 'pod'
+POD_DESIRED_FIELDS = ('lifecycle', 'idle_shutdown_minutes', 'desired_replicas')
 
-def _pod_service(request, params):
-    """The vehicle DB service, or None (with the reason logged)."""
+# None = not probed yet, True/False = this backend does/does not have the
+# columns. Probed once per process: a backend does not grow columns mid-session.
+_pod_columns_supported: Optional[bool] = None
+
+
+def _cloud_ctx() -> Optional[Dict[str, Any]]:
+    """{session, token, endpoint} from the running app, or None.
+
+    No owner: every pod call lets the server resolve it from the verified
+    identity, so the client never has to know which spelling of the id this
+    session's identity.sub happens to be.
+    """
     try:
-        from gui.ipc.context_bridge import get_ec_db_mgr
+        from agent.cloud_api.cloud_api import get_appsync_endpoint
 
-        ec_db_mgr = get_ec_db_mgr(request, params)
-        service = getattr(ec_db_mgr, 'vehicle_service', None)
-        if service is None:
-            logger.warning('[pods] vehicle_service is not available on ec_db_mgr')
-        return service
+        mainwin = AppContext.get_main_window()
+        if mainwin is None:
+            logger.warning('[pods] MainWindow not available')
+            return None
+
+        token = mainwin.get_auth_token()
+        if not token:
+            logger.warning('[pods] no auth token — not signed in')
+            return None
+
+        endpoint = (mainwin.getWanApiEndpoint()
+                    if hasattr(mainwin, 'getWanApiEndpoint') else None) or get_appsync_endpoint()
+        return {
+            'session': mainwin.session,
+            'token': token,
+            'endpoint': endpoint,
+        }
     except Exception as e:
-        logger.warning(f'[pods] could not reach the vehicle service: {e}')
+        logger.warning(f'[pods] could not build cloud context: {e}')
         return None
 
 
+def _is_missing_pod_columns(exc: Exception) -> bool:
+    """True when *exc* is the backend saying it has no pod columns.
+
+    A selection set naming a field the schema lacks fails the whole query with
+    GRAPHQL_VALIDATION_FAILED, so this has to be told apart from a real error
+    before falling back — otherwise every outage would look like an old schema.
+    """
+    msg = str(exc)
+    return ('VALIDATION' in msg.upper() or 'Cannot query field' in msg) and \
+        any(f in msg for f in POD_DESIRED_FIELDS)
+
+
+def _query_pod_rows(ctx: Dict[str, Any]) -> list:
+    """Every cloud vehicle of the signed-in owner's, pods and machines alike.
+
+    Tries the pod columns first and remembers the answer, so a backend that has
+    them is not punished with a doomed request on every call.
+    """
+    global _pod_columns_supported
+    from agent.cloud_api.cloud_api import send_query_vehicles_request_to_cloud
+
+    # Deliberately an empty input: the resolver scopes every read to the
+    # verified identity anyway, and passing an explicit owner is what returned
+    # "Cross-owner access is forbidden" for the WeChat account on 2026-09-08 --
+    # the identity.sub for that session matched neither the prefixed nor the
+    # bare openid. `queryAgents(input: {})` is the shape that works.
+    q: Dict[str, Any] = {}
+
+    if _pod_columns_supported is not False:
+        try:
+            rows = send_query_vehicles_request_to_cloud(
+                ctx['session'], ctx['token'], q, ctx['endpoint'], with_pod_columns=True)
+            _pod_columns_supported = True
+            return rows or []
+        except Exception as e:
+            if not _is_missing_pod_columns(e):
+                raise
+            _pod_columns_supported = False
+            logger.info('[pods] backend has no pod desired-state columns yet — '
+                        'reading them from settings instead')
+
+    rows = send_query_vehicles_request_to_cloud(
+        ctx['session'], ctx['token'], q, ctx['endpoint'])
+    return rows or []
+
+
 def _pod_view(row: Dict[str, Any]) -> Dict[str, Any]:
-    """One pod as the GUI needs it: desired state, observed state, and cost."""
+    """One pod as the GUI needs it: desired state, observed state, and cost.
+
+    Desired state is read column-first, blob-second. Both spellings of the
+    sized fields are accepted because the cloud mirrors camelCase to snake_case
+    on the way out and only one of them is guaranteed present.
+    """
     from agent.pod_sizing import estimate_pod_cost, normalize_lifecycle
 
-    cpu = row.get('cpu_cores') or 0
-    memory_gb = row.get('memory_gb') or 0
-    lifecycle = normalize_lifecycle(row.get('lifecycle'))
-    replicas = int(row.get('desired_replicas') or 1)
+    def _pick(*names, default=None):
+        for n in names:
+            if row.get(n) is not None:
+                return row.get(n)
+        return default
+
+    settings = row.get('settings') or {}
+    if isinstance(settings, str):
+        try:
+            import json as _json
+            settings = _json.loads(settings)
+        except Exception:
+            settings = {}
+    blob = settings.get(POD_SETTINGS_KEY) or {} if isinstance(settings, dict) else {}
+
+    def _desired(name, default=None):
+        value = row.get(name)
+        return blob.get(name, default) if value is None else value
+
+    cpu = _pick('cpu_cores', 'cpuCores', default=0)
+    memory_gb = _pick('memory_gb', 'memoryGb', default=0)
+    lifecycle = normalize_lifecycle(_desired('lifecycle'))
+    replicas = int(_desired('desired_replicas', 1) or 1)
 
     return {
         **row,
+        'id': row.get('id'),
+        'name': row.get('name'),
+        'status': row.get('status') or 'offline',
+        'cpu_cores': cpu,
+        'memory_gb': memory_gb,
+        'max_concurrent_tasks': _pick('max_concurrent_tasks', 'maxConcurrentTasks', default=1),
+        'last_heartbeat': _pick('last_heartbeat', 'lastHeartbeat'),
+        'health_score': _pick('health_score', 'healthScore'),
         'lifecycle': lifecycle,
         'desired_replicas': replicas,
-        'idle_shutdown_minutes': row.get('idle_shutdown_minutes'),
+        'idle_shutdown_minutes': _desired('idle_shutdown_minutes'),
         'capabilities': row.get('capabilities') or [],
         'cost': estimate_pod_cost(cpu, memory_gb, lifecycle=lifecycle, replicas=replicas),
     }
@@ -470,19 +581,34 @@ def _pod_limits() -> Dict[str, Any]:
 
 @IPCHandlerRegistry.handler('get_pods')
 def handle_get_pods(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """List this owner's pods, with sizes, costs and the caps that apply."""
+    """List this owner's pods, with sizes, costs and the caps that apply.
+
+    An unreachable cloud is an error, not an empty list. Pods live only in the
+    cloud, so returning [] would render as "you have no pods" and invite the
+    customer to create a second one alongside the pod they are already paying
+    for.
+    """
     try:
         from agent.pod_sizing import POD_SIZES
 
-        service = _pod_service(request, params)
-        pods = []
-        if service is not None:
-            result = service.query_vehicles()
-            rows = result.get('data', []) if isinstance(result, dict) and result.get('success') else []
-            pods = [
-                _pod_view(row) for row in rows
-                if isinstance(row, dict) and row.get('vehicle_type') == POD_VEHICLE_TYPE
-            ]
+        ctx = _cloud_ctx()
+        if ctx is None:
+            return create_error_response(
+                request, 'NO_CLOUD',
+                'Pods live in the cloud — sign in to see them')
+
+        try:
+            rows = _query_pod_rows(ctx)
+        except Exception as e:
+            logger.error(f'[pods] cloud read failed: {e}')
+            return create_error_response(
+                request, 'CLOUD_UNREACHABLE',
+                f'Could not reach the fleet to list pods: {e}')
+
+        pods = [
+            _pod_view(row) for row in rows
+            if isinstance(row, dict) and row.get('vehicle_type') == POD_VEHICLE_TYPE
+        ]
 
         limits = _pod_limits()
         return create_success_response(request, {
@@ -497,7 +623,7 @@ def handle_get_pods(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IP
 
 @IPCHandlerRegistry.handler('save_pod')
 def handle_save_pod(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Create or update a pod (upsert on id).
+    """Create or update a pod (upsert on id), in the cloud.
 
     Refuses rather than silently clamping: a customer who asked for four
     replicas and got one without being told would read the fleet as broken.
@@ -505,22 +631,24 @@ def handle_save_pod(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IP
     try:
         import uuid
 
+        from agent.cloud_api.cloud_api import (
+            send_add_vehicles_request_to_cloud, send_update_vehicles_decorated_to_cloud,
+        )
         from agent.placement import normalize_requires
         from agent.pod_sizing import normalize_lifecycle, size_by_id
-        from gui.ipc.context_bridge import get_username
 
         params = params or {}
         name = str(params.get('name') or '').strip()
         if not name:
             return create_error_response(request, 'INVALID_PARAMS', 'name is required')
 
-        service = _pod_service(request, params)
-        if service is None:
+        ctx = _cloud_ctx()
+        if ctx is None:
             return create_error_response(
-                request, 'NO_DB', 'The vehicle store is not available on this instance')
+                request, 'NO_CLOUD',
+                'Pods live in the cloud — sign in to create one')
 
         pod_id = str(params.get('id') or '').strip()
-        owner = str(params.get('owner') or get_username(request, params) or '')
 
         size = size_by_id(str(params.get('size_id') or '')) or {}
         cpu = params.get('cpu_cores', size.get('cpu'))
@@ -538,18 +666,29 @@ def handle_save_pod(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IP
 
         limits = _pod_limits()
         if not pod_id:
-            existing = service.query_vehicles()
-            rows = existing.get('data', []) if isinstance(existing, dict) and existing.get('success') else []
-            current = len([r for r in rows if isinstance(r, dict) and r.get('vehicle_type') == POD_VEHICLE_TYPE])
+            try:
+                rows = _query_pod_rows(ctx)
+            except Exception as e:
+                logger.error(f'[pods] cloud read failed during create: {e}')
+                return create_error_response(
+                    request, 'CLOUD_UNREACHABLE',
+                    f'Could not reach the fleet to create a pod: {e}')
+            current = len([r for r in rows if isinstance(r, dict)
+                           and r.get('vehicle_type') == POD_VEHICLE_TYPE])
             if current + 1 > limits['max_pods']:
                 return create_error_response(
                     request, 'POD_LIMIT_REACHED',
                     f"This account is limited to {limits['max_pods']} pods "
                     f"({current} already exist). The server enforces this limit.")
 
+        desired = {
+            'lifecycle': lifecycle,
+            'idle_shutdown_minutes': idle_minutes,
+            'desired_replicas': replicas,
+        }
+
         fields: Dict[str, Any] = {
             'name': name,
-            'owner': owner,
             'vehicle_type': POD_VEHICLE_TYPE,
             'description': params.get('description') or '',
             'cpu_cores': int(cpu) if cpu is not None else None,
@@ -557,25 +696,44 @@ def handle_save_pod(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IP
             'capabilities': normalize_requires(params.get('capabilities')),
             'max_concurrent_tasks': int(params.get('max_concurrent_tasks')
                                         or size.get('concurrency') or 1),
-            'lifecycle': lifecycle,
-            'idle_shutdown_minutes': idle_minutes,
-            'desired_replicas': replicas,
             'environment': params.get('environment') or 'production',
+            # Always written, whether or not the columns exist: it is what a
+            # backend without them reads back, and what a backend with them
+            # falls back to for rows written before the migration.
+            'settings': {POD_SETTINGS_KEY: desired},
         }
+        if _pod_columns_supported:
+            fields.update(desired)
 
-        if pod_id:
-            result = service.update_vehicle(pod_id, fields)
-        else:
-            pod_id = f"pod_{uuid.uuid4().hex[:12]}"
-            # A pod the customer just created has not been seen by the fleet
-            # yet; saying offline is the truth until it registers itself.
-            result = service.add_vehicle({'id': pod_id, 'status': 'offline', **fields})
+        try:
+            if pod_id:
+                result = send_update_vehicles_decorated_to_cloud(
+                    ctx['session'], [{'id': pod_id, **fields}], ctx['token'], ctx['endpoint'])
+            else:
+                pod_id = f"pod_{uuid.uuid4().hex[:12]}"
+                # A pod the customer just created has not been seen by the fleet
+                # yet; saying offline is the truth until it registers itself.
+                # owner is omitted on purpose: addVehicles resolves it from
+                # the verified identity, and asserting it client-side is what
+                # FORBIDDEN was about.
+                result = send_add_vehicles_request_to_cloud(
+                    ctx['session'],
+                    [{'id': pod_id, 'status': 'offline', **fields}],
+                    ctx['token'], ctx['endpoint'])
+        except Exception as e:
+            logger.error(f'[pods] cloud write failed: {e}')
+            return create_error_response(request, 'SAVE_POD_ERROR', str(e))
 
-        if isinstance(result, dict) and not result.get('success', True):
+        # addVehicles/updateVehicles report per-record success; a transport-level
+        # success with success:false is still a failed save.
+        failure = next((r for r in (result or []) if isinstance(r, dict)
+                        and not r.get('success', True)), None)
+        if failure:
             return create_error_response(
-                request, 'SAVE_POD_ERROR', str(result.get('error') or 'Failed to save pod'))
+                request, 'SAVE_POD_ERROR', str(failure.get('error') or 'Failed to save pod'))
 
-        logger.info(f"[pods] saved pod {pod_id} ({name}) lifecycle={lifecycle} replicas={replicas}")
+        logger.info(f"[pods] saved pod {pod_id} ({name}) lifecycle={lifecycle} "
+                    f"replicas={replicas} columns={_pod_columns_supported}")
         return create_success_response(request, {
             'pod': _pod_view({'id': pod_id, 'status': 'offline', **fields}),
             'message': 'Pod saved',
@@ -594,20 +752,31 @@ def handle_delete_pod(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
     requeued by the server's reaper rather than lost.
     """
     try:
+        from agent.cloud_api.cloud_api import send_remove_vehicles_request_to_cloud
+
         params = params or {}
         pod_id = str(params.get('id') or params.get('pod_id') or '').strip()
         if not pod_id:
             return create_error_response(request, 'INVALID_PARAMS', 'id is required')
 
-        service = _pod_service(request, params)
-        if service is None:
+        ctx = _cloud_ctx()
+        if ctx is None:
             return create_error_response(
-                request, 'NO_DB', 'The vehicle store is not available on this instance')
+                request, 'NO_CLOUD',
+                'Pods live in the cloud — sign in to delete one')
 
-        result = service.delete_vehicle(pod_id)
-        if isinstance(result, dict) and not result.get('success', True):
+        try:
+            result = send_remove_vehicles_request_to_cloud(
+                ctx['session'], [pod_id], ctx['token'], ctx['endpoint'])
+        except Exception as e:
+            logger.error(f'[pods] cloud delete failed: {e}')
+            return create_error_response(request, 'DELETE_POD_ERROR', str(e))
+
+        failure = next((r for r in (result or []) if isinstance(r, dict)
+                        and not r.get('success', True)), None)
+        if failure:
             return create_error_response(
-                request, 'DELETE_POD_ERROR', str(result.get('error') or 'Failed to delete pod'))
+                request, 'DELETE_POD_ERROR', str(failure.get('error') or 'Failed to delete pod'))
 
         logger.info(f"[pods] deleted pod {pod_id}")
         return create_success_response(request, {'id': pod_id, 'message': 'Pod deleted'})

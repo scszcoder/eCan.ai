@@ -9,7 +9,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Card, Empty, Popconfirm, Space, Spin, Tag, Tooltip, Typography, message } from 'antd';
+import { Alert, Button, Card, Empty, Popconfirm, Space, Spin, Tag, Tooltip, Typography, message } from 'antd';
 import { PlusOutlined, ReloadOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { IPCAPI } from '@/services/ipc/api';
@@ -87,6 +87,10 @@ const PodsPanel: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Pod | null>(null);
+  // Pods live only in the cloud, so a failed load is not an empty list. Showing
+  // the empty state here would tell a customer they have no pods while they are
+  // paying for one, and invite them to create a second.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,11 +99,14 @@ const PodsPanel: React.FC = () => {
       if (resp?.success && resp.data) {
         setPods(resp.data.pods || []);
         setLimits(resp.data.limits || null);
+        setLoadError(null);
       } else {
         logger.warn('[PodsPanel] failed to load pods:', resp?.error);
+        setLoadError(resp?.error?.message || 'Could not load pods.');
       }
     } catch (e) {
       logger.warn('[PodsPanel] failed to load pods:', e);
+      setLoadError(e instanceof Error ? e.message : 'Could not load pods.');
     } finally {
       setLoading(false);
     }
@@ -213,7 +220,19 @@ const PodsPanel: React.FC = () => {
       style={{ marginBottom: 12 }}
     >
       <Spin spinning={loading}>
-        {pods.length === 0 ? (
+        {loadError ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="Could not load your pods"
+            description={loadError}
+            action={
+              <Button size="small" onClick={load}>
+                Retry
+              </Button>
+            }
+          />
+        ) : pods.length === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description="No pods. Agents run on this machine until you create one."
