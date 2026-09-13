@@ -217,7 +217,12 @@ const Vehicles: React.FC = () => {
       await fetchVehicles(); // RefreshList
     } catch (error) {
       logger.error('[Vehicles] Failed to update vehicle status:', error);
-      message.error(t('pages.vehicles.statusUpdateFailed') || 'Failed to update status');
+      // Prefer what the backend said. A deliberate refusal — a pod answering
+      // POD_STATUS_IS_REPORTED, say — carries the reason and what to do
+      // instead, and replacing it with a generic "failed" discards the only
+      // part the reader can act on.
+      const detail = error instanceof Error ? error.message : '';
+      message.error(detail || t('pages.vehicles.statusUpdateFailed') || 'Failed to update status');
     }
   }, [username, updateVehicleStatus, fetchVehicles, t]);
 
@@ -230,7 +235,8 @@ const Vehicles: React.FC = () => {
       await fetchVehicles(); // RefreshList
     } catch (error) {
       logger.error('[Vehicles] Failed to set vehicle to maintenance:', error);
-      message.error(t('pages.vehicles.maintenanceFailed') || 'Failed to set maintenance status');
+      const detail = error instanceof Error ? error.message : '';
+      message.error(detail || t('pages.vehicles.maintenanceFailed') || 'Failed to set maintenance status');
     }
   }, [username, updateVehicleStatus, fetchVehicles, t]);
 
