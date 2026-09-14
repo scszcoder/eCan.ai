@@ -405,6 +405,29 @@ class StreamEvent(BaseModel):
 # Node Type Definitions
 # ============================================================
 
+# The generator works in its own vocabulary (browser_automation, mcp_tool,
+# pend_event) and the compiler accepts different strings for the same three
+# nodes. Translation therefore has to happen on EVERY path out of the agent.
+# It did not: _node_to_json() translated, _node_to_canvas_payload() emitted
+# node.type raw — and since the normal workflow is generate → canvas → save
+# from the canvas, the untranslated path is the one users take. The compiler
+# resolves an unknown type to `lambda state: state` with no log line, so those
+# nodes did nothing and nothing said so: 339 of them across my_skills.
+#
+# Authority for the right-hand side is `function_registry` in
+# agent/ec_skills/flowgram2langgraph.py.
+COMPILER_NODE_TYPES = {
+    "browser_automation": "browser-automation",
+    "pend_event": "pend_event_node",
+    "mcp_tool": "mcp",
+}
+
+
+def to_compiler_type(node_type: str) -> str:
+    """Internal node type -> the string the compiler actually dispatches on."""
+    return COMPILER_NODE_TYPES.get(node_type, node_type)
+
+
 NODE_TYPES = {
     "start": {
         "description": "Entry point of the workflow",

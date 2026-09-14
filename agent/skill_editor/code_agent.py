@@ -2513,7 +2513,9 @@ Continue the JSON output (do not include any text before the continuation):"""
     def _node_to_canvas_payload(self, node: FlowgramNode) -> Dict[str, Any]:
         """Convert a FlowgramNode to canvas command payload, handling loop and condition nodes."""
         payload = {
-            "nodeType": node.type,
+            # Translated, not raw: the canvas is what the user saves from, so an
+            # internal type leaking through here is what reaches the skill file.
+            "nodeType": to_compiler_type(node.type),
             "position": {"x": node.position.x, "y": node.position.y},
             "config": {
                 "id": node.id,

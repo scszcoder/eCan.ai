@@ -48,6 +48,7 @@ from .schemas import (
     NodePosition,
     NODE_TYPES,
     get_node_types_description,
+    to_compiler_type,
 )
 
 # Import sub-agents
@@ -4568,14 +4569,9 @@ class SkillEditorAgent:
     def _node_to_json(self, node: FlowgramNode) -> Dict[str, Any]:
         """Convert a FlowgramNode to JSON-serializable dict for skill file."""
         config = node.config or {}
-        # Map internal to UI canonical types
-        type_out = node.type
-        if type_out == "browser_automation":
-            type_out = "browser-automation"
-        if type_out == "pend_event":
-            type_out = "pend_event_node"
-        if type_out == "mcp_tool":
-            type_out = "mcp"
+        # Map internal to compiler-canonical types. Shared with the canvas
+        # path via schemas.to_compiler_type so the two cannot drift apart.
+        type_out = to_compiler_type(node.type)
 
         if type_out == "llm":
             config.setdefault("temperature", 0.3)
