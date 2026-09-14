@@ -103,6 +103,10 @@ class RequestLogAnalysisDialog(QDialog):
         # detail" loop (each round costs a server classifier call); the last
         # submitted text stops a resubmit of the same string.
         self._gate_rounds = 0
+        # Set when the gate returned 'incomplete' WITH an upload grant. Its
+        # presence is what turns the second click into a send rather than
+        # another round of questions.
+        self._warned_grant: dict = {}
         self._last_submitted: str | None = None
         self._grant: dict = {}
         self._setup_ui()
@@ -374,9 +378,18 @@ class RequestLogAnalysisDialog(QDialog):
                             else _t("rla_desc_too_short"))
             return
 
-        # Never auto-resubmit the same text: it just burns another classifier
-        # call and comes back with the same question.
+        # Same text again = the user read the question and chose to send anyway.
+        # The gate WARNS, it does not block: the payload of this report is the log
+        # bundle, and a thin description with full logs is still worth having. A
+        # customer who wrote something and was turned away simply does not file
+        # the next one. Only 'rejected' (empty / abuse) actually stops here.
         if self._last_submitted is not None and description == self._last_submitted:
+            if self._warned_grant:
+                self._start_upload(self._selected_skill_ids(), description,
+                                   list(self._attachments), self._warned_grant)
+                return
+            # No grant to proceed with (an older backend): re-asking the same text
+            # would just burn another classifier call for the same question.
             self._show_gate(_t("rla_gate_edit_required"))
             return
 
@@ -423,15 +436,19 @@ class RequestLogAnalysisDialog(QDialog):
                                 (result or {}).get("message") or _t("rla_gate_default_question"))
             return
 
-        # incomplete
+        # incomplete — warn, and keep the grant so the next click can proceed.
         self._gate_rounds += 1
+        self._warned_grant = (result or {}).get("grant") or {}
         question = (result or {}).get("question") or _t("rla_gate_default_question")
         if self._gate_rounds >= self._MAX_GATE_ROUNDS:
             # Cap reached — hand off rather than loop forever.
             QMessageBox.information(self, _t("rla_gate_title"), _t("rla_gate_exhausted"))
             self._show_gate(_t("rla_gate_exhausted"))
             return
-        self._show_gate(question)
+        # Say that it is optional. A question with no way past it reads as a
+        # refusal, which is exactly how a customer stops filing bug reports.
+        hint = "\n" + _t("rla_gate_send_anyway") if self._warned_grant else ""
+        self._show_gate(question + hint)
 
     def _on_validate_error(self, error: str):
         self._progress.hide()

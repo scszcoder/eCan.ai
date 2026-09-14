@@ -8,6 +8,7 @@ import { useUserStore } from '../../stores/userStore';
 import { useOrgStore } from '../../stores/orgStore';
 import { useAgentStore } from '../../stores/agentStore';
 import OrgDoor from './components/OrgDoor';
+import { seededOrgNameKey } from '../Orgs/defaultOrgNames';
 import AgentCard from './components/AgentCard';
 import { SkillFinder } from './components/SkillFinder';
 import './OrgNavigator.css';
@@ -746,6 +747,19 @@ const OrgNavigator: React.FC = () => {
 
               if (displayName.startsWith('pages.')) {
                 displayName = t(displayName) || displayName;
+              } else {
+                // The seeded departments are stored in the DB with English
+                // names, so a CN build showed "Sales" next to otherwise-Chinese
+                // UI. Translated by the template's stable id; a customer's own
+                // org — or one they renamed — has no key and keeps their name.
+                const seededKey = seededOrgNameKey(door.id, door.name);
+                if (seededKey) {
+                  const translated = t(seededKey);
+                  // i18next echoes a missing key back.
+                  if (translated && translated !== seededKey) {
+                    displayName = translated;
+                  }
+                }
               }
 
               // Display该组织及其All子组织的 agent 总数

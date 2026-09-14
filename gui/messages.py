@@ -59,6 +59,9 @@ class MenuMessages:
             'rla_gate_title': 'A bit more detail, please',
             'rla_gate_default_question': 'Could you add what you were doing when it happened, and what you saw on screen?',
             'rla_gate_edit_required': 'Please revise the description before sending again.',
+            # The gate warns; it does not block. Say so plainly, or the customer
+            # reads a question as a refusal and gives up on filing at all.
+            'rla_gate_send_anyway': 'Adding this helps, but it is optional — press Upload again to send as is.',
             'rla_gate_exhausted': 'We still need more detail to investigate. Please add what you were doing, what you expected, and what actually happened — or contact support directly.',
             'rla_gate_rejected_title': 'Report not sent',
             'sqlite_merge': 'SQLite Merge...',
@@ -235,6 +238,7 @@ class MenuMessages:
             'rla_gate_title': '请补充问题描述',
             'rla_gate_default_question': '能否补充一下：出现问题时您在做什么？屏幕上显示了什么？',
             'rla_gate_edit_required': '请先修改问题描述再重新提交。',
+            'rla_gate_send_anyway': '补充这些有助于排查，但不是必填 —— 再次点击「上传」即可直接提交。',
             'rla_gate_exhausted': '我们仍需要更多细节才能定位问题。请补充您当时的操作、期望的结果和实际发生的情况，或直接联系支持团队。',
             'rla_gate_rejected_title': '未提交',
             'sqlite_merge': 'SQLite 合并...',
