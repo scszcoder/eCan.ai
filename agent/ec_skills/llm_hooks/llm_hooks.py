@@ -586,14 +586,32 @@ def run_pre_llm_hook(node_name, agent, state, prompt_src="cloud", prompt_data=No
 # post llm is mostly about parsing the response and set up conditional variable for conditional edges (if there is one)
 def run_post_llm_hook(node_name, agent, state, response):
     try:
-        mainwin = agent.mainwin
-        skill_name = node_name.split(":")[1]
-        logger.debug("[LLM_POST_HOOKS] skill_name:", node_name, skill_name)
-        this_skill = next((sk for sk in mainwin.agent_skills if sk.name == skill_name), None)
-        if this_skill:
+        # `mainwin` is used ONLY to look up this skill's askid, and there is
+        # already a documented fallback when the skill is not found. Headless
+        # runtimes (the CN serving pod) have no main window, so `agent.mainwin`
+        # raised AttributeError, the whole hook was skipped, and the model's
+        # reply was never parsed into state["result"]["llm_result"].
+        #
+        # That failure is invisible and expensive: the reply was perfectly good
+        # ({"tool_name":"send_chat", ...}), but the conditional edge reads
+        # state["result"]["llm_result"].get("tool_name"), saw None, routed back
+        # to the LLM, and the skill looped until LangGraph's recursion limit —
+        # ~110 model calls, three minutes and real money for one "你好", with the
+        # turn still recorded as done. Observed on the CN pod 2026-09-14.
+        mainwin = getattr(agent, "mainwin", None) if agent is not None else None
+        parts = str(node_name).split(":")
+        skill_name = parts[1] if len(parts) > 1 else (parts[0] if parts else "")
+        logger.debug(f"[LLM_POST_HOOKS] skill_name: {node_name} {skill_name}")
+        askid = "skid0"
+        this_skill = None
+        if mainwin is not None:
+            this_skill = next((sk for sk in (getattr(mainwin, "agent_skills", None) or [])
+                               if getattr(sk, "name", None) == skill_name), None)
+        if this_skill is not None:
             askid = this_skill.askid
+        elif mainwin is None:
+            logger.info(f"[LLM_POST_HOOKS] no main window (headless); using default askid '{askid}'")
         else:
-            askid = "skid0"
             logger.warning(f"[LLM_POST_HOOKS] Skill '{skill_name}' not found in agent_skills, using default askid '{askid}'")
 
         # first run standard stuff, then then the individual func for a specific skill node.
