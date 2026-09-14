@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import OrgDoor from '../components/OrgDoor';
 import { DisplayNode } from '../../Orgs/types';
+import { seededOrgNameKey } from '../../Orgs/defaultOrgNames';
 
 /**
  * 组织门Render的Custom Hook
@@ -41,6 +42,19 @@ export function useOrgDoorRenderer(levelDoors: DisplayNode[], actualOrgId?: stri
 
       if (displayName.startsWith('pages.')) {
         displayName = t(displayName) || displayName;
+      } else {
+        // The seeded departments are stored in the DB with English names, so a
+        // CN build showed "Sales" beside otherwise-Chinese UI. Translated by
+        // the template's stable id; a customer's own org — or one they renamed
+        // — has no key and keeps the name they gave it.
+        const seededKey = seededOrgNameKey(door.id, door.name);
+        if (seededKey) {
+          const translated = t(seededKey);
+          // i18next echoes the key back when it is missing.
+          if (translated && translated !== seededKey) {
+            displayName = translated;
+          }
+        }
       }
 
       if (door.type === 'org_with_agents' && typeof door.agentCount === 'number') {

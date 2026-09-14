@@ -592,6 +592,15 @@
       }
     },
     "agents": {
+      "departments": {
+        "org_agent_resource_001": "Agent Resource",
+        "org_accounting_001": "Accounting",
+        "org_finance_001": "Finance",
+        "org_legal_001": "Legal",
+        "org_marketing_001": "Marketing",
+        "org_sales_001": "Sales",
+        "org_rnd_001": "Research and Development"
+      },
       "system_example_cannot_select": "System example cannot be selected",
       "add": "Add",
       "add_agent": "Add Agent",

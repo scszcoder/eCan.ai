@@ -624,6 +624,15 @@
       }
     },
     "agents": {
+      "departments": {
+        "org_agent_resource_001": "智能体资源",
+        "org_accounting_001": "会计",
+        "org_finance_001": "财务",
+        "org_legal_001": "法务",
+        "org_marketing_001": "市场",
+        "org_sales_001": "销售",
+        "org_rnd_001": "研发"
+      },
       "system_example_cannot_select": "系统示例不可选择",
       "add": "添加",
       "add_agent": "添加智能体",
