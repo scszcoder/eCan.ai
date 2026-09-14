@@ -238,13 +238,34 @@ jobs:
       # uploaded directly (bypassing the GHA artifact store). Failure
       # here is non-fatal: the renderer will fall back to local-file
       # sizes / "missing" markers.
+      #
+      # Self-hosted build jobs (ecan-windows-amd64 / ecan-macos-aarch64
+      # / ...) take the direct-upload fast path and never upload to the
+      # GHA artifact store, so the local download above is a guaranteed
+      # miss for those and we have to ask S3 for the size via HeadObject.
+      # Without this, the renderer falls back to "missing" for those
+      # rows and the run summary says "build reported success but no
+      # artifacts were found" (the symptom seen on ecan-macos-aarch64).
+      #
+      # GitHub-hosted runs also go through this step: their `*-installer`
+      # GHA artifact does exist, but the S3 probe simply 404s for those
+      # keys (the object is in GHA, not S3) and `render_download_links.py
+      # ::size_for` prefers the local-file size when both are present.
+      # Net effect on GitHub-hosted: one wasted HeadObject per arch,
+      # summary unchanged.
       - name: Resolve S3 object sizes (direct-upload fallback)
         id: s3-sizes
         if: >-
-          (inputs.windows-build-result == 'success' && inputs.windows-direct-upload == true)
+          (inputs.windows-build-result == 'success' && inputs.windows-direct-upload == true) ||
+          (inputs.macos-build-result == 'success' && (inputs.macos-built-amd64 == true || inputs.macos-built-aarch64 == true)) ||
+          (inputs.linux-result == 'success')
         env:
           EXPECTED: >-
             windows/amd64/${{ inputs.app-name }}-${{ inputs.version }}-windows-amd64-Setup.exe
+            macos/amd64/${{ inputs.app-name }}-${{ inputs.version }}-macos-amd64.pkg
+            macos/aarch64/${{ inputs.app-name }}-${{ inputs.version }}-macos-aarch64.pkg
+            linux/amd64/${{ inputs.app-name }}-${{ inputs.version }}-linux-amd64.deb
+            linux/amd64/${{ inputs.app-name }}-${{ inputs.version }}-linux-amd64.AppImage
         run: |
           set -euo pipefail
           S3_PREFIX="${OTA_PREFIX}"

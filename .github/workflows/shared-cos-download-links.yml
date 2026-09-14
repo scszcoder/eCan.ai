@@ -240,14 +240,23 @@ jobs:
             fi
           done
 
-      # When any build took the direct-upload fast path, the GHA
-      # artifact store does not have the file, so we have to ask COS for
-      # its real size via HeadObject. Without this step, the summary
-      # would show "(missing — check bucket)" for those rows. Even when
-      # the artifact IS in GHA, the local copy's size is authoritative
-      # for that row (render_download_links.py picks local over remote
-      # when both are present), so we only need the COS probe for
-      # direct-uploaded artifacts.
+      # Probe COS for every direct-uploaded artifact. The self-hosted
+      # build jobs (ecan-windows-amd64 / ecan-macos-aarch64 / ...) take
+      # the direct-upload fast path and never upload to the GHA artifact
+      # store, so the local download above is a guaranteed miss and we
+      # have to ask COS for the size via HeadObject. Without this, the
+      # renderer falls back to "missing" for those rows and the run
+      # summary says "build reported success but no artifacts were
+      # found" (the symptom in run #3360XXXXX on
+      # ecan-macos-aarch64).
+      #
+      # GitHub-hosted runs also go through this step: their `*-installer`
+      # GHA artifact does exist, but the COS probe simply 404s for those
+      # keys (the object is in GHA, not COS) and `render_download_links.py
+      # ::size_for` prefers the local-file size when both are present.
+      # Net effect on GitHub-hosted: one wasted HeadObject per arch,
+      # summary unchanged. Self-hosted: the only way the macOS / Linux
+      # rows get a non-missing source tag.
       #
       # Probing is best-effort: if the SDK is unavailable or auth fails,
       # the step warns and continues with empty sizes — the summary
@@ -255,10 +264,16 @@ jobs:
       - name: Resolve COS object sizes (direct-upload fallback)
         id: cos-sizes
         if: >-
-          (inputs.windows-build-result == 'success' && inputs.windows-direct-upload == true)
+          (inputs.windows-build-result == 'success' && inputs.windows-direct-upload == true) ||
+          (inputs.macos-build-result == 'success' && (inputs.macos-built-amd64 == true || inputs.macos-built-aarch64 == true)) ||
+          (inputs.linux-result == 'success')
         env:
           EXPECTED: >-
             windows/amd64/${{ inputs.app-name }}-${{ inputs.version }}-windows-amd64-Setup.exe
+            macos/amd64/${{ inputs.app-name }}-${{ inputs.version }}-macos-amd64.pkg
+            macos/aarch64/${{ inputs.app-name }}-${{ inputs.version }}-macos-aarch64.pkg
+            linux/amd64/${{ inputs.app-name }}-${{ inputs.version }}-linux-amd64.deb
+            linux/amd64/${{ inputs.app-name }}-${{ inputs.version }}-linux-amd64.AppImage
         run: |
           set -euo pipefail
           COS_PREFIX="${OTA_PREFIX}"
