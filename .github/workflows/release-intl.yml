@@ -2054,6 +2054,11 @@ jobs:
           prefer-system-node: 'true'
 
       - name: Install Linux system dependencies
+        # Self-hosted runners (ecan-linux-amd64) don't have passwordless sudo
+        # and provisioning is expected to pre-install these packages once.
+        # GitHub-hosted runners are disposable and re-install per job.
+        # Matches the gating pattern in setup-playwright (commit 763e0de19).
+        if: ${{ runner.environment == 'github-hosted' }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq gcc g++ make pkg-config libffi-dev libssl-dev
@@ -2066,6 +2071,9 @@ jobs:
           sudo apt-get install -y -qq upx-ucl
 
       - name: Install AppImage tools
+        # Self-hosted runners pre-install appimagetool once; see comment
+        # on "Install Linux system dependencies" above.
+        if: ${{ runner.environment == 'github-hosted' }}
         run: |
           # appimagetool moved from the deprecated AppImage/AppImageKit
           # repo to its own home at AppImage/appimagetool in 2024.
