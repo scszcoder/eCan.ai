@@ -1520,7 +1520,27 @@ def _load_prompt_data(selection: str, skill_owner: str = "") -> tuple[dict | Non
         (prompt_data, normalizer_module) - prompt_data is the raw prompt dict,
         normalizer_module has _normalize_prompt function
     """
-    # First, check if we're in cloud context
+    # CN first. This deliberately does NOT depend on a cloud prompt context
+    # being set: worker_main only sets one on the dev-mode path, so in a normal
+    # serving turn `cloud_ctx` is None and everything below was skipped straight
+    # to the local GUI loader — which a pod does not have. Env is the only
+    # precondition, and a pod always has it.
+    try:
+        _cn_first = _cn_prompt_from_graphql(selection, skill_owner)
+        if _cn_first:
+            from agent.cloud.cloud_prompt_loader import _normalize_prompt as _cn_norm
+
+            class _CNNormalizer:
+                @staticmethod
+                def _normalize_prompt(data, *, source, read_only, last_modified_ts):
+                    return _cn_norm(data, source=source, read_only=read_only,
+                                    last_modified_ts=last_modified_ts)
+
+            return _cn_first, _CNNormalizer
+    except Exception as _cn_exc:
+        logger.warning(f"[prompts] CN prompt path failed for '{selection}': {_cn_exc}")
+
+    # Then, check if we're in cloud context
     try:
         from agent.cloud.cloud_prompt_loader import (
             get_cloud_prompt_context,
@@ -1552,12 +1572,8 @@ def _load_prompt_data(selection: str, skill_owner: str = "") -> tuple[dict | Non
             
             if prompt_data:
                 return prompt_data, CloudNormalizer
-            # Nothing in the INTL store. Do NOT return here: returning (None, ...)
-            # short-circuited every fallback below, which is why a CN pod could
-            # never resolve a `pr-` reference. Try CN, then local.
-            cn_data = _cn_prompt_from_graphql(selection, effective_owner)
-            if cn_data:
-                return cn_data, CloudNormalizer
+            # Nothing in the INTL store. Do NOT return here: returning
+            # (None, normalizer) short-circuited every fallback below.
     except ImportError:
         pass  # Cloud loader not available
     except Exception as e:
