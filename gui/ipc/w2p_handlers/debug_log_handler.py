@@ -334,7 +334,9 @@ def validate_bug_description(description: str,
         "message": payload.get("message") or "",
         "grant": {},
     }
-    if status == "ok" and payload.get("uploadUrl") and payload.get("zipKey"):
+    # Also on "incomplete": the gate warns rather than blocks, so the server now
+    # issues the grant alongside its question and the caller can send anyway.
+    if payload.get("uploadUrl") and payload.get("zipKey"):
         result["grant"] = {
             "uploadUrl": payload["uploadUrl"],
             "zipKey": payload["zipKey"],
