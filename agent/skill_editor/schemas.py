@@ -423,6 +423,20 @@ COMPILER_NODE_TYPES = {
 }
 
 
+# Everything `function_registry` dispatches on, plus the structural types that
+# preprocessing consumes before a builder is ever reached. Mirrors
+# agent/ec_skills/flowgram2langgraph.py; eCan_lambda's skill_graph_validator
+# --check-registry reports drift between the two.
+COMPILER_ACCEPTED_TYPES = {
+    "llm", "basic", "code", "http", "loop", "condition", "mcp", "tool",
+    "event", "comment", "variable", "sheet-call", "pend_event_node",
+    "chat_node", "rag_node", "rag", "browser-automation", "task",
+    "tool-picker", "dummy",
+    # structural, handled by preprocessing
+    "start", "end", "block-start", "block-end", "group",
+}
+
+
 def to_compiler_type(node_type: str) -> str:
     """Internal node type -> the string the compiler actually dispatches on."""
     return COMPILER_NODE_TYPES.get(node_type, node_type)
