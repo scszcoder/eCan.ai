@@ -88,6 +88,19 @@ runs:
       shell: bash
       run: |
         echo "=== Creating Virtual Environment ==="
+        # `actions/setup-python@v6` is gated to github-hosted (see the step
+        # above), so on macOS / Linux self-hosted runners nothing has added a
+        # `python` symlink to PATH. Homebrew's `brew install python@3.12`
+        # only installs `python3` / `python3.12`, never a bare `python`. Probe
+        # `python` first (works on Windows self-hosted + GitHub-hosted Linux)
+        # and fall back to `python3` for macOS / Linux self-hosted runners.
+        if command -v python >/dev/null 2>&1; then
+          PY=python
+        else
+          PY=python3
+        fi
+        echo "Using Python launcher: $PY ($("$PY" -V 2>&1))"
+
         if [ "${{ inputs.platform }}" = "windows" ]; then
           VENV_PYTHON=".venv/Scripts/python.exe"
         else
@@ -99,7 +112,7 @@ runs:
         else
           echo "No usable venv found; creating fresh .venv"
           rm -rf .venv
-          python -m venv .venv
+          "$PY" -m venv .venv
         fi
 
         if [ "${{ inputs.platform }}" = "windows" ]; then
@@ -173,4 +186,15 @@ runs:
     - name: Uninstall pathlib if present
       shell: bash
       run: |
-        python -m pip uninstall -y pathlib || true
+        # Same `python` / `python3` probe as Create-and-activate: macOS
+        # self-hosted runners don't ship a `python` symlink. Note that after
+        # the venv step, `.venv/bin` is on PATH via $GITHUB_PATH and the venv
+        # has its own `python` symlink, so this would normally resolve fine;
+        # the explicit probe is defensive in case GITHUB_PATH propagation ever
+        # changes.
+        if command -v python >/dev/null 2>&1; then
+          PY=python
+        else
+          PY=python3
+        fi
+        "$PY" -m pip uninstall -y pathlib || true
