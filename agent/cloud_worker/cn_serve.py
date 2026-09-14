@@ -499,12 +499,21 @@ def _reply_text_from_state(result: Any) -> str:
     return ""
 
 
-def _turn_result(result: Any) -> dict:
+def _turn_result(result: Any, delivered: str = "") -> dict:
     """What the visitor should see for this turn.
 
-    The answer when the run produced one, the raw shape otherwise — a turn that
-    genuinely failed should still report why, rather than an empty bubble.
+    ``delivered`` is what the skill actually sent through ``send_chat``'s
+    serving lane, and it wins: it is the message the skill meant to deliver,
+    taken from the call itself rather than reconstructed.
+
+    Reading it back out of the final state stays as a fallback, for a reply sent
+    from a raw thread (which does not inherit the turn's context) and for a
+    skill that never calls send_chat at all. Failing both, the raw shape — a
+    turn that genuinely failed should still report why, rather than showing an
+    empty bubble.
     """
+    if isinstance(delivered, str) and delivered.strip():
+        return {"text": delivered.strip()}
     text = _reply_text_from_state(result)
     if text:
         return {"text": text}
@@ -546,6 +555,7 @@ def make_turn_handler(
         core = run_single_cn
 
     async def handle(item: str) -> None:
+        from agent.ec_skills.serving_reply import turn_replies
         from agent.ec_skills.usage_window import turn_usage
 
         turn = json.loads(item) if isinstance(item, str) else dict(item)
@@ -564,7 +574,9 @@ def make_turn_handler(
         # A window per turn, not a delta of a shared counter: turns overlap, and
         # a before/after read charges each of them for whatever its neighbours
         # spent in the same window.
-        with turn_usage() as usage:
+        # Two windows, both per turn and for the same reason: turns overlap, so
+        # anything process-wide lets one turn charge — or answer — for another.
+        with turn_usage() as usage, turn_replies() as replies:
             try:
                 result = await core(message)
             except Exception as exc:
@@ -575,7 +587,8 @@ def make_turn_handler(
                 raise
             else:
                 await _report(
-                    fleet, turn_id, status="done", result=_turn_result(result),
+                    fleet, turn_id, status="done",
+                    result=_turn_result(result, replies.text),
                     usage=usage.totals,
                 )
             finally:

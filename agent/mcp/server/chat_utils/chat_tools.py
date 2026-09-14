@@ -738,6 +738,52 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                 "timestamp": int(time.time() * 1000)
             }
         
+        # ---- Serving-turn lane -------------------------------------------
+        # A recipient agent is an A2A requirement, and this check used to run
+        # before any lane was chosen. On a serving turn the destination is the
+        # TURN, not an agent: a web visitor has no agent id, so the reply was
+        # rejected here and the answer never left the graph — the visitor saw
+        # the graph's interrupt instead of the sentence the model wrote.
+        #
+        # Deliberately narrow: only when there is no recipient at all AND a
+        # turn is open to collect it. A Feige reply names its recipient and
+        # never reaches this branch, so the off-DOM lanes below are untouched.
+        if not recipient_agent_id and not recipient_agent_name:
+            from agent.ec_skills.serving_reply import record_reply, serving_turn_active
+
+            if serving_turn_active():
+                _serving_payload = _live_chat_payload_from_message_text(message_text)
+                _serving_text = ""
+                if _serving_payload:
+                    _serving_text = str(
+                        _serving_payload.get("response_text")
+                        or _serving_payload.get("latest_message")
+                        or _serving_payload.get("last_message")
+                        or ""
+                    )
+                if not _serving_text and isinstance(message_text, str):
+                    # A skill that answers in prose rather than the live-chat
+                    # envelope still has something to say.
+                    _serving_text = message_text
+
+                if record_reply(_serving_text):
+                    _live_chat_ledger_send_chat(
+                        "serving_turn_reply",
+                        message_text,
+                        sender_agent_id=sender_agent_id,
+                        chat_id=chat_id,
+                    )
+                    logger.info(
+                        f"[send_chat] serving-turn reply collected "
+                        f"(len={len(_serving_text)}, chat={chat_id!r})"
+                    )
+                    return {
+                        "success": True,
+                        "lane": "serving_turn",
+                        "chat_id": chat_id,
+                        "timestamp": int(time.time() * 1000),
+                    }
+
         if not recipient_agent_id and not recipient_agent_name:
             return {
                 "success": False,
