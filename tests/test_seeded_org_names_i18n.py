@@ -19,7 +19,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / 'agent/ec_agents/organization_template.json'
 TS_MAP = ROOT / 'gui_v2/src/pages/Orgs/defaultOrgNames.ts'
-RENDERER = ROOT / 'gui_v2/src/pages/Agents/hooks/useOrgDoorRenderer.tsx'
+# The LIVE render site. `hooks/useOrgDoorRenderer.tsx` renders OrgDoor too and
+# looks like the right place — but it has no callers, and wiring it there
+# changed nothing on screen while this test passed. Assert against the file
+# that actually renders, and prove it is reachable.
+RENDERER = ROOT / 'gui_v2/src/pages/Agents/OrgNavigator.tsx'
+DEAD_HOOK = ROOT / 'gui_v2/src/pages/Agents/hooks/useOrgDoorRenderer.tsx'
 
 
 def _template_orgs() -> dict:
@@ -106,3 +111,38 @@ def test_the_renderer_uses_the_lookup():
     # i18next echoes a missing key back; translating to the key itself would
     # put "pages.agents.departments.org_sales_001" on the door.
     assert 'translated !== seededKey' in src
+
+
+def test_the_file_under_test_is_the_one_that_renders():
+    """The first cut patched a hook with no callers and nothing changed.
+
+    A test asserting "the renderer calls the lookup" is worthless if it is
+    pointed at a file nothing imports, so check reachability too.
+    """
+    src = RENDERER.read_text(encoding='utf-8')
+    assert '<OrgDoor' in src, 'RENDERER does not render OrgDoor'
+
+    root = ROOT / 'gui_v2/src'
+    stem = RENDERER.stem
+    importers = [
+        f for f in root.rglob('*.tsx')
+        if f != RENDERER and stem in f.read_text(encoding='utf-8')
+    ]
+    assert importers, f'nothing references {stem}; it would be dead code'
+
+
+def test_the_dead_hook_is_still_dead():
+    """Guard the trap rather than pretend it is gone.
+
+    useOrgDoorRenderer duplicates this logic and has no callers. If it ever
+    gains one, the two copies must be reconciled — or the CN names will differ
+    depending on which path renders.
+    """
+    root = ROOT / 'gui_v2/src'
+    callers = [
+        f for f in root.rglob('*.ts*')
+        if f != DEAD_HOOK and 'useOrgDoorRenderer' in f.read_text(encoding='utf-8')
+    ]
+    assert not callers, (
+        'useOrgDoorRenderer now has callers: ' + ', '.join(str(c) for c in callers) +
+        ' — reconcile it with OrgNavigator or delete one')
