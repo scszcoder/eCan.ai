@@ -66,6 +66,16 @@ function pickSenderId(): string {
   return storeUsername || 'anonymous';
 }
 
+/** HH:MM:SS in the viewer's locale. Seconds matter on this page: it exists to
+ *  watch how long a cloud turn actually takes. */
+function formatClock(ts: number): string {
+  try {
+    return new Date(ts).toLocaleTimeString(undefined, { hour12: false });
+  } catch {
+    return '';
+  }
+}
+
 function toLine(msg: A2AMessage): ChatLine | null {
   const part = msg?.message?.parts?.find((p) => p?.type === 'text');
   const text = (part?.text ?? '').toString();
@@ -290,15 +300,35 @@ const ChatTest: React.FC = () => {
                 style={{
                   alignSelf: l.role === 'user' ? 'flex-end' : 'flex-start',
                   maxWidth: '85%',
-                  padding: '8px 10px',
-                  borderRadius: 10,
-                  background: l.role === 'user' ? 'rgba(59, 130, 246, 0.35)' : 'rgba(148, 163, 184, 0.18)',
-                  color: 'rgba(255,255,255,0.92)',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: l.role === 'user' ? 'flex-end' : 'flex-start',
+                  gap: 2,
                 }}
               >
-                {l.text}
+                <div
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: 10,
+                    background: l.role === 'user' ? 'rgba(59, 130, 246, 0.35)' : 'rgba(148, 163, 184, 0.18)',
+                    color: 'rgba(255,255,255,0.92)',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {l.text}
+                </div>
+                {/* Testing here is mostly about LATENCY — a turn that takes 3s
+                    and one that takes 3 minutes look identical without a clock.
+                    Seconds are shown deliberately; minute precision hides
+                    exactly the gap worth seeing. `title` carries the full
+                    timestamp for when the date matters. */}
+                <span
+                  title={new Date(l.ts).toLocaleString()}
+                  style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', padding: '0 2px' }}
+                >
+                  {formatClock(l.ts)}
+                </span>
               </div>
             ))}
             {lines.length === 0 && (
