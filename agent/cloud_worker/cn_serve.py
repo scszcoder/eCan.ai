@@ -438,6 +438,79 @@ async def _heartbeat_turn(fleet, turn_id: str, interval: float) -> None:
             logger.warning(f"[cn_serve] turn heartbeat failed (non-fatal): {exc}")
 
 
+def _reply_text_from_state(result: Any) -> str:
+    """The visitor-facing answer, dug out of a parked run's final state.
+
+    A chat skill answers by calling ``send_chat`` and then loops back to
+    ``pend_event``, so the run's return value is the interrupt, not the reply —
+    reporting it verbatim puts a LangGraph state dump in the chat window, which
+    is what the test page showed.
+
+    Worse, ``send_chat`` is agent-to-agent: a web visitor has no agent id, so
+    the call fails with "Either recipient_agent_id or recipient_agent_name is
+    required" and the answer never leaves the graph. For a serving turn the
+    turn's own ``result`` IS the delivery channel, so the text is taken from the
+    message the skill tried to send.
+
+    Returns "" when there is no answer to report, which keeps the caller's
+    existing behaviour rather than inventing one.
+    """
+    cp = result.get("cp") if isinstance(result, dict) else None
+    values = getattr(cp, "values", None)
+    if not isinstance(values, dict):
+        return ""
+
+    def _texts():
+        """Newest assistant message first."""
+        for key in ("history", "prompts"):
+            for msg in reversed(values.get(key) or []):
+                content = getattr(msg, "content", None)
+                if isinstance(content, str) and content.strip():
+                    yield content
+
+    for content in _texts():
+        try:
+            payload = json.loads(content)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+
+        # The send_chat envelope: tool_input.input.message is itself JSON.
+        inner = (((payload.get("tool_input") or {}).get("input") or {}).get("message"))
+        if isinstance(inner, str) and inner.strip():
+            try:
+                body = json.loads(inner)
+            except Exception:
+                body = None
+            if isinstance(body, dict):
+                text = body.get("response_text") or body.get("text") or ""
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+            else:
+                return inner.strip()
+
+        # A skill that answers in plain prose rather than a tool call.
+        for key in ("response_text", "answer", "text"):
+            text = payload.get(key)
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+
+    return ""
+
+
+def _turn_result(result: Any) -> dict:
+    """What the visitor should see for this turn.
+
+    The answer when the run produced one, the raw shape otherwise — a turn that
+    genuinely failed should still report why, rather than an empty bubble.
+    """
+    text = _reply_text_from_state(result)
+    if text:
+        return {"text": text}
+    return _json_safe_result(result)
+
+
 def _json_safe_result(result: Any) -> dict:
     """A turn result the server can store as jsonb.
 
@@ -502,7 +575,7 @@ def make_turn_handler(
                 raise
             else:
                 await _report(
-                    fleet, turn_id, status="done", result=_json_safe_result(result),
+                    fleet, turn_id, status="done", result=_turn_result(result),
                     usage=usage.totals,
                 )
             finally:
