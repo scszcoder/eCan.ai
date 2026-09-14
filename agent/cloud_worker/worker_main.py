@@ -875,10 +875,19 @@ def _auto_resume_pend_event(task: Any, response: Any, msg: "WorkerMessage") -> D
     resumed = execute_task_hybrid(task, Command(resume=resume_payload), use_async=True)
 
     if _interrupted_at_pend_event(resumed):
-        # Parked again: the skill wants a second event this turn, which a
-        # request/response turn has no way to supply. Say so rather than
-        # reporting a silent success.
-        logger.warning("[worker] still parked after auto-resume; the skill expects another event")
+        # Parked again at the loop's own pend_event. For a chat skill this is
+        # the NORMAL steady state, not a failure: the loop answered, looped, and
+        # is waiting for the visitor's next message — observed on the first
+        # green turn (1568in/80out), where the body ran llm -> condition -> llm
+        # -> send_chat before coming back here. Logging it as a warning would
+        # put a warning on every successful turn.
+        #
+        # The honest distinction is whether the model was asked at all, and the
+        # turn's own token count already says that: 0in/0out means it was not.
+        logger.info(
+            "[worker] answered and parked again at pend_event — waiting for the "
+            "next message in this conversation"
+        )
     return resumed
 
 
