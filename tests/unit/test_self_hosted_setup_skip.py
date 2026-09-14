@@ -203,8 +203,60 @@ def test_frontend_node_modules_is_not_cached(workflow: Path):
 
 
 def test_frontend_dependencies_are_always_clean_installed():
+    """setup-node-env must always do a clean install (no reusing the
+    runner's previous node_modules), AND it must detect whether the
+    lockfile is part of the project's contract (tracked vs gitignored)
+    so a stale lockfile from a previous build cannot trip `npm ci`.
+
+    Background: gui_v2/.gitignore lists package-lock.json — any
+    lockfile on the self-hosted runner is leftover state from a
+    previous build, not a build contract. Trusting it caused
+    commit 78f12e10e to break Linux CI with:
+
+      npm ci can only install packages when your package.json and
+      package-lock.json ... are in sync.
+      Missing: @babel/core@7.29.7 from lock file
+
+    wabaileys-bridge commits its lockfile — that project keeps
+    `npm ci` for reproducibility.
+    """
     text = _read(SETUP_NODE_ENV)
-    assert "npm ci --legacy-peer-deps" in text
+    # The two install paths must coexist (USE_CI branch + fallback
+    # branch). The fallback branch's "rm -rf node_modules" is the
+    # clean-install guarantee for both branches.
+    assert "npm ci --legacy-peer-deps" in text, (
+        "setup-node-env must keep the `npm ci` path for projects "
+        "that commit package-lock.json (e.g. wabaileys-bridge)"
+    )
+    assert "rm -rf node_modules" in text, (
+        "setup-node-env must clean node_modules before installing "
+        "in the non-ci branch (gitignored-lockfile path)"
+    )
+
+
+def test_frontend_dependencies_detect_gitignored_lockfile():
+    """When package-lock.json is gitignored (e.g. gui_v2), the action
+    must skip `npm ci` and use `npm install` instead. Otherwise a
+    stale lockfile on a persistent self-hosted runner trips EUSAGE.
+
+    The detection uses `git check-ignore` (cwd-relative). Pin that
+    contract here so a future refactor that switches to absolute
+    paths or a different ignore-detection tool gets caught before
+    shipping as a CI regression.
+    """
+    text = _read(SETUP_NODE_ENV)
+    assert "git check-ignore package-lock.json" in text, (
+        "setup-node-env must detect gitignored package-lock.json "
+        "via `git check-ignore package-lock.json` (cwd-relative). "
+        "Without this branch, a stale lockfile on a self-hosted "
+        "runner trips `npm ci` with EUSAGE whenever package.json "
+        "drifts (see 78f12e10e)."
+    )
+    # USE_CI branch control — must drive both install paths.
+    assert "USE_CI" in text, (
+        "setup-node-env must drive `npm ci` vs `npm install` via "
+        "a USE_CI variable controlled by the gitignore check"
+    )
 
 
 def test_frontend_caches_only_npm_downloads():
