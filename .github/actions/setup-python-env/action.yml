@@ -33,6 +33,17 @@ runs:
   using: 'composite'
   steps:
     - name: Set up Python ${{ inputs.python-version }}
+      # Self-hosted runners (ecan-macos-aarch64, ecan-windows-amd64, ...) are
+      # expected to pre-install the matching Python version once at provisioning
+      # time. actions/setup-python@v6 writes to a hardcoded default toolcache
+      # directory that the runner service user (e.g. `xinhu` on macOS) cannot
+      # create (e.g. `/Users/runner/hostedtoolcache`), failing with:
+      #   Error: mkdir: /Users/runner: Permission denied
+      #   Error: The process '/bin/bash' failed with exit code 1
+      # GitHub-hosted runners are disposable and re-install per job, so the
+      # action still runs there. Same gating pattern as the Linux sudo fix
+      # (0052b0e26).
+      if: ${{ runner.environment == 'github-hosted' }}
       uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
