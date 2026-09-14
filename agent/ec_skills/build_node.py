@@ -1451,6 +1451,60 @@ STANDARD_SYS_PROMPT = "You are a helpful AI assistant."
 BROWSER_AUTOMATION_SYS_PROMPT = "You are a helpful browser automation agent."
 
 
+def _cn_prompt_from_graphql(selection: str, owner: str = "") -> dict | None:
+    """Fetch one prompt from the CN GraphQL API using only the pod's own env.
+
+    The DynamoDB loader below is the INTL path. CN prompts live in CloudBase
+    Postgres and are served by `queryPrompts`, and the serving pod already holds
+    both things needed to ask for them — ECAN_CN_GRAPHQL_ENDPOINT and
+    ECAN_TCB_ACCESS_TOKEN. Without this, a `pr-` reference could not resolve in a
+    pod at all: the prompt fell back to the node's inline stub, the model was
+    never told to emit a tool call, and the skill looped instead of answering
+    (2026-09-14).
+
+    Deliberately uses urllib and env only — no Settings, no main window, nothing
+    a headless runtime lacks.
+    """
+    endpoint = str(os.getenv("ECAN_CN_GRAPHQL_ENDPOINT") or "").strip()
+    token = str(os.getenv("ECAN_TCB_ACCESS_TOKEN") or "").strip()
+    if not endpoint or not token or not selection:
+        return None
+    import json as _json
+    import urllib.request as _urlreq
+    query = ("query QueryPrompts($input: PromptQueryInput) { "
+             "queryPrompts(input: $input) { id owner prompt version } }")
+    variables = {"input": {"id": selection}}
+    if owner:
+        variables["input"]["owner"] = owner
+    try:
+        req = _urlreq.Request(
+            endpoint,
+            data=_json.dumps({"query": query, "variables": variables}).encode("utf-8"),
+            headers={"Content-Type": "application/json",
+                     "Authorization": token if token.lower().startswith("bearer ") else f"Bearer {token}"},
+            method="POST",
+        )
+        with _urlreq.urlopen(req, timeout=15) as resp:
+            payload = _json.loads(resp.read().decode("utf-8"))
+        items = ((payload.get("data") or {}).get("queryPrompts")) or []
+        if not items:
+            logger.info(f"[prompts] CN GraphQL returned no prompt for '{selection}' (owner={owner or 'any'})")
+            return None
+        rawp = items[0].get("prompt")
+        pdata = _json.loads(rawp) if isinstance(rawp, str) else rawp
+        if isinstance(pdata, str):
+            pdata = _json.loads(pdata)
+        if not isinstance(pdata, dict):
+            return None
+        pdata.setdefault("id", selection)
+        logger.info(f"[prompts] loaded '{selection}' from CN GraphQL "
+                    f"({len(str(pdata.get('mdContent') or ''))} chars of mdContent)")
+        return pdata
+    except Exception as exc:
+        logger.warning(f"[prompts] CN GraphQL prompt fetch failed for '{selection}': {exc}")
+        return None
+
+
 def _load_prompt_data(selection: str, skill_owner: str = "") -> tuple[dict | None, Any]:
     """
     Load prompt data either from cloud (DynamoDB) or local (GUI prompt_handler).
@@ -1496,7 +1550,14 @@ def _load_prompt_data(selection: str, skill_owner: str = "") -> tuple[dict | Non
                 def _normalize_prompt(data, *, source, read_only, last_modified_ts):
                     return cloud_normalize_prompt(data, source=source, read_only=read_only, last_modified_ts=last_modified_ts)
             
-            return prompt_data, CloudNormalizer
+            if prompt_data:
+                return prompt_data, CloudNormalizer
+            # Nothing in the INTL store. Do NOT return here: returning (None, ...)
+            # short-circuited every fallback below, which is why a CN pod could
+            # never resolve a `pr-` reference. Try CN, then local.
+            cn_data = _cn_prompt_from_graphql(selection, effective_owner)
+            if cn_data:
+                return cn_data, CloudNormalizer
     except ImportError:
         pass  # Cloud loader not available
     except Exception as e:
