@@ -10,6 +10,70 @@ _Last updated: 2026-09-04_
 
 ## 🔴 Bugs (unfixed)
 
+### Cloud skill serving / customer-chat demo (2026-09-14)
+
+Working end to end — see `docs/CLOUD_SKILL_SERVING_POSTMORTEM.md`. These are
+what is left, roughly in the order they are worth doing.
+
+- **The skill runs a classifier LLM before answering** — `{"needs_rag": false,
+  "category": "greeting"}`, 1568 input tokens, ~1.5-2.5s, on **every** turn
+  including 你好. That is ~75% of a warm 6-7s turn. **Prompt change, owner's
+  side**: skip the classifier for short greetings or fold the routing into the
+  answer call. Biggest single latency win available.
+- **The reply envelope carries literal `<customer_id>` / `<customer_name>`
+  placeholders** — nothing substitutes them on the serving path, so the skill
+  still believes it is talking to Feige. Harmless to the visible reply (the
+  serving lane reads `response_text`), but wrong. Either drop them for web or
+  have the runtime fill them from the turn, which knows `owner` and
+  `conversationId`.
+- **`send_chat` still fails on the A2A lane for skills that name a recipient
+  that does not exist on this path.** The serving lane only triggers when there
+  is NO recipient. A skill that hardcodes one still errors.
+- **Orphaned Python pod handlers still point at the wrong table.**
+  `get_pods`/`save_pod`/`delete_pod` in `gui/ipc/w2p_handlers/vehicle_handler.py`
+  plus the `agent/cloud_api` vehicle generators use `queryVehicles`/`addVehicles`
+  — the OBSERVED-state `vehicles` table that `c4079271a` moved the client off.
+  Nothing calls them today (`IPCAPI.getPods` routes to `callAccountManager`), so
+  they are inert, but anything that calls them again writes a pod no Deployment
+  is built from. ~200 lines plus the now-pointless `isWeb()` branch in
+  `podService.ts`. **Removal agreed in principle, not done.**
+- **`langgraph-checkpoint-postgres` is in no `requirements-*.txt`**, so
+  `ECAN_CHECKPOINTER=postgres` raises `CheckpointerUnavailable` at import and the
+  pods run `ECAN_SERVE_ALLOW_EPHEMERAL=1` — in-flight conversations die with the
+  pod. One line, client-side. Does not block today because a serving turn
+  resumes inside a single call and never needs the checkpoint to outlive the pod.
+- **Each pod has its own skill cache and its own cold start**, so N pods means N
+  first-turn misses (measured: turn 2 of 4 was a miss because it landed on the
+  other pod). Argues for sticky routing by conversation — `vehicleHint` already
+  exists on the turn.
+- **A serving pod imports the whole desktop agent stack** — browser-use with 53
+  registered actions, the Feige hook bundle, the IPC registry — to answer a text
+  message. ~14s of the cold start. Irrelevant for long-lived pods; becomes
+  per-wake cost if `on_demand` pods that scale to zero are ever used.
+- **The pod cannot push node-status updates**: `[IPCAPI] No WebSocket manager
+  available, dropping push: update_skill_run_stat`. A live chat UI will not
+  stream progress even though the answer works.
+- **`[HYBRID] Async execution failed, falling back to sync`** fires on every
+  turn. Working, but the fallback is not free and the message suggests it is not
+  intended.
+- **No `turn_get` read action** on ecbAccountManager (only enqueue/claim/
+  heartbeat/done/route/send), so a turn's stored `result` cannot be verified
+  server-side — only inferred from pod logs. Backend-side.
+- **`tests/test_skill_e2e_resume.py` fails collection outright** — it hardcodes
+  `\Users\liuqiang\WorkSpace\ecan\eCan.ai` at line 29. Pre-existing, breaks
+  any pytest run that includes it.
+- **10 pre-existing Feige test failures**, verified unrelated to this work by
+  re-running with the changes reverted: 5 in `test_direct_feige_delivery_worker`
+  (the local `resolve_target()` stub does not accept the `customer_key` argument
+  production passes) and 5 across `test_feige_send_lock` /
+  `test_feige_turn_metadata` / `test_feige_flood_hardening`.
+- **CVM disk at 90%** (7.7 GB free). Each worker image is ~6 GB. The two real
+  consumers are `~/html/workbench` (11 GB) and `.vscode-server` (5.8 GB).
+- **GitHub is unreliable from the CVM** — `expected flush after ref listing`,
+  and connect timeouts after 135s. Dangerous because `git merge --ff-only` then
+  reports "Already up to date" against a stale ref and the build tags a SHA it
+  does not contain. No Gitee mirror is configured on that checkout.
+
 - **Pod desired state has no cloud columns — backend SDL gap (2026-09-13)**.
   Pods are now cloud-backed (`save_pod`/`get_pods`/`delete_pod` read and write
   `addVehicles`/`queryVehicles`/`removeVehicles`), but `lifecycle`,
