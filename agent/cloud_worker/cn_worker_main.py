@@ -34,6 +34,7 @@ import os
 import shutil
 import signal
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -102,6 +103,93 @@ def _prompt_from_test_inputs(test_inputs: Any) -> str:
         if isinstance(text, str) and text.strip():
             return text
     return json.dumps(test_inputs, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# Per-pod skill cache
+#
+# A serving pod answers the same task over and over, and re-fetched the task
+# record, its skill, and re-materialised the skill folder on EVERY turn —
+# measured at ~0.8s of a ~2.8s warm setup, plus two network round trips to
+# CloudBase that can fail.
+#
+# Cached per (owner, task_id) with a TTL rather than forever: a customer who
+# edits a skill in the desktop app expects the pod to pick it up, and a pod can
+# live for days. The TTL is the whole staleness story — there is no
+# invalidation signal from the backend to subscribe to, so the honest design is
+# a short window, not a clever one.
+#
+# Deliberately NOT cached: the compiled graph. Reusing one across turns would
+# share whatever its nodes captured, and a wrong answer delivered to the wrong
+# visitor is worse than a slow one. The ~1.2s that costs is left on the table.
+# ---------------------------------------------------------------------------
+
+def _skill_cache_ttl() -> float:
+    """Seconds a cached skill stays usable. 0 disables the cache entirely."""
+    try:
+        return float(os.environ.get("ECAN_SKILL_CACHE_TTL") or 300.0)
+    except (TypeError, ValueError):
+        return 300.0
+
+
+class _CachedSkill:
+    """One task's fetched records and its materialised folder."""
+
+    __slots__ = ("task", "skill", "skill_root", "work_dir", "fetched_at")
+
+    def __init__(self, task, skill, skill_root, work_dir):
+        self.task = task
+        self.skill = skill
+        self.skill_root = skill_root
+        self.work_dir = work_dir
+        self.fetched_at = time.time()
+
+    def fresh(self) -> bool:
+        ttl = _skill_cache_ttl()
+        if ttl <= 0:
+            return False
+        if time.time() - self.fetched_at > ttl:
+            return False
+        # The folder is on disk and something else may have cleaned /tmp.
+        try:
+            return Path(self.skill_root).exists()
+        except Exception:
+            return False
+
+
+_skill_cache: Dict[str, _CachedSkill] = {}
+_skill_cache_lock = threading.Lock()
+
+
+def _skill_cache_get(key: str) -> Optional[_CachedSkill]:
+    with _skill_cache_lock:
+        entry = _skill_cache.get(key)
+    if entry is None:
+        return None
+    if entry.fresh():
+        return entry
+    # Stale: drop it and let the caller re-fetch. Its folder goes too, but only
+    # after the caller has finished with it -- see _skill_cache_put.
+    with _skill_cache_lock:
+        if _skill_cache.get(key) is entry:
+            _skill_cache.pop(key, None)
+    shutil.rmtree(entry.work_dir, ignore_errors=True)
+    return None
+
+
+def _skill_cache_put(key: str, entry: _CachedSkill) -> None:
+    with _skill_cache_lock:
+        previous = _skill_cache.get(key)
+        _skill_cache[key] = entry
+    if previous is not None and previous.work_dir != entry.work_dir:
+        shutil.rmtree(previous.work_dir, ignore_errors=True)
+
+
+def _skill_cache_holds(key: str, work_dir) -> bool:
+    """True when the cache still owns *work_dir*, so the turn must not delete it."""
+    with _skill_cache_lock:
+        entry = _skill_cache.get(key)
+    return entry is not None and entry.work_dir == work_dir
 
 
 def _materialize_diagram_skill(skill: Dict[str, Any], work_dir: Path) -> Path:
@@ -208,11 +296,17 @@ async def run_single_cn(message_json: str) -> Optional[Dict[str, Any]]:
     started = time.time()
     logger.info(f"[cn_worker] run {run_id}: owner={msg.owner_id} task={msg.task_id}")
 
-    task = await client.get_task(msg.task_id)
-    skills = await client.get_task_skills(msg.task_id)
-    if not skills:
-        raise CNBackendError(f"Task {msg.task_id} has no linked skills (agent_task_skill_rels)")
-    skill = skills[0]
+    cache_key = f"{msg.owner_id}/{msg.task_id}"
+    cached = _skill_cache_get(cache_key)
+    if cached is not None:
+        task, skill = cached.task, cached.skill
+        logger.info(f"[cn_worker] run {run_id}: skill from cache (task={msg.task_id})")
+    else:
+        task = await client.get_task(msg.task_id)
+        skills = await client.get_task_skills(msg.task_id)
+        if not skills:
+            raise CNBackendError(f"Task {msg.task_id} has no linked skills (agent_task_skill_rels)")
+        skill = skills[0]
     skill_id = str(skill.get("id") or "")
     skill_name = str(skill.get("name") or "")
 
@@ -247,9 +341,12 @@ async def run_single_cn(message_json: str) -> Optional[Dict[str, Any]]:
         event_type="run_started", payload={**base_payload, "status": "running"},
     )
 
-    work_dir = Path(tempfile.mkdtemp(prefix=f"cn_skill_{run_id}_"))
+    reused = cached is not None
+    work_dir = cached.work_dir if reused else Path(tempfile.mkdtemp(prefix=f"cn_skill_{run_id}_"))
     try:
-        if _diagram_has_nodes(skill):
+        if reused:
+            skill_root = cached.skill_root
+        elif _diagram_has_nodes(skill):
             skill_root = _materialize_diagram_skill(skill, work_dir)
         else:
             skill_root = await _materialize_cos_skill(client, skill, work_dir)
@@ -258,6 +355,10 @@ async def run_single_cn(message_json: str) -> Optional[Dict[str, Any]]:
         from agent.cloud_worker.worker_main import WorkerMessage, _find_skill_folder, _run_skill_once
 
         skill_root = _find_skill_folder(skill_root)
+        if not reused:
+            # Cached only after the folder has been resolved, so a later turn
+            # reuses the path that actually loaded rather than the staging dir.
+            _skill_cache_put(cache_key, _CachedSkill(task, skill, skill_root, work_dir))
         test_inputs = (
             msg.options.get("testInputs")
             or msg.options.get("test_inputs")
@@ -322,7 +423,9 @@ async def run_single_cn(message_json: str) -> Optional[Dict[str, Any]]:
         )
         raise
     finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
+        # A cached folder outlives the turn; only an uncached one is swept.
+        if not _skill_cache_holds(cache_key, work_dir):
+            shutil.rmtree(work_dir, ignore_errors=True)
         stop_cloud_logger()
 
 
