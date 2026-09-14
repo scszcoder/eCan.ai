@@ -3665,6 +3665,23 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             _LLM_INSTANCE_CACHE[_proxy_key] = (_now_proxy, _llm)
             return _llm
 
+        # ── Deployment-level override (env, off by default) ───────────────
+        # A skill authored on a desktop can pin `apiHost: https://api.openai.com`
+        # and its own routing, and that is honoured everywhere else. In a CN pod
+        # it is simply unreachable: the call sat for 45s and timed out, the node
+        # failed before parsing anything, and the skill looped — 45s and a
+        # failed turn per iteration, with no answer (2026-09-14).
+        #
+        # Where the operator has configured a proxy for the whole deployment,
+        # that wins over what a skill asked for. `ollama` stays direct, because
+        # it is the customer's own private server and a proxy cannot reach it.
+        if (str(os.getenv('ECAN_LLM_FORCE_PROXY', '')).strip().lower() in ('1', 'true', 'yes')
+                and str(provider_name or '').strip().lower() != 'ollama'
+                and not _is_private_llm_host(host_value)):
+            _proxy_llm = _make_proxy_llm("deployment override: ECAN_LLM_FORCE_PROXY")
+            if _proxy_llm is not None:
+                return _proxy_llm
+
         if _should_use_proxy(inputs):
             _proxy_llm = _make_proxy_llm("proxy routing enabled")
             if _proxy_llm is not None:
