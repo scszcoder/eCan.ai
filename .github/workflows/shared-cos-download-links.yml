@@ -304,7 +304,12 @@ jobs:
             macos/amd64/${{ inputs.app-name }}-${{ inputs.version }}-macos-amd64.pkg
             macos/aarch64/${{ inputs.app-name }}-${{ inputs.version }}-macos-aarch64.pkg
             linux/amd64/${{ inputs.app-name }}-${{ inputs.version }}-linux-amd64.deb
-            linux/amd64/${{ inputs.app-name }}-${{ inputs.version }}-linux-amd64.AppImage
+        # NOTE: linux/amd64/...-linux-amd64.AppImage intentionally
+        # omitted. AppImage is disabled in build_config.json
+        # (platforms.linux.appimage.enabled: false) — listing it here
+        # would generate a false "missing" expectation that the size
+        # probe can't satisfy. If AppImage is re-enabled in config,
+        # re-add this entry.
         run: |
           set -euo pipefail
           COS_PREFIX="${OTA_PREFIX}"

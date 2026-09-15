@@ -555,6 +555,14 @@
       },
       "deb": {
         "enabled": true
+      },
+      "flatpak": {
+        "enabled": true,
+        "runtime": "org.freedesktop.Platform",
+        "runtime_version": "23.08",
+        "sdk": "org.freedesktop.Sdk",
+        "sdk_extensions": ["org.freedesktop.Sdk.Extension.node20", "org.freedesktop.Sdk.Extension.python3.11"],
+        "arch": "x86_64"
       }
     }
   },

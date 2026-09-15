@@ -300,8 +300,8 @@ class UnifiedBuildSystem:
             print(f"[WA-BRIDGE] [WARNING] Bridge copy error: {e} – continuing")
 
     def build_linux(self, mode: str, formats: Optional[list] = None, parallel: bool = True) -> bool:
-        """Build Linux packages (PyInstaller + AppImage + DEB)
-        
+        """Build Linux packages (PyInstaller + AppImage + DEB + Flatpak)
+
         Args:
             mode: Build mode (dev, prod, fast)
             formats: List of formats to build. If None, read from config.
@@ -310,10 +310,10 @@ class UnifiedBuildSystem:
         print(f"[LINUX] Building Linux packages in {mode} mode...")
         try:
             from build_system.linux_builder import LinuxBuilder
-            
+
             # Create Linux builder
             builder = LinuxBuilder(self.project_root, self.config.config)
-            
+
             # Determine which formats to build
             if formats is None:
                 linux_config = self.config.config.get("platforms", {}).get("linux", {})
@@ -322,7 +322,9 @@ class UnifiedBuildSystem:
                     formats.append("appimage")
                 if linux_config.get("deb", {}).get("enabled", False):
                     formats.append("deb")
-            
+                if linux_config.get("flatpak", {}).get("enabled", False):
+                    formats.append("flatpak")
+
             # Build all formats with parallel support
             results = builder.build_all(mode, formats, parallel=parallel)
             

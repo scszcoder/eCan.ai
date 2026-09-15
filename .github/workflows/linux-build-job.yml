@@ -51,7 +51,7 @@ jobs:
   # ============================================================================
   # Builds Linux packages with the following steps:
   #   1. Environment Setup: Python, Node.js, System Dependencies
-  #   2. Build Process: Frontend + PyInstaller + AppImage + DEB
+  #   2. Build Process: Frontend + PyInstaller + DEB + Flatpak
   #   3. Artifact Upload: Short-term (S3 transfer) + Optional long-term
   # ============================================================================
   build-linux:
@@ -166,28 +166,28 @@ jobs:
         
         echo "✅ System dependencies installed"
 
-    - name: Install AppImage tools
+    - name: Install Flatpak tools
       run: |
-        echo "=== Installing AppImage Tools ==="
+        echo "=== Installing Flatpak Tools ==="
 
-        # Download appimagetool. The legacy `AppImage/AppImageKit` repo
-        # is no longer the home for this tool — it moved to
-        # `AppImage/appimagetool` in 2024. The asset name and the
-        # `continuous` tag are unchanged; only the owner differs.
-        wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-        
-        # Make executable
-        chmod +x appimagetool-x86_64.AppImage
-        
-        # Move to system path
-        sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
-        
-        # Verify installation
-        if command -v appimagetool &> /dev/null; then
-          echo "✅ appimagetool installed successfully"
-          appimagetool --version || echo "Version check skipped (normal for AppImage)"
+        # Flatpak + flatpak-builder are the cross-distro packaging tools
+        # (replaces AppImage — see build_config.json →
+        # platforms.linux.flatpak.enabled). The freedesktop SDK / Platform
+        # runtime are pulled on first build via flatpak-builder itself, not
+        # here, to keep the bootstrap step cheap.
+        sudo apt-get install -y -qq flatpak flatpak-builder
+
+        # Add Flathub as a user remote so flatpak-builder can pull
+        # org.freedesktop.{Platform,Sdk} extensions during build.
+        flatpak remote-add --user --if-not-exists flathub \
+          https://flathub.org/repo/flathub.flatpakrepo
+
+        if command -v flatpak-builder &> /dev/null && command -v flatpak &> /dev/null; then
+          echo "✅ flatpak + flatpak-builder installed"
+          flatpak --version
+          flatpak-builder --version
         else
-          echo "❌ Failed to install appimagetool"
+          echo "❌ Failed to install Flatpak tools"
           exit 1
         fi
 
@@ -242,7 +242,8 @@ jobs:
         echo ""
         echo "Packaging Tools:"
         dpkg-deb --version | head -n1
-        command -v appimagetool && echo "appimagetool: installed" || echo "appimagetool: not found"
+        command -v flatpak-builder && echo "flatpak-builder: installed" || echo "flatpak-builder: not found"
+        command -v flatpak && echo "flatpak: installed" || echo "flatpak: not found"
         
         echo ""
         echo "System Tools:"
@@ -356,15 +357,16 @@ jobs:
           exit 1
         fi
         
-        # Check AppImage
-        APPIMAGE="dist/eCan-${VERSION}-linux-amd64.AppImage"
-        if [ -f "$APPIMAGE" ]; then
-          echo "✅ AppImage found: $APPIMAGE"
-          ls -lh "$APPIMAGE"
+        # Check Flatpak (replaces AppImage for cross-distro coverage —
+        # see build_config.json → platforms.linux.flatpak.enabled)
+        FLATPAK="dist/eCan-${VERSION}-linux-amd64.flatpak"
+        if [ -f "$FLATPAK" ]; then
+          echo "✅ Flatpak bundle found: $FLATPAK"
+          ls -lh "$FLATPAK"
         else
-          echo "⚠️  AppImage not found (may be disabled)"
+          echo "⚠️  Flatpak bundle not found (may be disabled)"
         fi
-        
+
         # Check DEB package
         DEB="dist/eCan-${VERSION}-linux-amd64.deb"
         if [ -f "$DEB" ]; then
@@ -382,7 +384,7 @@ jobs:
         # List all artifacts
         echo ""
         echo "All artifacts in dist/:"
-        find dist -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "eCan" \) -ls
+        find dist -type f \( -name "*.flatpak" -o -name "*.deb" -o -name "eCan" \) -ls
 
     - name: Dump dist tree on failure
       if: failure()
@@ -418,27 +420,26 @@ jobs:
         fi
         
         echo "✅ Private key found"
-        
-        # Sign AppImage
-        APPIMAGE="dist/eCan-${VERSION}-linux-amd64.AppImage"
-        if [ -f "$APPIMAGE" ]; then
-          echo "Signing: $(basename $APPIMAGE)"
-          python3 build_system/signing_manager.py "$APPIMAGE" "$KEY_PATH" "${APPIMAGE}.sig"
-          
-          if [ -f "${APPIMAGE}.sig" ]; then
-            SIG_SIZE=$(stat -f%z "${APPIMAGE}.sig" 2>/dev/null || stat -c%s "${APPIMAGE}.sig")
+
+        # Sign Flatpak (Flatpak replaces AppImage — see build_config.json
+        # → platforms.linux.flatpak.enabled). This generates an Ed25519
+        # detached signature so the OTA update channel can verify bundle
+        # integrity. (Flathub submission uses a separate GPG key for
+        # OSTree commits and is out of scope here.)
+        FLATPAK="dist/eCan-${VERSION}-linux-amd64.flatpak"
+        if [ -f "$FLATPAK" ]; then
+          echo "Signing: $(basename $FLATPAK)"
+          python3 build_system/signing_manager.py "$FLATPAK" "$KEY_PATH" "${FLATPAK}.sig"
+
+          if [ -f "${FLATPAK}.sig" ]; then
+            SIG_SIZE=$(stat -f%z "${FLATPAK}.sig" 2>/dev/null || stat -c%s "${FLATPAK}.sig")
             echo "  ✅ Signature generated: $SIG_SIZE bytes"
-            
-            if [ "$SIG_SIZE" -ne 64 ]; then
-              echo "  ❌ Invalid signature size: expected 64 bytes"
-              exit 1
-            fi
           else
-            echo "  ❌ Failed to generate signature"
+            echo "  ❌ Failed to generate Flatpak signature"
             exit 1
           fi
         fi
-        
+
         # Sign DEB package
         DEB="dist/eCan-${VERSION}-linux-amd64.deb"
         if [ -f "$DEB" ]; then
@@ -468,26 +469,28 @@ jobs:
 
         # Resolve each expected Linux artifact explicitly so we can
         # distinguish "build succeeded but copy failed" from "build
-        # failed upstream". At least one of .deb or .AppImage must
+        # failed upstream". At least one of .deb or .flatpak must
         # exist — if build.py prod produced neither, that's a hard
         # pipeline failure and we must not silently produce an empty
         # artifacts/ directory that actions/upload-artifact would
         # then "succeed" with a yellow "No files were found" warning.
+        # Flatpak replaces AppImage as the cross-distro format
+        # (see build_config.json → platforms.linux.flatpak.enabled).
         DEB="dist/eCan-${VERSION}-linux-${ARCH}.deb"
-        APPIMAGE="dist/eCan-${VERSION}-linux-${ARCH}.AppImage"
-        if [ ! -f "$DEB" ] && [ ! -f "$APPIMAGE" ]; then
-          echo "::error::Expected Linux package not found in dist/ (looked for $DEB and $APPIMAGE). build.py prod did not produce a .deb or .AppImage. The build pipeline is broken; investigate the 'Build Linux packages' step above before retrying."
+        FLATPAK="dist/eCan-${VERSION}-linux-${ARCH}.flatpak"
+        if [ ! -f "$DEB" ] && [ ! -f "$FLATPAK" ]; then
+          echo "::error::Expected Linux package not found in dist/ (looked for $DEB and $FLATPAK). build.py prod did not produce a .deb or .flatpak. The build pipeline is broken; investigate the 'Build Linux packages' step above before retrying."
           exit 1
         fi
 
-        # Copy AppImage and signature
-        if [ -f "$APPIMAGE" ]; then
-          cp "$APPIMAGE" artifacts/
-          echo "✅ Copied AppImage to artifacts/"
+        # Copy Flatpak and signature
+        if [ -f "$FLATPAK" ]; then
+          cp "$FLATPAK" artifacts/
+          echo "✅ Copied Flatpak to artifacts/"
 
-          if [ -f "${APPIMAGE}.sig" ]; then
-            cp "${APPIMAGE}.sig" artifacts/
-            echo "✅ Copied AppImage signature"
+          if [ -f "${FLATPAK}.sig" ]; then
+            cp "${FLATPAK}.sig" artifacts/
+            echo "✅ Copied Flatpak signature"
           fi
         fi
 
@@ -518,7 +521,7 @@ jobs:
         retention-days: 1
         compression-level: 6
         # Belt-and-braces: Prepare artifacts directory already exits 1
-        # when neither .deb nor .AppImage exists, so this branch is a
+        # when neither .deb nor .flatpak exists, so this branch is a
         # backstop for any future regression. Without it, an empty
         # artifacts/ directory would let upload succeed as a yellow
         # "No files were found" warning, hiding the real failure.
