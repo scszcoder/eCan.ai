@@ -1193,3 +1193,277 @@ def test_download_links_skips_windows_artifact_when_direct_upload():
         "the summary link list empty."
     )
 
+
+@pytest.mark.parametrize(
+    "arch, expected_artifact_basename",
+    [
+        # The two macOS arches have separate direct-upload gates because
+        # their build jobs are independent — a single shared flag would
+        # over-skip (losing local-file sizes for the GHA-uploaded arch)
+        # if one arch took the fast path and the other didn't.
+        ("amd64",   "eCan-macos-amd64"),
+        ("aarch64", "eCan-macos-aarch64"),
+    ],
+)
+def test_download_links_skips_macos_artifact_when_direct_upload(
+    arch, expected_artifact_basename,
+):
+    """`shared-cos-download-links.yml` > `Download macOS {arch} artifacts`
+    must NOT download the GHA artifact when the matching build job took
+    the direct-upload fast path. Without this guard the step emits an
+
+      Unable to download artifact(s): Artifact not found for name:
+        eCan-macos-{arch}-0.7.0-lq_dev_multi-final-a97ef68-installer
+
+    annotation, polluting the run summary with a red error even though
+    the build itself succeeded. `continue-on-error: true` keeps the job
+    green, but operators reading the run UI see what looks like a
+    broken build. Pin the contract so a future refactor that drops the
+    guard (e.g. regressing to "always try the download") gets caught
+    here rather than in a downstream operator's screen.
+
+    The contract is per-arch (two inputs, two gates) on purpose: see
+    `macos-amd64-direct-upload` / `macos-aarch64-direct-upload` in
+    `shared-cos-download-links.yml` for the rationale. A single shared
+    flag would silently lose the local-file size info for any arch
+    that *did* upload a GHA artifact.
+    """
+    path = Path(".github/workflows/shared-cos-download-links.yml")
+    if not path.exists():
+        pytest.skip(f"{path} not present")
+    text = path.read_text()
+
+    step_name = f"Download macOS {arch} artifacts"
+    flag = f"macos-{arch}-direct-upload"
+
+    lines = text.splitlines()
+    download_idx = None
+    for i, line in enumerate(lines):
+        if re.search(
+            r"^\s*-\s+name:\s*['\"]?" + re.escape(step_name) + r"['\"]?\s*$",
+            line,
+        ):
+            download_idx = i
+            break
+    assert download_idx is not None, (
+        f"shared-cos-download-links.yml: '{step_name}' step not found — "
+        "cannot verify direct-upload guard"
+    )
+
+    if_line = lines[download_idx + 1] if download_idx + 1 < len(lines) else ""
+    if re.match(r"^\s*if\s*:", if_line):
+        if_parts = [if_line]
+        j = download_idx + 2
+        while j < len(lines):
+            nxt = lines[j]
+            if re.match(r"^\s*(-\s+name:|uses:|with:|run:|shell:|env:|continue-on-error)", nxt):
+                break
+            if_parts.append(nxt)
+            j += 1
+        if_expr = "\n".join(if_parts)
+    else:
+        if_expr = if_line  # assertion below fails clearly
+
+    assert flag in if_expr, (
+        f"shared-cos-download-links.yml > '{step_name}' step is missing "
+        f"`inputs.{flag}` in its `if:` expression. When the matching "
+        "build job took the direct-upload fast path, no `*-installer` "
+        "GHA artifact exists; the download step would fail with "
+        "'Artifact not found' (continue-on-error keeps the run green but "
+        "pollutes the UI with red annotations). "
+        f"Fix: add `inputs.{flag} != true` to the `if:`. "
+        f"Found `if:`: {if_expr!r}"
+    )
+
+    assert re.search(
+        rf"{re.escape(flag)}\s*(==\s*['\"]?false['\"]?|!=\s*['\"]?true['\"]?)",
+        if_expr,
+    ), (
+        f"shared-cos-download-links.yml > '{step_name}' step references "
+        f"`{flag}` but does not branch on it. The `if:` must explicitly "
+        "exclude the direct-upload case. "
+        f"Found `if:`: {if_expr!r}"
+    )
+
+    # The artifact name in the step's `with:` block must match what the
+    # build job uploads (drift here is the same class of bug as the
+    # `*-windows-amd64.exe` / `*-windows-amd64-Setup.exe` mismatch that
+    # commit c082afd83 documented in CLAUDE.md). Walk forward until we
+    # hit the next sibling step (`- name:` at the same indent), the
+    # `runs-on:` / job boundary, or end-of-file. The `if:` line between
+    # `- name:` and `uses:` is allowed and should NOT terminate the
+    # walk.
+    name_indent = len(lines[download_idx]) - len(lines[download_idx].lstrip())
+    download_block_end = download_idx + 1
+    while download_block_end < len(lines):
+        nxt = lines[download_block_end]
+        stripped = nxt.lstrip()
+        if not stripped:
+            download_block_end += 1
+            continue
+        # Sibling step at same or shallower indent → block boundary.
+        if (
+            stripped.startswith("- name:")
+            and len(nxt) - len(stripped) <= name_indent
+        ):
+            break
+        # `runs-on:` / `permissions:` at the job level → block boundary.
+        if re.match(r"^\S", nxt) and not nxt.startswith(" "):
+            break
+        download_block_end += 1
+    block = "\n".join(lines[download_idx:download_block_end])
+    assert f"name: {expected_artifact_basename}-${{{{ inputs.version }}}}-installer" in block, (
+        f"shared-cos-download-links.yml > '{step_name}' step must name "
+        f"the GHA artifact `{expected_artifact_basename}-${{{{ inputs.version }}}}-installer`. "
+        "Drift between this name and the name the build job uploads is "
+        "the same regression class as the historic "
+        "`-windows-amd64.exe` / `-windows-amd64-Setup.exe` mismatch."
+    )
+
+
+def test_download_links_skips_linux_artifact_when_direct_upload():
+    """Mirror of the macOS / Windows tests for the Linux download step.
+
+    The Linux self-hosted runner (`ecan-linux-amd64`) takes the same
+    direct-upload fast path as `ecan-windows-amd64` and
+    `ecan-macos-aarch64`, so the `Download Linux artifacts` step in
+    `shared-cos-download-links.yml` must also gate on
+    `linux-direct-upload != true` to avoid the noisy
+    "Artifact not found for name: eCan-linux-amd64-...-installer"
+    annotation. Pin the contract here.
+    """
+    path = Path(".github/workflows/shared-cos-download-links.yml")
+    if not path.exists():
+        pytest.skip(f"{path} not present")
+    text = path.read_text()
+
+    lines = text.splitlines()
+    download_idx = None
+    for i, line in enumerate(lines):
+        if re.search(
+            r"^\s*-\s+name:\s*['\"]?Download Linux artifacts['\"]?\s*$",
+            line,
+        ):
+            download_idx = i
+            break
+    assert download_idx is not None, (
+        "shared-cos-download-links.yml: 'Download Linux artifacts' "
+        "step not found — cannot verify direct-upload guard"
+    )
+
+    if_line = lines[download_idx + 1] if download_idx + 1 < len(lines) else ""
+    if_parts = [if_line]
+    if re.match(r"^\s*if\s*:", if_line):
+        j = download_idx + 2
+        while j < len(lines):
+            nxt = lines[j]
+            if re.match(r"^\s*(-\s+name:|uses:|with:|run:|shell:|env:|continue-on-error)", nxt):
+                break
+            if_parts.append(nxt)
+            j += 1
+    if_expr = "\n".join(if_parts)
+
+    assert "linux-direct-upload" in if_expr, (
+        "shared-cos-download-links.yml > 'Download Linux artifacts' "
+        "step is missing `inputs.linux-direct-upload` in its `if:` "
+        "expression. Self-hosted Linux runners direct-upload to COS "
+        "and never upload a GHA artifact, so the download step would "
+        "fail with 'Artifact not found' (continue-on-error keeps the "
+        "run green but pollutes the UI with red annotations). "
+        "Fix: add `inputs.linux-direct-upload != true` to the `if:`. "
+        f"Found `if:`: {if_expr!r}"
+    )
+    assert re.search(
+        r"linux-direct-upload\s*(==\s*['\"]?false['\"]?|!=\s*['\"]?true['\"]?)",
+        if_expr,
+    ), (
+        "shared-cos-download-links.yml > 'Download Linux artifacts' "
+        "step references `linux-direct-upload` but does not branch on "
+        "it. The `if:` must explicitly exclude the direct-upload case. "
+        f"Found `if:`: {if_expr!r}"
+    )
+
+
+def test_release_intl_passes_direct_upload_flags():
+    """Both `generate-download-links` call sites (release-intl.yml and
+    release-cn.yml) must pass the per-arch direct-upload booleans to
+    the shared download-links workflow. If the parent workflow drops a
+    flag (e.g. only passes `linux-direct-upload` and forgets
+    `macos-aarch64-direct-upload`), the shared workflow's gate becomes
+    a no-op for the skipped flag and the original "Artifact not found"
+    annotation comes back.
+
+    `continue-on-error: true` on the download step means the regression
+    would only surface as a red annotation, not a failed job — easy to
+    miss in CI output but immediately visible to operators reading the
+    GHA run UI.
+    """
+    for path in (
+        Path(".github/workflows/release-intl.yml"),
+        Path(".github/workflows/release-cn.yml"),
+    ):
+        if not path.exists():
+            pytest.skip(f"{path} not present")
+        text = path.read_text()
+        for flag in (
+            "macos-amd64-direct-upload:",
+            "macos-aarch64-direct-upload:",
+            "linux-direct-upload:",
+        ):
+            assert flag in text, (
+                f"{path.name}: '{flag.replace(':', '')}' input not "
+                "passed to `generate-download-links` / "
+                "`generate-cn-download-links`. Without this, the "
+                "matching `Download …` step in the shared workflow "
+                "can't tell whether the build job direct-uploaded, "
+                "and the original 'Artifact not found' regression "
+                "returns. The flag value must derive from the build "
+                "job's `*-uploaded` output (e.g. `s3-uploaded == 'true'` "
+                "for INTL, `cos-uploaded == 'true'` for CN)."
+            )
+
+
+def test_shared_download_links_intl_mirrors_cos_direct_upload_gates():
+    """The intl shared-download-links.yml (S3 mirror of the CN COS
+    one) must also gate its macOS / Linux downloads on the per-arch
+    direct-upload flags — not just the CN shared workflow. Otherwise
+    the intl pipeline emits the same "Artifact not found" annotation
+    on its self-hosted macOS / Linux runs.
+
+    The intl shared workflow uses `continue-on-error: true` AND gates
+    on `env.AWS_ACCESS_KEY_ID != 'NOT_SET'`, so the assertion below
+    permits that third clause. We assert the new
+    `macos-{amd64,aarch64}-direct-upload` /
+    `linux-direct-upload` clauses are present; ordering doesn't
+    matter for `&&` short-circuit semantics so we don't pin it.
+    """
+    path = Path(".github/workflows/shared-download-links.yml")
+    if not path.exists():
+        pytest.skip(f"{path} not present")
+    text = path.read_text()
+
+    # Confirm the gates exist on all three download steps. We don't
+    # extract full if-expression context here (the CN test already
+    # does that rigorously); the intl mirror only needs a smoke check
+    # that the flag names match the inputs and that they're on the
+    # right step.
+    for step_name, flag in (
+        ("Download macOS amd64 artifacts",   "macos-amd64-direct-upload"),
+        ("Download macOS aarch64 artifacts", "macos-aarch64-direct-upload"),
+        ("Download Linux artifacts",         "linux-direct-upload"),
+    ):
+        m = re.search(
+            r"-\s+name:\s*['\"]?" + re.escape(step_name) + r"['\"]?\s*\n\s*if:\s*([^\n]+(?:\n\s+[^\n]+)*)",
+            text,
+        )
+        assert m, f"{path.name}: '{step_name}' step not found"
+        if_expr = m.group(1)
+        assert flag in if_expr, (
+            f"{path.name}: '{step_name}' step is missing "
+            f"'{flag}' in its `if:`. The intl shared workflow must "
+            "mirror the CN one — see "
+            "`test_download_links_skips_macos_artifact_when_direct_upload` "
+            "for the rationale."
+        )
+
+

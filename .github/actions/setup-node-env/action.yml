@@ -108,7 +108,39 @@ runs:
 
         # Frontend node_modules is intentionally never cached or reused.
         # npm ci removes it before recreating the exact lock-file dependency tree.
+        #
+        # Lockfile contract detection: a package-lock.json on the runner
+        # is "trusted" only when the project commits it (gitignored
+        # lockfiles are leftover state from previous builds, NOT a build
+        # contract). wabaileys-bridge commits its lockfile → npm ci.
+        # gui_v2 gitignores package-lock.json (gui_v2/.gitignore:44) → npm
+        # install. Without this branch, a self-hosted runner's stale
+        # lockfile from a previous package.json revision trips `npm ci`
+        # with EUSAGE:
+        #     npm ci can only install packages when your package.json and
+        #     package-lock.json ... are in sync.
+        #     Missing: @babel/core@7.29.7 from lock file
+        # Reference: see commit 78f12e10e — adding @babel/core: ^7.0.0 to
+        # overrides changed package.json's resolved tree without
+        # regenerating the (gitignored) lockfile, leaving the runner
+        # with a package.json/lockfile pair that `npm ci` rejected.
+        USE_CI="false"
         if [ -f "package-lock.json" ]; then
+          # git check-ignore returns 0 when the file is excluded by
+          # .gitignore (gitignored), 1 otherwise (tracked). The path
+          # MUST be relative to the cwd (the frontend dir); passing
+          # the absolute path with `git -C` is unreliable (see
+          # tests/unit/test_self_hosted_setup_skip.py for the contract).
+          if git check-ignore package-lock.json >/dev/null 2>&1; then
+            echo "[INFO] package-lock.json is gitignored — using npm install (lockfile is leftover state, not part of the build contract)"
+            USE_CI="false"
+          else
+            echo "[INFO] package-lock.json is tracked — using npm ci for reproducible builds"
+            USE_CI="true"
+          fi
+        fi
+
+        if [ "$USE_CI" = "true" ]; then
           npm ci --legacy-peer-deps $REGISTRY_ARG
         else
           rm -rf node_modules

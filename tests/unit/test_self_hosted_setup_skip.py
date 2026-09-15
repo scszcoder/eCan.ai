@@ -203,8 +203,60 @@ def test_frontend_node_modules_is_not_cached(workflow: Path):
 
 
 def test_frontend_dependencies_are_always_clean_installed():
+    """setup-node-env must always do a clean install (no reusing the
+    runner's previous node_modules), AND it must detect whether the
+    lockfile is part of the project's contract (tracked vs gitignored)
+    so a stale lockfile from a previous build cannot trip `npm ci`.
+
+    Background: gui_v2/.gitignore lists package-lock.json — any
+    lockfile on the self-hosted runner is leftover state from a
+    previous build, not a build contract. Trusting it caused
+    commit 78f12e10e to break Linux CI with:
+
+      npm ci can only install packages when your package.json and
+      package-lock.json ... are in sync.
+      Missing: @babel/core@7.29.7 from lock file
+
+    wabaileys-bridge commits its lockfile — that project keeps
+    `npm ci` for reproducibility.
+    """
     text = _read(SETUP_NODE_ENV)
-    assert "npm ci --legacy-peer-deps" in text
+    # The two install paths must coexist (USE_CI branch + fallback
+    # branch). The fallback branch's "rm -rf node_modules" is the
+    # clean-install guarantee for both branches.
+    assert "npm ci --legacy-peer-deps" in text, (
+        "setup-node-env must keep the `npm ci` path for projects "
+        "that commit package-lock.json (e.g. wabaileys-bridge)"
+    )
+    assert "rm -rf node_modules" in text, (
+        "setup-node-env must clean node_modules before installing "
+        "in the non-ci branch (gitignored-lockfile path)"
+    )
+
+
+def test_frontend_dependencies_detect_gitignored_lockfile():
+    """When package-lock.json is gitignored (e.g. gui_v2), the action
+    must skip `npm ci` and use `npm install` instead. Otherwise a
+    stale lockfile on a persistent self-hosted runner trips EUSAGE.
+
+    The detection uses `git check-ignore` (cwd-relative). Pin that
+    contract here so a future refactor that switches to absolute
+    paths or a different ignore-detection tool gets caught before
+    shipping as a CI regression.
+    """
+    text = _read(SETUP_NODE_ENV)
+    assert "git check-ignore package-lock.json" in text, (
+        "setup-node-env must detect gitignored package-lock.json "
+        "via `git check-ignore package-lock.json` (cwd-relative). "
+        "Without this branch, a stale lockfile on a self-hosted "
+        "runner trips `npm ci` with EUSAGE whenever package.json "
+        "drifts (see 78f12e10e)."
+    )
+    # USE_CI branch control — must drive both install paths.
+    assert "USE_CI" in text, (
+        "setup-node-env must drive `npm ci` vs `npm install` via "
+        "a USE_CI variable controlled by the gitignore check"
+    )
 
 
 def test_frontend_caches_only_npm_downloads():
@@ -278,3 +330,475 @@ def test_windows_virtualenv_is_exported_as_native_path():
 def test_virtualenv_cache_is_separated_by_app():
     text = _read(SETUP_PYTHON_ENV)
     assert "${{ env.ECAN_APP_ID }}-venv" in text
+
+
+def test_setup_python_env_probes_ctypes_before_picking_interpreter():
+    """The Python-selection logic in `Create and activate virtual
+    environment` must verify that the chosen interpreter can actually
+    import `_ctypes`, not just that `command -v python3` finds
+    something.
+
+    Background: a self-hosted Linux runner had a non-standard
+    Python installation at
+        /home/ecan/actions-runner/_work/_tool/Python/3.12.14/x64/
+    whose `_ctypes.so` was compiled against a different Python version
+    and is missing `_PyErr_SetLocaleString`. With the previous logic
+    (`command -v python3` only), the action picked this broken
+    interpreter, the venv was based on it, and every PyInstaller
+    subprocess then crashed at
+        File ".../ctypes/__init__.py", line 8, in <module>
+            from _ctypes import Union, Structure, Array
+        ImportError: ... undefined symbol: _PyErr_SetLocaleString
+    Pin the probe so a future refactor that goes back to the cheap
+    `command -v python3` check gets caught before shipping as a CI
+    regression.
+
+    Probe order must also prefer the apt-installed /usr/bin/python3.12
+    over PATH-default `python`/`python3`, so the broken tool-cache
+    Python (if present) loses the race.
+    """
+    text = _read(SETUP_PYTHON_ENV)
+    assert "import _ctypes, ctypes.util" in text, (
+        "setup-python-env must probe `_ctypes` (not just `command -v`) "
+        "when picking the Python interpreter. A self-hosted Linux runner "
+        "had a broken _ctypes in its tool-cache Python which crashed "
+        "PyInstaller with 'undefined symbol: _PyErr_SetLocaleString'."
+    )
+    # The probe candidates must include /usr/bin/python3.12 BEFORE any
+    # bare PATH-default fallback so the apt-installed interpreter wins
+    # over a non-standard tool-cache shadow.
+    import re as _re
+    candidates_section = text[text.index("for candidate in"):text.index("for candidate in") + 800]
+    assert "/usr/bin/python3.12" in candidates_section, (
+        "setup-python-env's Python probe must list /usr/bin/python3.12 "
+        "(apt-installed; matches requirements-base.txt)."
+    )
+    # Pin: the explicit /usr/bin/python3.12 must be probed BEFORE the
+    # bare `python3.12` from $PATH. On self-hosted runners a tool-cache
+    # Python (e.g. /home/ecan/actions-runner/_work/_tool/Python/3.12.14/x64/)
+    # can shadow /usr/bin/python3.12; that build has _ctypes working but
+    # is built --without-ensurepip so the resulting venv has no pip and
+    # the next step crashes with `No module named pip`. The apt-installed
+    # /usr/bin/python3.12 has pip bundled, so it MUST win the probe.
+    # We require explicit /usr/bin/python3.12 to appear BEFORE the first
+    # bare `python3.12` (word-boundary match that doesn't match the
+    # /usr/bin/ prefix or python3.13).
+    explicit_312 = candidates_section.index("/usr/bin/python3.12")
+    bare_312 = [
+        m.start() for m in _re.finditer(
+            r"(?<!/)python3\.12(?![/\d])", candidates_section
+        )
+    ]
+    assert bare_312, (
+        "Could not locate bare `python3.12` in the probe loop. The "
+        "candidates-section text may have drifted from the loop body."
+    )
+    assert explicit_312 < bare_312[0], (
+        "/usr/bin/python3.12 (apt-installed, has pip) must be probed "
+        "BEFORE bare `python3.12` from $PATH. A tool-cache Python "
+        "shadowing /usr/bin/python3.12 (one with working _ctypes but "
+        "no ensurepip) on a self-hosted runner would otherwise win "
+        "the race and produce a venv without pip."
+    )
+    # Same check for /usr/bin/python3.13 vs bare python3.13.
+    if "/usr/bin/python3.13" in candidates_section:
+        explicit_313 = candidates_section.index("/usr/bin/python3.13")
+        bare_313 = [
+            m.start() for m in _re.finditer(
+                r"(?<!/)python3\.13(?![/\d])", candidates_section
+            )
+        ]
+        if bare_313:
+            assert explicit_313 < bare_313[0], (
+                "/usr/bin/python3.13 must be probed BEFORE bare "
+                "`python3.13` from $PATH for the same pip-bootstrap "
+                "reason as /usr/bin/python3.12."
+            )
+
+
+def test_setup_python_env_ctypes_probe_fails_loudly_when_no_working_python():
+    """When every probe candidate either is missing or has a broken
+    _ctypes, the action must `::error::` with an actionable fix
+    rather than silently picking the broken one."""
+    text = _read(SETUP_PYTHON_ENV)
+    assert '::error::No working Python 3.12 found on PATH' in text, (
+        "setup-python-env must emit a ::error:: with the install "
+        "command when no working Python can be found, so the operator "
+        "knows to fix the runner instead of wondering why builds fail."
+    )
+    assert "sudo apt install python3.12 python3.12-venv" in text, (
+        "The fallback error message must include the apt-install command "
+        "from docs/DEPLOYMENT_UBUNTU.md so the operator can fix the "
+        "runner without leaving the log."
+    )
+
+
+def test_setup_python_env_existing_venv_is_ctypes_probed_before_reuse():
+    """The venv REUSE branch must run the same `_ctypes` contract probe
+    on the existing `.venv/bin/python` (or `.venv/Scripts/python.exe`)
+    before declaring it reusable.
+
+    Background: `actions/cache@v5` for the venv is gated to
+    github-hosted runners only, so on a persistent self-hosted
+    runner any pre-existing `.venv` is leftover workspace state from
+    a previous job. If that previous job ran against an older version
+    of this action (or before the launcher probe was added), the venv
+    was created by whatever interpreter won `command -v` then — which
+    on the Linux runner that produced the bug was the broken
+    tool-cache Python at
+        /home/ecan/actions-runner/_work/_tool/Python/3.12.14/x64/
+
+    The launcher probe alone does not save us here: even if the
+    system Python has since been fixed (or a fresh probe picks
+    /usr/bin/python3.12), the script's naive `if [ -d .venv ] && [ -f
+    $VENV_PYTHON ]` short-circuit would skip recreating the venv and
+    inherit the broken `pyvenv.cfg` home, re-importing ctypes from
+    the tool-cache Python's `_ctypes.so` on the very first PyInstaller
+    subprocess.
+
+    Pin the contract: the reuse branch must call
+        $VENV_PYTHON -c "import _ctypes, ctypes.util"
+    before printing a "reusing" message; on failure it must drop the
+    venv and recreate it from the verified launcher.
+    """
+    text = _read(SETUP_PYTHON_ENV)
+    assert "Existing virtual environment has working _ctypes; reusing .venv" in text, (
+        "setup-python-env's venv-reuse branch must announce the probe "
+        "result explicitly, so a future refactor that goes back to a "
+        "naive `if [ -d .venv ]` check leaves an obvious signal in "
+        "the CI log instead of silently reusing a poisoned venv."
+    )
+    assert "broken _ctypes" in text, (
+        "setup-python-env must log when the existing venv's _ctypes "
+        "fails, attributing it to a leftover from a previous job on "
+        "this self-hosted runner so the operator isn't surprised by "
+        "the `rm -rf .venv` that follows."
+    )
+    # The reuse branch must call the same `_ctypes` contract probe as
+    # the launcher probe, before printing a "reusing" message. The
+    # exact tokenizer-friendly pattern (split across the `&&` line
+    # continuation in the YAML) is:
+    #     "$VENV_PYTHON" -c "import _ctypes, ctypes.util"
+    # Pin it as-is so a refactor that goes back to a naive
+    # `if [ -d .venv ]` check leaves an obvious failure here, not
+    # a quiet poison-venv regression in CI.
+    import re as _re
+    reuse_probes = _re.findall(
+        r'"\$VENV_PYTHON"\s+-c\s+"import _ctypes,\s*ctypes\.util"',
+        text,
+    )
+    assert len(reuse_probes) == 1, (
+        "setup-python-env must run the `_ctypes` probe against "
+        "`$VENV_PYTHON` exactly once before declaring the existing "
+        "venv reusable. The probe is the contract that distinguishes "
+        "a healthy venv from one created by the broken tool-cache "
+        f"Python. Found {len(reuse_probes)} matching probes."
+    )
+    # And the reuse-probe must appear AFTER the launcher probe loop,
+    # so the launcher has been verified before we trust it to
+    # recreate the venv.
+    launcher_marker = "Using Python launcher:"
+    reuse_marker = "Existing virtual environment has working _ctypes"
+    assert text.index(launcher_marker) < text.index(reuse_marker), (
+        "launcher probe must run before venv-reuse probe; otherwise "
+        "the reuse branch could recreate the venv from a launcher "
+        "we haven't verified yet."
+    )
+
+
+def test_setup_python_env_self_heals_missing_venv_module_on_linux():
+    """When `python -m venv` fails with `ensurepip is not available`
+    on a self-hosted Linux runner (the apt package `python3.12-venv`
+    wasn't installed at provisioning time), the action must attempt
+    `sudo apt install python3.12-venv` once and retry — *not* bail
+    out with a raw Python traceback that points only at the apt
+    package name.
+
+    Background: commit 85e8c7ee9 added the venv-reuse probe, which
+    drops a poisoned pre-existing `.venv` and forces a recreate.
+    Before that commit, the same runner's missing `python3.12-venv`
+    was masked — the action reused the broken venv and the failure
+    surfaced only at PyInstaller time (opaque `_ctypes` undefined
+    symbol). After the probe, the recreate fails fast at venv
+    creation with the apt-install hint, but the operator still has
+    to SSH into the runner to fix it before the next run. This
+    commit closes that loop by self-healing once when sudo is
+    available non-interactively.
+
+    Pin the contract so a future refactor that drops the
+    self-heal (e.g. "we trust operators to provision correctly,
+    just `::error::`") regresses the on-runner experience back to
+    a hard failure with manual intervention.
+    """
+    text = _read(SETUP_PYTHON_ENV)
+
+    # (1) The error string Python emits when ensurepip is missing
+    # is the contract that distinguishes "missing venv module" from
+    # any other venv-creation failure (e.g. permission denied on
+    # /home, disk full, …). The retry must gate on this exact
+    # message — broad-error retries would mask real bugs.
+    assert "ensurepip is not available" in text, (
+        "setup-python-env must check the exact `ensurepip is not "
+        "available` error string before attempting self-heal. A "
+        "broad retry (e.g. on any venv-creation failure) would mask "
+        "real bugs like permission denied or disk full."
+    )
+
+    # (2) Self-heal is Linux-only. macOS uses Homebrew's `python@3.12`
+    # which doesn't expose venv via a separate apt package; the
+    # analogue there is `brew install python@3.12` (re-runs the
+    # formula, which is not safe to do unattended from CI). Windows
+    # uses the Python installer's "Add to PATH" + venv selection,
+    # also not safe to do unattended. Linux is the only platform
+    # where `sudo apt install python3.12-venv` is a one-liner that
+    # is safe to run from CI.
+    # The bash `[` test uses single `=` (POSIX string comparison),
+    # and the `${{ inputs.platform }}` interpolation is wrapped in
+    # double-quotes per the existing pattern elsewhere in this
+    # action.
+    assert '"${{ inputs.platform }}" = "linux"' in text, (
+        "setup-python-env's venv self-heal must be gated to the "
+        "linux platform only — macOS and Windows venv-creation "
+        "failures need operator action (brew reinstall / Python "
+        "installer rerun), not unattended apt-get."
+    )
+
+    # (3) sudo must be probed non-interactively (`sudo -n true`) so a
+    # password prompt never hangs the CI job on a runner that doesn't
+    # have passwordless sudo configured. The earlier apt-install
+    # step in `release-{intl,cn}.yml` is gated to github-hosted
+    # precisely because self-hosted runners don't all have passwordless
+    # sudo — see the comment on `Install Linux system dependencies`
+    # at release-intl.yml:2056. The same gate has to apply here.
+    assert "sudo -n true" in text, (
+        "setup-python-env's self-heal must check passwordless sudo "
+        "availability via `sudo -n true` (non-interactive). Without "
+        "this gate, a self-hosted runner without passwordless sudo "
+        "would hang the job on a sudo password prompt."
+    )
+
+    # (4) The self-heal apt-get install line must reference the
+    # exact apt package the runner needs. Drift to a wrong package
+    # name (e.g. `python3-venv` for Python 3.13 when the project
+    # requires 3.12) would install the wrong version's venv module
+    # and fail the venv recreate.
+    assert "sudo -n apt-get install -y -qq python3.12-venv" in text, (
+        "setup-python-env's self-heal must run "
+        "`sudo -n apt-get install -y -qq python3.12-venv` — the exact "
+        "apt package that ships `ensurepip` for Python 3.12. Using a "
+        "different package (e.g. `python3-venv` for the wrong "
+        "Python version, or omitting `-qq` for clean CI logs) would "
+        "regress the self-heal."
+    )
+
+    # (5) After self-heal, the action must retry venv creation.
+    # A retry that runs only the apt install and not the recreate
+    # would leave `.venv` missing for downstream steps.
+    # Pin the structural shape: there must be a second
+    # `"$PY" -m venv .venv` invocation guarded by `if sudo -n
+    # apt-get install ...`.
+    retry_marker = "sudo -n apt-get install -y -qq python3.12-venv"
+    retry_pos = text.index(retry_marker)
+    # The next `m venv .venv` line after the apt-get install is the
+    # retry. Search forward and confirm it exists.
+    assert 'm venv .venv' in text[retry_pos:], (
+        "setup-python-env must retry `$PY -m venv .venv` after "
+        "`sudo -n apt-get install -y -qq python3.12-venv` succeeds — "
+        "the install itself doesn't create the venv, it only enables "
+        "the venv module on subsequent `python -m venv` calls."
+    )
+
+    # (6) When self-heal succeeds silently, the CI log should show
+    # an explicit `[INFO]` line attributing the second-attempt success
+    # to the apt install — operators reading the log shouldn't have
+    # to infer from timestamps that the retry happened.
+    assert "[INFO] venv creation failed (ensurepip unavailable); self-heal" in text, (
+        "setup-python-env's self-heal must log a `[INFO] venv "
+        "creation failed (ensurepip unavailable); self-heal` line "
+        "before the apt install, so the CI log makes the retry "
+        "obvious to operators reading it."
+    )
+
+
+def test_setup_python_env_venv_self_heal_error_message_actionable():
+    """Both the self-heal-failed and self-heal-skipped branches must
+    emit `::error::` lines that include the exact apt-install command
+    + the docs URL. Without these, an operator who hits the failure
+    mode has to google the error message and guess the fix.
+    """
+    text = _read(SETUP_PYTHON_ENV)
+    # The action must surface the apt-install command in both
+    # failure paths: (a) apt install itself failed (returned
+    # non-zero), (b) sudo wasn't available so we couldn't even try.
+    install_apt_command_count = text.count("sudo apt install python3.12 python3.12-venv")
+    # We expect this to appear in the launcher-probe's no-Python
+    # branch (`exit 1` message) AND in the self-heal-failed branches.
+    # Minimum is 2; allow more if additional ::error:: paths adopt
+    # the same phrasing.
+    assert install_apt_command_count >= 2, (
+        "setup-python-env must reference "
+        "`sudo apt install python3.12 python3.12-venv` in both the "
+        "no-launcher-found and self-heal-failed error messages so "
+        f"operators have the exact fix. Found {install_apt_command_count}."
+    )
+    # The docs URL is the canonical source of the provisioning steps;
+    # surface it in every error message so operators don't have to
+    # dig through run output to find it.
+    assert text.count("docs/DEPLOYMENT_UBUNTU.md") >= 2, (
+        "setup-python-env must reference `docs/DEPLOYMENT_UBUNTU.md` "
+        "in both the no-launcher-found and self-heal-failed error "
+        "messages, so operators have a canonical pointer to the "
+        "provisioning procedure."
+    )
+
+
+def test_setup_python_env_bootstraps_pip_when_missing_in_venv():
+    """After `$PY -m venv .venv`, the resulting venv's pip must be
+    verified. Some Python builds (e.g. a self-hosted runner's
+    tool-cache Python at
+        /home/ecan/actions-runner/_work/_tool/Python/3.12.14/x64/
+    built --without-ensurepip) produce a venv where `python -m venv`
+    returns 0 but `python -m pip --version` fails with
+    `No module named pip`. The action must self-heal:
+
+      1. Try `python -m ensurepip --upgrade` (no network, no sudo).
+      2. If that fails, try `get-pip.py` from bootstrap.pypa.io
+         over HTTPS via curl.
+      3. If both fail, fail loudly with `::error::` pointing at the
+         apt-install command (the launcher probe already prefers the
+         apt-installed /usr/bin/python3.12, which has pip bundled —
+         so this branch is defense-in-depth for runners where the
+         apt Python is missing/broken too).
+
+    Without this bootstrap, the `Install Python dependencies` step's
+    first line `python -m pip -V` crashes with `No module named pip`
+    and the entire build is lost — the venv was created successfully
+    and yet the build fails, with no actionable hint.
+    """
+    text = _read(SETUP_PYTHON_ENV)
+    import re as _re
+
+    # (1) The bootstrap probe must run AFTER the venv creation block
+    # closes and BEFORE the PATH-export step. Otherwise either the
+    # bootstrap runs against the launcher (no venv yet, would always
+    # fail) or the next step's `python -m pip -V` runs before the
+    # bootstrap. Anchor: find the "Virtual environment created and
+    # added to PATH" log line, then verify the bootstrap block sits
+    # earlier in the file.
+    bootstrap_marker = '"$VENV_PYTHON" -m pip --version'
+    assert bootstrap_marker in text, (
+        "setup-python-env must explicitly probe "
+        "`$VENV_PYTHON -m pip --version` after venv creation. A bare "
+        "check that `$PY -m venv` returned 0 is insufficient because "
+        "the launcher can be built --without-ensurepip, producing a "
+        "venv without pip."
+    )
+    # Pin the contract: the bootstrap probe must be inside the
+    # `Create and activate virtual environment` step (before the
+    # PATH export), NOT inside the `Install Python dependencies`
+    # step (which would be too late — the next thing would crash).
+    create_step_match = _re.search(
+        r"- name: Create and activate virtual environment\n"
+        r"(?P<body>.*?)\n    - name: Install Python dependencies",
+        text,
+        flags=_re.DOTALL,
+    )
+    assert create_step_match, (
+        "setup-python-env could not locate the boundary between "
+        "`Create and activate virtual environment` and "
+        "`Install Python dependencies`. The action may have been "
+        "reordered."
+    )
+    create_body = create_step_match.group("body")
+    assert bootstrap_marker in create_body, (
+        "setup-python-env's pip bootstrap must live inside the "
+        "`Create and activate virtual environment` step (before "
+        "PATH export), so the next step's `python -m pip -V` "
+        "never crashes on a venv-without-pip. Found the bootstrap "
+        "marker outside the create-step body."
+    )
+
+    # (2) Primary bootstrap: ensurepip. Must be tried first because
+    # it's stdlib (no network, no sudo) and handles the common case
+    # of a launcher-with-ensurepip creating a venv-without-pip.
+    assert '"$VENV_PYTHON" -m ensurepip --upgrade' in text, (
+        "setup-python-env must try `python -m ensurepip --upgrade` "
+        "as the first pip bootstrap. This is stdlib (no network, no "
+        "sudo) and fixes most venv-without-pip cases without "
+        "downloading anything."
+    )
+
+    # (3) Secondary bootstrap: get-pip.py from bootstrap.pypa.io
+    # via curl. This is the only fallback that works for Python
+    # builds compiled --without-ensurepip (no bootstrap module).
+    # Must be guarded by `command -v curl` (macOS/Linux always have
+    # curl, but we don't want to assume it) and use --max-time so a
+    # hung HTTPS connection doesn't pin the job forever.
+    assert "curl -fsSL --max-time 60 https://bootstrap.pypa.io/get-pip.py" in text, (
+        "setup-python-env must fall back to downloading "
+        "get-pip.py from bootstrap.pypa.io over HTTPS via curl "
+        "(guarded by `command -v curl` and a 60s --max-time) "
+        "when ensurepip fails. This is the only stdlib-free "
+        "way to bootstrap pip in a venv created by a Python "
+        "built --without-ensurepip."
+    )
+
+    # (4) Hard guard: even after both bootstrap attempts, the
+    # action must re-probe `$VENV_PYTHON -m pip --version` and
+    # fail loudly if pip is STILL missing. This catches both
+    # bootstrap methods failing AND any future bug where the
+    # bootstrap runs but doesn't actually install pip.
+    pip_version_count = text.count('"$VENV_PYTHON" -m pip --version')
+    assert pip_version_count >= 2, (
+        "setup-python-env must run the `$VENV_PYTHON -m pip "
+        "--version` probe at least twice: once before the bootstrap "
+        "(to detect missing pip) and once after (to confirm "
+        "success). Without the second probe, a silently failing "
+        "bootstrap would let the venv reach `Install Python "
+        "dependencies` without pip. "
+        f"Found {pip_version_count} probe(s)."
+    )
+    # Pin that the failure-path ::error:: is the final defense. The
+    # action must refuse to proceed with a venv that has no pip
+    # — never let `Install Python dependencies` try `python -m pip`
+    # against a venv without pip.
+    assert "::error::pip still missing in venv after all bootstrap attempts" in text, (
+        "setup-python-env must `::error::` and exit 1 if pip is "
+        "still missing after every bootstrap attempt, so the "
+        "next step never runs `python -m pip` against a "
+        "venv-without-pip."
+    )
+    # The error message must include the apt-install fix so the
+    # operator can resolve the runner permanently, not just for
+    # this one job.
+    assert "sudo apt install python3.12 python3.12-venv python3-pip" in text, (
+        "setup-python-env's pip-bootstrap failure message must "
+        "include the apt-install command "
+        "`sudo apt install python3.12 python3.12-venv python3-pip` "
+        "(the canonical provisioning recipe from "
+        "docs/DEPLOYMENT_UBUNTU.md) so the operator can fix the "
+        "runner at provisioning time, not just per-job."
+    )
+
+
+def test_setup_python_env_pip_bootstrap_does_not_run_when_pip_present():
+    """Sanity check: the pip bootstrap probe must be conditional
+    (gated on the absence of pip), not unconditional. An
+    unconditional `python -m ensurepip --upgrade` on every run
+    would slow every self-hosted build by ~2s for no benefit —
+    the apt-installed Python already has pip in the venv.
+    """
+    text = _read(SETUP_PYTHON_ENV)
+    import re as _re
+    bootstrap_match = _re.search(
+        r'if ! "\$VENV_PYTHON" -m pip --version',
+        text,
+    )
+    assert bootstrap_match, (
+        "setup-python-env's pip bootstrap must be guarded by "
+        "`if ! $VENV_PYTHON -m pip --version` (only run when pip "
+        "is missing), not unconditionally. The launcher probe "
+        "already prefers /usr/bin/python3.12 which produces venvs "
+        "with pip, and an unconditional ensurepip would slow every "
+        "build by a couple of seconds for no benefit."
+    )

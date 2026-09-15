@@ -143,6 +143,7 @@
     "vite": "^6.3.5"
   },
   "overrides": {
-    "draft-convert": "2.1.12"
+    "draft-convert": "2.1.12",
+    "@babel/core": "^7.0.0"
   }
 }

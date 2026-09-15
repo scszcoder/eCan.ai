@@ -84,11 +84,38 @@ on:
         description: 'Result of macOS build job (success/skipped/failure)'
         required: true
         type: string
+      macos-amd64-direct-upload:
+        description: >-
+          When 'true', the macOS amd64 build job uploaded to S3 directly
+          (the direct-upload fast path is in effect). In that case no
+          `*-installer` artifact is in GHA artifact store; the download
+          step must be skipped to avoid a noisy "Artifact not found"
+          annotation. Mirrors `windows-direct-upload` semantics.
+        required: false
+        type: boolean
+        default: false
+      macos-aarch64-direct-upload:
+        description: >-
+          When 'true', the macOS aarch64 build job uploaded to S3
+          directly. See `macos-amd64-direct-upload` for the rationale;
+          the two are decoupled because a mixed run (one arch github-hosted
+          with GHA artifact, one self-hosted direct) is theoretically
+          possible if `runner_group` and `arch` inputs are inconsistent.
+        required: false
+        type: boolean
+        default: false
       linux-result:
         description: 'Result of Linux build job (success/skipped/failure)'
         required: false
         type: string
         default: 'skipped'
+      linux-direct-upload:
+        description: >-
+          When 'true', the Linux build job uploaded to S3 directly.
+          See `macos-amd64-direct-upload` for the rationale.
+        required: false
+        type: boolean
+        default: false
       macos-built-amd64:
         description: 'Whether macOS amd64 artifacts were built in this run'
         required: false
@@ -116,6 +143,9 @@ jobs:
       MACOS_BUILD_RESULT:      ${{ inputs.macos-build-result }}
       LINUX_RESULT:            ${{ inputs.linux-result }}
       WINDOWS_DIRECT_UPLOAD:   ${{ inputs.windows-direct-upload && 'true' || 'false' }}
+      MACOS_AMD64_DIRECT_UPLOAD:   ${{ inputs.macos-amd64-direct-upload && 'true' || 'false' }}
+      MACOS_AARCH64_DIRECT_UPLOAD: ${{ inputs.macos-aarch64-direct-upload && 'true' || 'false' }}
+      LINUX_DIRECT_UPLOAD:     ${{ inputs.linux-direct-upload && 'true' || 'false' }}
       MACOS_BUILT_AMD64:       ${{ inputs.macos-built-amd64 && 'true' || 'false' }}
       MACOS_BUILT_AARCH64:     ${{ inputs.macos-built-aarch64 && 'true' || 'false' }}
 
@@ -199,7 +229,7 @@ jobs:
 
 
       - name: Download macOS amd64 artifacts
-        if: inputs.macos-build-result == 'success' && env.AWS_ACCESS_KEY_ID != 'NOT_SET' && inputs.macos-built-amd64 == true
+        if: inputs.macos-build-result == 'success' && env.AWS_ACCESS_KEY_ID != 'NOT_SET' && inputs.macos-built-amd64 == true && inputs.macos-amd64-direct-upload != true
         uses: actions/download-artifact@v7
         with:
           name: eCan-macos-amd64-${{ inputs.version }}-installer
@@ -207,7 +237,7 @@ jobs:
         continue-on-error: true
 
       - name: Download macOS aarch64 artifacts
-        if: inputs.macos-build-result == 'success' && env.AWS_ACCESS_KEY_ID != 'NOT_SET' && inputs.macos-built-aarch64 == true
+        if: inputs.macos-build-result == 'success' && env.AWS_ACCESS_KEY_ID != 'NOT_SET' && inputs.macos-built-aarch64 == true && inputs.macos-aarch64-direct-upload != true
         uses: actions/download-artifact@v7
         with:
           name: eCan-macos-aarch64-${{ inputs.version }}-installer
@@ -215,7 +245,7 @@ jobs:
         continue-on-error: true
 
       - name: Download Linux artifacts
-        if: inputs.linux-result == 'success' && env.AWS_ACCESS_KEY_ID != 'NOT_SET'
+        if: inputs.linux-result == 'success' && env.AWS_ACCESS_KEY_ID != 'NOT_SET' && inputs.linux-direct-upload != true
         uses: actions/download-artifact@v7
         with:
           name: eCan-linux-amd64-${{ inputs.version }}-installer
@@ -238,13 +268,34 @@ jobs:
       # uploaded directly (bypassing the GHA artifact store). Failure
       # here is non-fatal: the renderer will fall back to local-file
       # sizes / "missing" markers.
+      #
+      # Self-hosted build jobs (ecan-windows-amd64 / ecan-macos-aarch64
+      # / ...) take the direct-upload fast path and never upload to the
+      # GHA artifact store, so the local download above is a guaranteed
+      # miss for those and we have to ask S3 for the size via HeadObject.
+      # Without this, the renderer falls back to "missing" for those
+      # rows and the run summary says "build reported success but no
+      # artifacts were found" (the symptom seen on ecan-macos-aarch64).
+      #
+      # GitHub-hosted runs also go through this step: their `*-installer`
+      # GHA artifact does exist, but the S3 probe simply 404s for those
+      # keys (the object is in GHA, not S3) and `render_download_links.py
+      # ::size_for` prefers the local-file size when both are present.
+      # Net effect on GitHub-hosted: one wasted HeadObject per arch,
+      # summary unchanged.
       - name: Resolve S3 object sizes (direct-upload fallback)
         id: s3-sizes
         if: >-
-          (inputs.windows-build-result == 'success' && inputs.windows-direct-upload == true)
+          (inputs.windows-build-result == 'success' && inputs.windows-direct-upload == true) ||
+          (inputs.macos-build-result == 'success' && (inputs.macos-built-amd64 == true || inputs.macos-built-aarch64 == true)) ||
+          (inputs.linux-result == 'success')
         env:
           EXPECTED: >-
             windows/amd64/${{ inputs.app-name }}-${{ inputs.version }}-windows-amd64-Setup.exe
+            macos/amd64/${{ inputs.app-name }}-${{ inputs.version }}-macos-amd64.pkg
+            macos/aarch64/${{ inputs.app-name }}-${{ inputs.version }}-macos-aarch64.pkg
+            linux/amd64/${{ inputs.app-name }}-${{ inputs.version }}-linux-amd64.deb
+            linux/amd64/${{ inputs.app-name }}-${{ inputs.version }}-linux-amd64.AppImage
         run: |
           set -euo pipefail
           S3_PREFIX="${OTA_PREFIX}"

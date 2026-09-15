@@ -228,6 +228,39 @@ runs:
         
         # Parse browsers input
         IFS=',' read -ra BROWSERS <<< "${{ inputs.browsers }}"
+
+        # Self-hosted runners may not have sudo access for --with-deps.
+        # If browsers are already cached, use them directly without re-installing.
+        if [ -d "$playwright_cache" ]; then
+          cached_browsers=$(ls -d "$playwright_cache"/{chromium,firefox,webkit}-* 2>/dev/null || true)
+          if [ -n "$cached_browsers" ]; then
+            echo "[INFO] Self-hosted runner: browsers already cached, copying directly (skipping install)"
+            third_party_dir="third_party/ms-playwright"
+            if [ -d "$third_party_dir" ]; then
+              rm -rf "$third_party_dir"
+            fi
+            mkdir -p "third_party"
+            cp -R "$playwright_cache" "$third_party_dir"
+            copied_browsers=$(ls -d "$third_party_dir"/{chromium,firefox,webkit}-* 2>/dev/null || true)
+            if [ -n "$copied_browsers" ]; then
+              echo "[OK] Copied cached browsers to third_party:"
+              echo "$copied_browsers" | while read dir; do
+                echo "  - $(basename "$dir")"
+              done
+            fi
+            # Download extensions (no sudo needed)
+            extensions_dir="third_party/browser_extensions"
+            if "$PYTHON_EXE" -c "from build_system.build_utils import _prepare_browser_extensions; _prepare_browser_extensions()"; then
+              if [ -d "$extensions_dir" ]; then
+                ext_count=$(find "$extensions_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+                echo "[OK] Downloaded $ext_count browser extensions"
+              fi
+            fi
+            echo "=== Playwright setup complete (cached) ==="
+            exit 0
+          fi
+        fi
+
         # Linux requires system deps; macOS does not
         INSTALL_ARGS=""
         if [ "${{ inputs.platform }}" = "linux" ]; then
