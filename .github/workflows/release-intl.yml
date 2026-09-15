@@ -2386,7 +2386,14 @@ jobs:
       # cancelled still maps to 'skipped' (it was previously indistinguishable
       # from failure in this expression too); tightening that is out of scope.
       macos-build-result:  ${{ (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success') && 'success' || (needs.build-macos-amd64.result == 'failure' || needs.build-macos-aarch64.result == 'failure') && 'failure' || 'skipped' }}
+      # Per-arch direct-upload flags: see the matching block in
+      # release-cn.yml. Mirrors the S3 fast path so the intl download
+      # step doesn't emit an "Artifact not found" annotation when a
+      # self-hosted runner direct-uploaded to S3 instead of GHA.
+      macos-amd64-direct-upload:   ${{ needs.build-macos-amd64.result   == 'success' && needs.build-macos-amd64.outputs.s3-uploaded   == 'true' }}
+      macos-aarch64-direct-upload: ${{ needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.s3-uploaded == 'true' }}
       linux-result:        ${{ needs.build-linux.result }}
+      linux-direct-upload: ${{ needs.build-linux.result == 'success' && needs.build-linux.outputs.s3-uploaded == 'true' }}
       macos-built-amd64:   ${{ needs.build-macos-amd64.result == 'success' }}
       macos-built-aarch64: ${{ needs.build-macos-aarch64.result == 'success' }}
     secrets: inherit

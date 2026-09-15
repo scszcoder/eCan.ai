@@ -3546,7 +3546,19 @@ jobs:
       # cancelled still maps to 'skipped' (it was previously indistinguishable
       # from failure in this expression too); tightening that is out of scope.
       macos-build-result:    ${{ (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success') && 'success' || (needs.build-macos-amd64.result == 'failure' || needs.build-macos-aarch64.result == 'failure') && 'failure' || 'skipped' }}
+      # Per-arch direct-upload flags: when a self-hosted build job took
+      # the fast path, no `*-installer` GHA artifact exists, so the
+      # shared download-links workflow must skip its `Download macOS …`
+      # / `Download Linux …` step for that arch (otherwise the step
+      # emits an "Artifact not found" warning — non-fatal because of
+      # `continue-on-error: true`, but visually misleads readers of the
+      # GHA run UI into thinking the build is broken). See
+      # shared-cos-download-links.yml::macos-amd64-direct-upload for
+      # the contract these flags enforce.
+      macos-amd64-direct-upload:   ${{ needs.build-macos-amd64.result   == 'success' && needs.build-macos-amd64.outputs.cos-uploaded   == 'true' }}
+      macos-aarch64-direct-upload: ${{ needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.cos-uploaded == 'true' }}
       linux-result:          ${{ needs.build-linux.result }}
+      linux-direct-upload:   ${{ needs.build-linux.result == 'success' && needs.build-linux.outputs.cos-uploaded == 'true' }}
       macos-built-amd64:     ${{ needs.build-macos-amd64.result == 'success' }}
       macos-built-aarch64:   ${{ needs.build-macos-aarch64.result == 'success' }}
     secrets: inherit
