@@ -159,6 +159,8 @@ def classify_linux(filename: str) -> tuple[str, str, str]:
         pkg_type = "AppImage"
     elif filename.endswith(".deb"):
         pkg_type = "DEB Package"
+    elif filename.endswith(".flatpak"):
+        pkg_type = "Flatpak"
     else:
         pkg_type = "Package"
     return arch_label, arch_path, pkg_type

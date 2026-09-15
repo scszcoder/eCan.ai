@@ -585,59 +585,304 @@ exit 0
             import traceback
             traceback.print_exc()
             return False
-    
+
+    def _get_flatpak_id(self) -> str:
+        """Derive Flatpak app ID from app name.
+
+        Convention: reverse-domain (e.g. 'eCan' → 'ai.ecan.Ecan').
+        CN variant is detected by lowercase name containing 'cn'.
+        """
+        name = self.app_name
+        base = name.lower().replace(" ", "").replace("-", "")
+        if base.endswith("cn"):
+            return f"ai.ecan.EcanCN"
+        return f"ai.ecan.Ecan"
+
+    def _write_flatpak_manifest(self, manifest_path: Path) -> bool:
+        """Write Flatpak manifest YAML for the current app.
+
+        The manifest uses the bundled runtime approach: PyInstaller already
+        bundled Qt + all Python deps into dist/{app_name}/, so Flatpak
+        doesn't need org.freedesktop.Platform access.
+        """
+        flatpak_id = self._get_flatpak_id()
+        runtime_ver = self.config.get("platforms", {}).get("linux", {}).get(
+            "flatpak", {}).get("runtime_version", "23.08")
+
+        # Flatpak bundle filename mirrors the .deb naming so the S3
+        # upload scripts and the workflow's EXPECTED list handle both
+        # with the same ${{ app-name }}-${{ version }}-linux-amd64.<ext>
+        # template. The flatpak_id itself is reverse-domain (required
+        # by Flatpak for AppStream metadata); the bundle filename is a
+        # separate concern.
+        # flatpak-builder resolves source paths relative to the manifest file
+        # location (dist/flatpak_build/manifest/*.yml). The app bundle lives at
+        # dist/{app_name}/, so from the manifest dir the relative path is ../../
+        source_dir = self.app_name
+
+        content = f"""app-id: {flatpak_id}
+runtime: org.freedesktop.Platform
+runtime-version: '{runtime_ver}'
+sdk: org.freedesktop.Sdk
+command: {self.app_name}
+finish-args:
+  # Network: LLM API calls and OTA updates
+  - --share=network
+  # X11 / Wayland display access
+  - --socket=x11
+  - --socket=wayland
+  - --socket=pulseaudio
+  # GPU acceleration for Qt/WebEngine
+  - --device=dri
+  # File system access — XDG dirs only
+  - --filesystem=xdg-config
+  - --filesystem=xdg-data
+  - --filesystem=xdg-download
+  # Read-only home access for config loading
+  - --filesystem=home:ro
+  # D-Bus — session bus for Qt platform plugins
+  - --bus=session
+  # Allow spawning sub-processes (screen capture, browser tools)
+  - --share=ipc
+  # Fallback sandbox to allow subprocess spawning
+  - --allow=exec-expand-path
+
+modules:
+  - name: ecan-bundle
+    buildsystem: simple
+    build-commands:
+      # Install everything from the pre-built PyInstaller directory.
+      # We intentionally do NOT add the runtime here (the Qt libs and
+      # Python are already bundled by PyInstaller), but we still need
+      # the SDK to build the flatpak.
+      #
+      # NOTE: PyInstaller puts all data files under _internal/. The
+      # executable is directly at {{app_name}}/{{app_name}} (e.g. eCan.cn/eCan.cn).
+      # Resources are at {{app_name}}/_internal/resource/....
+      - install -Dm755 {self.app_name}/{self.app_name} /app/bin/{self.app_name}
+      # Inline desktop file — PyInstaller does not generate one; without
+      # this, the application won't appear in desktop menus after install.
+      - install -Dm644 desktop.desktop /app/share/applications/{flatpak_id}.desktop
+      - install -Dm644 _internal/resource/images/logos/desktop_256x256.png /app/share/icons/hicolor/256x256/apps/{flatpak_id}.png
+      - install -Dm644 _internal/resource/images/logos/desktop_64x64.png /app/share/icons/hicolor/64x64/apps/{flatpak_id}.png
+    sources:
+      - type: dir
+        path: ../../{source_dir}
+      - type: file
+        path: desktop.desktop
+"""
+        try:
+            manifest_path.write_text(content)
+            print(f"[Flatpak] Manifest written: {manifest_path}")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to write Flatpak manifest: {e}")
+            return False
+
+    def create_flatpak_package(self) -> bool:
+        """
+        Create Flatpak bundle from the PyInstaller-built application.
+
+        Flatpak requires flatpak-builder and the SDK installed in the build
+        environment. This is handled by the workflow's 'Install Flatpak
+        tools' step.
+
+        Returns:
+            bool: True if successful
+        """
+        print("\n" + "="*60)
+        print("📦 Creating Flatpak Package")
+        print("="*60)
+
+        flatpak_id = self._get_flatpak_id()
+        # Mirror the .deb naming convention so upload scripts and the
+        # workflow EXPECTED list work without per-format branches.
+        bundle_name = f"{self.app_name}-{self.version}-linux-amd64.flatpak"
+        output_file = self.dist_dir / bundle_name
+
+        try:
+            # Verify pre-requisites
+            for cmd in ["flatpak-builder", "flatpak"]:
+                if not shutil.which(cmd):
+                    print(f"⚠️  {cmd} not found. Install flatpak-builder and flatpak:")
+                    print("   sudo apt-get install flatpak flatpak-builder")
+                    print("   flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo")
+                    return False
+
+            # Check the PyInstaller output exists
+            dist_app_dir = self.dist_dir / self.app_name
+            if not dist_app_dir.exists():
+                print(f"❌ PyInstaller output not found: {dist_app_dir}")
+                return False
+
+            # Create working directory for flatpak-builder
+            build_dir = self.dist_dir / "flatpak_build"
+            if build_dir.exists():
+                shutil.rmtree(build_dir)
+            build_dir.mkdir(parents=True, exist_ok=True)
+
+            manifest_dir = build_dir / "manifest"
+            manifest_dir.mkdir(parents=True, exist_ok=True)
+
+            # Write manifest
+            manifest_file = manifest_dir / f"{flatpak_id}.yml"
+            if not self._write_flatpak_manifest(manifest_file):
+                return False
+
+            # Write desktop.desktop to the dist dir. The manifest sources section
+            # lists it as type:file path=desktop.desktop so flatpak-builder can
+            # find it without needing to know the app name. Write it alongside
+            # the manifest_dir (both go under flatpak_build/).
+            desktop_file = manifest_dir / "desktop.desktop"
+            desktop_content = f"""[Desktop Entry]
+Name={self.app_name}
+Exec={self.app_name}
+Icon={flatpak_id}
+Type=Application
+Categories=Utility;Development;Office;
+Terminal=false
+"""
+            desktop_file.write_text(desktop_content)
+            print(f"[Flatpak] Desktop file written: {desktop_file}")
+
+            # Build the Flatpak bundle.
+            # --no-static-deltas: skips expensive delta generation (CI speed).
+            # --force-clean: ensures reproducible builds by cleaning build-dir first.
+            # --ccache: reuse cached compilation objects (speeds up SDK extensions).
+            cmd = [
+                "flatpak-builder",
+                "--force-clean",
+                "--no-static-deltas",
+                "--ccache",
+                "--repo", str(build_dir / "repo"),
+                str(build_dir / "build"),
+                str(manifest_file),
+            ]
+            print(f"\n[Flatpak] Build command: {' '.join(cmd)}")
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=str(self.dist_dir),
+                    timeout=3600,  # 60 minutes — first-time SDK download can be slow
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    print(f"❌ flatpak-builder failed with code {result.returncode}")
+                    if result.stderr:
+                        print(f"stderr: {result.stderr[-1000:]}")
+                    if result.stdout:
+                        print(f"stdout: {result.stdout[-1000:]}")
+                    return False
+            except subprocess.TimeoutExpired:
+                print("❌ flatpak-builder timeout (60 minutes exceeded)")
+                return False
+            except Exception as e:
+                print(f"❌ flatpak-builder error: {e}")
+                return False
+
+            # Create the final bundle from the local repo
+            bundle_cmd = [
+                "flatpak",
+                "build-bundle",
+                str(build_dir / "repo"),
+                str(output_file),
+                flatpak_id,
+            ]
+            print(f"\n[Flatpak] Bundle command: {' '.join(bundle_cmd)}")
+            try:
+                bundle_result = subprocess.run(
+                    bundle_cmd,
+                    cwd=str(self.dist_dir),
+                    timeout=600,  # 10 minutes
+                    capture_output=True,
+                    text=True,
+                )
+                if bundle_result.returncode != 0:
+                    print(f"❌ flatpak build-bundle failed with code {bundle_result.returncode}")
+                    if bundle_result.stderr:
+                        print(f"stderr: {bundle_result.stderr[-500:]}")
+                    return False
+            except subprocess.TimeoutExpired:
+                print("❌ flatpak build-bundle timeout")
+                return False
+            except Exception as e:
+                print(f"❌ flatpak build-bundle error: {e}")
+                return False
+
+            if output_file.exists():
+                size_mb = output_file.stat().st_size / (1024 * 1024)
+                print(f"✅ Flatpak bundle created: {output_file}")
+                print(f"   Size: {size_mb:.2f} MB")
+                # Clean up build artifacts (keep the bundle)
+                shutil.rmtree(build_dir, ignore_errors=True)
+                return True
+            else:
+                print("❌ Flatpak bundle file not created")
+                return False
+
+        except Exception as e:
+            print(f"❌ Flatpak creation error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def build_all(self, mode: str = "prod", formats: Optional[List[str]] = None, parallel: bool = True) -> Dict[str, bool]:
         """
         Build all Linux packages with parallel support
-        
+
         Args:
             mode: Build mode (dev, prod, fast)
-            formats: List of formats to build (appimage, deb). If None, build all.
+            formats: List of formats to build (appimage, deb, flatpak). If None, build all.
             parallel: Enable parallel building of packages (default: True)
-            
+
         Returns:
             Dict mapping format name to success status
         """
         results = {}
         start_time = time.time()
-        
+
         # Always build PyInstaller first
         print("\n" + "="*60)
         print(f"🐧 Linux Build Process - Mode: {mode}")
         print(f"⚡ Parallel Build: {'Enabled' if parallel else 'Disabled'}")
         print("="*60)
-        
+
         # Step 1: PyInstaller build
         print("\n[1/3] Building with PyInstaller...")
         pyinstaller_start = time.time()
         if not self.build_pyinstaller(mode):
             print("\n❌ PyInstaller build failed - cannot continue")
             return {"pyinstaller": False}
-        
+
         results["pyinstaller"] = True
         pyinstaller_time = time.time() - pyinstaller_start
         print(f"✅ PyInstaller completed in {pyinstaller_time:.1f}s")
-        
+
         # Determine which formats to build
         if formats is None:
-            formats = ["deb"]  # Only build DEB by default (AppImage is too slow)
-        
+            formats = ["deb"]  # Only build DEB by default
+
         # Step 2 & 3: Build packages (parallel or serial)
         if parallel and len(formats) > 1:
             print(f"\n[2/3] Building packages in parallel ({', '.join(formats)})...")
             package_start = time.time()
-            
+
             with ThreadPoolExecutor(max_workers=2) as executor:
                 futures = {}
-                
+
                 if "appimage" in formats:
                     print("  → Submitting AppImage build...")
                     futures[executor.submit(self.create_appimage)] = "appimage"
-                
+
                 if "deb" in formats:
                     print("  → Submitting DEB build...")
                     futures[executor.submit(self.create_deb_package)] = "deb"
-                
+
+                if "flatpak" in formats:
+                    print("  → Submitting Flatpak build...")
+                    futures[executor.submit(self.create_flatpak_package)] = "flatpak"
+
                 # Wait for completion
                 for future in as_completed(futures):
                     format_name = futures[future]
@@ -648,14 +893,14 @@ exit 0
                     except Exception as e:
                         print(f"  ❌ {format_name.upper()} build failed with exception: {e}")
                         results[format_name] = False
-            
+
             package_time = time.time() - package_start
             print(f"✅ Parallel packaging completed in {package_time:.1f}s")
         else:
             # Serial build
             step = 2
             total_steps = 2 + len(formats)
-            
+
             if "appimage" in formats:
                 print(f"\n[{step}/{total_steps}] Building AppImage...")
                 package_start = time.time()
@@ -664,7 +909,7 @@ exit 0
                 status = "✅" if results["appimage"] else "❌"
                 print(f"{status} AppImage completed in {package_time:.1f}s")
                 step += 1
-            
+
             if "deb" in formats:
                 print(f"\n[{step}/{total_steps}] Building DEB package...")
                 package_start = time.time()
@@ -672,6 +917,15 @@ exit 0
                 package_time = time.time() - package_start
                 status = "✅" if results["deb"] else "❌"
                 print(f"{status} DEB package completed in {package_time:.1f}s")
+                step += 1
+
+            if "flatpak" in formats:
+                print(f"\n[{step}/{total_steps}] Building Flatpak bundle...")
+                package_start = time.time()
+                results["flatpak"] = self.create_flatpak_package()
+                package_time = time.time() - package_start
+                status = "✅" if results["flatpak"] else "❌"
+                print(f"{status} Flatpak bundle completed in {package_time:.1f}s")
         
         # Print summary
         total_time = time.time() - start_time

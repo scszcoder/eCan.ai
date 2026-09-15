@@ -134,6 +134,8 @@ def test_classify_macos(filename, arch_label, arch_path):
         ("eCan-0.7.0-linux-aarch64.deb", "ARM64", "aarch64", "DEB Package"),
         ("eCan-0.7.0-linux-arm64.AppImage", "ARM64", "aarch64", "AppImage"),
         ("eCan-0.7.0-linux.tar.gz", "x86_64", "amd64", "Package"),
+        ("eCan-0.7.0-linux-amd64.flatpak", "x86_64", "amd64", "Flatpak"),
+        ("eCan-0.7.0-linux-aarch64.flatpak", "ARM64", "aarch64", "Flatpak"),
     ],
 )
 def test_classify_linux(filename, arch_label, arch_path, pkg_type):
