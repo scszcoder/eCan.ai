@@ -74,6 +74,10 @@ _PROMPT_FILE_MAP: Dict[str, str] = {
     "root_cause_analyzer":      "skill_agent_log_cause_analyzer.md",
 }
 
+# If a candidate directory does not contain this file, it is not the prompts
+# directory, whatever it is called.
+SENTINEL_PROMPT = "skill_agent_main_prompt.md"
+
 # Directory containing the .md prompt files (relative to this module).
 # Resolved lazily so it works both in the repo and inside a Lambda zip.
 _PROMPTS_DIR: Optional[Path] = None
@@ -91,24 +95,50 @@ def _get_prompts_dir() -> Path:
     #   2. Lambda zip:    agent/skill_editor/prompt_store.py
     #      prompts at:    prompts/  (copied into zip root during build)
     here = Path(__file__).resolve().parent  # agent/skill_editor/
+    repo = here.parent.parent                # eCan.ai/
 
+    override = os.environ.get("ECAN_SKILL_PROMPTS_DIR", "").strip()
     candidates = [
+        *( [Path(override)] if override else [] ),          # explicit, wins over everything
         here / "prompts",                                   # if copied beside agent code
-        here.parent.parent / "lambda_functions" / "skill_editor_lambda" / "prompts",  # repo layout
-        here.parent.parent / "prompts",                     # Lambda zip layout
+        repo / "lambda_functions" / "skill_editor_lambda" / "prompts",  # old repo layout
+        repo / "prompts",                                   # Lambda zip layout
         Path(os.environ.get("LAMBDA_TASK_ROOT", "")) / "prompts",  # explicit Lambda root
+        # The prompts live in the eCan_lambda repo by design and are copied into
+        # the deployment bundle at build time. For a sibling checkout (local dev,
+        # and the CN pod image if it mounts both), find them where they actually are.
+        repo.parent / "eCan_lambda" / "us" / "aws" / "skill_editor_lambda" / "prompts",
     ]
 
+    # A directory is only the prompts directory if it CONTAINS the prompts. The
+    # old check was `is_dir()`, so eCan.ai/prompts/ — which holds one unrelated
+    # file — matched, cached itself, and silently starved every sub-agent.
     for cand in candidates:
-        if cand.is_dir():
-            _PROMPTS_DIR = cand
-            logger.info("[PromptStore] Prompt files directory: %s", cand)
-            return cand
+        if not cand.is_dir():
+            continue
+        if not (cand / SENTINEL_PROMPT).is_file():
+            logger.debug("[PromptStore] Skipping %s: no %s", cand, SENTINEL_PROMPT)
+            continue
+        _PROMPTS_DIR = cand
+        logger.info("[PromptStore] Prompt files directory: %s", cand)
+        return cand
 
-    # Fallback: return first candidate (will just miss on reads)
-    _PROMPTS_DIR = candidates[0]
-    logger.warning("[PromptStore] Prompt files directory not found, tried: %s", [str(c) for c in candidates])
+    # Not found. This is not a warning: every caller passes default="", so the
+    # sub-agents will run with empty system prompts and produce plausible
+    # nonsense rather than failing.
+    _PROMPTS_DIR = candidates[0] if candidates else (here / "prompts")
+    logger.error(
+        "[PromptStore] NO PROMPTS DIRECTORY FOUND - every sub-agent will run with an "
+        "EMPTY system prompt. Set ECAN_SKILL_PROMPTS_DIR. Tried: %s",
+        [str(c) for c in candidates],
+    )
     return _PROMPTS_DIR
+
+
+def prompts_available() -> bool:
+    """True when the real prompt set is reachable. Call before running a
+    sub-agent rather than discovering it from the output."""
+    return (_get_prompts_dir() / SENTINEL_PROMPT).is_file()
 
 
 def _load_prompt_file(prompt_id: str) -> Optional[str]:
