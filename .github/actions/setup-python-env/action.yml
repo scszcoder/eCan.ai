@@ -155,7 +155,54 @@ runs:
             echo "No usable venv found; creating fresh .venv"
           fi
           rm -rf .venv
-          "$PY" -m venv .venv
+          # Venv creation can fail on self-hosted Linux runners that
+          # were provisioned without `python3.12-venv` — the apt
+          # package that ships the vensurepip module. Without it,
+          # `python3.12 -m venv` exits with:
+          #   The virtual environment was not created successfully
+          #   because ensurepip is not available. ... apt install
+          #   python3.12-venv
+          # This surfaces specifically because the venv-reuse probe
+          # above now drops the (poisoned) pre-existing `.venv` and
+          # forces a recreate; before the probe, the broken venv
+          # was silently reused and the missing-venv-module symptom
+          # never appeared (the previous PyInstaller crash was the
+          # only failure visible to CI). Self-heal: when the failure
+          # is the specific ensurepip-missing message AND sudo is
+          # available non-interactively, apt-install
+          # `python3.12-venv` once and retry. Sudo is gated to the
+          # `linux` platform only — the analogous failure on macOS
+          # (no `venv` for Homebrew Python) requires the operator
+          # to `brew install python@3.12` at provisioning time.
+          "$PY" -m venv .venv 2>/tmp/ecan-venv-err.log
+          venv_status=$?
+          if [ $venv_status -ne 0 ]; then
+            venv_err="$(cat /tmp/ecan-venv-err.log)"
+            if [ "${{ inputs.platform }}" = "linux" ] \
+                && command -v sudo >/dev/null 2>&1 \
+                && sudo -n true 2>/dev/null \
+                && printf '%s' "$venv_err" | grep -q "ensurepip is not available"; then
+              echo "[INFO] venv creation failed (ensurepip unavailable); self-heal via 'sudo apt install python3.12-venv'"
+              if sudo -n apt-get install -y -qq python3.12-venv; then
+                "$PY" -m venv .venv 2>/tmp/ecan-venv-err2.log
+                venv_status=$?
+                if [ $venv_status -ne 0 ]; then
+                  echo "::error::venv creation still failing after 'sudo apt install python3.12-venv'. First error: $(cat /tmp/ecan-venv-err.log). Second error: $(cat /tmp/ecan-venv-err2.log). On self-hosted Linux runners, install python3.12-venv at provisioning time: 'sudo apt install python3.12 python3.12-venv' (see docs/DEPLOYMENT_UBUNTU.md)."
+                  exit 1
+                fi
+              else
+                echo "::error::venv creation failed and self-heal 'sudo apt install python3.12-venv' also failed. Original error: $venv_err. On self-hosted Linux runners, install python3.12-venv at provisioning time: 'sudo apt install python3.12 python3.12-venv' (see docs/DEPLOYMENT_UBUNTU.md)."
+                exit 1
+              fi
+            else
+              if [ "${{ inputs.platform }}" = "linux" ]; then
+                echo "::error::venv creation failed: $venv_err. On self-hosted Linux runners, ensure python3.12-venv is installed (either pre-provision with 'sudo apt install python3.12 python3.12-venv' or grant passwordless sudo — see docs/DEPLOYMENT_UBUNTU.md)."
+              else
+                echo "::error::venv creation failed: $venv_err"
+              fi
+              exit 1
+            fi
+          fi
         fi
 
         if [ "${{ inputs.platform }}" = "windows" ]; then

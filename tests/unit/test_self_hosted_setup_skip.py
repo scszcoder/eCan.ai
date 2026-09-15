@@ -482,3 +482,149 @@ def test_setup_python_env_existing_venv_is_ctypes_probed_before_reuse():
         "the reuse branch could recreate the venv from a launcher "
         "we haven't verified yet."
     )
+
+
+def test_setup_python_env_self_heals_missing_venv_module_on_linux():
+    """When `python -m venv` fails with `ensurepip is not available`
+    on a self-hosted Linux runner (the apt package `python3.12-venv`
+    wasn't installed at provisioning time), the action must attempt
+    `sudo apt install python3.12-venv` once and retry — *not* bail
+    out with a raw Python traceback that points only at the apt
+    package name.
+
+    Background: commit 85e8c7ee9 added the venv-reuse probe, which
+    drops a poisoned pre-existing `.venv` and forces a recreate.
+    Before that commit, the same runner's missing `python3.12-venv`
+    was masked — the action reused the broken venv and the failure
+    surfaced only at PyInstaller time (opaque `_ctypes` undefined
+    symbol). After the probe, the recreate fails fast at venv
+    creation with the apt-install hint, but the operator still has
+    to SSH into the runner to fix it before the next run. This
+    commit closes that loop by self-healing once when sudo is
+    available non-interactively.
+
+    Pin the contract so a future refactor that drops the
+    self-heal (e.g. "we trust operators to provision correctly,
+    just `::error::`") regresses the on-runner experience back to
+    a hard failure with manual intervention.
+    """
+    text = _read(SETUP_PYTHON_ENV)
+
+    # (1) The error string Python emits when ensurepip is missing
+    # is the contract that distinguishes "missing venv module" from
+    # any other venv-creation failure (e.g. permission denied on
+    # /home, disk full, …). The retry must gate on this exact
+    # message — broad-error retries would mask real bugs.
+    assert "ensurepip is not available" in text, (
+        "setup-python-env must check the exact `ensurepip is not "
+        "available` error string before attempting self-heal. A "
+        "broad retry (e.g. on any venv-creation failure) would mask "
+        "real bugs like permission denied or disk full."
+    )
+
+    # (2) Self-heal is Linux-only. macOS uses Homebrew's `python@3.12`
+    # which doesn't expose venv via a separate apt package; the
+    # analogue there is `brew install python@3.12` (re-runs the
+    # formula, which is not safe to do unattended from CI). Windows
+    # uses the Python installer's "Add to PATH" + venv selection,
+    # also not safe to do unattended. Linux is the only platform
+    # where `sudo apt install python3.12-venv` is a one-liner that
+    # is safe to run from CI.
+    # The bash `[` test uses single `=` (POSIX string comparison),
+    # and the `${{ inputs.platform }}` interpolation is wrapped in
+    # double-quotes per the existing pattern elsewhere in this
+    # action.
+    assert '"${{ inputs.platform }}" = "linux"' in text, (
+        "setup-python-env's venv self-heal must be gated to the "
+        "linux platform only — macOS and Windows venv-creation "
+        "failures need operator action (brew reinstall / Python "
+        "installer rerun), not unattended apt-get."
+    )
+
+    # (3) sudo must be probed non-interactively (`sudo -n true`) so a
+    # password prompt never hangs the CI job on a runner that doesn't
+    # have passwordless sudo configured. The earlier apt-install
+    # step in `release-{intl,cn}.yml` is gated to github-hosted
+    # precisely because self-hosted runners don't all have passwordless
+    # sudo — see the comment on `Install Linux system dependencies`
+    # at release-intl.yml:2056. The same gate has to apply here.
+    assert "sudo -n true" in text, (
+        "setup-python-env's self-heal must check passwordless sudo "
+        "availability via `sudo -n true` (non-interactive). Without "
+        "this gate, a self-hosted runner without passwordless sudo "
+        "would hang the job on a sudo password prompt."
+    )
+
+    # (4) The self-heal apt-get install line must reference the
+    # exact apt package the runner needs. Drift to a wrong package
+    # name (e.g. `python3-venv` for Python 3.13 when the project
+    # requires 3.12) would install the wrong version's venv module
+    # and fail the venv recreate.
+    assert "sudo -n apt-get install -y -qq python3.12-venv" in text, (
+        "setup-python-env's self-heal must run "
+        "`sudo -n apt-get install -y -qq python3.12-venv` — the exact "
+        "apt package that ships `ensurepip` for Python 3.12. Using a "
+        "different package (e.g. `python3-venv` for the wrong "
+        "Python version, or omitting `-qq` for clean CI logs) would "
+        "regress the self-heal."
+    )
+
+    # (5) After self-heal, the action must retry venv creation.
+    # A retry that runs only the apt install and not the recreate
+    # would leave `.venv` missing for downstream steps.
+    # Pin the structural shape: there must be a second
+    # `"$PY" -m venv .venv` invocation guarded by `if sudo -n
+    # apt-get install ...`.
+    retry_marker = "sudo -n apt-get install -y -qq python3.12-venv"
+    retry_pos = text.index(retry_marker)
+    # The next `m venv .venv` line after the apt-get install is the
+    # retry. Search forward and confirm it exists.
+    assert 'm venv .venv' in text[retry_pos:], (
+        "setup-python-env must retry `$PY -m venv .venv` after "
+        "`sudo -n apt-get install -y -qq python3.12-venv` succeeds — "
+        "the install itself doesn't create the venv, it only enables "
+        "the venv module on subsequent `python -m venv` calls."
+    )
+
+    # (6) When self-heal succeeds silently, the CI log should show
+    # an explicit `[INFO]` line attributing the second-attempt success
+    # to the apt install — operators reading the log shouldn't have
+    # to infer from timestamps that the retry happened.
+    assert "[INFO] venv creation failed (ensurepip unavailable); self-heal" in text, (
+        "setup-python-env's self-heal must log a `[INFO] venv "
+        "creation failed (ensurepip unavailable); self-heal` line "
+        "before the apt install, so the CI log makes the retry "
+        "obvious to operators reading it."
+    )
+
+
+def test_setup_python_env_venv_self_heal_error_message_actionable():
+    """Both the self-heal-failed and self-heal-skipped branches must
+    emit `::error::` lines that include the exact apt-install command
+    + the docs URL. Without these, an operator who hits the failure
+    mode has to google the error message and guess the fix.
+    """
+    text = _read(SETUP_PYTHON_ENV)
+    # The action must surface the apt-install command in both
+    # failure paths: (a) apt install itself failed (returned
+    # non-zero), (b) sudo wasn't available so we couldn't even try.
+    install_apt_command_count = text.count("sudo apt install python3.12 python3.12-venv")
+    # We expect this to appear in the launcher-probe's no-Python
+    # branch (`exit 1` message) AND in the self-heal-failed branches.
+    # Minimum is 2; allow more if additional ::error:: paths adopt
+    # the same phrasing.
+    assert install_apt_command_count >= 2, (
+        "setup-python-env must reference "
+        "`sudo apt install python3.12 python3.12-venv` in both the "
+        "no-launcher-found and self-heal-failed error messages so "
+        f"operators have the exact fix. Found {install_apt_command_count}."
+    )
+    # The docs URL is the canonical source of the provisioning steps;
+    # surface it in every error message so operators don't have to
+    # dig through run output to find it.
+    assert text.count("docs/DEPLOYMENT_UBUNTU.md") >= 2, (
+        "setup-python-env must reference `docs/DEPLOYMENT_UBUNTU.md` "
+        "in both the no-launcher-found and self-heal-failed error "
+        "messages, so operators have a canonical pointer to the "
+        "provisioning procedure."
+    )
