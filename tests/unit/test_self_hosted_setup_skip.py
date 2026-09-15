@@ -373,25 +373,47 @@ def test_setup_python_env_probes_ctypes_before_picking_interpreter():
         "setup-python-env's Python probe must list /usr/bin/python3.12 "
         "(apt-installed; matches requirements-base.txt)."
     )
+    # Pin: the explicit /usr/bin/python3.12 must be probed BEFORE the
+    # bare `python3.12` from $PATH. On self-hosted runners a tool-cache
+    # Python (e.g. /home/ecan/actions-runner/_work/_tool/Python/3.12.14/x64/)
+    # can shadow /usr/bin/python3.12; that build has _ctypes working but
+    # is built --without-ensurepip so the resulting venv has no pip and
+    # the next step crashes with `No module named pip`. The apt-installed
+    # /usr/bin/python3.12 has pip bundled, so it MUST win the probe.
+    # We require explicit /usr/bin/python3.12 to appear BEFORE the first
+    # bare `python3.12` (word-boundary match that doesn't match the
+    # /usr/bin/ prefix or python3.13).
     explicit_312 = candidates_section.index("/usr/bin/python3.12")
-    # Match the bare `python`/`python3` fallbacks by anchoring on the
-    # trailing whitespace/semicolon — this avoids matching python3.12
-    # / python3.13 which appear earlier in the loop.
-    bare_fallbacks = [
+    bare_312 = [
         m.start() for m in _re.finditer(
-            r"(?:^|\s)(?:python|python3)(?:[\s;])", candidates_section
+            r"(?<!/)python3\.12(?![/\d])", candidates_section
         )
     ]
-    assert bare_fallbacks, (
-        "Could not locate bare `python`/`python3` fallback in the probe "
-        "loop. The candidates-section text may have drifted from the "
-        "loop body."
+    assert bare_312, (
+        "Could not locate bare `python3.12` in the probe loop. The "
+        "candidates-section text may have drifted from the loop body."
     )
-    assert explicit_312 < bare_fallbacks[0], (
-        "/usr/bin/python3.12 must be probed BEFORE any bare `python`/"
-        "`python3` fallback so a non-standard tool-cache Python on PATH "
-        "cannot win the race."
+    assert explicit_312 < bare_312[0], (
+        "/usr/bin/python3.12 (apt-installed, has pip) must be probed "
+        "BEFORE bare `python3.12` from $PATH. A tool-cache Python "
+        "shadowing /usr/bin/python3.12 (one with working _ctypes but "
+        "no ensurepip) on a self-hosted runner would otherwise win "
+        "the race and produce a venv without pip."
     )
+    # Same check for /usr/bin/python3.13 vs bare python3.13.
+    if "/usr/bin/python3.13" in candidates_section:
+        explicit_313 = candidates_section.index("/usr/bin/python3.13")
+        bare_313 = [
+            m.start() for m in _re.finditer(
+                r"(?<!/)python3\.13(?![/\d])", candidates_section
+            )
+        ]
+        if bare_313:
+            assert explicit_313 < bare_313[0], (
+                "/usr/bin/python3.13 must be probed BEFORE bare "
+                "`python3.13` from $PATH for the same pip-bootstrap "
+                "reason as /usr/bin/python3.12."
+            )
 
 
 def test_setup_python_env_ctypes_probe_fails_loudly_when_no_working_python():
@@ -627,4 +649,156 @@ def test_setup_python_env_venv_self_heal_error_message_actionable():
         "in both the no-launcher-found and self-heal-failed error "
         "messages, so operators have a canonical pointer to the "
         "provisioning procedure."
+    )
+
+
+def test_setup_python_env_bootstraps_pip_when_missing_in_venv():
+    """After `$PY -m venv .venv`, the resulting venv's pip must be
+    verified. Some Python builds (e.g. a self-hosted runner's
+    tool-cache Python at
+        /home/ecan/actions-runner/_work/_tool/Python/3.12.14/x64/
+    built --without-ensurepip) produce a venv where `python -m venv`
+    returns 0 but `python -m pip --version` fails with
+    `No module named pip`. The action must self-heal:
+
+      1. Try `python -m ensurepip --upgrade` (no network, no sudo).
+      2. If that fails, try `get-pip.py` from bootstrap.pypa.io
+         over HTTPS via curl.
+      3. If both fail, fail loudly with `::error::` pointing at the
+         apt-install command (the launcher probe already prefers the
+         apt-installed /usr/bin/python3.12, which has pip bundled —
+         so this branch is defense-in-depth for runners where the
+         apt Python is missing/broken too).
+
+    Without this bootstrap, the `Install Python dependencies` step's
+    first line `python -m pip -V` crashes with `No module named pip`
+    and the entire build is lost — the venv was created successfully
+    and yet the build fails, with no actionable hint.
+    """
+    text = _read(SETUP_PYTHON_ENV)
+    import re as _re
+
+    # (1) The bootstrap probe must run AFTER the venv creation block
+    # closes and BEFORE the PATH-export step. Otherwise either the
+    # bootstrap runs against the launcher (no venv yet, would always
+    # fail) or the next step's `python -m pip -V` runs before the
+    # bootstrap. Anchor: find the "Virtual environment created and
+    # added to PATH" log line, then verify the bootstrap block sits
+    # earlier in the file.
+    bootstrap_marker = '"$VENV_PYTHON" -m pip --version'
+    assert bootstrap_marker in text, (
+        "setup-python-env must explicitly probe "
+        "`$VENV_PYTHON -m pip --version` after venv creation. A bare "
+        "check that `$PY -m venv` returned 0 is insufficient because "
+        "the launcher can be built --without-ensurepip, producing a "
+        "venv without pip."
+    )
+    # Pin the contract: the bootstrap probe must be inside the
+    # `Create and activate virtual environment` step (before the
+    # PATH export), NOT inside the `Install Python dependencies`
+    # step (which would be too late — the next thing would crash).
+    create_step_match = _re.search(
+        r"- name: Create and activate virtual environment\n"
+        r"(?P<body>.*?)\n    - name: Install Python dependencies",
+        text,
+        flags=_re.DOTALL,
+    )
+    assert create_step_match, (
+        "setup-python-env could not locate the boundary between "
+        "`Create and activate virtual environment` and "
+        "`Install Python dependencies`. The action may have been "
+        "reordered."
+    )
+    create_body = create_step_match.group("body")
+    assert bootstrap_marker in create_body, (
+        "setup-python-env's pip bootstrap must live inside the "
+        "`Create and activate virtual environment` step (before "
+        "PATH export), so the next step's `python -m pip -V` "
+        "never crashes on a venv-without-pip. Found the bootstrap "
+        "marker outside the create-step body."
+    )
+
+    # (2) Primary bootstrap: ensurepip. Must be tried first because
+    # it's stdlib (no network, no sudo) and handles the common case
+    # of a launcher-with-ensurepip creating a venv-without-pip.
+    assert '"$VENV_PYTHON" -m ensurepip --upgrade' in text, (
+        "setup-python-env must try `python -m ensurepip --upgrade` "
+        "as the first pip bootstrap. This is stdlib (no network, no "
+        "sudo) and fixes most venv-without-pip cases without "
+        "downloading anything."
+    )
+
+    # (3) Secondary bootstrap: get-pip.py from bootstrap.pypa.io
+    # via curl. This is the only fallback that works for Python
+    # builds compiled --without-ensurepip (no bootstrap module).
+    # Must be guarded by `command -v curl` (macOS/Linux always have
+    # curl, but we don't want to assume it) and use --max-time so a
+    # hung HTTPS connection doesn't pin the job forever.
+    assert "curl -fsSL --max-time 60 https://bootstrap.pypa.io/get-pip.py" in text, (
+        "setup-python-env must fall back to downloading "
+        "get-pip.py from bootstrap.pypa.io over HTTPS via curl "
+        "(guarded by `command -v curl` and a 60s --max-time) "
+        "when ensurepip fails. This is the only stdlib-free "
+        "way to bootstrap pip in a venv created by a Python "
+        "built --without-ensurepip."
+    )
+
+    # (4) Hard guard: even after both bootstrap attempts, the
+    # action must re-probe `$VENV_PYTHON -m pip --version` and
+    # fail loudly if pip is STILL missing. This catches both
+    # bootstrap methods failing AND any future bug where the
+    # bootstrap runs but doesn't actually install pip.
+    pip_version_count = text.count('"$VENV_PYTHON" -m pip --version')
+    assert pip_version_count >= 2, (
+        "setup-python-env must run the `$VENV_PYTHON -m pip "
+        "--version` probe at least twice: once before the bootstrap "
+        "(to detect missing pip) and once after (to confirm "
+        "success). Without the second probe, a silently failing "
+        "bootstrap would let the venv reach `Install Python "
+        "dependencies` without pip. "
+        f"Found {pip_version_count} probe(s)."
+    )
+    # Pin that the failure-path ::error:: is the final defense. The
+    # action must refuse to proceed with a venv that has no pip
+    # — never let `Install Python dependencies` try `python -m pip`
+    # against a venv without pip.
+    assert "::error::pip still missing in venv after all bootstrap attempts" in text, (
+        "setup-python-env must `::error::` and exit 1 if pip is "
+        "still missing after every bootstrap attempt, so the "
+        "next step never runs `python -m pip` against a "
+        "venv-without-pip."
+    )
+    # The error message must include the apt-install fix so the
+    # operator can resolve the runner permanently, not just for
+    # this one job.
+    assert "sudo apt install python3.12 python3.12-venv python3-pip" in text, (
+        "setup-python-env's pip-bootstrap failure message must "
+        "include the apt-install command "
+        "`sudo apt install python3.12 python3.12-venv python3-pip` "
+        "(the canonical provisioning recipe from "
+        "docs/DEPLOYMENT_UBUNTU.md) so the operator can fix the "
+        "runner at provisioning time, not just per-job."
+    )
+
+
+def test_setup_python_env_pip_bootstrap_does_not_run_when_pip_present():
+    """Sanity check: the pip bootstrap probe must be conditional
+    (gated on the absence of pip), not unconditional. An
+    unconditional `python -m ensurepip --upgrade` on every run
+    would slow every self-hosted build by ~2s for no benefit —
+    the apt-installed Python already has pip in the venv.
+    """
+    text = _read(SETUP_PYTHON_ENV)
+    import re as _re
+    bootstrap_match = _re.search(
+        r'if ! "\$VENV_PYTHON" -m pip --version',
+        text,
+    )
+    assert bootstrap_match, (
+        "setup-python-env's pip bootstrap must be guarded by "
+        "`if ! $VENV_PYTHON -m pip --version` (only run when pip "
+        "is missing), not unconditionally. The launcher probe "
+        "already prefers /usr/bin/python3.12 which produces venvs "
+        "with pip, and an unconditional ensurepip would slow every "
+        "build by a couple of seconds for no benefit."
     )

@@ -107,11 +107,18 @@ runs:
         # Probing the actual import (the real contract we care about)
         # rejects the broken interpreter before it can poison the venv.
         #
-        # Probe order: prefer explicit /usr/bin/python3.12 (apt-installed,
-        # matches requirements) and /usr/bin/python3.13 (newer apt),
-        # then PATH-default `python` / `python3` as fallback.
+        # Probe order: prefer explicit /usr/bin/python3.12 / /usr/bin/python3.13
+        # (apt-installed, have full stdlib including ensurepip + pip) over bare
+        # `python3.12` / `python3.13` / `python` / `python3` from $PATH. On
+        # self-hosted runners the PATH can shadow /usr/bin/python3.12 with a
+        # custom tool-cache build (e.g.
+        #   /home/ecan/actions-runner/_work/_tool/Python/3.12.14/x64/
+        # which is built --without-ensurepip — `python -m venv` succeeds but
+        # `python -m pip --version` then fails with `No module named pip`).
+        # Putting the apt interpreter first means the venv gets pip for free
+        # and downstream `pip install` works without a bootstrap round-trip.
         PY=""
-        for candidate in python3.12 /usr/bin/python3.12 python3.13 /usr/bin/python3.13 python python3; do
+        for candidate in /usr/bin/python3.12 /usr/bin/python3.13 python3.12 python3.13 python python3; do
           if command -v "$candidate" >/dev/null 2>&1; then
             if "$candidate" -c "import _ctypes, ctypes.util" 2>/dev/null; then
               PY="$candidate"
@@ -203,6 +210,46 @@ runs:
               exit 1
             fi
           fi
+        fi
+
+        # Defensive pip bootstrap: `python -m venv` returns 0 even when the
+        # source Python is built --without-ensurepip (e.g. the tool-cache
+        # Python at
+        #   /home/ecan/actions-runner/_work/_tool/Python/3.12.14/x64/
+        # which shadows /usr/bin/python3.12 when PATH is polluted). The venv
+        # is created but pip is missing; the next step's
+        # `python -m pip -V` then crashes with `No module named pip`.
+        # Self-heal: try `python -m ensurepip --upgrade`. If ensurepip is
+        # also unavailable (custom build with --without-ensurepip), try
+        # `get-pip.py` from the Python.org bootstrap over HTTPS. Fail loudly
+        # with the apt-install hint if all attempts fail. This is defense
+        # in depth on top of the launcher probe preferring the apt-installed
+        # /usr/bin/python3.12 (which always has pip bundled).
+        if ! "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; then
+          pip_probe_err="$("$VENV_PYTHON" -m pip --version 2>&1 || true)"
+          echo "[INFO] venv has no pip ($pip_probe_err); bootstrapping via ensurepip"
+          if "$VENV_PYTHON" -m ensurepip --upgrade >/dev/null 2>&1; then
+            echo "[INFO] ensurepip succeeded; venv now has pip"
+          elif command -v curl >/dev/null 2>&1; then
+            echo "[INFO] ensurepip unavailable; falling back to get-pip.py from bootstrap.pypa.io"
+            if curl -fsSL --max-time 60 https://bootstrap.pypa.io/get-pip.py -o /tmp/ecan-get-pip.py \
+                && "$VENV_PYTHON" /tmp/ecan-get-pip.py >/dev/null 2>&1; then
+              echo "[INFO] get-pip.py bootstrap succeeded; venv now has pip"
+            else
+              echo "::error::pip bootstrap via get-pip.py also failed. Original probe error: $pip_probe_err. On self-hosted Linux runners, prefer the apt-installed Python (the launcher probe already tries /usr/bin/python3.12 first — verify it exists and has working ensurepip: 'sudo apt install python3.12 python3.12-venv python3-pip', see docs/DEPLOYMENT_UBUNTU.md)."
+              exit 1
+            fi
+          else
+            echo "::error::pip missing in venv and no bootstrap method available (ensurepip + curl both unavailable). Original probe error: $pip_probe_err. On self-hosted Linux runners, install the apt Python at provisioning time: 'sudo apt install python3.12 python3.12-venv python3-pip' (see docs/DEPLOYMENT_UBUNTU.md)."
+            exit 1
+          fi
+        fi
+        # Final hard guard: even after the bootstrap above, refuse to proceed
+        # with a venv that still has no pip. This protects the next step's
+        # `python -m pip -V` from ever running on a venv-without-pip.
+        if ! "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; then
+          echo "::error::pip still missing in venv after all bootstrap attempts. On self-hosted Linux runners, install the apt Python at provisioning time: 'sudo apt install python3.12 python3.12-venv python3-pip' (see docs/DEPLOYMENT_UBUNTU.md)."
+          exit 1
         fi
 
         if [ "${{ inputs.platform }}" = "windows" ]; then
