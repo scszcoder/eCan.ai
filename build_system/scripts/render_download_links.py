@@ -721,8 +721,36 @@ def build_linux_rows(
             "source": "missing",
         }]
 
+    # Mirror the build_windows_rows contract: when the build was
+    # direct-uploaded (no GHA artifact downloaded), the local
+    # `linux-artifacts/` is empty and the only way the row can be
+    # produced is by synthesising the expected .deb filename from
+    # `app_name` + `version`. .deb is the canonical Linux artifact
+    # produced on every successful build (see
+    # build_config.json → platforms.linux.deb.enabled). Local-files
+    # iteration below picks up any additional formats (e.g. .AppImage
+    # when build_config.json enables it) without duplicating the
+    # synthesised .deb row.
+    canonical_filename = f"{app_name}-{version}-linux-amd64.deb"
     local_paths = {p.name: p for p in discover_files(linux_artifacts_dir, (".AppImage", ".deb", ".rpm", ".tar.gz"))}
+    emitted_filenames: set[str] = set()
+    canonical_local = local_paths.get(canonical_filename)
+    arch_label, arch_path, pkg_type = classify_linux(canonical_filename)
+    key = f"{env_prefix}/releases/{release_dir}/linux/{arch_path}/{canonical_filename}"
+    size, source = size_for(canonical_local, key, remote_sizes)
+    rows.append({
+        "filename": canonical_filename,
+        "arch_label": arch_label,
+        "pkg_type": pkg_type,
+        "size_bytes": size,
+        "url": f"{bucket_url_prefix}/{key}",
+        "gate_label": gate_label,
+        "source": source,
+    })
+    emitted_filenames.add(canonical_filename)
     for filename, local_path in local_paths.items():
+        if filename in emitted_filenames:
+            continue
         arch_label, arch_path, pkg_type = classify_linux(filename)
         key = f"{env_prefix}/releases/{release_dir}/linux/{arch_path}/{filename}"
         size, source = size_for(local_path, key, remote_sizes)
@@ -735,6 +763,7 @@ def build_linux_rows(
             "gate_label": gate_label,
             "source": source,
         })
+        emitted_filenames.add(filename)
     return rows
 
 
