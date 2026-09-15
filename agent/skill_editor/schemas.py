@@ -99,6 +99,7 @@ class ClarificationChoice(BaseModel):
     label: str = Field(..., description="Display label for the choice")
     description: Optional[str] = Field(None, description="Additional description")
     allow_freeform: bool = Field(False, description="When selected, show a text input for custom user input")
+    recommended: bool = Field(False, description="The option we advise; rendered first and marked")
 
 
 class ClarificationQuestion(BaseModel):
@@ -121,6 +122,50 @@ class ClarificationQuestion(BaseModel):
         None,
         description="Dynamic data source key. 'user_skills' → handler fills choices from user's S3 skill list before sending to client.",
     )
+
+    @model_validator(mode="after")
+    def _normalize(self):
+        return normalize_choices(self)
+
+
+# A question is only as good as its options. Three rules, enforced here rather
+# than asked for in a prompt, because questions are built in eight different
+# places and a prompt is a request, not a guarantee:
+#   1. the recommended option comes first and is marked, so the default is obvious
+#   2. there is always a way to say something the options did not anticipate
+#   3. that escape hatch is last, where people look for it
+RECOMMENDED_MARK = "\u2605 "   # a star: visible in any language, no i18n needed
+_FREEFORM_IDS = {"other", "custom", "freeform", "something_else"}
+
+
+def normalize_choices(question):
+    choices = list(question.choices or [])
+    if not choices or question.widget_type in ("text", "file_upload"):
+        return question
+
+    # 1. Recommended first. If the model marked none, honour the prompt's
+    #    convention that the best option is written first.
+    if not any(c.recommended for c in choices):
+        choices[0].recommended = True
+    recommended = [c for c in choices if c.recommended]
+    for extra in recommended[1:]:
+        extra.recommended = False
+    best = recommended[0]
+    if not best.label.startswith(RECOMMENDED_MARK):
+        best.label = RECOMMENDED_MARK + best.label
+    choices = [best] + [c for c in choices if c is not best]
+
+    # 2 & 3. A freeform escape hatch, and it goes last.
+    freeform = [c for c in choices if c.allow_freeform or c.id in _FREEFORM_IDS]
+    if not freeform:
+        freeform = [ClarificationChoice(
+            id="other", label="Other - let me describe it", allow_freeform=True,
+            description="None of the above fits; type what you need")]
+        choices.append(freeform[0])
+    for c in freeform:
+        c.allow_freeform = True
+    question.choices = [c for c in choices if c not in freeform] + freeform
+    return question
 
 
 class ClarificationResponse(BaseModel):
