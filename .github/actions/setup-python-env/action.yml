@@ -91,13 +91,39 @@ runs:
         # `actions/setup-python@v6` is gated to github-hosted (see the step
         # above), so on macOS / Linux self-hosted runners nothing has added a
         # `python` symlink to PATH. Homebrew's `brew install python@3.12`
-        # only installs `python3` / `python3.12`, never a bare `python`. Probe
-        # `python` first (works on Windows self-hosted + GitHub-hosted Linux)
-        # and fall back to `python3` for macOS / Linux self-hosted runners.
-        if command -v python >/dev/null 2>&1; then
-          PY=python
-        else
-          PY=python3
+        # only installs `python3` / `python3.12`, never a bare `python`.
+        #
+        # Critically, we don't just check `command -v` — we also verify the
+        # candidate can actually import `_ctypes`. On self-hosted Linux
+        # runners there's been at least one case where a non-standard
+        # Python installation at
+        #   /home/ecan/actions-runner/_work/_tool/Python/3.12.14/x64/
+        # shadowed the apt-installed /usr/bin/python3.12 and got picked
+        # up first by `python3`. That Python's _ctypes.so was built
+        # against an older Python (or otherwise corrupted) and is missing
+        # `_PyErr_SetLocaleString`, so every PyInstaller subprocess
+        # crashed at import time with:
+        #   ImportError: undefined symbol: _PyErr_SetLocaleString
+        # Probing the actual import (the real contract we care about)
+        # rejects the broken interpreter before it can poison the venv.
+        #
+        # Probe order: prefer explicit /usr/bin/python3.12 (apt-installed,
+        # matches requirements) and /usr/bin/python3.13 (newer apt),
+        # then PATH-default `python` / `python3` as fallback.
+        PY=""
+        for candidate in python3.12 /usr/bin/python3.12 python3.13 /usr/bin/python3.13 python python3; do
+          if command -v "$candidate" >/dev/null 2>&1; then
+            if "$candidate" -c "import _ctypes, ctypes.util" 2>/dev/null; then
+              PY="$candidate"
+              break
+            else
+              echo "[INFO] $candidate resolves to a working interpreter but _ctypes import failed; trying next candidate"
+            fi
+          fi
+        done
+        if [ -z "$PY" ]; then
+          echo "::error::No working Python 3.12 found on PATH (every candidate either missing or has a broken _ctypes). Tried: python3.12, /usr/bin/python3.12, python3.13, /usr/bin/python3.13, python, python3. Probe was 'import _ctypes, ctypes.util'. On self-hosted Linux runners, install via 'sudo apt install python3.12 python3.12-venv' (see docs/DEPLOYMENT_UBUNTU.md). On self-hosted macOS, install via 'brew install python@3.12'."
+          exit 1
         fi
         echo "Using Python launcher: $PY ($("$PY" -V 2>&1))"
 
@@ -107,10 +133,27 @@ runs:
           VENV_PYTHON=".venv/bin/python"
         fi
 
-        if [ -d ".venv" ] && [ -f "$VENV_PYTHON" ]; then
-          echo "Existing virtual environment detected (from cache); reusing .venv"
+        # On self-hosted runners the venv cache step is gated to
+        # github-hosted, so any pre-existing `.venv` here is leftover
+        # workspace state from a previous job (the runner image
+        # persists across jobs). That venv was created by whatever
+        # launcher was on PATH at the time — which, on the Linux
+        # runner that hit the original `_ctypes` crash, was the
+        # broken tool-cache Python. A naive reuse would skip the
+        # `$PY -m venv` step, leaving the poisoned venv to crash
+        # PyInstaller on the very first subprocess. Probe the
+        # venv's interpreter with the same contract as the launcher
+        # probe above; if the import fails, drop the venv and
+        # recreate from the now-verified `$PY`.
+        if [ -d ".venv" ] && [ -f "$VENV_PYTHON" ] \
+            && "$VENV_PYTHON" -c "import _ctypes, ctypes.util" 2>/dev/null; then
+          echo "Existing virtual environment has working _ctypes; reusing .venv"
         else
-          echo "No usable venv found; creating fresh .venv"
+          if [ -d ".venv" ] && [ -f "$VENV_PYTHON" ]; then
+            echo "Existing virtual environment has broken _ctypes (likely from a previous job on this self-hosted runner); recreating with verified launcher $PY"
+          else
+            echo "No usable venv found; creating fresh .venv"
+          fi
           rm -rf .venv
           "$PY" -m venv .venv
         fi

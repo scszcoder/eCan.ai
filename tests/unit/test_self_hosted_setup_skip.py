@@ -330,3 +330,155 @@ def test_windows_virtualenv_is_exported_as_native_path():
 def test_virtualenv_cache_is_separated_by_app():
     text = _read(SETUP_PYTHON_ENV)
     assert "${{ env.ECAN_APP_ID }}-venv" in text
+
+
+def test_setup_python_env_probes_ctypes_before_picking_interpreter():
+    """The Python-selection logic in `Create and activate virtual
+    environment` must verify that the chosen interpreter can actually
+    import `_ctypes`, not just that `command -v python3` finds
+    something.
+
+    Background: a self-hosted Linux runner had a non-standard
+    Python installation at
+        /home/ecan/actions-runner/_work/_tool/Python/3.12.14/x64/
+    whose `_ctypes.so` was compiled against a different Python version
+    and is missing `_PyErr_SetLocaleString`. With the previous logic
+    (`command -v python3` only), the action picked this broken
+    interpreter, the venv was based on it, and every PyInstaller
+    subprocess then crashed at
+        File ".../ctypes/__init__.py", line 8, in <module>
+            from _ctypes import Union, Structure, Array
+        ImportError: ... undefined symbol: _PyErr_SetLocaleString
+    Pin the probe so a future refactor that goes back to the cheap
+    `command -v python3` check gets caught before shipping as a CI
+    regression.
+
+    Probe order must also prefer the apt-installed /usr/bin/python3.12
+    over PATH-default `python`/`python3`, so the broken tool-cache
+    Python (if present) loses the race.
+    """
+    text = _read(SETUP_PYTHON_ENV)
+    assert "import _ctypes, ctypes.util" in text, (
+        "setup-python-env must probe `_ctypes` (not just `command -v`) "
+        "when picking the Python interpreter. A self-hosted Linux runner "
+        "had a broken _ctypes in its tool-cache Python which crashed "
+        "PyInstaller with 'undefined symbol: _PyErr_SetLocaleString'."
+    )
+    # The probe candidates must include /usr/bin/python3.12 BEFORE any
+    # bare PATH-default fallback so the apt-installed interpreter wins
+    # over a non-standard tool-cache shadow.
+    import re as _re
+    candidates_section = text[text.index("for candidate in"):text.index("for candidate in") + 800]
+    assert "/usr/bin/python3.12" in candidates_section, (
+        "setup-python-env's Python probe must list /usr/bin/python3.12 "
+        "(apt-installed; matches requirements-base.txt)."
+    )
+    explicit_312 = candidates_section.index("/usr/bin/python3.12")
+    # Match the bare `python`/`python3` fallbacks by anchoring on the
+    # trailing whitespace/semicolon — this avoids matching python3.12
+    # / python3.13 which appear earlier in the loop.
+    bare_fallbacks = [
+        m.start() for m in _re.finditer(
+            r"(?:^|\s)(?:python|python3)(?:[\s;])", candidates_section
+        )
+    ]
+    assert bare_fallbacks, (
+        "Could not locate bare `python`/`python3` fallback in the probe "
+        "loop. The candidates-section text may have drifted from the "
+        "loop body."
+    )
+    assert explicit_312 < bare_fallbacks[0], (
+        "/usr/bin/python3.12 must be probed BEFORE any bare `python`/"
+        "`python3` fallback so a non-standard tool-cache Python on PATH "
+        "cannot win the race."
+    )
+
+
+def test_setup_python_env_ctypes_probe_fails_loudly_when_no_working_python():
+    """When every probe candidate either is missing or has a broken
+    _ctypes, the action must `::error::` with an actionable fix
+    rather than silently picking the broken one."""
+    text = _read(SETUP_PYTHON_ENV)
+    assert '::error::No working Python 3.12 found on PATH' in text, (
+        "setup-python-env must emit a ::error:: with the install "
+        "command when no working Python can be found, so the operator "
+        "knows to fix the runner instead of wondering why builds fail."
+    )
+    assert "sudo apt install python3.12 python3.12-venv" in text, (
+        "The fallback error message must include the apt-install command "
+        "from docs/DEPLOYMENT_UBUNTU.md so the operator can fix the "
+        "runner without leaving the log."
+    )
+
+
+def test_setup_python_env_existing_venv_is_ctypes_probed_before_reuse():
+    """The venv REUSE branch must run the same `_ctypes` contract probe
+    on the existing `.venv/bin/python` (or `.venv/Scripts/python.exe`)
+    before declaring it reusable.
+
+    Background: `actions/cache@v5` for the venv is gated to
+    github-hosted runners only, so on a persistent self-hosted
+    runner any pre-existing `.venv` is leftover workspace state from
+    a previous job. If that previous job ran against an older version
+    of this action (or before the launcher probe was added), the venv
+    was created by whatever interpreter won `command -v` then — which
+    on the Linux runner that produced the bug was the broken
+    tool-cache Python at
+        /home/ecan/actions-runner/_work/_tool/Python/3.12.14/x64/
+
+    The launcher probe alone does not save us here: even if the
+    system Python has since been fixed (or a fresh probe picks
+    /usr/bin/python3.12), the script's naive `if [ -d .venv ] && [ -f
+    $VENV_PYTHON ]` short-circuit would skip recreating the venv and
+    inherit the broken `pyvenv.cfg` home, re-importing ctypes from
+    the tool-cache Python's `_ctypes.so` on the very first PyInstaller
+    subprocess.
+
+    Pin the contract: the reuse branch must call
+        $VENV_PYTHON -c "import _ctypes, ctypes.util"
+    before printing a "reusing" message; on failure it must drop the
+    venv and recreate it from the verified launcher.
+    """
+    text = _read(SETUP_PYTHON_ENV)
+    assert "Existing virtual environment has working _ctypes; reusing .venv" in text, (
+        "setup-python-env's venv-reuse branch must announce the probe "
+        "result explicitly, so a future refactor that goes back to a "
+        "naive `if [ -d .venv ]` check leaves an obvious signal in "
+        "the CI log instead of silently reusing a poisoned venv."
+    )
+    assert "broken _ctypes" in text, (
+        "setup-python-env must log when the existing venv's _ctypes "
+        "fails, attributing it to a leftover from a previous job on "
+        "this self-hosted runner so the operator isn't surprised by "
+        "the `rm -rf .venv` that follows."
+    )
+    # The reuse branch must call the same `_ctypes` contract probe as
+    # the launcher probe, before printing a "reusing" message. The
+    # exact tokenizer-friendly pattern (split across the `&&` line
+    # continuation in the YAML) is:
+    #     "$VENV_PYTHON" -c "import _ctypes, ctypes.util"
+    # Pin it as-is so a refactor that goes back to a naive
+    # `if [ -d .venv ]` check leaves an obvious failure here, not
+    # a quiet poison-venv regression in CI.
+    import re as _re
+    reuse_probes = _re.findall(
+        r'"\$VENV_PYTHON"\s+-c\s+"import _ctypes,\s*ctypes\.util"',
+        text,
+    )
+    assert len(reuse_probes) == 1, (
+        "setup-python-env must run the `_ctypes` probe against "
+        "`$VENV_PYTHON` exactly once before declaring the existing "
+        "venv reusable. The probe is the contract that distinguishes "
+        "a healthy venv from one created by the broken tool-cache "
+        f"Python. Found {len(reuse_probes)} matching probes."
+    )
+    # And the reuse-probe must appear AFTER the launcher probe loop,
+    # so the launcher has been verified before we trust it to
+    # recreate the venv.
+    launcher_marker = "Using Python launcher:"
+    reuse_marker = "Existing virtual environment has working _ctypes"
+    assert text.index(launcher_marker) < text.index(reuse_marker), (
+        "launcher probe must run before venv-reuse probe; otherwise "
+        "the reuse branch could recreate the venv from a launcher "
+        "we haven't verified yet."
+    )
