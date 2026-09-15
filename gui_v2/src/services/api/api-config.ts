@@ -369,6 +369,17 @@ export const GRAPHQL_QUERIES = {
     }
   `,
 
+  // Polled while a skill build runs. Writes nothing and costs no model call,
+  // so it is safe every few seconds; flowgram is null until the build has
+  // finished AND passed the compiler check.
+  GET_SKILL_EDITOR_BUILD_STATUS: `
+    query GetSkillEditorBuildStatus($sessionId: ID!) {
+      getSkillEditorBuildStatus(sessionId: $sessionId) {
+        building done ok phase message flowgram
+      }
+    }
+  `,
+
   // ==================== A2A Messages (Chat) ====================
   GET_A2A_MESSAGES: `
     query GetA2AMessages($channelId: String!, $limit: Int, $nextToken: String) {

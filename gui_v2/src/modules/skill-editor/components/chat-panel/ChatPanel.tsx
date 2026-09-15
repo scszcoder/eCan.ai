@@ -829,6 +829,69 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const chatThreadRef = useRef<HTMLDivElement>(null);
   const hasLoadedSessionsRef = useRef(false);
   const lastFlowgramJsonRef = useRef<any>(null);  // cache last received flowgram for resending with edit approvals
+  const buildWatchRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  /**
+   * Watch a running build and put the skill on the canvas the moment it is
+   * ready, without the user having to say anything.
+   *
+   * Polling rather than a subscription because the CN client has no working
+   * push channel yet (see cn/tencent/SKILL_EDITOR_CLIENT_TODO §5). The query
+   * writes nothing and costs no model call, so every 6 seconds is cheap; the
+   * cap stops a forgotten watch running for ever.
+   */
+  const startBuildWatch = useCallback((sessionId: string) => {
+    if (buildWatchRef.current) clearInterval(buildWatchRef.current);
+    const startedAt = Date.now();
+    const LIMIT_MS = 15 * 60 * 1000;
+
+    const stop = () => {
+      if (buildWatchRef.current) clearInterval(buildWatchRef.current);
+      buildWatchRef.current = null;
+    };
+
+    const say = (content: string) => {
+      const m: ChatMessage = {
+        id: `msg-build-${Date.now()}`,
+        role: 'assistant',
+        content,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, m]);
+    };
+
+    buildWatchRef.current = setInterval(async () => {
+      if (Date.now() - startedAt > LIMIT_MS) {
+        stop();
+        say('The build has been running for 15 minutes, which is longer than it should take. Send me a message and I will check on it.');
+        return;
+      }
+      const status = await skillEditorChatService.getBuildStatus(sessionId);
+      if (!status) return;                       // a failed poll: try again next tick
+
+      setStreamingStatus(status.message || 'Building…');
+
+      if (!status.done) return;
+      stop();
+
+      if (status.ok && status.flowgram) {
+        lastFlowgramJsonRef.current = status.flowgram;
+        try {
+          await canvasController.loadFlowgram(status.flowgram);
+          say(status.message || 'Your skill is built and is now on the canvas.');
+        } catch (err) {
+          console.warn('[ChatPanel] Failed to load the built flowgram:', err);
+          say('The build finished, but the skill could not be loaded onto the canvas. Send me a message and I will try again.');
+        }
+      } else {
+        say(status.message || 'The build stopped before it finished.');
+      }
+      setStreamingStatus('');
+    }, 6000);
+  }, []);
+
+  // Never leave a poll running behind a closed panel.
+  useEffect(() => () => { if (buildWatchRef.current) clearInterval(buildWatchRef.current); }, []);
   const approvingPlanRef = useRef(false);  // prevent double-click on approve button
   const planApprovedRef = useRef(false);   // once a plan is approved, block subscription from re-showing it
   const submittingClarificationRef = useRef(false);  // prevent handleDone from clearing isLoading during clarification submit
@@ -1678,6 +1741,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         if (response.flowgram) {
           lastFlowgramJsonRef.current = response.flowgram;
           await canvasController.loadFlowgram(response.flowgram);
+        }
+
+        // A build runs for minutes and the backend cannot push to us, so watch
+        // it ourselves. Without this the finished skill waits in the database
+        // until the user types again, and an empty canvas is indistinguishable
+        // from a build that died.
+        if (response.intent === 'build_started') {
+          startBuildWatch(response.sessionId);
         }
       }
     } catch (error: any) {
