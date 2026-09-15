@@ -36,7 +36,14 @@ class MenuMessages:
             'rla_select_all': 'Select All',
             'rla_deselect_all': 'Deselect All',
             'rla_problem_label': 'Problem description',
-            'rla_problem_placeholder': 'Describe what went wrong, what you expected, and when it happened…',
+            'rla_problem_placeholder': 'Describe what went wrong, what you expected, and when it happened (24-hour time, e.g. 14:05)…',
+            # The time nudge earns its space: the analyser windows the logs around a
+            # clock time found in the description, and the app log rotates, so without
+            # one it can only read the newest generation — often not the one the
+            # incident is in.
+            'rla_time_hint': '⏱ Add the time it happened (24-hour, e.g. 14:05) if you know it — logs roll over, and a time lets support read the right minutes instead of the wrong hour.',
+            'rla_time_ok': '⏱ Time noted ({t}) — support will read the logs around then.',
+            'rla_time_now': 'It just happened',
             'rla_attach_label': 'Attachments (screenshots / screen recording)',
             'rla_attach_add': 'Add files…',
             'rla_attach_remove': 'Remove selected',
@@ -216,7 +223,10 @@ class MenuMessages:
             'rla_select_all': '全选',
             'rla_deselect_all': '取消全选',
             'rla_problem_label': '问题描述',
-            'rla_problem_placeholder': '请描述出现的问题、您期望的结果，以及发生的时间…',
+            'rla_problem_placeholder': '请描述出现的问题、您期望的结果，以及发生的时间（24 小时制，例如 14:05）…',
+            'rla_time_hint': '⏱ 如果知道大概发生时间，请写上（24 小时制，例如 14:05）——日志会滚动覆盖，有时间点才能定位到那几分钟，否则可能翻错时段。',
+            'rla_time_ok': '⏱ 已记录时间（{t}）——技术支持会重点查看该时段的日志。',
+            'rla_time_now': '刚刚发生',
             'rla_attach_label': '附件（截图 / 录屏）',
             'rla_attach_add': '添加文件…',
             'rla_attach_remove': '移除所选',

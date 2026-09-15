@@ -36,7 +36,9 @@ def support():
 
 
 @support.command('upload')
-@click.option('--description', '-d', default='', help='Problem description (saved to current_issues.md).')
+@click.option('--description', '-d', default='',
+              help='Problem description (saved to current_issues.md). Include the time it happened '
+                   '(24-hour, e.g. 14:05) — the analyser windows the logs around it, and they rotate.')
 @click.option('--description-file', '-D', 'description_file',
               type=click.Path(exists=True), help='Read the description from a UTF-8 file.')
 @click.option('--attach', '-a', 'attachments', multiple=True,
