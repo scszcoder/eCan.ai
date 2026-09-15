@@ -17,9 +17,12 @@ default). The heavy lifting lives in the shared ``debug_log_handler`` so the CLI
 """
 from __future__ import annotations
 
+import datetime as dt
+import re
 from typing import List, Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QPushButton, QProgressBar, QMessageBox, QAbstractItemView, QTextEdit,
@@ -33,6 +36,14 @@ from utils.logger_helper import logger_helper as logger
 def _t(key: str, **kwargs) -> str:
     """Localized string, falling back to the key so a missing entry is visible."""
     return get_message(key, **kwargs) or key
+
+
+# The server-side analyser anchors its log window on a clock time found in the
+# description (the same shape as its own CLOCK_RE: 24-hour HH:MM). Without one
+# it can only digest the newest generation of a log that rotates every 10 MB,
+# which is usually not the generation the incident is in -- so the dialog asks
+# for a time, and shows the user when it has one.
+CLOCK_RE = re.compile(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)")
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +144,25 @@ class RequestLogAnalysisDialog(QDialog):
         self._problem_edit.setObjectName("problemEdit")
         self._problem_edit.setPlaceholderText(_t("rla_problem_placeholder"))
         self._problem_edit.setFixedHeight(90)
+        self._problem_edit.textChanged.connect(self._refresh_time_hint)
         layout.addWidget(self._problem_edit)
+
+        # Time nudge: a hint that turns into an acknowledgement once the
+        # description carries a clock time, plus one click for the common case
+        # ("it just happened"). It never blocks -- a report without a time is
+        # still worth having, it is just read less precisely.
+        time_row = QHBoxLayout()
+        time_row.setSpacing(8)
+        self._time_hint = QLabel(_t("rla_time_hint"))
+        self._time_hint.setWordWrap(True)
+        self._time_hint.setObjectName("timeHint")
+        self._time_now_btn = QPushButton(_t("rla_time_now"))
+        self._time_now_btn.setObjectName("secondaryBtn")
+        self._time_now_btn.setFixedHeight(24)
+        self._time_now_btn.clicked.connect(self._insert_now)
+        time_row.addWidget(self._time_hint, stretch=1)
+        time_row.addWidget(self._time_now_btn, alignment=Qt.AlignTop)
+        layout.addLayout(time_row)
 
         # Skills
         layout.addWidget(self._section_label(_t("rla_skills_label")))
@@ -217,6 +246,25 @@ class RequestLogAnalysisDialog(QDialog):
         btn_row.addWidget(cancel_btn)
         layout.addLayout(btn_row)
 
+    def _refresh_time_hint(self):
+        """Hint while there is no time, acknowledgement once there is one."""
+        match = CLOCK_RE.search(self._problem_edit.toPlainText())
+        self._time_hint.setText(_t("rla_time_ok", t=match.group(0)) if match
+                                else _t("rla_time_hint"))
+        self._time_hint.setProperty("state", "ok" if match else "")
+        # Qt only re-evaluates a property selector on a re-polish.
+        self._time_hint.style().unpolish(self._time_hint)
+        self._time_hint.style().polish(self._time_hint)
+        self._time_now_btn.setVisible(match is None)
+
+    def _insert_now(self):
+        """Append the current wall clock, in the 24-hour form the analyser reads."""
+        text = self._problem_edit.toPlainText().rstrip()
+        stamp = dt.datetime.now().strftime("%H:%M")
+        self._problem_edit.setPlainText(f"{text} ({stamp})" if text else f"({stamp})")
+        self._problem_edit.moveCursor(QTextCursor.End)
+        self._problem_edit.setFocus()
+
     def _section_label(self, text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setObjectName("sectionLabel")
@@ -229,6 +277,8 @@ class RequestLogAnalysisDialog(QDialog):
         QLabel#descLabel { color: #c9d1d9; font-size: 13px; }
         QLabel#sectionLabel { color: #e6edf3; font-size: 13px; font-weight: 600; }
         QLabel#statusLabel { color: #8b949e; font-size: 12px; }
+        QLabel#timeHint { color: #8b949e; font-size: 12px; }
+        QLabel#timeHint[state="ok"] { color: #3fb950; font-size: 12px; }
         QLabel#gateLabel {
             color: #e3b341; font-size: 12px;
             background-color: #2b2213; border: 1px solid #5c4813;
