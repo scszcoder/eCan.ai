@@ -407,26 +407,27 @@ jobs:
         #      copy-paste). Fingerprint lets us compare across jobs /
         #      runs without leaking the token itself.
         #
-        # Runs under pwsh (PowerShell 7). On GitHub-hosted runners
-        # (ubuntu-latest / macos-latest) pwsh 7 is preinstalled and
-        # reachable as `pwsh`. On self-hosted Windows the previous
-        # "Ensure ..." step adds pwsh.exe to GITHUB_PATH so this
-        # step finds it.
-        shell: pwsh
+        # Runs under bash. The previous shell: pwsh implementation
+        # was unreachable on self-hosted Linux/macOS runners (pwsh is
+        # not preinstalled there). bash + coreutils is on every
+        # runner, so this step now works for all four self-hosted
+        # runner types (windows/linux/macos-amd64/macos-aarch64).
+        shell: bash
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          if ([string]::IsNullOrEmpty($env:GITEE_TOKEN)) {
-            '::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to ''oauth2''). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with ''terminal prompts disabled'' — the very symptom this step is meant to replace.'
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, \`git fetch origin\` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
-          }
+          fi
           # Strip CR/LF (echo / shell substitution on copy-paste can
           # introduce them) so the fingerprint is stable across jobs.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $bytes = [System.Text.Encoding]::UTF8.GetBytes($clean)
-          $hash  = [System.Security.Cryptography.SHA256]::HashData($bytes)
-          $fpr   = ($hash | ForEach-Object { $_.ToString('x2') }) -join ''
-          Write-Host "[OK] GITEE_TOKEN present (length=$($bytes.Length) bytes, sha256=$($fpr.Substring(0,8)))"
+          # printf '%s' is LF-only (no trailing newline) so the
+          # sha256sum input matches the PowerShell version byte-for-byte.
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          fpr=$(printf '%s' "$clean" | sha256sum | cut -c1-8)
+          length=${#clean}
+          echo "[OK] GITEE_TOKEN present (length=$length bytes, sha256=$fpr)"
 
       - name: Checkout from GitHub
         # validate-tag always needs to checkout from GitHub to read
@@ -950,26 +951,27 @@ jobs:
         #      copy-paste). Fingerprint lets us compare across jobs /
         #      runs without leaking the token itself.
         #
-        # Runs under pwsh (PowerShell 7). On GitHub-hosted runners
-        # (ubuntu-latest / macos-latest) pwsh 7 is preinstalled and
-        # reachable as `pwsh`. On self-hosted Windows the previous
-        # "Ensure ..." step adds pwsh.exe to GITHUB_PATH so this
-        # step finds it.
-        shell: pwsh
+        # Runs under bash. The previous shell: pwsh implementation
+        # was unreachable on self-hosted Linux/macOS runners (pwsh is
+        # not preinstalled there). bash + coreutils is on every
+        # runner, so this step now works for all four self-hosted
+        # runner types (windows/linux/macos-amd64/macos-aarch64).
+        shell: bash
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          if ([string]::IsNullOrEmpty($env:GITEE_TOKEN)) {
-            '::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to ''oauth2''). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with ''terminal prompts disabled'' — the very symptom this step is meant to replace.'
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, \`git fetch origin\` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
-          }
+          fi
           # Strip CR/LF (echo / shell substitution on copy-paste can
           # introduce them) so the fingerprint is stable across jobs.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $bytes = [System.Text.Encoding]::UTF8.GetBytes($clean)
-          $hash  = [System.Security.Cryptography.SHA256]::HashData($bytes)
-          $fpr   = ($hash | ForEach-Object { $_.ToString('x2') }) -join ''
-          Write-Host "[OK] GITEE_TOKEN present (length=$($bytes.Length) bytes, sha256=$($fpr.Substring(0,8)))"
+          # printf '%s' is LF-only (no trailing newline) so the
+          # sha256sum input matches the PowerShell version byte-for-byte.
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          fpr=$(printf '%s' "$clean" | sha256sum | cut -c1-8)
+          length=${#clean}
+          echo "[OK] GITEE_TOKEN present (length=$length bytes, sha256=$fpr)"
 
       - name: Checkout from GitHub
         # GitHub-hosted runner path. Uses stock actions/checkout@v6
@@ -993,93 +995,96 @@ jobs:
         # the step cap. This bootstrap must be self-contained: no repository
         # file exists before checkout, and Gitee's /raw route is denied by the
         # China runner gateway even when Git Smart-HTTP is reachable.
+        #
+        # Runs under bash. The previous shell: pwsh implementation was
+        # unreachable on self-hosted Linux/macOS runners (pwsh is not
+        # preinstalled there). bash is on every runner, so this step
+        # now works for all four self-hosted runner types.
         if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
+        shell: bash
         timeout-minutes: 10
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("oauth2:$clean"))
-          $git = (Get-Command git.exe -ErrorAction Stop).Source
-          $ref = "${{ github.event.inputs.ref || github.ref }}"
-          Set-Location -LiteralPath $env:GITHUB_WORKSPACE
-          if (Test-Path -LiteralPath '.git') {
-              # Remove read-only attribute before deletion
-              Get-ChildItem -LiteralPath '.git' -Recurse -Force | ForEach-Object {
-                  if ($_.IsReadOnly) { $_.IsReadOnly = $false }
-              }
-              Remove-Item -Recurse -Force '.git'
-          }
-          & $git init -q .
-          & $git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
-          $env:GIT_TERMINAL_PROMPT = '0'
-          $env:HTTP_PROXY = ''; $env:HTTPS_PROXY = ''; $env:NO_PROXY = '*'
-          & $git -c http.sslVerify=false -c http.proxy= -c https.proxy= `
-            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 `
-            -c "http.extraHeader=Authorization: Basic $basic" `
-            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin $ref
-          if ($LASTEXITCODE -ne 0) { throw "Gitee fetch failed for ref '$ref' (exit=$LASTEXITCODE)" }
-          & $git checkout --force --detach FETCH_HEAD
-          if ($LASTEXITCODE -ne 0) { throw "Git checkout failed (exit=$LASTEXITCODE)" }
-          Write-Host "[OK] Checked out $ref at $(& $git rev-parse --short HEAD)"
+          set -e
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) so the embedded token stays stable.
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          # base64 -w0 is GNU; macOS base64 has no -w, so pipe through
+          # tr to strip the trailing newline on all three platforms.
+          basic=$(printf 'oauth2:%s' "$clean" | base64 | tr -d '\n')
+          ref="${{ github.event.inputs.ref || github.ref }}"
+          cd "$GITHUB_WORKSPACE"
+          if [ -d .git ]; then
+            chmod -R u+w .git 2>/dev/null || true
+            rm -rf .git
+          fi
+          git init -q .
+          git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
+          export GIT_TERMINAL_PROMPT=0
+          export HTTP_PROXY= HTTPS_PROXY=
+          export NO_PROXY='*'
+          git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
+            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+            -c "http.extraHeader=Authorization: Basic $basic" \
+            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"
+          git checkout --force --detach FETCH_HEAD
+          sha=$(git rev-parse --short HEAD)
+          echo "[OK] Checked out $ref at $sha"
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
+        shell: bash
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
         # of the appcast/last-release.json. The earlier 'Checkout from
         # Gitee mirror' step handles its own auth via a $env:TEMP askpass
         # file, so this step doesn't have to.
         #
-        # We write our own credential.store file at $env:RUNNER_TEMP,
+        # We write our own credential.store file at $RUNNER_TEMP,
         # point git at it via a job-scoped GIT_CONFIG_GLOBAL
-        # (exported through $env:GITHUB_ENV so subsequent steps inherit
+        # (exported through $GITHUB_ENV so subsequent steps inherit
         # it), and let git's standard credential subsystem handle
-        # auth. Why $env:GITHUB_ENV instead of `git config --global`:
+        # auth. Why $GITHUB_ENV instead of `git config --global`:
         # on a self-hosted runner that's been used for many repos,
         # the runner's user-global .gitconfig is shared across jobs.
         # Setting credential.* there would leak our token to every
-        # other job the runner ever runs. $env:RUNNER_TEMP is per-job, so
+        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
         # the helper file is automatically GC'd at job end.
         #
         # This step MUST run after 'Checkout from Gitee mirror' —
-        # $env:GITHUB_WORKSPACE is the just-checked-out tree. The
-        # previous bash version also relied on the python script at
-        # .github/scripts/write_gitconfig_gitee.py, but pwsh's
-        # [IO.File]::WriteAllText + here-string sidesteps the bash
-        # LF→CRLF translation entirely, so no helper script is needed
-        # any more. The script is left in-tree for any third-party
-        # workflow that still imports it.
+        # $GITHUB_WORKSPACE is the just-checked-out tree.
         #
-        # The previous bash version routed through
-        # .github/scripts/write_gitconfig_gitee.py because `with open(...)
-        # as f:` at column 0 inside a `run: |` block trips YAML's
-        # block-mapping parser. pwsh doesn't have that ambiguity, so
-        # we inline the LF-only file write here.
+        # Runs under bash. The previous shell: pwsh implementation was
+        # unreachable on self-hosted Linux/macOS runners (pwsh is not
+        # preinstalled there). The earlier-than-that bash version routed
+        # through .github/scripts/write_gitconfig_gitee.py because
+        # `with open(...) as f:` at column 0 inside a `run: |` block trips
+        # YAML's block-mapping parser. bash's `> file` redirection with
+        # printf %s avoids both YAML ambiguity and LF→CRLF re-mapping
+        # (the previous concern with PowerShell .NET 8 here-strings is
+        # no longer relevant), so the helper script is inlined back here.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          $ErrorActionPreference = 'Stop'
-
-          $credsFile    = Join-Path $env:RUNNER_TEMP '.git-credentials-gitee'
-          $gitconfigFile = Join-Path $env:RUNNER_TEMP '.gitconfig-gitee'
+          set -e
+          credsFile="$RUNNER_TEMP/.git-credentials-gitee"
+          gitconfigFile="$RUNNER_TEMP/.gitconfig-gitee"
 
           # Strip CR/LF (echo / shell substitution on copy-paste can
           # introduce them) before embedding in the credentials URL.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
 
           # credential.store format: URL with embedded username:password.
           # We deliberately include the scheme + host so it only matches
           # gitee.com (not, e.g., a hypothetical future gitee enterprise
           # tenant URL).
-          $credsLine = "https://oauth2:${clean}@gitee.com"
-          # LF-only write: .NET 8's WriteAllText on Windows writes CRLF
-          # per Environment.NewLine; .gitconfig parsed by PortableGit
-          # accepts CRLF, but writing LF keeps the file identical
-          # across all three runner platforms.
-          [System.IO.File]::WriteAllText($credsFile, ($credsLine + "`n"), [System.Text.UTF8Encoding]::new($false))
+          credsLine="https://oauth2:${clean}@gitee.com"
+          # LF-only write. printf '%s\n' keeps the file LF-only across
+          # all three runner platforms — Git Bash's `>` redirection on
+          # Windows preserves the bytes verbatim, unlike PowerShell
+          # .NET 8's WriteAllText which would re-map to CRLF.
+          printf '%s\n' "$credsLine" > "$credsFile"
 
           # Job-scoped gitconfig. The [credential "https://gitee.com"]
           # section scopes the helper to gitee.com only — other hosts
@@ -1087,24 +1092,25 @@ jobs:
           # core.autocrlf=false prevents git from re-expanding LF→CRLF
           # on read of the credentials file (which would break the
           # embedded newline detection in git's credential store).
-          $gitconfigBody = @"
+          cat > "$gitconfigFile" <<EOF
           [core]
               autocrlf = false
           [credential "https://gitee.com"]
               helper = store --file $credsFile
               username = oauth2
-          "@
-          [System.IO.File]::WriteAllText($gitconfigFile, ($gitconfigBody -replace '\r\n?', "`n"), [System.Text.UTF8Encoding]::new($false))
+          EOF
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
-          "GIT_CONFIG_GLOBAL=$gitconfigFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "GITEE_CREDENTIALS_FILE=$credsFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          {
+            echo "GIT_CONFIG_GLOBAL=$gitconfigFile"
+            echo "GITEE_CREDENTIALS_FILE=$credsFile"
+          } >> "$GITHUB_ENV"
 
-          Write-Host "[OK] Gitee credential helper installed at $credsFile"
-          Write-Host "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
+          echo "[OK] Gitee credential helper installed at $credsFile"
+          echo "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -1802,26 +1808,27 @@ jobs:
         #      copy-paste). Fingerprint lets us compare across jobs /
         #      runs without leaking the token itself.
         #
-        # Runs under pwsh (PowerShell 7). On GitHub-hosted runners
-        # (ubuntu-latest / macos-latest) pwsh 7 is preinstalled and
-        # reachable as `pwsh`. On self-hosted Windows the previous
-        # "Ensure ..." step adds pwsh.exe to GITHUB_PATH so this
-        # step finds it.
-        shell: pwsh
+        # Runs under bash. The previous shell: pwsh implementation
+        # was unreachable on self-hosted Linux/macOS runners (pwsh is
+        # not preinstalled there). bash + coreutils is on every
+        # runner, so this step now works for all four self-hosted
+        # runner types (windows/linux/macos-amd64/macos-aarch64).
+        shell: bash
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          if ([string]::IsNullOrEmpty($env:GITEE_TOKEN)) {
-            '::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to ''oauth2''). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with ''terminal prompts disabled'' — the very symptom this step is meant to replace.'
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, \`git fetch origin\` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
-          }
+          fi
           # Strip CR/LF (echo / shell substitution on copy-paste can
           # introduce them) so the fingerprint is stable across jobs.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $bytes = [System.Text.Encoding]::UTF8.GetBytes($clean)
-          $hash  = [System.Security.Cryptography.SHA256]::HashData($bytes)
-          $fpr   = ($hash | ForEach-Object { $_.ToString('x2') }) -join ''
-          Write-Host "[OK] GITEE_TOKEN present (length=$($bytes.Length) bytes, sha256=$($fpr.Substring(0,8)))"
+          # printf '%s' is LF-only (no trailing newline) so the
+          # sha256sum input matches the PowerShell version byte-for-byte.
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          fpr=$(printf '%s' "$clean" | sha256sum | cut -c1-8)
+          length=${#clean}
+          echo "[OK] GITEE_TOKEN present (length=$length bytes, sha256=$fpr)"
 
       - name: Checkout from GitHub
         # GitHub-hosted runner path. Uses stock actions/checkout@v6
@@ -1845,93 +1852,96 @@ jobs:
         # the step cap. This bootstrap must be self-contained: no repository
         # file exists before checkout, and Gitee's /raw route is denied by the
         # China runner gateway even when Git Smart-HTTP is reachable.
+        #
+        # Runs under bash. The previous shell: pwsh implementation was
+        # unreachable on self-hosted Linux/macOS runners (pwsh is not
+        # preinstalled there). bash is on every runner, so this step
+        # now works for all four self-hosted runner types.
         if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
+        shell: bash
         timeout-minutes: 10
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("oauth2:$clean"))
-          $git = (Get-Command git.exe -ErrorAction Stop).Source
-          $ref = "${{ github.event.inputs.ref || github.ref }}"
-          Set-Location -LiteralPath $env:GITHUB_WORKSPACE
-          if (Test-Path -LiteralPath '.git') {
-              # Remove read-only attribute before deletion
-              Get-ChildItem -LiteralPath '.git' -Recurse -Force | ForEach-Object {
-                  if ($_.IsReadOnly) { $_.IsReadOnly = $false }
-              }
-              Remove-Item -Recurse -Force '.git'
-          }
-          & $git init -q .
-          & $git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
-          $env:GIT_TERMINAL_PROMPT = '0'
-          $env:HTTP_PROXY = ''; $env:HTTPS_PROXY = ''; $env:NO_PROXY = '*'
-          & $git -c http.sslVerify=false -c http.proxy= -c https.proxy= `
-            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 `
-            -c "http.extraHeader=Authorization: Basic $basic" `
-            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin $ref
-          if ($LASTEXITCODE -ne 0) { throw "Gitee fetch failed for ref '$ref' (exit=$LASTEXITCODE)" }
-          & $git checkout --force --detach FETCH_HEAD
-          if ($LASTEXITCODE -ne 0) { throw "Git checkout failed (exit=$LASTEXITCODE)" }
-          Write-Host "[OK] Checked out $ref at $(& $git rev-parse --short HEAD)"
+          set -e
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) so the embedded token stays stable.
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          # base64 -w0 is GNU; macOS base64 has no -w, so pipe through
+          # tr to strip the trailing newline on all three platforms.
+          basic=$(printf 'oauth2:%s' "$clean" | base64 | tr -d '\n')
+          ref="${{ github.event.inputs.ref || github.ref }}"
+          cd "$GITHUB_WORKSPACE"
+          if [ -d .git ]; then
+            chmod -R u+w .git 2>/dev/null || true
+            rm -rf .git
+          fi
+          git init -q .
+          git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
+          export GIT_TERMINAL_PROMPT=0
+          export HTTP_PROXY= HTTPS_PROXY=
+          export NO_PROXY='*'
+          git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
+            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+            -c "http.extraHeader=Authorization: Basic $basic" \
+            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"
+          git checkout --force --detach FETCH_HEAD
+          sha=$(git rev-parse --short HEAD)
+          echo "[OK] Checked out $ref at $sha"
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
+        shell: bash
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
         # of the appcast/last-release.json. The earlier 'Checkout from
         # Gitee mirror' step handles its own auth via a $env:TEMP askpass
         # file, so this step doesn't have to.
         #
-        # We write our own credential.store file at $env:RUNNER_TEMP,
+        # We write our own credential.store file at $RUNNER_TEMP,
         # point git at it via a job-scoped GIT_CONFIG_GLOBAL
-        # (exported through $env:GITHUB_ENV so subsequent steps inherit
+        # (exported through $GITHUB_ENV so subsequent steps inherit
         # it), and let git's standard credential subsystem handle
-        # auth. Why $env:GITHUB_ENV instead of `git config --global`:
+        # auth. Why $GITHUB_ENV instead of `git config --global`:
         # on a self-hosted runner that's been used for many repos,
         # the runner's user-global .gitconfig is shared across jobs.
         # Setting credential.* there would leak our token to every
-        # other job the runner ever runs. $env:RUNNER_TEMP is per-job, so
+        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
         # the helper file is automatically GC'd at job end.
         #
         # This step MUST run after 'Checkout from Gitee mirror' —
-        # $env:GITHUB_WORKSPACE is the just-checked-out tree. The
-        # previous bash version also relied on the python script at
-        # .github/scripts/write_gitconfig_gitee.py, but pwsh's
-        # [IO.File]::WriteAllText + here-string sidesteps the bash
-        # LF→CRLF translation entirely, so no helper script is needed
-        # any more. The script is left in-tree for any third-party
-        # workflow that still imports it.
+        # $GITHUB_WORKSPACE is the just-checked-out tree.
         #
-        # The previous bash version routed through
-        # .github/scripts/write_gitconfig_gitee.py because `with open(...)
-        # as f:` at column 0 inside a `run: |` block trips YAML's
-        # block-mapping parser. pwsh doesn't have that ambiguity, so
-        # we inline the LF-only file write here.
+        # Runs under bash. The previous shell: pwsh implementation was
+        # unreachable on self-hosted Linux/macOS runners (pwsh is not
+        # preinstalled there). The earlier-than-that bash version routed
+        # through .github/scripts/write_gitconfig_gitee.py because
+        # `with open(...) as f:` at column 0 inside a `run: |` block trips
+        # YAML's block-mapping parser. bash's `> file` redirection with
+        # printf %s avoids both YAML ambiguity and LF→CRLF re-mapping
+        # (the previous concern with PowerShell .NET 8 here-strings is
+        # no longer relevant), so the helper script is inlined back here.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          $ErrorActionPreference = 'Stop'
-
-          $credsFile    = Join-Path $env:RUNNER_TEMP '.git-credentials-gitee'
-          $gitconfigFile = Join-Path $env:RUNNER_TEMP '.gitconfig-gitee'
+          set -e
+          credsFile="$RUNNER_TEMP/.git-credentials-gitee"
+          gitconfigFile="$RUNNER_TEMP/.gitconfig-gitee"
 
           # Strip CR/LF (echo / shell substitution on copy-paste can
           # introduce them) before embedding in the credentials URL.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
 
           # credential.store format: URL with embedded username:password.
           # We deliberately include the scheme + host so it only matches
           # gitee.com (not, e.g., a hypothetical future gitee enterprise
           # tenant URL).
-          $credsLine = "https://oauth2:${clean}@gitee.com"
-          # LF-only write: .NET 8's WriteAllText on Windows writes CRLF
-          # per Environment.NewLine; .gitconfig parsed by PortableGit
-          # accepts CRLF, but writing LF keeps the file identical
-          # across all three runner platforms.
-          [System.IO.File]::WriteAllText($credsFile, ($credsLine + "`n"), [System.Text.UTF8Encoding]::new($false))
+          credsLine="https://oauth2:${clean}@gitee.com"
+          # LF-only write. printf '%s\n' keeps the file LF-only across
+          # all three runner platforms — Git Bash's `>` redirection on
+          # Windows preserves the bytes verbatim, unlike PowerShell
+          # .NET 8's WriteAllText which would re-map to CRLF.
+          printf '%s\n' "$credsLine" > "$credsFile"
 
           # Job-scoped gitconfig. The [credential "https://gitee.com"]
           # section scopes the helper to gitee.com only — other hosts
@@ -1939,24 +1949,25 @@ jobs:
           # core.autocrlf=false prevents git from re-expanding LF→CRLF
           # on read of the credentials file (which would break the
           # embedded newline detection in git's credential store).
-          $gitconfigBody = @"
+          cat > "$gitconfigFile" <<EOF
           [core]
               autocrlf = false
           [credential "https://gitee.com"]
               helper = store --file $credsFile
               username = oauth2
-          "@
-          [System.IO.File]::WriteAllText($gitconfigFile, ($gitconfigBody -replace '\r\n?', "`n"), [System.Text.UTF8Encoding]::new($false))
+          EOF
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
-          "GIT_CONFIG_GLOBAL=$gitconfigFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "GITEE_CREDENTIALS_FILE=$credsFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          {
+            echo "GIT_CONFIG_GLOBAL=$gitconfigFile"
+            echo "GITEE_CREDENTIALS_FILE=$credsFile"
+          } >> "$GITHUB_ENV"
 
-          Write-Host "[OK] Gitee credential helper installed at $credsFile"
-          Write-Host "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
+          echo "[OK] Gitee credential helper installed at $credsFile"
+          echo "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -2432,26 +2443,27 @@ jobs:
         #      copy-paste). Fingerprint lets us compare across jobs /
         #      runs without leaking the token itself.
         #
-        # Runs under pwsh (PowerShell 7). On GitHub-hosted runners
-        # (ubuntu-latest / macos-latest) pwsh 7 is preinstalled and
-        # reachable as `pwsh`. On self-hosted Windows the previous
-        # "Ensure ..." step adds pwsh.exe to GITHUB_PATH so this
-        # step finds it.
-        shell: pwsh
+        # Runs under bash. The previous shell: pwsh implementation
+        # was unreachable on self-hosted Linux/macOS runners (pwsh is
+        # not preinstalled there). bash + coreutils is on every
+        # runner, so this step now works for all four self-hosted
+        # runner types (windows/linux/macos-amd64/macos-aarch64).
+        shell: bash
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          if ([string]::IsNullOrEmpty($env:GITEE_TOKEN)) {
-            '::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to ''oauth2''). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with ''terminal prompts disabled'' — the very symptom this step is meant to replace.'
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, \`git fetch origin\` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
-          }
+          fi
           # Strip CR/LF (echo / shell substitution on copy-paste can
           # introduce them) so the fingerprint is stable across jobs.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $bytes = [System.Text.Encoding]::UTF8.GetBytes($clean)
-          $hash  = [System.Security.Cryptography.SHA256]::HashData($bytes)
-          $fpr   = ($hash | ForEach-Object { $_.ToString('x2') }) -join ''
-          Write-Host "[OK] GITEE_TOKEN present (length=$($bytes.Length) bytes, sha256=$($fpr.Substring(0,8)))"
+          # printf '%s' is LF-only (no trailing newline) so the
+          # sha256sum input matches the PowerShell version byte-for-byte.
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          fpr=$(printf '%s' "$clean" | sha256sum | cut -c1-8)
+          length=${#clean}
+          echo "[OK] GITEE_TOKEN present (length=$length bytes, sha256=$fpr)"
 
       - name: Checkout from GitHub
         # GitHub-hosted runner path. Uses stock actions/checkout@v6
@@ -2475,93 +2487,96 @@ jobs:
         # the step cap. This bootstrap must be self-contained: no repository
         # file exists before checkout, and Gitee's /raw route is denied by the
         # China runner gateway even when Git Smart-HTTP is reachable.
+        #
+        # Runs under bash. The previous shell: pwsh implementation was
+        # unreachable on self-hosted Linux/macOS runners (pwsh is not
+        # preinstalled there). bash is on every runner, so this step
+        # now works for all four self-hosted runner types.
         if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
+        shell: bash
         timeout-minutes: 10
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("oauth2:$clean"))
-          $git = (Get-Command git.exe -ErrorAction Stop).Source
-          $ref = "${{ github.event.inputs.ref || github.ref }}"
-          Set-Location -LiteralPath $env:GITHUB_WORKSPACE
-          if (Test-Path -LiteralPath '.git') {
-              # Remove read-only attribute before deletion
-              Get-ChildItem -LiteralPath '.git' -Recurse -Force | ForEach-Object {
-                  if ($_.IsReadOnly) { $_.IsReadOnly = $false }
-              }
-              Remove-Item -Recurse -Force '.git'
-          }
-          & $git init -q .
-          & $git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
-          $env:GIT_TERMINAL_PROMPT = '0'
-          $env:HTTP_PROXY = ''; $env:HTTPS_PROXY = ''; $env:NO_PROXY = '*'
-          & $git -c http.sslVerify=false -c http.proxy= -c https.proxy= `
-            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 `
-            -c "http.extraHeader=Authorization: Basic $basic" `
-            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin $ref
-          if ($LASTEXITCODE -ne 0) { throw "Gitee fetch failed for ref '$ref' (exit=$LASTEXITCODE)" }
-          & $git checkout --force --detach FETCH_HEAD
-          if ($LASTEXITCODE -ne 0) { throw "Git checkout failed (exit=$LASTEXITCODE)" }
-          Write-Host "[OK] Checked out $ref at $(& $git rev-parse --short HEAD)"
+          set -e
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) so the embedded token stays stable.
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          # base64 -w0 is GNU; macOS base64 has no -w, so pipe through
+          # tr to strip the trailing newline on all three platforms.
+          basic=$(printf 'oauth2:%s' "$clean" | base64 | tr -d '\n')
+          ref="${{ github.event.inputs.ref || github.ref }}"
+          cd "$GITHUB_WORKSPACE"
+          if [ -d .git ]; then
+            chmod -R u+w .git 2>/dev/null || true
+            rm -rf .git
+          fi
+          git init -q .
+          git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
+          export GIT_TERMINAL_PROMPT=0
+          export HTTP_PROXY= HTTPS_PROXY=
+          export NO_PROXY='*'
+          git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
+            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+            -c "http.extraHeader=Authorization: Basic $basic" \
+            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"
+          git checkout --force --detach FETCH_HEAD
+          sha=$(git rev-parse --short HEAD)
+          echo "[OK] Checked out $ref at $sha"
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
+        shell: bash
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
         # of the appcast/last-release.json. The earlier 'Checkout from
         # Gitee mirror' step handles its own auth via a $env:TEMP askpass
         # file, so this step doesn't have to.
         #
-        # We write our own credential.store file at $env:RUNNER_TEMP,
+        # We write our own credential.store file at $RUNNER_TEMP,
         # point git at it via a job-scoped GIT_CONFIG_GLOBAL
-        # (exported through $env:GITHUB_ENV so subsequent steps inherit
+        # (exported through $GITHUB_ENV so subsequent steps inherit
         # it), and let git's standard credential subsystem handle
-        # auth. Why $env:GITHUB_ENV instead of `git config --global`:
+        # auth. Why $GITHUB_ENV instead of `git config --global`:
         # on a self-hosted runner that's been used for many repos,
         # the runner's user-global .gitconfig is shared across jobs.
         # Setting credential.* there would leak our token to every
-        # other job the runner ever runs. $env:RUNNER_TEMP is per-job, so
+        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
         # the helper file is automatically GC'd at job end.
         #
         # This step MUST run after 'Checkout from Gitee mirror' —
-        # $env:GITHUB_WORKSPACE is the just-checked-out tree. The
-        # previous bash version also relied on the python script at
-        # .github/scripts/write_gitconfig_gitee.py, but pwsh's
-        # [IO.File]::WriteAllText + here-string sidesteps the bash
-        # LF→CRLF translation entirely, so no helper script is needed
-        # any more. The script is left in-tree for any third-party
-        # workflow that still imports it.
+        # $GITHUB_WORKSPACE is the just-checked-out tree.
         #
-        # The previous bash version routed through
-        # .github/scripts/write_gitconfig_gitee.py because `with open(...)
-        # as f:` at column 0 inside a `run: |` block trips YAML's
-        # block-mapping parser. pwsh doesn't have that ambiguity, so
-        # we inline the LF-only file write here.
+        # Runs under bash. The previous shell: pwsh implementation was
+        # unreachable on self-hosted Linux/macOS runners (pwsh is not
+        # preinstalled there). The earlier-than-that bash version routed
+        # through .github/scripts/write_gitconfig_gitee.py because
+        # `with open(...) as f:` at column 0 inside a `run: |` block trips
+        # YAML's block-mapping parser. bash's `> file` redirection with
+        # printf %s avoids both YAML ambiguity and LF→CRLF re-mapping
+        # (the previous concern with PowerShell .NET 8 here-strings is
+        # no longer relevant), so the helper script is inlined back here.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          $ErrorActionPreference = 'Stop'
-
-          $credsFile    = Join-Path $env:RUNNER_TEMP '.git-credentials-gitee'
-          $gitconfigFile = Join-Path $env:RUNNER_TEMP '.gitconfig-gitee'
+          set -e
+          credsFile="$RUNNER_TEMP/.git-credentials-gitee"
+          gitconfigFile="$RUNNER_TEMP/.gitconfig-gitee"
 
           # Strip CR/LF (echo / shell substitution on copy-paste can
           # introduce them) before embedding in the credentials URL.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
 
           # credential.store format: URL with embedded username:password.
           # We deliberately include the scheme + host so it only matches
           # gitee.com (not, e.g., a hypothetical future gitee enterprise
           # tenant URL).
-          $credsLine = "https://oauth2:${clean}@gitee.com"
-          # LF-only write: .NET 8's WriteAllText on Windows writes CRLF
-          # per Environment.NewLine; .gitconfig parsed by PortableGit
-          # accepts CRLF, but writing LF keeps the file identical
-          # across all three runner platforms.
-          [System.IO.File]::WriteAllText($credsFile, ($credsLine + "`n"), [System.Text.UTF8Encoding]::new($false))
+          credsLine="https://oauth2:${clean}@gitee.com"
+          # LF-only write. printf '%s\n' keeps the file LF-only across
+          # all three runner platforms — Git Bash's `>` redirection on
+          # Windows preserves the bytes verbatim, unlike PowerShell
+          # .NET 8's WriteAllText which would re-map to CRLF.
+          printf '%s\n' "$credsLine" > "$credsFile"
 
           # Job-scoped gitconfig. The [credential "https://gitee.com"]
           # section scopes the helper to gitee.com only — other hosts
@@ -2569,24 +2584,25 @@ jobs:
           # core.autocrlf=false prevents git from re-expanding LF→CRLF
           # on read of the credentials file (which would break the
           # embedded newline detection in git's credential store).
-          $gitconfigBody = @"
+          cat > "$gitconfigFile" <<EOF
           [core]
               autocrlf = false
           [credential "https://gitee.com"]
               helper = store --file $credsFile
               username = oauth2
-          "@
-          [System.IO.File]::WriteAllText($gitconfigFile, ($gitconfigBody -replace '\r\n?', "`n"), [System.Text.UTF8Encoding]::new($false))
+          EOF
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
-          "GIT_CONFIG_GLOBAL=$gitconfigFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "GITEE_CREDENTIALS_FILE=$credsFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          {
+            echo "GIT_CONFIG_GLOBAL=$gitconfigFile"
+            echo "GITEE_CREDENTIALS_FILE=$credsFile"
+          } >> "$GITHUB_ENV"
 
-          Write-Host "[OK] Gitee credential helper installed at $credsFile"
-          Write-Host "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
+          echo "[OK] Gitee credential helper installed at $credsFile"
+          echo "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -2999,26 +3015,27 @@ jobs:
         #      copy-paste). Fingerprint lets us compare across jobs /
         #      runs without leaking the token itself.
         #
-        # Runs under pwsh (PowerShell 7). On GitHub-hosted runners
-        # (ubuntu-latest / macos-latest) pwsh 7 is preinstalled and
-        # reachable as `pwsh`. On self-hosted Windows the previous
-        # "Ensure ..." step adds pwsh.exe to GITHUB_PATH so this
-        # step finds it.
-        shell: pwsh
+        # Runs under bash. The previous shell: pwsh implementation
+        # was unreachable on self-hosted Linux/macOS runners (pwsh is
+        # not preinstalled there). bash + coreutils is on every
+        # runner, so this step now works for all four self-hosted
+        # runner types (windows/linux/macos-amd64/macos-aarch64).
+        shell: bash
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          if ([string]::IsNullOrEmpty($env:GITEE_TOKEN)) {
-            '::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to ''oauth2''). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, `git fetch origin` exits 128 with ''terminal prompts disabled'' — the very symptom this step is meant to replace.'
+          if [ -z "$GITEE_TOKEN" ]; then
+            echo "::error::secrets.GITEE_TOKEN is empty or unset. The release-cn workflow fetches source from https://gitee.com/songszchen/eCan.ai.git using a job-scoped GIT_ASKPASS that needs GITEE_TOKEN as the password (the username is hard-coded to 'oauth2'). Configure the token at Settings → Secrets and variables → Actions → GITEE_TOKEN. Without it, \`git fetch origin\` exits 128 with 'terminal prompts disabled' — the very symptom this step is meant to replace."
             exit 1
-          }
+          fi
           # Strip CR/LF (echo / shell substitution on copy-paste can
           # introduce them) so the fingerprint is stable across jobs.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $bytes = [System.Text.Encoding]::UTF8.GetBytes($clean)
-          $hash  = [System.Security.Cryptography.SHA256]::HashData($bytes)
-          $fpr   = ($hash | ForEach-Object { $_.ToString('x2') }) -join ''
-          Write-Host "[OK] GITEE_TOKEN present (length=$($bytes.Length) bytes, sha256=$($fpr.Substring(0,8)))"
+          # printf '%s' is LF-only (no trailing newline) so the
+          # sha256sum input matches the PowerShell version byte-for-byte.
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          fpr=$(printf '%s' "$clean" | sha256sum | cut -c1-8)
+          length=${#clean}
+          echo "[OK] GITEE_TOKEN present (length=$length bytes, sha256=$fpr)"
 
       - name: Checkout from GitHub
         # GitHub-hosted runner path. Uses stock actions/checkout@v6
@@ -3042,93 +3059,96 @@ jobs:
         # the step cap. This bootstrap must be self-contained: no repository
         # file exists before checkout, and Gitee's /raw route is denied by the
         # China runner gateway even when Git Smart-HTTP is reachable.
+        #
+        # Runs under bash. The previous shell: pwsh implementation was
+        # unreachable on self-hosted Linux/macOS runners (pwsh is not
+        # preinstalled there). bash is on every runner, so this step
+        # now works for all four self-hosted runner types.
         if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
+        shell: bash
         timeout-minutes: 10
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
-          $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("oauth2:$clean"))
-          $git = (Get-Command git.exe -ErrorAction Stop).Source
-          $ref = "${{ github.event.inputs.ref || github.ref }}"
-          Set-Location -LiteralPath $env:GITHUB_WORKSPACE
-          if (Test-Path -LiteralPath '.git') {
-              # Remove read-only attribute before deletion
-              Get-ChildItem -LiteralPath '.git' -Recurse -Force | ForEach-Object {
-                  if ($_.IsReadOnly) { $_.IsReadOnly = $false }
-              }
-              Remove-Item -Recurse -Force '.git'
-          }
-          & $git init -q .
-          & $git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
-          $env:GIT_TERMINAL_PROMPT = '0'
-          $env:HTTP_PROXY = ''; $env:HTTPS_PROXY = ''; $env:NO_PROXY = '*'
-          & $git -c http.sslVerify=false -c http.proxy= -c https.proxy= `
-            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 `
-            -c "http.extraHeader=Authorization: Basic $basic" `
-            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin $ref
-          if ($LASTEXITCODE -ne 0) { throw "Gitee fetch failed for ref '$ref' (exit=$LASTEXITCODE)" }
-          & $git checkout --force --detach FETCH_HEAD
-          if ($LASTEXITCODE -ne 0) { throw "Git checkout failed (exit=$LASTEXITCODE)" }
-          Write-Host "[OK] Checked out $ref at $(& $git rev-parse --short HEAD)"
+          set -e
+          # Strip CR/LF (echo / shell substitution on copy-paste can
+          # introduce them) so the embedded token stays stable.
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
+          # base64 -w0 is GNU; macOS base64 has no -w, so pipe through
+          # tr to strip the trailing newline on all three platforms.
+          basic=$(printf 'oauth2:%s' "$clean" | base64 | tr -d '\n')
+          ref="${{ github.event.inputs.ref || github.ref }}"
+          cd "$GITHUB_WORKSPACE"
+          if [ -d .git ]; then
+            chmod -R u+w .git 2>/dev/null || true
+            rm -rf .git
+          fi
+          git init -q .
+          git remote add origin 'https://gitee.com/songszchen/eCan.ai.git'
+          export GIT_TERMINAL_PROMPT=0
+          export HTTP_PROXY= HTTPS_PROXY=
+          export NO_PROXY='*'
+          git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
+            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+            -c "http.extraHeader=Authorization: Basic $basic" \
+            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"
+          git checkout --force --detach FETCH_HEAD
+          sha=$(git rev-parse --short HEAD)
+          echo "[OK] Checked out $ref at $sha"
 
       - name: Prepare Gitee credential helper
         if: github.event.inputs.runner_group != 'github-hosted'
-        shell: pwsh
+        shell: bash
         # Job-scoped credential store for any *downstream* git operation
         # against gitee.com — typically shared-cos-upload.yml's git push
         # of the appcast/last-release.json. The earlier 'Checkout from
         # Gitee mirror' step handles its own auth via a $env:TEMP askpass
         # file, so this step doesn't have to.
         #
-        # We write our own credential.store file at $env:RUNNER_TEMP,
+        # We write our own credential.store file at $RUNNER_TEMP,
         # point git at it via a job-scoped GIT_CONFIG_GLOBAL
-        # (exported through $env:GITHUB_ENV so subsequent steps inherit
+        # (exported through $GITHUB_ENV so subsequent steps inherit
         # it), and let git's standard credential subsystem handle
-        # auth. Why $env:GITHUB_ENV instead of `git config --global`:
+        # auth. Why $GITHUB_ENV instead of `git config --global`:
         # on a self-hosted runner that's been used for many repos,
         # the runner's user-global .gitconfig is shared across jobs.
         # Setting credential.* there would leak our token to every
-        # other job the runner ever runs. $env:RUNNER_TEMP is per-job, so
+        # other job the runner ever runs. $RUNNER_TEMP is per-job, so
         # the helper file is automatically GC'd at job end.
         #
         # This step MUST run after 'Checkout from Gitee mirror' —
-        # $env:GITHUB_WORKSPACE is the just-checked-out tree. The
-        # previous bash version also relied on the python script at
-        # .github/scripts/write_gitconfig_gitee.py, but pwsh's
-        # [IO.File]::WriteAllText + here-string sidesteps the bash
-        # LF→CRLF translation entirely, so no helper script is needed
-        # any more. The script is left in-tree for any third-party
-        # workflow that still imports it.
+        # $GITHUB_WORKSPACE is the just-checked-out tree.
         #
-        # The previous bash version routed through
-        # .github/scripts/write_gitconfig_gitee.py because `with open(...)
-        # as f:` at column 0 inside a `run: |` block trips YAML's
-        # block-mapping parser. pwsh doesn't have that ambiguity, so
-        # we inline the LF-only file write here.
+        # Runs under bash. The previous shell: pwsh implementation was
+        # unreachable on self-hosted Linux/macOS runners (pwsh is not
+        # preinstalled there). The earlier-than-that bash version routed
+        # through .github/scripts/write_gitconfig_gitee.py because
+        # `with open(...) as f:` at column 0 inside a `run: |` block trips
+        # YAML's block-mapping parser. bash's `> file` redirection with
+        # printf %s avoids both YAML ambiguity and LF→CRLF re-mapping
+        # (the previous concern with PowerShell .NET 8 here-strings is
+        # no longer relevant), so the helper script is inlined back here.
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          $ErrorActionPreference = 'Stop'
-
-          $credsFile    = Join-Path $env:RUNNER_TEMP '.git-credentials-gitee'
-          $gitconfigFile = Join-Path $env:RUNNER_TEMP '.gitconfig-gitee'
+          set -e
+          credsFile="$RUNNER_TEMP/.git-credentials-gitee"
+          gitconfigFile="$RUNNER_TEMP/.gitconfig-gitee"
 
           # Strip CR/LF (echo / shell substitution on copy-paste can
           # introduce them) before embedding in the credentials URL.
-          $clean = ($env:GITEE_TOKEN -replace '[\r\n]+', '')
+          clean=$(printf '%s' "$GITEE_TOKEN" | tr -d '\r\n')
 
           # credential.store format: URL with embedded username:password.
           # We deliberately include the scheme + host so it only matches
           # gitee.com (not, e.g., a hypothetical future gitee enterprise
           # tenant URL).
-          $credsLine = "https://oauth2:${clean}@gitee.com"
-          # LF-only write: .NET 8's WriteAllText on Windows writes CRLF
-          # per Environment.NewLine; .gitconfig parsed by PortableGit
-          # accepts CRLF, but writing LF keeps the file identical
-          # across all three runner platforms.
-          [System.IO.File]::WriteAllText($credsFile, ($credsLine + "`n"), [System.Text.UTF8Encoding]::new($false))
+          credsLine="https://oauth2:${clean}@gitee.com"
+          # LF-only write. printf '%s\n' keeps the file LF-only across
+          # all three runner platforms — Git Bash's `>` redirection on
+          # Windows preserves the bytes verbatim, unlike PowerShell
+          # .NET 8's WriteAllText which would re-map to CRLF.
+          printf '%s\n' "$credsLine" > "$credsFile"
 
           # Job-scoped gitconfig. The [credential "https://gitee.com"]
           # section scopes the helper to gitee.com only — other hosts
@@ -3136,24 +3156,25 @@ jobs:
           # core.autocrlf=false prevents git from re-expanding LF→CRLF
           # on read of the credentials file (which would break the
           # embedded newline detection in git's credential store).
-          $gitconfigBody = @"
+          cat > "$gitconfigFile" <<EOF
           [core]
               autocrlf = false
           [credential "https://gitee.com"]
               helper = store --file $credsFile
               username = oauth2
-          "@
-          [System.IO.File]::WriteAllText($gitconfigFile, ($gitconfigBody -replace '\r\n?', "`n"), [System.Text.UTF8Encoding]::new($false))
+          EOF
 
           # Export for downstream steps. GIT_CONFIG_GLOBAL is honored
           # by git 2.32+ on Linux/macOS. On the self-hosted Windows
           # runner, git-bash uses the same env var, so this works there
           # too.
-          "GIT_CONFIG_GLOBAL=$gitconfigFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "GITEE_CREDENTIALS_FILE=$credsFile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          {
+            echo "GIT_CONFIG_GLOBAL=$gitconfigFile"
+            echo "GITEE_CREDENTIALS_FILE=$credsFile"
+          } >> "$GITHUB_ENV"
 
-          Write-Host "[OK] Gitee credential helper installed at $credsFile"
-          Write-Host "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
+          echo "[OK] Gitee credential helper installed at $credsFile"
+          echo "       git will use GIT_CONFIG_GLOBAL=$gitconfigFile"
 
       - name: Setup Python Environment
         uses: ./.github/actions/setup-python-env
@@ -3181,6 +3202,11 @@ jobs:
           npm-registry: ${{ github.event.inputs.runner_group != 'github-hosted' && 'https://registry.npmmirror.com' || '' }}
 
       - name: Install Linux system dependencies
+        # Self-hosted runners (ecan-linux-amd64) don't have passwordless sudo
+        # and provisioning is expected to pre-install these packages once.
+        # GitHub-hosted runners are disposable and re-install per job.
+        # Matches the gating pattern in setup-playwright (commit 763e0de19).
+        if: ${{ runner.environment == 'github-hosted' }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq gcc g++ make pkg-config libffi-dev libssl-dev
@@ -3194,6 +3220,16 @@ jobs:
           sudo apt-get install -y -qq upx-ucl
 
       - name: Install AppImage tools
+        # DISABLED — AppImage is permanently off in build_config.json
+        # (platforms.linux.appimage.enabled: false). Keeping the step
+        # (but never running it) so the YAML stays a recipe for future
+        # re-enablement. To re-enable: delete the `if: false` line,
+        # set appimage.enabled: true in build_config.json, and also
+        # restore the AppImage entries in shared-*-download-links.yml.
+        if: false
+        # Self-hosted runners pre-install appimagetool once; see comment
+        # on "Install Linux system dependencies" above.
+        # if: ${{ runner.environment == 'github-hosted' }}
         run: |
           # appimagetool moved from the deprecated AppImage/AppImageKit
           # repo to its own home at AppImage/appimagetool in 2024.
@@ -3254,26 +3290,11 @@ jobs:
         run: |
           pip install cryptography --quiet
           # Sign the .deb (required: apt-downgrade integrity check).
-          # DIST_APP matches build.py's installer_filename prefix:
-          # {app.name}-{version}-linux-{arch}.{deb,AppImage}
-          # (app.name == DIST_APP == ECAN_APP_NAME).
+          # DIST_APP matches build.py's installer_filename prefix.
           python3 build_system/signing_manager.py \
             "dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb" \
             "build_system/certificates/ed25519_private_key.pem" \
             "dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb.sig"
-          # Also sign the AppImage — Prepare artifacts below copies
-          # .AppImage.sig into the artifact staging directory, but
-          # without this line the signature is never produced and the
-          # uploader silently ships an unsigned AppImage. The signing
-          # tool is generic (just an ed25519 detached sig), so the
-          # same private key works for both formats.
-          APPIMAGE="dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage"
-          if [ -f "$APPIMAGE" ]; then
-            python3 build_system/signing_manager.py \
-              "$APPIMAGE" \
-              "build_system/certificates/ed25519_private_key.pem" \
-              "${APPIMAGE}.sig"
-          fi
 
       - name: Prepare artifacts
         shell: bash
@@ -3283,36 +3304,23 @@ jobs:
           ls -la dist/ 2>/dev/null || echo "[DEBUG] dist/ does not exist or is empty"
           VERSION="${{ needs.validate-tag.outputs.version }}"
           mkdir -p artifacts
-          # Resolve each expected Linux artifact explicitly so we can
-          # distinguish "build succeeded but copy failed" from "build
-          # failed upstream". At least one of .deb or .AppImage must
-          # exist — if build.py prod produced neither, that's a hard
-          # pipeline failure and the upload-to-COS / upload-to-S3 jobs
-          # must not silently swallow it.
+          # Linux currently produces only .deb — see build_config.json
+          # → platforms.linux.{appimage,deb}.enabled. If AppImage is
+          # re-enabled later, restore the "$DEB || $APPIMAGE" guard
+          # here (the shared-download-links.yml EXPECTED list also
+          # needs to be updated together with this).
           # DIST_APP matches build.py's installer_filename prefix
           # (eCan for intl, eCan.cn for cn).
           DEB="dist/${{ env.DIST_APP }}-${VERSION}-linux-amd64.deb"
-          APPIMAGE="dist/${{ env.DIST_APP }}-${VERSION}-linux-amd64.AppImage"
-          if [ ! -f "$DEB" ] && [ ! -f "$APPIMAGE" ]; then
-            echo "::error::Expected Linux package not found in dist/ (looked for $DEB and $APPIMAGE). build.py prod did not produce a .deb or .AppImage. The build pipeline is broken; investigate the 'Build Linux packages' step above before retrying."
+          if [ ! -f "$DEB" ]; then
+            echo "::error::Expected Linux .deb not found in dist/ (looked for $DEB). build.py prod did not produce a .deb. The build pipeline is broken; investigate the 'Build Linux packages' step above before retrying."
             exit 1
           fi
-          for f in $DEB ${DEB}.sig $APPIMAGE ${APPIMAGE}.sig; do
-            # `|| true` swallows the exit code from a missing source so the
-            # `for` loop's overall exit code (which equals the LAST
-            # iteration's last command) does not fail the step under
-            # `set -e -o pipefail` when AppImage is not built. Without
-            # this, a successful DEB-only build fails with
-            # "Process completed with exit code 1" even though every
-            # present file was copied correctly.
+          for f in $DEB ${DEB}.sig; do
             [ -f "$f" ] && cp "$f" artifacts/ || true
           done
-          # Explicit summary so missing files are visible in logs (the
-          # `[ -f "$f" ] && cp` short-circuit is silent on purpose, but
-          # operators still need to know whether AppImage was built).
-          echo "[ARTIFACTS] Copied: $DEB $DEB.sig $APPIMAGE $APPIMAGE.sig"
-          echo "[ARTIFACTS] DEB present: $([ -f "$DEB" ] && echo yes || echo no)"
-          echo "[ARTIFACTS] APPIMAGE present: $([ -f "$APPIMAGE" ] && echo yes || echo no)"
+          echo "[ARTIFACTS] Copied: $DEB ${DEB}.sig"
+          echo "[ARTIFACTS] DEB present: yes"
 
       - name: Upload Linux amd64 packages to COS (direct, fast path)
         id: upload-linux-cos
@@ -3349,10 +3357,10 @@ jobs:
           retention-days: 1
           compression-level: 6
           # Belt-and-braces: Prepare artifacts already exits 1 when
-          # neither .deb nor .AppImage exists, so this branch is a
-          # backstop for any future regression. Without it, an empty
-          # artifacts/ directory would let upload succeed as a yellow
-          # "No files were found" warning, hiding the real failure.
+          # the .deb is missing, so this branch is a backstop for any
+          # future regression. Without it, an empty artifacts/
+          # directory would let upload succeed as a yellow "No files
+          # were found" warning, hiding the real failure.
           if-no-files-found: error
 
       - name: Upload Linux artifacts (debug mirror)
@@ -3517,7 +3525,19 @@ jobs:
       # cancelled still maps to 'skipped' (it was previously indistinguishable
       # from failure in this expression too); tightening that is out of scope.
       macos-build-result:    ${{ (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success') && 'success' || (needs.build-macos-amd64.result == 'failure' || needs.build-macos-aarch64.result == 'failure') && 'failure' || 'skipped' }}
+      # Per-arch direct-upload flags: when a self-hosted build job took
+      # the fast path, no `*-installer` GHA artifact exists, so the
+      # shared download-links workflow must skip its `Download macOS …`
+      # / `Download Linux …` step for that arch (otherwise the step
+      # emits an "Artifact not found" warning — non-fatal because of
+      # `continue-on-error: true`, but visually misleads readers of the
+      # GHA run UI into thinking the build is broken). See
+      # shared-cos-download-links.yml::macos-amd64-direct-upload for
+      # the contract these flags enforce.
+      macos-amd64-direct-upload:   ${{ needs.build-macos-amd64.result   == 'success' && needs.build-macos-amd64.outputs.cos-uploaded   == 'true' }}
+      macos-aarch64-direct-upload: ${{ needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.cos-uploaded == 'true' }}
       linux-result:          ${{ needs.build-linux.result }}
+      linux-direct-upload:   ${{ needs.build-linux.result == 'success' && needs.build-linux.outputs.cos-uploaded == 'true' }}
       macos-built-amd64:     ${{ needs.build-macos-amd64.result == 'success' }}
       macos-built-aarch64:   ${{ needs.build-macos-aarch64.result == 'success' }}
     secrets: inherit

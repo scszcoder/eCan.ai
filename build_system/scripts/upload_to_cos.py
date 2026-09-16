@@ -494,6 +494,16 @@ class COSUploader:
                 self.upload_file(sha256_path, sha256_key)
                 sha256_path.unlink()
                 count += 1
+
+                # Match upload_windows_artifacts: ship the per-artifact
+                # ed25519 .sig so the appcast generator can include a
+                # valid signature for OTA integrity verification.
+                # Without this, generate_appcast.py logs:
+                #   "Failed to read signature for ... .deb: NoSuchKey"
+                # and the appcast ships unsigned entries.
+                sig_path = Path(f"{pkg}.sig")
+                if sig_path.exists():
+                    self.upload_file(sig_path, sig_key)
         return count
 
     def upload_macos_artifacts(self, platform_filter: Optional[str] = None, arch_filter: Optional[str] = None) -> int:

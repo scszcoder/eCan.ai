@@ -295,10 +295,12 @@ class S3Uploader:
         print("\n[INFO] Uploading Linux artifacts...")
         count = 0
         
-        # Find Linux packages (AppImage and DEB). Same version-anchor
+        # Find Linux packages (DEB and Flatpak). Same version-anchor
         # rationale as the Windows glob above — see the long comment
-        # there for the full reasoning.
-        patterns = [f'*-{self.version}-*.AppImage', f'*-{self.version}-*.deb']
+        # there for the full reasoning. AppImage was removed in favour
+        # of Flatpak (see build_config.json platforms.linux.{appimage,
+        # flatpak}.enabled) so it's intentionally not in this list.
+        patterns = [f'*-{self.version}-*.deb', f'*-{self.version}-*.flatpak']
         for pattern in patterns:
             for pkg in self.dist_dir.glob(pattern):
                 # Determine architecture from filename

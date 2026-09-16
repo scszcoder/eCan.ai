@@ -89,11 +89,39 @@ on:
         description: 'Result of macOS build job (success/skipped/failure)'
         required: true
         type: string
+      macos-amd64-direct-upload:
+        description: >-
+          When 'true', the macOS amd64 build job uploaded to COS directly
+          (the direct-upload fast path is in effect). In that case no
+          `*-installer` artifact is in GHA artifact store; the download
+          step must be skipped to avoid a noisy "Artifact not found"
+          annotation. Mirrors `windows-direct-upload` semantics; pinned
+          by `test_download_links_skips_macos_artifact_when_direct_upload`.
+        required: false
+        type: boolean
+        default: false
+      macos-aarch64-direct-upload:
+        description: >-
+          When 'true', the macOS aarch64 build job uploaded to COS
+          directly. See `macos-amd64-direct-upload` for the rationale;
+          the two are decoupled because a mixed run (one arch github-hosted
+          with GHA artifact, one self-hosted direct) is theoretically
+          possible if `runner_group` and `arch` inputs are inconsistent.
+        required: false
+        type: boolean
+        default: false
       linux-result:
         description: 'Result of Linux build job (success/skipped/failure)'
         required: false
         type: string
         default: 'skipped'
+      linux-direct-upload:
+        description: >-
+          When 'true', the Linux build job uploaded to COS directly.
+          See `macos-amd64-direct-upload` for the rationale.
+        required: false
+        type: boolean
+        default: false
       macos-built-amd64:
         description: 'Whether macOS amd64 artifacts were built in this run'
         required: false
@@ -121,6 +149,9 @@ jobs:
       MACOS_BUILD_RESULT:      ${{ inputs.macos-build-result }}
       LINUX_RESULT:            ${{ inputs.linux-result }}
       WINDOWS_DIRECT_UPLOAD:   ${{ inputs.windows-direct-upload && 'true' || 'false' }}
+      MACOS_AMD64_DIRECT_UPLOAD:   ${{ inputs.macos-amd64-direct-upload && 'true' || 'false' }}
+      MACOS_AARCH64_DIRECT_UPLOAD: ${{ inputs.macos-aarch64-direct-upload && 'true' || 'false' }}
+      LINUX_DIRECT_UPLOAD:     ${{ inputs.linux-direct-upload && 'true' || 'false' }}
       MACOS_BUILT_AMD64:       ${{ inputs.macos-built-amd64 && 'true' || 'false' }}
       MACOS_BUILT_AARCH64:     ${{ inputs.macos-built-aarch64 && 'true' || 'false' }}
 
@@ -207,7 +238,7 @@ jobs:
           # rendered once, in one place, by the renderer step.
 
       - name: Download macOS amd64 artifacts
-        if: inputs.macos-build-result == 'success' && inputs.macos-built-amd64 == true
+        if: inputs.macos-build-result == 'success' && inputs.macos-built-amd64 == true && inputs.macos-amd64-direct-upload != true
         uses: actions/download-artifact@v7
         with:
           name: eCan-macos-amd64-${{ inputs.version }}-installer
@@ -215,7 +246,7 @@ jobs:
         continue-on-error: true
 
       - name: Download macOS aarch64 artifacts
-        if: inputs.macos-build-result == 'success' && inputs.macos-built-aarch64 == true
+        if: inputs.macos-build-result == 'success' && inputs.macos-built-aarch64 == true && inputs.macos-aarch64-direct-upload != true
         uses: actions/download-artifact@v7
         with:
           name: eCan-macos-aarch64-${{ inputs.version }}-installer
@@ -223,7 +254,7 @@ jobs:
         continue-on-error: true
 
       - name: Download Linux artifacts
-        if: inputs.linux-result == 'success'
+        if: inputs.linux-result == 'success' && inputs.linux-direct-upload != true
         uses: actions/download-artifact@v7
         with:
           name: eCan-linux-amd64-${{ inputs.version }}-installer
@@ -240,14 +271,23 @@ jobs:
             fi
           done
 
-      # When any build took the direct-upload fast path, the GHA
-      # artifact store does not have the file, so we have to ask COS for
-      # its real size via HeadObject. Without this step, the summary
-      # would show "(missing — check bucket)" for those rows. Even when
-      # the artifact IS in GHA, the local copy's size is authoritative
-      # for that row (render_download_links.py picks local over remote
-      # when both are present), so we only need the COS probe for
-      # direct-uploaded artifacts.
+      # Probe COS for every direct-uploaded artifact. The self-hosted
+      # build jobs (ecan-windows-amd64 / ecan-macos-aarch64 / ...) take
+      # the direct-upload fast path and never upload to the GHA artifact
+      # store, so the local download above is a guaranteed miss and we
+      # have to ask COS for the size via HeadObject. Without this, the
+      # renderer falls back to "missing" for those rows and the run
+      # summary says "build reported success but no artifacts were
+      # found" (the symptom in run #3360XXXXX on
+      # ecan-macos-aarch64).
+      #
+      # GitHub-hosted runs also go through this step: their `*-installer`
+      # GHA artifact does exist, but the COS probe simply 404s for those
+      # keys (the object is in GHA, not COS) and `render_download_links.py
+      # ::size_for` prefers the local-file size when both are present.
+      # Net effect on GitHub-hosted: one wasted HeadObject per arch,
+      # summary unchanged. Self-hosted: the only way the macOS / Linux
+      # rows get a non-missing source tag.
       #
       # Probing is best-effort: if the SDK is unavailable or auth fails,
       # the step warns and continues with empty sizes — the summary
@@ -255,10 +295,21 @@ jobs:
       - name: Resolve COS object sizes (direct-upload fallback)
         id: cos-sizes
         if: >-
-          (inputs.windows-build-result == 'success' && inputs.windows-direct-upload == true)
+          (inputs.windows-build-result == 'success' && inputs.windows-direct-upload == true) ||
+          (inputs.macos-build-result == 'success' && (inputs.macos-built-amd64 == true || inputs.macos-built-aarch64 == true)) ||
+          (inputs.linux-result == 'success')
         env:
           EXPECTED: >-
             windows/amd64/${{ inputs.app-name }}-${{ inputs.version }}-windows-amd64-Setup.exe
+            macos/amd64/${{ inputs.app-name }}-${{ inputs.version }}-macos-amd64.pkg
+            macos/aarch64/${{ inputs.app-name }}-${{ inputs.version }}-macos-aarch64.pkg
+            linux/amd64/${{ inputs.app-name }}-${{ inputs.version }}-linux-amd64.deb
+        # NOTE: linux/amd64/...-linux-amd64.AppImage intentionally
+        # omitted. AppImage is disabled in build_config.json
+        # (platforms.linux.appimage.enabled: false) — listing it here
+        # would generate a false "missing" expectation that the size
+        # probe can't satisfy. If AppImage is re-enabled in config,
+        # re-add this entry.
         run: |
           set -euo pipefail
           COS_PREFIX="${OTA_PREFIX}"

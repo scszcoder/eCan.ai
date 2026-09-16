@@ -2054,6 +2054,11 @@ jobs:
           prefer-system-node: 'true'
 
       - name: Install Linux system dependencies
+        # Self-hosted runners (ecan-linux-amd64) don't have passwordless sudo
+        # and provisioning is expected to pre-install these packages once.
+        # GitHub-hosted runners are disposable and re-install per job.
+        # Matches the gating pattern in setup-playwright (commit 763e0de19).
+        if: ${{ runner.environment == 'github-hosted' }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq gcc g++ make pkg-config libffi-dev libssl-dev
@@ -2066,6 +2071,16 @@ jobs:
           sudo apt-get install -y -qq upx-ucl
 
       - name: Install AppImage tools
+        # DISABLED — AppImage is permanently off in build_config.json
+        # (platforms.linux.appimage.enabled: false). Keeping the step
+        # (but never running it) so the YAML stays a recipe for future
+        # re-enablement. To re-enable: delete the `if: false` line,
+        # set appimage.enabled: true in build_config.json, and also
+        # restore the AppImage entries in shared-*-download-links.yml.
+        if: false
+        # Self-hosted runners pre-install appimagetool once; see comment
+        # on "Install Linux system dependencies" above.
+        # if: ${{ runner.environment == 'github-hosted' }}
         run: |
           # appimagetool moved from the deprecated AppImage/AppImageKit
           # repo to its own home at AppImage/appimagetool in 2024.
@@ -2126,26 +2141,11 @@ jobs:
         run: |
           pip install cryptography --quiet
           # Sign the .deb (required: apt-downgrade integrity check).
-          # DIST_APP matches build.py's installer_filename prefix:
-          # {app.name}-{version}-linux-{arch}.{deb,AppImage}
-          # (app.name == DIST_APP == ECAN_APP_NAME).
+          # DIST_APP matches build.py's installer_filename prefix.
           python3 build_system/signing_manager.py \
             "dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb" \
             "build_system/certificates/ed25519_private_key.pem" \
             "dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.deb.sig"
-          # Also sign the AppImage — Prepare artifacts below copies
-          # .AppImage.sig into the artifact staging directory, but
-          # without this line the signature is never produced and the
-          # uploader silently ships an unsigned AppImage. The signing
-          # tool is generic (just an ed25519 detached sig), so the
-          # same private key works for both formats.
-          APPIMAGE="dist/${{ env.DIST_APP }}-${{ needs.validate-tag.outputs.version }}-linux-amd64.AppImage"
-          if [ -f "$APPIMAGE" ]; then
-            python3 build_system/signing_manager.py \
-              "$APPIMAGE" \
-              "build_system/certificates/ed25519_private_key.pem" \
-              "${APPIMAGE}.sig"
-          fi
 
       - name: Prepare artifacts
         shell: bash
@@ -2155,30 +2155,23 @@ jobs:
           ls -la dist/ 2>/dev/null || echo "[DEBUG] dist/ does not exist or is empty"
           VERSION="${{ needs.validate-tag.outputs.version }}"
           mkdir -p artifacts
-          # Resolve each expected Linux artifact explicitly so we can
-          # distinguish "build succeeded but copy failed" from "build
-          # failed upstream". At least one of .deb or .AppImage must
-          # exist — if build.py prod produced neither, that's a hard
-          # pipeline failure and the upload-to-S3 job must not silently
-          # swallow it.
+          # Linux currently produces only .deb — see build_config.json
+          # → platforms.linux.{appimage,deb}.enabled. If AppImage is
+          # re-enabled later, restore the "$DEB || $APPIMAGE" guard
+          # here (the shared-download-links.yml EXPECTED list also
+          # needs to be updated together with this).
           # DIST_APP matches build.py's installer_filename prefix
           # (eCan for intl, eCan.cn for cn).
           DEB="dist/${{ env.DIST_APP }}-${VERSION}-linux-amd64.deb"
-          APPIMAGE="dist/${{ env.DIST_APP }}-${VERSION}-linux-amd64.AppImage"
-          if [ ! -f "$DEB" ] && [ ! -f "$APPIMAGE" ]; then
-            echo "::error::Expected Linux package not found in dist/ (looked for $DEB and $APPIMAGE). build.py prod did not produce a .deb or .AppImage. The build pipeline is broken; investigate the 'Build Linux packages' step above before retrying."
+          if [ ! -f "$DEB" ]; then
+            echo "::error::Expected Linux .deb not found in dist/ (looked for $DEB). build.py prod did not produce a .deb. The build pipeline is broken; investigate the 'Build Linux packages' step above before retrying."
             exit 1
           fi
-          for f in $DEB ${DEB}.sig $APPIMAGE ${APPIMAGE}.sig; do
-            # `|| true` swallows the exit code from a missing source so the
-            # `for` loop's overall exit code (which equals the LAST
-            # iteration's last command) does not fail the step under
-            # `set -e -o pipefail` when AppImage is not built.
+          for f in $DEB ${DEB}.sig; do
             [ -f "$f" ] && cp "$f" artifacts/ || true
           done
-          echo "[ARTIFACTS] Copied: $DEB $DEB.sig $APPIMAGE $APPIMAGE.sig"
-          echo "[ARTIFACTS] DEB present: $([ -f "$DEB" ] && echo yes || echo no)"
-          echo "[ARTIFACTS] APPIMAGE present: $([ -f "$APPIMAGE" ] && echo yes || echo no)"
+          echo "[ARTIFACTS] Copied: $DEB ${DEB}.sig"
+          echo "[ARTIFACTS] DEB present: yes"
 
       - name: Upload Linux amd64 packages to S3 (direct, fast path)
         id: upload-linux-s3
@@ -2215,10 +2208,10 @@ jobs:
           retention-days: 1
           compression-level: 6
           # Belt-and-braces: Prepare artifacts already exits 1 when
-          # neither .deb nor .AppImage exists, so this branch is a
-          # backstop for any future regression. Without it, an empty
-          # artifacts/ directory would let upload succeed as a yellow
-          # "No files were found" warning, hiding the real failure.
+          # the .deb is missing, so this branch is a backstop for any
+          # future regression. Without it, an empty artifacts/
+          # directory would let upload succeed as a yellow "No files
+          # were found" warning, hiding the real failure.
           if-no-files-found: error
 
       - name: Upload Linux artifacts (debug mirror)
@@ -2378,7 +2371,14 @@ jobs:
       # cancelled still maps to 'skipped' (it was previously indistinguishable
       # from failure in this expression too); tightening that is out of scope.
       macos-build-result:  ${{ (needs.build-macos-amd64.result == 'success' || needs.build-macos-aarch64.result == 'success') && 'success' || (needs.build-macos-amd64.result == 'failure' || needs.build-macos-aarch64.result == 'failure') && 'failure' || 'skipped' }}
+      # Per-arch direct-upload flags: see the matching block in
+      # release-cn.yml. Mirrors the S3 fast path so the intl download
+      # step doesn't emit an "Artifact not found" annotation when a
+      # self-hosted runner direct-uploaded to S3 instead of GHA.
+      macos-amd64-direct-upload:   ${{ needs.build-macos-amd64.result   == 'success' && needs.build-macos-amd64.outputs.s3-uploaded   == 'true' }}
+      macos-aarch64-direct-upload: ${{ needs.build-macos-aarch64.result == 'success' && needs.build-macos-aarch64.outputs.s3-uploaded == 'true' }}
       linux-result:        ${{ needs.build-linux.result }}
+      linux-direct-upload: ${{ needs.build-linux.result == 'success' && needs.build-linux.outputs.s3-uploaded == 'true' }}
       macos-built-amd64:   ${{ needs.build-macos-amd64.result == 'success' }}
       macos-built-aarch64: ${{ needs.build-macos-aarch64.result == 'success' }}
     secrets: inherit
