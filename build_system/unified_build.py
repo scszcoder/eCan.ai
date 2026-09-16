@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional
 # Import existing components
 from build_system.build_validator import BuildValidator
 from build_system.build_cleaner import BuildCleaner
-from build_system.build_utils import standardize_artifact_names, show_build_results
+from build_system.build_utils import standardize_artifact_names, show_build_results, platform_handler
 from build_system.ecan_build import BuildConfig, BuildEnvironment, FrontendBuilder, InstallerBuilder, WABaileysBridgeBuilder
 from build_system.minibuild_core import MiniSpecBuilder
 from build_system.url_scheme_config import URLSchemeBuildConfig
