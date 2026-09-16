@@ -42,7 +42,15 @@ Name: "{group}\{cm:UninstallProgram,eCan · 中国版}"; Filename: "{uninstallex
 Name: "{autodesktop}\eCan · 中国版"; Filename: "{app}\eCan.cn.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\eCan.cn.exe"; Description: "{cm:LaunchProgram,eCan · 中国版}"; Flags: nowait postinstall skipifsilent
+; CRITICAL: do NOT use skipifsilent here. Inno Setup's docs say
+; "skipifsilent: Instructs Setup to skip this entry if Setup is
+; running (very) silent" — the previous override included this
+; flag, which meant OTA /SILENT installs replaced the files but
+; NEVER auto-launched the new exe, so users saw a silent install
+; complete and then had to manually find and launch the app.
+; ``nowait postinstall`` is enough: it runs after a successful
+; install and lets the wizard continue without waiting.
+Filename: "{app}\eCan.cn.exe"; Description: "{cm:LaunchProgram,eCan · 中国版}"; Flags: nowait postinstall
 
 [Registry]
 ; Note: ECAN_APP_ID is detected from exe filename (eCan.cn.exe) for co-install support

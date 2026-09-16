@@ -1773,8 +1773,8 @@ class WebGUI(QMainWindow):
             from PySide6.QtWidgets import QMessageBox, QCheckBox
             from PySide6.QtCore import Qt
             from ota.core.version_ignore import get_version_ignore_manager
-            from ota.gui.i18n import get_translator
-            
+            from ota.i18n import get_translator
+
             # Get translator
             _tr = get_translator()
             

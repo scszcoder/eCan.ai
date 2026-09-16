@@ -50,7 +50,7 @@ from PySide6.QtWidgets import (
 
 from utils.logger_helper import logger_helper as logger
 
-from .i18n import get_translator
+from ota.i18n import get_translator
 
 
 def _format_size(size_bytes: int) -> str:
