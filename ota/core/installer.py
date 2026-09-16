@@ -40,6 +40,105 @@ class InstallationManager:
         self.platform = sys.platform
         self.backup_dir = None
         self.progress_callback = progress_callback
+    
+    def _get_current_process_name(self) -> str:
+        """
+        Get the current application process name for the running platform.
+        
+        This is critical for OTA upgrades - we must kill the correct process
+        to avoid file lock issues during installation.
+        
+        Returns:
+            Process name for the current app version (without .exe on Windows)
+            
+        Platform-specific names:
+        - Windows CN: eCan.cn.exe
+        - Windows Intl: eCan.exe
+        - macOS CN: eCan.cn (or eCan.cn.app)
+        - macOS Intl: eCan (or eCan.app)
+        - Linux: ecan (from config or exe name)
+        """
+        # Get app name from ota_config
+        app_name = ota_config.get_app_name()
+        
+        if self.platform == 'win32':
+            # Windows: add .exe extension
+            # CN version is eCan.cn.exe, Intl is eCan.exe
+            return f"{app_name}.exe"
+        elif self.platform == 'darwin':
+            # macOS: use app name without extension
+            # The .app suffix is used for the bundle, process name is without it
+            return app_name
+        else:
+            # Linux: typically lowercase, may come from config
+            return app_name.lower()
+    
+    def _terminate_current_process(self) -> None:
+        """
+        Terminate the current application process before OTA upgrade.
+        
+        This ensures files are not locked during installation.
+        Only terminates the current version's process, not other versions.
+        """
+        current_proc = self._get_current_process_name()
+        logger.info(f"[OTA] Terminating current process: {current_proc}")
+        
+        if self.platform == 'win32':
+            self._terminate_windows_process(current_proc)
+        elif self.platform == 'darwin':
+            self._terminate_macos_app(current_proc)
+        else:
+            self._terminate_linux_process(current_proc)
+    
+    def _terminate_windows_process(self, process_name: str) -> None:
+        """Terminate a Windows process by name."""
+        try:
+            import winreg
+            result = subprocess.run(
+                ['taskkill.exe', '/F', '/IM', process_name],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                logger.info(f"[OTA] Terminated Windows process: {process_name}")
+            elif 'not found' not in result.stderr.lower() and 'no running' not in result.stderr.lower():
+                logger.debug(f"[OTA] taskkill result for {process_name}: {result.stderr.strip()}")
+        except Exception as e:
+            logger.debug(f"[OTA] Failed to terminate Windows process {process_name}: {e}")
+    
+    def _terminate_linux_process(self, process_name: str) -> None:
+        """Terminate a Linux process by name."""
+        try:
+            import signal
+            
+            # Try pkill first
+            result = subprocess.run(
+                ['pkill', '-9', process_name],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                logger.info(f"[OTA] Terminated Linux process: {process_name}")
+            elif result.returncode == 1:
+                # Exit code 1 means no process found - that's fine
+                pass
+            else:
+                logger.debug(f"[OTA] pkill result for {process_name}: {result.stderr.strip()}")
+            
+            time.sleep(0.5)
+            
+            # Also try killall as fallback
+            if shutil.which('killall'):
+                result2 = subprocess.run(
+                    ['killall', '-9', process_name],
+                    capture_output=True,
+                    text=True
+                )
+                if result2.returncode == 0:
+                    logger.info(f"[OTA] Terminated Linux process via killall: {process_name}")
+                    
+        except Exception as e:
+            logger.debug(f"[OTA] Failed to terminate Linux process {process_name}: {e}")
         
     def install_package(self, package_path: Path, install_options: Dict[str, Any] = None) -> bool:
         """Install update package"""
@@ -162,10 +261,13 @@ class InstallationManager:
         timeout_seconds: float = 10.0,
         extra_process_names: Optional[set[str]] = None,
     ) -> None:
+        """
+        Terminate processes in the target directory that match the current app version.
+        
+        Only kills the current version's process (eCan.cn or eCan), not both.
+        This ensures we don't interfere with other versions that may be running.
+        """
         try:
-            if sys.platform != 'win32':
-                return
-
             target_dir = Path(target_dir).resolve()
             logger.info(f"Attempting to terminate running processes under: {target_dir}")
 
@@ -174,72 +276,110 @@ class InstallationManager:
             except Exception:
                 psutil = None
 
-            if psutil is None:
-                return
-
-            # Always include Qt and Python subprocesses that may hold file locks
-            default_names = {'QtWebEngineProcess.exe', 'python.exe', 'pythonw.exe'}
-            extra_names_norm = {str(n).lower() for n in default_names}
+            # Get the current app process name - only kill THIS version
+            current_proc = self._get_current_process_name()
+            # Build set of process names to kill for current version only
+            proc_names = {current_proc.lower()}
+            
+            # Also include QtWebEngineProcess which may be a child process
+            if self.platform == 'darwin':
+                proc_names.update({'qtwebengineprocess', 'qtwebengineprocess.app'})
+            elif self.platform == 'win32':
+                proc_names.update({'qtwebengineprocess.exe'})
+            else:
+                proc_names.add('qtwebengineprocess')
+            
             if extra_process_names:
-                extra_names_norm.update({str(n).lower() for n in extra_process_names if n})
+                proc_names.update({str(n).lower() for n in extra_process_names if n})
 
             current_pid = os.getpid()
-            pids = []
-            for proc in psutil.process_iter(['pid', 'name', 'exe']):
-                try:
-                    pid = proc.info.get('pid')
-                    if pid == current_pid:
-                        continue
-                    
-                    exe = proc.info.get('exe')
-                    name = proc.info.get('name')
-
-                    if extra_names_norm and name and str(name).lower() in extra_names_norm:
-                        pids.append(pid)
-                        continue
-
-                    if not exe:
-                        continue
-
-                    exe_path = Path(exe).resolve()
-                    if target_dir in exe_path.parents:
-                        pids.append(pid)
-                except Exception:
-                    continue
-
-            if not pids:
-                logger.info("No running processes found under install directory")
-                return
-
-            logger.info(f"Found {len(pids)} running process(es) under install directory: {pids}")
-
-            # Try graceful terminate first
-            procs = []
-            for pid in pids:
-                try:
-                    procs.append(psutil.Process(pid))
-                except Exception:
-                    pass
-
-            for p in procs:
-                try:
-                    p.terminate()
-                except Exception:
-                    pass
-
-            gone, alive = psutil.wait_procs(procs, timeout=timeout_seconds)
-            if alive:
-                for p in alive:
+            pids_to_kill = []
+            
+            if psutil is not None:
+                for proc in psutil.process_iter(['pid', 'name', 'exe']):
                     try:
-                        p.kill()
+                        pid = proc.info.get('pid')
+                        if pid == current_pid:
+                            continue
+                        
+                        name = proc.info.get('name', '')
+                        name_lower = str(name).lower()
+                        
+                        # Check for current app process
+                        if name_lower in proc_names:
+                            pids_to_kill.append(pid)
+                            continue
+                        
+                        # Also check processes under the target directory
+                        exe = proc.info.get('exe')
+                        if exe:
+                            exe_path = Path(exe).resolve()
+                            if target_dir in exe_path.parents:
+                                pids_to_kill.append(pid)
+                    except Exception:
+                        continue
+            else:
+                # Fallback to pgrep/pkill for non-Windows platforms
+                import subprocess
+                for proc_name in [current_proc]:
+                    try:
+                        if self.platform == 'darwin':
+                            result = subprocess.run(
+                                ['pgrep', '-x', proc_name],
+                                capture_output=True,
+                                text=True
+                            )
+                        else:
+                            result = subprocess.run(
+                                ['pgrep', '-x', proc_name],
+                                capture_output=True,
+                                text=True
+                            )
+                        if result.returncode == 0:
+                            for line in result.stdout.strip().split('\n'):
+                                if line.strip():
+                                    try:
+                                        pid = int(line.strip())
+                                        if pid != current_pid:
+                                            pids_to_kill.append(pid)
+                                    except ValueError:
+                                        pass
                     except Exception:
                         pass
-                psutil.wait_procs(alive, timeout=timeout_seconds)
 
-            # Give filesystem extra time to release locks and flush buffers
-            # This is critical to avoid MoveFile error 183 (ERROR_ALREADY_EXISTS)
-            logger.info("Waiting 5 seconds for filesystem to release file locks...")
-            time.sleep(5.0)
+            if not pids_to_kill:
+                logger.info(f"No running {current_proc} processes found")
+                return
+
+            logger.info(f"Found {len(pids_to_kill)} running process(es) to terminate: {pids_to_kill}")
+
+            # Terminate processes
+            for pid in pids_to_kill:
+                try:
+                    import signal
+                    if self.platform == 'darwin':
+                        # Try SIGTERM first, then SIGKILL
+                        os.kill(pid, signal.SIGTERM)
+                        time.sleep(0.5)
+                        try:
+                            os.kill(pid, 0)  # Check if still running
+                            os.kill(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    elif self.platform == 'win32':
+                        # Windows uses taskkill
+                        pass
+                    else:
+                        os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to kill process {pid}: {e}")
+
+            # Give processes time to fully terminate
+            logger.info("Waiting for processes to terminate...")
+            time.sleep(2.0)
+            
         except Exception as e:
             logger.debug(f"Pre-install process termination failed (safe to ignore): {e}")
 
@@ -395,6 +535,12 @@ class InstallationManager:
             app_name = ota_config.get_app_name()
             target_path = install_dir / f"{app_name}.AppImage"
             
+            # Terminate the current version's process before overwriting
+            # This ensures files are not locked during upgrade
+            logger.info(f"[OTA] Terminating running {app_name} process before AppImage upgrade...")
+            self._terminate_current_process()
+            time.sleep(1.0)
+            
             # Backup existing installation
             if target_path.exists():
                 backup_path = target_path.with_suffix('.AppImage.backup')
@@ -433,6 +579,13 @@ class InstallationManager:
         """
         try:
             logger.info(f"Installing DEB package: {package_path}")
+            
+            # Terminate the current version's process before installation
+            # This ensures files are not locked during upgrade
+            app_name = ota_config.get_app_name().lower()
+            logger.info(f"[OTA] Terminating running {app_name} process before DEB installation...")
+            self._terminate_current_process()
+            time.sleep(1.0)
             
             # DEB installation requires sudo privileges
             # Check if we can use pkexec or sudo
@@ -816,6 +969,14 @@ rm -f "$0"
         try:
             logger.info(f"Installing macOS PKG: {package_path}")
             
+            # For OTA updates, terminate the current version's process before installation
+            # This ensures files are not locked during upgrade
+            # Only kill the current version to avoid affecting other installed versions
+            current_proc = self._get_current_process_name()
+            logger.info(f"[OTA] Terminating running {current_proc} process before PKG installation...")
+            self._terminate_macos_app(current_proc)
+            time.sleep(1.0)
+            
             # For OTA updates, use installer command with admin privileges
             if install_options.get('silent', True):
                 logger.info("Starting PKG installation (no wizard, with progress)...")
@@ -1037,9 +1198,29 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
                 for app_file in app_files:
                     target_path = target_dir / app_file.name
                     
-                    # If target exists, delete it first
+                    # If target exists, terminate running processes first
                     if target_path.exists():
-                        shutil.rmtree(target_path)
+                        logger.info(f"[OTA] Found existing app at {target_path}, terminating processes before upgrade")
+                        # Get the app name without .app extension
+                        app_base_name = app_file.name.replace('.app', '')
+                        self._terminate_macos_app(app_base_name)
+                        
+                        # Wait for processes to terminate
+                        time.sleep(1.0)
+                        
+                        # Try to delete
+                        try:
+                            shutil.rmtree(target_path)
+                            logger.info(f"[OTA] Removed old app: {target_path}")
+                        except Exception as e:
+                            logger.warning(f"[OTA] Failed to remove old app (may be in use): {e}")
+                            # Try force delete
+                            try:
+                                import subprocess
+                                subprocess.run(['rm', '-rf', str(target_path)], check=True)
+                            except Exception as e2:
+                                logger.error(f"[OTA] Could not remove old app: {e2}")
+                                return False
                     
                     # Copy application
                     shutil.copytree(app_file, target_path)
@@ -1057,6 +1238,54 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
         except Exception as e:
             logger.error(f"DMG installation error: {e}")
             return False
+    
+    def _terminate_macos_app(self, app_name: str) -> None:
+        """Terminate a running macOS application by name.
+        
+        Args:
+            app_name: Application name without .app extension (e.g., 'eCan' or 'eCan.cn')
+        """
+        try:
+            import subprocess
+            
+            # Also try with .app suffix
+            app_names_to_kill = [app_name, f"{app_name}.app"]
+            
+            for name in app_names_to_kill:
+                # Use killall which works well for macOS applications
+                # -9 flag sends SIGKILL
+                result = subprocess.run(
+                    ['killall', '-9', name],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    logger.info(f"[OTA] Terminated running app: {name}")
+                elif result.returncode != 1:  # 1 means no process found (not an error)
+                    logger.debug(f"[OTA] killall {name}: {result.stderr.strip()}")
+            
+            # Also try to find and kill by pgrep for edge cases
+            try:
+                result = subprocess.run(
+                    ['pgrep', '-x', app_name],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    pids = result.stdout.strip().split('\n')
+                    for pid in pids:
+                        if pid.strip():
+                            try:
+                                import signal
+                                os.kill(int(pid.strip()), signal.SIGKILL)
+                                logger.info(f"[OTA] Killed process {pid} for app {app_name}")
+                            except Exception as e:
+                                logger.debug(f"[OTA] Failed to kill pid {pid}: {e}")
+            except Exception:
+                pass
+                
+        except Exception as e:
+            logger.warning(f"[OTA] Failed to terminate macOS app {app_name}: {e}")
     
     def _find_dmg_mount_point(self, dmg_path: Path) -> Optional[str]:
         """Find DMG mount point"""
