@@ -2726,6 +2726,13 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
         'run_mode': skill_info.get('run_mode') or skill_info.get('mode') or 'developing',
         'mapping_rules': skill_info.get('mapping_rules') or skill_info.get('skill_mapping') or {},
         'ui_info': skill_info.get('ui_info') or {},
+        # Declared parameters and objectives. Folded into config by
+        # DBSkillService (no columns) and lifted back by to_dict. Must be
+        # present here or the update path at handle_save_skill — which copies
+        # only keys that already exist in skill_data — drops the first
+        # declaration ever made.
+        'need_inputs': skill_info.get('need_inputs') or [],
+        'objectives': skill_info.get('objectives') or [],
     }
     
     # Store cloud execution settings in config dict (not separate columns)
@@ -3449,7 +3456,14 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
         optional_fields = ['description', 'version', 'level', 'config', 'tags', 
                           'examples', 'inputModes', 'outputModes', 'apps', 
                           'limitations', 'price', 'price_model', 'public', 'rentable',
-                          'run_in_cloud', 'hybrid_cloud_mode', 'local_helper_skill_id', 'local_helper_machine']
+                          'run_in_cloud', 'hybrid_cloud_mode', 'local_helper_skill_id', 'local_helper_machine',
+                          # need_inputs (the skill's declared parameters) and
+                          # objectives have no columns; DBSkillService folds them
+                          # into config and to_dict lifts them back. Without them
+                          # here the Skills page's "Required Inputs" / "Objectives"
+                          # editors saved nothing, so the Task page's 任务变量
+                          # section never appeared.
+                          'need_inputs', 'objectives']
         for field in optional_fields:
             if field in skill_data and skill_data[field] is not None:
                 skill_info[field] = skill_data[field]

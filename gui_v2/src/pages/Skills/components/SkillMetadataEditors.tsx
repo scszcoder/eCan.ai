@@ -113,6 +113,7 @@ export const NeedInputsEditor: React.FC<NeedInputsEditorProps> = ({ value, onCha
     const [newType, setNewType] = useState('string');
     const [newRequired, setNewRequired] = useState(false);
     const [newDesc, setNewDesc] = useState('');
+    const [newDefault, setNewDefault] = useState('');
 
     const items: NeedInputItem[] = useMemo(() => {
         if (!value || value.trim() === '') return [];
@@ -132,12 +133,16 @@ export const NeedInputsEditor: React.FC<NeedInputsEditorProps> = ({ value, onCha
             required: newRequired,
         };
         if (newDesc.trim()) newItem.description = newDesc.trim();
+        // The task form shows this as the field's placeholder, so a default is
+        // the closest thing to an initial value a skill can carry.
+        if (newDefault.trim()) newItem.default = newDefault.trim();
         const newItems = [...items, newItem];
         onChange(JSON.stringify(newItems));
         setNewName('');
         setNewType('string');
         setNewRequired(false);
         setNewDesc('');
+        setNewDefault('');
     };
 
     const remove = (idx: number) => {
@@ -199,6 +204,13 @@ export const NeedInputsEditor: React.FC<NeedInputsEditorProps> = ({ value, onCha
                                             {item.required ? t('common.required', 'Required') : t('common.optional', 'Optional')}
                                         </Button>
                                     </Tooltip>
+                                    <Input
+                                        size="small"
+                                        value={item.default === undefined || item.default === null ? '' : String(item.default)}
+                                        onChange={(e) => update(idx, 'default', e.target.value)}
+                                        placeholder={t('pages.skills.needInputs.defaultPlaceholder', 'Default value')}
+                                        style={{ width: 140, borderRadius: 4 }}
+                                    />
                                 </Space>
                                 {item.description && (
                                     <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
@@ -259,6 +271,14 @@ export const NeedInputsEditor: React.FC<NeedInputsEditorProps> = ({ value, onCha
                         onChange={(e) => setNewDesc(e.target.value)}
                         placeholder={t('pages.skills.needInputs.descPlaceholder', 'Description (optional)')}
                         style={{ width: 200, borderRadius: 4 }}
+                    />
+                    <Input
+                        size="small"
+                        value={newDefault}
+                        onChange={(e) => setNewDefault(e.target.value)}
+                        onPressEnter={add}
+                        placeholder={t('pages.skills.needInputs.defaultPlaceholder', 'Default value')}
+                        style={{ width: 140, borderRadius: 4 }}
                     />
                 </Space>
                 <Button
