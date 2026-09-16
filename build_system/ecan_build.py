@@ -662,7 +662,7 @@ begin
 
     SplashLabel := TNewStaticText.Create(SplashForm);
     SplashLabel.Parent := SplashForm;
-    SplashLabel.Caption := ExpandConstant('{cm_initialize_caption}');
+    SplashLabel.Caption := ExpandConstant('{{cm_initialize_caption}}');
     SplashLabel.AutoSize := True;
     SplashLabel.Left := (SplashForm.ClientWidth - SplashLabel.Width) div 2;
     SplashLabel.Top := (SplashForm.ClientHeight - SplashLabel.Height) div 2;
@@ -721,7 +721,7 @@ begin
   // Determine the correct exe name to kill based on the installer filename
   // CN version installer: eCan.cn-*-Setup.exe → process: eCan.cn.exe
   // Intl version installer: eCan-*-Setup.exe → process: eCan.exe
-  InstallerFileName := ExtractFileName(ExpandConstant('{src}'));
+  InstallerFileName := ExtractFileName(ExpandConstant('{{src}}'));
   if Pos('eCan.cn', InstallerFileName) > 0 then
     AppExeName := 'eCan.cn.exe'
   else
@@ -800,7 +800,7 @@ begin
   UserDataDirs[4] := InstallPath + '\\anonymous';
   
   // Ask user if they want to remove user data
-  if MsgBox(ExpandConstant('{cm_remove_user_data}'), mbConfirmation, MB_YESNO) = IDYES then
+  if MsgBox(ExpandConstant('{{cm_remove_user_data}}'), mbConfirmation, MB_YESNO) = IDYES then
   begin
     // Remove user data directories
     for I := 0 to 4 do
