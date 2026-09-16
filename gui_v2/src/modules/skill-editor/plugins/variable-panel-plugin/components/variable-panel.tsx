@@ -10,6 +10,7 @@ import { IconMinus, IconCloud, IconCloudStroked } from '@douyinfe/semi-icons';
 
 import iconVariable from '../../../assets/icon-variable.png';
 import { GlobalVariableEditor } from './global-variable-editor';
+import { TaskVariablesPanel } from './task-variables-panel';
 import { FullVariableList } from './full-variable-list';
 import { DataMappingEditor } from './data-mapping-editor';
 import { SettingsPanel } from './settings-panel';
@@ -192,6 +193,11 @@ export function VariablePanel() {
       <Collapsible isOpen={isOpen}>
         <div className={styles['panel-container']}>
           <Tabs>
+            <Tabs.TabPane itemKey="task-variables" tab="Task Variables">
+              {/* Remount on open so the "found in prompts" scan reflects edits
+                  made since the panel was last shown. */}
+              <TaskVariablesPanel key={isOpen ? 'open' : 'closed'} />
+            </Tabs.TabPane>
             <Tabs.TabPane itemKey="variables" tab="Variable List">
               <FullVariableList />
             </Tabs.TabPane>
