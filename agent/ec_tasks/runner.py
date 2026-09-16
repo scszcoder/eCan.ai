@@ -3572,6 +3572,35 @@ class TaskRunner(Generic[Context]):
             )
         return False
 
+    @staticmethod
+    def _trigger_tokens(trigger: Any) -> set:
+        """A task's trigger as a set of lowercase tokens.
+
+        Accepts every shape this field is written in: a list, a
+        comma/semicolon/space-separated string ("schedule,message"), or a dict
+        carrying a type/kind.
+        """
+        if not trigger:
+            return set()
+        values: list = []
+        if isinstance(trigger, dict):
+            for key in ("type", "kind", "trigger", "source"):
+                if trigger.get(key):
+                    values.append(trigger[key])
+            if not values:
+                values = list(trigger.values())
+        elif isinstance(trigger, (list, tuple, set)):
+            values = list(trigger)
+        else:
+            values = [trigger]
+        tokens = set()
+        for value in values:
+            for part in re.split(r"[,;\s]+", str(value or "")):
+                part = part.strip().lower()
+                if part:
+                    tokens.add(part)
+        return tokens
+
     def _is_chatter_task(
         self,
         task: ManagedTask,
@@ -3584,10 +3613,12 @@ class TaskRunner(Generic[Context]):
             skill_name = (getattr(getattr(task, "skill", None), "name", "") or "").lower()
             if "chat" in task_name or "chat" in skill_name:
                 return True
-            trigger = getattr(task, "trigger", []) or []
-            if isinstance(trigger, str):
-                trigger = [trigger]
-            if "message" in {str(t).lower() for t in trigger}:
+            # A message trigger qualifies a task whatever it is called. The
+            # DB stores this as a comma-separated STRING ("schedule,message"),
+            # so wrapping it in a list and testing set membership never matched
+            # — a task triggered by message was told to rename itself to
+            # contain "chat" (customer report 2026-09-16).
+            if "message" in self._trigger_tokens(getattr(task, "trigger", None)):
                 return True
             return self._task_declares_event_handler(task, event_type, request, source)
         except Exception:
@@ -4248,19 +4279,31 @@ class TaskRunner(Generic[Context]):
                                     _lang = detect_language(default_lang="zh-CN", supported_languages=["zh-CN", "en-US"])
                                 except Exception:
                                     _lang = "zh-CN"
+                                # Describe the REAL rule: a message trigger is
+                                # what qualifies a task. The name is only an
+                                # extra way in, and telling people to rename
+                                # tasks sent them chasing the wrong thing.
                                 _no_task_msgs = {
                                     "zh-CN": (
                                         f"⚠️ 当前 Agent「{agent_name}」尚未配置可接收消息的 Task。"
-                                        f"请在 Agent 设置中添加一个名称包含 \"chat\"、触发方式为 \"message\" 的 Task，并关联对应的 Skill。"
+                                        f"请在 Agent 设置中添加一个触发方式包含 \"message\" 的 Task，并关联对应的 Skill。"
                                     ),
                                     "en-US": (
                                         f"⚠️ Agent \"{agent_name}\" has no Task configured to receive messages. "
-                                        f"Please add a Task whose name contains \"chat\", trigger is \"message\", "
+                                        f"Please add a Task whose trigger includes \"message\" "
                                         f"and associate it with the appropriate Skill in Agent settings."
                                     ),
                                 }
-                                sender = self._get_message_sender()
-                                sender.send_text(chat_id, _no_task_msgs.get(_lang, _no_task_msgs["zh-CN"]))
+                                # Push WITHOUT persisting. This is an
+                                # operational notice about configuration, not
+                                # something the agent said: written to the DB
+                                # it reappeared on every restart and outlived
+                                # the problem it described, so the user kept
+                                # seeing it after the agent was fixed.
+                                from agent.chats.chat_utils import _notify_chat_undeliverable
+                                _notify_chat_undeliverable(
+                                    chat_id, _no_task_msgs.get(_lang, _no_task_msgs["zh-CN"]),
+                                )
                         except Exception as e:
                             logger.error(f"[QUEUE] Failed to send no-task notification: {e}")
                 if event_type == "browser_event":

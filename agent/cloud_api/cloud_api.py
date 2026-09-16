@@ -1195,6 +1195,40 @@ def req_api_key(session, token, endpoint, customer='guest'):
     return data
 
 
+def query_api_keys(session, token, endpoint):
+    """List the account's API keys via the GraphQL ``queryApiKeys`` query.
+
+    The CloudBase myAPIKeygen gateway authenticates at the GATEWAY, so it
+    rejects an eCan session token with INVALID_CREDENTIALS before the function
+    runs — no server change can rescue it, which is why a WeChat desktop could
+    mint a key (GraphQL reqApiKey) and then fail to read it back. This query is
+    the same transport reqApiKey already uses successfully.
+
+    Returns ``{"items": [{id, name, key, createdAt, revokedAt}]}`` — 0 or 1
+    item — or an error dict.
+    """
+    query = """query {
+        queryApiKeys {
+            items {
+                id
+                name
+                key
+                createdAt
+                revokedAt
+            }
+        }
+    }"""
+    jresp = appsync_http_request(query, session, token, endpoint)
+    logger_helper.debug(f"queryApiKeys response: {json.dumps(jresp)[:400]}")
+    if "errors" in jresp:
+        error_obj = jresp["errors"][0] if jresp.get("errors") else {}
+        error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
+        error_msg = error_obj.get("message", str(error_obj))
+        logger_helper.error(f"[queryApiKeys] ERROR Type: {error_type} Info: {error_msg}")
+        return {"errorType": error_type, "message": error_msg}
+    return (jresp.get("data") or {}).get("queryApiKeys") or {"items": []}
+
+
 def remove_api_key(session, token, endpoint, masked_keys):
     """Remove API key(s) via removeApiKey mutation.
 

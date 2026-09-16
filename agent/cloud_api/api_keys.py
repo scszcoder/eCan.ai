@@ -232,7 +232,46 @@ def create_api_key(session_token: str, customer: str = "guest") -> Dict[str, Any
 
 def get_api_key(session_token: str) -> Dict[str, Any]:
     """Fetch the account's active API key ({'apiKey': None, 'status':
-    'not_found'} when absent — that is a success, not an error)."""
+    'not_found'} when absent — that is a success, not an error).
+
+    2026-09-16: PRIMARY path is the GraphQL ``queryApiKeys`` query, matching
+    what ``create_api_key`` already does for reqApiKey. The myAPIKeygen
+    gateway authenticates at the GATEWAY layer and rejects an eCan session
+    token with INVALID_CREDENTIALS before the function runs, so a WeChat
+    desktop — which holds only that session token — could mint a key and then
+    be told it has none. Same session, 24 seconds apart, from the 2026-09-16
+    client log:
+
+        13:26:00  get_api_key  -> INVALID_CREDENTIALS   (gateway)
+        13:26:24  req_api_key  -> apiKey 6c1ca8...      (GraphQL)
+
+    The gateway invoke stays as the FALLBACK for pre-v57 backends, where the
+    query does not exist yet.
+    """
+    try:
+        import requests as _rq
+        from agent.cloud_api.cloud_api import query_api_keys as _gql_query_api_keys
+        resp = _gql_query_api_keys(_rq.Session(), _strip_bearer(session_token), None)
+        if isinstance(resp, dict) and "items" in resp and not resp.get("errorType"):
+            items = [i for i in (resp.get("items") or []) if isinstance(i, dict)]
+            # Server returns 0 or 1 live item; a revoked key is not an active one.
+            active = next((i for i in items if not i.get("revokedAt")), None)
+            if active and active.get("key"):
+                return {
+                    "success": True,
+                    "apiKey": active.get("key"),
+                    "apiKeyId": active.get("id"),
+                    "name": active.get("name"),
+                    "createdAt": active.get("createdAt"),
+                    "status": "active",
+                }
+            return {"success": True, "apiKey": None, "status": "not_found"}
+        logger.info(
+            f"[api_keys] GraphQL queryApiKeys unavailable "
+            f"({(resp or {}).get('message', '')[:120]}) — falling back to gateway invoke"
+        )
+    except Exception as exc:
+        logger.info(f"[api_keys] GraphQL queryApiKeys failed ({exc}) — gateway fallback")
     return _post("getApiKey", session_token)
 
 
