@@ -4651,7 +4651,8 @@ def send_sms_to_cloud(session, token, sms_input, endpoint=None):
 def send_email_to_cloud(session, token, email_input, endpoint=None):
     """Call AppSync sendEmail mutation. Returns dict with {success, messageId, error}.
 
-    email_input: dict with keys to, subject, bodyText, bodyHtml (optional), replyTo (optional)
+    email_input: dict with keys to, subject, bodyText, bodyHtml (optional),
+    replyTo (optional), cc / bcc (optional lists of addresses)
     """
     mutation = (
         "mutation SendEmail($input: SendEmailInput!) { "
@@ -4668,6 +4669,12 @@ def send_email_to_cloud(session, token, email_input, endpoint=None):
         payload["bodyHtml"] = email_input.get("bodyHtml") or email_input.get("body_html")
     if email_input.get("replyTo") or email_input.get("reply_to"):
         payload["replyTo"] = email_input.get("replyTo") or email_input.get("reply_to")
+    # Only sent when the caller asked for them: a backend whose SendEmailInput
+    # predates cc/bcc keeps accepting every ordinary single-recipient send.
+    for field in ("cc", "bcc"):
+        addresses = email_input.get(field)
+        if addresses:
+            payload[field] = list(addresses)
     variables = {"input": payload}
     try:
         jresp = appsync_http_request(mutation, session, token, endpoint, variables=variables)
