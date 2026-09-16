@@ -1,5 +1,6 @@
 {
   "common": {
+    "dismiss": "Dismiss",
     "logout": "Logout",
     "logout_confirm_title": "Confirm Logout",
     "logout_confirm_message": "Are you sure you want to logout?",
@@ -3791,6 +3792,9 @@
   },
   "banner": {
     "fundRunningLow": "Fund running low",
+    "fundCritical": "Balance critically low — tasks will stop very soon. Top up now.",
+    "fundBlocked": "Cloud AI balance exhausted — tasks are paused. Top up to resume.",
+    "topUpNow": "Top up now",
     "billingInsufficient": "Cloud AI balance exhausted — the task is paused. Top up on the Account page to resume.",
     "billingBlocked": "Cloud AI service unavailable for this account — check the Account page."
   },
