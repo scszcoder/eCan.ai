@@ -867,7 +867,7 @@ async def get_or_create_browser_session(
         'existing chrome': BrowserType.CHROME,
         'ads power': BrowserType.ADSPOWER,
         'adspower': BrowserType.ADSPOWER,
-        'ziniao': BrowserType.CHROME,
+        'ziniao': BrowserType.ZINIAO,
         'multi-login': BrowserType.CHROME,
     }
     browser_type = browser_type_map.get(ctx.browser_type_setting, BrowserType.CHROME)

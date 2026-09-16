@@ -457,7 +457,7 @@ class BrowserSessionManager:
         "existing chrome": "CHROME",
         "ads power": "ADSPOWER",
         "adspower": "ADSPOWER",
-        "ziniao": "CHROME",
+        "ziniao": "ZINIAO",
         "multi-login": "CHROME",
     }
 
@@ -499,6 +499,10 @@ class BrowserSessionManager:
             task=task_label,
             browser_type=browser_type,
             cdp_port=cdp_port,
+            # AdsPower 环境ID / 紫鸟店铺ID from the node. Empty falls back to the
+            # Settings default inside create_browser, so a skill that does not
+            # name one still runs.
+            adspower_profile_id=self.cfg.browser_profile_id or None,
             webdriver_path=mainwin.getWebDriverPath(),
             downloads_path=self.cfg.downloads_path,
             profile=self.cfg.profile or state_profile,

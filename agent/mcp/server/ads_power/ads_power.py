@@ -54,8 +54,25 @@ FULL_SITE_MAP = {
 DEFAULT_SITE_LIST = ["google", "gmail", "amazon"]
 
 
-def startAdspowerProfile(api_key, profile_id, port):
-    url = f'http://local.adspower.net:{port}/api/v1/browser/start?user_id={profile_id}'
+def _ads_base_url(base_url, port):
+    """Normalize a configured AdsPower endpoint to 'scheme://host:port'.
+
+    The Settings field may be given as 'local.adspower.net', with or without a
+    scheme, and with or without the port already on it.
+    """
+    base = str(base_url or '').strip().rstrip('/')
+    if not base:
+        return f'http://local.adspower.net:{port}'
+    if not base.startswith(('http://', 'https://')):
+        base = f'http://{base}'
+    head, _, tail = base.rpartition(':')
+    if head.startswith(('http://', 'https://')) and tail.isdigit():
+        return base
+    return f'{base}:{port}'
+
+
+def startAdspowerProfile(api_key, profile_id, port, base_url=None):
+    url = f'{_ads_base_url(base_url, port)}/api/v1/browser/start?user_id={profile_id}'
     print("URL:", url)
 
     headers = {

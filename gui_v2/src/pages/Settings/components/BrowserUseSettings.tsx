@@ -307,6 +307,7 @@ export interface BrowserProfile {
 export interface BrowserUseSettingsData {
   agentSettings: AgentSettings;
   browserSessionSettings: BrowserSessionSettings;
+  browserProviders?: BrowserProviders;
   profiles: BrowserProfile[];
 }
 
@@ -441,6 +442,77 @@ export interface BrowserUseSettingsRef {
   reload: () => Promise<void>;
 }
 
+// Anti-detect browser providers. The API key lives here rather than on the
+// browser-automation node: the skill editor strips anything matching
+// /api[-_]?key/ before saving a skill, and a key inside a skill would travel
+// with it when the skill is shared.
+interface AdsPowerProvider {
+  api_url: string;
+  api_port: number;
+  api_key: string;
+  profile_id: string;
+}
+
+// Ziniao authenticates with the account itself against the SuperBrowser
+// client's local API — there is no key to issue.
+interface ZiniaoProvider {
+  api_url: string;
+  api_port: number;
+  company: string;
+  username: string;
+  password: string;
+  profile_id: string;
+  use_socket: boolean;
+}
+
+interface BrowserProviders {
+  adspower: AdsPowerProvider;
+  ziniao: ZiniaoProvider;
+}
+
+const defaultBrowserProviders: BrowserProviders = {
+  adspower: { api_url: 'http://local.adspower.net', api_port: 50325, api_key: '', profile_id: '' },
+  ziniao: { api_url: 'http://127.0.0.1', api_port: 0, company: '', username: '', password: '', profile_id: '', use_socket: false },
+};
+
+/** The form is flat (adspower_api_key, …); the stored shape is nested. */
+const providersToForm = (p?: BrowserProviders) => {
+  const src = { ...defaultBrowserProviders, ...(p || {}) };
+  const ads = { ...defaultBrowserProviders.adspower, ...((src as any).adspower || {}) };
+  const zn = { ...defaultBrowserProviders.ziniao, ...((src as any).ziniao || {}) };
+  return {
+    adspower_api_url: ads.api_url,
+    adspower_api_port: ads.api_port,
+    adspower_api_key: ads.api_key,
+    adspower_profile_id: ads.profile_id,
+    ziniao_api_url: zn.api_url,
+    ziniao_api_port: zn.api_port,
+    ziniao_company: zn.company,
+    ziniao_username: zn.username,
+    ziniao_password: zn.password,
+    ziniao_profile_id: zn.profile_id,
+    ziniao_use_socket: zn.use_socket,
+  };
+};
+
+const formToProviders = (values: Record<string, any>): BrowserProviders => ({
+  adspower: {
+    api_url: String(values.adspower_api_url ?? '').trim(),
+    api_port: Number(values.adspower_api_port ?? 0) || 0,
+    api_key: String(values.adspower_api_key ?? ''),
+    profile_id: String(values.adspower_profile_id ?? '').trim(),
+  },
+  ziniao: {
+    api_url: String(values.ziniao_api_url ?? '').trim(),
+    api_port: Number(values.ziniao_api_port ?? 0) || 0,
+    company: String(values.ziniao_company ?? '').trim(),
+    username: String(values.ziniao_username ?? '').trim(),
+    password: String(values.ziniao_password ?? ''),
+    profile_id: String(values.ziniao_profile_id ?? '').trim(),
+    use_socket: !!values.ziniao_use_socket,
+  },
+});
+
 const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsProps>(
   ({ username, settingsLoaded }, ref) => {
     const { t } = useTranslation();
@@ -452,6 +524,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
     const [agentForm] = Form.useForm();
     const [sessionForm] = Form.useForm();
     const [profileForm] = Form.useForm();
+    const [providerForm] = Form.useForm();
     
     const [loading, setLoading] = useState(false);
     const [profiles, setProfiles] = useState<BrowserProfile[]>([]);
@@ -468,6 +541,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
           const data = response.data;
           agentForm.setFieldsValue(data.agentSettings || defaultAgentSettings);
           sessionForm.setFieldsValue(data.browserSessionSettings || defaultBrowserSessionSettings);
+          providerForm.setFieldsValue(providersToForm(data.browserProviders));
           setProfiles(data.profiles || [createDefaultProfile('default', tb('profiles.default_profile_name'), true)]);
         } else {
           // Initialize with defaults
@@ -498,6 +572,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
         const settingsData: BrowserUseSettingsData = {
           agentSettings,
           browserSessionSettings,
+          browserProviders: formToProviders(providerForm.getFieldsValue()),
           profiles,
         };
         
@@ -517,7 +592,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
       } finally {
         setLoading(false);
       }
-    }, [agentForm, sessionForm, profiles, message]);
+    }, [agentForm, sessionForm, providerForm, profiles, message]);
 
     // Expose methods via ref
     useImperativeHandle(ref, () => ({
@@ -770,6 +845,102 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
                 </Form>
               </StyledCard>
                 )
+              },
+              {
+                key: 'providers',
+                label: (
+                  <span>
+                    <GlobalOutlined style={{ marginRight: 8 }} />
+                    {tb('providers.title')}
+                  </span>
+                ),
+                children: (
+                  <StyledCard size="small">
+                    <Form
+                      form={providerForm}
+                      layout="vertical"
+                      size="small"
+                      initialValues={providersToForm(defaultBrowserProviders)}
+                      onValuesChange={handleFormChange}
+                    >
+                      <div style={{ marginBottom: 12, fontSize: 12, opacity: 0.75 }}>
+                        {tb('providers.description')}
+                      </div>
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 6 }}>{tb('providers.adspower')}</div>
+                        <Row gutter={[16, 8]}>
+                          <Col span={8}>
+                            <Form.Item name="adspower_api_url" label={tb('providers.api_url')}>
+                              <Input placeholder="http://local.adspower.net" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={4}>
+                            <Form.Item name="adspower_api_port" label={tb('providers.api_port')}>
+                              <InputNumber style={{ width: '100%' }} min={0} max={65535} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={6}>
+                            <Form.Item name="adspower_api_key" label={tb('providers.api_key')}>
+                              <Input.Password autoComplete="off" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={6}>
+                            <Form.Item name="adspower_profile_id" label={tb('providers.profile_id')}>
+                              <Input placeholder={tb('providers.profile_id_placeholder')} />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      </div>
+
+                      <Divider style={{ margin: '8px 0' }} />
+
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 6 }}>{tb('providers.ziniao')}</div>
+                        <div style={{ marginBottom: 8, fontSize: 12, opacity: 0.75 }}>
+                          {tb('providers.ziniao_hint')}
+                        </div>
+                        <Row gutter={[16, 8]}>
+                          <Col span={8}>
+                            <Form.Item name="ziniao_api_url" label={tb('providers.api_url')}>
+                              <Input placeholder="http://127.0.0.1" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={4}>
+                            <Form.Item name="ziniao_api_port" label={tb('providers.api_port')}>
+                              <InputNumber style={{ width: '100%' }} min={0} max={65535} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={6}>
+                            <Form.Item name="ziniao_company" label={tb('providers.company')}>
+                              <Input autoComplete="off" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={6}>
+                            <Form.Item name="ziniao_profile_id" label={tb('providers.store_id')}>
+                              <Input placeholder={tb('providers.store_id_placeholder')} />
+                            </Form.Item>
+                          </Col>
+                          <Col span={8}>
+                            <Form.Item name="ziniao_username" label={tb('providers.username')}>
+                              <Input autoComplete="off" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={8}>
+                            <Form.Item name="ziniao_password" label={tb('providers.password')}>
+                              <Input.Password autoComplete="off" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={8}>
+                            <Form.Item name="ziniao_use_socket" label={tb('providers.use_socket')} valuePropName="checked"
+                              tooltip={tb('providers.use_socket_tooltip')}>
+                              <Switch />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      </div>
+                    </Form>
+                  </StyledCard>
+                ),
               },
               {
                 key: 'session',

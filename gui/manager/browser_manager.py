@@ -29,6 +29,7 @@ class BrowserType(str, Enum):
     """Supported browser types"""
     CHROME = "chrome"
     ADSPOWER = "adspower"
+    ZINIAO = "ziniao"
     CHROMIUM = "chromium"
     # Future expansion
     # FIREFOX = "firefox"
@@ -492,10 +493,43 @@ def _create_browser_session_for_cdp(cdp_url: str, session_id_prefix: str = "br",
     return BrowserSession(browser_profile=profile, id=f"{session_id_prefix}_{uuid7str()}")
 
 
+def _launch_ziniao_and_get_cdp(
+    api_url: Optional[str],
+    api_port: int,
+    company: str,
+    username: str,
+    password: str,
+    browser_oauth: str,
+    headless: bool = False,
+    use_socket: bool = False,
+) -> Tuple[Optional[str], Optional[int]]:
+    """Start a 紫鸟 store browser and return (cdp_url, debug_port).
+
+    Ziniao hands back a debugging port on localhost rather than a devtools
+    websocket, so the CDP URL is built here.
+    """
+    from agent.mcp.server.ziniao.ziniao import startZiniaoBrowser
+
+    debug_port, launcher_page, _raw = startZiniaoBrowser(
+        api_url=api_url,
+        api_port=api_port,
+        company=company,
+        username=username,
+        password=password,
+        browser_oauth=browser_oauth,
+        headless=headless,
+        use_socket=use_socket,
+    )
+    cdp_url = f"http://127.0.0.1:{debug_port}"
+    logger.info(f"[BrowserManager] Ziniao CDP at {cdp_url} (launcher={launcher_page or 'n/a'})")
+    return cdp_url, debug_port
+
+
 def _launch_adspower_and_get_cdp(
     api_key: str,
     profile_id: str,
-    api_port: int = 50325
+    api_port: int = 50325,
+    api_url: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str], Optional[int], Optional[str]]:
     """
     Launch AdsPower browser profile and get CDP connection info.
@@ -504,13 +538,14 @@ def _launch_adspower_and_get_cdp(
         api_key: AdsPower API key
         profile_id: AdsPower profile ID
         api_port: AdsPower API port (default: 50325)
+        api_url: AdsPower API endpoint (default: http://local.adspower.net)
     
     Returns:
         Tuple of (cdp_url, selenium_address, debug_port, webdriver_path)
     """
     from agent.mcp.server.ads_power.ads_power import startAdspowerProfile
     
-    response = startAdspowerProfile(api_key, profile_id, api_port)
+    response = startAdspowerProfile(api_key, profile_id, api_port, base_url=api_url)
     data = response.get("data", {}) if isinstance(response, dict) else {}
     
     if not data:
@@ -846,14 +881,20 @@ class BrowserManager:
         Find an available browser matching the criteria.
         
         Matching rules:
-        - AdsPower: Only 1 instance per machine, so just match type (ignore port/profile)
+        - AdsPower / Ziniao: match the environment id when one is requested.
+          The id is per-SKILL (the eBay skill and the Etsy skill each drive
+          their own environment), so reusing another skill's browser would
+          hand a skill the wrong logged-in account — the exact leak an
+          anti-detect browser exists to prevent. Only when no id is requested
+          does the old "one instance per machine" shortcut apply.
         - Chrome/Chromium: Match type and port; if profile is requested,
           require profile consistency as well
         
         Args:
             browser_type: Required browser type (chrome, adspower, chromium)
             cdp_port: Specific CDP port to match (ignored for adspower)
-            adspower_profile_id: Specific AdsPower profile to match (ignored - only 1 instance)
+            adspower_profile_id: AdsPower 环境ID / 紫鸟店铺ID to match. When given,
+                a browser running a different id is NOT reused.
             profile: Browser profile name to match for Chrome/Chromium (optional)
             
         Returns:
@@ -868,8 +909,11 @@ class BrowserManager:
                 if browser_type and browser.browser_type != browser_type:
                     continue
                 
-                # AdsPower: Only 1 instance per machine, no need to check port/profile
-                if browser_type == BrowserType.ADSPOWER:
+                # AdsPower / Ziniao: the environment id decides reuse.
+                if browser_type in (BrowserType.ADSPOWER, BrowserType.ZINIAO):
+                    if adspower_profile_id:
+                        if str(browser.adspower_profile_id or "") != str(adspower_profile_id):
+                            continue
                     return browser
                 
                 # Chrome/Chromium: Match CDP port if specified (profile not required)
@@ -992,26 +1036,46 @@ class BrowserManager:
             # AdsPower: Launch profile first to get CDP endpoint
             # =================================================================
             if browser_type == BrowserType.ADSPOWER:
-                if not adspower_profile_id:
-                    raise ValueError("adspower_profile_id is required for AdsPower browser type")
-                
-                # Get API key from param or environment
-                api_key = adspower_api_key or os.getenv("ADSPOWER_API_KEY")
+                # Settings (Settings > Browser Automation > providers) is the
+                # configured source; explicit args still win, env stays as the
+                # last resort so existing setups keep working.
+                try:
+                    from gui.ipc.w2p_handlers.browser_use_handler import get_browser_provider_settings
+                    _prov = get_browser_provider_settings("adspower") or {}
+                except Exception:
+                    _prov = {}
+
+                profile_id = adspower_profile_id or str(_prov.get("profile_id") or "").strip()
+                if not profile_id:
+                    raise ValueError(
+                        "adspower_profile_id is required for AdsPower browser type "
+                        "(set it on the node or in Settings > Browser Automation)"
+                    )
+
+                api_key = adspower_api_key or str(_prov.get("api_key") or "").strip() or os.getenv("ADSPOWER_API_KEY")
                 if not api_key:
-                    raise ValueError("AdsPower API key not provided (set ADSPOWER_API_KEY env or pass adspower_api_key)")
-                
-                # Get API port from param or environment
-                api_port = adspower_api_port
-                if not adspower_api_port:
-                    api_port = int(os.getenv("ADSPOWER_PORT", "50325"))
-                
-                logger.info(f"[BrowserManager] Launching AdsPower profile: {adspower_profile_id}")
+                    raise ValueError(
+                        "AdsPower API key not provided (Settings > Browser Automation, "
+                        "or the ADSPOWER_API_KEY env var)"
+                    )
+
+                api_port = adspower_api_port or int(_prov.get("api_port") or 0) or int(os.getenv("ADSPOWER_PORT", "50325"))
+                api_url = str(_prov.get("api_url") or "").strip() or os.getenv("ADSPOWER_API_URL", "")
+                # The AutoBrowser record below is keyed on this, and browser
+                # reuse matches on it — keep the resolved id, not the arg.
+                adspower_profile_id = profile_id
+
+                logger.info(
+                    f"[BrowserManager] Launching AdsPower profile: {profile_id} "
+                    f"via {api_url or 'http://local.adspower.net'}:{api_port}"
+                )
                 
                 # Launch AdsPower and get connection info
                 final_cdp_url, selenium_address, debug_port, ads_webdriver_path = _launch_adspower_and_get_cdp(
                     api_key=api_key,
-                    profile_id=adspower_profile_id,
-                    api_port=api_port
+                    profile_id=profile_id,
+                    api_port=api_port,
+                    api_url=api_url,
                 )
                 
                 # Use AdsPower-provided webdriver if available
@@ -1021,6 +1085,43 @@ class BrowserManager:
                 if debug_port:
                     final_cdp_port = debug_port
             
+            # =================================================================
+            # Ziniao (紫鸟): the SuperBrowser client starts the store and
+            # answers with a localhost debugging port. Credentials are the
+            # ziniao account itself, so they live in Settings alongside
+            # AdsPower's key rather than in the skill.
+            # =================================================================
+            elif browser_type == BrowserType.ZINIAO:
+                try:
+                    from gui.ipc.w2p_handlers.browser_use_handler import get_browser_provider_settings
+                    _zn = get_browser_provider_settings("ziniao") or {}
+                except Exception:
+                    _zn = {}
+
+                store_id = adspower_profile_id or str(_zn.get("profile_id") or "").strip()
+                if not store_id:
+                    raise ValueError(
+                        "Ziniao store id is required (Settings > Browser Automation > Providers)"
+                    )
+                if not str(_zn.get("username") or "").strip():
+                    raise ValueError(
+                        "Ziniao credentials are not configured "
+                        "(Settings > Browser Automation > Providers: company / username / password)"
+                    )
+
+                final_cdp_url, debug_port = _launch_ziniao_and_get_cdp(
+                    api_url=str(_zn.get("api_url") or "").strip(),
+                    api_port=int(_zn.get("api_port") or 0),
+                    company=str(_zn.get("company") or ""),
+                    username=str(_zn.get("username") or ""),
+                    password=str(_zn.get("password") or ""),
+                    browser_oauth=store_id,
+                    headless=bool(_zn.get("headless") or False),
+                    use_socket=bool(_zn.get("use_socket") or False),
+                )
+                if debug_port:
+                    final_cdp_port = debug_port
+
             # =================================================================
             # Chrome/Chromium: Use provided CDP URL or construct from port
             # =================================================================
