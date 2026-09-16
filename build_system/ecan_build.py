@@ -712,17 +712,29 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
   RetryCount: Integer;
+  AppExeName: String;
+  InstallerFileName: String;
 begin
   Result := '';
   NeedsRestart := False;
 
-  // Force terminate all eCan.exe processes to release file locks
+  // Determine the correct exe name to kill based on the installer filename
+  // CN version installer: eCan.cn-*-Setup.exe → process: eCan.cn.exe
+  // Intl version installer: eCan-*-Setup.exe → process: eCan.exe
+  InstallerFileName := ExtractFileName(ExpandConstant('{src}'));
+  if Pos('eCan.cn', InstallerFileName) > 0 then
+    AppExeName := 'eCan.cn.exe'
+  else
+    AppExeName := 'eCan.exe';
+
+  // Force terminate the current version's process to release file locks
   // This prevents MoveFile error 183 (file already exists and cannot be overwritten)
+  // We ONLY kill the matching version to avoid affecting other installed versions
   RetryCount := 0;
   while RetryCount < 3 do
   begin
-    // Use taskkill to forcefully terminate eCan processes
-    Exec('taskkill.exe', '/F /IM eCan.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // Kill the correct exe for this installer
+    Exec('taskkill.exe', '/F /IM ' + AppExeName + ' /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     // Also kill Python processes that may hold handles to certifi/cacert.pem
     // (Python SSL context opens certifi's cacert.pem; python.exe/pythonw.exe
     //  are not in the eCan.exe process tree but hold the same file handles)
@@ -734,7 +746,9 @@ begin
   end;
 
   // Additional wait for file system to release locks
-  Sleep(1500);
+  // This is critical to avoid MoveFile error 183 (ERROR_ALREADY_EXISTS)
+  // especially when Windows Program Compatibility Assistant Service holds file handles
+  Sleep(2000);
 end;
 
 // Skip wizard pages in silent mode (OTA updates)
