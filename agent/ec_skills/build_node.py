@@ -8354,6 +8354,49 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                             _pending_pipe = None
                         # Option A: resolve {{placeholders}} using accumulated results
                         _ti_s = _resolve_placeholders(_ti_s, _rctx)
+
+                        # Backfill an empty send_email cc from summary_emails
+                        # HERE — at the dispatch site, whose log line proves it
+                        # runs. The same logic placed earlier in the lift path
+                        # produced NO output at all across two runs, neither its
+                        # success nor its skip branch, so it was evidently never
+                        # reached; rather than keep guessing why, do it where
+                        # execution is observed.
+                        #
+                        # 2026-09-17: the model emitted "cc": [] and the second
+                        # configured recipient was silently dropped — gmail got
+                        # the report, yahoo did not. Only fills when EMPTY, so a
+                        # cc the model actually chose is never touched.
+                        if _tn_s == 'send_email' and isinstance(_ti_s, dict):
+                            try:
+                                _inner_s = (_ti_s.get('input')
+                                            if isinstance(_ti_s.get('input'), dict) else _ti_s)
+                                if not _inner_s.get('cc'):
+                                    _cfg_r = [
+                                        _r.strip() for _r in str(
+                                            ((state.get('prompt_refs') or {})
+                                             .get('summary_emails') or '')
+                                        ).replace(';', ',').split(',') if _r.strip()
+                                    ]
+                                    _to_s = str(_inner_s.get('to') or '').strip()
+                                    _rest_s = [r for r in _cfg_r if r and r != _to_s]
+                                    if _rest_s:
+                                        _inner_s['cc'] = ','.join(_rest_s)
+                                        logger.info(
+                                            f"[MCP Multi-Tool] send_email cc was empty; "
+                                            f"backfilled from summary_emails -> {_inner_s['cc']}"
+                                        )
+                                    else:
+                                        logger.info(
+                                            f"[MCP Multi-Tool] send_email cc empty and nothing to "
+                                            f"add (summary_emails={_cfg_r}, to={_to_s!r})"
+                                        )
+                            except Exception as _cc2_exc:
+                                logger.warning(
+                                    f"[MCP Multi-Tool] cc backfill failed ({_cc2_exc}); "
+                                    f"sending without it"
+                                )
+
                         logger.debug(f"[MCP Multi-Tool Serial] [{_idx}] {_tn_s} input after resolution: {_ti_s}")
                         try:
                             _r = await _run_single_mcp_tool(_tn_s, _ti_s)
