@@ -603,10 +603,6 @@ UsePreviousLanguage=yes
 ShowLanguageDialog=auto
 ; Prevent multiple installer instances when user double-clicks repeatedly
 SetupMutex=eCanInstallerMutex
-; Enable long path support on Windows 10 version 1607+ (MAX_PATH = 260 → 32767 chars).
-; This is critical for users with very long usernames or deeply nested LOCALAPPDATA paths
-; who would otherwise see "Path too long" errors during install or uninstall.
-LongPathsEnabled=yes
 ; Silent install support for OTA updates
 ; Allow Inno Setup to automatically close ALL processes holding file locks in {{{{app}}}}
 ; This is critical for overwriting files like app_context.py held by Python subprocesses
