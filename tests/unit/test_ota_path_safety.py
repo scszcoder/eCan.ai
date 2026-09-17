@@ -1552,18 +1552,44 @@ class TestRegistryPathTrailingBackslash:
 
 
 # ---------------------------------------------------------------------------
-# Inno Setup LongPathsEnabled=yes check (Windows OTA failure #3)
+# Inno Setup directives audit (negative regression for v0.9.97w rebuild)
+# ---------------------------------------------------------------------------
+# Pins the v0.9.97v-baseline guarantee that the [Setup] section only
+# contains directives Inno Setup 6.x actually recognises. ``LongPathsEnabled``
+# was added in commit fb1780d5b under the assumption that Inno Setup has
+# such a directive; Inno Setup 6.7.1 (the CI runner) rejects it with
+# "Unrecognized [Setup] section directive" and aborts the install. The
+# tag v0.9.97v had no such directive and built cleanly.
 # ---------------------------------------------------------------------------
 
 
-class TestInnoSetupLongPathsEnabled:
-    """``[Setup] LongPathsEnabled=yes`` must be emitted in the Inno Setup
-    script so the installer supports paths > 260 chars on Windows 10 1607+.
-    Without this, users with long usernames hit "Path too long" errors during
-    install or uninstall."""
+class TestInnoSetupNoUnknownDirectives:
+    """Negative regression test: the ``[Setup]`` section must NOT contain
+    directives Inno Setup 6.x does not recognise.
 
-    def test_long_paths_enabled_in_iss(self):
-        """The [Setup] section must contain ``LongPathsEnabled=yes``."""
+    Concretely: ``LongPathsEnabled`` is not an Inno Setup directive in any
+    released version — it was a hallucination added by fb1780d5b. The
+    ``iscc.exe`` on the Windows CI runner rejects it with::
+
+        Error on line 41 in setup.iss:
+          Unrecognized [Setup] section directive "LongPathsEnabled"
+
+    and aborts the build. v0.9.97v had no such directive and built cleanly.
+    This test pins that the directive never creeps back in via a future
+    refactor of ``build_system/ecan_build.py``.
+
+    If a real Windows long-path workaround is needed (e.g. for users with
+    deep ``LOCALAPPDATA`` paths), it must be implemented at the
+    manifest / ``requireAdmin`` / registry-override layer — NOT by adding
+    a non-existent IS directive.
+    """
+
+    def test_long_paths_enabled_not_present_in_setup_section(self):
+        """``LongPathsEnabled`` is not an Inno Setup directive; ``iscc`` rejects it.
+
+        The fix in commit aa3115db9 removed the line; this test guards
+        against a future regression that re-adds it.
+        """
         build_py = Path(__file__).resolve().parents[2] / "build_system" / "ecan_build.py"
         text = build_py.read_text(encoding="utf-8")
 
@@ -1571,10 +1597,12 @@ class TestInnoSetupLongPathsEnabled:
         assert m, "Could not locate [Setup] section in ecan_build.py"
         section = m.group(0)
 
-        assert "LongPathsEnabled=yes" in section, (
-            "[Setup] section must contain ``LongPathsEnabled=yes`` so "
-            "the installer handles paths longer than 260 characters on "
-            "Windows 10 version 1607+. Without it, users with long "
-            "usernames see 'Path too long' errors."
+        assert "LongPathsEnabled" not in section, (
+            "[Setup] section must NOT contain ``LongPathsEnabled`` — "
+            "it is not a valid Inno Setup directive in any released version, "
+            "and ISCC aborts with 'Unrecognized [Setup] section directive'. "
+            "v0.9.97v (the last known-good build) did not have it. "
+            "Use a manifest / ``requireAdmin`` / registry-override approach "
+            "instead if long-path support is genuinely required."
         )
 
