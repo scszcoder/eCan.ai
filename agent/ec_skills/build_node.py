@@ -7167,6 +7167,19 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                                                 f"empty; backfilled from summary_emails "
                                                                 f"-> {_inner['cc']}"
                                                             )
+                                                else:
+                                                    # Say why it did nothing. A
+                                                    # silent skip here is
+                                                    # indistinguishable from the
+                                                    # code not running, which
+                                                    # cost a run on 2026-09-17.
+                                                    logger.info(
+                                                        f"[MCP Auto-Select] cc backfill skipped: "
+                                                        f"summary_emails yielded {len(_all_r)} "
+                                                        f"recipient(s) {_all_r}; "
+                                                        f"prompt_refs_present="
+                                                        f"{bool(state.get('prompt_refs'))}"
+                                                    )
                                             except Exception as _cc_exc:
                                                 logger.warning(
                                                     f"[MCP Auto-Select] could not backfill cc "
