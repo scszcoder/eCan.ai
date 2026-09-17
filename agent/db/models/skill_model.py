@@ -119,7 +119,8 @@ class DBAgentSkill(BaseModel, TimestampMixin, ExtensibleMixin):
     public = Column(Boolean, default=False)
     rentable = Column(Boolean, default=False)
     # Note: Cloud execution settings (run_in_cloud, hybrid_cloud_mode, local_helper_skill_id, local_helper_machine)
-    # are stored in the config JSON column
+    # are stored in the config JSON column, as are skill_owner and need_inputs
+    # (the skill's declared parameters — see to_dict below)
     # Note: members relationship commented out due to missing foreign key
     # members = relationship('Member', back_populates='agent_skills', cascade='all, delete-orphan')
 
@@ -133,6 +134,19 @@ class DBAgentSkill(BaseModel, TimestampMixin, ExtensibleMixin):
     def to_dict(self, deep=False):
         """Convert model instance to dictionary"""
         d = super().to_dict()
+        # ``need_inputs`` and ``objectives`` have no columns — they are folded
+        # into the config JSON on write (see
+        # DBSkillService._fold_list_fields_into_config). Lift them back to the
+        # top level so every reader (Skills page, TaskDetail's 任务变量 section,
+        # EC_Skill) keeps seeing skill['need_inputs'] / skill['objectives'].
+        try:
+            cfg = d.get('config')
+            if isinstance(cfg, dict):
+                for _field in ('need_inputs', 'objectives'):
+                    if isinstance(cfg.get(_field), list):
+                        d.setdefault(_field, cfg[_field])
+        except Exception:
+            pass
         if deep:
             # Include association details through backref relationships
             if hasattr(self, 'agent_skills_rel') and self.agent_skills_rel:

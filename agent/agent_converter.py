@@ -354,6 +354,79 @@ def _validate_and_filter_entities(data_list, entity_type, agent_id, agent_name):
     return valid_entities
 
 
+def _relation_ids_from_extra_data(agent_data, key):
+    """Related entity ids carried inside the agent's ``extra_data``.
+
+    A cloud ``queryAgents`` payload has no ``skills``/``tasks`` keys — the
+    relations travel inside extra_data instead. Reading only the top-level keys
+    left a synced agent with zero skills and zero tasks, which is why it then
+    reported "no Task configured to receive messages" while its task sat right
+    there in the DB (customer report 2026-09-16).
+
+    extra_data has been seen in three shapes, all handled here:
+      * a dict with the payload under ``notes``
+      * a dict carrying ``skills``/``tasks``/``org_ids`` directly
+      * a JSON string of either of the above (sometimes double-encoded)
+    """
+    raw = (agent_data or {}).get('extra_data')
+    for _ in range(4):          # unwrap repeated JSON encoding
+        if isinstance(raw, str):
+            raw = raw.strip()
+            if not raw:
+                return []
+            try:
+                raw = json.loads(raw)
+            except (ValueError, TypeError):
+                return []
+            # A double-encoded value decodes to ANOTHER string — keep going.
+            continue
+        if isinstance(raw, dict) and 'notes' in raw and key not in raw:
+            raw = raw.get('notes')
+            continue
+        break
+    if not isinstance(raw, dict):
+        return []
+    ids = raw.get(key)
+    if isinstance(ids, str):
+        ids = [ids]
+    if not isinstance(ids, (list, tuple)):
+        return []
+    return [str(i).strip() for i in ids if str(i or '').strip()]
+
+
+def _relation_ids_from_local_db(main_window, agent_id):
+    """(skill_dicts, task_dicts) for an agent, straight from the relation tables.
+
+    The cloud agent payload has ``skills: ''`` and ``tasks: ''`` — the relations
+    were never part of it. They do exist locally in agent_skill_rels /
+    agent_task_rels, so an agent that syncs from the cloud can still be wired
+    up. Without this the agent loads with zero tasks and then reports that it
+    has no Task able to receive messages.
+    """
+    if not agent_id:
+        return [], []
+    try:
+        db_mgr = getattr(main_window, 'ec_db_mgr', None)
+        if db_mgr is None:
+            return [], []
+        service = db_mgr.get_agent_service() if hasattr(db_mgr, 'get_agent_service') else None
+        if service is None:
+            return [], []
+        result = service.query_agents_with_relations(id=agent_id)
+        rows = (result or {}).get('data') or []
+        if isinstance(rows, dict):
+            rows = [rows]
+        for row in rows:
+            if str(row.get('id') or '') != str(agent_id):
+                continue
+            skills = [s for s in (row.get('skills') or []) if isinstance(s, dict) and s.get('id')]
+            tasks = [t for t in (row.get('tasks') or []) if isinstance(t, dict) and t.get('id')]
+            return skills, tasks
+    except Exception as exc:
+        logger.warning(f"[AgentConverter] local relation lookup failed for {agent_id}: {exc}")
+    return [], []
+
+
 def _resolve_from_compiled_pool(stubs, compiled_pool, entity_type, agent_name):
     """Replace stub objects with compiled versions from the global pool.
     
@@ -752,6 +825,27 @@ def convert_agent_dict_to_ec_agent(
         # These relationship data are stored separately for frontend display via to_dict()
         skills_data = agent_data.get('skills') or []
         tasks_data = agent_data.get('tasks') or []
+        # A cloud-sourced agent arrives with skills/tasks as empty strings and
+        # no relations of its own — queryAgents does not carry them. Recover
+        # them, cheapest source first: extra_data when present, then the local
+        # relation tables, which keep the rows a sync cannot see.
+        # _validate_and_filter_entities keeps only items carrying a 'name',
+        # so an id-only stub would be dropped before it reached the pool.
+        if not skills_data:
+            skills_data = [{'id': i, 'name': i} for i in _relation_ids_from_extra_data(agent_data, 'skills')]
+        if not tasks_data:
+            tasks_data = [{'id': i, 'name': i} for i in _relation_ids_from_extra_data(agent_data, 'tasks')]
+        if not skills_data or not tasks_data:
+            db_skills, db_tasks = _relation_ids_from_local_db(main_window, agent_data.get('id'))
+            if not skills_data and db_skills:
+                skills_data = db_skills
+            if not tasks_data and db_tasks:
+                tasks_data = db_tasks
+        if skills_data or tasks_data:
+            logger.info(
+                f"[AgentConverter] relations for '{agent_data.get('name')}': "
+                f"skills={len(skills_data)} tasks={len(tasks_data)}"
+            )
         title = agent_data.get('title') or ''
         if isinstance(title, str) and title.startswith('['):
             try:
@@ -833,4 +927,19 @@ def convert_agent_dict_to_ec_agent(
     except Exception as e:
         logger.error(f"[AgentConverter] ❌ Failed to convert agent {agent_data.get('name')}: {e}")
         logger.error(f"[AgentConverter] Traceback: {traceback.format_exc()}")
+        # Remember WHY, keyed by agent name and id. Until now the reason lived
+        # only in the startup log, so a user whose agent silently never existed
+        # had nothing to go on — see chat_utils._agent_startup_hint, which puts
+        # this in the chat window when a message cannot be delivered.
+        try:
+            failures = getattr(main_window, "agent_conversion_failures", None)
+            if not isinstance(failures, dict):
+                failures = {}
+                setattr(main_window, "agent_conversion_failures", failures)
+            reason = str(e).strip()
+            for key in (agent_data.get('name'), agent_data.get('id')):
+                if key:
+                    failures[str(key)] = reason
+        except Exception:
+            pass
         return None

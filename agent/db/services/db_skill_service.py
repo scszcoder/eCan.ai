@@ -146,6 +146,48 @@ class DBSkillService(BaseService):
             pass
         return data
 
+    # Metadata-tab list fields the Skills page edits but DBAgentSkill has no
+    # column for. Same fate as skill_owner: the column filter in ``_update``
+    # dropped them, so "Required Inputs" and "Objectives" saved nothing — and
+    # with zero declared inputs the Task page's 任务变量 section never renders,
+    # leaving ``{{var}}`` slots in a skill's prompts permanently unfillable.
+    _CONFIG_ONLY_LIST_FIELDS = ("need_inputs", "objectives")
+
+    @staticmethod
+    def _fold_list_fields_into_config(data, require_config=False):
+        """Persist the config-only list fields inside the config JSON column.
+
+        config IS a column and round-trips; ``DBAgentSkill.to_dict`` lifts these
+        back to the top level, so every reader keeps seeing
+        ``skill['need_inputs']`` / ``skill['objectives']``.
+        """
+        try:
+            present = [f for f in DBSkillService._CONFIG_ONLY_LIST_FIELDS if f in data]
+            if not present:
+                return data
+            config = data.get('config')
+            if not isinstance(config, dict):
+                if require_config:
+                    return data
+                config = {}
+            new_config = dict(config)
+            changed = False
+            for field in present:
+                value = data.get(field)
+                if value is None:
+                    value = []
+                if not isinstance(value, list):
+                    continue
+                if new_config.get(field) != value:
+                    new_config[field] = value
+                    changed = True
+            if changed:
+                data = dict(data)
+                data['config'] = new_config
+        except Exception:
+            pass
+        return data
+
     def add_skill(self, data):
         """Add a new skill, or update if ID already exists (upsert by ID)
 
@@ -154,6 +196,7 @@ class DBSkillService(BaseService):
         """
         try:
             data = self._fold_skill_owner_into_config(data)
+            data = self._fold_list_fields_into_config(data)
             skill_id = data.get('id')
 
             with self.session_scope() as s:
@@ -238,6 +281,20 @@ class DBSkillService(BaseService):
     def update_skill(self, skill_id, fields):
         """Update a skill"""
         fields = self._fold_skill_owner_into_config(fields, require_config=True)
+        # need_inputs does NOT require an incoming config: an edit that only
+        # touches the parameter list still has to persist, so a config is
+        # synthesized from the row when the payload lacks one.
+        if (any(f in fields for f in self._CONFIG_ONLY_LIST_FIELDS)
+                and not isinstance(fields.get('config'), dict)):
+            try:
+                current = self.get_skill_by_id(skill_id)
+                cur_cfg = ((current or {}).get('data') or {}).get('config')
+                if isinstance(cur_cfg, dict):
+                    fields = dict(fields)
+                    fields['config'] = dict(cur_cfg)
+            except Exception:
+                pass
+        fields = self._fold_list_fields_into_config(fields)
         return self._update(DBAgentSkill, skill_id, fields)
 
     def update_skill_askid(self, skill_id, askid):

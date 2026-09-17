@@ -16,6 +16,8 @@ import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useNodeNoteStore } from '../../stores/node-note-store';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep, normalizeNodesForSave } from '../../utils/sanitize-utils';
+import { syncNeedInputsFromPrompts, makePromptResolver } from '../../utils/prompt-vars';
+import { usePromptStore } from '../../../../stores/promptStore';
 import { traverseWorkflowNodes } from '../../utils/traverse-workflow-nodes';
 import { detectPlatform } from '../../../../config/platform';
 import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
@@ -678,8 +680,18 @@ export const Save = ({ disabled }: SaveProps) => {
       // 3. Extract config nodes and create updated skillInfo
       const configNodes = extractConfigNodes(diagram);
       console.log('[Save] skillInfo from store:', JSON.stringify(skillInfo, null, 2));
+      // Any {{var}} typed into a prompt becomes a declared parameter, so the
+      // task form actually offers a field for it. Add-only: see prompt-vars.ts.
+      // Most nodes reference a stored prompt rather than carrying its text, so
+      // resolve those through the prompt store (already loaded — no network).
+      const resolvePrompt = makePromptResolver(usePromptStore.getState().prompts);
+      const syncedNeedInputs = syncNeedInputsFromPrompts(
+        (diagram as any)?.nodes, (skillInfo as any)?.need_inputs, resolvePrompt,
+      );
+      console.log('[Save] task variables declared:', syncedNeedInputs.map((i: any) => i.name));
       const updatedSkillInfo = {
         ...skillInfo,
+        need_inputs: syncedNeedInputs,
         workFlow: diagram,
         lastModified: new Date().toISOString(),
         schemaVersion: CURRENT_SCHEMA_VERSION,  // Always save with current workflow schema version
@@ -1039,6 +1051,10 @@ export const SaveAs = ({ disabled }: SaveProps) => {
       const updatedSkillInfo = {
         ...skillInfo,
         skillName: newSkillName,
+        need_inputs: syncNeedInputsFromPrompts(
+          (sanitizedDiagram as any)?.nodes, (skillInfo as any)?.need_inputs,
+          makePromptResolver(usePromptStore.getState().prompts),
+        ),
         workFlow: sanitizedDiagram,
         lastModified: new Date().toISOString(),
         schemaVersion: CURRENT_SCHEMA_VERSION,  // Always save with current workflow schema version

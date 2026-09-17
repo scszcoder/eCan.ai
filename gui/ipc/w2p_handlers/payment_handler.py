@@ -139,6 +139,14 @@ def handle_payment_topup(request: IPCRequest,
             try:
                 am = getattr(mainwin, "auth_manager", None)
                 if am is not None:
+                    # Refresh first: get_tokens() hands back whatever is stored,
+                    # expired or not, and the payment page has no way to tell —
+                    # it just fails verification server-side with a message that
+                    # does not mention expiry. (WeChat top-up failure 2026-09-16.)
+                    try:
+                        am.ensure_valid_tokens()
+                    except Exception:
+                        pass
                     raw = am.get_tokens() or {}
                     token_value = str(raw.get("AccessToken")
                                       or raw.get("access_token") or "").strip()
@@ -201,6 +209,10 @@ def _coupon_bearer_token() -> str:
         try:
             am = getattr(mainwin, "auth_manager", None)
             if am is not None:
+                try:
+                    am.ensure_valid_tokens()
+                except Exception:
+                    pass
                 raw = am.get_tokens() or {}
                 tok = str(raw.get("AccessToken") or raw.get("access_token") or "").strip()
                 if tok:

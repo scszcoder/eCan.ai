@@ -435,6 +435,39 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       .map((t: any) => ({ value: t.id, label: t.name || t.id }));
   }, [allTasks, task]);
 
+  // Printers on THIS machine, for task variables that name one. get_settings
+  // already reports them (settings_handler fills available_printers from the
+  // hardware detector), so this needs no new backend call.
+  const [availablePrinters, setAvailablePrinters] = React.useState<string[]>([]);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const api = get_ipc_api();
+        const res: any = await api.getSettings(username || '');
+        const list = res?.data?.available_printers;
+        if (!cancelled && Array.isArray(list)) {
+          setAvailablePrinters(list.map((p: any) => String(p)).filter(Boolean));
+        }
+      } catch {
+        // No printers is a fine outcome — the field falls back to free text.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [username]);
+
+  /**
+   * A variable whose name contains "printer" is offering a choice of this
+   * machine's printers rather than free text. Case-SENSITIVE on purpose: the
+   * name is the skill author's contract, and a loose match risks turning an
+   * unrelated field (say "Printer_Brand_To_Research") into a picker that
+   * cannot express the value the author wanted.
+   */
+  const isPrinterVar = React.useCallback(
+    (name: string) => String(name || '').includes('printer'),
+    [],
+  );
+
   const skillsKey = React.useMemo(() => (skills || []).length, [skills?.length]);
 
   const skillsSimplified = React.useMemo(() => {
@@ -473,6 +506,10 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
               path: skill.path,
               source: skill.source,
               tags: skill.tags,
+              // The Task Variables section below is driven by this. Dropping it
+              // here meant the section could never render, however carefully a
+              // skill declared its parameters.
+              need_inputs: skill.need_inputs || [],
             }));
             setSkills(sanitizedSkills as any);
           }
@@ -1197,7 +1234,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                             {t('pages.tasks.taskVars', '任务变量')}
                           </span>
                           <span style={{ marginLeft: 8, color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>
-                            {t('pages.tasks.taskVarsHelp', '填充技能提示词中的 {{变量}} 占位符')}
+                            {t('pages.tasks.taskVarsHelp', '填充技能提示词中的 {变量} 占位符')}
                           </span>
                         </div>
                         <Row gutter={[12, 0]}>
@@ -1209,10 +1246,20 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                                 tooltip={inp.description || undefined}
                                 rules={inp.required ? [{ required: true, message: `${inp.name} ${t('common.required', '为必填项')}` }] : []}
                               >
-                                <Input
-                                  disabled={!(editMode || isNew)}
-                                  placeholder={inp.default !== undefined && inp.default !== null ? String(inp.default) : ''}
-                                />
+                                {isPrinterVar(inp.name) && availablePrinters.length > 0 ? (
+                                  <Select
+                                    disabled={!(editMode || isNew)}
+                                    allowClear
+                                    showSearch
+                                    placeholder={t('pages.tasks.pickPrinter', '选择打印机')}
+                                    options={availablePrinters.map((name) => ({ value: name, label: name }))}
+                                  />
+                                ) : (
+                                  <Input
+                                    disabled={!(editMode || isNew)}
+                                    placeholder={inp.default !== undefined && inp.default !== null ? String(inp.default) : ''}
+                                  />
+                                )}
                               </StyledFormItem>
                             </Col>
                           ))}

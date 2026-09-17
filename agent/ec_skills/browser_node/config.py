@@ -131,6 +131,10 @@ class NodeConfig:
     cdp_port: str = ""                          # "auto" | "0" | numeric str | ""
     headless: bool = False
     profile: str = ""
+    # AdsPower 环境ID / 紫鸟店铺ID. Per-SKILL, not per-machine: the eBay skill and
+    # the Etsy skill each drive their own environment. The provider's endpoint
+    # and credentials stay in Settings; only this id belongs in the node.
+    browser_profile_id: str = ""
     keep_browser_alive: bool = False
 
     # ── Run environment + privacy ────────────────────────────────
@@ -242,8 +246,18 @@ def parse_node_config(
 
     # Browser settings
     browser_type = _str_content(inputs, "browser", "new chromium").lower()
+    # Test affordance: run one skill against several browsers without editing
+    # every browser_automation node. Unset in normal operation.
+    _browser_override = os.getenv("ECAN_BROWSER_TYPE", "").strip().lower()
+    if _browser_override:
+        logger.info(
+            f"[BrowserConfig] ECAN_BROWSER_TYPE override: "
+            f"{browser_type!r} -> {_browser_override!r}"
+        )
+        browser_type = _browser_override
     browser_driver = _str_content(inputs, "browserDriver", "native").lower()
     cdp_port = _str_content(inputs, "cdpPort", "")
+    browser_profile_id = _str_content(inputs, "browserProfileId", "").strip()
     if _bool_content(inputs, "cdpPortAuto"):
         cdp_port = "auto"
     keep_browser_alive = _bool_content(inputs, "keepBrowserAlive")
@@ -341,6 +355,7 @@ def parse_node_config(
         task_text_raw=task_text_raw,
         wait_for_done=bool(cfg.get("wait_for_done", False)),
         browser_type=browser_type,
+        browser_profile_id=browser_profile_id,
         browser_driver=browser_driver,
         cdp_port=cdp_port,
         headless=_bool_content(inputs, "headless"),

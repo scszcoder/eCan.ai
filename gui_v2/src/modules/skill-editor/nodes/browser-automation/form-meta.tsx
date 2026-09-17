@@ -560,6 +560,39 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
+        {/* AdsPower / Ziniao: the endpoint and key are account-level, not
+            per-skill — the editor strips anything matching /api[-_]?key/ on
+            save, so a key typed here would not survive. Point at Settings. */}
+        <Field<string> name="inputsValues.browser.content">
+          {({ field: browserField }) => {
+            const b = (browserField.value as string) || '';
+            if (b !== 'ads power' && b !== 'ziniao') return <></>;
+            const idLabel = b === 'ziniao'
+              ? t('nodes.browserAutomation.ziniaoStoreId')
+              : t('nodes.browserAutomation.adsPowerProfileId');
+            return (
+              <>
+                <FormItem name="browserProfileId" label={idLabel} type="string" vertical>
+                  <Field<string> name="inputsValues.browserProfileId.content">
+                    {({ field }) => (
+                      <input
+                        type="text"
+                        value={(field.value as string) || ''}
+                        onChange={(e) => field.onChange(e.target.value)}
+                        placeholder={t('nodes.browserAutomation.browserProfileIdPlaceholder')}
+                        style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
+                      />
+                    )}
+                  </Field>
+                </FormItem>
+                <div style={{ marginBottom: 12, padding: '6px 8px', backgroundColor: '#e6f4ff', border: '1px solid #91caff', borderRadius: 4, fontSize: 11, lineHeight: 1.5, color: '#333' }}>
+                  {t('nodes.browserAutomation.antiDetectCredsHint')}
+                </div>
+              </>
+            );
+          }}
+        </Field>
+
         {/* CDP Port: auto-assign checkbox + manual port input */}
         <FormItem name="cdpPort" label={getCommonFieldLabel('cdpPort', t)} type="string" vertical>
           <Field<boolean> name="inputsValues.cdpPortAuto.content">
@@ -1791,6 +1824,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               'tool',
               'browser',
               'browserDriver',
+              'browserProfileId',
               'cdpPort',
               'runEnvironment',
               'privacyStrategy',

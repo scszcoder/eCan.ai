@@ -1582,7 +1582,14 @@ def handle_query_agent_skill_rels(request: IPCRequest, params: Optional[list[Any
             # Convert to dict inside the with block to ensure session is still open
             for rel in rels:
                 # Make a detached copy using make_transient to avoid session issues
-                rel_copy = rel.__class__(rel.id, rel.agent_id, rel.skill_id)
+                # SQLAlchemy declarative models take keyword args only —
+                # __init__(self, **kwargs) — so positional args raised
+                # "takes 1 positional argument but 4 were given" and this
+                # query failed every time, leaving the Agents page with no
+                # skill/department relationships at all.
+                rel_copy = rel.__class__(
+                    id=rel.id, agent_id=rel.agent_id, skill_id=rel.skill_id,
+                )
                 if hasattr(rel, 'created_at'):
                     rel_copy.created_at = rel.created_at
                 if hasattr(rel, 'updated_at'):
@@ -1998,7 +2005,23 @@ def handle_toggle_agent_enabled(request: IPCRequest, params: Optional[Dict[str, 
                                 ec_agent.start()
                                 logger.info(f"[agent_handler] Agent {agent_id} loaded and started")
                             else:
-                                return create_error_response(request, 'START_ERROR', 'Failed to convert agent from DB')
+                                # "Failed to convert agent from DB" says nothing
+                                # actionable. The converter records WHY (keyed by
+                                # name and id), and it is almost always a missing
+                                # provider API key — so say that instead.
+                                reason = ''
+                                try:
+                                    failures = getattr(mw, 'agent_conversion_failures', None) or {}
+                                    reason = str(
+                                        failures.get(str(agent_id))
+                                        or failures.get(str(agent_dict.get('name') or ''))
+                                        or next(iter(failures.values()), '')
+                                    ).strip()
+                                except Exception:
+                                    reason = ''
+                                message = f'Failed to start agent: {reason}' if reason else 'Failed to convert agent from DB'
+                                logger.error(f"[agent_handler] {message}")
+                                return create_error_response(request, 'START_ERROR', message)
                         else:
                             return create_error_response(request, 'START_ERROR', 'Agent converter not available')
                     else:

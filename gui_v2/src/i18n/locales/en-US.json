@@ -1461,6 +1461,25 @@
           "max_iframes": "Max iFrames",
           "max_iframe_depth": "Max iFrame Depth"
         },
+        "providers": {
+          "title": "Providers",
+          "description": "Local API endpoint and key for anti-detect browsers. Kept here rather than on the node, so a shared skill never carries your key.",
+          "adspower": "AdsPower",
+          "ziniao": "Ziniao (紫鸟)",
+          "api_url": "API URL",
+          "api_port": "Port",
+          "api_key": "API key",
+          "profile_id": "Default profile ID",
+          "profile_id_placeholder": "Used when the node does not name one",
+          "ziniao_hint": "Ziniao signs in with your SuperBrowser account against the local client. The port is the one the running client listens on.",
+          "company": "Company",
+          "username": "Username",
+          "password": "Password",
+          "store_id": "Default store ID",
+          "store_id_placeholder": "browserOauth",
+          "use_socket": "Socket mode",
+          "use_socket_tooltip": "Use the raw-socket protocol instead of HTTP. Try this only if HTTP is refused by the client."
+        },
         "profiles": {
           "title": "Browser Profiles",
           "add_profile": "Add Profile",
@@ -1644,8 +1663,9 @@
       "outputModes": "Output Modes",
       "objectives": "Objectives",
       "needInputs": {
-        "descPlaceholder": "Enter a brief description of this skill",
-        "namePlaceholder": "Enter skill name"
+        "defaultPlaceholder": "Default value",
+        "descPlaceholder": "Description (optional)",
+        "namePlaceholder": "Parameter name"
       },
       "namePlaceholder": "Enter skill name",
       "descriptionPlaceholder": "Enter skill description",
@@ -1907,6 +1927,9 @@
       "jsonPlaceholder": "{\"key\": \"value\"}"
     },
     "tasks": {
+      "pickPrinter": "Select a printer",
+      "taskVars": "Task Variables",
+      "taskVarsHelp": "Fill the {variable} placeholders in the skill’s prompts",
       "readOnlyCodeGenerated": "Read-only",
       "title": "Task Management",
       "add": "Add",

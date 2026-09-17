@@ -10,6 +10,28 @@ _Last updated: 2026-09-04_
 
 ## 🔴 Bugs (unfixed)
 
+### Payment page receives the bearer as a URL query parameter (2026-09-16)
+
+`handle_payment_topup` appends the user's token to the payment URL as
+`?token=<jwt>` (`gui/ipc/w2p_handlers/payment_handler.py`). A token in a query
+string is written down in places we do not control: the webview's history, the
+`Referer` header on anything the page loads afterwards, and every access log on
+the path. Rotating it is the only remedy once it has leaked.
+
+Why it is there: the desktop's embedded webview is an OTR profile with no site
+session cookie, so the page cannot identify the payer unless the client hands it
+the bearer; without it the page charges anonymously and nothing is credited (the
+¥0.01 order-'' incident).
+
+Fix — needs the payment PHP changed in lockstep, so it is not a one-liner:
+either POST the token as form data into the page, or have the client exchange it
+for a short-lived single-use code and put only that in the URL.
+
+Adjacent, and fixed 2026-09-16: the token was also sent *expired*, because
+`get_tokens()` returns what is stored without checking `exp`. `ensure_valid_tokens()`
+now runs first. That is a staleness fix, not a confidentiality one — this item
+stands on its own.
+
 ### Cloud skill serving / customer-chat demo (2026-09-14)
 
 Working end to end — see `docs/CLOUD_SKILL_SERVING_POSTMORTEM.md`. These are

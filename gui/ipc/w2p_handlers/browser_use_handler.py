@@ -137,6 +137,31 @@ def get_default_browser_use_settings() -> Dict[str, Any]:
             'max_iframe_depth': 3,
             'keep_alive': False,
         },
+        # Anti-detect browser providers (AdsPower, 紫鸟/Ziniao). Their local API
+        # endpoint + key live HERE and not in the skill's node config: the skill
+        # editor strips anything matching /api[-_]?key/ before saving, and a key
+        # inside a skill would travel with it when the skill is shared.
+        'browserProviders': {
+            'adspower': {
+                'api_url': 'http://local.adspower.net',
+                'api_port': 50325,
+                'api_key': '',
+                'profile_id': '',
+            },
+            # Ziniao authenticates with the account itself (company + user +
+            # password) against the SuperBrowser client's local API; there is
+            # no API key to issue. profile_id carries the store id
+            # (browserOauth) so it lines up with the AdsPower field.
+            'ziniao': {
+                'api_url': 'http://127.0.0.1',
+                'api_port': 0,
+                'company': '',
+                'username': '',
+                'password': '',
+                'profile_id': '',
+                'use_socket': False,
+            },
+        },
         'profiles': [
             {
                 'id': 'default',
@@ -194,6 +219,29 @@ def get_default_browser_use_settings() -> Dict[str, Any]:
             }
         ]
     }
+
+
+def get_browser_provider_settings(provider: str) -> Dict[str, Any]:
+    """Saved API endpoint/key for an anti-detect browser provider.
+
+    ``provider`` is the node's browser value normalized to a key here
+    ('ads power' and 'adspower' both mean adspower). Returns {} when the
+    provider is unknown, so callers can fall back to their env defaults.
+    """
+    key = str(provider or '').strip().lower().replace(' ', '').replace('-', '').replace('_', '')
+    if key in ('adspower',):
+        key = 'adspower'
+    elif key in ('ziniao', '紫鸟'):
+        key = 'ziniao'
+    else:
+        return {}
+    try:
+        providers = (load_browser_use_settings() or {}).get('browserProviders') or {}
+        cfg = providers.get(key)
+        return dict(cfg) if isinstance(cfg, dict) else {}
+    except Exception as e:
+        logger.warning(f"[BrowserUse] provider settings unavailable for {key}: {e}")
+        return {}
 
 
 @IPCHandlerRegistry.handler('get_browser_use_settings')

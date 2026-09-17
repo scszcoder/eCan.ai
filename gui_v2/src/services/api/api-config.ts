@@ -509,11 +509,23 @@ export const GRAPHQL_MUTATIONS = {
     }
   `,
 
+  // NOTE (2026-09-16): the two backends share this operation NAME but not its
+  // shape — CN returns `{ items: [ApiKeyItem!]! }`, AWS returns
+  // `{ customer, status, user }`. The previous body asked for `customerEmail`
+  // and `status`, which validates against NEITHER (AWS has `customer`, not
+  // `customerEmail`), so this query could never have run. It is written for CN
+  // below; anything wiring it up on the international backend has to branch on
+  // region rather than edit this in place.
   QUERY_API_KEYS: `
-    query QueryApiKeys($input: QueryApiKeyInput) {
-      queryApiKeys(input: $input) {
-        customerEmail
-        status
+    query QueryApiKeys {
+      queryApiKeys {
+        items {
+          id
+          name
+          key
+          createdAt
+          revokedAt
+        }
       }
     }
   `,

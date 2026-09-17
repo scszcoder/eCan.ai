@@ -1519,6 +1519,25 @@
           "max_iframes": "最大iFrame数",
           "max_iframe_depth": "最大iFrame深度"
         },
+        "providers": {
+          "title": "浏览器服务商",
+          "description": "指纹浏览器的本地 API 地址与密钥。存放于此而非节点内，分享技能时不会带出您的密钥。",
+          "adspower": "AdsPower",
+          "ziniao": "紫鸟",
+          "api_url": "API 地址",
+          "api_port": "端口",
+          "api_key": "API 密钥",
+          "profile_id": "默认环境 ID",
+          "profile_id_placeholder": "节点未指定时使用",
+          "ziniao_hint": "紫鸟使用超级浏览器账号登录本地客户端，端口为客户端当前监听的端口。",
+          "company": "公司",
+          "username": "用户名",
+          "password": "密码",
+          "store_id": "默认店铺 ID",
+          "store_id_placeholder": "browserOauth",
+          "use_socket": "Socket 模式",
+          "use_socket_tooltip": "使用原始 socket 协议而非 HTTP。仅在客户端拒绝 HTTP 时尝试。"
+        },
         "profiles": {
           "title": "浏览器配置文件",
           "add_profile": "添加配置文件",
@@ -1702,8 +1721,9 @@
       "outputModes": "输出模式",
       "objectives": "目标",
       "needInputs": {
-        "descPlaceholder": "简要描述这个技能",
-        "namePlaceholder": "输入技能名称"
+        "defaultPlaceholder": "默认值",
+        "descPlaceholder": "描述（可选）",
+        "namePlaceholder": "参数名称"
       },
       "namePlaceholder": "请输入技能名称",
       "descriptionPlaceholder": "请输入技能描述",
@@ -1965,6 +1985,9 @@
       "jsonPlaceholder": "{\"键\": \"值\"}"
     },
     "tasks": {
+      "pickPrinter": "选择打印机",
+      "taskVars": "任务变量",
+      "taskVarsHelp": "填充技能提示词中的 {变量} 占位符",
       "readOnlyCodeGenerated": "只读",
       "title": "任务管理",
       "add": "添加",

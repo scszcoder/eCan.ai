@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING
 
 from agent.db.services.db_chat_service import DBChatService
@@ -92,6 +93,53 @@ request['params'] = {
 #     'timestamp': 1751052867161
 # }
 
+def _notify_chat_undeliverable(chat_id: str, text: str) -> None:
+    """Tell the CHAT WINDOW a message could not be delivered.
+
+    Until now this failed in the log only: the user typed, nothing happened,
+    and the reason (an agent that never started) sat in eCan.log. The same push
+    channel the agents' own replies use carries the notice, so it appears
+    inline in the thread the user is looking at.
+
+    Best-effort — a failure to explain a failure must not raise.
+    """
+    try:
+        from app_context import AppContext
+        web_gui = AppContext.get_web_gui()
+        if not web_gui:
+            return
+        web_gui.get_ipc_api().push_chat_message(chat_id, {
+            "chatId": chat_id,
+            "role": "system",
+            "senderId": "system",
+            "content": text,
+            "createAt": int(time.time() * 1000),
+            "undeliverable": True,
+        })
+    except Exception as exc:
+        logger.warning(f"[chat_utils] could not surface delivery failure to the chat window: {exc}")
+
+
+def _agent_startup_hint(mainwin, agent_key: str = "") -> str:
+    """Why is the agent missing? The startup failure reason, when we know it.
+
+    Recorded by agent_converter when conversion raises (keyed by both name and
+    id). Falls back to any recorded reason, since a single missing provider key
+    usually takes every agent down together.
+    """
+    try:
+        failures = getattr(mainwin, "agent_conversion_failures", None)
+        if not isinstance(failures, dict) or not failures:
+            return ""
+        if agent_key:
+            reason = str(failures.get(str(agent_key), "")).strip()
+            if reason:
+                return reason
+        return str(next(iter(failures.values()), "")).strip()
+    except Exception:
+        return ""
+
+
 def gui_a2a_send_chat(mainwin, req):
     """Route a human chat message directly to the recipient agent.
 
@@ -119,6 +167,16 @@ def gui_a2a_send_chat(mainwin, req):
             f"[chat_utils] Agents not yet ready (receiverId={params.get('receiverId')}), "
             f"skipping routing for chatId={chat_id}. "
             f"Message is saved in DB and will be picked up on the next user action."
+        )
+        hint = _agent_startup_hint(mainwin, params.get('receiverId') or '')
+        _notify_chat_undeliverable(
+            chat_id,
+            "⚠️ 该助手尚未启动，消息未送达。"
+            + (f"\n原因：{hint}" if hint else "")
+            + "\n请检查 设置 > LLM 管理 中的 API Key，然后重启应用。"
+            + "\n\nThis agent has not started, so the message was not delivered."
+            + (f"\nReason: {hint}" if hint else "")
+            + "\nCheck the provider API key in Settings > LLM Management, then restart."
         )
         return None
 
@@ -167,6 +225,15 @@ def gui_a2a_send_chat(mainwin, req):
     if not recipient_agent:
         avail = [getattr(ag.card, 'name', 'N/A') for ag in agents if hasattr(ag, 'card') and ag.card]
         logger.error(f"[chat_utils] No recipient agent found (receiverId={recipient_id}), available: {avail}")
+        # Some agents started, this one did not — say which ones did, since the
+        # difference is usually one agent's provider key.
+        _notify_chat_undeliverable(
+            chat_id,
+            "⚠️ 未找到该助手，消息未送达。"
+            + (f"\n已启动：{', '.join(avail)}" if avail else "")
+            + "\n\nRecipient agent not found, so the message was not delivered."
+            + (f"\nRunning agents: {', '.join(avail)}" if avail else "")
+        )
         return {"error": f"Recipient agent not found: {recipient_id}"}
 
     logger.info(f"[chat_utils] Routing chat directly to recipient agent: "
