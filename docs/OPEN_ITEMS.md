@@ -114,6 +114,58 @@ STILL OPEN, and the underlying cause: **no `bu_*` tool is in
 `tool_function_mapping`** — zero of them, so the whole browser-use extension
 family is invisible to MCP nodes.
 
+### deepseek: native tool-calling beats the json_object shim (2026-09-17)
+
+The shim in `ChatLambdaProxy` (279d8f00c) works, but it is not the most direct
+route. Measured against the live proxy:
+
+| request shape | deepseek-v4-flash / -pro |
+|---|---|
+| `output_schema` / `response_format: json_schema` | 400 "This response_format type is unavailable now" — **even with thinking disabled** |
+| `response_format: json_object` | 400 unless the prompt contains the word "json" |
+| `tools` + forced `tool_choice` | 400 **"Thinking mode does not support this tool_choice"** |
+| `tools` + forced `tool_choice` + `thinking: {"type":"disabled"}` | **200, real `tool_calls` returned** |
+| same + `reasoning_effort: "none"` | **200, real `tool_calls` returned** |
+
+So deepseek never supports json_schema, but it DOES support native function
+calling with a forced tool_choice — the blocker was thinking mode, not tool
+support. Two switches turn it off: `thinking: {"type": "disabled"}` or
+`reasoning_effort: "none"`.
+
+Why that is better than the shim:
+- The PROVIDER enforces the argument schema, instead of us rendering the schema
+  into the prompt and validating after the fact.
+- The schema stops riding in the prompt on every step (~10KB now, ~66KB on a
+  node with no action filter — see the payload-cap item).
+- It is the standard OpenAI-compatible mechanism, so it generalises to other
+  providers that reject json_schema but do support tools.
+
+Cost: thinking mode is off, so no reasoning trace. Unknown whether that hurts
+multi-step browser reasoning — worth measuring before switching.
+
+### Limits of the current json_object shim (2026-09-17)
+
+Applies to ANY skill, not just eBay — it is in `ChatLambdaProxy.ainvoke`, gated
+on model name only, and all four construction sites are in
+`browser_node/runner.py`. It does NOT cover:
+
+- **LLM nodes**, which use `lambda_proxy_langchain.py` (a different class, no
+  shim) and mention `with_structured_output` consumers.
+- **Cloud/serving workers**, which never import `ChatLambdaProxy`.
+- Direct provider calls that bypass the proxy.
+
+Two scenario limits:
+
+1. **It silently depends on the action filter.** The shim renders the schema
+   into the prompt on every step. With the eBay node's 13-action filter that is
+   9,979 chars; unfiltered it is ~66KB, which would ride in every request and
+   land near CloudBase's ~100KB body cap. Nothing enforces the coupling — a
+   size check that warns before the cap is hit would.
+2. **The guarantee is weaker wherever it applies.** json_object promises valid
+   json, not json shaped like the action model, so a drifting model yields
+   `Failed to parse output as AgentOutput` and a retry rather than a
+   structurally guaranteed action.
+
 ### Platform-purity regression: a live-chat hook ran during an eBay run (2026-09-17)
 
 `agent/chats/wan_a2a_chat.py` registered the live-chat page-refresh handler
