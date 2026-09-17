@@ -52,6 +52,49 @@ async function fetchLLMProviders(): Promise<Map<string, any>> {
   return new Map();
 }
 
+/** Providers whose model list is served by an endpoint, not the static config. */
+const isDynamicModelProvider = (provider: any): boolean =>
+  !!provider?.special_features?.dynamic_models
+  || String(provider?.provider || provider?.name || '').toLowerCase() === 'ecanai';
+
+let cachedProxyModels: string[] = [];
+let proxyModelsTime = 0;
+// The provider list is a local IPC read (5s is fine); this one is a network
+// round-trip to the proxy, so it gets a longer window.
+const PROXY_MODELS_TTL = 60_000;
+
+/**
+ * Models the eCan llm-proxy actually serves, from GET <endpoint>/v1/models.
+ *
+ * eCanAI ships `supported_models: []` and `dynamic_models: true` — its catalogue
+ * lives behind the proxy and changes without a client release, so a static list
+ * here would go stale the moment a model is added. Failures fall back to the
+ * last good list, then to the provider's configured models.
+ */
+async function fetchProxyModels(): Promise<string[]> {
+  const now = Date.now();
+  if (cachedProxyModels.length > 0 && now - proxyModelsTime < PROXY_MODELS_TTL) {
+    return cachedProxyModels;
+  }
+  try {
+    const res: any = await get_ipc_api().executeRequest('test_llm_proxy_models', {});
+    const body = res?.data?.body ?? res?.data;
+    const rows = body?.data ?? body?.models ?? [];
+    const names = (Array.isArray(rows) ? rows : [])
+      .map((m: any) => (typeof m === 'string' ? m : (m?.id || m?.name || '')))
+      .map((n: any) => String(n).trim())
+      .filter(Boolean);
+    if (names.length) {
+      cachedProxyModels = Array.from(new Set(names));
+      proxyModelsTime = now;
+    }
+    return cachedProxyModels;
+  } catch (error) {
+    console.warn('[Browser Automation] Failed to fetch proxy models:', error);
+    return cachedProxyModels;
+  }
+}
+
 const PromptSelectionDropdown = ({
   selected,
   username,
@@ -134,6 +177,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
   const { prompts, fetch, fetched, loading: promptStoreLoading } = usePromptStore();
   const [llmProviders, setLlmProviders] = useState<Map<string, any>>(new Map());
   const [browserProfiles, setBrowserProfiles] = useState<BrowserProfile[]>([]);
+  const [proxyModels, setProxyModels] = useState<string[]>([]);
   const platform = useMemo(() => {
     if (typeof navigator === 'undefined') return 'linux';
     const userAgent = navigator.userAgent.toLowerCase();
@@ -155,7 +199,13 @@ export const FormRender = (_props: FormRenderProps<any>) => {
   }, []);
 
   useEffect(() => {
-    fetchLLMProviders().then(setLlmProviders);
+    fetchLLMProviders().then((map) => {
+      setLlmProviders(map);
+      // Only ask the proxy when a provider that needs it is configured.
+      if (Array.from(map.values()).some(isDynamicModelProvider)) {
+        fetchProxyModels().then(setProxyModels);
+      }
+    });
     fetchBrowserProfiles();
   }, [fetchBrowserProfiles]);
 
@@ -183,7 +233,12 @@ export const FormRender = (_props: FormRenderProps<any>) => {
   const providers = Array.from(llmProviders.keys());
   const modelMap: Record<string, string[]> = {};
   llmProviders.forEach((provider, name) => {
-    modelMap[name] = provider.supported_models?.map((m: any) => m.name) || [];
+    const configured = provider.supported_models?.map((m: any) => m.name) || [];
+    // A dynamic provider's catalogue comes from the proxy; its configured list
+    // is empty by design, so the endpoint is the only source of truth.
+    modelMap[name] = isDynamicModelProvider(provider) && proxyModels.length
+      ? proxyModels
+      : configured;
   });
 
   // Memoized options with i18n

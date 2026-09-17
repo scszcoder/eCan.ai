@@ -631,3 +631,112 @@ def handle_test_req_create_scene(request: IPCRequest, params: Optional[Dict[str,
     except Exception as e:
         logger.error(f"[llm_proxy_test] req_create_scene error: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'REQ_CREATE_SCENE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('diagnose_llm_proxy_credentials')
+def handle_diagnose_llm_proxy_credentials(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Which credential does llm_proxy actually accept?
+
+    2026-09-16: the CN proxy answered ``403 user_not_registered`` for an
+    account that ecbAccountManager reported as ``actid=5, subid=<openid>,
+    subs=present``, and an out-of-process probe proved the ``X-User-Id``
+    header changes nothing (identical 403 for the openid, the account
+    user_name, the legacy ``wechat_`` form, and no header at all) while
+    dropping the bearer gives a DIFFERENT error (401). So the proxy reads the
+    bearer and rejects the user it resolves from it.
+
+    We send the eCan HS256 session token — the one ``/api/graphql`` accepts.
+    The open question is whether the proxy can verify that token type at all,
+    or wants the CloudBase-issued access token instead. Only the running app
+    holds the latter: a standalone process cannot restore a WeChat session
+    (no refresh token by design), which is why this had to be a handler.
+
+    Tries one minimal completion (``max_tokens=1``) per available credential
+    and reports status + body. Never returns a token value — only its
+    algorithm, subject and length.
+    """
+    try:
+        import base64
+        import json as _json
+        import httpx
+
+        from app_context import AppContext
+
+        def _claims(tok: str) -> Dict[str, Any]:
+            """Header alg + subject, without the signature."""
+            try:
+                raw = tok.split('/@@/', 1)[-1] if '/@@/' in tok else tok
+                h, p, _sig = raw.split('.')
+
+                def _d(seg: str):
+                    seg += '=' * (-len(seg) % 4)
+                    return _json.loads(base64.urlsafe_b64decode(seg))
+
+                return {'alg': _d(h).get('alg'), 'sub': _d(p).get('sub'), 'len': len(raw)}
+            except Exception:
+                return {'alg': None, 'sub': None, 'len': len(tok or '')}
+
+        main_window = AppContext.get_main_window()
+        if not main_window:
+            return create_error_response(request, "MainWindow not available")
+
+        gs = main_window.config_manager.general_settings
+        endpoint = (gs.lambda_proxy_endpoint or '').rstrip('/')
+        if not endpoint:
+            return create_error_response(request, "Lambda proxy endpoint not configured")
+        url = endpoint + '/v1/chat/completions'
+        model = (params or {}).get('model') or gs.default_llm_model or 'qwen3.7-plus'
+
+        # Collect every credential this process can see.
+        creds: list[tuple[str, str]] = []
+        try:
+            tok = main_window.get_auth_token() or ''
+            if tok:
+                creds.append(('get_auth_token (what we send today)', tok))
+        except Exception as exc:
+            logger.warning(f"[ProxyCredDiag] get_auth_token failed: {exc}")
+
+        try:
+            am = getattr(main_window, 'auth_manager', None)
+            tokens = (am.get_tokens() or {}) if am else {}
+            for key in ('AccessToken', 'IdToken', 'access_token', 'id_token'):
+                val = tokens.get(key)
+                if not val:
+                    continue
+                raw = val.split('/@@/', 1)[-1] if '/@@/' in val else val
+                if any(raw == existing for _label, existing in creds):
+                    continue
+                creds.append((f'auth_manager {key}', raw))
+        except Exception as exc:
+            logger.warning(f"[ProxyCredDiag] get_tokens failed: {exc}")
+
+        if not creds:
+            return create_error_response(request, "No credentials available to test")
+
+        payload = {'model': model, 'max_tokens': 1,
+                   'messages': [{'role': 'user', 'content': 'hi'}]}
+
+        results = []
+        for label, tok in creds:
+            info = _claims(tok)
+            try:
+                resp = httpx.post(
+                    url, json=payload, timeout=30,
+                    headers={'Content-Type': 'application/json',
+                             'Authorization': f'Bearer {tok}'},
+                )
+                entry = {'credential': label, **info,
+                         'status': resp.status_code, 'body': resp.text[:200]}
+            except Exception as exc:
+                entry = {'credential': label, **info,
+                         'status': None, 'body': f'{type(exc).__name__}: {exc}'}
+            logger.info(
+                f"[ProxyCredDiag] {label}: alg={info['alg']} sub={info['sub']!r} "
+                f"-> {entry['status']} {str(entry['body'])[:160]}"
+            )
+            results.append(entry)
+
+        return create_success_response(request, {'url': url, 'model': model, 'results': results})
+    except Exception as e:
+        logger.error(f"[ProxyCredDiag] failed: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, str(e))

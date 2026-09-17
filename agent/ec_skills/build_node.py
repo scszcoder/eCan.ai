@@ -469,6 +469,28 @@ def _cn_llm_proxy_by_default(
     return True
 
 
+def _normalize_proxy_user(user: str) -> str:
+    """Cloud identity for the llm-proxy's ``X-User-Id``.
+
+    ``mainwin.user`` is a LOCAL identifier: CN WeChat logins carry both a
+    ``wechat_`` prefix and an ``@local`` suffix (``wechat_<openid>@local``),
+    while the cloud knows the bare openid — ``accounts.subid`` and the JWT's
+    ``sub`` are both ``<openid>``. Sending the local form made llm_proxy
+    answer ``403 {"code":"user_not_registered"}`` on every model call even
+    though the account existed and ensure_account reported success
+    (2026-09-16: the browser node could not take a single step).
+
+    Same normalization the owner-enforced GraphQL resolvers already needed —
+    reuse it rather than re-deriving the rule. Falls back to the raw value if
+    the cloud module cannot be imported (headless pods keep working).
+    """
+    try:
+        from agent.cloud_api.cloud_api import normalize_cloud_owner
+        return normalize_cloud_owner(user)
+    except Exception:
+        return user
+
+
 def _get_proxy_config() -> dict:
     """Get Lambda proxy configuration from settings, or from the environment.
 
@@ -492,8 +514,9 @@ def _get_proxy_config() -> dict:
         return {
             'endpoint': env_endpoint,
             'auth_token': (os.getenv('ECAN_LLM_PROXY_TOKEN') or '').strip(),
-            'user_id': (os.getenv('ECAN_LLM_PROXY_USER')
-                        or os.getenv('ECAN_TASK_OWNER') or '').strip(),
+            'user_id': _normalize_proxy_user(
+                (os.getenv('ECAN_LLM_PROXY_USER')
+                 or os.getenv('ECAN_TASK_OWNER') or '').strip()),
         }
     try:
         from app_context import AppContext
@@ -507,7 +530,7 @@ def _get_proxy_config() -> dict:
         auth_token = ''
         if hasattr(mainwin, 'get_auth_token'):
             auth_token = mainwin.get_auth_token() or ''
-        user_id = getattr(mainwin, 'user', '') or ''
+        user_id = _normalize_proxy_user(getattr(mainwin, 'user', '') or '')
         return {
             'endpoint': endpoint,
             'auth_token': auth_token,
