@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-04T12:41:16.286565",
+  "generated_at": "2026-09-17T14:54:04.128273",
   "total_tools": 136,
   "tools": [
     {
@@ -3126,6 +3126,20 @@
               "body_html": {
                 "type": "string",
                 "description": "HTML body (optional). At least one of body_text or body_html must be provided."
+              },
+              "cc": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional CC addresses (max 20). Everyone on the message can see these."
+              },
+              "bcc": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Optional BCC addresses (max 20). Hidden from every other recipient — use this to reach several people without exposing their addresses to each other."
               },
               "reply_to": {
                 "type": "string",
