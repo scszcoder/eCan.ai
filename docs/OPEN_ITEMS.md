@@ -39,24 +39,42 @@ Steps 1+2 take ~11k → ~6.5k; step 3 makes most of the remainder cacheable.
 record logs `'prompt_tokens_details': None`. Test by sending an identical prompt
 twice inside a minute and checking for a non-null `cached_tokens`.
 
-### deepseek models cannot drive browser-use on the CN proxy (2026-09-17)
+### deepseek needs a json_object shim to drive browser-use (2026-09-17)
 
-Both reject structured output, which browser-use requires for its action model:
+deepseek supports json_object but NOT json_schema, and the proxy maps our
+`output_schema` onto json_schema -- the unavailable one. Measured against the
+live proxy:
 
-    deepseek-v4-flash  output_schema -> 400 "This response_format type is unavailable now"
-    deepseek-v4-pro    output_schema -> 400 same
-    qwen3.7-plus       output_schema -> 200
-    qwen3.8-flash      output_schema -> 200
+| request shape | deepseek-v4-flash | deepseek-v4-pro |
+|---|---|---|
+| `output_schema` (what ChatLambdaProxy sends) | 400 unavailable | 400 unavailable |
+| `response_format: json_schema` | 400 unavailable | 400 unavailable |
+| `response_format: json_object` | 400 "prompt must contain the word 'json'" | same |
+| `json_object` **+ the word "json" in the prompt** | **200 `{"ok": true}`** | **200 `{"ok": true}`** |
+| no structure | 200 | 200 |
 
-Every step call 400s and browser-use retries, so a run crawls even though
-deepseek answers in 2-3s against qwen's 8-16s. Nothing on the client can fix
-this -- either the proxy gains response_format support for deepseek, or these
-models stay unusable for browser_automation nodes (they remain fine for plain
-LLM nodes that need no schema).
+qwen3.7-plus and qwen3.8-flash both return 200 for `output_schema`, so this is
+a deepseek/provider gap, not a proxy bug.
+
+Today every step call 400s and browser-use retries, so a run crawls even
+though deepseek answers in 2-3s against qwen's 8-16s -- it is 4-5x faster per
+call and unusable overall. (Plain LLM nodes needing no schema are unaffected.)
+
+A client-side shim would make it work, for providers that cannot do
+json_schema: send `response_format: {"type": "json_object"}`, render the
+schema into the prompt as instructions, make sure the literal word "json"
+appears (deepseek rejects the mode otherwise), then validate the reply against
+the pydantic model on our side and retry on mismatch. json_object guarantees
+VALID json, not json matching the action model, so the client-side validation
+is the whole point -- without it browser-use gets well-formed garbage.
+
+Needs a per-model capability map (which shape each model accepts) rather than
+a global switch. ~60-100 lines in `ChatLambdaProxy`. Worth it for the latency;
+not worth blocking the eBay skill on.
 
 Probe, if this needs re-checking: POST /api/llm-proxy/v1/chat/completions with
-an `output_schema` and compare status codes across models. `/v1/models` needs
-the ACCOUNT API KEY, not the session token.
+each shape and compare status codes across models. `/v1/models` needs the
+ACCOUNT API KEY, not the session token.
 
 ### qwen3.7-plus follows the output contract but not the handoff block (2026-09-17)
 
