@@ -7020,6 +7020,47 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             # Snapshot propagated work_result so the LLM response cannot blank it
             _propagated_work_result = dict(llm_result.get('work_result') or {}) if isinstance(llm_result, dict) else {}
 
+            # A browser-automation node upstream does NOT write its answer into
+            # llm_result — it only ever contributes {'all_done', 'work_done'}
+            # (verified across a full session's logs, 2026-09-17). Its actual
+            # text, including any tool-call block the prompt asked for, lands in
+            # state['tool_result'][<node>]['final'].
+            #
+            # Without this, a browser node can never hand work to a downstream
+            # MCP node: the model emits a perfectly good block and nothing ever
+            # reads it. That is why an eBay run that failed on a dead proxy
+            # reported the fault correctly and still mailed nobody.
+            #
+            # Only fills the gap: if llm_result already carries a message or a
+            # structured tool call, nothing here changes.
+            if (isinstance(llm_result, dict)
+                    and not isinstance(llm_result.get('message'), str)
+                    and not llm_result.get('tool')
+                    and not llm_result.get('tool_name')):
+                try:
+                    _tr = state.get('tool_result') or {}
+                    for _src_node, _src_val in (_tr.items() if isinstance(_tr, dict) else []):
+                        if not isinstance(_src_val, dict):
+                            continue
+                        for _fk in ('final', 'content', 'extracted_content'):
+                            _cand = _src_val.get(_fk)
+                            if isinstance(_cand, str) and '{' in _cand:
+                                llm_result = dict(llm_result)
+                                llm_result['message'] = _cand
+                                logger.info(
+                                    f"[MCP Auto-Select] No message in llm_result; adopting "
+                                    f"tool_result['{_src_node}']['{_fk}'] ({len(_cand)} chars) "
+                                    f"as the message to parse — upstream browser node."
+                                )
+                                break
+                        if isinstance(llm_result.get('message'), str):
+                            break
+                except Exception as _bridge_exc:
+                    logger.warning(
+                        f"[MCP Auto-Select] Could not read an upstream node's final "
+                        f"output ({_bridge_exc}); continuing without it"
+                    )
+
             if 'message' in llm_result and isinstance(llm_result.get('message'), str):
                 message_content = llm_result['message']
                 logger.debug(f"[MCP Auto-Select] Found 'message' wrapper, attempting to parse: {message_content[:300]}...")
