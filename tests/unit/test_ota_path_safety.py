@@ -1424,7 +1424,16 @@ class TestDiskSpaceCheck:
             )
 
     def test_download_succeeds_when_space_sufficient(self, monkeypatch, tmp_path):
-        """When free space ≥ 2× file_size, download proceeds (no IOError)."""
+        """When free space ≥ 2× file_size, download proceeds (no disk-full error).
+
+        Mock ``requests.get`` to raise immediately so the test completes in
+        <1 s instead of waiting for ``127.0.0.1:1`` to time out (default
+        connect_timeout in ``download_package`` is 30 s, and the retry
+        loop can run up to 3 attempts × 2 URLs = 6 connection attempts).
+        The point of this test is to verify that the disk-space gate
+        passes — it does NOT verify network failure handling, so
+        short-circuiting the network layer is appropriate.
+        """
         from ota.core.package_manager import PackageManager, UpdatePackage
 
         stub_dir = tmp_path / "dl"
@@ -1437,18 +1446,30 @@ class TestDiskSpaceCheck:
             lambda p: (1024 * 1024 * 1024, 524 * 1024 * 1024, 500 * 1024 * 1024)
         )
 
+        # Stub requests.get to raise immediately. This proves the
+        # disk-space gate PASSED (no RuntimeError before this point).
+        import requests as _requests
+        def _fake_get(*a, **kw):
+            raise _requests.exceptions.ConnectionError(
+                "mocked: test does not exercise network"
+            )
+        monkeypatch.setattr(_requests, "get", _fake_get)
+
         pkg_mgr = PackageManager(download_dir=str(stub_dir))
         pkg = UpdatePackage(
             version="3.0.0",
-            download_url="http://127.0.0.1:1/eCan-3.0.0.exe",   # unreachable
+            download_url="http://example.com/eCan-3.0.0.exe",
             file_size=8 * 1024 * 1024,
             signature="deadbeef",
             description="",
         )
 
-        # Should fail on connection (not disk space) — proves we passed the disk check.
+        # Should fail on the mocked network error — proves the disk-space
+        # gate passed (the gate raises RuntimeError, which is NOT what
+        # ConnectionError is, so we never get to the network layer if
+        # the gate fires).
         result = pkg_mgr.download_package(pkg, progress_callback=None)
-        assert result is False   # network fails, but disk check passed
+        assert result is False
 
 
 # ---------------------------------------------------------------------------
@@ -1456,6 +1477,12 @@ class TestDiskSpaceCheck:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows-only test: ``sys.frozen`` is a Windows-specific attribute "
+           "added by PyInstaller/cx_Freeze, and the idempotent guard is "
+           "exercised inside the Windows install code path",
+)
 class TestIdempotentInstallGuard:
     """``InstallationManager._install_in_progress`` is a class-level bool that
     prevents two concurrent ``install_package`` calls from launching two
@@ -1503,6 +1530,14 @@ class TestIdempotentInstallGuard:
 # ---------------------------------------------------------------------------
 
 
+# Test imports ``winreg`` (Windows-only stdlib) and exercises the registry
+# lookup branch of ``_get_current_windows_install_dir``. Skip on non-Windows
+# so the suite is collectable on macOS/Linux dev workstations.
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows-only test: ``winreg`` is Windows-only and the registry "
+           "lookup branch only runs on Windows",
+)
 class TestRegistryPathTrailingBackslash:
     """``_get_current_windows_install_dir`` strips trailing backslashes from
     the registry value.  Inno Setup sometimes writes the InstallLocation with
