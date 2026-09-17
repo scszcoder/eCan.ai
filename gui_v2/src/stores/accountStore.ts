@@ -108,6 +108,12 @@ interface AccountState {
     getFund: () => number | null;
     /** Contact-verification completeness (red-flag indicator). */
     getVerificationStatus: () => VerificationStatus;
+
+    /** True once the cloud has refused a call for billing reasons — work has
+     *  actually stopped. Stays true until a refresh shows money in the
+     *  account, so the warning cannot scroll past unnoticed. */
+    billingBlocked: boolean;
+    setBillingBlocked: (blocked: boolean) => void;
 }
 
 export const useAccountStore = create<AccountState>((set, get) => ({
@@ -115,6 +121,9 @@ export const useAccountStore = create<AccountState>((set, get) => ({
     isLoading: false,
     error: null,
     lastUpdated: null,
+    billingBlocked: false,
+
+    setBillingBlocked: (blocked) => set({ billingBlocked: blocked }),
     
     setAccountData: (data) => set({ 
         accountData: data, 
@@ -129,7 +138,8 @@ export const useAccountStore = create<AccountState>((set, get) => ({
     clearAccountData: () => set({
         accountData: null,
         error: null,
-        lastUpdated: null
+        lastUpdated: null,
+        billingBlocked: false
     }),
 
     fetchAccountInfo: async () => {
@@ -139,6 +149,9 @@ export const useAccountStore = create<AccountState>((set, get) => ({
             if (response?.success && response.data) {
                 const data = (response.data as any).accountInfo || response.data;
                 set({ accountData: data, lastUpdated: Date.now(), error: null });
+                // A top-up clears the block: the next refresh that shows money
+                // takes the banner down without the user having to restart.
+                if ((get().getFund() ?? 0) > 0) set({ billingBlocked: false });
                 return true;
             }
             set({ error: (response as any)?.error?.message || 'fetch failed' });

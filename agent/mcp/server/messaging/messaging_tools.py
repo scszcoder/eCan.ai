@@ -1,8 +1,13 @@
 """MCP tools for outbound messaging — send_sms and send_email.
 
-Both tools call the agentScheduler Lambda's GraphQL mutations
-(`sendSms`, `sendEmail`) over AppSync. The Lambda then dispatches via
-AWS End User Messaging SMS / SES respectively.
+Both tools call the `sendSms` / `sendEmail` GraphQL mutations on whichever
+backend the app is signed in to, and that backend picks the provider:
+  - international (AppSync -> agentScheduler Lambda): AWS End User
+    Messaging SMS / AWS SES.
+  - CN (CloudBase -> ecan-graphql-api): Tencent Enterprise Mail over SMTP,
+    or Tencent SES with a reviewed template (EMAIL_TRANSPORT=auto|smtp|ses).
+    `sendSms` is not available there yet and fails with a clear message.
+The client sends the same mutation either way — no provider branching here.
 
 Tool wiring:
   - Schemas added by `add_send_sms_tool_schema` and `add_send_email_tool_schema`
@@ -10,6 +15,8 @@ Tool wiring:
   - Handlers `send_sms` and `send_email` registered in server.py
     `tool_function_mapping`.
 """
+
+import re
 
 import mcp.types as types
 from mcp.types import TextContent
@@ -105,6 +112,23 @@ def add_send_email_tool_schema(tool_schemas):
                                 "or body_html must be provided."
                             ),
                         },
+                        "cc": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Optional CC addresses (max 20). Everyone on the "
+                                "message can see these."
+                            ),
+                        },
+                        "bcc": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "Optional BCC addresses (max 20). Hidden from every "
+                                "other recipient — use this to reach several people "
+                                "without exposing their addresses to each other."
+                            ),
+                        },
                         "reply_to": {
                             "type": "string",
                             "description": "Optional reply-to address.",
@@ -120,6 +144,19 @@ def add_send_email_tool_schema(tool_schemas):
 # ---------------------------------------------------------------------------
 # Tool handlers (registered in server.py tool_function_mapping)
 # ---------------------------------------------------------------------------
+
+def _address_list(raw):
+    """cc/bcc as the caller sent it: a list, or one comma/semicolon-separated string.
+
+    Models reach for `"a@x.com, b@y.com"` as readily as for a list, and both mean
+    the same thing here, so both are accepted and normalized to the list the
+    GraphQL contract expects.
+    """
+    if not raw:
+        return []
+    items = raw if isinstance(raw, (list, tuple)) else re.split(r"[,;]", str(raw))
+    return [addr for addr in (str(a).strip() for a in items) if addr]
+
 
 def _get_session_and_token(mainwin):
     """Resolve the auth session, token, and AppSync endpoint from MainGUI."""
@@ -193,6 +230,8 @@ async def send_email(mainwin, args):
         body_text = cfg.get("body_text") or cfg.get("bodyText")
         body_html = cfg.get("body_html") or cfg.get("bodyHtml")
         reply_to = cfg.get("reply_to") or cfg.get("replyTo")
+        cc = _address_list(cfg.get("cc"))
+        bcc = _address_list(cfg.get("bcc"))
 
         if not to_addr:
             return [TextContent(type="text", text="Error: 'to' is required")]
@@ -212,11 +251,18 @@ async def send_email(mainwin, args):
             payload["bodyHtml"] = body_html
         if reply_to:
             payload["replyTo"] = reply_to
+        if cc:
+            payload["cc"] = cc
+        if bcc:
+            payload["bcc"] = bcc
 
         result = send_email_to_cloud(session, token, payload, endpoint)
         if result and result.get("success"):
+            copies = "".join(
+                f", {label}={len(addrs)}" for label, addrs in (("cc", cc), ("bcc", bcc)) if addrs
+            )
             msg = (
-                f"✉️ Email queued — to={to_addr}, subject={subject!r}, "
+                f"✉️ Email queued — to={to_addr}{copies}, subject={subject!r}, "
                 f"messageId={result.get('messageId') or '(none)'}"
             )
             logger.info(f"[send_email] {msg}")

@@ -10,6 +10,35 @@ _Last updated: 2026-09-16_
 
 ## 🔴 Bugs (unfixed)
 
+### ⚡ NEXT UP — Feige Q&A input-token cost (2026-09-15)
+
+**~11,000 input tokens per customer query, of which the customer's own message is
+under 1.5%.** Full measurement and method in
+[FEIGE_QA_TOKEN_COST.md](FEIGE_QA_TOKEN_COST.md) (52 queries across two customer
+logs). Input:output runs ~95:1, so all the money is prompt. Do these in order:
+
+1. **Fold the RAG decision into the classifier.** It already emits
+   `{"needs_rag":…,"category":…}`; the separate `rag_query` call pays the full
+   3.1k-token Q&A prompt to emit a 46-token tool call. **−3.0k/query (−27%).**
+2. **Stop carrying the classifier's system prompt into the rag and answer calls.**
+   It stays in `recent_context` and instructs a classifier that already ran.
+   **−1 to −2k/query.** Context-assembly leak, not prompt authoring.
+3. **Move `{{input}}` / `{{events}}` out of the Q&A system prompt.** `{{input}}` sits
+   at char 2,223 of 11,426 (19% in), so the stable prefix is ~600 tokens — under the
+   1,024-token floor for automatic prompt caching. **Cache hit rate is 0% today.**
+   The same text is already the user message, so the turn is also sent twice.
+   After the move the ~3.1k-token prompt is a stable prefix and measured call
+   spacing predicts a **~75-80%** hit rate.
+4. **Skip the classifier for greetings** (also the biggest latency win — see the
+   cloud-serving item below).
+5. **Trim the template**: the five largest sections are 7.4k of its 11.4k chars.
+
+Steps 1+2 take ~11k → ~6.5k; step 3 makes most of the remainder cacheable.
+
+**Unverified**: that the CN llm-proxy passes caching through at all. Every usage
+record logs `'prompt_tokens_details': None`. Test by sending an identical prompt
+twice inside a minute and checking for a non-null `cached_tokens`.
+
 ### Terminal llm-proxy errors do not stop the agent loop (2026-09-16)
 
 `insufficient_balance` (402) and `EXCEED_MAX_PAYLOAD_SIZE` (413) cannot change

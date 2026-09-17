@@ -3952,9 +3952,11 @@ async def bu_send_sms(params: SendSmsAction) -> ActionResult:
 
 
 @custom_controller.action(
-    "Send an email via AWS SES. Provide at least one of body_text or body_html. "
-    "The sender address is configured cloud-side and not user-supplied. "
-    "Use for outbound notifications, reports, or follow-ups.",
+    "Send an email through the eCan platform. Provide at least one of body_text or body_html. "
+    "The sender address and the mail provider are configured cloud-side and not user-supplied "
+    "(AWS SES on the international backend, Tencent Enterprise Mail / Tencent SES on the CN backend). "
+    "Use for outbound notifications, reports, or follow-ups. To reach several people at once, "
+    "put the extra addresses in bcc so they cannot see each other.",
     param_model=SendEmailAction,
 )
 async def bu_send_email(params: SendEmailAction) -> ActionResult:
@@ -3986,6 +3988,10 @@ async def bu_send_email(params: SendEmailAction) -> ActionResult:
         cfg["body_html"] = body_html
     if reply_to:
         cfg["reply_to"] = reply_to
+    if params.cc:
+        cfg["cc"] = params.cc
+    if params.bcc:
+        cfg["bcc"] = params.bcc
 
     try:
         result = await send_email(mainwin, {"input": cfg})

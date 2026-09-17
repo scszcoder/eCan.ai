@@ -1,5 +1,6 @@
 {
   "common": {
+    "dismiss": "关闭",
     "logout": "退出",
     "logout_confirm_title": "确认退出",
     "logout_confirm_message": "您确定要退出登录吗？",
@@ -3873,6 +3874,9 @@
   },
   "banner": {
     "fundRunningLow": "余额不足，请及时充值",
+    "fundCritical": "余额严重不足，任务即将中断，请立即充值",
+    "fundBlocked": "云端 AI 余额已用尽，任务已暂停！请立即充值",
+    "topUpNow": "立即充值",
     "billingInsufficient": "云端 AI 余额已用尽，任务已暂停。请前往账户页面充值后恢复。",
     "billingBlocked": "此账户暂无法使用云端 AI 服务，请前往账户页面查看。"
   },

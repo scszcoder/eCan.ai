@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useAdStore } from '../../stores/adStore';
 import { useAccountStore } from '../../stores/accountStore';
 
@@ -84,23 +85,127 @@ const ErrorText = styled.span`
     padding: 0 12px;
 `;
 
-// Low-fund warning (2026-08-31): when the balance drops to ≤36 RMB, an
-// orange "Fund running low" scrolls across this banner slot 5 times, and the
-// cycle repeats every 10 minutes while the balance stays low.
+// Fund alert (2026-09-15): the old warning scrolled orange text 5 times and
+// then hid for 10 minutes, so it was on screen 40s out of every 10 — easy to
+// miss entirely, and it offered no way to act. It is now a persistent bar with
+// a top-up button, in three tiers:
+//
+//   low       ≤36 and > 10  static red, dismissible — a heads-up
+//   critical  ≤10           red, text scrolling without pause, not dismissible
+//   blocked   cloud refused  darkest red, scrolling — work has already stopped
+//
+// Motion is what the eye catches, so the two tiers that matter keep scrolling
+// rather than showing once and going quiet.
 const LOW_FUND_THRESHOLD = 36;
-const LOW_FUND_PASSES = 5;
-const LOW_FUND_PASS_SECONDS = 8;
-const LOW_FUND_CYCLE_MS = 10 * 60_000;
+const CRITICAL_FUND_THRESHOLD = 10;
+const MARQUEE_SECONDS = 9;
+const MARQUEE_GAP_PX = 48;
 
-const LowFundText = styled.span`
-    display: inline-block;
-    padding-left: 100%;
-    animation: ${scrollAnimation} ${LOW_FUND_PASS_SECONDS}s linear ${LOW_FUND_PASSES};
-    animation-fill-mode: forwards;
-    color: #fa8c16;
-    font-size: 13px;
-    font-weight: 700;
+type FundSeverity = 'low' | 'critical' | 'blocked';
+
+const SEVERITY_COLORS: Record<FundSeverity, { bg: string; border: string; text: string }> = {
+    low: { bg: 'rgba(220, 38, 38, 0.12)', border: 'rgba(220, 38, 38, 0.5)', text: '#ff4d4f' },
+    critical: { bg: 'rgba(220, 38, 38, 0.22)', border: 'rgba(220, 38, 38, 0.85)', text: '#ff7875' },
+    blocked: { bg: 'rgba(153, 27, 27, 0.35)', border: 'rgba(239, 68, 68, 1)', text: '#fff1f0' },
+};
+
+const flash = keyframes`
+    0%, 49%  { opacity: 1; }
+    50%, 99% { opacity: 0.25; }
+`;
+
+// Two identical copies slide by as one track, so as the first copy leaves on
+// the left the second is already entering on the right. The earlier version
+// scrolled a single copy behind `padding-left: 100%`, which left the bar
+// EMPTY at the start of every cycle — and the banner appears at exactly that
+// moment, so the first thing the user saw was a blank red rectangle.
+const marquee = keyframes`
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+`;
+
+const pulse = keyframes`
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
+    50%      { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
+`;
+
+const FundAlertBar = styled.div<{ severity: FundSeverity }>`
+    flex: 1;
+    height: 32px;
+    margin: 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 8px 0 12px;
+    overflow: hidden;
+    border-radius: 6px;
+    background: ${props => SEVERITY_COLORS[props.severity].bg};
+    border: 1px solid ${props => SEVERITY_COLORS[props.severity].border};
+    ${props => props.severity === 'low' ? '' : `animation: ${pulse} ${props.severity === 'blocked' ? '1s' : '2s'} ease-in-out infinite;`}
+`;
+
+const FundAlertViewport = styled.div`
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+`;
+
+const FundAlertTrack = styled.div`
+    display: flex;
+    width: max-content;
+    animation: ${marquee} ${MARQUEE_SECONDS}s linear infinite;
+`;
+
+const FundAlertText = styled.span<{ severity: FundSeverity }>`
+    color: ${props => SEVERITY_COLORS[props.severity].text};
+    font-size: ${props => props.severity === 'blocked' ? '16px' : '13px'};
+    font-weight: ${props => props.severity === 'blocked' ? 900 : 700};
     letter-spacing: 0.3px;
+    ${props => props.severity === 'low' ? '' : `padding-right: ${MARQUEE_GAP_PX}px;`}
+    ${props => props.severity === 'blocked' ? `
+        animation: ${flash} 1s steps(1, end) infinite;
+        text-shadow: 0 0 8px rgba(239, 68, 68, 0.9);
+    ` : ''}
+`;
+
+const TopUpButton = styled.button`
+    flex: none;
+    /* Centre the label explicitly rather than relying on the button's default
+       content alignment: this sits inside a line-height:64px AntD header. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 22px;
+    padding: 2px 10px;
+    border: 0;
+    border-radius: 4px;
+    background: #dc2626;
+    color: #fff;
+    -webkit-text-fill-color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+    cursor: pointer;
+    white-space: nowrap;
+
+    &:hover { background: #b91c1c; }
+`;
+
+const DismissButton = styled.button`
+    flex: none;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: rgba(248, 250, 252, 0.7);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+
+    &:hover { color: #fff; }
 `;
 
 const AdBanner: React.FC = () => {
@@ -113,31 +218,25 @@ const AdBanner: React.FC = () => {
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const { t } = useTranslation();
     const fund = useAccountStore((state) => state.getFund());
-    const [lowFundPass, setLowFundPass] = useState(false);
+    const billingBlocked = useAccountStore((state) => state.billingBlocked);
+    const [lowDismissed, setLowDismissed] = useState(false);
+    const navigate = useNavigate();
 
-    // Low-fund cycle: while fund ≤ threshold, show the scrolling warning for
-    // 5 passes, then hide until the next 10-minute tick.
+    const severity: FundSeverity | null = billingBlocked || (fund !== null && fund <= 0)
+        ? 'blocked'
+        : fund === null
+            ? null
+            : fund <= CRITICAL_FUND_THRESHOLD
+                ? 'critical'
+                : fund <= LOW_FUND_THRESHOLD
+                    ? 'low'
+                    : null;
+
+    // A dismissal only covers the tier it was made in: if the balance keeps
+    // falling, or the cloud starts refusing calls, the bar comes back.
     useEffect(() => {
-        if (fund === null || fund > LOW_FUND_THRESHOLD) {
-            setLowFundPass(false);
-            return;
-        }
-        let hideTimer: ReturnType<typeof setTimeout> | null = null;
-        const runCycle = () => {
-            setLowFundPass(true);
-            hideTimer = setTimeout(
-                () => setLowFundPass(false),
-                LOW_FUND_PASSES * LOW_FUND_PASS_SECONDS * 1000 + 500,
-            );
-        };
-        runCycle();
-        const cycle = setInterval(runCycle, LOW_FUND_CYCLE_MS);
-        return () => {
-            clearInterval(cycle);
-            if (hideTimer) clearTimeout(hideTimer);
-            setLowFundPass(false);
-        };
-    }, [fund === null || fund > LOW_FUND_THRESHOLD]);
+        if (severity !== 'low') setLowDismissed(false);
+    }, [severity]);
 
     // Check for expired ads/banners periodically. Use a shorter 5s tick so
     // transient error banners (default ~60s) clear close to their expiry
@@ -168,17 +267,45 @@ const AdBanner: React.FC = () => {
         }
     };
 
-    // Low-fund warning takes the slot during its passes (below the error
-    // banner in priority, above ordinary ads).
-    if (lowFundPass && !(errorBanner && errorBanner.expiresAt > Date.now())) {
+    // The fund alert takes the slot whenever work is at risk. 'critical' and
+    // 'blocked' outrank the transient error banner — a stopped account matters
+    // more than a 60-second error toast; 'low' stays below it.
+    const errorActive = !!(errorBanner && errorBanner.expiresAt > Date.now());
+    const showFundAlert = severity === 'blocked' || severity === 'critical'
+        || (severity === 'low' && !lowDismissed && !errorActive);
+    if (showFundAlert && severity) {
+        const text = severity === 'blocked'
+            ? t('banner.fundBlocked', 'Cloud AI balance exhausted — tasks are paused. Top up to resume.')
+            : severity === 'critical'
+                ? t('banner.fundCritical', 'Balance critically low — tasks will stop very soon. Top up now.')
+                : t('banner.fundRunningLow', 'Fund running low');
         return (
-            <BannerContainer isVisible={true}>
-                <ScrollWrapper>
-                    <LowFundText key={`lowfund-${lowFundPass}`}>
-                        {t('banner.fundRunningLow', 'Fund running low')}
-                    </LowFundText>
-                </ScrollWrapper>
-            </BannerContainer>
+            <FundAlertBar severity={severity} title={text}>
+                <FundAlertViewport>
+                    {severity === 'low' ? (
+                        <FundAlertText severity={severity}>{text}</FundAlertText>
+                    ) : (
+                        <FundAlertTrack>
+                            <FundAlertText severity={severity}>{text}</FundAlertText>
+                            <FundAlertText severity={severity} aria-hidden="true">{text}</FundAlertText>
+                        </FundAlertTrack>
+                    )}
+                </FundAlertViewport>
+                <TopUpButton
+                    onClick={() => navigate('/account')}
+                    title={t('banner.topUpNow', 'Top up now')}
+                >
+                    {t('banner.topUpNow', 'Top up now')}
+                </TopUpButton>
+                {severity === 'low' && (
+                    <DismissButton
+                        onClick={() => setLowDismissed(true)}
+                        title={t('common.dismiss', 'Dismiss')}
+                    >
+                        ×
+                    </DismissButton>
+                )}
+            </FundAlertBar>
         );
     }
 

@@ -48,6 +48,7 @@ from .schemas import (
     NodePosition,
     NODE_TYPES,
     get_node_types_description,
+    to_compiler_type,
 )
 
 # Import sub-agents
@@ -330,6 +331,20 @@ Respond in the user's language when possible, but default to English for technic
 # ============================================================
 # Pipeline State
 # ============================================================
+
+# Phrases that state, in the user's own words, that they want a NEW skill —
+# not a change to the one on screen. Used in two places: intent classification
+# (below) and the workflow-review handler, which had its own copy.
+NEW_SKILL_CUES = [
+    "new skill", "build a new", "create a new", "make a new", "start over",
+    "start fresh", "start afresh", "from scratch",
+    "\u65b0\u6280\u80fd", "\u521b\u5efa\u65b0", "\u91cd\u65b0\u5f00\u59cb", "\u4ece\u5934\u5f00\u59cb",
+]
+
+
+def wants_new_skill(message: str) -> bool:
+    return any(cue in (message or "").lower() for cue in NEW_SKILL_CUES)
+
 
 class PipelineState(str, Enum):
     """State of the skill editor pipeline"""
@@ -3004,11 +3019,28 @@ class SkillEditorAgent:
                 self._classified_domain = domain
 
                 has_canvas = self._has_loaded_canvas(canvas_context)
-                if has_canvas:
-                    # When the user has a workflow loaded, low-confidence "create"
-                    # results are more likely edit intent (user is talking about
-                    # their loaded workflow, not asking for a brand new one).
+                explicit_new = wants_new_skill(message)
+                if explicit_new and tax_intent in (IntentType.CREATE_FLOWGRAM, IntentType.GENERAL_CHAT):
+                    # The user said "create a new ...". Take them at their word.
+                    # Without this, a loaded canvas turned every create request
+                    # under 0.50 confidence into an edit of whatever was on
+                    # screen — so the requirement collector, which only runs for
+                    # CREATE_FLOWGRAM, was never reached and the agent answered
+                    # with a prose design proposal instead of asking anything.
+                    if tax_intent != IntentType.CREATE_FLOWGRAM:
+                        logger.info(
+                            "[SkillEditorAgent] Explicit new-skill wording overrides "
+                            "taxonomy intent %s (confidence=%.2f)", tax_intent.value, confidence
+                        )
+                    tax_intent = IntentType.CREATE_FLOWGRAM
+                elif has_canvas:
+                    # With a workflow loaded, a low-confidence "create" is more
+                    # likely the user talking about what is on screen.
                     if tax_intent == IntentType.CREATE_FLOWGRAM and confidence < 0.50:
+                        logger.info(
+                            "[SkillEditorAgent] Canvas loaded and confidence %.2f < 0.50 - "
+                            "treating as edit, not create", confidence
+                        )
                         tax_intent = IntentType.MODIFY_NODE
                     elif tax_intent == IntentType.GENERAL_CHAT and confidence < 0.5:
                         tax_intent = IntentType.MODIFY_NODE
@@ -4205,8 +4237,7 @@ class SkillEditorAgent:
         is_rejection = any(msg_lower.startswith(p) for p in rejection_phrases) or msg_lower.rstrip(".!") in rejection_phrases
 
         # Detect "start over" intent even in longer messages (e.g. "i'd like to start afresh build a new skill")
-        restart_cues = ["start over", "start fresh", "start afresh", "from scratch", "new skill", "build a new", "create a new", "重新开始", "从头开始", "新技能", "创建新"]
-        wants_restart = any(cue in msg_lower for cue in restart_cues)
+        wants_restart = wants_new_skill(msg_lower)
 
         if is_short and is_rejection:
             # User cancelled — reset
@@ -4568,14 +4599,9 @@ class SkillEditorAgent:
     def _node_to_json(self, node: FlowgramNode) -> Dict[str, Any]:
         """Convert a FlowgramNode to JSON-serializable dict for skill file."""
         config = node.config or {}
-        # Map internal to UI canonical types
-        type_out = node.type
-        if type_out == "browser_automation":
-            type_out = "browser-automation"
-        if type_out == "pend_event":
-            type_out = "pend_event_node"
-        if type_out == "mcp_tool":
-            type_out = "mcp"
+        # Map internal to compiler-canonical types. Shared with the canvas
+        # path via schemas.to_compiler_type so the two cannot drift apart.
+        type_out = to_compiler_type(node.type)
 
         if type_out == "llm":
             config.setdefault("temperature", 0.3)

@@ -38,6 +38,8 @@ from .validator_agent import get_validator_agent, ValidatorAction
 # Re-import for the rest of the file
 from .schemas import (
     get_node_types_description,
+    to_compiler_type,
+    COMPILER_ACCEPTED_TYPES,
 )
 from .placement import place_nodes, LOOP_INTERNAL_CFG
 from .prompt_store import prompt_store
@@ -2336,6 +2338,73 @@ Continue the JSON output (do not include any text before the continuation):"""
 
         return mapping
 
+
+    # ------------------------------------------------------------------
+    # Compiler contract
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _iter_all_nodes(flowgram: Flowgram):
+        """Every node, loop bodies included. The dead node types lived inside
+        loops, so a top-level-only check walked straight past them."""
+        def walk(nodes):
+            for n in nodes or []:
+                yield n
+                for inner in walk(getattr(n, "blocks", None) or []):
+                    yield inner
+        yield from walk(flowgram.nodes)
+
+    def _check_compiler_contract(self, flowgram: Flowgram, errors: List[ValidationError]) -> None:
+        """Fail generation for the things the compiler accepts in silence and
+        then does not run. Every rule here has already cost a debugging session."""
+        for node in self._iter_all_nodes(flowgram):
+            emitted = to_compiler_type(node.type)
+            if emitted not in COMPILER_ACCEPTED_TYPES:
+                errors.append(ValidationError(
+                    node_id=node.id, field="type",
+                    message=(f"node type '{node.type}' is emitted as '{emitted}', which the "
+                             "compiler does not dispatch on - it becomes a no-op and "
+                             "executes nothing"),
+                    severity="error"))
+
+            config = getattr(node, "config", None) or {}
+            data = getattr(node, "data", None) or {}
+
+            if node.type == "loop":
+                expr = str(config.get("loopWhileExpr") or data.get("loopWhileExpr") or "").strip()
+                if expr and "state[" in expr and ".get(" not in expr:
+                    errors.append(ValidationError(
+                        node_id=node.id, field="loopWhileExpr",
+                        message=("loop condition subscripts state directly "
+                                 f"({expr[:60]!r}) - raises KeyError on the first iteration, "
+                                 "before any node has populated it. Use "
+                                 'state.get("result", {}).get(..., default)'),
+                        severity="error"))
+                blocks = getattr(node, "blocks", None) or []
+                if blocks:
+                    btypes = {b.type for b in blocks}
+                    if "block-start" not in btypes or "block-end" not in btypes:
+                        errors.append(ValidationError(
+                            node_id=node.id, field="blocks",
+                            message=("loop body needs both block-start and block-end; without "
+                                     "them the body is never entered or never exits"),
+                            severity="error"))
+
+            if node.type == "llm":
+                if "api.openai.com" in str(config.get("apiHost") or ""):
+                    errors.append(ValidationError(
+                        node_id=node.id, field="apiHost",
+                        message=("apiHost points straight at api.openai.com, unreachable from "
+                                 "China - every call times out at 45s unless the proxy rewrites "
+                                 "it. Leave apiHost unset"),
+                        severity="error"))
+                key = str(config.get("apiKey") or "")
+                if key and not key.startswith("sk-xxx"):
+                    errors.append(ValidationError(
+                        node_id=node.id, field="apiKey",
+                        message="an API key must not be written into a skill; keys come from the server",
+                        severity="error"))
+
     def validate_flowgram(self, flowgram: Flowgram, plan: Optional[ImplementationPlan] = None) -> ValidationResult:
         """Validate a flowgram structure"""
         logger.debug(f"[CodeAgent] Validating flowgram with {len(flowgram.nodes)} nodes")
@@ -2402,6 +2471,10 @@ Continue the JSON output (do not include any text before the continuation):"""
                     message=f"Unknown node type: {node.type}",
                     severity="warning"
                 ))
+
+        # The checks above ask whether the flowgram is well formed as far as the
+        # agent is concerned. This one asks whether it will actually execute.
+        self._check_compiler_contract(flowgram, errors)
         
         # Check node naming convention - ID must start with node type prefix
         type_to_prefix = {
@@ -2513,7 +2586,9 @@ Continue the JSON output (do not include any text before the continuation):"""
     def _node_to_canvas_payload(self, node: FlowgramNode) -> Dict[str, Any]:
         """Convert a FlowgramNode to canvas command payload, handling loop and condition nodes."""
         payload = {
-            "nodeType": node.type,
+            # Translated, not raw: the canvas is what the user saves from, so an
+            # internal type leaking through here is what reaches the skill file.
+            "nodeType": to_compiler_type(node.type),
             "position": {"x": node.position.x, "y": node.position.y},
             "config": {
                 "id": node.id,

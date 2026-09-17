@@ -138,12 +138,14 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         const handler = (msg: any) => {
             void useAccountStore.getState().fetchAccountInfo();
             const code = msg?.payload?.code || msg?.code || '';
+            // Latch it: the toast goes away after 10s, the banner must not.
+            useAccountStore.getState().setBillingBlocked(true);
             const text = code === 'insufficient_balance'
                 ? t('banner.billingInsufficient',
                     'Cloud AI balance exhausted — the task is paused. Top up on the Account page to resume.')
                 : t('banner.billingBlocked',
                     'Cloud AI service unavailable for this account — check the Account page.');
-            message.warning({ content: text, key: 'billing-blocked', duration: 10 });
+            message.error({ content: text, key: 'billing-blocked', duration: 10 });
         };
         eventBus.on('localws:account.billingBlocked', handler);
         return () => { eventBus.off('localws:account.billingBlocked', handler); };

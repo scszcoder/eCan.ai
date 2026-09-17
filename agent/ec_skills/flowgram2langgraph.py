@@ -54,6 +54,45 @@ function_registry = {
 }
 
 
+def _suggest_node_type(node_type) -> str:
+    """Nearest accepted type for a near-miss spelling, or ''."""
+    canon = str(node_type or '').replace('-', '_').strip().lower()
+    if not canon:
+        return ''
+    for known in function_registry:
+        if known == 'default':
+            continue
+        k = known.replace('-', '_').lower()
+        if canon in (k, k + '_node') or k in (canon, canon + '_node'):
+            return known
+    return ''
+
+
+def _resolve_builder(node_type, node_id, skill_name=''):
+    """Look up a node builder, and SAY SO when the type is not recognised.
+
+    This lookup used to fall through to a silent no-op: an unknown type
+    executed nothing while the graph ran to completion looking perfectly
+    healthy — no exception, no log line, and a turn that finishes with zero
+    tokens. Three spellings in the shipped skill corpus land here —
+    browser_automation, pend_event and mcp_tool — 42 nodes that quietly do
+    nothing. Now it names the node, names the nearest accepted spelling, and
+    can be made fatal while authoring with ECAN_SKILL_STRICT_NODES=1.
+    """
+    builder = function_registry.get(node_type)
+    if builder is not None:
+        return builder
+    hint = _suggest_node_type(node_type)
+    where = f" in skill {skill_name!r}" if skill_name else ""
+    msg = (f"[flowgram] unknown node type {node_type!r} on node {node_id!r}{where} "
+           f"- this node will do NOTHING at runtime"
+           + (f". Did you mean {hint!r}?" if hint else ""))
+    if str(os.getenv('ECAN_SKILL_STRICT_NODES', '')).strip().lower() in ('1', 'true', 'yes'):
+        raise RuntimeError(msg)
+    logger.warning(msg)
+    return _default_noop_builder
+
+
 def _build_variable_node(data: dict):
     """Return a callable that assigns variables to state.attributes/metadata/tool_input.
     Expected data shape (best-effort): {
@@ -752,7 +791,7 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
         node_data = block.get("data", {})
 
         # Get the appropriate builder function from the registry
-        builder_func = function_registry.get(node_type, _default_noop_builder)
+        builder_func = _resolve_builder(node_type, raw_ns, skill_name)
 
         # Call the builder function with the node's data to get the callable.
         # Builder functions already wrap with node_builder() internally.
@@ -932,7 +971,7 @@ def flowgram2langgraph(flow: dict, bundle_json: dict | None = None, bp_mgr: Brea
                             node_data["tool_name"] = callable_name
                 except Exception:
                     pass
-            builder_func = function_registry.get(ntype, _default_noop_builder)
+            builder_func = _resolve_builder(ntype, nid, skill_name)
             # Create runtime callable via builder — builder functions already
             # wrap with node_builder() internally, so no second wrap needed.
             node_callable = builder_func(node_data, nid, skill_name, owner, bp_mgr)

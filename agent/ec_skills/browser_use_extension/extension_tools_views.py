@@ -225,11 +225,13 @@ class SendSmsAction(BaseModel):
 
 
 class SendEmailAction(BaseModel):
-	"""Send an email via AWS SES.
+	"""Send an email through the eCan platform.
 
 	At least one of body_text or body_html is required.
-	The sender address is configured cloud-side (SES_FROM_EMAIL on the
-	agentScheduler Lambda); the user does not supply it."""
+	The sender address and the mail provider are configured cloud-side and
+	not supplied by the user: AWS SES on the international backend, Tencent
+	Enterprise Mail (SMTP) or Tencent SES on the CN backend. Which one runs
+	follows from the GraphQL endpoint the app is signed in to."""
 	to: str = Field(
 		description="Recipient email address."
 	)
@@ -243,6 +245,14 @@ class SendEmailAction(BaseModel):
 	body_html: Optional[str] = Field(
 		default=None,
 		description="HTML body. At least one of body_text or body_html must be provided."
+	)
+	cc: Optional[List[str]] = Field(
+		default=None,
+		description="Optional CC addresses (max 20). Every recipient can see these."
+	)
+	bcc: Optional[List[str]] = Field(
+		default=None,
+		description="Optional BCC addresses (max 20), hidden from every other recipient. Use this to reach several people without exposing their addresses to each other."
 	)
 	reply_to: Optional[str] = Field(
 		default=None,

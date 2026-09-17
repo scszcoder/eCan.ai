@@ -116,6 +116,40 @@ class SkillEditorChatService {
   /**
    * Create a new chat session
    */
+  /**
+   * How is this session's skill build going?
+   *
+   * A build takes about four minutes and the CN backend cannot push to this
+   * client, so without polling the finished skill sits in the database until
+   * the user happens to type again — they watch an empty canvas and conclude
+   * the build died. This query writes nothing and costs no model call, so it
+   * is safe to call every few seconds.
+   */
+  async getBuildStatus(sessionId: string): Promise<{
+    building: boolean; done: boolean; ok: boolean;
+    phase?: string | null; message?: string | null; flowgram?: any;
+  } | null> {
+    try {
+      const response = await apiRouter.execute<any>(
+        {
+          method: 'skill_editor.build.status',
+          graphql: {
+            query: GRAPHQL_QUERIES.GET_SKILL_EDITOR_BUILD_STATUS,
+            resultPath: 'getSkillEditorBuildStatus',
+          },
+        },
+        { sessionId }
+      );
+      if (!response.success || !response.data) return null;
+      const d = response.data as any;
+      return { ...d, flowgram: parseAwsJson<Flowgram>(d.flowgram) ?? undefined };
+    } catch (error) {
+      // A failed poll must never break the chat; the next tick tries again.
+      console.warn('[SkillEditorChat] build status poll failed:', error);
+      return null;
+    }
+  }
+
   async createSession(name?: string, flowgramId?: string): Promise<ChatSession | null> {
     console.log('[SkillEditorChat] Creating session:', { name, flowgramId });
     try {
