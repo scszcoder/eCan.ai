@@ -40,18 +40,33 @@ T = TypeVar('T', bound=BaseModel)
 _CHAT_PATH = '/v1/chat/completions'
 
 
-# Models whose provider cannot serve `json_schema` / our `output_schema`, and
-# must instead be driven with `response_format: {"type": "json_object"}` plus
-# the schema rendered into the prompt. Measured against the live CN proxy on
-# 2026-09-17 — qwen (3.6/3.7/3.8, all tiers) accepts output_schema and must NOT
-# take this path, because json_object is strictly weaker.
-_JSON_OBJECT_ONLY_MODELS = ('deepseek',)
+# Models that cannot serve `json_schema` / our `output_schema`, but DO serve
+# native function calling. They get a forced `tool_choice`, which has the
+# PROVIDER enforce the argument schema — the mechanism the API actually
+# intends, rather than rendering the schema into the prompt and validating
+# afterwards.
+#
+# Measured against the live CN proxy, 2026-09-17:
+#   output_schema / response_format json_schema -> 400 "This response_format
+#       type is unavailable now", even with thinking disabled
+#   tools + forced tool_choice                  -> 400 "Thinking mode does not
+#       support this tool_choice"
+#   tools + forced tool_choice + thinking off   -> 200 with real tool_calls
+#
+# So the blocker was never tool support; it was that the proxy runs these
+# models in thinking mode, which rejects a forced tool_choice. qwen (3.6/3.7/
+# 3.8, all tiers) accepts output_schema and must NOT take this path.
+_TOOL_CALLING_MODELS = ('deepseek',)
+
+# Name for the synthetic function that carries the structured answer. Arbitrary
+# but stable — it appears in the model's tool_calls and in our logs.
+_STRUCTURED_TOOL_NAME = 'respond'
 
 
-def _needs_json_object_shim(model: str) -> bool:
-    """True when *model* cannot accept a json_schema and needs the shim."""
+def _needs_tool_calling(model: str) -> bool:
+    """True when *model* must be driven with tools instead of a json schema."""
     name = str(model or '').lower()
-    return any(marker in name for marker in _JSON_OBJECT_ONLY_MODELS)
+    return any(marker in name for marker in _TOOL_CALLING_MODELS)
 
 
 @dataclass
@@ -138,36 +153,39 @@ class ChatLambdaProxy(BaseChatModel):
             'user_id': self.user_id,
             'stream': False,
         }
-        if output_format and _needs_json_object_shim(self.model):
-            # deepseek supports response_format json_object but NOT json_schema,
-            # and the proxy maps our `output_schema` onto json_schema — so every
-            # structured call 400s with "This response_format type is
-            # unavailable now" and browser-use retries until the run is useless.
-            # Measured 2026-09-17 across the live proxy: both deepseek models
-            # reject output_schema and json_schema, accept json_object, and
-            # additionally REQUIRE the literal word "json" somewhere in the
-            # prompt ("Prompt must contain the word 'json' in some form").
+        if output_format and _needs_tool_calling(self.model):
+            # Native function calling: the provider validates the arguments
+            # against the schema and hands them back in `tool_calls`. Forcing
+            # tool_choice makes the answer structurally guaranteed rather than
+            # merely requested, and keeps the schema OUT of the prompt — it
+            # would otherwise ride in every step (~10KB with an action filter,
+            # ~66KB without, against a ~100KB body cap).
             #
-            # json_object only guarantees valid JSON, not JSON shaped like the
-            # action model — but _do_request already validates the reply with
-            # ``output_format.model_validate_json``, so the shape is enforced on
-            # our side either way. Putting the schema in the prompt is what
-            # gives the model a chance to match it.
+            # `thinking: disabled` is REQUIRED: a forced tool_choice is
+            # rejected with "Thinking mode does not support this tool_choice"
+            # otherwise. `reasoning_effort: "none"` works identically; this one
+            # is sent because it is the explicit spelling.
             _schema = output_format.model_json_schema()
-            _instruction = (
-                "Respond with a single json object and nothing else — no prose, "
-                "no markdown fences. It must validate against this json schema:\n"
-                + json.dumps(_schema, ensure_ascii=False)
-            )
-            serialized_messages = list(serialized_messages) + [
-                {'role': 'user', 'content': _instruction}
-            ]
-            payload['messages'] = serialized_messages
-            payload['response_format'] = {'type': 'json_object'}
+            payload['tools'] = [{
+                'type': 'function',
+                'function': {
+                    'name': _STRUCTURED_TOOL_NAME,
+                    'description': (
+                        'Return the structured answer. Every field is required '
+                        'unless the schema marks it optional.'
+                    ),
+                    'parameters': _schema,
+                },
+            }]
+            payload['tool_choice'] = {
+                'type': 'function',
+                'function': {'name': _STRUCTURED_TOOL_NAME},
+            }
+            payload['thinking'] = {'type': 'disabled'}
             logger.info(
-                f"[ChatLambdaProxy] json_object shim active for model={self.model}: "
-                f"schema moved into the prompt ({len(_instruction)} chars), "
-                f"response_format=json_object"
+                f"[ChatLambdaProxy] native tool-calling for model={self.model}: "
+                f"forced tool_choice={_STRUCTURED_TOOL_NAME}, thinking disabled "
+                f"(schema stays out of the prompt)"
             )
         elif output_format:
             _schema = output_format.model_json_schema()
@@ -406,6 +424,23 @@ class ChatLambdaProxy(BaseChatModel):
         choices = data.get('choices')
         if choices and isinstance(choices, list) and len(choices) > 0:
             message = choices[0].get('message', {})
+            # Native tool-calling path: the structured answer arrives as the
+            # forced function's `arguments` (a JSON string), and `content` is
+            # empty. Return the arguments so the caller's
+            # ``output_format.model_validate_json`` sees the object it expects
+            # — same downstream handling, different carrier.
+            _tool_calls = message.get('tool_calls')
+            if isinstance(_tool_calls, list) and _tool_calls:
+                _fn = (_tool_calls[0] or {}).get('function') or {}
+                _args = _fn.get('arguments')
+                if isinstance(_args, str) and _args.strip():
+                    return _args
+                if isinstance(_args, dict):
+                    return json.dumps(_args, ensure_ascii=False)
+                logger.warning(
+                    f"[ChatLambdaProxy] tool_call present but carried no usable "
+                    f"arguments (keys={list(_fn.keys())}); falling back to content"
+                )
             return message.get('content', '')
         # Simplified format
         if 'completion' in data:
