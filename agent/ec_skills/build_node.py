@@ -7565,11 +7565,26 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         return state
 
             tool_schema = _get_tool_schema_by_name(actual_tool_name)
-            if not tool_schema:
+            if not tool_schema and _multi_tool_list is None:
                 log_msg = f"[MCP Auto-Select] Tool '{actual_tool_name}' not found in MCP tool registry, skipping tool call for node '{node_name}'"
                 logger.warning(log_msg)
                 send_skill_editor_log("warning", log_msg)
                 return state
+            if not tool_schema and _multi_tool_list is not None:
+                # Multi-tool mode carries its calls in `_multi_tool_list`, not in
+                # `actual_tool_name`, which stays empty. This guard used to
+                # `return state` on that empty name and so never reached the
+                # multi-tool executor below — a lifted wrapper was detected,
+                # logged, and then dropped one line later (observed 2026-09-17:
+                # "lifted multi-tool wrapper: 1 call(s) ['bu_send_email']"
+                # immediately followed by "Tool '' not found ... skipping").
+                # The sibling guard above already excludes multi-tool mode this
+                # way; this one did not.
+                logger.info(
+                    f"[MCP Auto-Select] no single tool named — continuing to "
+                    f"multi-tool execution of {len(_multi_tool_list)} call(s) "
+                    f"for node '{node_name}'"
+                )
 
             if isinstance(next_tool_input, dict) and next_tool_input:
                 actual_tool_input = next_tool_input
