@@ -7161,7 +7161,12 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                                         _to = str(_inner.get('to') or '').strip()
                                                         _rest = [r for r in _all_r if r != _to]
                                                         if _rest:
-                                                            _inner['cc'] = ','.join(_rest)
+                                                            # list, not a comma
+                                                            # string — the MCP
+                                                            # schema wants an
+                                                            # array (see the
+                                                            # dispatch-site copy)
+                                                            _inner['cc'] = list(_rest)
                                                             logger.info(
                                                                 f"[MCP Auto-Select] send_email cc was "
                                                                 f"empty; backfilled from summary_emails "
@@ -7288,7 +7293,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                             'to': _recips[0],
                                             'subject': _subject,
                                             'body_text': _body,
-                                            **({'cc': ','.join(_recips[1:])}
+                                            **({'cc': list(_recips[1:])}
                                                if len(_recips) > 1 else {}),
                                         },
                                     },
@@ -8381,7 +8386,14 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                     _to_s = str(_inner_s.get('to') or '').strip()
                                     _rest_s = [r for r in _cfg_r if r and r != _to_s]
                                     if _rest_s:
-                                        _inner_s['cc'] = ','.join(_rest_s)
+                                        # A LIST, not a comma string: the MCP
+                                        # schema declares cc as an array and
+                                        # validates before the tool body runs,
+                                        # so a string is rejected with
+                                        # "'x@y.com' is not of type 'array'"
+                                        # even though _address_list inside the
+                                        # tool would have accepted it.
+                                        _inner_s['cc'] = list(_rest_s)
                                         logger.info(
                                             f"[MCP Multi-Tool] send_email cc was empty; "
                                             f"backfilled from summary_emails -> {_inner_s['cc']}"
