@@ -39,6 +39,39 @@ Steps 1+2 take ~11k → ~6.5k; step 3 makes most of the remainder cacheable.
 record logs `'prompt_tokens_details': None`. Test by sending an identical prompt
 twice inside a minute and checking for a non-null `cached_tokens`.
 
+### qwen3.7-plus follows the output contract but not the handoff block (2026-09-17)
+
+Five runs of the SAME prompt against the SAME broken proxy, changing nothing
+between them:
+
+| run | emitted handoff block |
+|---|---|
+| 1 | no  |
+| 2 | yes |
+| 3 | no  |
+| 4 | no  |
+| 5 | yes |
+
+Roughly a coin flip. Everything ELSE in the contract was produced correctly
+every single time: `task_completed`, `system_errors` with an accurate
+`ERR_PROXY_CONNECTION_FAILED` diagnosis, `work_summery`, `work_done`,
+`all_done`. It is specifically the SECOND json object -- the tool-call block
+appended after the contract -- that gets dropped.
+
+Moving the requirement next to the `all_done` line (where the model is already
+deciding the turn is over) rather than in its own section at the end of a
+9.3k-char prompt improved it but did not fix it.
+
+Reading of it: a single trailing "and also emit this other object" instruction
+is weak against a model that has just produced what looks like a complete
+answer. Worth comparing other models before spending more on prompt wording --
+if a model emits it reliably, that is a cheaper answer than either prose or
+code.
+
+Mitigated in code by the synthesised report email (`a73c9ed1a`), so a dropped
+block no longer means a silent run. That is a floor, not a fix: the labels
+still only get reformatted and printed when the model emits the block itself.
+
 ### Prompts exist in two places that never reconcile (2026-09-17)
 
 A prompt lives BOTH in the cloud (`queryPrompts`/`updatePrompts`) and on disk at
