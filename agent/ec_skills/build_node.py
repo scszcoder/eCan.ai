@@ -7133,10 +7133,25 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                                 (t or {}).get('tool_name')
                                                 for t in _tools if isinstance(t, dict)
                                             ]
+                                            # Drop ``message`` so the text
+                                            # walker below is skipped entirely
+                                            # and the structured fields are
+                                            # used — the same thing the native
+                                            # tool-call path does for the same
+                                            # reason (see "Drop ``message``"
+                                            # above). Leaving it set meant the
+                                            # walker still ran, failed to
+                                            # recognise the nested wrapper, and
+                                            # its "No tool calls" verdict
+                                            # overrode a successful lift
+                                            # (observed 2026-09-17: lift logged
+                                            # 1 call, node still sent nothing).
+                                            llm_result.pop('message', None)
                                             logger.info(
                                                 f"[MCP Auto-Select] lifted multi-tool wrapper: "
                                                 f"{len(_tools)} call(s) {_names}, "
-                                                f"mode={llm_result['multi_tool_calls']}"
+                                                f"mode={llm_result['multi_tool_calls']} "
+                                                f"(message dropped so the text walker is skipped)"
                                             )
                                             break
                                 except Exception as _lift_exc:
@@ -7145,7 +7160,13 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                         f"({_lift_exc}); falling back to text parsing"
                                     )
                                 break
-                        if isinstance(llm_result.get('message'), str):
+                        # Stop at the first upstream node that yielded either a
+                        # message to parse or a lifted tool call. Checking only
+                        # ``message`` would miss the lift case, which pops it —
+                        # the scan would then run on and a later node's output
+                        # could clobber the call we just recovered.
+                        if (isinstance(llm_result.get('message'), str)
+                                or llm_result.get('tool')):
                             break
 
                     # Safety net: a finished turn must reach a human even when
