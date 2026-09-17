@@ -3974,6 +3974,19 @@ async def bu_send_email(params: SendEmailAction) -> ActionResult:
 
     if not to_addr or "@" not in to_addr:
         return ActionResult(error=f"bu_send_email: invalid 'to' address: {to_addr!r}")
+    # `to` is ONE address by contract, on both backends. A comma-separated
+    # string passes the "@" check above and was then handed to the provider as
+    # a single malformed recipient — the mail silently never arrives, which is
+    # the worst possible failure for a send tool. Say so, and point at the
+    # field that does take several addresses.
+    if "," in to_addr or ";" in to_addr:
+        return ActionResult(
+            error=(
+                f"bu_send_email: 'to' takes exactly one address, got {to_addr!r}. "
+                f"Put the additional recipients in 'cc' or 'bcc' "
+                f"(both accept a list or a comma-separated string)."
+            )
+        )
     if not subject:
         return ActionResult(error="bu_send_email: subject is required.")
     if not body_text and not body_html:

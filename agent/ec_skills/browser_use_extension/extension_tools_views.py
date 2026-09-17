@@ -1,6 +1,6 @@
 from typing import Any, Generic, List, Optional, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # Action Input Models
@@ -258,6 +258,28 @@ class SendEmailAction(BaseModel):
 		default=None,
 		description="Optional reply-to address. Replies will go here instead of the configured sender."
 	)
+
+	@field_validator("cc", "bcc", mode="before")
+	@classmethod
+	def _accept_comma_separated(cls, value):
+		"""Accept "a@x.com, b@y.com" as well as ["a@x.com", "b@y.com"].
+
+		The server already does this — its ``addressList()`` takes "a list, or
+		one comma/semicolon-separated string" — but a bare ``List[str]`` here
+		rejected the string form before the request ever left the client, so
+		the client was STRICTER than the contract it calls.
+
+		It matters most for LLM-drafted calls: MCP auto-select shows the model
+		parameter NAMES ONLY, no types (see docs/MCP_TOOL_AUTO_SELECT.md), so a
+		model has no way to know ``cc`` wants a list and will usually write the
+		comma string a human would.
+		"""
+		if value is None or isinstance(value, (list, tuple)):
+			return value
+		if isinstance(value, str):
+			parts = [p.strip() for p in value.replace(";", ",").split(",")]
+			return [p for p in parts if p] or None
+		return value
 
 
 class SendChatAction(BaseModel):
