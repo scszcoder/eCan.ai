@@ -76,6 +76,33 @@ Probe, if this needs re-checking: POST /api/llm-proxy/v1/chat/completions with
 each shape and compare status codes across models. `/v1/models` needs the
 ACCOUNT API KEY, not the session token.
 
+### unified_tool_handler reports success for a tool it could not find (2026-09-17)
+
+A tool missing from `tool_function_mapping` logs an ERROR and is then reported
+as a SUCCESS to everything upstream:
+
+    [unified_tool_handler] Tool 'bu_send_email' not found in tool_function_mapping!
+    [MCP Result Propagation] tool=bu_send_email success=True
+                             work_result={'last_action_succeeded': True}
+    [MCP Multi-Tool] Completed 1 tool(s) (1 succeeded)
+
+The node, the multi-tool executor and the run summary all say the email was
+sent. Nothing arrived. A missing tool must fail the call, not pass it —
+"1 succeeded" that means "1 silently did nothing" is worse than no tool at all,
+because it stops anyone looking.
+
+Related and worth fixing together: **no `bu_*` tool is in
+`tool_function_mapping`** — zero of them. Every browser-use extension action
+(`bu_send_email`, `bu_send_sms`, `bu_send_chat`, `bu_rag_query`, …) is callable
+from a browser node and invisible to an MCP node. `MCP_TOOL_AUTO_SELECT.md`
+step 6 already warns that skipping this registry makes a tool "fail at runtime
+even though everything else looks wired correctly"; the whole `bu_*` family
+skipped it.
+
+Workaround in place: the skill's prompt and the synthesised report email both
+call `send_email` (MCP-registered, canonical `{"input": {...}}` wrapper,
+cc accepts a comma string) instead of `bu_send_email`.
+
 ### qwen3.7-plus follows the output contract but not the handoff block (2026-09-17)
 
 Five runs of the SAME prompt against the SAME broken proxy, changing nothing

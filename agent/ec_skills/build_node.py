@@ -7211,13 +7211,26 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                         (f"System errors:\n{_errs}" if _errs else ""),
                                     ) if p
                                 ) or "The run finished with nothing to report."
+                                # `send_email`, NOT `bu_send_email`. The latter
+                                # is a browser-use ACTION and is absent from the
+                                # desktop `tool_function_mapping`, so an MCP node
+                                # calling it gets "Tool 'bu_send_email' not found
+                                # in tool_function_mapping!" — and the handler
+                                # still reports success=True, so the run looks
+                                # like it mailed you when nothing was sent
+                                # (2026-09-17). `send_email` is registered, takes
+                                # the canonical {"input": {...}} wrapper, and its
+                                # _address_list accepts a comma-separated cc.
                                 llm_result['tool'] = [{
-                                    'tool_name': 'bu_send_email',
+                                    'tool_name': 'send_email',
                                     'tool_input': {
-                                        'to': _recips[0],
-                                        'cc': ','.join(_recips[1:]) if len(_recips) > 1 else None,
-                                        'subject': _subject,
-                                        'body_text': _body,
+                                        'input': {
+                                            'to': _recips[0],
+                                            'subject': _subject,
+                                            'body_text': _body,
+                                            **({'cc': ','.join(_recips[1:])}
+                                               if len(_recips) > 1 else {}),
+                                        },
                                     },
                                 }]
                                 llm_result['multi_tool_calls'] = 'serial'
