@@ -7221,6 +7221,14 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                     },
                                 }]
                                 llm_result['multi_tool_calls'] = 'serial'
+                                # Drop ``message`` for the same reason the lift
+                                # above does: leaving it set lets the legacy
+                                # text walker run, find no tool objects, and
+                                # replace llm_result with bare completion flags
+                                # — silently discarding the call we just
+                                # synthesised (observed 2026-09-17, one line
+                                # after the "synthesising" warning below).
+                                llm_result.pop('message', None)
                                 logger.warning(
                                     f"[MCP Auto-Select] the agent ended the turn "
                                     f"(all_done=true) without a handoff block; "
