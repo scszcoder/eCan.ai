@@ -11555,6 +11555,71 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             f"tool_result[{node_name}].get('final')={tr[node_name].get('final') is not None}"
         )
 
+        # Propagate the node's completion flags into state['result']['llm_result'].
+        #
+        # Without this the browser node writes its answer ONLY to tool_result,
+        # and llm_result keeps whatever the enclosing loop seeded —
+        # {'all_done': False, 'work_done': False}. A loop whose exit condition
+        # reads llm_result['all_done'] therefore NEVER sees the agent say it is
+        # finished, and spins forever. Observed 2026-09-17: the agent reported
+        # `all_done: true` at 12:15:37 and the very next condition check, one
+        # second later, still evaluated True and started another identical turn
+        # against a dead proxy.
+        #
+        # Additive on purpose: only keys the agent actually emitted are copied,
+        # so nothing that already populates llm_result (Feige front-desk hooks,
+        # pend_event resets) loses information.
+        try:
+            _final_raw = info.get("final") if isinstance(info, dict) else None
+            _contract = None
+            if isinstance(_final_raw, dict):
+                _contract = _final_raw
+            elif isinstance(_final_raw, str) and "{" in _final_raw:
+                _idx = 0
+                while _idx < len(_final_raw) and _contract is None:
+                    _st = _final_raw.find("{", _idx)
+                    if _st < 0:
+                        break
+                    _depth = 0
+                    for _off, _ch in enumerate(_final_raw[_st:]):
+                        if _ch == "{":
+                            _depth += 1
+                        elif _ch == "}":
+                            _depth -= 1
+                            if _depth == 0:
+                                try:
+                                    _obj = json.loads(_final_raw[_st:_st + _off + 1])
+                                except Exception:
+                                    _obj = None
+                                if isinstance(_obj, dict) and (
+                                        "all_done" in _obj or "work_done" in _obj):
+                                    _contract = _obj
+                                _idx = _st + _off + 1
+                                break
+                    else:
+                        break
+            if isinstance(_contract, dict):
+                if not isinstance(state.get("result"), dict):
+                    state["result"] = {}
+                _lr = state["result"].get("llm_result")
+                _lr = dict(_lr) if isinstance(_lr, dict) else {}
+                _copied = {}
+                for _k in ("all_done", "work_done"):
+                    if _k in _contract:
+                        _lr[_k] = bool(_contract[_k])
+                        _copied[_k] = _lr[_k]
+                if _copied:
+                    state["result"]["llm_result"] = _lr
+                    logger.info(
+                        f"[BrowserAutomation][ResultWrite] propagated {_copied} "
+                        f"from the agent's answer into llm_result (node={node_name})"
+                    )
+        except Exception as _flag_exc:
+            logger.warning(
+                f"[BrowserAutomation][ResultWrite] could not propagate completion "
+                f"flags ({_flag_exc}); loop will fall back to the seeded values"
+            )
+
         if wait_for_done and info.get("error"):
             interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
 
