@@ -20,7 +20,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, QThread
 from PySide6.QtGui import QFont
 
 from utils.logger_helper import logger_helper as logger
-from .i18n import get_translator
+from ota.i18n import get_translator
 from ota.core.download_manager import download_manager, DownloadState
 from ota.config.loader import ota_config
 

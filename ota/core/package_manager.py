@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 import requests
 from utils.logger_helper import logger_helper as logger
 from ota.config.loader import ota_config
+from .installer import safe_makedirs
 
 # Try to import cryptography library
 try:
@@ -64,8 +65,13 @@ class PackageManager:
             from config.app_info import app_info
             user_data_root = Path(app_info.appdata_path)
             self.download_dir = user_data_root / "ota_downloads"
-        
-        self.download_dir.mkdir(parents=True, exist_ok=True)
+
+        # safe_makedirs raises RuntimeError with platform-specific
+        # remediation hints on PermissionError. That's what we want:
+        # at startup the user can read the logs and know whether the
+        # failure is ACL / ownership / disk-full / path-too-long, not
+        # just "OSError: [Errno 13] Permission denied".
+        self.download_dir = safe_makedirs(self.download_dir, purpose="OTA downloads")
         self.current_package: Optional[UpdatePackage] = None
         self._downloaded_files = []  # Track downloaded files
         
@@ -84,18 +90,79 @@ class PackageManager:
             cancel_check: Optional callable that returns True if download should be cancelled
             max_retries: Maximum number of retry attempts
         """
+        # ⚠️ DISK-SPACE CHECK MUST HAPPEN BEFORE THE URL/ATTEMPT LOOPS ⚠️
+        #
+        # We used to do this inside the per-URL, per-attempt inner loop,
+        # which means it ran up to 3 × 2 = 6 times per ``download_package``
+        # call. That's wasteful — disk space doesn't change between
+        # retries, and if it's tight the user gets the same scary
+        # "Not enough disk space" log six times. More importantly,
+        # running it inside the inner ``try / except (OSError, ...)``
+        # below is a bug: ``IOError`` is an alias for ``OSError`` on
+        # Python 3, so a ``raise IOError(...)`` inside that ``except``
+        # handler would be CAUGHT by the handler — i.e. the download
+        # would log "Insufficient disk space" as an error, log "Could
+        # not check disk space (Not enough disk space…)" as a warning,
+        # and then PROCEED WITH THE DOWNLOAD, exactly the failure mode
+        # the check was supposed to prevent. The previous fix replaced
+        # ``raise IOError`` with ``raise RuntimeError`` to dodge the
+        # outer ``except``, but the cleaner fix is to (a) move the
+        # check OUTSIDE the retry loop entirely so we don't depend on
+        # exception-class magic, and (b) raise the failure via a flag
+        # the retry loop can observe. That's what this block does.
+        required_bytes = (package.file_size or 0)
+        if required_bytes > 0:
+            required_min = required_bytes * 2
+            required_recommended = int(required_bytes * 1.1)  # 10% headroom
+            disk_check_ok = True
+            disk_err_msg = None
+
+            try:
+                total, used, free = shutil.disk_usage(str(self.download_dir))
+                if free < required_min:
+                    disk_check_ok = False
+                    disk_err_msg = (
+                        f"Not enough disk space to download and install the update. "
+                        f"Free up at least {required_min / (1024**2):.1f} MB and try again. "
+                        f"(Required: {required_min / (1024**2):.1f} MB, "
+                        f"Available: {free / (1024**2):.1f} MB)"
+                    )
+                elif free < required_recommended:
+                    logger.warning(
+                        f"[DOWNLOAD] Low disk space warning: "
+                        f"only {free / (1024**2):.1f} MB free "
+                        f"(recommended: {required_recommended / (1024**2):.1f} MB). "
+                        f"Proceeding with download."
+                    )
+            except OSError:
+                # ``shutil.disk_usage`` failed (e.g. on restricted sandbox).
+                # Proceed without the check — the write will fail anyway.
+                pass
+
+            if not disk_check_ok:
+                # Raise ``RuntimeError`` (NOT ``OSError``/``IOError``) so the
+                # exception bypasses the outer ``except (OSError, AttributeError)``
+                # handler below and aborts ``download_package`` immediately.
+                # ``RuntimeError`` is unrelated to either of those, so even if
+                # a future refactor widens the outer ``except``, this check
+                # still aborts the download.
+                logger.error(
+                    f"[DOWNLOAD] {disk_err_msg}"
+                )
+                raise RuntimeError(f"[DOWNLOAD] {disk_err_msg}")
+
         # Try primary URL first, then alternate URL if available
         urls_to_try = []
         urls_to_try.append((package.download_url, "primary"))
         if package.alternate_url:
             urls_to_try.append((package.alternate_url, "alternate (accelerated)"))
             logger.info(f"Alternate URL available for fallback: {package.alternate_url}")
-        
+
         logger.info(f"[DOWNLOAD] Starting download with {len(urls_to_try)} URL(s) to try")
-        
+
         for url_index, (download_url, url_type) in enumerate(urls_to_try):
             logger.info(f"[DOWNLOAD] Trying {url_type} URL: {download_url}")
-            
+
             for attempt in range(max_retries):
                 try:
                     logger.info(f"[DOWNLOAD] Downloading update package: {package.version} from {url_type} URL (attempt {attempt + 1}/{max_retries})")
@@ -110,7 +177,11 @@ class PackageManager:
                     # the download fails immediately on open(download_path,'wb')
                     # with [Errno 2] No such file or directory — observed
                     # 2026-05-15 14:26:19 on a customer install.
-                    self.download_dir.mkdir(parents=True, exist_ok=True)
+                    #
+                    # Note: this swallows nothing — safe_makedirs re-raises
+                    # as RuntimeError with a clear hint, and the surrounding
+                    # retry loop in download_package handles the recovery.
+                    safe_makedirs(self.download_dir, purpose="OTA downloads")
 
                     # Create download path
                     filename = self._get_filename_from_url(package.download_url)

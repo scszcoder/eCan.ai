@@ -5,6 +5,7 @@ import tempfile
 import shutil
 import zipfile
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -13,6 +14,7 @@ from urllib.parse import urlparse
 from utils.logger_helper import logger_helper as logger
 from .package_manager import UpdatePackage, package_manager
 from ota.config.loader import ota_config
+from .installer import safe_makedirs
 from .errors import (
     UpdateError, UpdateErrorCode, NetworkError, PlatformError,
     VerificationError, create_error_from_exception
@@ -229,7 +231,21 @@ class MacOSUpdater:
 
 
     def install_update(self, package_manager=None) -> bool:
-        """Install update"""
+        """Install update
+
+        Delegates to :class:`InstallationManager` so macOS and Windows share
+        one canonical install path. Keeping the implementation in
+        ``installer.py`` matters because that module owns:
+          * custom install-directory lookup via Windows registry
+          * Inno Setup silent-flag handling (``/SILENT`` / ``/NORESTART`` / ``/SP-`` / ``/CLOSEAPPLICATIONS``)
+          * detached BAT launcher with delayed exit
+          * pre-install process termination (QtWebEngineProcess etc.)
+
+        This entry point must NOT reimplement those — see Bug #1 in
+        ``ota/core/platforms.py`` history (the previous ``_install_dmg``
+        here used a separate ``osascript`` call that bypassed the shared
+        AppleScript argv-safe template in ``installer.py``).
+        """
         try:
             if not package_manager or not package_manager.current_package:
                 logger.error("No package available for installation")
@@ -240,60 +256,53 @@ class MacOSUpdater:
                 logger.error("Package not downloaded")
                 return False
 
-            # Basic DMG installation logic
-            return self._install_dmg(package.download_path)
+            # Delegate to the canonical installer. The GUI path
+            # (UpdateDialog.install_update) calls InstallationManager
+            # directly; this entry point is the headless / CLI path and
+            # MUST match it so behaviour stays consistent.
+            from .installer import InstallationManager
+
+            installer = InstallationManager()
+            return installer.install_package(
+                package_path=Path(package.download_path),
+                install_options={
+                    'silent': True,
+                    'create_backup': True,
+                    # PKG / DMG already restart via ``delayed_restart``
+                    # inside ``_install_pkg`` / ``_install_dmg``; this
+                    # flag is the canonical signal across platforms
+                    # that the new app should come back up.
+                    'auto_restart': True,
+                },
+            )
 
         except Exception as e:
             logger.error(f"macOS install failed: {e}")
             return False
 
-    def _install_dmg(self, dmg_path) -> bool:
-        """Install DMG package (or PKG if it's a PKG file)"""
+    # Legacy method kept only for backwards compatibility with
+    # third-party callers / mock test fixtures that may still reference
+    # it. All new code MUST go through ``install_update`` above.
+    def _install_dmg(self, dmg_path) -> bool:  # pragma: no cover - legacy
+        """Legacy DMG installer entry point. Use ``install_update`` instead.
+
+        Retained only so imports don't break. The current behaviour is to
+        open the DMG and log a warning, which matches the historical
+        macOS behaviour for unsigned DMG artifacts.
+        """
+        logger.warning(
+            "[OTA] _install_dmg is deprecated; use InstallationManager.install_package "
+            "via WindowsUpdater/MacOSUpdater.install_update instead."
+        )
         try:
-            # In dev mode, only log without actual installation
             if ota_config.is_dev_mode():
                 logger.info("Development mode: Installation simulated")
                 return True
-
-            # Check if it's a PKG file
-            if dmg_path.endswith('.pkg'):
-                logger.info(f"Installing PKG: {dmg_path}")
-                # Use AppleScript (osascript) to run installer with administrator privileges
-                # Pass the package path via argv to avoid quoting issues in the script body
-                osa_cmd = [
-                    '/usr/bin/osascript',
-                    '-e',
-                    'on run argv',
-                    '-e',
-                    'set pkgPath to item 1 of argv',
-                    '-e',
-                    'do shell script "installer -pkg " & quoted form of pkgPath & " -target /" with administrator privileges',
-                    '-e',
-                    'end run',
-                    dmg_path,
-                ]
-
-                logger.info("Requesting admin privileges for installation...")
-                result = subprocess.run(osa_cmd, capture_output=True, text=True)
-
-                if result.returncode == 0:
-                    logger.info("PKG installation started successfully")
-                    return True
-                else:
-                    if "User canceled" in result.stderr:
-                        logger.warning("Installation canceled by user")
-                    else:
-                        logger.error(f"PKG installation failed: {result.stderr}")
-                    return False
-            else:
-                logger.info(f"Installing DMG: {dmg_path}")
-                logger.warning("DMG installation not fully implemented - manual installation required")
-                # For DMG, we typically just open it
-                subprocess.run(['open', dmg_path])
-                return False
-
+            logger.warning("[OTA] DMG installation not fully implemented - opening DMG only")
+            subprocess.run(['open', str(dmg_path)], check=False)
+            return False
         except Exception as e:
-            logger.error(f"Installation failed: {e}")
+            logger.error(f"DMG installation failed: {e}")
             return False
 
 
@@ -503,7 +512,28 @@ class WindowsUpdater:
 
 
     def install_update(self, package_manager=None) -> bool:
-        """Install update"""
+        """Install update
+
+        Delegates to :class:`InstallationManager` so the Windows OTA path
+        uses the SAME code as the GUI flow (UpdateDialog → InstallWorker
+        → InstallationManager._install_exe/_install_msi). This guarantees:
+
+          * Inno Setup silent flags (``/SILENT`` + ``/NORESTART`` + ``/SP-``
+            + ``/CLOSEAPPLICATIONS``) instead of the wrong NSIS-only
+            ``/S`` flag that the old inline ``_install_windows_package``
+            used — see Bug #1 in this file's history.
+          * Custom install-directory lookup via Windows registry (so users
+            who installed to D:\\MyApps\\eCan get upgraded in place).
+          * DETACHED_PROCESS / CREATE_NEW_PROCESS_GROUP so the installer
+            survives our ``os._exit(0)`` (the old inline path called
+            ``sys.exit(0)`` WITHOUT detach and could be killed along
+            with its child — see Bug #1).
+          * BAT launcher with 3 s delay so the launcher can outlive the
+            Python interpreter that spawned it.
+
+        Do NOT reimplement any of this here; the headless / CLI path
+        must match what users actually see on Windows desktop.
+        """
         try:
             if not package_manager or not package_manager.current_package:
                 logger.error("No package available for installation")
@@ -514,45 +544,50 @@ class WindowsUpdater:
                 logger.error("Package not downloaded")
                 return False
 
-            # Basic Windows installation logic
-            return self._install_windows_package(package.download_path)
+            from .installer import InstallationManager
+
+            installer = InstallationManager()
+            return installer.install_package(
+                package_path=Path(package.download_path),
+                install_options={
+                    'silent': True,
+                    'create_backup': True,
+                    # Inno Setup's [Run] (without skipifsilent — see
+                    # the ecan_build.py change 2026-09-16) auto-launches
+                    # the new exe after install, so the flag here is
+                    # irrelevant for Windows. We keep it True to match
+                    # Linux / macOS — a future refactor that moves
+                    # Windows off Inno Setup will then Just Work.
+                    'auto_restart': True,
+                },
+            )
 
         except Exception as e:
             logger.error(f"Windows install failed: {e}")
             return False
 
-    def _install_windows_package(self, package_path) -> bool:
-        """Install Windows EXE/MSI package"""
+    # Legacy method kept for backwards compatibility with tests / mock
+    # fixtures that still import it. All real callers MUST go through
+    # ``install_update`` above, which delegates to InstallationManager.
+    def _install_windows_package(self, package_path) -> bool:  # pragma: no cover - legacy
+        """Legacy Windows installer entry point. Use ``install_update`` instead.
+
+        Returns False with a warning so a caller using the legacy method
+        by accident will be loudly redirected at runtime, instead of
+        silently using the broken ``/S`` flag / no-detach behaviour.
+        """
+        logger.warning(
+            "[OTA] _install_windows_package is deprecated; use "
+            "InstallationManager.install_package via "
+            "WindowsUpdater.install_update instead."
+        )
         try:
-            # In dev mode, only log without actual installation
-            if ota_config.is_dev_mode():
-                logger.info("Development mode: Installation simulated")
-                return True
-
-            logger.info(f"Installing Windows package: {package_path}")
-            
-            # Determine package type and install
-            if package_path.endswith('.msi'):
-                # MSI package: use msiexec with quiet mode
-                cmd = ['msiexec', '/i', package_path, '/quiet', '/norestart']
-            elif package_path.endswith('.exe'):
-                # EXE package: try silent install flag
-                cmd = [package_path, '/S', '/SILENT']  # Common silent flags
-            else:
-                logger.error(f"Unsupported package type: {package_path}")
-                return False
-            
-            # Start installation process
-            subprocess.Popen(cmd)
-            logger.info("Installation started successfully")
-            
-            # IMPORTANT: Exit the application immediately to allow the installer 
-            # to overwrite files. The installer should handle the restart.
-            logger.info("Exiting application to allow update...")
-            sys.exit(0)
-            
-            return True
-
+            from .installer import InstallationManager
+            installer = InstallationManager()
+            return installer.install_package(
+                package_path=Path(package_path),
+                install_options={'silent': True},
+            )
         except Exception as e:
             logger.error(f"Windows package installation failed: {e}")
             return False
@@ -773,7 +808,20 @@ class LinuxUpdater:
             return (False, None) if return_info else False
 
     def install_update(self, package_manager=None) -> bool:
-        """Install update using package manager"""
+        """Install update using package manager
+
+        Delegates to :class:`InstallationManager` (same as macOS and
+        Windows) so the Linux path uses the canonical install logic.
+        That matters because ``InstallationManager._install_appimage``
+        and ``InstallationManager._install_deb`` are the methods
+        that respect ``install_options['auto_restart']`` — the
+        legacy ``LinuxUpdater._install_appimage`` /
+        ``LinuxUpdater._install_deb`` below NEVER called
+        ``_schedule_linux_restart``, so AppImage / DEB upgrades
+        left the user staring at no app at all until they relaunched
+        it from the .desktop file. See Bug 2026-09-16 in this file's
+        history.
+        """
         try:
             logger.info("[OTA] Linux updater: install_update called")
 
@@ -791,19 +839,23 @@ class LinuxUpdater:
                 logger.error("[OTA] Package not downloaded")
                 return False
 
-            # Install based on package type
+            # Hand off to InstallationManager so ``auto_restart`` is
+            # honoured. The supported Linux formats (.appimage, .deb)
+            # route through the right internal method based on suffix.
             from .installer import InstallationManager
             installer = InstallationManager()
-            
-            package_path = Path(package.download_path)
-            
-            if package_path.suffix.lower() == '.appimage':
-                return self._install_appimage(package_path, installer)
-            elif package_path.suffix.lower() == '.deb':
-                return self._install_deb(package_path, installer)
-            else:
-                logger.error(f"[OTA] Unsupported package format: {package_path.suffix}")
-                return False
+            return installer.install_package(
+                package_path=Path(package.download_path),
+                install_options={
+                    'silent': True,
+                    'create_backup': True,
+                    # True so ``_install_appimage`` / ``_install_deb``
+                    # schedule the restart helper. Without this, the
+                    # running exe is gone (we copied over it) and the
+                    # user has no obvious way to start the new app.
+                    'auto_restart': True,
+                },
+            )
 
         except Exception as e:
             logger.error(f"[OTA] Linux install failed: {e}")
@@ -818,8 +870,7 @@ class LinuxUpdater:
             os.chmod(package_path, 0o755)
             
             # Determine installation location
-            install_dir = Path.home() / '.local' / 'bin'
-            install_dir.mkdir(parents=True, exist_ok=True)
+            install_dir = safe_makedirs(Path.home() / '.local' / 'bin', purpose="AppImage install directory")
             
             app_name = ota_config.get_app_name()
             target_path = install_dir / f"{app_name}.AppImage"
@@ -880,16 +931,22 @@ class LinuxUpdater:
             return False
     
     def _schedule_restart(self, app_path):
-        """Schedule application restart after installation"""
+        """Schedule application restart after installation
+
+        Writes the helper script under ``<appdata>/ota_scripts/`` (NOT
+        ``tempfile.NamedTemporaryFile`` with ``delete=False``) so the
+        path is stable, survives ``$TMPDIR`` rotation, and is visible to
+        the user for debugging. The previous tempfile-based version
+        leaked one ``/tmp/tmpXXXXXX.sh`` per OTA upgrade — the script
+        only ``rm -f "$0"``'d itself on success; if the process was
+        killed mid-way (Ctrl-C, OOM, parent crash), the file persisted.
+        """
         try:
-            # Create restart script
-            restart_script = tempfile.NamedTemporaryFile(
-                mode='w',
-                suffix='.sh',
-                delete=False
-            )
-            
-            restart_script.write(f'''#!/bin/bash
+            from config.app_info import app_info
+            script_dir = safe_makedirs(Path(app_info.appdata_path) / "ota_scripts", purpose="OTA scripts")
+
+            script_path = script_dir / f"restart_{os.getpid()}_{time.time_ns()}.sh"
+            script_content = f'''#!/bin/bash
 # Wait for current process to exit
 sleep 2
 
@@ -898,17 +955,15 @@ sleep 2
 
 # Clean up this script
 rm -f "$0"
-''')
-            restart_script.close()
-            
-            # Make script executable
-            os.chmod(restart_script.name, 0o755)
-            
+'''
+            script_path.write_text(script_content, encoding='utf-8')
+            os.chmod(script_path, 0o755)
+
             # Execute restart script in background
-            subprocess.Popen([restart_script.name], start_new_session=True)
-            
-            logger.info(f"[OTA] Restart scheduled: {app_path}")
-            
+            subprocess.Popen([str(script_path)], start_new_session=True)
+
+            logger.info(f"[OTA] Restart scheduled: {app_path} (script={script_path})")
+
         except Exception as e:
             logger.warning(f"[OTA] Failed to schedule restart: {e}")
 

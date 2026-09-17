@@ -411,8 +411,14 @@ def appcast():
         if not language:
             # Try to detect from i18n system
             try:
-                from ota.gui.i18n import _tr
-                detected_lang = _tr.language  # e.g., 'zh-CN' or 'en-US'
+                # `get_translator()` returns a module-level singleton
+                # ``OTATranslations`` whose ``.language`` attribute is the
+                # detected language code. The previous code tried to import
+                # a private name ``_tr`` from ``ota.gui.i18n`` which (a) was
+                # not actually exported and (b) pulled in the entire PySide6
+                # GUI import chain — both of those are fixed here.
+                from ota.i18n import get_translator
+                detected_lang = get_translator().language  # e.g., 'zh-CN' or 'en-US'
                 if detected_lang.startswith('zh'):
                     language = 'zh-CN'
                 else:

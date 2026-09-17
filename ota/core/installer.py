@@ -20,7 +20,8 @@ from typing import Optional, Dict, Any
 
 from utils.logger_helper import logger_helper as logger
 from ota.config.loader import ota_config
-from ota.gui.i18n import get_translator
+from ota.i18n import get_translator
+from .errors import safe_makedirs, is_writable_dir
 
 # Get translator instance
 _tr = get_translator()
@@ -28,11 +29,20 @@ _tr = get_translator()
 
 class InstallationManager:
     """Installation Manager"""
-    
+
+    # Class-level guard: prevents two simultaneous ``install_package`` calls
+    # from launching two installers.  Covers the double-click / rapid-click
+    # race where the user clicks "Install Now" while a prior InstallWorker
+    # thread is still starting up.  Inno Setup's ``SetupMutex`` only
+    # prevents a second Inno Setup from running — it doesn't stop us from
+    # launching the first one twice in quick succession before the mutex
+    # check fires.
+    _install_in_progress = False
+
     def __init__(self, progress_callback=None):
         """
         Initialize Installation Manager
-        
+
         Args:
             progress_callback: Optional callback function(progress: int, phase: str)
                               Called when installation progress updates
@@ -91,18 +101,30 @@ class InstallationManager:
             self._terminate_linux_process(current_proc)
     
     def _terminate_windows_process(self, process_name: str) -> None:
-        """Terminate a Windows process by name."""
+        """Terminate a Windows process by name.
+
+        Uses ``taskkill.exe /F /IM <name>``. The ``winreg`` import that
+        USED to sit at the top of this function is dead code (it never
+        reads the registry in this method) and has been removed. The
+        call was harmless on Windows but the unused import would crash
+        Linux / macOS test runners that monkey-patched ``sys.platform``
+        to ``'win32'`` for unit testing.
+        """
         try:
-            import winreg
             result = subprocess.run(
                 ['taskkill.exe', '/F', '/IM', process_name],
                 capture_output=True,
-                text=True
+                text=True,
             )
             if result.returncode == 0:
                 logger.info(f"[OTA] Terminated Windows process: {process_name}")
             elif 'not found' not in result.stderr.lower() and 'no running' not in result.stderr.lower():
                 logger.debug(f"[OTA] taskkill result for {process_name}: {result.stderr.strip()}")
+        except FileNotFoundError:
+            # taskkill.exe missing → very minimal Windows install (Nano
+            # Server, etc.). Log and fall through; Inno Setup will retry
+            # via ``CloseApplications=yes`` regardless.
+            logger.debug(f"[OTA] taskkill.exe not available; relying on Inno Setup CloseApplications")
         except Exception as e:
             logger.debug(f"[OTA] Failed to terminate Windows process {process_name}: {e}")
     
@@ -144,7 +166,19 @@ class InstallationManager:
         """Install update package"""
         if not install_options:
             install_options = {}
-            
+
+        # Idempotent guard: prevent two concurrent calls from launching
+        # two installers.  Uses a class-level bool so ALL instances share
+        # the same guard (covers the case where the GUI creates a fresh
+        # ``InstallationManager`` per button click).
+        if InstallationManager._install_in_progress:
+            logger.warning(
+                "[OTA] Install already in progress; rejecting duplicate call. "
+                "This guards against double-click / rapid-click races."
+            )
+            return False
+        InstallationManager._install_in_progress = True
+
         try:
             logger.info(f"Starting installation: {package_path}")
             logger.info(
@@ -184,6 +218,12 @@ class InstallationManager:
         except Exception as e:
             logger.error(f"Installation failed: {e}")
             return False
+        finally:
+            # Always release the idempotent guard so the next install_package
+            # call is permitted after a failure.  On the success path
+            # (Inno Setup launched, ``os._exit(0)`` called) the process
+            # is gone anyway so this reset is moot but harmless.
+            InstallationManager._install_in_progress = False
 
     def _get_windows_standard_install_dir(self) -> Path:
         if sys.platform != 'win32':
@@ -233,7 +273,14 @@ class InstallationManager:
                         # Read InstallLocation value
                         install_location, _ = winreg.QueryValueEx(key, "InstallLocation")
                         if install_location:
-                            install_path = Path(install_location)
+                            # Normalize: strip trailing backslash/forward slash so
+                            # Path() doesn't produce an extra separator on Windows.
+                            # eCan registry keys sometimes write the value with a
+                            # trailing ``\`` (e.g. ``D:\MyApps\eCan\``), which
+                            # Path treats as a trailing empty component that
+                            # ``.exists()`` then says is a non-existent directory.
+                            normalized = install_location.rstrip('\\/')
+                            install_path = Path(normalized)
                             if install_path.exists():
                                 logger.info(f"[OTA] Found current installation directory from registry: {install_path}")
                                 return install_path
@@ -319,8 +366,17 @@ class InstallationManager:
                     except Exception:
                         continue
             else:
-                # Fallback to pgrep/pkill for non-Windows platforms
-                import subprocess
+                # Fallback to pgrep/pkill for non-Windows platforms.
+                # ``subprocess`` is imported at module top — DO NOT
+                # ``import subprocess`` here or the function-local
+                # ``subprocess`` becomes UnboundLocalError in any other
+                # branch (e.g. the Windows taskkill branch above) that
+                # also references it. This bit me in the 2026-09-16
+                # Windows regression: the inner import shadowed the
+                # module-level binding and ``subprocess.run`` raised
+                # ``cannot access local variable 'subprocess' where it
+                # is not associated with a value`` the moment the
+                # Windows branch tried to call taskkill.
                 for proc_name in [current_proc]:
                     try:
                         if self.platform == 'darwin':
@@ -353,12 +409,32 @@ class InstallationManager:
 
             logger.info(f"Found {len(pids_to_kill)} running process(es) to terminate: {pids_to_kill}")
 
-            # Terminate processes
+            # Terminate processes. The platform-specific ``kill`` verb is
+            # different on every OS:
+            #   * macOS / Linux: ``os.kill`` + ``signal.SIGTERM`` then
+            #     ``SIGKILL`` after 0.5s. POSIX semantics.
+            #   * Windows: ``os.kill`` only works for SIGTERM (which the
+            #     CRT translates to TerminateProcess but **does not kill
+            #     child processes**). For an Inno Setup OTA upgrade to
+            #     succeed we MUST also kill Chromium helper processes
+            #     like ``QtWebEngineProcess.exe`` (a child of
+            #     ``eCan.cn.exe`` / ``eCan.exe``) — those orphan
+            #     children keep file handles open on ``app_context.py``,
+            #     ``*.dll``, etc., and the Inno Setup ``/CLOSEAPPLICATIONS``
+            #     flag only matches processes with top-level windows
+            #     matching the installer's app name. The orphan
+            #     ``QtWebEngineProcess.exe`` has no such window, so
+            #     without explicit taskkill Inno Setup hits
+            #     "DeleteFile failed; error code 5. 拒绝访问" the moment
+            #     it tries to overwrite ``eCan.cn.exe``. The previous
+            #     version of this loop had ``pass`` here (comment
+            #     "Windows uses taskkill" but no actual taskkill call)
+            #     which is exactly what produced the bug 2026-09-16.
             for pid in pids_to_kill:
                 try:
-                    import signal
                     if self.platform == 'darwin':
                         # Try SIGTERM first, then SIGKILL
+                        import signal
                         os.kill(pid, signal.SIGTERM)
                         time.sleep(0.5)
                         try:
@@ -367,9 +443,29 @@ class InstallationManager:
                         except ProcessLookupError:
                             pass
                     elif self.platform == 'win32':
-                        # Windows uses taskkill
-                        pass
+                        # ``taskkill /F /PID <pid> /T`` kills the
+                        # process AND its child process tree. ``/T`` is
+                        # what makes this propagate to QtWebEngineProcess
+                        # subprocesses that ``os.kill`` would miss. We
+                        # swallow non-zero exit codes silently — Inno
+                        # Setup's ``PrepareToInstall`` retries the kill
+                        # anyway, and a stale PID after our 2 s sleep
+                        # would otherwise crash this loop.
+                        try:
+                            subprocess.run(
+                                ['taskkill.exe', '/F', '/PID', str(pid), '/T'],
+                                capture_output=True,
+                                text=True,
+                                timeout=5,
+                            )
+                        except (FileNotFoundError, subprocess.TimeoutExpired):
+                            # taskkill.exe missing (Nano Server, etc.)
+                            # or hung — Inno Setup's CloseApplications
+                            # will retry.
+                            pass
                     else:
+                        # POSIX (non-macOS): SIGTERM is sufficient.
+                        import signal
                         os.kill(pid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
@@ -403,6 +499,19 @@ class InstallationManager:
         ``powershell`` directly with ``DETACHED_PROCESS``, but PowerShell
         children were still killed when the Python process exited.
 
+        Edge-case handling:
+          * The BAT is named ``ecan_ota_launcher_<pid>_<ts>.bat`` (NOT a
+            fixed name) so concurrent OTA flows don't clobber each
+            other's launchers.
+          * The installer exe + args are passed via ``%*`` (argv to the
+            BAT) instead of being interpolated into a single command
+            line, so paths with spaces, double-quotes, ampersands,
+            carets, parens, or percent signs round-trip cleanly. The
+            old ``list2cmdline + f-string`` approach lost quoting and
+            broke for installer paths under e.g. ``D:\\My & Co Apps\\eCan``.
+          * ``setlocal DisableDelayedExpansion`` ensures any ``!`` in
+            installer paths is not re-interpreted by the BAT engine.
+
         Returns:
             PID of the launched script process.
         """
@@ -412,30 +521,52 @@ class InstallationManager:
         exe_path = str(cmd[0])
         raw_args = [str(arg) for arg in cmd[1:]] if len(cmd) > 1 else []
 
-        def _escape_batch_token(token: str) -> str:
-            return str(token).replace('%', '%%')
-
-        def _build_windows_command_line(executable: str, args: list[str]) -> str:
-            command_line = subprocess.list2cmdline([executable, *args])
-            return _escape_batch_token(command_line)
-
         # Use fixed user directory instead of temporary directory
         from config.app_info import app_info
         user_data_root = Path(app_info.appdata_path)
-        scripts_dir = user_data_root / "ota_scripts"
-        scripts_dir.mkdir(parents=True, exist_ok=True)
+        scripts_dir = safe_makedirs(user_data_root / "ota_scripts", purpose="OTA scripts")
 
         template_path = Path(__file__).resolve().parent.parent / "resources" / "ecan_ota_launcher_template.bat"
         if not template_path.exists():
             raise FileNotFoundError(f"OTA launcher BAT template not found: {template_path}")
-        
-        bat_path = scripts_dir / "ecan_ota_launcher.bat"
-        installer_command = _build_windows_command_line(exe_path, raw_args)
-        bat_template = template_path.read_text(encoding='utf-8')
+
+        # Unique BAT per launch so concurrent OTA flows don't race.
+        bat_path = scripts_dir / f"ecan_ota_launcher_{os.getpid()}_{time.time_ns()}.bat"
+
+        # Windows MAX_PATH (260 chars) guard: ``subprocess.Popen`` silently
+        # truncates command lines beyond 32 767 chars (the Windows kernel
+        # limit), but the .bat file path itself must fit under the
+        # filesystem's 260-char MAX_PATH ceiling, otherwise the ``cmd /c
+        # <bat_path>`` call fails with "The system cannot find the file
+        # specified" before we even get to the installer. Users with
+        # very long usernames or deeply-nested ``LOCALAPPDATA`` paths
+        # (``C:\Users\<longname>\AppData\Local\eCan\ota_scripts\...``)
+        # can hit this. The fix: probe the resolved path and fail fast
+        # with a clear message instead of silently mangling the call.
+        bat_path_str = str(bat_path)
+        if sys.platform == 'win32' and len(bat_path_str) > 220:
+            # 220 chars gives headroom for cmd.exe's own internal argv
+            # parsing (some env vars like ``=ExitCode`` are prepended).
+            # 260 is the filesystem hard limit.
+            logger.error(
+                f"[OTA] BAT launcher path exceeds safe Windows path length "
+                f"({len(bat_path_str)} > 220 chars). "
+                f"This would cause ``cmd /c`` to fail silently. "
+                f"Path: {bat_path_str}"
+            )
+            raise RuntimeError(
+                f"OTA cannot write the launcher script because the "
+                f"path is too long ({len(bat_path_str)} chars). "
+                f"On Windows, paths over 220 characters can cause "
+                f"installer failures. Consider moving your user profile "
+                f"to a shorter path, or contact support."
+            )
+
+        template_text = template_path.read_text(encoding='utf-8')
         bat_content = (
-            bat_template
+            template_text
             .replace("__DELAY_SECONDS__", str(int(delay_seconds)))
-            .replace("__INSTALLER_COMMAND__", installer_command)
+            .replace("__ARGS_COUNT__", str(len(raw_args)))
         )
 
         with open(bat_path, 'w', encoding='utf-8-sig', newline='\r\n') as f:
@@ -451,14 +582,18 @@ class InstallationManager:
         logger.info(f"[OTA Installer] BAT launcher directory ensured: {scripts_dir}")
         logger.info(f"[OTA Installer] BAT launcher template used: {template_path}")
         logger.info(f"Installer executable: {exe_path}")
-        logger.info(f"[OTA Installer] Raw installer argument list: {raw_args}")
-        logger.info(f"Installer command line: {installer_command}")
-        logger.info(f"Installer command for cmd.exe: start \"\" {installer_command}")
-        logger.info(f"BAT launcher content: {bat_content!r}")
+        logger.info(f"[OTA Installer] Installer argument count: {len(raw_args)}")
+        for idx, arg in enumerate(raw_args):
+            logger.debug(f"[OTA Installer]   arg[{idx}] = {arg}")
         logger.info(f"Delay before launch: {delay_seconds}s")
 
+        # Build argv to the BAT launcher. The BAT template uses ``%*``
+        # to forward everything after the bat_path verbatim, so we
+        # don't need to do any cmd-line quoting ourselves — the BAT
+        # engine handles it. ``cmd /c`` is the right Windows idiom for
+        # invoking a script that should run detached.
         p = subprocess.Popen(
-            ['cmd', '/c', str(bat_path)],
+            ['cmd', '/c', str(bat_path), exe_path, *raw_args],
             creationflags=creation_flags,
             close_fds=True,
             stdin=subprocess.DEVNULL,
@@ -529,8 +664,7 @@ class InstallationManager:
             os.chmod(package_path, 0o755)
             
             # Determine installation location
-            install_dir = Path.home() / '.local' / 'bin'
-            install_dir.mkdir(parents=True, exist_ok=True)
+            install_dir = safe_makedirs(Path.home() / '.local' / 'bin', purpose="AppImage install directory")
             
             app_name = ota_config.get_app_name()
             target_path = install_dir / f"{app_name}.AppImage"
@@ -629,19 +763,30 @@ class InstallationManager:
     
     def _schedule_linux_restart(self, app_path: str):
         """Schedule application restart on Linux
-        
+
         Args:
             app_path: Path to application executable
+
+        Notes:
+            Uses ``delete=False`` so the script can outlive the Python
+            interpreter (it deletes itself via ``rm -f "$0"``). The script
+            is placed under ``<appdata>/ota_scripts/`` rather than the
+            system temp dir so that:
+              * the user can inspect it if OTA ever wedges
+              * it survives ``$TMPDIR`` rotation by tmpfiles/systemd
+              * it doesn't leak into ``/tmp`` (which Linux distros often
+                wipe nightly)
         """
         try:
-            # Create restart script
-            restart_script = tempfile.NamedTemporaryFile(
-                mode='w',
-                suffix='.sh',
-                delete=False
-            )
-            
-            restart_script.write(f'''#!/bin/bash
+            from config.app_info import app_info
+            script_dir = Path(app_info.appdata_path) / "ota_scripts"
+            safe_makedirs(script_dir, purpose="OTA scripts")
+
+            # Unique filename: PID + monotonic ns so concurrent OTA flows
+            # in the same process tree don't clobber each other.
+            script_path = script_dir / f"restart_{os.getpid()}_{time.time_ns()}.sh"
+
+            script_content = f'''#!/bin/bash
 # Wait for current process to exit
 sleep 2
 
@@ -650,16 +795,14 @@ sleep 2
 
 # Clean up this script
 rm -f "$0"
-''')
-            restart_script.close()
-            
-            # Make script executable
-            os.chmod(restart_script.name, 0o755)
-            
+'''
+            script_path.write_text(script_content, encoding='utf-8')
+            os.chmod(script_path, 0o755)
+
             # Execute restart script in background
-            subprocess.Popen([restart_script.name], start_new_session=True)
-            
-            logger.info(f"Restart scheduled: {app_path}")
+            subprocess.Popen([str(script_path)], start_new_session=True)
+
+            logger.info(f"Restart scheduled: {app_path} (script={script_path})")
             
             # Exit current application
             logger.info("Exiting application to allow restart...")
@@ -699,16 +842,70 @@ rm -f "$0"
 
                     if not install_dir.exists():
                         try:
-                            install_dir.mkdir(parents=True, exist_ok=True)
-                        except Exception:
+                            safe_makedirs(install_dir, purpose="OTA install directory")
+                        except RuntimeError:
+                            # Last-resort fallback to the dir holding
+                            # the running exe. safe_makedirs already
+                            # converted PermissionError to a clear
+                            # RuntimeError so the user sees a useful
+                            # message in the logs.
                             install_dir = Path(sys.executable).parent
 
                     logger.info(f"Target installation directory: {str(install_dir)}")
                     logger.info(f"[OTA Installer] Resolved install directory (frozen mode): {install_dir}")
 
-                    # Note: Process termination is handled by Inno Setup's CloseApplications=yes
-                    # No need to manually terminate processes here as it may conflict with installer
-                    
+                    # Sanity-check writability BEFORE launching the
+                    # installer. ``is_writable_dir`` is a probe; it
+                    # may report True even when an admin-elevated Inno
+                    # Setup could write, but it's a strong signal that
+                    # we should NOT pretend everything is fine. Common
+                    # case this catches: custom install paths under
+                    # ``D:\Program Files\eCan`` for a non-admin user,
+                    # where the registry points at a directory the
+                    # current process can't touch. Without this check
+                    # the user sees Inno Setup flash an error dialog
+                    # and exit; with this check we surface a clear
+                    # "Run as Administrator" hint up-front.
+                    if not is_writable_dir(install_dir):
+                        logger.error(
+                            f"[OTA Installer] Target install directory is NOT "
+                            f"writable by the current user: {install_dir}. "
+                            f"The OTA installer cannot replace files here. "
+                            f"On Windows this usually means: (a) the path "
+                            f"is on a read-only volume, (b) the user lacks "
+                            f"'Modify' on the directory ACL, or (c) the "
+                            f"original install was per-machine and the user "
+                            f"isn't running elevated."
+                        )
+                        # Fall back to the directory holding the
+                        # running executable — Inno Setup can at least
+                        # upgrade files that are already present here.
+                        fallback = Path(sys.executable).parent
+                        if is_writable_dir(fallback):
+                            logger.warning(
+                                f"[OTA Installer] Falling back to writable "
+                                f"executable directory: {fallback}"
+                            )
+                            install_dir = fallback
+                        else:
+                            return False
+
+                    # Belt-and-suspenders: explicitly terminate our app
+                    # *and* Qt child processes inside the install dir
+                    # BEFORE launching Inno Setup. Inno Setup's
+                    # ``CloseApplications=yes`` only matches processes
+                    # listed in its ``[Setup] AppMutex=`` block, which
+                    # doesn't cover QtWebEngineProcess.exe (a Chromium
+                    # helper) or any subprocess we forked. Without this
+                    # pre-kill the installer hits file-lock errors on
+                    # `app_context.py`, `QtWebEngineProcess.exe`, etc.
+                    # See Bug #6 in this file's history.
+                    self._terminate_processes_in_dir(
+                        install_dir,
+                        timeout_seconds=5.0,
+                        extra_process_names={'qtwebengineprocess.exe'},
+                    )
+
                     # Use Inno Setup silent installation parameters with progress
                     # /SILENT = Silent with progress bar (not /VERYSILENT)
                     # /SUPPRESSMSGBOXES intentionally NOT used here
@@ -718,25 +915,38 @@ rm -f "$0"
                     # error to the user during OTA debugging and production failures.
                     # /NORESTART = Don't restart computer
                     # /SP- = Skip the "This will install..." message box
-                    # /DIR= intentionally omitted for diagnostics in scheme B.
-                    # We want Inno Setup to use its own remembered/default install directory
-                    # so we can isolate whether the explicit /DIR argument is what causes the
-                    # installer to start and then immediately exit.
+                    # /DIR=<dir> = Pin the install target to the directory
+                    # we just validated as writable. ``UsePreviousAppDir=yes``
+                    # in ecan_build.py also picks the previous dir from the
+                    # registry, but we want belt-and-suspenders: if registry
+                    # ever disagrees (corrupted key, partial uninstall, …)
+                    # we still write to the path we checked.
+                    #
+                    # ``UsePreviousAppDir`` would otherwise let Inno Setup
+                    # fall back to ``DefaultDirName={autopf}\eCan.cn`` and
+                    # silently install into ``C:\Program Files\eCan.cn``,
+                    # a directory the OTA process never validated for
+                    # writability. The previous experiment that omitted
+                    # ``/DIR=`` (to A/B-test an unrelated "installer
+                    # exits immediately" theory) has been removed — the
+                    # trade-off it tested no longer applies, and the
+                    # silent-fallback risk above is real.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # ✅ Shows progress bar
                         '/NORESTART',
                         '/SP-',                  # ✅ Skip startup message
                         '/CLOSEAPPLICATIONS',
+                        f'/DIR="{install_dir}"',  # ✅ Pin install target
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
-                    
+
                     # Use repr() to safely log Windows paths with backslashes
                     logger.info(f"Executing OTA update with progress: {repr(cmd)}")
-                    logger.info("Using Inno Setup parameters: /SILENT (with progress) /NORESTART /CLOSEAPPLICATIONS")
-                    logger.info("[OTA Installer] Diagnostic mode B active: /DIR parameter omitted")
+                    logger.info("Using Inno Setup parameters: /SILENT (with progress) /NORESTART /CLOSEAPPLICATIONS /DIR=<dir>")
                     logger.info(f"[OTA Installer] Final Inno Setup command length: {len(cmd)} args")
+                    logger.info(f"[OTA Installer] Pinned install directory: {install_dir}")
                     
                     # Set OTA installation flag to skip exit confirmation dialog
                     from ota.core.download_manager import download_manager
@@ -745,21 +955,27 @@ rm -f "$0"
                     
                     # Launch installer without waiting
                     try:
-                        if sys.platform == 'win32':
-                            creation_flags = (
-                                subprocess.DETACHED_PROCESS |
-                                subprocess.CREATE_NEW_PROCESS_GROUP |
-                                subprocess.CREATE_NO_WINDOW
-                            )
-                        else:
-                            creation_flags = 0
-
+                        # On Windows we always go through
+                        # ``_launch_windows_installer_delayed`` (a
+                        # detached BAT launcher that survives our
+                        # ``os._exit(0)``); the eager
+                        # ``subprocess.DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP``
+                        # ``| CREATE_NO_WINDOW`` flag block used to be
+                        # computed here too, but it crashed on macOS /
+                        # Linux test runners that monkey-patch
+                        # ``sys.platform`` to ``'win32'`` because those
+                        # constants only exist on the Windows build of
+                        # the ``subprocess`` module. The flag block is
+                        # already constructed inside
+                        # ``_launch_windows_installer_delayed`` where
+                        # it's actually used, so removing it from here
+                        # doesn't change runtime behaviour.
                         if sys.platform == 'win32':
                             pid = self._launch_windows_installer_delayed(cmd, delay_seconds=3)
                             logger.info(f"Installer launch script started (PID: {pid})")
                             logger.info("[OTA Installer] Windows delayed installer launcher started successfully")
                         else:
-                            process = subprocess.Popen(cmd, creationflags=creation_flags)
+                            process = subprocess.Popen(cmd)
                             logger.info(f"Installer launched (PID: {process.pid})")
                         
                         logger.info("Application will exit in 3 seconds for file replacement...")
@@ -814,30 +1030,32 @@ rm -f "$0"
                         logger.info(f"[OTA Dev] Using standard installation directory: {str(install_dir)}")
                     logger.info(f"[OTA Installer] Resolved install directory (dev mode): {install_dir}")
                     
-                    # Development OTA command - silent mode with progress
+                    # Development OTA command - silent mode with progress.
+                    # ``/DIR=`` is included here too (same belt-and-suspenders
+                    # reasoning as in the frozen path above) so dev-mode
+                    # upgrades install into the resolved directory rather
+                    # than falling back to Inno Setup's ``DefaultDirName``.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
                         '/NORESTART',
                         '/SP-',                  # Skip startup message
                         '/CLOSEAPPLICATIONS',    # Force close running instances
+                        f'/DIR="{install_dir}"',
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
                     # Use repr() to safely log Windows paths with backslashes
                     logger.info(f"Development OTA command: {repr(cmd)}")
                     logger.info(f"[OTA Installer] Development command length: {len(cmd)} args")
-                    logger.info("[OTA Installer] Diagnostic mode B active in dev path: /DIR parameter omitted")
+                    logger.info(f"[OTA Installer] Pinned dev install directory: {install_dir}")
 
-                    if sys.platform == 'win32':
-                        creation_flags = (
-                            subprocess.DETACHED_PROCESS |
-                            subprocess.CREATE_NEW_PROCESS_GROUP |
-                            subprocess.CREATE_NO_WINDOW
-                        )
-                    else:
-                        creation_flags = 0
-
+                    # Same cross-platform note as the frozen path above:
+                    # ``subprocess.DETACHED_PROCESS`` is Windows-only and
+                    # would crash when ``sys.platform`` is mocked to
+                    # ``'win32'`` on a non-Windows test runner. The
+                    # flag block is constructed inside
+                    # ``_launch_windows_installer_delayed`` instead.
                     if sys.platform == 'win32':
                         # Use a modest delay in dev mode to allow app shutdown without excessive waiting
                         pid = self._launch_windows_installer_delayed(cmd, delay_seconds=5)
@@ -845,7 +1063,7 @@ rm -f "$0"
                         logger.info("Installer will start in 5 seconds after app exits")
                         logger.info("[OTA Installer] Development-mode delayed launcher started successfully")
                     else:
-                        process = subprocess.Popen(cmd, creationflags=creation_flags)
+                        process = subprocess.Popen(cmd)
                         logger.info(f"Installer launched (PID: {process.pid})")
                     
                     # Schedule application exit for development environment
@@ -881,77 +1099,121 @@ rm -f "$0"
             return False
     
     def _install_msi(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
-        """Install Windows MSI package - OTA silent update"""
+        """Install Windows MSI package - OTA silent update
+
+        The MSI path mirrors the Inno Setup path (see ``_install_exe``):
+          * Resolve the install directory the same way (registry-first
+            so users who picked ``D:\\MyApps\\eCan`` stay there).
+          * Pre-terminate QtWebEngineProcess and the current exe before
+            msiexec starts writing files. ``msiexec`` with
+            ``REINSTALL=ALL`` will happily try to overwrite a locked
+            ``app_context.py`` and roll the transaction back; killing
+            the lock-holders up-front is the same fix we ship for
+            Inno Setup. Without this, MSI upgrades hit
+            "Another installation is in progress" or
+            "ERROR_INSTALL_ALREADY_RUNNING" the moment msiexec tries
+            to replace the running exe.
+          * Use the same BAT launcher / delayed-exit pattern so the
+            msiexec child outlives the Python ``os._exit(0)``.
+        """
         try:
             logger.info(f"Installing Windows MSI: {package_path}")
-            
+
             # Build msiexec command for silent OTA update
             cmd = ["msiexec", "/i", str(package_path)]
-            
+
             if install_options.get('silent', True):
                 # Silent installation parameters with progress:
                 # /qb = Basic UI with progress bar (not /qn which is completely silent)
                 # /norestart = Don't restart automatically
                 cmd.extend(["/qb", "/norestart"])
-                
-                # If in packaged environment, specify installation directory
+
+                # Resolve the install directory before deciding whether
+                # to add ``INSTALLDIR=`` / run pre-termination. We need
+                # the resolved directory even in non-frozen mode so we
+                # can kill lock-holders under it.
                 if getattr(sys, 'frozen', False):
-                    # Priority 1: Explicit install_dir from install_options (rarely set)
                     configured_install_dir = install_options.get('install_dir')
                     if configured_install_dir:
                         install_dir = Path(str(configured_install_dir)).expanduser()
                     else:
-                        # Priority 2: Read current installation directory from registry (OTA upgrade)
-                        # This preserves custom installation paths like D:\\MyApps\\eCan
                         current_install_dir = self._get_current_windows_install_dir()
                         if current_install_dir:
                             install_dir = current_install_dir
                             logger.info(f"[OTA MSI] Preserving custom installation directory: {str(install_dir)}")
                         else:
-                            # Priority 3: Fallback to current executable directory
                             install_dir = Path(sys.executable).parent
                             logger.info(f"[OTA MSI] Using current executable directory: {str(install_dir)}")
-                    
+
                     cmd.append(f'INSTALLDIR="{str(install_dir)}"')
                     cmd.append('REINSTALLMODE=vamus')  # Reinstall all files
                     cmd.append('REINSTALL=ALL')  # Reinstall all features
-            
+                else:
+                    install_dir = Path(sys.executable).parent
+                    logger.info(f"[OTA MSI] Dev mode install directory: {install_dir}")
+
+                # Pre-terminate processes holding file locks in the
+                # install dir. Same rationale as in ``_install_exe``.
+                self._terminate_processes_in_dir(
+                    install_dir,
+                    timeout_seconds=5.0,
+                    extra_process_names={'qtwebengineprocess.exe'},
+                )
+
+            # MSI's own verbose log (``/l*v <file>``) — keep parity
+            # with Inno Setup's ``/LOG=`` so postmortems on either
+            # path use the same artifact name shape.
+            try:
+                if sys.platform == 'win32':
+                    log_path = Path(tempfile.gettempdir()) / f"ecan_ota_msi_install_{int(time.time())}.log"
+                    cmd.append(f'/l*v "{log_path}"')
+                    logger.info(f"MSI verbose logging enabled: {log_path}")
+            except Exception as e:
+                logger.debug(f"Failed to enable MSI verbose logging (safe to ignore): {e}")
+
             # Execute installation in background
-            # Use repr() to safely log Windows paths with backslashes
             logger.info(f"Executing silent MSI update: {repr(cmd)}")
 
-            # Launch installer without waiting
-            # Use DETACHED_PROCESS to make installer independent of parent process
-            if sys.platform == 'win32':
-                # DETACHED_PROCESS: Creates a new console for the child process
-                # CREATE_NEW_PROCESS_GROUP: Creates a new process group
-                # CREATE_NO_WINDOW: Hides the console window
-                creation_flags = (
-                    subprocess.DETACHED_PROCESS |
-                    subprocess.CREATE_NEW_PROCESS_GROUP |
-                    subprocess.CREATE_NO_WINDOW
-                )
-            else:
-                creation_flags = 0
+            # Set OTA installation flag so the exit prompt is suppressed.
+            from ota.core.download_manager import download_manager
+            download_manager.set_installing(True)
 
-            process = subprocess.Popen(
-                cmd,
-                creationflags=creation_flags
-            )
-            
-            logger.info(f"MSI installer launched (PID: {process.pid})")
-            
+            # Use BAT launcher + delayed exit on Windows (same pattern
+            # as ``_install_exe``) so the msiexec child survives the
+            # Python ``os._exit(0)``. The previous code called
+            # ``subprocess.Popen`` directly then ``os._exit(0)`` after
+            # a 3-second sleep — that worked for the simple case but
+            # would silently break if the parent process was killed
+            # before the sleep elapsed, leaving msiexec orphaned.
+            if sys.platform == 'win32':
+                try:
+                    pid = self._launch_windows_installer_delayed(cmd, delay_seconds=3)
+                    logger.info(f"MSI BAT launcher started (PID: {pid})")
+                except Exception as e:
+                    logger.error(f"Failed to start MSI BAT launcher: {e}")
+                    return False
+            else:
+                process = subprocess.Popen(cmd)
+                logger.info(f"MSI installer launched (PID: {process.pid})")
+
             # Schedule application exit
             import threading
             def delayed_exit():
                 time.sleep(3)
                 logger.info("Exiting for MSI installer to replace files...")
+                # Flush stdio before tearing the interpreter down.
+                import sys as sys_module
+                try:
+                    sys_module.stdout.flush()
+                    sys_module.stderr.flush()
+                except Exception:
+                    pass
                 os._exit(0)
-            
+
             threading.Thread(target=delayed_exit, daemon=True).start()
-            
+
             return True
-                
+
         except Exception as e:
             logger.error(f"MSI installation error: {e}")
             return False
@@ -989,32 +1251,71 @@ rm -f "$0"
                     logger.info("  • Password prompt: YES (required)")
                     logger.info("  • Installation wizard: NO")
                     logger.info("  • Progress logging: YES")
-                    
-                    # Create a temporary script for installation with real-time output
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
-                        script_path = f.name
-                        f.write(f'''#!/bin/bash
-installer -pkg "{package_path}" -target / -verboseR 2>&1
-''')
-                    
-                    # Make script executable
+
+                    # Create a helper script under appdata (NOT /tmp) so:
+                    #   * it survives system tmpfiles rotation
+                    #   * cleanup is explicit on every exit path below
+                    #   * the script takes the .pkg path as ``$1`` rather
+                    #     than embedding it into the bash source via
+                    #     f-string. The previous f-string interpolation
+                    #     broke the moment the package path contained
+                    #     shell-special chars (``"``, ``$``, ``\``,
+                    #     backticks, parens) — those are common in
+                    #     ``~/Library/...`` and even in some installer
+                    #     staging paths. Bash's positional-arg passing is
+                    #     binary-safe for any character.
+                    from config.app_info import app_info
+                    script_dir = Path(app_info.appdata_path) / "ota_scripts"
+                    safe_makedirs(script_dir, purpose="OTA scripts")
+                    script_path = script_dir / f"pkg_install_{os.getpid()}_{time.time_ns()}.sh"
+                    # Use $1 (positional arg) — bash quoting handles any path.
+                    script_content = (
+                        "#!/bin/bash\n"
+                        '# $1 = absolute path to .pkg. Quote once to defeat shell word-splitting.\n'
+                        'installer -pkg "$1" -target / -verboseR 2>&1\n'
+                    )
+                    script_path.write_text(script_content, encoding='utf-8')
                     os.chmod(script_path, 0o755)
-                    
-                    # Launch installer with osascript for password prompt
-                    # Use a different approach: run with sudo through osascript
-                    applescript = f'''
-                    do shell script "{script_path}" with administrator privileges
-                    '''
-                    
+
+                    # Launch installer with osascript for password prompt.
+                    # IMPORTANT: pass BOTH the helper-script path and the
+                    # pkg path via argv. The previous implementation
+                    # interpolated ``script_path`` into an AppleScript
+                    # ``do shell script`` string, which broke when the
+                    # script path contained characters that AppleScript /
+                    # shell double-quotes care about (spaces, ``"``,
+                    # ``\``, ``$``). argv is the only safe way to ferry
+                    # paths into ``osascript``.
+                    #
+                    # AppleScript ``quoted form of`` produces a token that
+                    # is safe to embed in a ``do shell script`` string,
+                    # so we still build the inner command string here
+                    # rather than chaining ``do shell script`` invocations
+                    # (which would re-prompt for admin each time).
+                    applescript_body = (
+                        'on run argv\n'
+                        '    set helperScript to item 1 of argv\n'
+                        '    set pkgPath to item 2 of argv\n'
+                        '    set helperCmd to "bash " & quoted form of helperScript & " " & quoted form of pkgPath\n'
+                        '    do shell script helperCmd with administrator privileges\n'
+                        'end run'
+                    )
+                    osa_cmd = [
+                        '/usr/bin/osascript',
+                        '-e', applescript_body,
+                        '--',                  # end-of-options, prevents osascript from re-parsing flags
+                        str(script_path),
+                        str(package_path),
+                    ]
+
                     # Launch installer in background
                     process = subprocess.Popen(
-                        ["osascript", "-e", applescript],
+                        osa_cmd,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,  # Merge stderr to stdout
                         text=True,
                         bufsize=0,  # Unbuffered for real-time output
-                        universal_newlines=True
+                        universal_newlines=True,
                     )
                     
                     logger.info(f"PKG installer launched (PID: {process.pid})")
@@ -1031,10 +1332,26 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
                     
                     # Since AppleScript doesn't support real-time output streaming,
                     # we'll simulate progress based on time estimation
+                    def _cleanup_helper_script():
+                        """Unlink the helper bash script on every exit path.
+
+                        Previous versions had this inlined three times
+                        (success, timeout, exception). Centralised to
+                        avoid the leak path where a future refactor adds
+                        a fourth return without cleaning up.
+                        """
+                        try:
+                            script_path.unlink(missing_ok=True)
+                        except Exception as e:
+                            logger.debug(
+                                f"[OTA] Failed to remove PKG helper script "
+                                f"{script_path}: {e}"
+                            )
+
                     try:
                         import time as time_module
                         import threading
-                        
+
                         start_time = time_module.time()
                         timeout = 600  # 10 minutes
                         
@@ -1090,38 +1407,32 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
                         
                         # Stop progress thread
                         progress_thread.join(timeout=1)
-                        
+
                         # Send 100% progress
                         if self.progress_callback:
                             try:
                                 self.progress_callback(100, _tr.tr("install_complete"))
                             except Exception as e:
                                 logger.debug(f"Progress callback error: {e}")
-                        
+
                         # Clean up temporary script
-                        try:
-                            os.unlink(script_path)
-                        except Exception:
-                            pass
-                    
+                        _cleanup_helper_script()
+
                     except subprocess.TimeoutExpired:
                         logger.error("Installation timeout (10 minutes)")
                         process.kill()
                         # Clean up temporary script
-                        try:
-                            os.unlink(script_path)
-                        except Exception:
-                            pass
+                        _cleanup_helper_script()
                         return False
-                    
+
                     # Check result
                     try:
-                        
+
                         if process.returncode == 0:
                             logger.info("✅ PKG installation completed successfully")
                             if stdout:
                                 logger.info(f"Installation output: {stdout}")
-                            
+
                             # Show completion notification
                             try:
                                 subprocess.run([
@@ -1130,146 +1441,380 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
                                 ])
                             except Exception as e:
                                 logger.warning(f"Failed to show notification: {e}")
-                            
+
                             # Schedule application restart
                             logger.info("Installation complete, application will restart in 3 seconds...")
-                            
+
                             import threading
                             def delayed_restart():
                                 time.sleep(3)
                                 logger.info("Restarting application...")
                                 self._restart_application()
-                            
+
                             threading.Thread(target=delayed_restart, daemon=True).start()
-                            
+
+                            # PKG ran inside osascript; helper script is no
+                            # longer needed even though we just succeeded.
+                            _cleanup_helper_script()
                             return True
                         else:
                             logger.error(f"❌ PKG installation failed: {stderr}")
+                            _cleanup_helper_script()
                             return False
-                            
+
                     except subprocess.TimeoutExpired:
                         logger.error("Installation timeout (10 minutes)")
                         process.kill()
+                        _cleanup_helper_script()
                         return False
-                        
+
                 except Exception as e:
                     logger.error(f"Failed to launch PKG installer: {e}")
+                    # Final safety net: ensure helper script is removed
+                    # even if we exited between writing it and entering
+                    # the AppleScript subprocess.
+                    try:
+                        script_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
                     return False
             else:
                 # Non-silent mode - launch installer with full UI
                 logger.info("Launching PKG installer with full UI...")
                 subprocess.Popen(["open", str(package_path)])
                 return True
-                    
+
         except Exception as e:
             logger.error(f"PKG installation error: {e}")
             return False
     
     def _install_dmg(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
-        """Install macOS DMG package"""
+        """Install macOS DMG package
+
+        Notes:
+            ``/Applications`` is owned by ``root:wheel`` on stock macOS, so
+            the copy step requires administrator privileges. We do NOT
+            call ``shutil.copytree`` directly any more — that silently
+            fails on a normal user account, which leaves the user staring
+            at an unmounted DMG and no clue why nothing was copied.
+
+            New flow:
+              1. ``hdiutil attach`` (no privilege needed for the user —
+                 hdiutil is setuid).
+              2. Find the mount point + ``.app`` inside.
+              3. Write a short helper bash script under
+                 ``<appdata>/ota_scripts/`` that takes ``$1=source``,
+                 ``$2=destination`` and does ``rm -rf "$2"; cp -R
+                 "$1" "$2"``. Both args are quoted so spaces / ``$`` /
+                 quotes round-trip cleanly.
+              4. Invoke that helper through ``osascript … with
+                 administrator privileges``. The password prompt is
+                 fired exactly once, not per .app, by passing ALL
+                 mount-point .app paths via argv (an osascript list).
+              5. Unmount the DMG and unlink the helper script in
+                 ``finally`` so we never leak it into
+                 ``<appdata>/ota_scripts/``.
+
+            We also call ``osascript`` with the full ``/usr/bin/osascript``
+            path (not just ``osascript``) so PATH manipulation by a
+            privileged AppleScript sub-shell can't resolve to a
+            different binary.
+        """
         try:
             logger.info(f"Installing macOS DMG: {package_path}")
-            
-            # Mount DMG
+
+            # Mount DMG (hdiutil is setuid; no admin needed here)
             mount_result = subprocess.run(
                 ["hdiutil", "attach", str(package_path), "-nobrowse", "-quiet"],
                 capture_output=True, text=True
             )
-            
+
             if mount_result.returncode != 0:
                 logger.error(f"Failed to mount DMG: {mount_result.stderr}")
                 return False
-            
+
+            helper_script_path: Optional[Path] = None
             try:
                 # Find mount point
                 mount_point = self._find_dmg_mount_point(package_path)
                 if not mount_point:
                     logger.error("Could not find DMG mount point")
                     return False
-                
+
                 # Find .app file
                 app_files = list(Path(mount_point).glob("*.app"))
                 if not app_files:
                     logger.error("No .app file found in DMG")
                     return False
-                
-                # Copy to Applications directory
+
                 target_dir = Path("/Applications")
+
+                # Terminate any running instances of the apps we're about
+                # to replace. We do this BEFORE requesting admin
+                # privileges so the user isn't staring at a password
+                # dialog while their existing app is still running.
                 for app_file in app_files:
                     target_path = target_dir / app_file.name
-                    
-                    # If target exists, terminate running processes first
                     if target_path.exists():
-                        logger.info(f"[OTA] Found existing app at {target_path}, terminating processes before upgrade")
-                        # Get the app name without .app extension
+                        logger.info(
+                            f"[OTA] Found existing app at {target_path}, "
+                            f"terminating processes before upgrade"
+                        )
                         app_base_name = app_file.name.replace('.app', '')
                         self._terminate_macos_app(app_base_name)
-                        
-                        # Wait for processes to terminate
-                        time.sleep(1.0)
-                        
-                        # Try to delete
-                        try:
-                            shutil.rmtree(target_path)
-                            logger.info(f"[OTA] Removed old app: {target_path}")
-                        except Exception as e:
-                            logger.warning(f"[OTA] Failed to remove old app (may be in use): {e}")
-                            # Try force delete
-                            try:
-                                import subprocess
-                                subprocess.run(['rm', '-rf', str(target_path)], check=True)
-                            except Exception as e2:
-                                logger.error(f"[OTA] Could not remove old app: {e2}")
-                                return False
-                    
-                    # Copy application
-                    shutil.copytree(app_file, target_path)
-                    logger.info(f"Copied {app_file.name} to {target_path}")
-                
+
+                time.sleep(1.0)
+
+                # Write helper bash script. Args:
+                #   $1 = source path on DMG mount
+                #   $2 = destination under /Applications
+                # ``rm -rf "$2"; cp -R "$1" "$2"`` is idempotent — it
+                # overwrites any stale leftover even if our earlier
+                # shutil.rmtree attempt failed mid-way.
+                from config.app_info import app_info
+                script_dir = Path(app_info.appdata_path) / "ota_scripts"
+                safe_makedirs(script_dir, purpose="OTA scripts")
+                helper_script_path = script_dir / f"dmg_install_{os.getpid()}_{time.time_ns()}.sh"
+                helper_script_content = (
+                    "#!/bin/bash\n"
+                    "# $1 = source .app inside mounted DMG\n"
+                    "# $2 = destination under /Applications\n"
+                    '# Defeat shell word-splitting AND case where the\n'
+                    '# destination is a directory. ``rm -rf`` on a\n'
+                    '# missing path is fine; it just exits non-zero,\n'
+                    '# which we ignore.\n'
+                    'rm -rf "$2" 2>/dev/null || true\n'
+                    'cp -R "$1" "$2"\n'
+                )
+                helper_script_path.write_text(helper_script_content, encoding='utf-8')
+                os.chmod(helper_script_path, 0o755)
+
+                # Build an AppleScript that loops over our argv and
+                # invokes the helper for each (source, dest) pair. We
+                # batch into a SINGLE ``do shell script … with
+                # administrator privileges`` so the password prompt is
+                # shown once even when the DMG carries multiple .app
+                # bundles (rare, but happens for multi-arch bundles).
+                #
+                # We build the inner command string with ``quoted form
+                # of`` so paths with shell-special characters survive
+                # intact. argv passing into osascript is binary-safe,
+                # which is the whole reason we use argv instead of
+                # f-string interpolation here.
+                script_lines = [
+                    'on run argv',
+                    '    set helperScript to item 1 of argv',
+                    '    -- remaining items are source/dest pairs',
+                    '    set pairCount to (count of argv) - 1',
+                    '    set cmdParts to {"bash", quoted form of helperScript}',
+                ]
+                # argv[2..] = source1, dest1, source2, dest2, …
+                # Index in AppleScript argv starts at 1; we already
+                # consumed item 1 (helperScript), so pairs start at
+                # item 2. Each pair is two items, so dest for pair i
+                # is item (2 + 2*i + 1).
+                script_lines.append('    set i to 0')
+                script_lines.append('    repeat while i < pairCount')
+                # i is 0-based pair index; AppleScript argv items are 1-based
+                # so pair i source = item (2 + i*2), pair i dest = item (3 + i*2)
+                script_lines.append('        set src to item (2 + (i * 2)) of argv')
+                script_lines.append('        set dst to item (3 + (i * 2)) of argv')
+                script_lines.append('        set end of cmdParts to quoted form of src')
+                script_lines.append('        set end of cmdParts to quoted form of dst')
+                script_lines.append('        set i to i + 1')
+                script_lines.append('    end repeat')
+                script_lines.append('    set innerCmd to my joinItems(cmdParts, " ")')
+                script_lines.append('    do shell script innerCmd with administrator privileges')
+                # Helper: join list with separator. AppleScript's
+                # default text-item-delimiters trick keeps this single-
+                # statement and avoids needing a separate handler.
+                script_lines.extend([
+                    'on joinItems(lst, sep)',
+                    '    set tid to text item delimiters',
+                    '    set text item delimiters to sep',
+                    '    set joined to lst as text',
+                    '    set text item delimiters to tid',
+                    '    return joined',
+                    'end joinItems',
+                ])
+                applescript_body = '\n'.join(script_lines)
+
+                osa_argv = [str(helper_script_path)]
+                for app_file in app_files:
+                    target_path = target_dir / app_file.name
+                    osa_argv.append(str(app_file))
+                    osa_argv.append(str(target_path))
+
+                osa_cmd = [
+                    '/usr/bin/osascript',
+                    '-e', applescript_body,
+                    '--',  # end-of-options: protects osascript from re-parsing flags
+                    *osa_argv,
+                ]
+
+                logger.info(
+                    f"[OTA] Requesting admin elevation to copy "
+                    f"{len(app_files)} app(s) to {target_dir}"
+                )
+                # We intentionally block on this — the user has to enter
+                # the password before anything else can happen, and we
+                # need to know whether the copy succeeded so the GUI
+                # can either show success or the error from the helper.
+                proc = subprocess.run(
+                    osa_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,  # 10 minutes — mirrors the PKG timeout
+                )
+
+                if proc.returncode != 0:
+                    # User cancelled the auth prompt or copy failed.
+                    # Surface stderr to logs but NOT to the GUI here —
+                    # the caller (InstallationManager.install_package)
+                    # handles UI.
+                    logger.error(
+                        f"[OTA] DMG install helper failed: "
+                        f"returncode={proc.returncode}, stderr={proc.stderr.strip()}"
+                    )
+                    return False
+
+                for app_file in app_files:
+                    target_path = target_dir / app_file.name
+                    logger.info(f"[OTA] Copied {app_file.name} to {target_path}")
+
+                # Schedule the new app to launch after install. We
+                # killed the running instance before invoking the
+                # privileged copy, so the user is staring at no app
+                # for ~5–10 s while the password prompt is up. If we
+                # don't auto-launch here, the user has to find the
+                # new icon in /Applications and click it — a UX
+                # regression vs. the PKG path which has always
+                # restarted itself. ``sys.executable`` still points
+                # at the path the OLD exe lived at, and the installer
+                # overwrote that location with the new bundle, so the
+                # same path now resolves to the NEW binary. Mirrors
+                # the ``delayed_restart`` pattern in ``_install_pkg``.
+                logger.info(
+                    f"[OTA] DMG install complete; scheduling restart "
+                    f"of {sys.executable} in 3 seconds"
+                )
+                import threading
+
+                def _delayed_dmg_restart():
+                    time.sleep(3)
+                    logger.info("[OTA] DMG delayed_restart firing")
+                    try:
+                        self._restart_application()
+                    except Exception as e:
+                        logger.warning(
+                            f"[OTA] DMG restart failed: {e}; user "
+                            f"will need to launch the new app manually."
+                        )
+
+                threading.Thread(
+                    target=_delayed_dmg_restart, daemon=True
+                ).start()
+
                 return True
-                
+
             finally:
-                # Unmount DMG
+                # Unmount DMG (best-effort; ignore failure so we don't
+                # mask the real error above)
                 subprocess.run(
                     ["hdiutil", "detach", mount_point or ""],
                     capture_output=True
                 )
-                
+                # Always unlink the helper script. We don't want a
+                # privileged bash file accumulating under
+                # <appdata>/ota_scripts/ across many OTA flows.
+                if helper_script_path is not None:
+                    try:
+                        helper_script_path.unlink(missing_ok=True)
+                    except Exception as e:
+                        logger.debug(
+                            f"[OTA] Failed to remove DMG helper script "
+                            f"{helper_script_path}: {e}"
+                        )
+
         except Exception as e:
             logger.error(f"DMG installation error: {e}")
             return False
     
     def _terminate_macos_app(self, app_name: str) -> None:
         """Terminate a running macOS application by name.
-        
+
         Args:
             app_name: Application name without .app extension (e.g., 'eCan' or 'eCan.cn')
+
+        Notes:
+            The previous version tried ``killall -9 "<app>.app"`` as a
+            second pass, which is dead code — ``killall`` matches
+            process names, not bundle names, so ``eCan.cn.app`` never
+            matches a running pid (the actual process is named
+            ``eCan.cn``). It's harmless but confusing; replaced with
+            a graceful AppleScript quit (``tell application "X" to
+            quit``) which gives the app a chance to flush state
+            before we SIGKILL it.
         """
         try:
             import subprocess
-            
-            # Also try with .app suffix
-            app_names_to_kill = [app_name, f"{app_name}.app"]
-            
-            for name in app_names_to_kill:
-                # Use killall which works well for macOS applications
-                # -9 flag sends SIGKILL
-                result = subprocess.run(
-                    ['killall', '-9', name],
+
+            # 1) Graceful quit via AppleScript so the app can flush
+            #    state (save settings, close SQLite handles, etc.).
+            #    Wrapped in 5-second timeout so a hung app can't
+            #    stall the OTA flow.
+            try:
+                subprocess.run(
+                    [
+                        '/usr/bin/osascript',
+                        '-e',
+                        f'tell application "{app_name}" to quit',
+                    ],
                     capture_output=True,
-                    text=True
+                    timeout=5,
                 )
-                if result.returncode == 0:
-                    logger.info(f"[OTA] Terminated running app: {name}")
-                elif result.returncode != 1:  # 1 means no process found (not an error)
-                    logger.debug(f"[OTA] killall {name}: {result.stderr.strip()}")
-            
-            # Also try to find and kill by pgrep for edge cases
+                # AppleScript ``quit`` returns success even if the app
+                # wasn't running (the ``tell`` line is a no-op). We
+                # only use it as a hint to the user — SIGKILL below is
+                # the authoritative cleanup.
+            except subprocess.TimeoutExpired:
+                logger.debug(
+                    f"[OTA] AppleScript graceful quit timed out for {app_name}; "
+                    f"falling back to SIGKILL"
+                )
+            except FileNotFoundError:
+                # osascript missing on a stripped-down macOS image.
+                pass
+            except Exception as e:
+                logger.debug(
+                    f"[OTA] AppleScript graceful quit failed for {app_name}: {e}"
+                )
+
+            # 2) Force-kill the process via killall (SIGKILL). This
+            #    matches process names like ``eCan.cn``, ``eCan`` —
+            #    NOT ``eCan.cn.app`` (bundle name).
+            result = subprocess.run(
+                ['killall', '-9', app_name],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                logger.info(f"[OTA] Terminated running app: {app_name}")
+            elif result.returncode != 1:
+                # 1 = no process found (normal)
+                logger.debug(
+                    f"[OTA] killall {app_name}: "
+                    f"{result.stderr.strip() or result.stdout.strip()}"
+                )
+
+            # 3) Belt-and-suspenders pgrep pass: catches processes that
+            #    ``killall -9`` somehow missed (rare, but observed on
+            #    macOS 14 with hardened-runtime binaries).
             try:
                 result = subprocess.run(
                     ['pgrep', '-x', app_name],
                     capture_output=True,
-                    text=True
+                    text=True,
                 )
                 if result.returncode == 0:
                     pids = result.stdout.strip().split('\n')
@@ -1278,12 +1823,16 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
                             try:
                                 import signal
                                 os.kill(int(pid.strip()), signal.SIGKILL)
-                                logger.info(f"[OTA] Killed process {pid} for app {app_name}")
+                                logger.info(
+                                    f"[OTA] Killed pid {pid} for app {app_name}"
+                                )
                             except Exception as e:
-                                logger.debug(f"[OTA] Failed to kill pid {pid}: {e}")
+                                logger.debug(
+                                    f"[OTA] Failed to kill pid {pid}: {e}"
+                                )
             except Exception:
                 pass
-                
+
         except Exception as e:
             logger.warning(f"[OTA] Failed to terminate macOS app {app_name}: {e}")
     
@@ -1356,8 +1905,7 @@ installer -pkg "{package_path}" -target / -verboseR 2>&1
             # Use fixed user directory instead of temporary directory
             from config.app_info import app_info
             user_data_root = Path(app_info.appdata_path)
-            script_dir = user_data_root / "ota_scripts"
-            script_dir.mkdir(parents=True, exist_ok=True)
+            script_dir = safe_makedirs(user_data_root / "ota_scripts", purpose="OTA scripts")
             
             if self.platform.startswith('win'):
                 # Windows batch script
