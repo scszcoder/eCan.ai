@@ -469,6 +469,42 @@ def _cn_llm_proxy_by_default(
     return True
 
 
+def _iter_contract_objects(text: str):
+    """Yield every balanced top-level JSON object embedded in *text*.
+
+    An agent's final answer is several objects separated by newlines — the
+    output contract, then optionally a tool-call block — not one document, so
+    ``json.loads`` over the whole string fails. Malformed fragments are skipped
+    rather than raised: a half-written block must not cost us the good ones.
+    """
+    if not isinstance(text, str):
+        return
+    idx = 0
+    while idx < len(text):
+        start = text.find('{', idx)
+        if start < 0:
+            return
+        depth = 0
+        end = None
+        for off, ch in enumerate(text[start:]):
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    end = start + off + 1
+                    break
+        if end is None:
+            return
+        try:
+            obj = json.loads(text[start:end])
+        except Exception:
+            obj = None
+        idx = end
+        if isinstance(obj, dict):
+            yield obj
+
+
 def _normalize_proxy_user(user: str) -> str:
     """Cloud identity for the llm-proxy's ``X-User-Id``.
 
@@ -7111,6 +7147,72 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                 break
                         if isinstance(llm_result.get('message'), str):
                             break
+
+                    # Safety net: a finished turn must reach a human even when
+                    # the model forgets the handoff block.
+                    #
+                    # Compliance is a coin flip. Four consecutive runs of the
+                    # SAME prompt against the SAME broken proxy on 2026-09-17
+                    # went block / no block / block / no block, and a turn with
+                    # no block tells nobody anything — the run ends silently and
+                    # the seller never learns the proxy is down. A notification
+                    # path cannot depend on a model remembering to ask for it.
+                    #
+                    # Fires ONLY when the upstream contract says the turn ended,
+                    # no tool call was produced, and the skill declared where to
+                    # write. Anything the model DID emit wins: this never
+                    # replaces or reorders an existing call.
+                    if (not llm_result.get('tool')
+                            and not llm_result.get('tool_name')
+                            and isinstance(llm_result.get('message'), str)):
+                        try:
+                            _msg = llm_result['message']
+                            _contract = {}
+                            for _o in _iter_contract_objects(_msg):
+                                if 'all_done' in _o or 'system_errors' in _o:
+                                    _contract = _o
+                                    break
+                            _recips = [
+                                _r.strip() for _r in str(
+                                    ((state.get('prompt_refs') or {}).get('summary_emails') or '')
+                                ).replace(';', ',').split(',') if _r.strip()
+                            ]
+                            if _contract.get('all_done') is True and _recips:
+                                _errs = str(_contract.get('system_errors') or '').strip()
+                                _summary = str(_contract.get('work_summery') or '').strip()
+                                _subject = (
+                                    f"{skill_name or 'skill'}: "
+                                    + ("run failed" if _errs else "run finished")
+                                )
+                                _body = "\n\n".join(
+                                    p for p in (
+                                        _summary,
+                                        (f"System errors:\n{_errs}" if _errs else ""),
+                                    ) if p
+                                ) or "The run finished with nothing to report."
+                                llm_result['tool'] = [{
+                                    'tool_name': 'bu_send_email',
+                                    'tool_input': {
+                                        'to': _recips[0],
+                                        'cc': ','.join(_recips[1:]) if len(_recips) > 1 else None,
+                                        'subject': _subject,
+                                        'body_text': _body,
+                                    },
+                                }]
+                                llm_result['multi_tool_calls'] = 'serial'
+                                logger.warning(
+                                    f"[MCP Auto-Select] the agent ended the turn "
+                                    f"(all_done=true) without a handoff block; "
+                                    f"synthesising a bu_send_email to {_recips[0]}"
+                                    f"{' +%d cc' % (len(_recips) - 1) if len(_recips) > 1 else ''} "
+                                    f"so the run is not silent "
+                                    f"(errors={'yes' if _errs else 'no'})"
+                                )
+                        except Exception as _net_exc:
+                            logger.warning(
+                                f"[MCP Auto-Select] could not synthesise a report email "
+                                f"({_net_exc}); the turn will end without notifying anyone"
+                            )
                 except Exception as _bridge_exc:
                     logger.warning(
                         f"[MCP Auto-Select] Could not read an upstream node's final "
