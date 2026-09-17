@@ -587,10 +587,11 @@ UsePreviousAppDir=yes
 PrivilegesRequired={privileges_required}
 InternalCompressLevel={internal_compress_level}
 SetupIconFile=..\eCan.ico
-UninstallDisplayIcon={{app}}\eCan.exe
+UninstallDisplayIcon={run_target}
 CreateUninstallRegKey=yes
 AllowNoIcons=yes
 CloseApplications=yes
+CloseApplicationsFilter=qtwebengineprocess.exe,eCan.exe,eCan.cn.exe,python.exe,pythonw.exe
 RestartApplications=no
 VersionInfoVersion={file_version}
 WizardStyle=modern
@@ -708,6 +709,23 @@ end;
 
 // PrepareToInstall: Force close eCan processes to prevent MoveFile 183 errors
 // This is critical for both normal and silent installations
+//
+// Why BOTH variants get killed: a previous version of this function
+// detected CN vs intl by reading the installer filename from the wrong
+// constant — the temp-extraction-directory leaf instead of the
+// Setup.exe path itself. ``ExtractFileName`` on the wrong constant
+// returned the directory name (e.g. ``is-XXXXXX.tmp``), the
+// ``Pos('eCan.cn', ...) > 0`` branch was never taken, and CN users
+// got ``taskkill /F /IM eCan.exe`` — which kills nothing, because
+// their running process is ``eCan.cn.exe``. The file lock survives,
+// Inno Setup hits "DeleteFile failed; error code 5. 拒绝访问" on the
+// very first overwrite, and the OTA upgrade fails.
+//
+// We now read the installer filename from the Setup.exe path directly
+// so CN/Intl detection works, and kill BOTH variants as a belt-and-
+// suspenders safety net — at most one variant is actually running on
+// the same install dir, so the extra ``taskkill`` is a no-op for the
+// missing variant.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
@@ -718,23 +736,34 @@ begin
   Result := '';
   NeedsRestart := False;
 
-  // Determine the correct exe name to kill based on the installer filename
-  // CN version installer: eCan.cn-*-Setup.exe → process: eCan.cn.exe
-  // Intl version installer: eCan-*-Setup.exe → process: eCan.exe
-  InstallerFileName := ExtractFileName(ExpandConstant('{{src}}'));
+  // {{srcexe}} = Setup.exe path (e.g. ``C:\path\eCan.cn-1.0.0-windows-amd64-Setup.exe``).
+  // This is the Setup.exe path directly, not the temp extraction directory.
+  InstallerFileName := ExtractFileName(ExpandConstant('{{srcexe}}'));
   if Pos('eCan.cn', InstallerFileName) > 0 then
     AppExeName := 'eCan.cn.exe'
   else
     AppExeName := 'eCan.exe';
 
-  // Force terminate the current version's process to release file locks
-  // This prevents MoveFile error 183 (file already exists and cannot be overwritten)
-  // We ONLY kill the matching version to avoid affecting other installed versions
+  // Force terminate the current version's process to release file locks.
+  // This prevents MoveFile error 183 (file already exists and cannot
+  // be overwritten) and Inno Setup "DeleteFile failed; error code 5"
+  // on subsequent file copies. We also kill the OTHER variant —
+  // harmless if not present, and it covers the case where the user's
+  // app_dir was installed by a different variant of the installer
+  // (e.g. an admin-level eCan.cn.exe coexisting with a portable
+  // eCan.exe).
   RetryCount := 0;
   while RetryCount < 3 do
   begin
-    // Kill the correct exe for this installer
+    // Kill the matched variant (this also kills QtWebEngineProcess
+    // children thanks to ``/T``).
     Exec('taskkill.exe', '/F /IM ' + AppExeName + ' /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // Belt-and-suspenders: kill the OTHER variant too. If neither
+    // variant matches, taskkill exits non-zero and we ignore it.
+    if AppExeName = 'eCan.cn.exe' then
+      Exec('taskkill.exe', '/F /IM eCan.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+    else
+      Exec('taskkill.exe', '/F /IM eCan.cn.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     // Also kill Python processes that may hold handles to certifi/cacert.pem
     // (Python SSL context opens certifi's cacert.pem; python.exe/pythonw.exe
     //  are not in the eCan.exe process tree but hold the same file handles)
@@ -822,7 +851,15 @@ begin
 end;
 
 [Run]
-Filename: "{run_target}"; Description: "{cm_launch_program}"; Flags: nowait postinstall skipifsilent
+; CRITICAL: do NOT use skipifsilent here. Inno Setup's docs say
+; "skipifsilent: Instructs Setup to skip this entry if Setup is
+; running (very) silent" — the previous template included this
+; flag, which meant OTA /SILENT installs replaced the files but
+; NEVER auto-launched the new exe, so users saw a silent install
+; complete and then had to manually find and launch the app.
+; ``nowait postinstall`` is enough: it runs after a successful
+; install and lets the wizard continue without waiting.
+Filename: "{run_target}"; Description: "{cm_launch_program}"; Flags: nowait postinstall
 """
 
             iss_file = self.project_root / "build" / "setup.iss"

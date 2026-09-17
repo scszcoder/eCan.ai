@@ -2,18 +2,34 @@
 # -*- coding: utf-8 -*-
 
 import json
+import os
 import re
 import time
 from pathlib import Path
 from typing import Any, Optional
 
 from config.app_info import app_info
+from .installer import safe_makedirs
 
 
 _STATE_FILE_NAME = "ota_install_state.json"
 _DOWNLOAD_DIR_NAME = "ota_downloads"
+# Match installer filenames emitted by ``build_system/ecan_build.py``. The
+# pattern covers both variants:
+#   * INTL:  ``eCan-{ver}-{platform}-{arch}-{setup}.exe``
+#   * CN:    ``eCan.cn-{ver}-{platform}-{arch}-{setup}.exe``
+#
+# The CN ``.cn`` suffix MUST be optional in the pattern; otherwise the
+# lazy version capture consumes ``.cn-1.0.0`` as the "version" and
+# ``_numeric_version_key`` ends up comparing only the trailing digits
+# (``1.0.0``) — which happens to be right for ``1.0.0`` ↔ ``1.0.0`` but
+# silently breaks for any version with extra channel/build suffixes
+# (e.g. ``1.0.0-rc1`` → parsed as ``.cn-1.0.0-rc1`` → numeric key
+# ``(1, 0, 0, 1)`` instead of ``(1, 0, 0)``). See
+# ``tests/unit/test_ota_path_safety.py::TestInstallerFilenameRegex`` for
+# the regression test pinning this.
 _INSTALLER_VERSION_RE = re.compile(
-    r"^ecan-(?P<version>.+?)-(?:windows|macos|darwin|linux)(?:[-_].*)?$",
+    r"^ecan(?:\.cn)?-(?P<version>.+?)-(?:windows|macos|darwin|linux)(?:[-_].*)?$",
     re.IGNORECASE,
 )
 
@@ -26,6 +42,56 @@ def _get_download_dir_path() -> Path:
     return Path(app_info.appdata_path) / _DOWNLOAD_DIR_NAME
 
 
+def _atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
+    """Write ``content`` to ``path`` atomically.
+
+    The naive ``path.write_text(...)`` opens the destination file for
+    writing and truncates it before the new bytes are flushed. If the
+    process is killed (power loss, OOM kill, ``kill -9``, blue-screen)
+    between the truncate and the flush, the destination file is left
+    partially written or empty — which ``read_pending_install_state``
+    then interprets as "no state file", silently dropping the install
+    record and (much worse) preventing ``confirm_pending_install_result``
+    from running its cleanup branch.
+
+    The fix: write to a sibling temp file, fsync it, then ``os.replace``
+    the temp file onto the destination. ``os.replace`` is atomic on
+    POSIX (a single ``rename(2)`` syscall) and on Windows
+    (``MoveFileEx`` with ``MOVEFILE_REPLACE_EXISTING``), so observers
+    always see either the previous fully-written state file or the new
+    fully-written one — never a torn half-written file.
+    """
+    path = Path(path)
+    parent = path.parent
+    safe_makedirs(parent, purpose="OTA state file")
+
+    # ``delete=False`` + manual cleanup so a crash between temp-file
+    # write and rename leaves a ``.partial`` file we can sweep on the
+    # next startup rather than a phantom zero-byte state file.
+    fd, tmp_name = None, None
+    try:
+        fd = os.open(
+            str(parent / f".{path.name}.partial"),
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+            0o600,  # user-only on POSIX; harmless on Windows
+        )
+        try:
+            os.write(fd, content.encode(encoding))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+            fd = None
+        os.replace(str(parent / f".{path.name}.partial"), str(path))
+    except Exception:
+        # Best-effort cleanup of the temp file so we don't accumulate
+        # half-written ghosts across many OTA flows.
+        try:
+            (parent / f".{path.name}.partial").unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+
+
 def write_pending_install_state(target_version: str, package_path: str, logger=None, target_version_core: str = "") -> Path:
     state_path = _get_state_file_path()
     payload = {
@@ -34,8 +100,11 @@ def write_pending_install_state(target_version: str, package_path: str, logger=N
         'package_path': str(package_path or '').strip(),
         'created_at': int(time.time()),
     }
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+    _atomic_write_text(
+        state_path,
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     if logger:
         logger.info(f"[OTA] Pending install state written: {state_path} -> target_version={payload['target_version']}")
     return state_path
@@ -53,6 +122,32 @@ def read_pending_install_state(logger=None) -> Optional[dict[str, Any]]:
     except Exception as e:
         if logger:
             logger.warning(f"[OTA] Failed to read pending install state: {e}")
+        # Don't leave a corrupt state file lying around — the next
+        # OTA cycle would re-read it, hit the same JSON error, and
+        # the user would see repeated warnings with no remediation.
+        # Quarantine to ``.<name>.corrupt-<ts>`` for postmortem and
+        # clear the active slot so the cleanup path can run.
+        try:
+            quarantine = state_path.with_name(
+                f".{state_path.name}.corrupt-{int(time.time())}"
+            )
+            state_path.replace(quarantine)
+            if logger:
+                logger.warning(
+                    f"[OTA] Corrupt state file quarantined to {quarantine} "
+                    f"so subsequent reads return None and cleanup runs"
+                )
+        except Exception as move_err:
+            if logger:
+                logger.warning(
+                    f"[OTA] Failed to quarantine corrupt state file "
+                    f"{state_path}: {move_err}"
+                )
+            # Last resort: try to delete it outright.
+            try:
+                state_path.unlink(missing_ok=True)
+            except Exception:
+                pass
     return None
 
 
@@ -258,20 +353,15 @@ def handle_pending_install_cleanup(current_version: str, logger=None) -> Optiona
         return result
 
     package_path_raw = str(payload.get('package_path') or '').strip()
-    if not package_path_raw:
-        if logger:
-            logger.info("[OTA] No package_path recorded in pending install state; nothing to clean up")
-        clear_pending_install_state(logger=logger)
-        return True
-
-    package_path = Path(package_path_raw)
+    package_path: Optional[Path] = Path(package_path_raw) if package_path_raw else None
     cleaned_count = 0
     cleaned_size = 0
     failed_count = 0
-    if not package_path.exists():
+    if package_path is not None and not package_path.exists():
         if logger:
             logger.info(f"[OTA] Downloaded installer already absent, no cleanup needed: {package_path}")
-    else:
+        package_path = None  # nothing to unlink; treat like the unknown case below
+    elif package_path is not None:
         ok, size = _unlink_file_with_retry(package_path, logger=logger)
         if ok:
             cleaned_size += size
@@ -284,15 +374,34 @@ def handle_pending_install_cleanup(current_version: str, logger=None) -> Optiona
     download_dir = _get_download_dir_path()
     try:
         if download_dir.exists() and download_dir.is_dir():
-            package_path_resolved = package_path.resolve(strict=False)
+            # Pre-resolve so the "skip the package we just deleted" check
+            # works even when the package_path no longer exists on disk
+            # (``.resolve(strict=False)`` returns the canonical path
+            # without requiring the file to be present).
+            package_path_resolved: Optional[Path] = None
+            if package_path is not None:
+                try:
+                    package_path_resolved = package_path.resolve(strict=False)
+                except Exception:
+                    package_path_resolved = None
             for child in download_dir.iterdir():
                 if not child.is_file():
                     continue
-                try:
-                    if child.resolve(strict=False) == package_path_resolved:
-                        continue
-                except Exception:
-                    pass
+                # Skip partial / quarantine files left by earlier crashes
+                # — those are managed by the partial-file sweeper, not
+                # the install cleanup. Deleting them here would mask the
+                # original failure mode.
+                if child.name.startswith("."):
+                    continue
+                # Skip the package we already deleted above. Compare by
+                # resolved path so symlinks and ``..`` components don't
+                # cause a false mismatch.
+                if package_path_resolved is not None:
+                    try:
+                        if child.resolve(strict=False) == package_path_resolved:
+                            continue
+                    except Exception:
+                        pass
                 ok, size = _unlink_file_with_retry(child, logger=logger)
                 if ok:
                     cleaned_size += size

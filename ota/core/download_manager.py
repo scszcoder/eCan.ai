@@ -5,10 +5,83 @@ OTA Download Manager - Global download state management
 Manages download progress and state across the application
 """
 
+import os as _os
 from typing import Optional, Callable, Dict, Any
-from PySide6.QtCore import QObject, Signal
+
+# PySide6 is OPTIONAL here. The download manager is a singleton that's
+# touched by both:
+#   * GUI code (Qt slots / signals for live progress in UpdateDialog)
+#   * Headless installer code (ota.core.installer calls
+#     ``download_manager.set_installing(True)`` to suppress the
+#     "are you sure you want to exit?" prompt while Inno Setup is
+#     waiting for the process to die).
+#
+# When PySide6 is missing — every CI runner, every lightweight
+# unit-test environment — we still need the installer's flag calls to
+# work. We therefore:
+#   1. Make the ``QObject`` inheritance conditional: subclass
+#      ``QObject`` only when PySide6 is importable, otherwise fall
+#      back to a plain ``object`` whose ``Signal`` attributes become
+#      inert ``_OtaSignal`` instances that swallow ``.connect`` /
+#      ``.emit`` calls.
+#   2. The plain ``object`` subclass keeps the same public method
+#      surface (``set_installing``, ``is_installing``, ``reset``,
+#      state attributes) so the installer's non-Qt code path is
+#      unchanged.
+#
+# This unblocks ``ota.core.installer`` (and all tests that exercise
+# it, e.g. ``tests/unit/test_ota_path_safety.py``) from running in
+# CI without PySide6 — which is the canonical regression case from
+# Bug 2026-09-16 where the test suite crashed at collection time
+# because ``ota.core.installer`` pulled PySide6 through its
+# ``ota.gui.i18n`` import (since fixed by moving i18n out of ota.gui/).
+try:
+    from PySide6.QtCore import QObject as _QObjectBase
+    _PYSIDE_AVAILABLE = True
+except ImportError:  # pragma: no cover - exercised by CI without PySide6
+    _PYSIDE_AVAILABLE = False
+
+    class _QObjectBase:  # type: ignore[no-redef]
+        """Minimal stand-in for ``QObject`` when PySide6 is unavailable.
+
+        Qt-specific methods (``__getattr__`` for dynamic props, signal
+        routing, etc.) are not needed by the non-GUI call sites — only
+        the constructor and ``super().__init__()`` chain are.
+        """
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class _OtaSignal:
+        """Inert signal stand-in.
+
+        ``UpdateDialog`` connects Qt signals with ``.connect(slot)``
+        and emits via ``.emit(*args)``. In headless mode neither call
+        site is reached, but to be defensive we keep both methods
+        well-defined so accidental non-GUI calls don't crash.
+        """
+        def __init__(self, *args, **kwargs):
+            self._args = args
+
+        def connect(self, *args, **kwargs):
+            return None
+
+        def disconnect(self, *args, **kwargs):
+            return None
+
+        def emit(self, *args, **kwargs):
+            return None
+
+
+def _maybe_signal(*signature):
+    """Return a real Qt ``Signal`` if PySide6 is available, else an inert one."""
+    if _PYSIDE_AVAILABLE:
+        from PySide6.QtCore import Signal  # local import — bound to current frame
+        return Signal(*signature)
+    return _OtaSignal(*signature)
+
+
 from utils.logger_helper import logger_helper as logger
-from ota.gui.i18n import get_translator
+from ota.i18n import get_translator
 
 # Get translator instance
 _tr = get_translator()
@@ -25,26 +98,33 @@ class DownloadState:
     CANCELLED = "cancelled"
 
 
-class DownloadManager(QObject):
-    """Global download manager - Singleton pattern"""
-    
+class DownloadManager(_QObjectBase):
+    """Global download manager - Singleton pattern
+
+    Inherits from ``QObject`` when PySide6 is available so that
+    ``state_changed``, ``progress_updated`` and ``download_completed``
+    are real Qt signals the GUI can ``.connect()`` to. In a headless
+    test/CI environment those become inert ``_OtaSignal`` stand-ins
+    that no-op ``.connect`` / ``.emit`` calls.
+    """
+
     # Signals for download state changes
-    state_changed = Signal(str)  # state
-    progress_updated = Signal(int, str, str)  # progress%, speed, remaining_time
-    download_completed = Signal(bool, str)  # success, message
-    
+    state_changed = _maybe_signal(str)  # state
+    progress_updated = _maybe_signal(int, str, str)  # progress%, speed, remaining_time
+    download_completed = _maybe_signal(bool, str)  # success, message
+
     _instance = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
         if self._initialized:
             return
-        
+
         super().__init__()
         self._initialized = True
         
