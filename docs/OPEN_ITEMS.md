@@ -114,6 +114,42 @@ STILL OPEN, and the underlying cause: **no `bu_*` tool is in
 `tool_function_mapping`** — zero of them, so the whole browser-use extension
 family is invisible to MCP nodes.
 
+### Platform-purity regression: a live-chat hook ran during an eBay run (2026-09-17)
+
+`agent/chats/wan_a2a_chat.py` registered the live-chat page-refresh handler
+unconditionally, on a WAN-connectivity callback. The bundle's bridge exists
+whenever a live-chat bundle is IMPORTABLE -- which it is as soon as any
+live-chat skill sits in the workspace, running or not -- so the handler
+registered on every app start and fired on every WAN flap, for every customer.
+
+Seen during an eBay AdsPower run with nothing live-chat about it:
+
+    [wan_a2a:TCB] WebSocket closed normally   x5
+    [feige_page_refresh] no Feige tab in browser; operator may have closed it
+    [feige_page_refresh] ... (again, 67s later)
+
+It reached into `cached_browser_sessions` -- its own comment says "any session
+that's open will do" -- and walked the shared cache, including the eBay
+AdsPower session, before deciding there was no live-chat tab and skipping.
+Site-specific code touching a SHARED structure mid-run is exactly what the
+2026-08-02 bundle split exists to prevent, and the enforcement grep in
+`feedback_keep_core_general_feige_in_hooks` does not catch it because the
+module is correctly quarantined -- it is the REGISTRATION that leaked onto a
+platform path.
+
+Fixed: registration is now opt-in via `ECAN_LIVE_CHAT_PAGE_REFRESH`, resolved
+through `live_chat_dispatch.live_chat_env()` which already aliases a bundle's
+legacy `ECAN_<SITE>_PAGE_REFRESH` spelling.
+
+**BEHAVIOUR CHANGE for live-chat deployments:** unset now means OFF where it
+previously meant ON. A deployment that already sets `ECAN_FEIGE_PAGE_REFRESH=1`
+is unaffected; one relying on the default-on must now set it explicitly.
+
+NOT established: whether this contributed to the worker-thread handoff stall
+observed in the same run. It logged "skipping" and runs on its own thread, but
+it does enumerate the same shared session cache the stalled handoff uses, so
+it was worth removing from the picture before investigating that.
+
 ### qwen3.7-plus follows the output contract but not the handoff block (2026-09-17)
 
 Five runs of the SAME prompt against the SAME broken proxy, changing nothing

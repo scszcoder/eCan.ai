@@ -366,9 +366,32 @@ async def wan_a2a_subscribe(
     if mainwin is not None:
         try:
             from agent.ec_skills import live_chat_dispatch
-            # Bridge is None when no live-chat bundle is loaded ->
-            # AttributeError -> same skip path as the old lazy import.
-            live_chat_dispatch.runner_bridge().page_refresh.register_if_needed(mainwin)
+            # OPT-IN. The bridge exists whenever a live-chat bundle is
+            # IMPORTABLE — which it is as soon as any live-chat skill sits in
+            # the workspace, running or not. So this used to register on every
+            # app start and then fire on every WAN flap, for every customer.
+            #
+            # 2026-09-17: during an eBay AdsPower run (nothing to do with live
+            # chat) the handler woke on a WAN reconnect and walked
+            # `cached_browser_sessions` — "any session that's open will do" —
+            # before concluding there was no live-chat tab and skipping. That
+            # is site-specific code touching a SHARED structure mid-run, which
+            # is exactly what the bundle split exists to prevent.
+            #
+            # Gate on the platform-neutral knob; live_chat_env() already
+            # resolves a bundle's legacy ECAN_<SITE>_PAGE_REFRESH spelling, so
+            # an existing deployment that sets ECAN_FEIGE_PAGE_REFRESH=1 keeps
+            # working unchanged. BEHAVIOUR CHANGE: unset now means OFF, where
+            # it previously meant ON.
+            _pr_flag = live_chat_dispatch.live_chat_env("ECAN_LIVE_CHAT_PAGE_REFRESH")
+            if str(_pr_flag or "").strip().lower() in ("1", "true", "yes", "on"):
+                live_chat_dispatch.runner_bridge().page_refresh.register_if_needed(mainwin)
+            else:
+                logger.debug(
+                    "[wan_a2a] live-chat page-refresh not registered: "
+                    "ECAN_LIVE_CHAT_PAGE_REFRESH (or a site alias) is not set. "
+                    "Set it to 1 on live-chat deployments."
+                )
         except Exception as _reg_err:
             logger.debug(
                 f"[wan_a2a] page-refresh registration skipped: "
