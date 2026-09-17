@@ -1,7 +1,13 @@
 # Browser-Automation on AdsPower (CN) Post-Mortem
 
-**Status: RUNNING** — the node drives real eBay Seller Hub pages, the model
-reads them correctly, and it walks the prompt's priority queue on its own.
+**Status: SOLVED (failure path), 2026-09-17** — tag `v0.9.97x`. The node drives
+real eBay Seller Hub pages, the model reads them correctly, walks the prompt's
+priority queue, and a blocking fault now reaches the seller by email. The
+SUCCESS path (labels downloaded, renamed, reformatted, printed) has never run —
+it needs a working proxy and real orders.
+
+For how to BUILD one of these rather than how this one broke, see
+`FLOWGRAM_SKILL_LESSONS.md`.
 Client fixes in commit `488ce5ce5`, tag `v0.9.97w` (2026-09-16); the blocking
 server fix is `llm_proxy 1243d05`. The CloudBase payload cap (§7) is solved by the
 per-node action filter. Nothing that blocked this all day was ever the model.
@@ -317,3 +323,49 @@ denser page for no reason now that the schema fix freed ~59KB.
       same index (6561) three steps running while observing "did not navigate",
       and would have burned all 15 steps. Prompt-level fix (prefer `navigate` to
       a known URL over clicking nav links) plus possibly a repeat-action guard.
+
+---
+
+## 11. Final tally (2026-09-17)
+
+43 commits between `v0.9.97w` and `v0.9.97x`; 21 files, +2386/-60.
+By area: mcp 13, skill-editor 6, open-items 6, build 3, browser 3, skills 2,
+llm-proxy 2, email 2, prompts 1, platform 1.
+
+**Every layer between the model and the inbox was broken, and none of it was
+the model.** In order of discovery:
+
+| # | Layer | Fix |
+|---|---|---|
+| 1 | 30s screenshot inside `_prepare_context`, before any model call | suppress when vision is off |
+| 2 | `browser_use_settings.json` had no runtime reader | `apply_browser_use_event_timeouts()` |
+| 3 | Three separate causes of an empty error message | logger tree, `httpx.TimeoutException`, traceback at the call site |
+| 4 | eCanAI's empty `supported_models` blanked the node's model | empty list means "ask the endpoint" |
+| 5 | `403 user_not_registered` | **server**: `.toLowerCase()` on a mixed-case openid |
+| 6 | `402 insufficient_balance` | top-up (not a bug) |
+| 7 | `413` — 66KB of tool schema per step | per-node action filter, 57 → 13 |
+| 8 | Loop never exited | prompt: empty board is `all_done: true` |
+| 9 | Agent's `all_done` never reached `llm_result` | propagate flags at the result-write site |
+| 10 | Browser output never reached the MCP node | bridge from `tool_result` |
+| 11 | Handoff wrapper parsed, then discarded | lift into structured fields, drop `message` |
+| 12 | Guard bailed before the multi-tool executor | exclude multi-tool mode |
+| 13 | `bu_send_email` not in `tool_function_mapping` | call `send_email` instead |
+| 14 | Tools reported success while failing | treat error text as failure |
+| 15 | `InvalidTemplateID` | **server**: SES template |
+| 16 | `cc` dropped, then sent as the wrong type | backfill at dispatch, as an array |
+| 17 | A live-chat hook ran during an eBay run | gate the registration |
+| 18 | deepseek could not do structured output | native tool-calling, thinking disabled |
+
+Two of eighteen were server-side. Roughly half of the rest were **diagnostic**
+failures rather than logic failures — an empty message, a logger writing
+nowhere, a silent no-op, two false successes. Those cost more time than the
+actual defects, which is the single most useful thing to take from this.
+
+### Measured
+
+- Browser state build: **30.0s → 0.0s** per step (screenshot suppressed)
+- Request body: **~107KB → ~48KB** (schema 66.2 → 6.8KB via the action filter)
+- Steps to diagnose a dead proxy: qwen3.7-plus 3–6, deepseek-v4-flash **1**
+- LLM latency: qwen3.7-plus 8–16s, deepseek-v4-flash **2–9s**
+- Handoff-block compliance: **~50%** on both models — hence the code fallback
+- deepseek structured output: 400 on every shape until `thinking: disabled`
