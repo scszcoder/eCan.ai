@@ -7125,6 +7125,53 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                         _pos = _adv
                                         _tools = _obj.get('tool') if isinstance(_obj, dict) else None
                                         if isinstance(_tools, list) and _tools:
+                                            # Backfill the report cc from
+                                            # summary_emails. 2026-09-17: the
+                                            # model emitted `"cc": []` and the
+                                            # second configured recipient was
+                                            # silently left off the report —
+                                            # gmail got it, yahoo did not. The
+                                            # skill declares who should be told;
+                                            # an empty cc is a gap, not a
+                                            # decision, and prompt compliance on
+                                            # this block runs about half.
+                                            # Only fills when EMPTY, so a cc the
+                                            # model did choose is never touched.
+                                            try:
+                                                _all_r = [
+                                                    _r.strip() for _r in str(
+                                                        ((state.get('prompt_refs') or {})
+                                                         .get('summary_emails') or '')
+                                                    ).replace(';', ',').split(',') if _r.strip()
+                                                ]
+                                                if len(_all_r) > 1:
+                                                    for _tc in _tools:
+                                                        if not isinstance(_tc, dict):
+                                                            continue
+                                                        if _tc.get('tool_name') != 'send_email':
+                                                            continue
+                                                        _ti = _tc.get('tool_input')
+                                                        if not isinstance(_ti, dict):
+                                                            continue
+                                                        _inner = (_ti.get('input')
+                                                                  if isinstance(_ti.get('input'), dict)
+                                                                  else _ti)
+                                                        if _inner.get('cc'):
+                                                            continue
+                                                        _to = str(_inner.get('to') or '').strip()
+                                                        _rest = [r for r in _all_r if r != _to]
+                                                        if _rest:
+                                                            _inner['cc'] = ','.join(_rest)
+                                                            logger.info(
+                                                                f"[MCP Auto-Select] send_email cc was "
+                                                                f"empty; backfilled from summary_emails "
+                                                                f"-> {_inner['cc']}"
+                                                            )
+                                            except Exception as _cc_exc:
+                                                logger.warning(
+                                                    f"[MCP Auto-Select] could not backfill cc "
+                                                    f"({_cc_exc}); sending without it"
+                                                )
                                             llm_result['tool'] = _tools
                                             llm_result['multi_tool_calls'] = (
                                                 _obj.get('multi_tool_calls') or 'serial'
