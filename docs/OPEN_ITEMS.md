@@ -39,6 +39,24 @@ Steps 1+2 take ~11k → ~6.5k; step 3 makes most of the remainder cacheable.
 record logs `'prompt_tokens_details': None`. Test by sending an identical prompt
 twice inside a minute and checking for a non-null `cached_tokens`.
 
+### Skill-editor canvas keeps showing a node as "running" after a run ends (2026-09-17)
+
+A node's running indicator never clears when the run ends without a completion
+event for that node -- a failed node, an aborted graph, or a node the graph
+never reached. The badge then sits on the canvas indefinitely and reads exactly
+like a live run.
+
+Observed 2026-09-17: the canvas showed the running man on the trailing MCP node
+(`mcp_sN5l7`) while the backend had executed NOTHING in that session -- zero
+`Executing node`, zero `astream_run`, zero `[BA._auto] dispatch` in the whole
+log. The only canvas activity was `SmartLinesPlugin` patching edges, i.e.
+drawing the diagram. The stale badge was left over from the previous run, whose
+browser node returned `success: False`.
+
+Cost: it is indistinguishable from a real run, so you reason about a run that
+never happened. Fix by clearing per-node run state when a run terminates for any
+reason (not just success), and on canvas load.
+
 ### Terminal llm-proxy errors do not stop the agent loop (2026-09-16)
 
 `insufficient_balance` (402) and `EXCEED_MAX_PAYLOAD_SIZE` (413) cannot change
