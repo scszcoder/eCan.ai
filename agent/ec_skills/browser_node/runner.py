@@ -260,6 +260,11 @@ class RunContext:
 
     # ── Event monitor configs (1) ───────────────────────────────
     event_monitor_configs: list = field(default_factory=list)
+    # Per-node tool filter (see _filter_controller_actions). Defaulted, so they
+    # live at the END of the dataclass: a defaulted field before a required one
+    # is a TypeError at class creation.
+    node_allowed_actions: Any = None
+    node_excluded_actions: Any = None
 
     # Phase 6.7 (2026-04-24) dropped 18 fields:
     #   * 9 helpers — now in browser_node/build_helpers.py
@@ -3827,6 +3832,94 @@ def _trace_llm_calls(llm, provider: str, model: str):
 _vision_box = [True]
 
 
+class _FilteredTools:
+    """A per-node view of a Tools/Controller: our registry, everything else theirs.
+
+    Deliberately NOT a copy. ``copy.copy`` on the Controller recurses without
+    bound (measured: RecursionError), and mutating the shared object is worse —
+    ``custom_controller`` is a module-level singleton and
+    ``Registry.exclude_action()`` deletes permanently, so one node's filter
+    would strip tools from every other node for the rest of the process.
+
+    Only ``registry`` is overridden, which is what the Agent reads to build the
+    action schema (``tools.registry.create_action_model()``). Everything else —
+    action EXECUTION included — delegates to the original object and therefore
+    still sees the full set. That is intentional: the schema decides what the
+    model may ask for, so a narrower schema is sufficient, and execution keeps
+    working if something asks for an action by name anyway.
+    """
+
+    def __init__(self, base, registry):
+        object.__setattr__(self, "_base", base)
+        object.__setattr__(self, "registry", registry)
+
+    def __getattr__(self, name):
+        return getattr(object.__getattribute__(self, "_base"), name)
+
+
+def _filter_controller_actions(controller, allowed, excluded, node_name: str = ""):
+    """Restrict the actions a node exposes to the model.
+
+    Every registered action is serialized into ``output_schema`` on EVERY step.
+    Measured 2026-09-16: 57 actions = 66.4KB of a 107KB request body, against
+    CloudBase's ~100KB cap — so an eBay node was 413'ing largely on the schema
+    for live-chat and file tools it will never call. Trimming the action set is
+    worth far more than trimming the DOM (which was only 17.7KB of the same
+    body).
+
+    ``done`` is always kept: the Agent builds its terminal output model with
+    ``create_action_model(include_actions=['done'])`` and cannot finish without
+    it. ``allowed=None`` and ``excluded=None`` mean no filtering, the default.
+    """
+    if not allowed and not excluded:
+        return controller
+    try:
+        from browser_use.tools.registry.service import Registry
+        from browser_use.tools.registry.views import ActionRegistry
+
+        base_registry = controller.registry
+        original = dict(base_registry.registry.actions)
+
+        keep_names = set(allowed) if allowed else set(original)
+        if excluded:
+            keep_names -= set(excluded)
+        keep_names.add("done")
+
+        kept = {name: act for name, act in original.items() if name in keep_names}
+        if not kept:
+            logger.warning(
+                f"[BrowserAutomation] action filter would remove EVERY action "
+                f"(node={node_name}); ignoring it"
+            )
+            return controller
+
+        unknown = sorted(n for n in keep_names if n not in original)
+        if unknown:
+            logger.warning(
+                f"[BrowserAutomation] action filter names unknown actions "
+                f"(node={node_name}): {unknown}"
+            )
+
+        new_registry = Registry()
+        new_registry.registry = ActionRegistry(actions=kept)
+        try:
+            new_registry.exclude_actions = list(base_registry.exclude_actions)
+        except Exception:
+            pass
+
+        logger.info(
+            f"[BrowserAutomation] action filter: {len(original)} -> {len(kept)} actions "
+            f"(node={node_name}); kept={sorted(kept)}"
+        )
+        return _FilteredTools(controller, new_registry)
+    except Exception as exc:
+        logger.warning(
+            f"[BrowserAutomation] action filter failed ({exc}); using the full tool set",
+            exc_info=True,
+        )
+        return controller
+
+
 def _trace_browser_state(browser_session, use_vision: bool = True):
     """Time every ``get_browser_state_summary`` and name what killed it.
 
@@ -5124,7 +5217,12 @@ class BrowserRunSession:
             browser_scope_key=browser_scope_key,
         )
 
-        controller = custom_controller
+        controller = _filter_controller_actions(
+            custom_controller,
+            self.ctx.node_allowed_actions,
+            self.ctx.node_excluded_actions,
+            node_name=self.ctx.node_name,
+        )
 
         # Use unified agent configuration for consistency across local and cloud modes.
         from agent.ec_skills.browser_use_extension.agent_config import get_agent_kwargs_with_compaction

@@ -166,11 +166,73 @@ class ChatLambdaProxy(BaseChatModel):
         url = self.lambda_endpoint.rstrip('/') + _CHAT_PATH
         headers = self._build_headers()
         # One line that answers "did the call even go out, and to where".
+        # Payload BYTES, not just message count: CloudBase's gateway rejects an
+        # oversized body with 413 EXCEED_MAX_PAYLOAD_SIZE before llm_proxy ever
+        # runs, and "messages=2" says nothing about how close we are to that
+        # ceiling. A real eBay Seller Hub page (3343 DOM nodes) tripped it on
+        # 2026-09-16 while a 107-node splash page sailed through; without a
+        # measurement there is no way to size domLimit except by guessing.
+        try:
+            _payload_bytes = len(json.dumps(payload, ensure_ascii=False).encode('utf-8'))
+        except Exception:
+            _payload_bytes = -1
         logger.info(
             f"[ChatLambdaProxy] POST {url} provider={self.provider_name} model={self.model} "
-            f"messages={len(serialized_messages)} structured={bool(output_format)} "
+            f"messages={len(serialized_messages)} payload={_payload_bytes / 1024:.1f}KB "
+            f"structured={bool(output_format)} "
             f"timeout={self.timeout}s auth={'yes' if headers.get('Authorization') else 'NO'}"
         )
+        # Per-message breakdown when the body is big enough to matter. Capping
+        # the DOM (domLimit 25000 -> 8000) did not move a 107KB payload by a
+        # single byte on 2026-09-16, which means the clickable-element list was
+        # never the bulk of it. Naming the actual offender beats guessing at
+        # another knob.
+        if _payload_bytes > 64 * 1024:
+            try:
+                # Schema first: on 2026-09-16 a 107KB body split as ~1KB of
+                # messages and the rest output_schema (the browser-use action
+                # model). structured=True was 107KB and 413'd; structured=False
+                # was 1KB and passed, every single time. Capping the DOM moved
+                # the number by zero bytes, because the DOM was never the bulk.
+                _schema_kb = 0.0
+                if payload.get('output_schema') is not None:
+                    _schema_kb = len(json.dumps(
+                        payload['output_schema'], ensure_ascii=False).encode('utf-8')) / 1024
+                _msgs_kb = len(json.dumps(
+                    serialized_messages, ensure_ascii=False).encode('utf-8')) / 1024
+                logger.info(
+                    f"[ChatLambdaProxy] payload split: output_schema={_schema_kb:.1f}KB "
+                    f"messages={_msgs_kb:.1f}KB"
+                )
+                # Which actions actually cost the bytes. 56 ActionModels ->
+                # 66.4KB means ~1.2KB each, so the question is which families
+                # are attached that this node will never call.
+                _sch = payload.get('output_schema') or {}
+                _dd = _sch.get('$defs', _sch.get('definitions', {})) or {}
+                _sizes = sorted(
+                    ((len(json.dumps(v, ensure_ascii=False)), k) for k, v in _dd.items()),
+                    reverse=True,
+                )
+                _top = ' '.join(f"{k}={n / 1024:.1f}KB" for n, k in _sizes[:12])
+                logger.info(
+                    f"[ChatLambdaProxy] schema defs={len(_dd)} "
+                    f"total={sum(n for n, _ in _sizes) / 1024:.1f}KB top: {_top}"
+                )
+                _parts = []
+                for _i, _m in enumerate(serialized_messages):
+                    _c = _m.get('content') if isinstance(_m, dict) else None
+                    if isinstance(_c, list):  # multimodal parts
+                        _n = sum(len(json.dumps(_p, ensure_ascii=False)) for _p in _c)
+                    else:
+                        _n = len(_c or '') if isinstance(_c, str) else len(
+                            json.dumps(_c, ensure_ascii=False))
+                    _parts.append(
+                        f"[{_i}]{(_m.get('role') if isinstance(_m, dict) else '?')}"
+                        f"={_n / 1024:.1f}KB"
+                    )
+                logger.info(f"[ChatLambdaProxy] payload breakdown: {' '.join(_parts)}")
+            except Exception as _bd_exc:
+                logger.debug(f"[ChatLambdaProxy] breakdown failed: {_bd_exc}")
 
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 1):

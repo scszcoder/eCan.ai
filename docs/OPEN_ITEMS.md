@@ -4,11 +4,58 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-09-04_
+_Last updated: 2026-09-16_
 
 ---
 
 ## 🔴 Bugs (unfixed)
+
+### Terminal llm-proxy errors do not stop the agent loop (2026-09-16)
+
+`insufficient_balance` (402) and `EXCEED_MAX_PAYLOAD_SIZE` (413) cannot change
+mid-run, yet browser-use retried each 5-6 times -- 12 real HTTP round-trips for
+one unchanging answer, and 6 identical error lines instead of one actionable
+message. `agent/ec_skills/llm_utils/proxy_errors.py` already documents the rule
+("the balance only moves via top-up, so callers must not retry") and
+`ChatLambdaProxy` honours it (retries 5xx only); the browser-use failure loop
+above it does not. Needs a terminal-error signal the agent loop respects.
+
+### Action schema dominates the llm-proxy request body (2026-09-16)
+
+Measured split of a 107KB body: `output_schema=66.4KB messages=40.7KB`, i.e.
+**62% is the tool schema** -- 57 registered actions at ~1.2KB each, serialized on
+EVERY step. The page was only 17.7KB of it. CloudBase's gateway caps the body at
+~100KB, so this 413'd.
+
+Fixed for the eBay node by the new per-node action filter (`allowedActions` /
+`excludedActions`): 57 -> 10 actions, schema 66.2KB -> 6.8KB, body -> ~48KB.
+See `BROWSER_AUTOMATION_ADSPOWER_POSTMORTEM.md` §7.
+
+Still open:
+- Every OTHER browser node still ships all 57 actions and pays ~66KB per step in
+  both payload and input tokens. Roll the filter out.
+- `allowedActions` / `excludedActions` have no node-editor field yet; they can
+  only be set by editing the skill bundle JSON.
+- The ~100KB cap itself still stands for any node that genuinely needs many
+  tools.
+
+### browser_use_settings.json `browserSessionSettings` is still unread (2026-09-16)
+
+`agentSettings.eventTimeouts` now reaches the runtime via
+`apply_browser_use_event_timeouts()`, but `browserSessionSettings` (headless,
+wait_* timings, highlight_elements, keep_alive...) still has no consumer -- the
+Settings page writes knobs that change nothing.
+
+### Cloud SDL gaps surfacing on every skill/task sync (2026-09-16)
+
+- `SkillUpdateInput` has no `need_inputs`, so every skill sync fails with
+  `Field "need_inputs" is not defined by type "SkillUpdateInput"` -- this is the
+  client-side prompt-variable feature having nowhere to land.
+- `TaskSkillRelation.owner` is a required `String!` even though every other
+  resolver derives owner from `identity.sub`; `addAgentTaskSkillRels` fails on
+  every run and drops to the failed queue.
+- `agentSkill.create` hits `Unique constraint failed on the fields: (id)` on
+  repeat sync.
 
 ### Payment page receives the bearer as a URL query parameter (2026-09-16)
 

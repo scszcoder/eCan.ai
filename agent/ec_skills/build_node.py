@@ -10881,6 +10881,25 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     except Exception:
         node_dom_limit = None
 
+    # Per-node tool filter. Every registered action is serialized into
+    # output_schema on EVERY step (56 actions = 66.4KB of a 107KB body,
+    # measured 2026-09-16 against CloudBase's ~100KB cap), so a node that needs
+    # six tools should not pay for fifty. None = no filter, which is the
+    # default; an empty field must NOT become "allow nothing".
+    def _csv_setting(key):
+        try:
+            raw = (inputs.get(key) or {}).get("content")
+        except Exception:
+            return None
+        if raw in (None, ""):
+            return None
+        parts = [str(v).strip() for v in raw] if isinstance(raw, (list, tuple))             else [p.strip() for p in str(raw).split(",")]
+        parts = [p for p in parts if p]
+        return parts or None
+
+    node_allowed_actions = _csv_setting("allowedActions")
+    node_excluded_actions = _csv_setting("excludedActions")
+
     # loopHistoryMode — controls how the browser-use sub-agent's history is handled
     # when the agent is reused across pend_event loop iterations (within the same task).
     # Values:
@@ -11098,6 +11117,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         node_use_vision=node_use_vision, node_use_thinking=node_use_thinking,
         node_max_actions_per_step=node_max_actions_per_step,
         node_dom_limit=node_dom_limit, node_dom_focus_selector=node_dom_focus_selector,
+        node_allowed_actions=node_allowed_actions,
+        node_excluded_actions=node_excluded_actions,
         node_profile=node_profile, node_headless=node_headless,
         node_keep_browser_alive=node_keep_browser_alive,
         node_max_steps=node_max_steps, node_timeout_seconds=node_timeout_seconds,

@@ -91,6 +91,24 @@ def _int_content(inputs: dict, key: str, default: int | None = None) -> int | No
         return default
 
 
+def _csv_content(inputs: dict, key: str) -> list[str] | None:
+    """A comma-separated node field as a list, or None when unset.
+
+    Used for the per-node action filter. ``None`` means "no filter" and must
+    stay distinct from ``[]`` ("allow nothing"), so an empty or missing field
+    never silently strips every tool from the agent.
+    """
+    val = _content(inputs, key)
+    if val in (None, ""):
+        return None
+    if isinstance(val, (list, tuple)):
+        items = [str(v).strip() for v in val]
+    else:
+        items = [part.strip() for part in str(val).split(",")]
+    items = [i for i in items if i]
+    return items or None
+
+
 def _float_content(inputs: dict, key: str, default: float | None = None) -> float | None:
     val = _content(inputs, key)
     if val in (None, ""):
@@ -164,6 +182,8 @@ class NodeConfig:
     # ── DOM reduction ─────────────────────────────────────────────
     dom_focus_selector: str = ""
     dom_limit: int | None = None
+    allowed_actions: list[str] | None = None
+    excluded_actions: list[str] | None = None
 
     # ── Loop / event semantics ───────────────────────────────────
     loop_history_mode: str = "clear"            # clear | trim:N | accumulate
@@ -387,6 +407,8 @@ def parse_node_config(
         node_timeout_seconds=node_timeout_seconds,
         dom_focus_selector=_str_content(inputs, "domFocusSelector"),
         dom_limit=_int_content(inputs, "domLimit"),
+        allowed_actions=_csv_content(inputs, "allowedActions"),
+        excluded_actions=_csv_content(inputs, "excludedActions"),
         loop_history_mode=loop_history_raw,
         actionable_field=_str_content(inputs, "actionableField"),
         event_monitor_done_policy=em_policy,

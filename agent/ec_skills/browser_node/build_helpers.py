@@ -1040,10 +1040,30 @@ async def get_or_create_browser_session(
                                         f"{auto_browser.browser_session.id}"
                                     )
                                 except (asyncio.TimeoutError, Exception) as _retry_err:
+                                    # ABORT — do not limp on. A session whose
+                                    # start() never completed is half-wired: the
+                                    # targets exist, so the focus preflight looks
+                                    # healthy, but every get_browser_state_summary
+                                    # then deadlocks in bubus and burns its whole
+                                    # event budget. Observed 2026-09-16 on
+                                    # AdsPower: both start attempts failed, the
+                                    # node logged "Browser session started!"
+                                    # anyway, and the run spent 4 minutes on two
+                                    # 120s state timeouts before failing with an
+                                    # empty message. Failing here costs seconds
+                                    # and names the real cause.
+                                    _detail = str(_retry_err) or type(_retry_err).__name__
                                     logger.error(
                                         f"[BrowserAutomation] Retry start() also failed for "
-                                        f"{auto_browser.browser_session.id}: {_retry_err}"
+                                        f"{auto_browser.browser_session.id}: {_detail}"
                                     )
+                                    raise RuntimeError(
+                                        f"Browser session did not start "
+                                        f"({ctx.browser_type_setting or 'browser'}, "
+                                        f"cdp_port={cdp_port}): {_detail}. "
+                                        f"The browser may be stale or unreachable — close it "
+                                        f"and let the node launch a fresh one."
+                                    ) from _retry_err
                         else:
                             logger.info(
                                 f"[BrowserAutomation] Session already started after waiting for lock: "

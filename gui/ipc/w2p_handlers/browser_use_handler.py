@@ -125,12 +125,19 @@ def get_default_browser_use_settings() -> Dict[str, Any]:
             'step_timeout': 180,
             'final_response_after_failure': True,
             # Per-event budgets for browser-use's event bus, in seconds.
-            # ``BrowserStateRequestEvent`` is the one that bites: it defaults
-            # to 30s and runs inside Agent.step() BEFORE the model is called,
-            # so a slow DOM/screenshot build fails the step with an empty
-            # error message and reads like an LLM problem.
+            # ``BrowserStateRequestEvent`` is the one that bites: it runs
+            # inside Agent.step() BEFORE the model is called, so when it
+            # expires the step fails with an EMPTY message and reads like an
+            # LLM problem.
+            #
+            # 45s, deliberately: a healthy build takes ~0.05s once the
+            # screenshot is dropped for a vision-less node, so this is pure
+            # headroom for a slow page. Raising it further only lengthens the
+            # DEADLOCK case — a half-started session never completes the
+            # request at all, so every extra second is dead time before the
+            # node can report the real failure.
             'eventTimeouts': {
-                'BrowserStateRequestEvent': 30,
+                'BrowserStateRequestEvent': 45,
             },
         },
         'browserSessionSettings': {
