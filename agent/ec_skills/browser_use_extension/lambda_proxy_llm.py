@@ -40,6 +40,20 @@ T = TypeVar('T', bound=BaseModel)
 _CHAT_PATH = '/v1/chat/completions'
 
 
+# Models whose provider cannot serve `json_schema` / our `output_schema`, and
+# must instead be driven with `response_format: {"type": "json_object"}` plus
+# the schema rendered into the prompt. Measured against the live CN proxy on
+# 2026-09-17 — qwen (3.6/3.7/3.8, all tiers) accepts output_schema and must NOT
+# take this path, because json_object is strictly weaker.
+_JSON_OBJECT_ONLY_MODELS = ('deepseek',)
+
+
+def _needs_json_object_shim(model: str) -> bool:
+    """True when *model* cannot accept a json_schema and needs the shim."""
+    name = str(model or '').lower()
+    return any(marker in name for marker in _JSON_OBJECT_ONLY_MODELS)
+
+
 @dataclass
 class ChatLambdaProxy(BaseChatModel):
     """Browser-use compatible LLM that proxies calls through an AWS Lambda.
@@ -124,7 +138,38 @@ class ChatLambdaProxy(BaseChatModel):
             'user_id': self.user_id,
             'stream': False,
         }
-        if output_format:
+        if output_format and _needs_json_object_shim(self.model):
+            # deepseek supports response_format json_object but NOT json_schema,
+            # and the proxy maps our `output_schema` onto json_schema — so every
+            # structured call 400s with "This response_format type is
+            # unavailable now" and browser-use retries until the run is useless.
+            # Measured 2026-09-17 across the live proxy: both deepseek models
+            # reject output_schema and json_schema, accept json_object, and
+            # additionally REQUIRE the literal word "json" somewhere in the
+            # prompt ("Prompt must contain the word 'json' in some form").
+            #
+            # json_object only guarantees valid JSON, not JSON shaped like the
+            # action model — but _do_request already validates the reply with
+            # ``output_format.model_validate_json``, so the shape is enforced on
+            # our side either way. Putting the schema in the prompt is what
+            # gives the model a chance to match it.
+            _schema = output_format.model_json_schema()
+            _instruction = (
+                "Respond with a single json object and nothing else — no prose, "
+                "no markdown fences. It must validate against this json schema:\n"
+                + json.dumps(_schema, ensure_ascii=False)
+            )
+            serialized_messages = list(serialized_messages) + [
+                {'role': 'user', 'content': _instruction}
+            ]
+            payload['messages'] = serialized_messages
+            payload['response_format'] = {'type': 'json_object'}
+            logger.info(
+                f"[ChatLambdaProxy] json_object shim active for model={self.model}: "
+                f"schema moved into the prompt ({len(_instruction)} chars), "
+                f"response_format=json_object"
+            )
+        elif output_format:
             _schema = output_format.model_json_schema()
             payload['output_schema'] = _schema
             # Diagnostic: log action count so we can detect when tools vanish.
