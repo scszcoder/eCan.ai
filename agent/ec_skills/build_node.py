@@ -7829,7 +7829,45 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
                 payload = _extract_tool_result_payload(result)
                 success = bool(isinstance(payload, dict) and payload.get('success'))
-                if success:
+
+                # A tool that reported its own failure must NOT be propagated as
+                # a success. Two real cases on 2026-09-17, both of which made a
+                # broken run look green and stopped anyone from looking:
+                #
+                #   [unified_tool_handler] Tool 'bu_send_email' not found in
+                #       tool_function_mapping!          -> "Error: Tool ... not registered"
+                #   [send_email] Failed: ... InvalidTemplateID
+                #                                       -> "❌ Email send failed: ..."
+                #
+                # Both returned a bare TextContent carrying the error, so the
+                # structured `success` flag above never saw it and every layer
+                # up to "Completed 1 tool(s) (1 succeeded)" said the email went
+                # out. Tools here report failure in the text by convention, so
+                # read the convention.
+                _failure_text = ''
+                try:
+                    _blocks = getattr(result, 'content', None)
+                    if isinstance(_blocks, list):
+                        for _b in _blocks:
+                            _t = getattr(_b, 'text', None)
+                            if not isinstance(_t, str):
+                                continue
+                            _stripped = _t.strip()
+                            if _stripped.startswith('❌') or _stripped.startswith('Error:'):
+                                _failure_text = _stripped[:300]
+                                break
+                except Exception:
+                    _failure_text = ''
+
+                if _failure_text:
+                    success = False
+                    work_result['last_action_succeeded'] = False
+                    work_result['last_action_error'] = _failure_text
+                    logger.error(
+                        f"[MCP Result Propagation] tool={tool_name} FAILED — the tool "
+                        f"reported an error in its result: {_failure_text}"
+                    )
+                elif success:
                     work_result['last_action_succeeded'] = True
 
                 if tool_name == 'create_agent_task_with_skill' and success:
@@ -8287,6 +8325,23 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     add_to_history(state, ActionMessage(content=f"action: mcp call to {_tn_i}; status: FAILED; error: {_tr_i}"))
                     continue
                 _t_failed = hasattr(_tr_i, 'isError') and _tr_i.isError
+                # `isError` is set only when the handler RAISES. A tool that
+                # catches its own failure and returns the error as text —
+                # which these tools do by convention — arrives here looking
+                # perfectly healthy and gets counted in "(N succeeded)".
+                # 2026-09-17: "❌ Email send failed: ...InvalidTemplateID"
+                # was reported as "Completed 1 tool(s) (1 succeeded)".
+                if not _t_failed:
+                    try:
+                        for _blk in (getattr(_tr_i, 'content', None) or []):
+                            _bt = getattr(_blk, 'text', None)
+                            if isinstance(_bt, str) and (
+                                    _bt.strip().startswith('❌')
+                                    or _bt.strip().startswith('Error:')):
+                                _t_failed = True
+                                break
+                    except Exception:
+                        pass
                 if _t_failed:
                     _et = ''
                     if hasattr(_tr_i, 'content') and isinstance(_tr_i.content, list) and _tr_i.content:

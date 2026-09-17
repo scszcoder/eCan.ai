@@ -76,7 +76,7 @@ Probe, if this needs re-checking: POST /api/llm-proxy/v1/chat/completions with
 each shape and compare status codes across models. `/v1/models` needs the
 ACCOUNT API KEY, not the session token.
 
-### unified_tool_handler reports success for a tool it could not find (2026-09-17)
+### ✅ FIXED — a failing MCP tool was propagated as a success (2026-09-17)
 
 A tool missing from `tool_function_mapping` logs an ERROR and is then reported
 as a SUCCESS to everything upstream:
@@ -102,6 +102,17 @@ skipped it.
 Workaround in place: the skill's prompt and the synthesised report email both
 call `send_email` (MCP-registered, canonical `{"input": {...}}` wrapper,
 cc accepts a comma string) instead of `bu_send_email`.
+
+**Fixed** in the result-propagation and multi-tool paths: a result whose text
+starts with `❌` or `Error:` is now treated as a failure. `isError` alone was
+not enough — it is set only when a handler RAISES, and these tools catch their
+own failures and return the error as text. A second real case proved the point
+minutes later: `❌ Email send failed: ... FailedOperation.InvalidTemplateID`
+was still reported as "Completed 1 tool(s) (1 succeeded)".
+
+STILL OPEN, and the underlying cause: **no `bu_*` tool is in
+`tool_function_mapping`** — zero of them, so the whole browser-use extension
+family is invisible to MCP nodes.
 
 ### qwen3.7-plus follows the output contract but not the handoff block (2026-09-17)
 
