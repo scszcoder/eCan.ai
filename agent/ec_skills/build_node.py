@@ -11829,6 +11829,22 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         f"[BrowserAutomation][ResultWrite] propagated {_copied} "
                         f"from the agent's answer into llm_result (node={node_name})"
                     )
+            if not _contract:
+                # Say so. A silent no-op here looks identical to "the block is
+                # not deployed", and on 2026-09-17 that cost a run to tell
+                # apart: the loop kept spinning, nothing logged, and the code
+                # was present the whole time. Log the shape we were handed so
+                # the next failure names itself.
+                _shape = type(_final_raw).__name__
+                _head = (
+                    _final_raw[:160].replace("\n", " ")
+                    if isinstance(_final_raw, str) else repr(_final_raw)[:160]
+                )
+                logger.warning(
+                    f"[BrowserAutomation][ResultWrite] no completion contract found "
+                    f"in the agent's answer (node={node_name}, final_type={_shape}); "
+                    f"the loop keeps its seeded flags. head={_head!r}"
+                )
         except Exception as _flag_exc:
             logger.warning(
                 f"[BrowserAutomation][ResultWrite] could not propagate completion "
