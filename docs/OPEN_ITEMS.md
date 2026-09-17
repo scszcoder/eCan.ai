@@ -114,7 +114,7 @@ STILL OPEN, and the underlying cause: **no `bu_*` tool is in
 `tool_function_mapping`** — zero of them, so the whole browser-use extension
 family is invisible to MCP nodes.
 
-### deepseek: native tool-calling beats the json_object shim (2026-09-17)
+### ✅ DONE — deepseek runs on native tool-calling (2026-09-17)
 
 The shim in `ChatLambdaProxy` (279d8f00c) works, but it is not the most direct
 route. Measured against the live proxy:
@@ -140,10 +140,16 @@ Why that is better than the shim:
 - It is the standard OpenAI-compatible mechanism, so it generalises to other
   providers that reject json_schema but do support tools.
 
-Cost: thinking mode is off, so no reasoning trace. Unknown whether that hurts
-multi-step browser reasoning — worth measuring before switching.
+**Implemented in 3ced3f6db**; the json_object shim is removed. Verified
+against the live proxy with a real multi-field action model — deepseek-v4-flash,
+deepseek-v4-pro, qwen3.7-plus and qwen3.8-flash all return a validated object.
 
-### Limits of the current json_object shim (2026-09-17)
+Still open: thinking is off on the tool path, so there is no reasoning trace.
+Effect on multi-step browser reasoning is UNMEASURED — deepseek's decisiveness
+on the proxy-failure test may partly come from thinking. Worth a head-to-head
+on a real task once the proxy is up.
+
+### Structured-output coverage gaps (2026-09-17)
 
 Applies to ANY skill, not just eBay — it is in `ChatLambdaProxy.ainvoke`, gated
 on model name only, and all four construction sites are in
@@ -154,17 +160,11 @@ on model name only, and all four construction sites are in
 - **Cloud/serving workers**, which never import `ChatLambdaProxy`.
 - Direct provider calls that bypass the proxy.
 
-Two scenario limits:
-
-1. **It silently depends on the action filter.** The shim renders the schema
-   into the prompt on every step. With the eBay node's 13-action filter that is
-   9,979 chars; unfiltered it is ~66KB, which would ride in every request and
-   land near CloudBase's ~100KB body cap. Nothing enforces the coupling — a
-   size check that warns before the cap is hit would.
-2. **The guarantee is weaker wherever it applies.** json_object promises valid
-   json, not json shaped like the action model, so a drifting model yields
-   `Failed to parse output as AgentOutput` and a retry rather than a
-   structurally guaranteed action.
+Both former scenario limits are GONE with native tool-calling: the schema no
+longer rides in the prompt (so the hidden dependency on the action filter is
+resolved) and the provider enforces it (so the guarantee is no longer weaker).
+The coverage gaps above remain — a deepseek LLM node or cloud worker still has
+no structured-output path.
 
 ### Platform-purity regression: a live-chat hook ran during an eBay run (2026-09-17)
 
