@@ -39,6 +39,25 @@ Steps 1+2 take ~11k → ~6.5k; step 3 makes most of the remainder cacheable.
 record logs `'prompt_tokens_details': None`. Test by sending an identical prompt
 twice inside a minute and checking for a non-null `cached_tokens`.
 
+### deepseek models cannot drive browser-use on the CN proxy (2026-09-17)
+
+Both reject structured output, which browser-use requires for its action model:
+
+    deepseek-v4-flash  output_schema -> 400 "This response_format type is unavailable now"
+    deepseek-v4-pro    output_schema -> 400 same
+    qwen3.7-plus       output_schema -> 200
+    qwen3.8-flash      output_schema -> 200
+
+Every step call 400s and browser-use retries, so a run crawls even though
+deepseek answers in 2-3s against qwen's 8-16s. Nothing on the client can fix
+this -- either the proxy gains response_format support for deepseek, or these
+models stay unusable for browser_automation nodes (they remain fine for plain
+LLM nodes that need no schema).
+
+Probe, if this needs re-checking: POST /api/llm-proxy/v1/chat/completions with
+an `output_schema` and compare status codes across models. `/v1/models` needs
+the ACCOUNT API KEY, not the session token.
+
 ### qwen3.7-plus follows the output contract but not the handoff block (2026-09-17)
 
 Five runs of the SAME prompt against the SAME broken proxy, changing nothing
