@@ -716,8 +716,8 @@ end;
 //
 // Why BOTH variants get killed: a previous version of this function
 // tried to detect CN vs intl via
-//   ``InstallerFileName := ExtractFileName(ExpandConstant('{src}'))``
-// but ``{src}`` in a self-contained Inno Setup installer points at
+//   ``InstallerFileName := ExtractFileName(ExpandConstant('{{src}}'))``
+// but ``{{src}}`` in a self-contained Inno Setup installer points at
 // the temporary extraction directory (e.g. ``is-XXXXXX.tmp``), NOT at
 // Setup.exe itself. ``ExtractFileName`` then returned the directory
 // leaf ``is-XXXXXX.tmp``, the ``Pos('eCan.cn', ...) > 0`` branch
@@ -727,7 +727,7 @@ end;
 // "DeleteFile failed; error code 5. 拒绝访问" on the very first
 // overwrite, and the OTA upgrade fails.
 //
-// We now (a) derive the installer exe name from ``{srcexe}`` (the
+// We now (a) derive the installer exe name from ``{{srcexe}}`` (the
 // Setup.exe path itself, always correctly populated) so CN/Intl
 // detection works, and (b) kill BOTH variants as a belt-and-suspenders
 // safety net — at most one variant is actually running on the same
@@ -744,8 +744,8 @@ begin
   Result := '';
   NeedsRestart := False;
 
-  // {srcexe} = Setup.exe path (e.g. ``C:\path\eCan.cn-1.0.0-windows-amd64-Setup.exe``).
-  // We pick {srcexe} over {src} because {src} is the temp extraction
+  // {{srcexe}} = Setup.exe path (e.g. ``C:\path\eCan.cn-1.0.0-windows-amd64-Setup.exe``).
+  // We pick {{srcexe}} over {{src}} because {{src}} is the temp extraction
   // directory at this point and contains no app-name signal.
   InstallerFileName := ExtractFileName(ExpandConstant('{{srcexe}}'));
   if Pos('eCan.cn', InstallerFileName) > 0 then
