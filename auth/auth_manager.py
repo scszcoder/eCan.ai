@@ -2572,6 +2572,27 @@ class AuthManager:
             except Exception as e:
                 logger.warning(f"[try_restore_cloudbase_session] HTTP session finalize skipped: {e}")
 
+            # Cloud account provisioning on RESTORE, for the same reason the
+            # session-token mint above moved here: it used to run ONLY in the
+            # login-finalize path, so a user who stays signed in across
+            # restarts never re-attempted it. llm_proxy authorizes against
+            # public.accounts.subs and answers 403 user_not_registered when
+            # the row is missing — which is how a long-signed-in WeChat user
+            # hit it on 2026-09-16 with a perfectly valid token. Idempotent,
+            # best-effort, runs in a background thread.
+            try:
+                from gui.ipc.w2p_handlers.cloudbase_handler import _ensure_cloud_account
+                _access = (tokens or {}).get("AccessToken") or (tokens or {}).get("access_token")
+                if _access:
+                    class _Who:
+                        email = None
+                        phone_number = None
+                        sub = username
+                    _provider = (self.user_profile or {}).get("login_type") or "password"
+                    _ensure_cloud_account(_access, _Who(), _provider)
+            except Exception as e:
+                logger.debug(f"[try_restore_cloudbase_session] ensure_account skipped: {e}")
+
             self._setup_token_manager_from_tokens(tokens, username)
             return True
 

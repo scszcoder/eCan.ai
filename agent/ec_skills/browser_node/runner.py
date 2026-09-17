@@ -3392,6 +3392,7 @@ def _build_local_llm_from_node_config_impl(
             base_url=base_url,
             mainwin=mainwin,
         )
+        llm = _trace_llm_calls(llm, str(provider_type_id), str(model_name))
         if llm is None:
             raise ValueError(
                 f"Failed to create LLM with provider '{provider_type_id}' "
@@ -3520,6 +3521,7 @@ def build_local_llm(
     logger.info("[BrowserAutomation] No node-specific LLM settings, using global default")
     try:
         llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+        llm = _trace_llm_calls(llm, 'global-default', '')
         if llm is None:
             llm = _proxy_fallback("no global default LLM configured")
             if llm is not None:
@@ -3773,6 +3775,134 @@ def _resolve_product_dir(state: dict | None) -> str | None:
     return None
 
 
+def _trace_llm_calls(llm, provider: str, model: str):
+    """Wrap the browser LLM so a failed call names itself.
+
+    browser-use reports step failures as
+    ``❌ Result failed N/6 times: <str(error)>`` and appends a stacktrace only
+    when ITS dynamically-named logger (``browser_use.Agent🅰 ...``) is
+    DEBUG-enabled. An exception whose ``str()`` is empty — TimeoutError,
+    CancelledError — therefore prints as a blank line. That is exactly what the
+    2026-09-16 investigation chased across five runs: six identical failures
+    30s apart, no reason given, and no LLM call ever reaching the wire.
+
+    This logs entry, duration and the FULL traceback at the call site, so the
+    next failure identifies itself regardless of browser-use's own logging.
+    Transparent: returns the same object if wrapping is not possible.
+    """
+    if llm is None:
+        return llm
+    try:
+        import time as _time
+        original = llm.ainvoke
+
+        async def traced(*args, **kwargs):
+            _t0 = _time.time()
+            logger.info(f"[LLM-TRACE] ainvoke start provider={provider} model={model}")
+            try:
+                result = await original(*args, **kwargs)
+                logger.info(
+                    f"[LLM-TRACE] ainvoke ok provider={provider} model={model} "
+                    f"elapsed={_time.time() - _t0:.1f}s"
+                )
+                return result
+            except BaseException as exc:
+                logger.error(
+                    f"[LLM-TRACE] ainvoke FAILED provider={provider} model={model} "
+                    f"elapsed={_time.time() - _t0:.1f}s "
+                    f"type={type(exc).__name__} str={str(exc)!r}",
+                    exc_info=True,
+                )
+                raise
+
+        llm.ainvoke = traced
+        logger.info(f"[LLM-TRACE] tracing enabled for provider={provider} model={model}")
+    except Exception as exc:
+        logger.warning(f"[LLM-TRACE] could not wrap the LLM ({exc}); continuing untraced")
+    return llm
+
+
+# One-element box so the class patch below reads the CURRENT node's vision
+# setting rather than whatever the first-ever run happened to use.
+_vision_box = [True]
+
+
+def _trace_browser_state(browser_session, use_vision: bool = True):
+    """Time every ``get_browser_state_summary`` and name what killed it.
+
+    ``Agent.step()`` calls ``_prepare_context()`` BEFORE it ever reaches the
+    model, and that dispatches a ``BrowserStateRequestEvent`` whose
+    ``event_timeout`` defaults to **30.0s** (browser_use/browser/events.py).
+    When the DOM/screenshot build exceeds that budget, bubus raises a
+    ``TimeoutError`` whose ``str()`` is empty, browser-use prints
+    ``Result failed N/6 times:`` with nothing after the colon, and the run
+    looks like a model failure even though no model was ever contacted.
+
+    Patches the CLASS, not the instance: ``BrowserSession`` is a pydantic
+    model with ``extra='forbid'`` and ``validate_assignment=True``, so
+    assigning the wrapper onto a session object raises instead of taking
+    effect. Patching the class also covers sessions browser-use builds
+    itself. Idempotent and transparent.
+
+    It also DROPS the screenshot when the node runs without vision.
+    ``_prepare_context`` hardcodes ``include_screenshot=True`` — "always
+    capture even if use_vision=False so that cloud sync is useful (it's fast
+    now anyway)" (browser_use/agent/service.py:1073). On an anti-detect
+    browser it is not fast: ScreenshotWatchdog wedges and the request burns
+    its whole event budget, 30s EVERY step, for an image a vision-less model
+    never looks at. The override is keyed on the node's own ``use_vision``,
+    so a vision node still gets its screenshot.
+    """
+    if browser_session is None:
+        return browser_session
+    try:
+        cls = type(browser_session)
+        # A cached session keeps the patch across runs, but the NEXT run may be
+        # a different node with different vision settings, so refresh the flag
+        # the closure reads instead of returning early on a stale value.
+        _vision_box[0] = bool(use_vision)
+        if getattr(cls, '_ecan_state_traced', False):
+            return browser_session
+        import time as _time
+        original = cls.get_browser_state_summary
+
+        async def traced(self, *args, **kwargs):
+            _t0 = _time.time()
+            _shot = kwargs.get('include_screenshot', args[0] if args else None)
+            if _shot and not _vision_box[0]:
+                # Positional or keyword — normalise to keyword so the override
+                # holds whichever way the caller passed it.
+                if args:
+                    args = (False,) + tuple(args[1:])
+                else:
+                    kwargs['include_screenshot'] = False
+                _shot = False
+                logger.debug("[BSTATE-TRACE] screenshot suppressed (use_vision=False)")
+            logger.info(f"[BSTATE-TRACE] get_browser_state_summary start screenshot={_shot}")
+            try:
+                result = await original(self, *args, **kwargs)
+                logger.info(
+                    f"[BSTATE-TRACE] ok screenshot={_shot} "
+                    f"elapsed={_time.time() - _t0:.1f}s"
+                )
+                return result
+            except BaseException as exc:
+                logger.error(
+                    f"[BSTATE-TRACE] FAILED screenshot={_shot} "
+                    f"elapsed={_time.time() - _t0:.1f}s "
+                    f"type={type(exc).__name__} str={str(exc)!r}",
+                    exc_info=True,
+                )
+                raise
+
+        cls.get_browser_state_summary = traced
+        cls._ecan_state_traced = True
+        logger.info(f"[BSTATE-TRACE] tracing enabled on {cls.__name__}")
+    except Exception as exc:
+        logger.warning(f"[BSTATE-TRACE] could not wrap the session ({exc}); continuing untraced")
+    return browser_session
+
+
 def _build_cloud_llm_from_node_config_impl(
     *,
     llm_provider: str | None,
@@ -3841,6 +3971,27 @@ def _build_cloud_llm_from_node_config_impl(
             f"but no API key found in environment. Please set the required API key."
         )
 
+    # A node that names a direct provider opts OUT of the llm-proxy: the branches
+    # above pick a per-provider endpoint and a LOCAL key. On a CN install the
+    # model keys live cloud-side, so a direct provider cannot authenticate and
+    # the call stalls with no error worth reading. Say so rather than letting it
+    # hang silently — the node's choice is still honoured.
+    if provider_lower not in ("ecanai", "ollama"):
+        try:
+            from app_context import AppContext
+            _mw = AppContext.get_main_window()
+            _proxy_on = bool(
+                _mw.config_manager.general_settings.use_lambda_proxy
+            ) if _mw and hasattr(_mw, "config_manager") else False
+        except Exception:
+            _proxy_on = False
+        if _proxy_on:
+            logger.warning(
+                f"[BrowserAutomation] Node provider '{llm_provider}' bypasses the llm-proxy "
+                f"even though use_lambda_proxy is on. This call goes direct to the provider "
+                f"and needs a LOCAL key; select eCanAI on the node to route through the proxy."
+            )
+
     llm = create_browser_use_llm_by_provider_type(
         provider_type=provider_lower,
         model_name=model_name,
@@ -3848,6 +3999,7 @@ def _build_cloud_llm_from_node_config_impl(
         base_url=base_url,
         mainwin=None,
     )
+    llm = _trace_llm_calls(llm, provider_lower, model_name)
     if not llm:
         raise RuntimeError(
             f"[BrowserAutomation] Failed to create LLM for node-specified provider "
@@ -3958,6 +4110,7 @@ def _build_cloud_llm_impl(
         base_url=base_url,
         mainwin=None,
     )
+    llm = _trace_llm_calls(llm, str(provider_type), str(llm_model_name or llm_config.get("model_name")))
     if not llm:
         raise RuntimeError(
             f"[BrowserAutomation] Failed to create LLM instance for default provider "
@@ -4945,6 +5098,22 @@ class BrowserRunSession:
             llm_model_name=self.ctx.node_model_name,
             raw_inputs=self.ctx.inputs,
         )
+        # Which class actually got built. Instrumenting the factories and the
+        # proxy client both missed (2026-09-16) because the LLM came from a
+        # path neither covered — identify it once, here, on the one code path
+        # every browser mode goes through.
+        try:
+            _k = type(llm)
+            logger.info(
+                f"[LLM-IDENTITY] class={_k.__module__}.{_k.__name__} "
+                f"model={getattr(llm, 'model', '?')!r} "
+                f"base_url={getattr(llm, 'base_url', getattr(llm, 'lambda_endpoint', '?'))!r} "
+                f"timeout={getattr(llm, 'timeout', '?')} "
+                f"node_provider={self.ctx.node_llm_provider!r}"
+            )
+        except Exception as _idexc:
+            logger.warning(f"[LLM-IDENTITY] could not describe the LLM: {_idexc}")
+        llm = _trace_llm_calls(llm, str(self.ctx.node_llm_provider), str(self.ctx.node_model_name))
         _attach_token_ctx(
             llm,
             self.state,
@@ -5325,9 +5494,26 @@ class BrowserRunSession:
             f"(type={self.ctx.browser_type_setting}, driver={self.ctx.browser_driver_setting})"
         )
 
+        # Let browser_use_settings.json > agentSettings.eventTimeouts raise the
+        # event-bus budgets. Must run BEFORE any browser-use event is built.
+        try:
+            from gui.ipc.w2p_handlers.browser_use_handler import (
+                apply_browser_use_event_timeouts as _apply_event_timeouts,
+            )
+            _applied_timeouts = _apply_event_timeouts()
+            if _applied_timeouts:
+                logger.info(f"[BrowserAutomation] event timeouts applied: {_applied_timeouts}")
+        except Exception as _to_exc:
+            logger.warning(f"[BrowserAutomation] event timeouts not applied: {_to_exc}")
+
         browser_session = await _bh.get_or_create_browser_session(
             mainwin, state=state, calling_agent_id=self.calling_agent_id, ctx=self.ctx,
         )
+
+        # Time the browser-state build. It runs inside Agent.step() BEFORE the
+        # model is contacted and carries its own 30s event timeout, so a slow
+        # DOM/screenshot looks exactly like an LLM failure in the logs.
+        _trace_browser_state(browser_session, use_vision=self.ctx.node_use_vision)
 
         if browser_session and self.ctx.browser_driver_setting == 'native':
             log_msg = f"[BrowserAutomation] Connected to browser session: {getattr(browser_session, 'id', 'unknown')}"

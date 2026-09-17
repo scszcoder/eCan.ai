@@ -124,6 +124,14 @@ def get_default_browser_use_settings() -> Dict[str, Any]:
             'llm_timeout': 60,
             'step_timeout': 180,
             'final_response_after_failure': True,
+            # Per-event budgets for browser-use's event bus, in seconds.
+            # ``BrowserStateRequestEvent`` is the one that bites: it defaults
+            # to 30s and runs inside Agent.step() BEFORE the model is called,
+            # so a slow DOM/screenshot build fails the step with an empty
+            # error message and reads like an LLM problem.
+            'eventTimeouts': {
+                'BrowserStateRequestEvent': 30,
+            },
         },
         'browserSessionSettings': {
             'headless': False,
@@ -400,6 +408,38 @@ def get_agent_settings() -> Dict[str, Any]:
     """Get the current agent settings."""
     settings = load_browser_use_settings()
     return settings.get('agentSettings', get_default_browser_use_settings()['agentSettings'])
+
+
+def apply_browser_use_event_timeouts() -> Dict[str, float]:
+    """Export ``agentSettings.eventTimeouts`` as browser-use's TIMEOUT_* env vars.
+
+    browser-use resolves each event's budget from the environment at event
+    CONSTRUCTION time — ``event_timeout: float | None = Field(default_factory=
+    lambda: _get_timeout('TIMEOUT_BrowserStateRequestEvent', 30.0))`` in
+    ``browser_use/browser/events.py`` — so setting the variable before a run
+    is the only way the app can change one. Without this call the Agent
+    section of browser_use_settings.json is write-only: nothing in the runtime
+    read it, and the 30s default could not be raised from the Settings page.
+
+    Returns what it applied, for logging. Never raises.
+    """
+    applied: Dict[str, float] = {}
+    try:
+        overrides = (get_agent_settings() or {}).get('eventTimeouts')
+        if not isinstance(overrides, dict) or not overrides:
+            return applied
+        for event_name, seconds in overrides.items():
+            try:
+                value = float(seconds)
+            except (TypeError, ValueError):
+                continue
+            if value <= 0:
+                continue
+            os.environ[f'TIMEOUT_{event_name}'] = str(value)
+            applied[str(event_name)] = value
+    except Exception as exc:
+        logger.warning(f"[browser-use settings] could not apply event timeouts: {exc}")
+    return applied
 
 
 def get_browser_session_settings() -> Dict[str, Any]:

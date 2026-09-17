@@ -1017,9 +1017,17 @@ def _select_model_with_priority(
                     target_name == model_name_key or
                     target_name == display_name)
     
+    # A provider that serves its catalogue from an endpoint (eCanAI's llm-proxy)
+    # ships supported_models=[] on purpose. Validating against that empty list
+    # rejected EVERY model and fell back to the provider default — which is also
+    # empty — so the user's choice was silently replaced by ''. Nothing can route
+    # an empty model name, and no value in settings could have survived.
+    # This helper only receives the model list, so "no list" IS the signal.
+    _dynamic_catalogue = not supported_models
+
     # Priority 1: node_model_name (highest priority)
     if node_model_name:
-        is_valid_model = False
+        is_valid_model = _dynamic_catalogue
         if supported_models:
             for model in supported_models:
                 if matches_model(model, node_model_name):
@@ -1028,6 +1036,11 @@ def _select_model_with_priority(
                     break
         
         if is_valid_model:
+            if _dynamic_catalogue and not supported_models:
+                logger.info(
+                    f"[extract_provider_config] Provider '{provider_name}' serves its models "
+                    f"from an endpoint; accepting node model '{node_model_name}' as given."
+                )
             logger.debug(f"[extract_provider_config] Using node-specified model: {node_model_name}")
             model_name = node_model_name
         else:
@@ -1041,7 +1054,7 @@ def _select_model_with_priority(
     elif config_manager and hasattr(config_manager, 'general_settings'):
         user_selected_model = config_manager.general_settings.default_llm_model
         if user_selected_model:
-            is_valid_model = False
+            is_valid_model = _dynamic_catalogue
             if supported_models:
                 for model in supported_models:
                     if matches_model(model, user_selected_model):

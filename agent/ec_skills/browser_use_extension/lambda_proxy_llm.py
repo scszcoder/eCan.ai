@@ -17,7 +17,6 @@ Usage:
 """
 
 import json
-import logging
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
@@ -30,7 +29,10 @@ from browser_use.llm.messages import BaseMessage
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 from browser_use.llm.openai.serializer import OpenAIMessageSerializer
 
-logger = logging.getLogger(__name__)
+# The app's file handler is bound to the "eCan"/"eCan.cn" logger tree, so a
+# module-name logger here writes to nothing the user (or a customer log)
+# ever sees — every [ChatLambdaProxy] diagnostic was silently discarded.
+from utils.logger_helper import logger_helper as logger
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -163,15 +165,28 @@ class ChatLambdaProxy(BaseChatModel):
 
         url = self.lambda_endpoint.rstrip('/') + _CHAT_PATH
         headers = self._build_headers()
+        # One line that answers "did the call even go out, and to where".
+        logger.info(
+            f"[ChatLambdaProxy] POST {url} provider={self.provider_name} model={self.model} "
+            f"messages={len(serialized_messages)} structured={bool(output_format)} "
+            f"timeout={self.timeout}s auth={'yes' if headers.get('Authorization') else 'NO'}"
+        )
 
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
                 return await self._do_request(url, headers, payload, output_format)
-            except httpx.TimeoutError as e:
+            # httpx has no TimeoutError — it is TimeoutException. Evaluating a
+            # missing attribute in an except clause raises AttributeError AT
+            # HANDLING TIME, which replaced the real error and skipped every
+            # handler below, including the retry. That is why a failed call
+            # produced no usable message and never retried.
+            except httpx.TimeoutException as e:
                 last_error = e
                 logger.warning(
-                    f"[ChatLambdaProxy] Timeout on attempt {attempt}/{self.max_retries}: {e}"
+                    f"[ChatLambdaProxy] Timeout on attempt {attempt}/{self.max_retries}: "
+                    f"type={type(e).__name__} str={str(e)!r} url={url} timeout={self.timeout}s",
+                    exc_info=True,
                 )
             except httpx.HTTPStatusError as e:
                 # Retry on 5xx, fail fast on 4xx
@@ -190,10 +205,28 @@ class ChatLambdaProxy(BaseChatModel):
                         model=self.name,
                     ) from e
             except Exception as e:
-                raise ModelProviderError(message=str(e), model=self.name) from e
+                # str(e) is EMPTY for a bare TimeoutError / CancelledError /
+                # ConnectError, and browser-use reports failures as
+                # f'❌ Result failed N/M times: {str(error)}' — so the cause
+                # vanished and six identical failures looked like silence
+                # (2026-09-16: cost a full afternoon of bisecting providers).
+                # Name the type, and log the frame before it is flattened.
+                logger.error(
+                    f"[ChatLambdaProxy] request failed on attempt {attempt}/{self.max_retries}: "
+                    f"type={type(e).__name__} str={str(e)!r} url={url} "
+                    f"provider={self.provider_name} model={self.model}",
+                    exc_info=True,
+                )
+                raise ModelProviderError(
+                    message=f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__} (no message)",
+                    model=self.name,
+                ) from e
 
         raise ModelProviderError(
-            message=f"Lambda proxy failed after {self.max_retries} attempts: {last_error}",
+            message=(
+                f"Lambda proxy failed after {self.max_retries} attempts: "
+                f"{type(last_error).__name__}: {last_error}"
+            ),
             model=self.name,
         )
 

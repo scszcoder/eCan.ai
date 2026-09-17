@@ -176,9 +176,25 @@ def _ensure_cloud_account(access_token: str, user_info: "CloudBaseUserInfo",
             try:
                 with _rq.urlopen(req, timeout=15) as resp:
                     raw = resp.read(2048).decode("utf-8", "replace")
+                    # Log the fields that decide whether llm_proxy will accept
+                    # this user, NOT the raw record: the reply carries email,
+                    # dob, phone and ssn4, and the old 300-char dump leaked the
+                    # first three into ordinary support logs while still
+                    # truncating away `subs` — the one field that matters.
+                    summary = raw[:300]
+                    try:
+                        acct = (_json.loads(raw) or {}).get("account") or {}
+                        subs = acct.get("subs")
+                        summary = (
+                            f"success={(_json.loads(raw) or {}).get('success')} "
+                            f"actid={acct.get('actid')!r} subid={acct.get('subid')!r} "
+                            f"subs={'present' if subs else 'MISSING'}"
+                        )
+                    except Exception:
+                        pass
                     logger.info(
                         f"[EnsureAccount] ensure_account user={who!r} "
-                        f"status={resp.status} resp={raw[:300]}"
+                        f"status={resp.status} {summary}"
                     )
             except _err.HTTPError as he:
                 raw = he.read(1024).decode("utf-8", "replace")
@@ -311,12 +327,19 @@ def _build_login_response(request: IPCRequest, token: str,
                 exc_info=True,
             )
 
-    # Step 1.25: server-side account provisioning. WeChat logins get their
-    # accounts row from the PHP-callback/wechat provision path; email/phone
-    # logins had NO creation path, leaving llm_proxy authorization (which
-    # reads public.accounts.subs) to fail for fresh accounts. Best-effort,
-    # background — see _ensure_cloud_account.
-    if login_type in ("password", "phone") and token:
+    # Step 1.25: server-side account provisioning. llm_proxy authorizes
+    # proxied LLM calls against public.accounts.subs, so a login whose row is
+    # missing gets 403 user_not_registered on its first model call.
+    #
+    # WeChat was excluded here on the assumption that the PHP-callback/wechat
+    # provision path already created the row. 2026-09-16 disproved it: a
+    # signed-in WeChat user (account page fine, API key listed) still got
+    # `403 ... "user_not_registered"` from /api/llm-proxy on every browser
+    # step. Provision on every login type instead — ensure_account is
+    # idempotent, and the server derives identity from the verified token
+    # rather than from `provider`, so an extra call costs one background POST.
+    # Best-effort, background — see _ensure_cloud_account.
+    if token:
         _ensure_cloud_account(token, user_info, login_type)
 
     # Step 1.5: tell SessionSupervisor the fresh token is installed.
