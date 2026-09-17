@@ -7052,6 +7052,62 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                                     f"tool_result['{_src_node}']['{_fk}'] ({len(_cand)} chars) "
                                     f"as the message to parse — upstream browser node."
                                 )
+                                # Lift a multi-tool wrapper into the STRUCTURED
+                                # fields. The text walker below only collects
+                                # objects carrying `tool_name` at their TOP
+                                # level, so the documented wrapper shape
+                                #   {"multi_tool_calls": "serial", "tool": [...]}
+                                # parses cleanly and is then discarded as a
+                                # "non-tool object". Observed 2026-09-17: the
+                                # block was parsed, logged as
+                                # ['multi_tool_calls', 'tool'], and dropped —
+                                # "No tool calls, but found completion flags" —
+                                # so the email was never sent. Setting the
+                                # fields directly uses the same structured path
+                                # a native tool-call LLM node uses.
+                                try:
+                                    _scan, _pos = _cand, 0
+                                    while _pos < len(_scan):
+                                        _st = _scan.find('{', _pos)
+                                        if _st < 0:
+                                            break
+                                        _depth, _adv = 0, None
+                                        for _off, _ch in enumerate(_scan[_st:]):
+                                            if _ch == '{':
+                                                _depth += 1
+                                            elif _ch == '}':
+                                                _depth -= 1
+                                                if _depth == 0:
+                                                    _adv = _st + _off + 1
+                                                    break
+                                        if _adv is None:
+                                            break
+                                        try:
+                                            _obj = json.loads(_scan[_st:_adv])
+                                        except Exception:
+                                            _obj = None
+                                        _pos = _adv
+                                        _tools = _obj.get('tool') if isinstance(_obj, dict) else None
+                                        if isinstance(_tools, list) and _tools:
+                                            llm_result['tool'] = _tools
+                                            llm_result['multi_tool_calls'] = (
+                                                _obj.get('multi_tool_calls') or 'serial'
+                                            )
+                                            _names = [
+                                                (t or {}).get('tool_name')
+                                                for t in _tools if isinstance(t, dict)
+                                            ]
+                                            logger.info(
+                                                f"[MCP Auto-Select] lifted multi-tool wrapper: "
+                                                f"{len(_tools)} call(s) {_names}, "
+                                                f"mode={llm_result['multi_tool_calls']}"
+                                            )
+                                            break
+                                except Exception as _lift_exc:
+                                    logger.warning(
+                                        f"[MCP Auto-Select] could not lift a tool wrapper "
+                                        f"({_lift_exc}); falling back to text parsing"
+                                    )
                                 break
                         if isinstance(llm_result.get('message'), str):
                             break
