@@ -1,13 +1,19 @@
 # eBay after-sales prompt — sections to add
 
-Paste these into the **stored prompt `pr-665505`** (the one the browser node
-selects). It is cloud-stored, so it cannot be edited from the repo or the CLI —
-open it in the app's prompt editor.
+**APPLIED to the live prompt `pr-665505` on 2026-09-17** (cloud, owner
+`o3YBk2…`, mdContent 5173 -> 8682 chars). This file is the record of what was
+changed and why, not a to-do.
 
-Three additions: label download + naming, the `all_done` contract that lets the
-loop exit, and the end-of-turn tool call the MCP node auto-selects.
+The prompt is cloud-only — it is not in `my_prompts/` and not in any local
+SQLite table, so the CLI cannot see it. It is reachable directly over GraphQL
+(`queryPrompts` / `updatePrompts`) with no app running; see the note at the end
+about the escaping bug that blocked the first attempt.
 
-Requires `{{docs_dir}}` and `{{printer}}` to be declared task variables.
+Three changes: label download + naming, the `all_done`/`work_done` contract that
+lets the loop exit, and the end-of-turn tool call the MCP node auto-selects.
+
+Uses the variables the prompt already declares: `{{docs_dir}}`,
+`{{printer_name}}`, `{{summary_emails}}`.
 
 ---
 
@@ -115,7 +121,7 @@ otherwise.
     {
       "tool_name": "print_labels",
       "tool_input": {
-        "printer": "{{printer}}",
+        "printer": "{{printer_name}}",
         "n_copies": 1
       }
     },
@@ -164,3 +170,37 @@ Rules for that block:
   go_back, find_text, switch, done, download_file, rename_file, list_files`, with
   `screenshot` excluded. Any tool named in the prompt but not on that list will
   silently not exist — update `allowedActions` on the node if this prompt grows.
+
+---
+
+## Why the loop never exited (the actual root cause)
+
+The old contract said `all_done` is true *"only when every queue above is empty
+**and the work report has been produced**"*, and "Where things go" told the agent
+to print the labels and mail the report itself.
+
+It has no tool for either — `print_labels` and `bu_send_email` are not on the
+node's allowed-action list, and never were. So the agent could never finish the
+report step, could never justify `all_done: true`, and the loop ran forever on
+an empty board. `MCP_1` sits after the loop, so the email node was unreachable
+too. That is why no mail ever arrived.
+
+The fix splits the responsibility: the browser node downloads and names the
+labels, and *emitting the handoff block* is what "producing the work report"
+now means. Printing and mailing belong to the tools behind the MCP node.
+
+`work_done` did not exist in the prompt at all, though the runtime reports it in
+`llm_result`. The loop condition now requires it, so the prompt has to emit it —
+that is why it is in the output contract above.
+
+## Updating this prompt again
+
+`gen_update_prompts_string` double-escaped its payload: `json.dumps` already
+writes an inner quote as `\"`, and the old code then replaced `"` with `\"`
+over that, producing `\\"` — GraphQL reads `\` as one literal backslash and
+the `"` after it CLOSES the string. Any prompt containing a double quote failed
+with `GRAPHQL_PARSE_FAILED`, which includes every prompt with a JSON example in
+it. Fixed via `_gql_json_literal` (escape backslashes first, then quotes).
+
+~59 other call sites in `cloud_api.py` still use the naive idiom. They are only
+correct for payloads with no quotes and no backslashes.

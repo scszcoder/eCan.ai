@@ -8562,6 +8562,28 @@ def send_query_vehicles_request_to_cloud(session, token, q_settings, endpoint,
 # Prompt Operations
 # ============================================================================
 
+def _gql_json_literal(value) -> str:
+    """A JSON payload, escaped for embedding in a GraphQL string literal.
+
+    ``json.dumps`` already escapes an inner quote as ``\\"``. The long-standing
+    idiom here then ran ``.replace('"', '\\"')`` over that result, which turns
+    ``\\"`` into ``\\\\"`` — GraphQL reads the ``\\`` as ONE literal backslash
+    and the ``"`` that follows CLOSES the string. Every prompt containing a
+    double quote therefore failed with GRAPHQL_PARSE_FAILED (2026-09-17: the
+    eBay after-sales prompt could not be updated at all, because its output
+    contract contains a JSON example).
+
+    Escape backslashes FIRST, then quotes. Newline escapes emitted by
+    json.dumps survive the same treatment.
+
+    NOTE: ~59 other call sites in this module still use the naive idiom. They
+    are only correct for payloads with no quotes and no backslashes; fix them
+    the same way when one of them bites.
+    """
+    raw = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    return raw.replace('\\', '\\\\').replace('"', '\\"')
+
+
 def gen_add_prompts_string(prompts):
     """Generate GraphQL mutation string for adding prompts
     
@@ -8584,9 +8606,9 @@ def gen_add_prompts_string(prompts):
         # prompt field is required AWSJSON
         prompt_data = prompt.get("prompt", {})
         if isinstance(prompt_data, dict):
-            prompt_json = json.dumps(prompt_data, ensure_ascii=False).replace('"', '\\"')
+            prompt_json = _gql_json_literal(prompt_data)
         else:
-            prompt_json = str(prompt_data).replace('"', '\\"')
+            prompt_json = _gql_json_literal(str(prompt_data))
         rec_string += f'prompt: "{prompt_json}"'
         rec_string += " }"
         if i != len(prompts) - 1:
@@ -8621,9 +8643,9 @@ def gen_update_prompts_string(prompts):
         if "prompt" in prompt:
             prompt_data = prompt.get("prompt", {})
             if isinstance(prompt_data, dict):
-                prompt_json = json.dumps(prompt_data, ensure_ascii=False).replace('"', '\\"')
+                prompt_json = _gql_json_literal(prompt_data)
             else:
-                prompt_json = str(prompt_data).replace('"', '\\"')
+                prompt_json = _gql_json_literal(str(prompt_data))
             rec_string += f', prompt: "{prompt_json}"'
         rec_string += " }"
         if i != len(prompts) - 1:
