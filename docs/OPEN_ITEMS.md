@@ -39,6 +39,34 @@ Steps 1+2 take ~11k → ~6.5k; step 3 makes most of the remainder cacheable.
 record logs `'prompt_tokens_details': None`. Test by sending an identical prompt
 twice inside a minute and checking for a non-null `cached_tokens`.
 
+### Prompts exist in two places that never reconcile (2026-09-17)
+
+A prompt lives BOTH in the cloud (`queryPrompts`/`updatePrompts`) and on disk at
+`<user>_local/my_prompts/<name>_<id>.json`. Nothing reconciles them, and the
+desktop reads only the file.
+
+`_load_prompt_data` (`agent/ec_skills/build_node.py`) tries the CN GraphQL path
+first, but that path is gated on `ECAN_CN_GRAPHQL_ENDPOINT` +
+`ECAN_TCB_ACCESS_TOKEN` — env vars only a serving pod sets. On the desktop it
+returns None every time and falls through to the local GUI loader. So the cloud
+branch is effectively dead code on desktop, and a cloud-side prompt edit has no
+effect there at all.
+
+Cost, 2026-09-17: updated `pr-665505` in the cloud (5173 -> 8682 chars,
+confirmed `success: true` and re-read back), then watched the next run log
+`Resolved prompts - system: 5172 chars` and spent a while assuming a cache. The
+app had simply read the file, which still held the old text.
+
+Fix options, roughly in order of value:
+- Have the desktop resolve prompts through the same cloud path it uses for
+  everything else (it already holds a valid session token), or
+- make the local file authoritative and push edits cloud-ward on save, or
+- at minimum log WHICH source a prompt was resolved from and its length, so a
+  divergence is visible in one line instead of inferred.
+
+See `EBAY_AFTER_SALES_PROMPT_CONTRACT.md` for where the copies live and how to
+edit each.
+
 ### Skill-editor canvas keeps showing a node as "running" after a run ends (2026-09-17)
 
 A node's running indicator never clears when the run ends without a completion

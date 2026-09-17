@@ -4,10 +4,9 @@
 `o3YBk2…`, mdContent 5173 -> 8682 chars). This file is the record of what was
 changed and why, not a to-do.
 
-The prompt is cloud-only — it is not in `my_prompts/` and not in any local
-SQLite table, so the CLI cannot see it. It is reachable directly over GraphQL
-(`queryPrompts` / `updatePrompts`) with no app running; see the note at the end
-about the escaping bug that blocked the first attempt.
+**A prompt lives in TWO places. Update both.** See "Where a prompt actually
+lives" below — getting this wrong costs a run, because the desktop reads the
+local file and ignores the cloud entirely.
 
 Three changes: label download + naming, the `all_done`/`work_done` contract that
 lets the loop exit, and the end-of-turn tool call the MCP node auto-selects.
@@ -192,6 +191,64 @@ now means. Printing and mailing belong to the tools behind the MCP node.
 `work_done` did not exist in the prompt at all, though the runtime reports it in
 `llm_result`. The loop condition now requires it, so the prompt has to emit it —
 that is why it is in the output contract above.
+
+## Where a prompt actually lives (read this first)
+
+Two copies, no reconciliation between them:
+
+| copy | path / API | who reads it |
+|---|---|---|
+| **local** | `<user>_local/my_prompts/<name>_<id>.json` e.g. `wechat_o3YBk2…_local/my_prompts/ebay_0_pr-665505.json` | **the desktop app** |
+| **cloud** | `queryPrompts` / `updatePrompts` over GraphQL | serving pods; the app's sync |
+
+**The desktop reads the LOCAL FILE.** `_load_prompt_data`
+(`agent/ec_skills/build_node.py`) tries CN GraphQL first, but that is gated on
+`ECAN_CN_GRAPHQL_ENDPOINT` + `ECAN_TCB_ACCESS_TOKEN`, which only a pod sets — so
+on desktop it always returns None and falls through to the local GUI loader
+(`gui/ipc/w2p_handlers/prompt_handler._load_all_prompts`).
+
+Traps that cost time on 2026-09-17:
+
+- **The prompt is NOT in the repo-root `my_prompts/`.** That directory exists and
+  holds 66 unrelated prompts. The one the app uses is under the **per-user**
+  `<user>_local/my_prompts/`. Searching the repo root and concluding
+  "cloud-only" is the mistake that was actually made.
+- **It is not in any SQLite table.** All 17 local DBs were searched; the only hit
+  is `ecan_base.db -> agent_skills`, which merely *references* the prompt id from
+  the skill diagram.
+- **`ecan prompts get` takes a NAME, not an id**, and only sees the default-user
+  library — so it will not find a per-user prompt by `pr-…`.
+
+### Editing it
+
+Find the file by id, which is in the filename:
+
+```bash
+grep -rl "pr-665505" --include=*.json . | grep -i prompt
+# -> wechat_o3YBk2…_local/my_prompts/ebay_0_pr-665505.json
+```
+
+Edit `mdContent` in that JSON, bump `lastModified`, keep a `.bak`. That alone
+fixes the desktop. To keep the cloud in step (pods, other machines), also push:
+
+```python
+from agent.cloud_api import cloud_api as C
+q = C.gen_update_prompts_string([{"id": "pr-665505", "version": "0.1", "prompt": body}])
+C.appsync_http_request(q, requests.Session(), "x", endpoint)   # ECAN_APP_ID=cn
+```
+
+Read it back with `gen_query_prompts_string({"id": ...})` to confirm.
+
+### Verifying which text actually ran
+
+The run log prints the resolved length:
+
+```
+[BrowserAutomation] ✅ Resolved prompts - system: 8682 chars
+```
+
+Compare that number against the file. A mismatch means you edited the wrong
+copy — that single line is the fastest check there is.
 
 ## Updating this prompt again
 
