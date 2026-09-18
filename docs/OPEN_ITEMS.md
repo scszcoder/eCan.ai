@@ -599,13 +599,32 @@ what is left, roughly in the order they are worth doing.
 Plan of record now lives in the **eCan_lambda** repo at
 `docs/OWN_FINGERPRINT_BROWSER_PLAN.md` (backend/infra design + cloud
 headless design). Pointer and client-side findings:
-`OWN_FINGERPRINT_BROWSER.md`. NOT built.
+`OWN_FINGERPRINT_BROWSER.md`.
 
-Proven that day: a live AdsPower Etsy profile was migrated onto our own
-Chromium and driven over CDP — `Shop Manager Dashboard - Etsy` with no
-re-login. Session persistence itself is free (Chromium writes to
-`--user-data-dir`); what is missing is the binding of identity -> user-data-dir
--> proxy -> fingerprint, and the lifecycle to launch them as a unit.
+**Phases 0-2 are BUILT** (`fingerprint/profile_registry.py`,
+`fingerprint/fingerprint_browser.py`) and verified against the live Etsy
+profile: launch -> attach from a second process -> egress confirmed at the
+proxy exit -> close -> cold relaunch, still signed in with no login prompt.
+Session persistence itself was always free (Chromium writes to
+`--user-data-dir`); what was missing was the binding of identity ->
+user-data-dir -> proxy -> fingerprint, and the lifecycle to launch them as a
+unit. That now exists.
+
+Still open:
+
+- **Phase 3 — browser-node integration.** A skill should name a profile
+  (`browserProfile: etsy`) instead of a CDP port, and the node should call
+  `inject_stealth` with the profile's fingerprint after launch. Until this
+  lands, the launcher is only reachable from code.
+- **Phase 4 — import tooling.** The Etsy profile was migrated by hand
+  (copy user-data-dir, read `user_proxy_config` off the vendor's local API).
+- **Prove it over time.** The plan's own gate: run the Etsy profile through a
+  reboot and a week of idleness before building 3-4 on top of it.
+- **Relay ownership.** The SOCKS relay lives in the launching process, so a
+  second process can attach but inherits a relay it cannot restart.
+  `launch_profile` refuses to attach when the recorded relay port is dead —
+  egressing from the real IP is worse than failing — but a long-lived relay
+  service would remove the restriction.
 
 Two findings worth keeping even if the plan is never built:
 
