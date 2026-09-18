@@ -910,11 +910,34 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
             try:
                 db_result = ec_db_mgr.agent_service.get_agents_by_owner(username)
                 if db_result and isinstance(db_result, dict) and db_result.get('success'):
+                    refreshed_orgs = 0
                     for ag_dict in db_result.get('data') or []:
                         aid = ag_dict.get('id')
-                        if aid and aid not in mem_agents_map:
+                        if not aid:
+                            continue
+                        if aid in mem_agents_map:
+                            # Memory wins for RUNTIME state -- but org
+                            # membership is persisted state. It lives in
+                            # agent_org_rels, while an EC_Agent carries
+                            # whatever org_id it happened to be built with and
+                            # is only updated in place by the bind handler. Any
+                            # other route into that table (a second window, the
+                            # CLI, a sync, an agent created with a department
+                            # already chosen) leaves the runtime copy stale,
+                            # and a stale copy shadowing the DB is exactly how
+                            # an agent that IS in a department stops appearing
+                            # in it. The DB is authoritative for this one field.
+                            db_org_id = ag_dict.get('org_id')
+                            if mem_agents_map[aid].get('org_id') != db_org_id:
+                                mem_agents_map[aid]['org_id'] = db_org_id
+                                refreshed_orgs += 1
+                        else:
                             db_agents_map[aid] = ag_dict
                     logger.info(f"[agent_handler] DB backfill agents (not in memory): {len(db_agents_map)}")
+                    if refreshed_orgs:
+                        logger.info(
+                            f"[agent_handler] Refreshed org_id from DB for "
+                            f"{refreshed_orgs} agent(s) whose memory copy was stale")
 
                     # Try to convert DB agents to EC_Agent and add to memory if skills are ready
                     converter = _get_converter()
