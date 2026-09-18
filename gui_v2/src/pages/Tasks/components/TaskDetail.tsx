@@ -1267,12 +1267,19 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                       ? t('pages.tasks.browserProfilePlaceholder', '使用技能节点的设置')
                       : t('pages.tasks.browserProfileNone',
                           '本机尚无指纹浏览器配置（设置 → 指纹浏览器配置）')}
-                    options={browserProfiles.map((pr) => ({
-                      value: pr.id,
-                      label: pr.domain && pr.domain !== pr.label
-                        ? `${pr.label} · ${pr.domain}`
-                        : pr.label,
-                    }))}
+                    options={[
+                      // An explicit blank first row: "no identity" is a real
+                      // choice (the skill node's own setting applies, or the
+                      // run fails closed), and hunting for the clear X to
+                      // express it is not obvious.
+                      { value: '', label: t('pages.tasks.browserProfilePlaceholder', "Use the skill node's setting") },
+                      ...browserProfiles.map((pr) => ({
+                        value: pr.id,
+                        label: pr.domain && pr.domain !== pr.label
+                          ? `${pr.label} · ${pr.domain}`
+                          : pr.label,
+                      })),
+                    ]}
                     optionFilterProp="label"
                   />
                 </StyledFormItem>
