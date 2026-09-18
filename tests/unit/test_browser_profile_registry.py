@@ -101,3 +101,40 @@ def test_delete_forgets_the_password_too(registry):
     assert reg.get_profile("etsy") is None
     assert registry.keyring.store == {}
     assert reg.delete_profile("etsy") is False
+
+
+class TestVendorImportCopy:
+    """The copy filter: what must travel, and what must not."""
+
+    def _tree(self, root):
+        (root / "Default").mkdir(parents=True)
+        (root / "Default" / "Cookies").write_bytes(b"session")
+        (root / "Local State").write_text("{}", encoding="utf-8")
+        for cache in ("Cache", "Code Cache", "Service Worker"):
+            (root / cache).mkdir()
+            (root / cache / "blob").write_bytes(b"x" * 2048)
+        (root / "SingletonLock").write_text("held", encoding="utf-8")
+        (root / "DevToolsActivePort").write_text("9222", encoding="utf-8")
+
+    def test_session_travels_and_caches_do_not(self, tmp_path):
+        from agent.ec_skills.browser_use_extension.fingerprint import vendor_import
+
+        src, dest = tmp_path / "src", tmp_path / "dest"
+        self._tree(src)
+        vendor_import._copy_profile(src, dest, None)
+
+        assert (dest / "Default" / "Cookies").read_bytes() == b"session"
+        assert (dest / "Local State").exists()
+        for cache in ("Cache", "Code Cache", "Service Worker"):
+            assert not (dest / cache).exists(), f"{cache} should not be copied"
+
+    def test_lock_files_do_not_travel(self, tmp_path):
+        """A copied lock makes the new profile look open somewhere else."""
+        from agent.ec_skills.browser_use_extension.fingerprint import vendor_import
+
+        src, dest = tmp_path / "src", tmp_path / "dest"
+        self._tree(src)
+        vendor_import._copy_profile(src, dest, None)
+
+        assert not (dest / "SingletonLock").exists()
+        assert not (dest / "DevToolsActivePort").exists()

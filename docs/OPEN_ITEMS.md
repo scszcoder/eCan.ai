@@ -618,10 +618,11 @@ it closes when the LAST AutoBrowser record holding it is shut down, not the
 first (found in testing: the first shutdown was killing the browser under a
 node still using it).
 
-Still open:
+**Phase 4 is BUILT**: `ecan browser import --from adspower --profile <serial>
+--as <id>` (plus `list` / `show` / `remove`). Verified against the live Etsy
+profile — 23MB in 8s, and the imported copy launched signed in.
 
-- **Phase 4 — import tooling.** The Etsy profile was migrated by hand
-  (copy user-data-dir, read `user_proxy_config` off the vendor's local API).
+Still open:
 - **Prove it over time.** The plan's own gate: run the Etsy profile through a
   reboot and a week of idleness before building 3-4 on top of it.
 - **`shutdown_browser` cannot close a browser-use session.** Every shutdown

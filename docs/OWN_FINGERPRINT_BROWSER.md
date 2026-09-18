@@ -33,6 +33,20 @@ belong in this repo.
    it, and Chromium treats the cookies as empty rather than erroring. This is
    the single biggest constraint on the cloud design — see the plan.
 
+## Importing a profile
+
+    ecan browser import --from adspower --profile kq15tpi --as etsy_main
+    ecan browser list
+
+The vendor profile is started briefly and then stopped — its user-data-dir is
+only visible on the running process's command line, not through their API,
+while the proxy credentials are only in the API and never on the command line.
+Caches are excluded, so a ~760MB profile lands at ~20MB.
+
+Two things are deliberately not imported: their browser binary (a patched
+Chromium we cannot drive) and their fingerprint (an opaque blob only that
+binary reads). Pass `--fingerprint win_chrome_02` to name one of ours.
+
 ## Using it from a skill
 
 In a browser-automation node, set **Browser** to `eCan Fingerprint Browser` and
@@ -64,7 +78,7 @@ relay is gone and the browser would silently egress from this machine's own IP;
 
 ## Status
 
-As of 2026-09-17, plan phases 0–3 are built.
+As of 2026-09-17, **every phase of the plan (0–4) is built.**
 
 Phases 0–2 were verified end to end against the live Etsy profile: launch →
 attach from a second process → egress confirmed at the proxy exit (Pasadena,
@@ -76,6 +90,13 @@ acquire → CDP endpoint + browser-use session → a second acquire reuses the
 running browser → shutting down the first record leaves it alive → shutting
 down the last closes it gracefully.
 
-Not built: phase 4 (import tooling for vendor profiles — the Etsy one was
-migrated by hand). The plan also gates further work on proving the profile
-survives a reboot and a week of idleness.
+Phase 4 was verified by importing the live AdsPower Etsy profile end to end:
+23MB copied in 8s, launched from the new directory, and landed on the Shop
+Manager dashboard signed in — on a profile directory that had existed for
+seconds.
+
+What remains is not code. The plan gates trusting any of this on proving a
+profile survives a reboot and a week of idleness, because fingerprint parity
+with the vendor is not achievable and our stealth-JS substitute is untested
+over time. That is the risk that would invalidate the approach, and no amount
+of tooling addresses it.

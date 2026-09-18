@@ -239,6 +239,7 @@ def _import_subcommands():
     from cli.organizations.commands import org
     from cli.avatars.commands import avatar
     from cli.support.commands import support
+    from cli.browser.commands import browser
 
     return {
         'auth': auth,
@@ -258,6 +259,7 @@ def _import_subcommands():
         'org': org,
         'avatar': avatar,
         'support': support,
+        'browser': browser,
     }
 
 
