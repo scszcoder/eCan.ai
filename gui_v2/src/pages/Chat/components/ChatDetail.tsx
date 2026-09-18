@@ -783,6 +783,52 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         }
     }, [allMessages, chatId, scrollToBottom, isAtBottom, clearUnread, currentUserId]);
 
+    /**
+     * Time under a message bubble.
+     *
+     * Semi's own `showTime` renders into the chat box's content area, which
+     * `renderChatBoxContent` replaces wholesale — so overriding the content
+     * silently costs you the timestamp. Render it ourselves instead of
+     * fighting the override.
+     *
+     * `createAt` is epoch milliseconds (see chat_handler and db_chat_service).
+     * Anything missing or unparseable renders nothing rather than "Invalid
+     * Date"; a bubble with no time is better than a bubble with a wrong one.
+     */
+    const MessageTime = React.memo<{ createAt?: number | string }>(({ createAt }) => {
+        const ms = typeof createAt === 'string' ? Number(createAt) : createAt;
+        if (!ms || !Number.isFinite(ms)) return null;
+        const d = new Date(ms);
+        if (Number.isNaN(d.getTime())) return null;
+        const today = new Date();
+        const sameDay =
+            d.getFullYear() === today.getFullYear() &&
+            d.getMonth() === today.getMonth() &&
+            d.getDate() === today.getDate();
+        // Older messages need the date too, or "09:14" on a week-old message
+        // reads as this morning.
+        const label = sameDay
+            ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ` +
+              `${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        return (
+            <div
+                style={{
+                    flexShrink: 0,
+                    whiteSpace: 'nowrap',
+                    paddingBottom: 2,
+                    fontSize: 11,
+                    lineHeight: 1.2,
+                    color: 'var(--semi-color-text-2)',
+                    opacity: 0.75,
+                }}
+                title={d.toLocaleString()}
+            >
+                {label}
+            </div>
+        );
+    });
+
     // Memoized message renderer to prevent unnecessary re-renders
     const MessageRenderer = React.memo<{ message: any }>(({ message }) => {
         const rawContent = message?.content || '';
@@ -937,7 +983,13 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         }
         return (
             <LazyVisible>
-                <div>
+                {/* Row: bubble content, then the time beside it rather
+                    than under it. `align-items: flex-end` keeps the
+                    stamp on the baseline of the last line for a tall
+                    message; `flex-shrink: 0` on the time stops a long
+                    message squeezing it to an ellipsis. */}
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+                    <div style={{ minWidth: 0, flex: '0 1 auto' }}>
                     {showSkillEditorBadge && (
                         <div
                             style={{
@@ -997,7 +1049,9 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                                 processedForm)}
                         onCardAction={handleCardAction}
                     />
-                    <AttachmentList attachments={message.attachments} />
+                        <AttachmentList attachments={message.attachments} />
+                    </div>
+                    <MessageTime createAt={message?.createAt} />
                 </div>
             </LazyVisible>
         );
@@ -1009,6 +1063,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             prevMsg?.id === nextMsg?.id &&
             prevMsg?.content === nextMsg?.content &&
             prevMsg?.status === nextMsg?.status &&
+            // createAt matters now that the bubble renders the time: a local
+            // echo is sent with one stamp and reconciled with the server's,
+            // and without this the bubble would keep the stale one.
+            prevMsg?.createAt === nextMsg?.createAt &&
             JSON.stringify(prevMsg?.attachments) === JSON.stringify(nextMsg?.attachments)
         );
     });
