@@ -1,0 +1,22 @@
+{
+  "id": "linux_chrome_01",
+  "name": "Linux Chrome Desktop",
+  "description": "Ubuntu Linux Chrome desktop profile (EU)",
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "viewport": { "width": 1920, "height": 1080 },
+  "deviceScaleFactor": 1,
+  "isMobile": false,
+  "timezone": "Europe/Berlin",
+  "locale": "de-DE",
+  "platform": "Linux x86_64",
+  "languages": ["de-DE", "de", "en-US", "en"],
+  "hardwareConcurrency": 16,
+  "deviceMemory": 8,
+  "canvasNoiseSeed": "linc_seed_001",
+  "webgl": {
+    "vendor": "Google Inc. (AMD)",
+    "renderer": "ANGLE (AMD, AMD Radeon RX 580, OpenGL 4.6)"
+  },
+  "webrtcPolicy": "block",
+  "proxy": null
+}

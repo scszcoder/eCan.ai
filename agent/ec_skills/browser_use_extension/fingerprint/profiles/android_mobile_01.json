@@ -1,0 +1,22 @@
+{
+  "id": "android_mobile_01",
+  "name": "Android Mobile Chrome",
+  "description": "Android 14 Pixel 8 mobile Chrome profile (CN)",
+  "userAgent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Mobile Safari/537.36",
+  "viewport": { "width": 412, "height": 915 },
+  "deviceScaleFactor": 2.625,
+  "isMobile": true,
+  "timezone": "Asia/Shanghai",
+  "locale": "zh-CN",
+  "platform": "Linux armv8l",
+  "languages": ["zh-CN", "zh", "en-US", "en"],
+  "hardwareConcurrency": 8,
+  "deviceMemory": 8,
+  "canvasNoiseSeed": "android_seed_001",
+  "webgl": {
+    "vendor": "Qualcomm",
+    "renderer": "Adreno (TM) 750"
+  },
+  "webrtcPolicy": "block",
+  "proxy": null
+}

@@ -1,0 +1,22 @@
+{
+  "id": "mac_chrome_01",
+  "name": "Mac Chrome Desktop",
+  "description": "macOS Sonoma Chrome desktop profile",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "viewport": { "width": 1440, "height": 900 },
+  "deviceScaleFactor": 2,
+  "isMobile": false,
+  "timezone": "America/Chicago",
+  "locale": "en-US",
+  "platform": "MacIntel",
+  "languages": ["en-US", "en"],
+  "hardwareConcurrency": 10,
+  "deviceMemory": 8,
+  "canvasNoiseSeed": "macc_seed_001",
+  "webgl": {
+    "vendor": "Apple",
+    "renderer": "Apple M1 Pro"
+  },
+  "webrtcPolicy": "block",
+  "proxy": null
+}

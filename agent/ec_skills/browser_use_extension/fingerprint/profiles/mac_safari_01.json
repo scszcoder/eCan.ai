@@ -1,0 +1,22 @@
+{
+  "id": "mac_safari_01",
+  "name": "Mac Safari Desktop",
+  "description": "macOS Ventura Safari desktop profile",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
+  "viewport": { "width": 1440, "height": 900 },
+  "deviceScaleFactor": 2,
+  "isMobile": false,
+  "timezone": "America/New_York",
+  "locale": "en-US",
+  "platform": "MacIntel",
+  "languages": ["en-US", "en"],
+  "hardwareConcurrency": 8,
+  "deviceMemory": 8,
+  "canvasNoiseSeed": "macs_seed_001",
+  "webgl": {
+    "vendor": "Apple",
+    "renderer": "Apple M2"
+  },
+  "webrtcPolicy": "block",
+  "proxy": null
+}

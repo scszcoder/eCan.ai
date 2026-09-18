@@ -1,0 +1,22 @@
+{
+  "id": "win_chrome_02",
+  "name": "Windows Chrome Laptop",
+  "description": "Windows 11 Chrome laptop profile (US West)",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  "viewport": { "width": 1536, "height": 864 },
+  "deviceScaleFactor": 1.25,
+  "isMobile": false,
+  "timezone": "America/Los_Angeles",
+  "locale": "en-US",
+  "platform": "Win32",
+  "languages": ["en-US", "en"],
+  "hardwareConcurrency": 12,
+  "deviceMemory": 16,
+  "canvasNoiseSeed": "winc_seed_002",
+  "webgl": {
+    "vendor": "Google Inc. (NVIDIA)",
+    "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+  },
+  "webrtcPolicy": "block",
+  "proxy": null
+}
