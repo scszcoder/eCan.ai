@@ -983,12 +983,27 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         }
         return (
             <LazyVisible>
-                {/* Row: bubble content, then the time beside it rather
-                    than under it. `align-items: flex-end` keeps the
-                    stamp on the baseline of the last line for a tall
-                    message; `flex-shrink: 0` on the time stops a long
-                    message squeezing it to an ellipsis. */}
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+                {/* Row: bubble content with the time beside it rather than
+                    under it. The stamp goes on the OUTSIDE of the bubble —
+                    right of a left-aligned message, left of a right-aligned
+                    one — so it always sits against the gutter instead of
+                    between the bubble and the window edge.
+
+                    Only the current user's own messages keep role 'user'
+                    after enhancement; everyone else's are remapped to
+                    `other_<id>` and render on the left.
+
+                    `align-items: flex-end` keeps the stamp on the last line's
+                    baseline of a tall message; `flex-shrink: 0` on the time
+                    stops a long message squeezing it to an ellipsis. */}
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'flex-end',
+                        gap: 8,
+                        flexDirection: message?.role === 'user' ? 'row-reverse' : 'row',
+                    }}
+                >
                     <div style={{ minWidth: 0, flex: '0 1 auto' }}>
                     {showSkillEditorBadge && (
                         <div
