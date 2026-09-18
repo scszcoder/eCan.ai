@@ -16,6 +16,7 @@ import { usePromptStore } from '../../../../stores/promptStore';
 import { useUserStore } from '../../../../stores/userStore';
 import { getCommonFieldLabel } from '../../utils/field-labels';
 import HookBundlesField from './HookBundlesField';
+import type { BrowserProfile as IdentityProfile } from '@/types/browserProfile';
 
 // Browser profile interface
 interface BrowserProfile {
@@ -177,6 +178,9 @@ export const FormRender = (_props: FormRenderProps<any>) => {
   const { prompts, fetch, fetched, loading: promptStoreLoading } = usePromptStore();
   const [llmProviders, setLlmProviders] = useState<Map<string, any>>(new Map());
   const [browserProfiles, setBrowserProfiles] = useState<BrowserProfile[]>([]);
+  // Registered identities (session + proxy + fingerprint) for browser="fingerprint".
+  // A different thing from browserProfiles above, which are browser-use presets.
+  const [identityProfiles, setIdentityProfiles] = useState<IdentityProfile[]>([]);
   const [proxyModels, setProxyModels] = useState<string[]>([]);
   const platform = useMemo(() => {
     if (typeof navigator === 'undefined') return 'linux';
@@ -198,6 +202,19 @@ export const FormRender = (_props: FormRenderProps<any>) => {
     }
   }, []);
 
+  // Only the fingerprint browser has a registry we can enumerate; AdsPower and
+  // Ziniao ids live in those vendors' own apps, so they stay free text.
+  const fetchIdentityProfiles = useCallback(async () => {
+    try {
+      const response = await get_ipc_api().listBrowserProfiles<{ profiles: IdentityProfile[] }>();
+      if (response.success && response.data?.profiles) {
+        setIdentityProfiles(response.data.profiles);
+      }
+    } catch (error) {
+      console.error('[Browser Automation] Failed to fetch browser profiles:', error);
+    }
+  }, []);
+
   useEffect(() => {
     fetchLLMProviders().then((map) => {
       setLlmProviders(map);
@@ -207,7 +224,8 @@ export const FormRender = (_props: FormRenderProps<any>) => {
       }
     });
     fetchBrowserProfiles();
-  }, [fetchBrowserProfiles]);
+    fetchIdentityProfiles();
+  }, [fetchBrowserProfiles, fetchIdentityProfiles]);
 
   useEffect(() => {
     if (!fetched && username) {
@@ -632,15 +650,47 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               <>
                 <FormItem name="browserProfileId" label={idLabel} type="string" vertical>
                   <Field<string> name="inputsValues.browserProfileId.content">
-                    {({ field }) => (
-                      <input
-                        type="text"
-                        value={(field.value as string) || ''}
-                        onChange={(e) => field.onChange(e.target.value)}
-                        placeholder={t('nodes.browserAutomation.browserProfileIdPlaceholder')}
-                        style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
-                      />
-                    )}
+                    {({ field }) => {
+                      if (b !== 'fingerprint') {
+                        return (
+                          <input
+                            type="text"
+                            value={(field.value as string) || ''}
+                            onChange={(e) => field.onChange(e.target.value)}
+                            placeholder={t('nodes.browserAutomation.browserProfileIdPlaceholder')}
+                            style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
+                          />
+                        );
+                      }
+                      const current = (field.value as string) || '';
+                      const options = identityProfiles.map((p) => ({
+                        label: p.label && p.label !== p.id ? `${p.label} (${p.id})` : p.id,
+                        value: p.id,
+                      }));
+                      // A skill authored on another machine names a profile this
+                      // one has never seen. Keep the value and say so, rather
+                      // than silently blanking the node on open.
+                      if (current && !identityProfiles.some((p) => p.id === current)) {
+                        options.push({
+                          label: `${current} — ${t('nodes.browserAutomation.profileNotOnThisMachine')}`,
+                          value: current,
+                        });
+                      }
+                      return (
+                        <Select
+                          value={current || undefined}
+                          onChange={(val) => field.onChange((val as string) || '')}
+                          optionList={options}
+                          placeholder={t('nodes.browserAutomation.browserProfileIdPlaceholder')}
+                          style={{ width: '100%' }}
+                          size="small"
+                          filter
+                          showClear
+                          emptyContent={t('nodes.browserAutomation.noBrowserProfiles')}
+                          dropdownMatchSelectWidth
+                        />
+                      );
+                    }}
                   </Field>
                 </FormItem>
                 <div style={{ marginBottom: 12, padding: '6px 8px', backgroundColor: '#e6f4ff', border: '1px solid #91caff', borderRadius: 4, fontSize: 11, lineHeight: 1.5, color: '#333' }}>

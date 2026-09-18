@@ -2922,6 +2922,52 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'save_browser_use_settings' }, { settings });
     }
 
+    // Browser Profiles (logged-in session + proxy + fingerprint).
+    // Distinct from the browser-use "profiles" above, which are agent session
+    // presets -- these are identities, one per store account.
+    public async listBrowserProfiles<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'browser_profile.list' });
+    }
+
+    public async getBrowserProfileOptions<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'browser_profile.options' });
+    }
+
+    public async getBrowserProfileStatus<T>(id: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'browser_profile.status' }, { id });
+    }
+
+    /** `proxy_password` is written to the OS keyring; omit it to keep the stored one. */
+    public async saveBrowserProfile<T>(
+        profile: any, proxy_password?: string, create?: boolean,
+    ): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'browser_profile.save' },
+            { profile, proxy_password: proxy_password || '', create });
+    }
+
+    public async deleteBrowserProfile<T>(
+        id: string, delete_session?: boolean,
+    ): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'browser_profile.delete' },
+            { id, delete_session: !!delete_session });
+    }
+
+    public async launchBrowserProfile<T>(id: string, start_url?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'browser_profile.launch' }, { id, start_url });
+    }
+
+    public async stopBrowserProfile<T>(id: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'browser_profile.stop' }, { id });
+    }
+
+    public async importBrowserProfile<T>(params: {
+        vendor: string; vendor_profile_id: string; id: string; label?: string;
+        fingerprint_profile?: string; api_key?: string; api_port?: number;
+        api_url?: string; overwrite?: boolean;
+    }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'browser_profile.import_vendor' }, params);
+    }
+
     // LLM Token Usage APIs
     public async getMonthlyTokenUsage<T>(month?: number, year?: number): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'llm.getMonthlyTokenUsage' }, { month, year });

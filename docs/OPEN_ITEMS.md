@@ -622,9 +622,22 @@ node still using it).
 --as <id>` (plus `list` / `show` / `remove`). Verified against the live Etsy
 profile — 23MB in 8s, and the imported copy launched signed in.
 
+**A management GUI is BUILT** (2026-09-18): Settings → Browser Profiles does
+CRUD, proxy, fingerprint, launch/stop and import, over a `browser_profile.*`
+IPC facade whose DTO is deliberately not the registry's storage shape (so the
+model behind profiles can change without the page changing). The node's
+**Browser Profile** field is now a dropdown of registered profiles instead of
+free text, and `fingerprint_browser.profile_status()` answers "is it running,
+on what port" across processes by reading `.ecan_cdp.json` — which `ecan
+browser list/show` now report too. NOT yet clicked through in the running app:
+handlers were exercised directly, the page was type-checked and built.
+
 Still open:
-- **Prove it over time.** The plan's own gate: run the Etsy profile through a
-  reboot and a week of idleness before building 3-4 on top of it.
+- **Prove it over time.** The plan's own gate: reboot AND a week of idleness.
+  **Reboot leg PASSED 2026-09-18** — after a real Windows restart the Etsy
+  profile landed on the Shop Manager dashboard signed in, through the proxy,
+  ~3s after launch. The idleness leg is open: re-run the same check around
+  2026-09-25 without touching the profile in between.
 - **`shutdown_browser` cannot close a browser-use session.** Every shutdown
   logs `'BrowserSession' object has no attribute 'close'` — browser-use 0.12
   renamed it, and the call has been failing silently for every browser type,

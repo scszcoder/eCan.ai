@@ -793,7 +793,9 @@
       "tabPolicyStrict": "strict_single_tab (default — never switch_tab)",
       "tabPolicyAllowAssigned": "allow_assigned_tab (permit focusing the assigned tab_id)",
       "fingerprintProfileId": "Browser Profile",
-      "fingerprintProfileHint": "The id of a browser profile registered on this machine. The profile carries its own session, proxy and fingerprint, so no vendor app or API key is needed."
+      "fingerprintProfileHint": "The id of a browser profile registered on this machine. The profile carries its own session, proxy and fingerprint, so no vendor app or API key is needed.",
+      "profileNotOnThisMachine": "not registered on this machine",
+      "noBrowserProfiles": "No browser profiles yet. Add one in Settings → Browser Profiles."
     },
     "mcp": {
       "name": "MCP",
