@@ -677,7 +677,8 @@
         "existingChrome": "Existing Chrome",
         "adsPower": "Ads Power",
         "ziniao": "Ziniao",
-        "multiLogin": "Multi-Login"
+        "multiLogin": "Multi-Login",
+        "fingerprint": "eCan Fingerprint Browser"
       },
       "drivers": {
         "native": "Native",
@@ -790,7 +791,9 @@
       "hookBundlesDesc": "External hook bundles to load. Array of {path, enabled?, config?}. path can be an in-tree name (e.g. 'feige_chat'), absolute path, or 'pkg:<name>'.",
       "tabPolicy": "Tab Policy",
       "tabPolicyStrict": "strict_single_tab (default — never switch_tab)",
-      "tabPolicyAllowAssigned": "allow_assigned_tab (permit focusing the assigned tab_id)"
+      "tabPolicyAllowAssigned": "allow_assigned_tab (permit focusing the assigned tab_id)",
+      "fingerprintProfileId": "Browser Profile",
+      "fingerprintProfileHint": "The id of a browser profile registered on this machine. The profile carries its own session, proxy and fingerprint, so no vendor app or API key is needed."
     },
     "mcp": {
       "name": "MCP",

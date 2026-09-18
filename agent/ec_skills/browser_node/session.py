@@ -459,6 +459,7 @@ class BrowserSessionManager:
         "adspower": "ADSPOWER",
         "ziniao": "ZINIAO",
         "multi-login": "CHROME",
+        "fingerprint": "FINGERPRINT",
     }
 
     def _acquire_browser(

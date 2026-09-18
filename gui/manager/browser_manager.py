@@ -31,6 +31,7 @@ class BrowserType(str, Enum):
     ADSPOWER = "adspower"
     ZINIAO = "ziniao"
     CHROMIUM = "chromium"
+    FINGERPRINT = "fingerprint"   # our own Chromium on a registered profile
     # Future expansion
     # FIREFOX = "firefox"
     # EDGE = "edge"
@@ -909,8 +910,10 @@ class BrowserManager:
                 if browser_type and browser.browser_type != browser_type:
                     continue
                 
-                # AdsPower / Ziniao: the environment id decides reuse.
-                if browser_type in (BrowserType.ADSPOWER, BrowserType.ZINIAO):
+                # AdsPower / Ziniao / our own: the environment id decides
+                # reuse -- one browser per identity, never a shared port.
+                if browser_type in (BrowserType.ADSPOWER, BrowserType.ZINIAO,
+                                    BrowserType.FINGERPRINT):
                     if adspower_profile_id:
                         if str(browser.adspower_profile_id or "") != str(adspower_profile_id):
                             continue
@@ -1085,6 +1088,45 @@ class BrowserManager:
                 if debug_port:
                     final_cdp_port = debug_port
             
+            # =================================================================
+            # Our own fingerprint browser: a Chromium we launch ourselves on a
+            # profile from the registry, which carries the user-data-dir, the
+            # proxy and the fingerprint as one unit. No vendor app, no API key
+            # -- the profile id is the whole configuration.
+            # =================================================================
+            elif browser_type == BrowserType.FINGERPRINT:
+                from agent.ec_skills.browser_use_extension.fingerprint import (
+                    fingerprint_browser as _fp,
+                    profile_registry as _fp_registry,
+                )
+
+                # Same field the vendor branches use for their environment id.
+                fp_profile_id = (adspower_profile_id or profile or "").strip()
+                if not fp_profile_id:
+                    raise ValueError(
+                        "a browser profile id is required for the fingerprint "
+                        "browser type (set 'browserProfileId' on the node)"
+                    )
+                if not _fp_registry.get_profile(fp_profile_id):
+                    known = [p.get("id") for p in _fp_registry.list_profiles()]
+                    raise ValueError(
+                        f"no browser profile registered as '{fp_profile_id}' "
+                        f"(registered: {known or 'none'})"
+                    )
+                adspower_profile_id = fp_profile_id
+
+                logger.info(
+                    f"[BrowserManager] Launching fingerprint profile: {fp_profile_id}"
+                )
+                # cdp_port 0 means "any free port", which is what launch_profile
+                # does on its own.
+                launched = _fp.launch_profile(
+                    fp_profile_id,
+                    debug_port=cdp_port or 0,
+                )
+                final_cdp_url = launched.cdp_url
+                final_cdp_port = launched.debug_port
+
             # =================================================================
             # Ziniao (紫鸟): the SuperBrowser client starts the store and
             # answers with a localhost debugging port. Credentials are the
@@ -1610,6 +1652,41 @@ class BrowserManager:
                     browser.webdriver.quit()
                 except Exception as e:
                     logger.warning(f"Error closing webdriver for {browser_id}: {e}")
+
+            # Our own Chromium is ours to stop, and it has to be stopped
+            # gracefully: the profile only writes out cookies and localStorage
+            # on a clean exit, and losing those loses the login the profile
+            # exists to hold. This also releases the proxy relay.
+            #
+            # One browser can back several AutoBrowser records -- two nodes of
+            # the same skill each acquire one, and launch_profile hands both the
+            # same running browser. Closing on the first shutdown would kill the
+            # browser under the node still using it, so only the last record
+            # standing closes the profile.
+            if browser.browser_type == BrowserType.FINGERPRINT:
+                fp_profile_id = str(browser.adspower_profile_id or "")
+                with self._lock:
+                    others = [
+                        b for bid, b in self._browsers.items()
+                        if bid != browser_id
+                        and b.browser_type == BrowserType.FINGERPRINT
+                        and str(b.adspower_profile_id or "") == fp_profile_id
+                    ]
+                if others:
+                    logger.info(
+                        f"[BrowserManager] Keeping fingerprint profile "
+                        f"'{fp_profile_id}' open: {len(others)} other browser "
+                        f"record(s) still hold it"
+                    )
+                else:
+                    try:
+                        from agent.ec_skills.browser_use_extension.fingerprint import (
+                            fingerprint_browser as _fp,
+                        )
+                        _fp.close_profile(fp_profile_id)
+                    except Exception as e:
+                        logger.warning(
+                            f"Error closing fingerprint profile for {browser_id}: {e}")
 
             # Remove from registry
             with self._lock:

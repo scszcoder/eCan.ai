@@ -11149,6 +11149,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     browser_type_setting = ((inputs.get("browser") or {}).get("content") or "new chromium").lower().strip()
     browser_driver_setting = ((inputs.get("browserDriver") or {}).get("content") or "native").lower().strip()
     cdp_port_setting = ((inputs.get("cdpPort") or {}).get("content") or "").strip()
+    # Vendor environment id, or -- for browser="fingerprint" -- the id of one of
+    # our own registered browser profiles.
+    browser_profile_id_setting = (
+        (inputs.get("browserProfileId") or {}).get("content") or "").strip()
     # cdpPortAuto checkbox overrides cdpPort to "auto" when checked
     _cdp_port_auto_val = (inputs.get("cdpPortAuto") or {}).get("content")
     if str(_cdp_port_auto_val).lower() in ("true", "1", "yes", "on"):
@@ -11561,6 +11565,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         browser_type_setting=browser_type_setting,
         browser_driver_setting=browser_driver_setting,
         cdp_port_setting=cdp_port_setting,
+        browser_profile_id_setting=browser_profile_id_setting,
         downloads_path=downloads_path,
         actionable_field=actionable_field,
         # hook lists

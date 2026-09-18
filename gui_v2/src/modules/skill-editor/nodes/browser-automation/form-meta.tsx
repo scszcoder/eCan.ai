@@ -254,6 +254,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
     { label: t('nodes.browserAutomation.browsers.adsPower'), value: 'ads power' },
     { label: t('nodes.browserAutomation.browsers.ziniao'), value: 'ziniao' },
     { label: t('nodes.browserAutomation.browsers.multiLogin'), value: 'multi-login' },
+    { label: t('nodes.browserAutomation.browsers.fingerprint'), value: 'fingerprint' },
   ], [t]);
 
   const BROWSER_DRIVER_OPTIONS = useMemo(() => [
@@ -621,10 +622,12 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         <Field<string> name="inputsValues.browser.content">
           {({ field: browserField }) => {
             const b = (browserField.value as string) || '';
-            if (b !== 'ads power' && b !== 'ziniao') return <></>;
+            if (b !== 'ads power' && b !== 'ziniao' && b !== 'fingerprint') return <></>;
             const idLabel = b === 'ziniao'
               ? t('nodes.browserAutomation.ziniaoStoreId')
-              : t('nodes.browserAutomation.adsPowerProfileId');
+              : b === 'fingerprint'
+                ? t('nodes.browserAutomation.fingerprintProfileId')
+                : t('nodes.browserAutomation.adsPowerProfileId');
             return (
               <>
                 <FormItem name="browserProfileId" label={idLabel} type="string" vertical>
@@ -641,7 +644,9 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                   </Field>
                 </FormItem>
                 <div style={{ marginBottom: 12, padding: '6px 8px', backgroundColor: '#e6f4ff', border: '1px solid #91caff', borderRadius: 4, fontSize: 11, lineHeight: 1.5, color: '#333' }}>
-                  {t('nodes.browserAutomation.antiDetectCredsHint')}
+                  {b === 'fingerprint'
+                    ? t('nodes.browserAutomation.fingerprintProfileHint')
+                    : t('nodes.browserAutomation.antiDetectCredsHint')}
                 </div>
               </>
             );

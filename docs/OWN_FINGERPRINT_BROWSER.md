@@ -33,7 +33,17 @@ belong in this repo.
    it, and Chromium treats the cookies as empty rather than erroring. This is
    the single biggest constraint on the cloud design — see the plan.
 
-## Using it
+## Using it from a skill
+
+In a browser-automation node, set **Browser** to `eCan Fingerprint Browser` and
+put the profile id in **Browser Profile**. That is the whole configuration --
+no CDP port, no vendor app, no API key. The node launches the profile, attaches
+over CDP, and injects the fingerprint the profile names (if it names one).
+
+Several nodes in one skill share the single running browser; it closes when the
+last of them is shut down, not the first.
+
+## Using it from code
 
     from agent.ec_skills.browser_use_extension.fingerprint import (
         fingerprint_browser as fb)
@@ -54,11 +64,18 @@ relay is gone and the browser would silently egress from this machine's own IP;
 
 ## Status
 
-As of 2026-09-17, plan phases 0–2 are built and verified end to end against the
-live Etsy profile: launch → attach from a second process → egress confirmed at
-the proxy exit (Pasadena, CA) → close → cold relaunch, still signed in to the
-Shop Manager dashboard with no login prompt.
+As of 2026-09-17, plan phases 0–3 are built.
 
-Not built: phase 3 (browser-node integration, so a skill can name a profile
-instead of a port) and phase 4 (import tooling for vendor profiles — the Etsy
-one was migrated by hand).
+Phases 0–2 were verified end to end against the live Etsy profile: launch →
+attach from a second process → egress confirmed at the proxy exit (Pasadena,
+CA) → close → cold relaunch, still signed in to the Shop Manager dashboard with
+no login prompt.
+
+Phase 3 was verified through `BrowserManager`, the way the node reaches it:
+acquire → CDP endpoint + browser-use session → a second acquire reuses the
+running browser → shutting down the first record leaves it alive → shutting
+down the last closes it gracefully.
+
+Not built: phase 4 (import tooling for vendor profiles — the Etsy one was
+migrated by hand). The plan also gates further work on proving the profile
+survives a reboot and a week of idleness.

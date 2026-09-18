@@ -704,7 +704,8 @@
         "existingChrome": "现有 Chrome",
         "adsPower": "Ads Power",
         "ziniao": "紫鸟",
-        "multiLogin": "Multi-Login"
+        "multiLogin": "Multi-Login",
+        "fingerprint": "eCan 指纹浏览器"
       },
       "drivers": {
         "native": "原生",
@@ -817,7 +818,9 @@
       "hookBundlesDesc": "要加载的外部 Hook 包，数组格式 {path, enabled?, config?}。path 可以是内部包名（如 'feige_chat'）、绝对路径或 'pkg:<name>'。",
       "tabPolicy": "标签页策略",
       "tabPolicyStrict": "strict_single_tab（默认 — 禁止 switch_tab）",
-      "tabPolicyAllowAssigned": "allow_assigned_tab（允许聚焦已分配的 tab_id）"
+      "tabPolicyAllowAssigned": "allow_assigned_tab（允许聚焦已分配的 tab_id）",
+      "fingerprintProfileId": "浏览器配置",
+      "fingerprintProfileHint": "本机已注册的浏览器配置 ID。该配置自带登录会话、代理与指纹，无需第三方客户端或 API Key。"
     }
   },
   "formComponents": {

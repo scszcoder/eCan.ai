@@ -265,6 +265,9 @@ class RunContext:
     # is a TypeError at class creation.
     node_allowed_actions: Any = None
     node_excluded_actions: Any = None
+    # Vendor environment id, or the id of one of our registered browser
+    # profiles when browser_type_setting == "fingerprint".
+    browser_profile_id_setting: str = ""
 
     # Phase 6.7 (2026-04-24) dropped 18 fields:
     #   * 9 helpers — now in browser_node/build_helpers.py
@@ -3098,12 +3101,58 @@ def build_browser_profile(
     return profile
 
 
+def _fingerprint_from_registry(browser_profile_id: str | None) -> dict | None:
+    """The fingerprint a registered browser profile names, if any.
+
+    A registry record is a more specific statement of intent than the node's
+    stealth checkbox: it says *this identity has always presented this device*.
+    Re-randomising it per run would be the opposite of what a persistent
+    profile is for, so this wins over the auto-generated path below.
+    """
+    if not browser_profile_id:
+        return None
+    try:
+        from agent.ec_skills.browser_use_extension.fingerprint import (
+            profile_registry as _reg,
+        )
+        from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_service import (
+            load_profile as _load_fp,
+        )
+    except Exception as exc:
+        logger.warning(f"[BrowserAutomation] Fingerprint registry import failed: {exc}")
+        return None
+
+    record = _reg.get_profile(browser_profile_id)
+    if not record:
+        return None
+    fp_name = (record.get("fingerprint_profile") or "").strip()
+    if not fp_name:
+        logger.debug(
+            f"[BrowserAutomation] Browser profile '{browser_profile_id}' names no "
+            f"fingerprint; leaving the browser as launched"
+        )
+        return None
+    fp = _load_fp(fp_name)
+    if not fp:
+        logger.warning(
+            f"[BrowserAutomation] Browser profile '{browser_profile_id}' names "
+            f"fingerprint '{fp_name}', which is not installed; continuing without it"
+        )
+        return None
+    logger.info(
+        f"[BrowserAutomation] Stealth: fingerprint '{fp_name}' from browser "
+        f"profile '{browser_profile_id}'"
+    )
+    return fp
+
+
 def apply_stealth_fingerprint(
     browser_profile: Any,
     profile_settings: dict | None,
     *,
     calling_agent_id: str | None,
     node_name: str,
+    browser_profile_id: str | None = None,
 ) -> dict | None:
     """If the profile has ``enableStealth=True``, wire fingerprint fields onto ``browser_profile``.
 
@@ -3123,6 +3172,21 @@ def apply_stealth_fingerprint(
     or failure).  Failures are logged at warning level and swallowed
     so the run continues without stealth.
     """
+    # A registered browser profile carries its own fingerprint and does not
+    # need the node's checkbox: launching that profile IS asking for it.
+    registry_fp = _fingerprint_from_registry(browser_profile_id)
+    if registry_fp:
+        try:
+            from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_service import (
+                apply_profile_to_browser_profile,
+            )
+            apply_profile_to_browser_profile(browser_profile, registry_fp)
+        except Exception as exc:
+            logger.warning(
+                f"[BrowserAutomation] Could not apply the registry fingerprint to the "
+                f"browser profile (non-fatal, JS injection still runs): {exc}")
+        return registry_fp
+
     if not (profile_settings and profile_settings.get("enableStealth")):
         return None
     try:
@@ -5398,6 +5462,7 @@ class BrowserRunSession:
             profile_settings,
             calling_agent_id=self.calling_agent_id,
             node_name=self.ctx.node_name,
+            browser_profile_id=getattr(self.ctx, "browser_profile_id_setting", ""),
         )
         _fp_dt_ms = (time.perf_counter() - _fp_t0) * 1000.0
         if _fp_dt_ms > 500.0:

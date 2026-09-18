@@ -869,6 +869,7 @@ async def get_or_create_browser_session(
         'adspower': BrowserType.ADSPOWER,
         'ziniao': BrowserType.ZINIAO,
         'multi-login': BrowserType.CHROME,
+        'fingerprint': BrowserType.FINGERPRINT,
     }
     browser_type = browser_type_map.get(ctx.browser_type_setting, BrowserType.CHROME)
 
@@ -946,6 +947,9 @@ async def get_or_create_browser_session(
         # cdp_port above (Phase 3/B2; the previous config-first order here
         # contradicted the documented "state takes priority" intent).
         profile=_state_browser_profile or ctx.node_profile,
+        # Vendor environment id, or our own registered browser profile when
+        # browser="fingerprint". session.py passes the same field.
+        adspower_profile_id=getattr(ctx, "browser_profile_id_setting", "") or None,
         connect_webdriver=_connect_webdriver,
     )
 

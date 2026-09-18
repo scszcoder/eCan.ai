@@ -610,16 +610,24 @@ Session persistence itself was always free (Chromium writes to
 user-data-dir -> proxy -> fingerprint, and the lifecycle to launch them as a
 unit. That now exists.
 
+**Phase 3 is BUILT** too: `browser="fingerprint"` on a browser-automation node
+plus a `browserProfileId` is the whole configuration — `BrowserType.FINGERPRINT`
+launches the profile, hands back the CDP endpoint, and the node injects the
+fingerprint the registry record names. Several nodes share one running browser;
+it closes when the LAST AutoBrowser record holding it is shut down, not the
+first (found in testing: the first shutdown was killing the browser under a
+node still using it).
+
 Still open:
 
-- **Phase 3 — browser-node integration.** A skill should name a profile
-  (`browserProfile: etsy`) instead of a CDP port, and the node should call
-  `inject_stealth` with the profile's fingerprint after launch. Until this
-  lands, the launcher is only reachable from code.
 - **Phase 4 — import tooling.** The Etsy profile was migrated by hand
   (copy user-data-dir, read `user_proxy_config` off the vendor's local API).
 - **Prove it over time.** The plan's own gate: run the Etsy profile through a
   reboot and a week of idleness before building 3-4 on top of it.
+- **`shutdown_browser` cannot close a browser-use session.** Every shutdown
+  logs `'BrowserSession' object has no attribute 'close'` — browser-use 0.12
+  renamed it, and the call has been failing silently for every browser type,
+  not just this one. The CDP connection is left to be reaped.
 - **Relay ownership.** The SOCKS relay lives in the launching process, so a
   second process can attach but inherits a relay it cannot restart.
   `launch_profile` refuses to attach when the recorded relay port is dead —
