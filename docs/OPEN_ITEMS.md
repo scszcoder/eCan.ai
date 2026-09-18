@@ -596,7 +596,10 @@ what is left, roughly in the order they are worth doing.
 
 ### Own fingerprint browser: profile + proxy + session management (2026-09-17)
 
-Plan of record: `OWN_FINGERPRINT_BROWSER_PLAN.md`. NOT built.
+Plan of record now lives in the **eCan_lambda** repo at
+`docs/OWN_FINGERPRINT_BROWSER_PLAN.md` (backend/infra design + cloud
+headless design). Pointer and client-side findings:
+`OWN_FINGERPRINT_BROWSER.md`. NOT built.
 
 Proven that day: a live AdsPower Etsy profile was migrated onto our own
 Chromium and driven over CDP — `Shop Manager Dashboard - Etsy` with no
@@ -616,8 +619,14 @@ Two findings worth keeping even if the plan is never built:
   binaries, not the profiles; the browser is `SunBrowser.exe`, not
   `chrome.exe`.
 
+A third finding shapes the cloud side: **cookies do not cross platforms.**
+Verified — `Local State`'s `os_crypt.encrypted_key` begins with `b'DPAPI'`, so
+the key is bound to a Windows account. A Linux pod cannot read it and Chromium
+treats the cookies as EMPTY rather than erroring, so it looks fine until the
+site shows a login page.
+
 Biggest risk, and the reason to test before building: fingerprint parity is
-not achievable (their `--extended-parameters` blob is understood only by their
+not achievable (the vendor's opaque launch blob is understood only by their
 patched browser) and our stealth-JS substitute is UNTESTED over time. Whether a
 store treats it as the same device over weeks is the thing that would
 invalidate the approach.
