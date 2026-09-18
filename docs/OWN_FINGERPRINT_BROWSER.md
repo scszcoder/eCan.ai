@@ -152,6 +152,24 @@ The node's **Browser Profile** field still works, and is the convenient thing
 for a skill you are never going to share. Treat it as a single-user shortcut:
 anything typed there travels with the skill.
 
+### The node's id never leaves this machine
+
+A skill that is synced, published or rented is sanitized on the way out:
+`skill_share_sanitize.strip_local_identity` removes `browserProfileId` (and any
+persisted `browser_identity` block) from the uploaded copy of the diagram JSON
+and the bundle. The file on disk keeps it, so the local shortcut still works.
+
+Unconditional, not only for public skills, because it is also the *correct*
+behaviour: profiles are registered per machine and never synced, so an id that
+travels either names nothing on the far side -- now a clean failure -- or
+happens to match a same-named local profile and silently runs as the wrong
+store. Stripping on publish alone would also be fragile, since a private skill
+can be flipped to public after it was uploaded.
+
+The walk is shape-blind (it recurses the whole structure rather than assuming
+`workFlow.nodes`) because flowgram nests nodes in sheets, loop blocks and
+groups, and the bundle format differs from the plain diagram JSON.
+
 ### It fails closed
 
 If the fingerprint browser cannot be acquired -- no profile id resolved, the id

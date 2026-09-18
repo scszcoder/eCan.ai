@@ -197,7 +197,8 @@ def _calculate_upload_timeout(file_size_bytes, min_speed_kbps=50):
 
 
 # Upload file to S3 using PUT presigned URL (for avatar uploads)
-def upload_file_to_presigned_url(file_path, presigned_url, content_type=None):
+def upload_file_to_presigned_url(file_path, presigned_url, content_type=None,
+                                 sanitize_skill_graph=False):
     """
     Upload a file to S3 using a PUT presigned URL.
     
@@ -206,6 +207,11 @@ def upload_file_to_presigned_url(file_path, presigned_url, content_type=None):
         presigned_url: The presigned PUT URL from the server
         content_type: Optional content type. If None, tries without Content-Type first,
                       then with auto-detected Content-Type as fallback.
+        sanitize_skill_graph: True for a skill diagram/bundle. Strips the
+                      machine-local browser identity (browserProfileId) from
+                      the uploaded copy -- a skill can be published or rented,
+                      and that field points at a live logged-in seller session
+                      on THIS machine. The file on disk is left alone.
     
     Returns:
         dict with success status and any error message
@@ -227,6 +233,20 @@ def upload_file_to_presigned_url(file_path, presigned_url, content_type=None):
         
         with open(file_path, 'rb') as f:
             file_data = f.read()
+
+        if sanitize_skill_graph:
+            # The node's profile id never leaves this machine: profiles are
+            # registered locally and never synced, so an id that travels
+            # either names nothing on the far side or -- worse -- matches a
+            # same-named local profile and runs as the wrong store. Which
+            # identity a run uses is a per-task decision
+            # (task.metadata["browser_identity"]).
+            from agent.ec_skills.skill_share_sanitize import sanitized_graph_bytes
+            cleaned, removed = sanitized_graph_bytes(file_path)
+            if removed:
+                file_data = cleaned
+                file_size = len(file_data)
+                timeout = _calculate_upload_timeout(file_size)
         
         # Strategy: Try multiple approaches since presigned URL may or may not include Content-Type
         # 1. If content_type provided, try with that first
@@ -3665,7 +3685,9 @@ def upload_skill_files_with_upload_urls(
             
             if json_path and os.path.isfile(json_path):
                 logger.info(f"[SkillUpload] 📤 Uploading diagram JSON: {json_path}")
-                result = upload_file_to_presigned_url(json_path, presigned_url, 'application/json')
+                result = upload_file_to_presigned_url(
+                    json_path, presigned_url, 'application/json',
+                    sanitize_skill_graph=True)
                 results['diagram_json'] = result
                 logger.info(f"[SkillUpload] Diagram JSON upload result: {result}")
             else:
@@ -3690,7 +3712,9 @@ def upload_skill_files_with_upload_urls(
             
             if bundle_path and os.path.isfile(bundle_path):
                 logger.info(f"[SkillUpload] 📤 Uploading diagram bundle: {bundle_path}")
-                result = upload_file_to_presigned_url(bundle_path, presigned_url, 'application/octet-stream')
+                result = upload_file_to_presigned_url(
+                    bundle_path, presigned_url, 'application/octet-stream',
+                    sanitize_skill_graph=True)
                 results['diagram_bundle'] = result
                 logger.info(f"[SkillUpload] Diagram bundle upload result: {result}")
             else:
