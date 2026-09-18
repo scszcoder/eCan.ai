@@ -448,6 +448,22 @@ const BrowserProfiles: React.FC = () => {
             + 'pick the profile.')}
         </Paragraph>
 
+        {/* Says out loud what the code already guarantees. A profile is a live
+            logged-in session plus proxy credentials; it is the most sensitive
+            thing this app holds, so it stays on this machine by default and
+            leaving requires the user to say so per profile. */}
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={tp('local_only', 'Profiles stay on this machine')}
+          description={tp('local_only_hint',
+            'Sessions, proxy credentials and fingerprints are not synced to the '
+            + 'cloud and do not travel with a shared skill. Passwords live in the '
+            + 'OS keyring. Running a profile headlessly in the cloud has to be '
+            + 'authorised by you, per profile.')}
+        />
+
         {profiles.length === 0 && !loading ? (
           <Empty description={tp('empty',
             'No profiles yet. Create one and sign in, or import a profile you '

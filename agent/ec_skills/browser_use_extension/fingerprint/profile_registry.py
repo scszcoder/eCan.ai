@@ -13,6 +13,15 @@ Session persistence was never the missing piece — Chromium writes to
 ``--user-data-dir`` and survives a reboot by construction. What was missing was
 a record saying those four belong together, so an agent could launch the set.
 
+**This data is local by default and does not go to the cloud.** A profile is a
+live logged-in session for a real store account plus the proxy credentials it
+egresses through; losing one means someone else can act as that seller. Nothing
+here is synced, shared with a skill, or packed into an image, and
+``tests/unit/test_browser_profile_stays_local.py`` fails if cloud-bound code
+starts referencing it. A profile reaches the cloud only when the user commands
+it for that one profile, having been warned what leaves the machine — see
+``docs/OWN_FINGERPRINT_BROWSER.md``.
+
 Storage decisions, and why:
 
 * **The password is in ``keyring``, never in the JSON.** The record holds a

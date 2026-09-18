@@ -822,7 +822,7 @@
       "fingerprintProfileId": "浏览器配置",
       "fingerprintProfileHint": "本机已注册的浏览器配置 ID。该配置自带登录会话、代理与指纹，无需第三方客户端或 API Key。",
       "profileNotOnThisMachine": "本机未注册",
-      "noBrowserProfiles": "尚无浏览器配置文件。请在“设置 → 浏览器配置文件”中添加。"
+      "noBrowserProfiles": "尚无浏览器配置。请在“设置 → 指纹浏览器配置”中添加。"
     }
   },
   "formComponents": {

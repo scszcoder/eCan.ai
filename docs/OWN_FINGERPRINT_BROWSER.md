@@ -36,6 +36,55 @@ belong in this repo.
    it, and Chromium treats the cookies as empty rather than erroring. This is
    the single biggest constraint on the cloud design — see the plan.
 
+## Profiles are local by default
+
+A profile is the most sensitive thing this app holds. Not "some config" -- a
+live logged-in session for a real store account, the proxy credentials that
+identity egresses through, and the fingerprint it presents. Losing one is not a
+config leak; it is someone else able to act as that seller.
+
+So:
+
+* **Nothing about a profile is synced to the cloud.** Not the session, not the
+  proxy, not the fingerprint. The registry lives in appdata, the session
+  directories live under `BROWSER_DATA_ROOT`, and passwords live in the OS
+  keyring. No code under `agent/cloud_api/`, `agent/cloud_worker/`,
+  `utils/storage/` or `lambda_functions/` references any of it, and
+  `tests/unit/test_browser_profile_stays_local.py` fails if that changes.
+* **A profile does not travel with a shared skill.** A skill names a profile id;
+  the identity behind that id is whatever the machine running the skill has
+  registered. A skill shared to another user names a profile they do not have,
+  and the node says so rather than silently using someone else's.
+* **The IPC boundary cannot carry a password.** `_to_dto` emits `has_password`
+  and drops `password_ref` entirely, so no GUI state, devtools panel, log or
+  bug report can contain one.
+
+This is the default, not a limitation to be engineered around. If a profile
+should be somewhere else, the user puts it there deliberately.
+
+## Running one headlessly in the cloud
+
+The cloud design lives in the `eCan_lambda` plan. Whatever it ends up doing, it
+inherits three requirements from the sensitivity above, and they are not
+negotiable defaults that a later convenience can quietly flip:
+
+1. **User-commanded.** A profile reaches the cloud only when the user asks for
+   that profile to go, in an action whose whole purpose is that. Never as a
+   side effect of syncing, sharing a skill, enabling a feature, or scheduling a
+   task.
+2. **Per profile and per use case.** The grant names one identity and what it
+   is for. There is no account-wide "run my profiles in the cloud" switch,
+   because the blast radius of a wrong one is a seller account.
+3. **Warned first.** The user is told plainly what leaves the machine before it
+   leaves -- that a logged-in session and its proxy credentials are being
+   copied to a machine they do not control -- and confirms that.
+
+Remember the constraint that shapes all of this: **cookies do not cross
+platforms.** A Windows profile's cookie key is DPAPI-wrapped and bound to the
+Windows account, and a Linux pod reads the cookies as EMPTY rather than
+erroring -- so it looks fine right up until the site shows a login page. Any
+cloud path has to solve that before any of the above matters.
+
 ## Managing profiles
 
 **Settings -> Browser Profiles** is the full surface: create, edit, launch,

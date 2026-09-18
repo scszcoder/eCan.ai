@@ -632,6 +632,16 @@ on what port" across processes by reading `.ecan_cdp.json` — which `ecan
 browser list/show` now report too. NOT yet clicked through in the running app:
 handlers were exercised directly, the page was type-checked and built.
 
+**Profiles are LOCAL BY DEFAULT and that is a requirement, not a gap.** A
+profile is a live logged-in seller session plus proxy credentials, so nothing
+about it syncs to the cloud, travels with a shared skill, or crosses the IPC
+boundary as a password. Guarded by
+`tests/unit/test_browser_profile_stays_local.py`. Any future cloud-headless
+path must be (1) user-commanded in an action whose purpose is that, (2) scoped
+to one profile and one use case — no account-wide switch — and (3) warned
+before anything leaves the machine. Do not treat these as defaults a later
+convenience can flip.
+
 Still open:
 - **Prove it over time.** The plan's own gate: reboot AND a week of idleness.
   **Reboot leg PASSED 2026-09-18** — after a real Windows restart the Etsy

@@ -1426,6 +1426,8 @@
         "seconds": "seconds"
       },
       "browser_profiles": {
+        "local_only": "Profiles stay on this machine",
+        "local_only_hint": "Sessions, proxy credentials and fingerprints are not synced to the cloud and do not travel with a shared skill. Passwords live in the OS keyring. Running a profile headlessly in the cloud has to be authorised by you, per profile.",
         "tab_title": "Browser Profiles",
         "title": "Browser Profiles",
         "intro": "A profile is one logged-in identity on one site. It carries its own session, proxy and fingerprint, so a skill only has to name it — set a browser-automation node to the eCan Fingerprint Browser and pick the profile.",
