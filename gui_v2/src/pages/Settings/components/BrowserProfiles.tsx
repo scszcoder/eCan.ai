@@ -720,19 +720,54 @@ const BrowserProfiles: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="api_key" label={tp('f_api_key', 'Vendor API key')}
-                         tooltip={tp('f_api_key_hint', 'Only if their local API asks for one.')}>
-                <Input autoComplete="off" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="api_port" label={tp('f_api_port', 'Vendor API port')}>
-                <InputNumber min={1} max={65535} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item noStyle shouldUpdate={(a, b) => a.vendor !== b.vendor}>
+            {({ getFieldValue }) => {
+              const v = vendors.find((x) => x.id === getFieldValue('vendor'));
+              return (
+                <>
+                  {v && v.validated === false && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: 12 }}
+                      message={tp('import_unvalidated',
+                        'This importer has not been tested against a live install')}
+                      description={tp('import_unvalidated_hint',
+                        'It may fail or bring the profile across without its proxy. '
+                        + 'Check the profile before using it as an identity, and '
+                        + 'report what happened.')}
+                    />
+                  )}
+                  <Row gutter={12}>
+                    <Col span={12}>
+                      {v?.needs_account ? (
+                        // Account-based vendors (Ziniao) authenticate with
+                        // company/user/password, which already live in
+                        // Settings -> Browser Automation -> Providers. Asking
+                        // again here would be a second place to get it wrong.
+                        <Form.Item label={tp('f_credentials', 'Credentials')}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {tp('f_credentials_from_settings',
+                              'Taken from Settings → Browser Use → Providers')}
+                          </Text>
+                        </Form.Item>
+                      ) : (
+                        <Form.Item name="api_key" label={tp('f_api_key', 'Vendor API key')}
+                                   tooltip={tp('f_api_key_hint', 'Only if their local API asks for one.')}>
+                          <Input autoComplete="off" />
+                        </Form.Item>
+                      )}
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="api_port" label={tp('f_api_port', 'Vendor API port')}>
+                        <InputNumber min={0} max={65535} style={{ width: '100%' }} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </>
+              );
+            }}
+          </Form.Item>
         </Form>
       </Modal>
     </div>

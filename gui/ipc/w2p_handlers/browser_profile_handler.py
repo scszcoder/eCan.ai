@@ -205,7 +205,16 @@ def handle_options(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
             # vendor is a row here rather than a change to the page.
             'vendors': [
                 {'id': 'adspower', 'name': 'AdsPower',
-                 'id_label': 'Profile serial', 'default_api_port': 50325},
+                 'id_label': 'Profile serial', 'default_api_port': 50325,
+                 'needs_account': False, 'validated': True},
+                # Ziniao's credentials are the account itself, not an API key,
+                # so the editor asks for company/username/password instead.
+                # NOT yet validated against a live install -- see
+                # vendor_import.import_ziniao.
+                {'id': 'ziniao', 'name': '\u7d2b\u9e1f Ziniao',
+                 'id_label': '\u5e97\u94fa ID (browserOauth)',
+                 'default_api_port': 0,
+                 'needs_account': True, 'validated': False},
             ],
         })
     except Exception as e:
@@ -416,21 +425,51 @@ def handle_import_vendor(request: IPCRequest, params: Optional[Dict[str, Any]]) 
                 request, 'INVALID_PARAMS',
                 "The id becomes a folder name: letters, digits, '-' and '_' "
                 "only, starting with a letter or digit.")
-        if vendor != 'adspower':
+        if vendor not in ('adspower', 'ziniao'):
             return create_error_response(request, 'UNSUPPORTED_VENDOR',
                                          f"Cannot import from '{vendor}' yet")
 
         from agent.ec_skills.browser_use_extension.fingerprint import vendor_import
-        record = vendor_import.import_adspower(
-            vendor_profile_id,
-            new_id,
-            api_key=(p.get('api_key') or '').strip(),
-            api_port=int(p.get('api_port') or 50325),
-            api_url=(p.get('api_url') or '').strip(),
+        common = dict(
             label=(p.get('label') or '').strip(),
             fingerprint_profile=(p.get('fingerprint_profile') or '').strip(),
             overwrite=bool(p.get('overwrite')),
         )
+        if vendor == 'ziniao':
+            # Ziniao authenticates with the account, not an API key, and the
+            # credentials already live in Settings > Browser Automation >
+            # Providers -- fall back to those so the import form only has to
+            # ask for the store id.
+            zn = {}
+            try:
+                from gui.ipc.w2p_handlers.browser_use_handler import (
+                    load_browser_use_settings,
+                )
+                zn = ((load_browser_use_settings() or {})
+                      .get('browserProviders') or {}).get('ziniao') or {}
+            except Exception as exc:
+                logger.warning(f"[browser-profile] could not read Ziniao "
+                               f"settings ({exc}); using the request only")
+            record = vendor_import.import_ziniao(
+                vendor_profile_id,
+                new_id,
+                api_url=(p.get('api_url') or zn.get('api_url') or '').strip(),
+                api_port=int(p.get('api_port') or zn.get('api_port') or 0),
+                company=(p.get('company') or zn.get('company') or '').strip(),
+                username=(p.get('username') or zn.get('username') or '').strip(),
+                password=(p.get('password') or zn.get('password') or ''),
+                use_socket=bool(p.get('use_socket', zn.get('use_socket'))),
+                **common,
+            )
+        else:
+            record = vendor_import.import_adspower(
+                vendor_profile_id,
+                new_id,
+                api_key=(p.get('api_key') or '').strip(),
+                api_port=int(p.get('api_port') or 50325),
+                api_url=(p.get('api_url') or '').strip(),
+                **common,
+            )
         return create_success_response(request, {'profile': _dto_with_status(record)})
     except Exception as e:
         logger.error(f"[browser-profile] import failed: {e}\n{traceback.format_exc()}")

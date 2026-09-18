@@ -82,6 +82,11 @@ export interface BrowserVendor {
   /** What that vendor calls a profile id ("Profile serial" for AdsPower). */
   id_label: string;
   default_api_port: number;
+  /** True when the vendor authenticates with an account rather than an API
+   *  key, so the credentials come from Settings instead of the import form. */
+  needs_account?: boolean;
+  /** False for an importer that has not been run against a live install. */
+  validated?: boolean;
 }
 
 export interface BrowserProfileOptions {

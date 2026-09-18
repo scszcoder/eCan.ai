@@ -116,8 +116,9 @@ def show_profile(profile_id):
 
 
 @browser.command('import')
-@click.option('--from', 'vendor', type=click.Choice(['adspower']), default='adspower',
-              help='Which anti-detect browser to import from')
+@click.option('--from', 'vendor', type=click.Choice(['adspower', 'ziniao']),
+              default='adspower',
+              help='Which anti-detect browser to import from (ziniao is UNVALIDATED)')
 @click.option('--profile', 'vendor_profile_id', required=True,
               help="The vendor's profile id (AdsPower calls it the serial)")
 @click.option('--as', 'new_id', required=True, help='Id to register it under')
@@ -141,17 +142,44 @@ def import_profile(vendor, vendor_profile_id, new_id, label, fingerprint_profile
 
     out.info(f"Importing {vendor} profile '{vendor_profile_id}' as '{new_id}'")
     try:
-        record = vendor_import.import_adspower(
-            vendor_profile_id,
-            new_id,
-            api_key=api_key,
-            api_port=api_port,
-            api_url=api_url,
-            label=label,
-            fingerprint_profile=fingerprint_profile,
-            overwrite=overwrite,
-            progress=out.info,
-        )
+        if vendor == 'ziniao':
+            out.warning("The Ziniao importer has not been validated against a "
+                        "live install -- report what it does.")
+            zn = {}
+            try:
+                from gui.ipc.w2p_handlers.browser_use_handler import (
+                    load_browser_use_settings,
+                )
+                zn = ((load_browser_use_settings() or {})
+                      .get('browserProviders') or {}).get('ziniao') or {}
+            except Exception:
+                pass
+            record = vendor_import.import_ziniao(
+                vendor_profile_id,
+                new_id,
+                api_url=api_url or zn.get('api_url', ''),
+                api_port=api_port if api_port != 50325 else int(zn.get('api_port') or 0),
+                company=zn.get('company', ''),
+                username=zn.get('username', ''),
+                password=zn.get('password', ''),
+                use_socket=bool(zn.get('use_socket')),
+                label=label,
+                fingerprint_profile=fingerprint_profile,
+                overwrite=overwrite,
+                progress=out.info,
+            )
+        else:
+            record = vendor_import.import_adspower(
+                vendor_profile_id,
+                new_id,
+                api_key=api_key,
+                api_port=api_port,
+                api_url=api_url,
+                label=label,
+                fingerprint_profile=fingerprint_profile,
+                overwrite=overwrite,
+                progress=out.info,
+            )
     except Exception as e:
         out.error(f"Import failed: {e}")
         raise SystemExit(1)
