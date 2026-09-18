@@ -140,7 +140,28 @@ WS*_SPEC.md
 # Server-side API design notes (implementation lives in the private backend repo)
 docs/VERIFY_ACCOUNT_INFO_API.md
 
-# Browser profile plan + registry: carries live proxy endpoints, proxy
-# usernames, anti-detect profile ids and exit IPs. Local-only.
+# Fingerprint browser: everything about a local identity stays local.
+#
+# A profile is a live logged-in seller session plus the proxy credentials it
+# egresses through, so none of this may ever be committed. In dev,
+# app_info.appdata_path IS the repo root, which is why these land here at all.
+# See docs/OWN_FINGERPRINT_BROWSER.md and
+# tests/unit/test_browser_profile_stays_local.py.
 docs/OWN_FINGERPRINT_BROWSER_PLAN.md
+
+# The registry: proxy endpoints, proxy usernames, exit IPs, vendor profile ids.
 browser_profiles.json
+browser_profiles.tmp
+# The salvaged copy a corrupt registry is moved aside as -- same contents.
+browser_profiles.broken-*.json
+
+# User fingerprint presets (the bundled ones under agent/... stay tracked).
+fingerprint_profiles/
+
+# Anti-detect vendor credentials: AdsPower api_key, Ziniao username/password.
+browser_use_settings.json
+
+# Session directories, if BROWSER_DATA_ROOT is ever pointed inside the repo,
+# and the per-profile CDP port file written inside one.
+ecan_browser_data/
+**/.ecan_cdp.json

@@ -111,3 +111,40 @@ def test_the_ipc_dto_cannot_carry_a_password_off_the_backend():
     assert "s3cret" not in payload
     assert "password_ref" not in payload
     assert dto["proxy"]["has_password"] is True
+
+
+# Paths this feature writes that must never be committable. In dev,
+# app_info.appdata_path IS the repo root, so these really do land beside the
+# source -- "it's in appdata" is not protection here.
+MUST_BE_IGNORED = (
+    "browser_profiles.json",            # proxy endpoints, usernames, exit IPs
+    "browser_profiles.tmp",             # atomic-write temp, same contents
+    "browser_profiles.broken-a1b2c3.json",  # salvaged copy of a corrupt registry
+    "fingerprint_profiles/mine.json",   # user fingerprint presets
+    "browser_use_settings.json",        # AdsPower api_key, Ziniao credentials
+    "ecan_browser_data/etsy_ab12cd/Cookies",   # a session, if the root is in-repo
+    "ecan_browser_data/etsy_ab12cd/.ecan_cdp.json",
+)
+
+
+def test_every_local_profile_artefact_is_gitignored():
+    """One `git add -A` must not be able to commit a seller's live session."""
+    import subprocess
+
+    not_ignored = []
+    for rel in MUST_BE_IGNORED:
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", "--no-index", rel],
+            cwd=REPO, capture_output=True,
+        )
+        # 0 = ignored, 1 = not ignored, 128 = git unavailable/not a repo
+        if result.returncode == 128:
+            pytest.skip("git not available here")
+        if result.returncode != 0:
+            not_ignored.append(rel)
+
+    assert not not_ignored, (
+        "These carry a live logged-in session or vendor credentials and are NOT "
+        "gitignored:\n  " + "\n  ".join(not_ignored)
+        + "\n\nAdd them to .gitignore rather than relaxing this test."
+    )

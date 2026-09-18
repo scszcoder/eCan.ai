@@ -21,6 +21,7 @@ belong in this repo.
 | `gui/ipc/w2p_handlers/browser_profile_handler.py` | the `browser_profile.*` IPC facade. Its DTO is the GUI's contract and is deliberately not the registry's storage shape |
 | `gui_v2/src/pages/Settings/components/BrowserProfiles.tsx` | Settings -> Browser Profiles: CRUD, proxy, fingerprint, launch/stop, import |
 | `cli/browser/commands.py` | `ecan browser list / show / import / remove` |
+| `tests/unit/test_browser_profile_stays_local.py` | the local-only invariants: no cloud-bound module reaches for a profile, the session root is outside the repo, the IPC DTO cannot carry a password, and every local artefact is gitignored |
 
 ## Three findings worth knowing before touching any of it
 
@@ -51,6 +52,17 @@ So:
   keyring. No code under `agent/cloud_api/`, `agent/cloud_worker/`,
   `utils/storage/` or `lambda_functions/` references any of it, and
   `tests/unit/test_browser_profile_stays_local.py` fails if that changes.
+* **None of it can be committed.** Which matters more than it sounds, because
+  **in dev `app_info.appdata_path` IS the repo root** -- so "it lives in
+  appdata" is not protection here, it lands beside the source. Ignored as a
+  family, not as one filename: the registry, its atomic-write temp
+  (`browser_profiles.tmp`), the salvaged copy a corrupt registry is moved aside
+  as (`browser_profiles.broken-*.json`, same contents), user fingerprint
+  presets (`fingerprint_profiles/`), the anti-detect vendor credentials in
+  `browser_use_settings.json` (AdsPower api_key, Ziniao username/password), and
+  `ecan_browser_data/` plus `.ecan_cdp.json` for the case where someone points
+  `ECAN_BROWSER_DATA_ROOT` inside the repo. The same test asserts each of those
+  is ignored. None has ever been committed -- checked against full history.
 * **A profile does not travel with a shared skill.** A skill names a profile id;
   the identity behind that id is whatever the machine running the skill has
   registered. A skill shared to another user names a profile they do not have,

@@ -636,7 +636,14 @@ handlers were exercised directly, the page was type-checked and built.
 profile is a live logged-in seller session plus proxy credentials, so nothing
 about it syncs to the cloud, travels with a shared skill, or crosses the IPC
 boundary as a password. Guarded by
-`tests/unit/test_browser_profile_stays_local.py`. Any future cloud-headless
+`tests/unit/test_browser_profile_stays_local.py`, which also asserts every
+local artefact is gitignored — the registry, its `.tmp`, the
+`browser_profiles.broken-*.json` salvage copy, `fingerprint_profiles/`,
+`browser_use_settings.json` (AdsPower api_key + Ziniao credentials) and
+`ecan_browser_data/`. That last part matters because **in dev
+`app_info.appdata_path` is the repo root**, so these land beside the source;
+`browser_use_settings.json` and `fingerprint_profiles/` were both unignored
+until 2026-09-18. Nothing was ever committed (history checked). Any future cloud-headless
 path must be (1) user-commanded in an action whose purpose is that, (2) scoped
 to one profile and one use case — no account-wide switch — and (3) warned
 before anything leaves the machine. Do not treat these as defaults a later
