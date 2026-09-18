@@ -434,6 +434,32 @@ def _repair_local_skill_from_cloud(local_sk: Dict[str, Any], cloud_sk: Dict[str,
     return True
 
 
+def _refresh_declared_inputs(skills_dicts, row_id, row_askid, db_row):
+    """Let the DB win for a skill's declared inputs on a memory-served row.
+
+    Narrow on purpose: only the declarative fields, and only when the DB
+    actually has a value. Everything else about the in-memory skill -- its
+    runtime state, its compiled graph -- is left alone.
+    """
+    for sk in skills_dicts:
+        if not isinstance(sk, dict):
+            continue
+        same = ((row_id and str(sk.get('id')) == row_id)
+                or (row_askid and str(sk.get('askid')) == row_askid))
+        if not same:
+            continue
+        for field in ('need_inputs', 'objectives'):
+            db_val = db_row.get(field)
+            if isinstance(db_val, list) and db_val and sk.get(field) != db_val:
+                logger.info(
+                    f"[skill_handler] refreshed {field} from DB for "
+                    f"'{sk.get('name')}' ({len(db_val)} declared); the "
+                    f"in-memory copy was stale"
+                )
+                sk[field] = db_val
+        return
+
+
 @IPCHandlerRegistry.handler('get_agent_skills')
 def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Get agent skills list from local memory/DB AND cloud.
@@ -529,6 +555,18 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                     row_id = str(row.get('id') or '').strip()
                     row_askid = str(row.get('askid') or '').strip()
                     if (row_id and row_id in existing_ids) or (row_askid and row_askid in existing_askids):
+                        # Already served from memory. Memory is authoritative
+                        # for RUNTIME state, but `need_inputs`/`objectives` are
+                        # declarative and persisted: a skill edited after the
+                        # app started has them in the DB while the long-lived
+                        # in-memory EC_Skill still carries whatever it was
+                        # built with. Letting the stale copy shadow the DB is
+                        # how a skill that DOES declare its inputs shows none
+                        # -- and TaskDetail's 任务变量 section is driven by
+                        # exactly this field, so the task then offers no way to
+                        # supply them and the run fails with "missing upstream
+                        # data" (observed 2026-09-18 on etsy_after_sales0).
+                        _refresh_declared_inputs(skills_dicts, row_id, row_askid, row)
                         continue
 
                     skills_dicts.append(row)
