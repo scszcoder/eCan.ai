@@ -614,6 +614,14 @@ def apply_task_vars(task, state) -> None:
         "slot": "browser_slot_id",
         "user_data_dir": "user_data_dir",
         "headless": "headless",
+        # Which registered fingerprint profile (session + proxy + fingerprint)
+        # this task runs as. It belongs to the TASK, never to the skill: a
+        # skill can be published or rented, and a logged-in seller identity
+        # must not travel with it. The skill says "use the fingerprint
+        # browser"; the task says which identity.
+        "browser_profile_id": "browser_profile_id",
+        "fingerprint_profile_id": "browser_profile_id",
+        "profile_id": "browser_profile_id",
     }
     try:
         if not isinstance(state, dict):

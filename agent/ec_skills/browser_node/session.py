@@ -284,6 +284,7 @@ class BrowserSessionManager:
             scope=scope,
             cdp_port=cdp_port,
             state_profile=slot_info["profile"],
+            state_profile_id=slot_info["profile_id"],
             calling_agent_id=calling_agent_id,
         )
         if auto_browser is None:
@@ -370,7 +371,7 @@ class BrowserSessionManager:
         Returns a dict with keys ``cdp_port``, ``profile``, ``slot_id``
         (all strings, possibly empty).
         """
-        out = {"cdp_port": "", "profile": "", "slot_id": ""}
+        out = {"cdp_port": "", "profile": "", "slot_id": "", "profile_id": ""}
         try:
             slot_state = state if isinstance(state, dict) else {}
             attrs = slot_state.get("attributes", {}) if isinstance(slot_state, dict) else {}
@@ -391,6 +392,17 @@ class BrowserSessionManager:
                 slot_state.get("browser_slot_id")
                 or attrs.get("browser_slot_id")
                 or params.get("browser_slot_id")
+                or ""
+            ).strip()
+            # Which registered fingerprint profile this task runs as. Per-task
+            # on purpose: a skill can be published or rented, so a logged-in
+            # seller identity must never be stored on it. Mirrors
+            # build_helpers.resolve_state_browser_identity -- keep the two in
+            # step, they have drifted before.
+            out["profile_id"] = str(
+                slot_state.get("browser_profile_id")
+                or attrs.get("browser_profile_id")
+                or params.get("browser_profile_id")
                 or ""
             ).strip()
             if out["cdp_port"] or out["slot_id"]:
@@ -470,6 +482,7 @@ class BrowserSessionManager:
         scope: str,
         cdp_port: int,
         state_profile: str,
+        state_profile_id: str = "",
         calling_agent_id: str | None,
     ) -> Any:
         """Acquire a browser via BrowserManager + log on failure."""
@@ -503,7 +516,10 @@ class BrowserSessionManager:
             # AdsPower 环境ID / 紫鸟店铺ID from the node. Empty falls back to the
             # Settings default inside create_browser, so a skill that does not
             # name one still runs.
-            adspower_profile_id=self.cfg.browser_profile_id or None,
+            # The TASK wins over the skill: the skill may be public/rented and
+            # must not name an identity.
+            adspower_profile_id=(
+                state_profile_id or self.cfg.browser_profile_id or None),
             webdriver_path=mainwin.getWebDriverPath(),
             downloads_path=self.cfg.downloads_path,
             profile=self.cfg.profile or state_profile,
@@ -512,6 +528,22 @@ class BrowserSessionManager:
         if not auto_browser or auto_browser.status == BrowserStatus.ERROR:
             err = auto_browser.last_error if auto_browser else "Unknown error"
             logger.error(f"[BrowserSessionManager] Failed to acquire browser: {err}")
+            # Fail CLOSED for the fingerprint browser. Every other type degrading
+            # to a plain browser is a usability annoyance; this one is a leak. The
+            # whole point of the profile is that the site only ever sees the proxy
+            # exit and a stable fingerprint, so continuing without it visits the
+            # target from the user's real IP with a brand-new device -- the exact
+            # outcome launch_profile refuses to allow when the relay is dead.
+            # Observed 2026-09-18: a node with no profile id fell through to an
+            # empty default profile and browsed Etsy logged-out from home.
+            if browser_type == BrowserType.FINGERPRINT:
+                raise RuntimeError(
+                    f"fingerprint browser unavailable: {err}. Refusing to fall "
+                    f"back to an unprotected browser -- it would reach the site "
+                    f"from this machine's own IP. Set the task's "
+                    f"browser_identity.browser_profile_id (or the node's "
+                    f"Browser Profile) to a registered profile."
+                )
             return None
 
         # When cdp_port was auto (0), update to the actual assigned port.

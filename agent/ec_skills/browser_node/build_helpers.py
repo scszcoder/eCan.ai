@@ -513,7 +513,13 @@ def resolve_state_browser_identity(state) -> dict:
     runtime browser-slot mechanism already honors — state root, then
     ``attributes``, then ``attributes.params`` — for:
     ``browser_profile``, ``cdp_port``, ``browser_slot_id``,
-    ``user_data_dir``, ``headless``.
+    ``user_data_dir``, ``headless``, ``browser_profile_id``.
+
+    ``browser_profile_id`` names a registered fingerprint profile (session +
+    proxy + fingerprint). It is deliberately a per-TASK value: a skill may be
+    published or rented, and a logged-in seller identity must not travel with
+    it, so the skill selects the fingerprint browser and the task selects
+    which identity to be.
 
     Values reach these keys either from the scheduler/BrowserManager slot
     assignment (pre-existing) or from the task's persisted
@@ -526,7 +532,8 @@ def resolve_state_browser_identity(state) -> dict:
         st = state if isinstance(state, dict) else {}
         attrs = st.get("attributes", {}) if isinstance(st.get("attributes"), dict) else {}
         params = attrs.get("params", {}) if isinstance(attrs.get("params"), dict) else {}
-        for key in ("browser_profile", "cdp_port", "browser_slot_id", "user_data_dir", "headless"):
+        for key in ("browser_profile", "cdp_port", "browser_slot_id",
+                    "user_data_dir", "headless", "browser_profile_id"):
             value = st.get(key)
             if value is None or value == "":
                 value = attrs.get(key)
@@ -949,7 +956,16 @@ async def get_or_create_browser_session(
         profile=_state_browser_profile or ctx.node_profile,
         # Vendor environment id, or our own registered browser profile when
         # browser="fingerprint". session.py passes the same field.
-        adspower_profile_id=getattr(ctx, "browser_profile_id_setting", "") or None,
+        #
+        # The TASK wins over the skill, same precedence as cdp_port and
+        # profile above. A skill can be published or rented, so it must be
+        # able to say "use the fingerprint browser" without naming an
+        # identity; the task supplies which logged-in profile to run as.
+        adspower_profile_id=(
+            _run_identity.get("browser_profile_id")
+            or getattr(ctx, "browser_profile_id_setting", "")
+            or None
+        ),
         connect_webdriver=_connect_webdriver,
     )
 
@@ -1138,4 +1154,20 @@ async def get_or_create_browser_session(
     else:
         error_msg = auto_browser.last_error if auto_browser else "Unknown error"
         logger.error(f"[BrowserAutomation] Failed to acquire browser: {error_msg}")
+        # Fail CLOSED for the fingerprint browser. Every other type degrading
+        # to a plain browser is a usability annoyance; this one is a leak. The
+        # whole point of the profile is that the site only ever sees the proxy
+        # exit and a stable fingerprint, so continuing without it visits the
+        # target from the user's real IP with a brand-new device -- the exact
+        # outcome launch_profile refuses to allow when the relay is dead.
+        # Observed 2026-09-18: a node with no profile id fell through to an
+        # empty default profile and browsed Etsy logged-out from home.
+        if browser_type == BrowserType.FINGERPRINT:
+            raise RuntimeError(
+                f"fingerprint browser unavailable: {error_msg}. Refusing to "
+                f"fall back to an unprotected browser -- it would reach the "
+                f"site from this machine's own IP. Set the task's "
+                f"browser_identity.browser_profile_id (or the node's Browser "
+                f"Profile) to a registered profile."
+            )
         return None

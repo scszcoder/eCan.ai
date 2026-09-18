@@ -128,6 +128,41 @@ Two things are deliberately not imported: their browser binary (a patched
 Chromium we cannot drive) and their fingerprint (an opaque blob only that
 binary reads). Pass `--fingerprint win_chrome_02` to name one of ours.
 
+## Which profile a run uses: the TASK decides
+
+**A profile is never stored on the skill.** A skill can be published, shared or
+rented; a profile is a live logged-in seller session plus proxy credentials, so
+putting one on the skill would hand over the store along with it. The split:
+
+    the SKILL says   "use the eCan fingerprint browser"   (a capability)
+    the TASK says    "be the etsy_main identity"          (who you are)
+
+The task carries it in `task.metadata["browser_identity"]`:
+
+    {"browser_identity": {"browser_profile_id": "etsy_main"}}
+
+`prep_skills_run.apply_task_vars` seeds that into run state at start, and
+`build_helpers.resolve_state_browser_identity` reads it back. It **wins over**
+the node's own `browserProfileId`, the same precedence `cdp_port` and `profile`
+already use. `fingerprint_profile_id` and `profile_id` are accepted spellings.
+Two tasks on one shared skill therefore run as two different stores with no
+crosstalk.
+
+The node's **Browser Profile** field still works, and is the convenient thing
+for a skill you are never going to share. Treat it as a single-user shortcut:
+anything typed there travels with the skill.
+
+### It fails closed
+
+If the fingerprint browser cannot be acquired -- no profile id resolved, the id
+names nothing registered, the launch failed -- the node now **raises** instead
+of falling back. Every other browser type still degrades to a plain browser,
+which is an annoyance; this one would be a leak. The point of the profile is
+that the site only ever sees the proxy exit, and a fallback visits the target
+from your own IP with a brand-new device. Observed on 2026-09-18: a node set to
+the fingerprint browser with no profile id quietly used an empty default
+profile and browsed Etsy logged-out from home.
+
 ## Using it from a skill
 
 In a browser-automation node, set **Browser** to `eCan Fingerprint Browser` and
