@@ -308,6 +308,44 @@ def launch_profile(
     return br
 
 
+def profile_status(profile_id: str) -> dict:
+    """Whether *profile_id*'s browser is up, and where to reach it.
+
+    Reads the port file inside the user-data-dir, so this answers for a browser
+    ANY process launched — the GUI asking about one a skill run started, or the
+    CLI asking about one the app started. ``owned`` distinguishes the two,
+    because only the launching process holds the proxy relay.
+    """
+    blank = {
+        "profile_id": profile_id, "running": False, "port": 0, "cdp_url": "",
+        "pid": 0, "relay_port": 0, "relay_alive": False, "started": 0,
+        "owned": False,
+    }
+    profile = registry.get_profile(profile_id)
+    if not profile:
+        return blank
+
+    user_data_dir = Path(profile.get("user_data_dir") or "")
+    recorded = _read_port_file(user_data_dir) if str(user_data_dir) else None
+    port = int((recorded or {}).get("port") or 0)
+    if not port or not _cdp_version(port, timeout=0.5):
+        return blank
+
+    relay_port = int(recorded.get("relay_port") or 0)
+    return {
+        "profile_id": profile_id,
+        "running": True,
+        "port": port,
+        "cdp_url": f"http://127.0.0.1:{port}",
+        "pid": int(recorded.get("pid") or 0),
+        "relay_port": relay_port,
+        # No relay recorded means the profile has no proxy, which is healthy.
+        "relay_alive": (not relay_port) or _port_open(relay_port, timeout=0.5),
+        "started": int(recorded.get("started") or 0),
+        "owned": profile_id in _RUNNING,
+    }
+
+
 def close_profile(profile_id: str, grace: float = 15.0) -> bool:
     """Close the browser for *profile_id*, letting it flush its session.
 
@@ -317,7 +355,23 @@ def close_profile(profile_id: str, grace: float = 15.0) -> bool:
     """
     br = _RUNNING.get(profile_id)
     if not br:
-        return False
+        # Not ours. It may still be up from an earlier app run or another
+        # process; closing tabs over CDP flushes the session just the same.
+        # We do NOT fall through to killing it below — the relay belongs to
+        # whoever launched it, and killing another process's browser is worse
+        # than reporting that it is still open.
+        st = profile_status(profile_id)
+        if not st["running"]:
+            return False
+        br = LaunchedBrowser(
+            profile_id=profile_id,
+            user_data_dir=str((registry.get_profile(profile_id) or {})
+                              .get("user_data_dir") or ""),
+            debug_port=st["port"],
+            cdp_url=st["cdp_url"],
+            pid=0,                      # withhold the pid: no kill fallback
+            attached=True,
+        )
 
     targets = []
     try:

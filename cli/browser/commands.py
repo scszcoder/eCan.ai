@@ -23,6 +23,20 @@ def _registry():
     return profile_registry
 
 
+def _status(profile_id):
+    """Live state of one profile's browser, or an all-false record.
+
+    Reads the port file in the user-data-dir, so it sees a browser the desktop
+    app started just as well as one a skill run did.
+    """
+    try:
+        from agent.ec_skills.browser_use_extension.fingerprint import fingerprint_browser
+        return fingerprint_browser.profile_status(profile_id)
+    except Exception:
+        return {"running": False, "port": 0, "pid": 0, "relay_port": 0,
+                "relay_alive": False, "cdp_url": "", "owned": False}
+
+
 @click.group()
 def browser():
     """Manage browser profiles (logged-in sessions + proxy + fingerprint)."""
@@ -38,12 +52,22 @@ def list_profiles(format):
         rows = []
         for p in _registry().list_profiles():
             proxy = p.get('proxy') or {}
+            st = _status(p.get('id', ''))
+            if not st['running']:
+                running = 'stopped'
+            elif not st['relay_alive']:
+                # Up, but the proxy relay died with whoever launched it: the
+                # browser would now egress from this machine's own address.
+                running = f":{st['port']} NO PROXY"
+            else:
+                running = f":{st['port']}"
             rows.append({
                 'id': p.get('id', ''),
                 'label': p.get('label', ''),
                 'domain': p.get('domain_name', ''),
                 'proxy': f"{proxy.get('host', '')}:{proxy.get('port', '')}" if proxy.get('host') else '',
                 'fingerprint': p.get('fingerprint_profile', '') or '-',
+                'running': running,
             })
         if not rows:
             out.info("No browser profiles registered. Import one with "
@@ -56,9 +80,9 @@ def list_profiles(format):
                 out.print(f"{r['id']}	{r['label']}	{r['domain']}")
         else:
             out.table("Browser profiles",
-                      ["ID", "Label", "Domain", "Proxy", "Fingerprint"],
+                      ["ID", "Label", "Domain", "Proxy", "Fingerprint", "Running"],
                       [[r['id'], r['label'], r['domain'], r['proxy'],
-                        r['fingerprint']] for r in rows])
+                        r['fingerprint'], r['running']] for r in rows])
     except Exception as e:
         out.error(f"Failed to list browser profiles: {e}")
         raise SystemExit(1)
@@ -76,7 +100,19 @@ def show_profile(profile_id):
     if not prof:
         out.error(f"No browser profile registered as '{profile_id}'")
         raise SystemExit(1)
-    out.json(prof)
+    st = _status(profile_id)
+    out.json({**prof, 'status': st})
+
+    if not st['running']:
+        out.info("Not running.")
+        return
+    out.info(f"Running on {st['cdp_url']} (pid {st['pid']})")
+    if st['relay_port'] and not st['relay_alive']:
+        out.warning(
+            f"Its proxy relay (127.0.0.1:{st['relay_port']}) is DEAD -- the "
+            f"process that launched it has exited, so this browser is now "
+            f"reaching the site from this machine's own IP. Close it before "
+            f"using the profile again.")
 
 
 @browser.command('import')

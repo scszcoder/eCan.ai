@@ -138,3 +138,84 @@ class TestVendorImportCopy:
 
         assert not (dest / "SingletonLock").exists()
         assert not (dest / "DevToolsActivePort").exists()
+
+
+class TestProfileStatus:
+    """Answering "is it running, and where" for a browser we may not own.
+
+    The CLI, the GUI and the launcher all ask this, and each of them may be
+    asking about a browser a *different* process started. The answer comes from
+    the port file in the user-data-dir rather than from in-process state, so
+    these tests fake the port file and the CDP probe rather than a browser.
+    """
+
+    @staticmethod
+    def _browser(monkeypatch, alive_ports=(), open_ports=()):
+        from agent.ec_skills.browser_use_extension.fingerprint import (
+            fingerprint_browser as fb,
+        )
+        monkeypatch.setattr(fb, "_cdp_version",
+                            lambda port, timeout=1.0:
+                            {"Browser": "Chrome/1"} if port in alive_ports else None)
+        monkeypatch.setattr(fb, "_port_open",
+                            lambda port, timeout=1.0: port in open_ports)
+        monkeypatch.setattr(fb, "_RUNNING", {})
+        return fb
+
+    def _write_port_file(self, registry, profile_id, data):
+        import json as _json
+        from pathlib import Path
+        udd = Path(reg.get_profile(profile_id)["user_data_dir"])
+        udd.mkdir(parents=True, exist_ok=True)
+        (udd / ".ecan_cdp.json").write_text(_json.dumps(data), encoding="utf-8")
+
+    def test_unknown_profile_is_not_running(self, registry, monkeypatch):
+        fb = self._browser(monkeypatch)
+        assert fb.profile_status("nope")["running"] is False
+
+    def test_no_port_file_means_stopped(self, registry, monkeypatch):
+        fb = self._browser(monkeypatch)
+        reg.save_profile(reg.make_profile("etsy"))
+        assert fb.profile_status("etsy")["running"] is False
+
+    def test_a_stale_port_file_does_not_report_running(self, registry, monkeypatch):
+        """The browser died without cleaning up; nothing answers on the port."""
+        fb = self._browser(monkeypatch, alive_ports=())
+        reg.save_profile(reg.make_profile("etsy"))
+        self._write_port_file(registry, "etsy", {"port": 5555, "pid": 1, "relay_port": 0})
+        assert fb.profile_status("etsy")["running"] is False
+
+    def test_a_live_browser_is_reported_with_its_endpoint(self, registry, monkeypatch):
+        fb = self._browser(monkeypatch, alive_ports=(5555,), open_ports=(5556,))
+        reg.save_profile(reg.make_profile("etsy"))
+        self._write_port_file(registry, "etsy",
+                              {"port": 5555, "pid": 42, "relay_port": 5556})
+        st = fb.profile_status("etsy")
+        assert st["running"] is True
+        assert st["port"] == 5555
+        assert st["cdp_url"] == "http://127.0.0.1:5555"
+        assert st["pid"] == 42
+        assert st["relay_alive"] is True
+        # We did not launch it, and that distinction is the whole point: the
+        # relay belongs to whoever did.
+        assert st["owned"] is False
+
+    def test_a_dead_relay_is_reported_even_though_the_browser_is_up(
+            self, registry, monkeypatch):
+        """The failure that must never pass silently: open, but egressing
+        from this machine's own address because its relay died."""
+        fb = self._browser(monkeypatch, alive_ports=(5555,), open_ports=())
+        reg.save_profile(reg.make_profile("etsy"))
+        self._write_port_file(registry, "etsy",
+                              {"port": 5555, "pid": 42, "relay_port": 5556})
+        st = fb.profile_status("etsy")
+        assert st["running"] is True
+        assert st["relay_alive"] is False
+
+    def test_no_proxy_means_no_relay_to_be_dead(self, registry, monkeypatch):
+        """relay_port 0 is a direct profile, which is healthy, not broken."""
+        fb = self._browser(monkeypatch, alive_ports=(5555,), open_ports=())
+        reg.save_profile(reg.make_profile("etsy"))
+        self._write_port_file(registry, "etsy",
+                              {"port": 5555, "pid": 42, "relay_port": 0})
+        assert fb.profile_status("etsy")["relay_alive"] is True
