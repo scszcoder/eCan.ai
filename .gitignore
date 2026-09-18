@@ -139,3 +139,8 @@ WS*_SPEC.md
 
 # Server-side API design notes (implementation lives in the private backend repo)
 docs/VERIFY_ACCOUNT_INFO_API.md
+
+# Browser profile plan + registry: carries live proxy endpoints, proxy
+# usernames, anti-detect profile ids and exit IPs. Local-only.
+docs/OWN_FINGERPRINT_BROWSER_PLAN.md
+browser_profiles.json

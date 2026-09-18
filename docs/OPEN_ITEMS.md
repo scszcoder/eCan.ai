@@ -592,6 +592,36 @@ what is left, roughly in the order they are worth doing.
 - ✅ 2026-08-19 **`gui_v2/pnpm-lock.yaml` uncommitted** — committed with the
   CN skill-editor chat fallback fixes.
 
+## 🔵 Planned work
+
+### Own fingerprint browser: profile + proxy + session management (2026-09-17)
+
+Plan of record: `OWN_FINGERPRINT_BROWSER_PLAN.md`. NOT built.
+
+Proven that day: a live AdsPower Etsy profile was migrated onto our own
+Chromium and driven over CDP — `Shop Manager Dashboard - Etsy` with no
+re-login. Session persistence itself is free (Chromium writes to
+`--user-data-dir`); what is missing is the binding of identity -> user-data-dir
+-> proxy -> fingerprint, and the lifecycle to launch them as a unit.
+
+Two findings worth keeping even if the plan is never built:
+
+- **Chromium cannot authenticate to a SOCKS5 proxy.** No command-line form, and
+  the extension `onAuthRequired` hook never fires for SOCKS (confirmed by
+  grepping AdsPower's own extensions — it is absent). They solve it by patching
+  the browser. We solve it with `fingerprint/socks_relay.py`, a local no-auth
+  front for an authenticated upstream.
+- **An anti-detect profile's real config is only on the RUNNING process's
+  command line.** AdsPower's app data holds the Electron app and browser
+  binaries, not the profiles; the browser is `SunBrowser.exe`, not
+  `chrome.exe`.
+
+Biggest risk, and the reason to test before building: fingerprint parity is
+not achievable (their `--extended-parameters` blob is understood only by their
+patched browser) and our stealth-JS substitute is UNTESTED over time. Whether a
+store treats it as the same device over weeks is the thing that would
+invalidate the approach.
+
 ## 🟠 Design smells / v1 limitations
 
 - **WeChat desktop login: no refresh token (v1)** — the PHP bridge returns a bare
