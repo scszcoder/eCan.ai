@@ -11983,6 +11983,35 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 break
                     else:
                         break
+            if _contract is None and isinstance(_final_raw, str):
+                # Fall back to reading the two flags directly.
+                #
+                # The model writes `work_summery` as MARKDOWN, and a literal
+                # newline inside a JSON string is invalid JSON — so json.loads
+                # throws on the whole object and a perfectly good `all_done`
+                # is lost with it. Observed 2026-09-17:
+                #   head='{"task_completed": "...", "work_summery": "## Turn
+                #          summary <newline> Checked the queues in pr...'
+                # The loop then kept its seeded flags and ran again.
+                #
+                # We only need two booleans, so do not make them hostage to
+                # the document parsing. Last occurrence wins: the contract is
+                # emitted after any example text the prompt may have echoed.
+                _flags = {}
+                for _fk in ("all_done", "work_done"):
+                    _fm = None
+                    for _fm in re.finditer(
+                            r'"%s"\s*:\s*(true|false)' % _fk, _final_raw, re.I):
+                        pass
+                    if _fm:
+                        _flags[_fk] = _fm.group(1).lower() == "true"
+                if _flags:
+                    _contract = _flags
+                    logger.info(
+                        f"[BrowserAutomation][ResultWrite] the answer was not valid "
+                        f"JSON (markdown newlines inside a string); read the flags "
+                        f"directly -> {_flags} (node={node_name})"
+                    )
             if isinstance(_contract, dict):
                 if not isinstance(state.get("result"), dict):
                     state["result"] = {}
