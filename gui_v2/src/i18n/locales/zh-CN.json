@@ -2072,6 +2072,10 @@
     },
     "tasks": {
       "pickPrinter": "选择打印机",
+      "browserProfile": "指纹浏览器身份",
+      "browserProfileHint": "该任务以哪个已登录的店铺身份运行（会话 + 代理 + 指纹）。仅注册在本机，不会随技能分享或出租。",
+      "browserProfilePlaceholder": "使用技能节点的设置",
+      "browserProfileNone": "本机尚无指纹浏览器配置（设置 → 指纹浏览器配置）",
       "taskVars": "任务变量",
       "taskVarsHelp": "填充技能提示词中的 {变量} 占位符",
       "readOnlyCodeGenerated": "只读",

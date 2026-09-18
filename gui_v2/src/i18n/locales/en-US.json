@@ -2014,6 +2014,10 @@
     },
     "tasks": {
       "pickPrinter": "Select a printer",
+      "browserProfile": "Browser Identity",
+      "browserProfileHint": "Which logged-in store this task runs as (session + proxy + fingerprint). Registered on this machine only — it is never shared with or rented out alongside the skill.",
+      "browserProfilePlaceholder": "Use the skill node's setting",
+      "browserProfileNone": "No fingerprint profiles on this machine (Settings → Browser Profiles)",
       "taskVars": "Task Variables",
       "taskVarsHelp": "Fill the {variable} placeholders in the skill’s prompts",
       "readOnlyCodeGenerated": "Read-only",

@@ -456,6 +456,31 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     return () => { cancelled = true; };
   }, [username]);
 
+  // Fingerprint profiles registered on THIS machine. Local-only by design and
+  // never synced, so the list is whatever this install has.
+  const [browserProfiles, setBrowserProfiles] = React.useState<
+    Array<{ id: string; label: string; domain: string }>
+  >([]);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res: any = await get_ipc_api().listBrowserProfiles<{ profiles: any[] }>();
+        const list = res?.data?.profiles;
+        if (!cancelled && Array.isArray(list)) {
+          setBrowserProfiles(list.map((pr: any) => ({
+            id: String(pr.id || ''),
+            label: String(pr.label || pr.id || ''),
+            domain: String(pr.domain || ''),
+          })).filter((pr: any) => pr.id));
+        }
+      } catch {
+        // No profiles registered is a fine outcome — the field just offers none.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   /**
    * A variable whose name contains "printer" is offering a choice of this
    * machine's printers rather than free text. Case-SENSITIVE on purpose: the
@@ -612,6 +637,10 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         // Shared-skill per-task variables (metadata.task_vars) — rendered as
         // form fields from the selected skills' need_inputs declarations.
         task_vars: metadata?.task_vars || {},
+        // Which fingerprint profile this task runs as. On the TASK and not on
+        // the skill: a skill can be published or rented, and a logged-in
+        // seller session must not travel with it.
+        browser_profile_id: metadata?.browser_identity?.browser_profile_id || undefined,
         schedule: {
           repeat_type: t.schedule?.repeat_type || 'none',
           repeat_number: t.schedule?.repeat_number || 1,
@@ -710,8 +739,21 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
             Object.entries(formVars).filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '')
           );
           const mergedVars = { ...(baseMeta.task_vars || {}), ...cleanedVars };
+          // Browser identity: keep anything already in the raw metadata JSON
+          // (cdp_port, slot, user_data_dir) and only own the profile id, so
+          // editing a task here cannot silently drop the other keys.
+          const pickedProfileId = String((values as any).browser_profile_id || '').trim();
+          const baseIdentity = { ...(baseMeta.browser_identity || {}) };
+          if (pickedProfileId) {
+            baseIdentity.browser_profile_id = pickedProfileId;
+          } else {
+            delete baseIdentity.browser_profile_id;
+          }
           return {
             ...baseMeta,
+            ...(Object.keys(baseIdentity).length > 0
+              ? { browser_identity: baseIdentity }
+              : {}),
             ...(Object.keys(mergedVars).length > 0 ? { task_vars: mergedVars } : {}),
             task_type: (values as any).task_type || 'local',
             ...((values as any).task_type === 'hybrid_cloud' && (values as any).companion_local_task
@@ -1203,6 +1245,37 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     </>
                   )}
                 </Form.List>
+              </Col>
+
+              {/* Browser identity — which logged-in store this task runs as.
+                  Deliberately on the TASK and not on the skill: a skill can be
+                  published or rented, so a live seller session must not travel
+                  with it. Wins over the node's own Browser Profile field. */}
+              <Col span={24}>
+                <StyledFormItem
+                  label={t('pages.tasks.browserProfile', '指纹浏览器身份')}
+                  name="browser_profile_id"
+                  tooltip={t('pages.tasks.browserProfileHint',
+                    '该任务以哪个已登录的店铺身份运行（会话 + 代理 + 指纹）。'
+                    + '配置保存在本机，不会随技能分享或出租。')}
+                >
+                  <Select
+                    allowClear
+                    showSearch
+                    disabled={!(editMode || isNew)}
+                    placeholder={browserProfiles.length
+                      ? t('pages.tasks.browserProfilePlaceholder', '使用技能节点的设置')
+                      : t('pages.tasks.browserProfileNone',
+                          '本机尚无指纹浏览器配置（设置 → 指纹浏览器配置）')}
+                    options={browserProfiles.map((pr) => ({
+                      value: pr.id,
+                      label: pr.domain && pr.domain !== pr.label
+                        ? `${pr.label} · ${pr.domain}`
+                        : pr.label,
+                    }))}
+                    optionFilterProp="label"
+                  />
+                </StyledFormItem>
               </Col>
 
               {/* Task Variables Section — per-task values for shared skills.
