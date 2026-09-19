@@ -138,9 +138,11 @@ def test_a_browser_whose_relay_died_is_closed_and_replaced(profile, monkeypatch)
     assert br.attached is False
 
 
-def test_an_unreachable_browser_is_named_rather_than_guessed_at(profile, monkeypatch):
-    """It lost its debugging port to another browser, so it has no CDP endpoint
-    of its own -- and it still holds the profile directory."""
+def test_an_unreachable_browser_that_survives_the_request_is_named(profile, monkeypatch):
+    """It lost its debugging port to another browser, so it has no CDP
+    endpoint of its own, and it still holds the profile directory. Here the
+    close request does not take (the pid no longer matches this profile), so
+    the user is told which window -- never forced."""
     _stub_env(monkeypatch,
               running={"pid": 37640, "port": 9228, "healthy": False})
     _write_port_file(profile, port=9228, relay_port=55555)
@@ -150,8 +152,9 @@ def test_an_unreachable_browser_is_named_rather_than_guessed_at(profile, monkeyp
 
 
 def test_an_unreachable_browser_is_not_closed_through_a_shared_port(profile, monkeypatch):
-    """Closing over a port that may belong to someone else's browser would
-    shut THEIR tabs, so it must not be attempted."""
+    """close_profile() talks CDP, and that port may belong to someone else's
+    browser -- closing through it would shut THEIR tabs. The window-close
+    request goes to the process instead, which cannot hit the wrong one."""
     calls = _stub_env(monkeypatch,
                       running={"pid": 37640, "port": 9228, "healthy": False})
     _write_port_file(profile, port=9228, relay_port=55555)
@@ -227,3 +230,96 @@ def test_the_app_closes_profiles_on_quit():
         "main.py no longer closes fingerprint profiles on quit; every exit "
         "will leave one running with a dead proxy relay"
     )
+
+
+# ── closing a browser we own but cannot reach ──────────────────────────────
+
+def test_an_unreachable_browser_is_asked_to_close_then_replaced(profile, monkeypatch):
+    """The user should not have to hunt for a window. It is a close REQUEST,
+    so Chromium still flushes the session on its way out."""
+    calls = _stub_env(monkeypatch,
+                      running={"pid": 12804, "port": 9228, "healthy": False})
+    _write_port_file(profile, port=9228, relay_port=55555)
+
+    asked = []
+    monkeypatch.setattr(fb, "_ask_browser_to_quit",
+                        lambda pid, udd, grace=20.0: asked.append(pid) or True)
+    # Gone once it has been asked.
+    seq = [{"pid": 12804, "port": 9228, "healthy": False},
+           {"pid": 12804, "port": 9228, "healthy": False}, None]
+    monkeypatch.setattr(fb, "_running_browser_for",
+                        lambda udd: seq.pop(0) if seq else None)
+
+    br = fb.launch_profile("etsy")
+
+    assert asked == [12804], "must ask the stuck browser to close"
+    assert calls["popen"] == 1, "and then launch a fresh one"
+    assert br.attached is False
+
+
+def test_a_browser_that_will_not_close_is_reported_not_forced(profile, monkeypatch):
+    """Forcing it would lose the session the profile exists to keep."""
+    _stub_env(monkeypatch, running={"pid": 12804, "port": 9228, "healthy": False})
+    _write_port_file(profile, port=9228, relay_port=55555)
+    monkeypatch.setattr(fb, "_ask_browser_to_quit",
+                        lambda pid, udd, grace=20.0: False)
+
+    with pytest.raises(RuntimeError, match="would not close"):
+        fb.launch_profile("etsy")
+
+
+def test_it_refuses_to_close_a_pid_that_is_not_this_profile(monkeypatch, tmp_path):
+    """Pids get recycled between the scan and the call; closing the wrong
+    process would be far worse than failing here."""
+    class _Proc:
+        def __init__(self, *a, **k): pass
+        def cmdline(self): return ["chrome.exe", r"--user-data-dir=C:\someone_else"]
+        def terminate(self): raise AssertionError("must not be reached")
+        def wait(self, timeout=None): raise AssertionError("must not be reached")
+
+    import sys, types
+    fake = types.SimpleNamespace(Process=_Proc)
+    monkeypatch.setitem(sys.modules, "psutil", fake)
+
+    assert fb._ask_browser_to_quit(4242, tmp_path / "etsy_x") is False
+
+
+def test_a_pid_that_already_exited_counts_as_closed(monkeypatch, tmp_path):
+    class _Proc:
+        def __init__(self, *a, **k): raise RuntimeError("no such process")
+
+    import sys, types
+    monkeypatch.setitem(sys.modules, "psutil", types.SimpleNamespace(Process=_Proc))
+    assert fb._ask_browser_to_quit(4242, tmp_path / "etsy_x") is True
+
+
+def test_renderer_processes_are_not_mistaken_for_the_browser(monkeypatch, tmp_path):
+    """Chromium's renderers, GPU and utility processes all inherit
+    --user-data-dir. Only the browser process owns the window and the
+    debugging port, so picking a child means a close request goes nowhere --
+    which is exactly how one appeared to be ignored on 2026-09-18.
+    """
+    udd = tmp_path / "etsy_x"
+
+    class _P:
+        def __init__(self, pid, argv):
+            self.pid = pid
+            self.info = {"cmdline": argv}
+
+    procs = [
+        _P(12804, ["chrome.exe", f"--user-data-dir={udd}", "--type=renderer"]),
+        _P(42468, ["chrome.exe", f"--user-data-dir={udd}", "--type=gpu-process"]),
+        _P(37640, ["chrome.exe", f"--user-data-dir={udd}",
+                   "--remote-debugging-port=9228"]),          # the browser
+    ]
+
+    import sys, types
+    monkeypatch.setitem(sys.modules, "psutil",
+                        types.SimpleNamespace(process_iter=lambda attrs: procs,
+                                              NoSuchProcess=Exception,
+                                              AccessDenied=Exception))
+    monkeypatch.setattr(fb, "_cdp_version", lambda port, timeout=1.0: None)
+
+    found = fb._running_browser_for(udd)
+    assert found["pid"] == 37640, "must find the browser, not a renderer"
+    assert found["port"] == 9228

@@ -126,6 +126,78 @@ def _data_dirs_on_port(port: int) -> list:
     return dirs
 
 
+def _ask_browser_to_quit(pid: int, user_data_dir: Path,
+                         grace: float = 20.0) -> bool:
+    """Ask the browser at *pid* to close itself, and wait for it to finish.
+
+    For when the browser is ours but unreachable over CDP -- it lost its
+    debugging port to another Chromium -- so the polite CDP close is not
+    available, yet it still holds the profile directory and nothing can start
+    until it lets go.
+
+    This is a REQUEST, not a kill: on Windows ``taskkill`` without ``/F``
+    posts WM_CLOSE to the window, and elsewhere SIGTERM does the same job.
+    Chromium treats both as "the user closed me" and flushes cookies and
+    localStorage on the way out -- the session being preserved is the entire
+    point of the profile, so a forced kill is never attempted, not even as a
+    fallback. If it will not go, we say so and let the user decide.
+
+    Guarded twice over: the pid must still be a live process whose command
+    line names THIS profile directory. A pid can be recycled between the scan
+    and the call, and closing someone else's browser -- or worse, some other
+    program entirely -- would be far worse than failing here.
+    """
+    try:
+        import psutil
+    except Exception:
+        return False
+
+    try:
+        proc = psutil.Process(pid)
+        argv = proc.cmdline() or []
+    except Exception as exc:
+        logger.debug(f"[fp-browser] pid {pid} is gone already ({exc})")
+        return True
+
+    owns_profile = any(
+        a.startswith("--user-data-dir=")
+        and _norm_dir(a.split("=", 1)[1]) == _norm_dir(user_data_dir)
+        for a in argv
+    )
+    if not owns_profile:
+        logger.warning(
+            f"[fp-browser] refusing to close pid {pid}: it is not running "
+            f"{user_data_dir} (the pid was probably recycled)"
+        )
+        return False
+
+    logger.info(f"[fp-browser] asking pid {pid} to close (it holds "
+                f"{user_data_dir} and cannot be reached over CDP)")
+    try:
+        if os.name == "nt":
+            # No /F: this posts WM_CLOSE, which Chromium handles as a normal
+            # window close and flushes its session. /F would be TerminateProcess.
+            subprocess.run(["taskkill", "/PID", str(pid)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=10)
+        else:
+            proc.terminate()            # SIGTERM — Chromium exits cleanly
+    except Exception as exc:
+        logger.warning(f"[fp-browser] could not ask pid {pid} to close: {exc}")
+        return False
+
+    try:
+        proc.wait(timeout=grace)
+        logger.info(f"[fp-browser] pid {pid} closed; {user_data_dir} is free")
+        return True
+    except Exception:
+        logger.warning(
+            f"[fp-browser] pid {pid} did not close within {grace:.0f}s; "
+            f"leaving it alone rather than forcing it"
+        )
+        return False
+
+
 def _running_browser_for(user_data_dir: Path) -> Optional[dict]:
     """A Chromium already running *user_data_dir*, if one is.
 
@@ -145,6 +217,7 @@ def _running_browser_for(user_data_dir: Path) -> Optional[dict]:
         return None
 
     want = _norm_dir(user_data_dir)
+    candidates = []
     for proc in psutil.process_iter(["cmdline"]):
         try:
             argv = proc.info.get("cmdline") or []
@@ -153,6 +226,14 @@ def _running_browser_for(user_data_dir: Path) -> Optional[dict]:
 
         dir_arg = next((a for a in argv if a.startswith("--user-data-dir=")), None)
         if not dir_arg or _norm_dir(dir_arg.split("=", 1)[1]) != want:
+            continue
+
+        # Chromium's renderers, GPU and utility processes all inherit
+        # --user-data-dir, so most matches are NOT the browser. Only the
+        # browser process has no --type=, and only it owns the window and the
+        # debugging port -- asking a renderer to close does nothing at all,
+        # which is exactly how a close request appeared to be ignored.
+        if any(a.startswith("--type=") for a in argv):
             continue
 
         port_arg = next((a for a in argv
@@ -167,8 +248,13 @@ def _running_browser_for(user_data_dir: Path) -> Optional[dict]:
             and _cdp_version(port, timeout=1.0)
             and _port_serves_profile(port, user_data_dir) is not False
         )
-        return {"pid": proc.pid, "port": port, "healthy": healthy}
-    return None
+        candidates.append({"pid": proc.pid, "port": port, "healthy": healthy})
+
+    if not candidates:
+        return None
+    # A usable one wins; otherwise report the first, which is the one holding
+    # the directory and therefore the one that has to go.
+    return next((c for c in candidates if c["healthy"]), candidates[0])
 
 
 def _port_serves_profile(port: int, user_data_dir: Path) -> Optional[bool]:
@@ -362,14 +448,18 @@ def launch_profile(
 
         still_there = _running_browser_for(user_data_dir)
         if still_there:
-            # No CDP endpoint of its own, so we cannot close it without
-            # reaching through a port that may belong to someone else's
-            # browser -- which could shut their tabs. Name it instead.
+            # Unreachable over CDP, so ask the window to close instead. Not a
+            # forced kill: Chromium flushes its session on a close request,
+            # and that session is what the profile is for.
+            _ask_browser_to_quit(still_there["pid"], user_data_dir)
+            still_there = _running_browser_for(user_data_dir)
+
+        if still_there:
             raise RuntimeError(
                 f"'{profile_id}' is still open (pid {still_there['pid']}) and "
-                f"cannot be closed automatically: {why}. Close that browser "
-                f"window and run again -- the next launch picks a free port of "
-                f"its own and will not collide."
+                f"would not close on request: {why}. Close that browser window "
+                f"and run again -- the next launch picks a free port of its "
+                f"own and will not collide."
             )
 
     port = int(debug_port) or _free_port()
