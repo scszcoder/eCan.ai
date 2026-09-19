@@ -585,6 +585,68 @@ what is left, roughly in the order they are worth doing.
   - `agent/mcp/server/api/captcha2/captcha2_api.py` — positional arg after keyword arg
   - `agent/mcp/server/fingerprint_playwright/har_capture.py` — `await` outside function
 
+### Left open after the fingerprint-browser session (2026-09-18)
+
+The etsy_after_sales0 run now works end to end -- profile recovers itself,
+steps around the user's own Chrome, proxies correctly, lands signed in, sends
+the email. These are what was found on the way and NOT fixed.
+
+**Cloud sync is failing on two backend SDL gaps.** Every skill/task save is
+going to the offline queue instead of the cloud:
+
+    GraphQL Error: Field "need_inputs" is not defined by type "SkillUpdateInput"
+    GraphQL Error: Field "TaskSkillRelation.owner" of required type "String!" was not provided
+
+Both are backend fixes in `eCan_lambda` per Section 5 -- update the SDL and
+redeploy, do NOT rename the client field (that breaks the AWS side and the
+local shape together). Client sends `need_inputs` because it is folded into
+the skill config and lifted back out by `DBAgentSkill.to_dict`.
+
+**Duplicate skill rows on save.** `etsy_after_sales0`, `飞鸽客服前台00` and
+`飞鸽客服问答00` each have two rows -- a `skill_*` id and a UUID id, same name,
+one carrying `need_inputs` and the twin carrying none. TaskDetail resolves a
+skill by `id===sid || name===sid`, so the wrong twin can win and the 任务变量
+panel renders empty. STRONG LEAD, unproven: a failing `update` (above) retried
+as an `add` would create exactly this. Fix the SDL first and see if it stops.
+Same family as [CN skill sync ownerless repair].
+
+**Skill-editor saves not reaching disk.** Node edits in the editor did not
+change `my_skills/etsy_after_sales0_skill/diagram_dir/*.json` for hours --
+mtime stayed at the morning's save while the user was editing. Possibly the
+same root cause as the duplicate rows; not investigated.
+
+**`work_done: false` on a successful run.** The etsy run returns
+`{"all_done": true, "work_done": false, "work_result": {"last_action_succeeded": true}}`
+and DOES send the email. Whatever `work_done` is gated on is not being
+satisfied, so the flag is currently not trustworthy as a success signal.
+
+**Memory-wins merges need an audit.** THREE separate bugs today were one
+pattern -- a merge where an in-memory copy shadows a DB field it does not own:
+`org_id` in `get_all_org_agents`, the browser identity precedence, and
+`need_inputs` in `get_agent_skills`. Each was found only when a user noticed
+something missing from the GUI. Worth walking the remaining handlers that
+merge memory with DB before a fourth one surfaces.
+
+**The Ziniao importer has never been run.** Written blind for a customer demo
+(`vendor_import.import_ziniao`). The vendor list carries `validated: false` and
+the dialog warns. Two things most likely wrong on first contact: the shape of
+the `getBrowserList` response, and whether the proxy is exposed at all -- if it
+is not, the profile registers WITHOUT one and will egress from the local
+address, which is logged loudly but still worth checking before a demo.
+
+**Inbound skill sanitisation.** `skill_share_sanitize` strips
+`browserProfileId` on the way OUT. Anything already published still carries
+whatever was in it, and an import does not clean it. Outbound is the leak that
+matters; inbound is defence in depth.
+
+**The SOCKS relay dies when system DNS cannot resolve the proxy host.**
+Cost an afternoon: a phone hotspot became a second default route and its
+carrier DNS returned NXDOMAIN for `us11.kookeey.info` (8.8.8.8 resolved it
+fine). The relay has no fallback, so the profile simply cannot reach anything.
+Anti-detect users sit behind filtered or captive DNS often. Options: fall back
+to a public resolver for the proxy host only, or cache the last known good IP
+on the profile record. Both hardcode a policy, so decide deliberately.
+
 ## 🟡 Environment / deps
 
 - **`zeroconf` module missing** — LAN discovery disabled on the CN dev machine
