@@ -1641,3 +1641,665 @@ class TestInnoSetupNoUnknownDirectives:
             "instead if long-path support is genuinely required."
         )
 
+
+# ---------------------------------------------------------------------------
+# Regression: CN vs intl install-dir / process-name / kill-name correctness
+# ---------------------------------------------------------------------------
+# Bug: ``_get_windows_standard_install_dir``, ``_get_current_process_name``,
+# the Linux AppImage target path, and the Linux DEB kill/restart paths
+# all used either a hardcoded ``"eCan"`` literal or
+# ``ota_config.get_app_name()`` — both of which return ``"eCan"`` for BOTH
+# CN and intl. The on-disk artifacts are ``eCan.cn.{exe,app,AppImage,deb}``
+# on CN and ``eCan.{exe,app,AppImage,deb}`` on intl, so every CN OTA
+# upgrade was installing into the wrong dir and trying to kill a process
+# whose name didn't exist on the CN user's machine.
+#
+# The fix routes every site through ``ota.core.installer._resolve_app_short_name``
+# which reads the per-app short name from
+# ``apps/{cn,intl}/config/app_manifest.json``
+# (the same source ``AppConfigLoader.app_short_name`` already exposes).
+
+
+def _set_app_id(monkeypatch, app_id):
+    """Pin ``ECAN_APP_ID`` for a test and clear the lru_cache on get_app_config."""
+    monkeypatch.setenv("ECAN_APP_ID", app_id)
+    # The AppConfigLoader instances are cached per app_id in get_app_config's
+    # lru_cache(maxsize=2). Switching ECAN_APP_ID after a previous test
+    # already populated that cache means the next call to ``get_config()``
+    # will hit a stale entry — clear it so we always re-read the env.
+    from utils import app_config_loader as _acl
+    _acl.get_app_config.cache_clear()
+
+
+class TestResolveAppShortName:
+    """``_resolve_app_short_name`` must read the per-app manifest, not the
+    static ``ota_config.common.app_name``."""
+
+    def test_cn_returns_eCan_cn(self, installer_module, monkeypatch):
+        _set_app_id(monkeypatch, "cn")
+        assert installer_module._resolve_app_short_name() == "eCan.cn", (
+            "CN users must resolve to 'eCan.cn' (per "
+            "apps/cn/config/app_manifest.json:app_short_name). Returning "
+            "'eCan' silently installs CN into the intl dir."
+        )
+
+    def test_intl_returns_eCan(self, installer_module, monkeypatch):
+        _set_app_id(monkeypatch, "intl")
+        assert installer_module._resolve_app_short_name() == "eCan", (
+            "Intl users must resolve to 'eCan' (per "
+            "apps/intl/config/app_manifest.json:app_short_name)."
+        )
+
+    def test_env_switch_picks_up_runtime_value(
+        self, installer_module, monkeypatch
+    ):
+        """A test that flips ECAN_APP_ID mid-process must observe the
+        new value — the lru_cache on ``get_app_config`` must not pin the
+        first instantiation."""
+        _set_app_id(monkeypatch, "intl")
+        assert installer_module._resolve_app_short_name() == "eCan"
+        _set_app_id(monkeypatch, "cn")
+        assert installer_module._resolve_app_short_name() == "eCan.cn", (
+            "After flipping ECAN_APP_ID to 'cn', the resolver must "
+            "return 'eCan.cn'. If it still returns 'eCan', "
+            "``get_app_config``'s lru_cache is leaking across env "
+            "switches and OTA upgrades will silently target the wrong "
+            "dir / process name on CN."
+        )
+
+    def test_falls_back_to_eCan_when_config_loader_unavailable(
+        self, installer_module, monkeypatch
+    ):
+        """When ``utils.app_config_loader`` cannot be imported, the
+        resolver must fall back to ``"eCan"`` rather than raise — the
+        OTA upgrade must not be blocked by a config-loader crash."""
+        from utils import app_config_loader as _acl
+
+        # Force get_config() to raise so the except branch fires.
+        monkeypatch.setattr(_acl, "get_config", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+        # The resolve helper imports get_config lazily inside its body,
+        # so the monkeypatch on the module attribute is sufficient.
+        assert installer_module._resolve_app_short_name() == "eCan"
+
+
+class TestStripTrailingSeparator:
+    """``_strip_trailing_separator`` defends Inno Setup /MSI cmd args."""
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("/tmp/dir", "/tmp/dir"),
+            ("/tmp/dir/", "/tmp/dir"),
+            ("/tmp/dir///", "/tmp/dir"),
+            ("C:\\Users\\eCan", "C:\\Users\\eCan"),
+            ("C:\\Users\\eCan\\", "C:\\Users\\eCan"),
+            ("C:\\Users\\eCan\\\\\\\\", "C:\\Users\\eCan"),
+            ("D:/MyApps/eCan.cn", "D:/MyApps/eCan.cn"),
+            ("D:/MyApps/eCan.cn/", "D:/MyApps/eCan.cn"),
+            # POSIX root: ``/`` alone must NOT be collapsed to ``""``.
+            ("/", "/"),
+            # Empty string: keep as empty (worst case is no-op).
+            ("", ""),
+            # Mixed separators.
+            ("C:\\foo/", "C:\\foo"),
+        ],
+    )
+    def test_strips_trailing_separators(self, installer_module, raw, expected):
+        assert installer_module._strip_trailing_separator(raw) == expected, (
+            f"_strip_trailing_separator({raw!r}) returned "
+            f"{installer_module._strip_trailing_separator(raw)!r}; "
+            f"expected {expected!r}. Inno Setup / Windows Installer "
+            f"parsers treat trailing ``\\`` and ``/`` inconsistently "
+            f"and may install into the parent directory."
+        )
+
+
+class TestGetWindowsStandardInstallDir:
+    """``_get_windows_standard_install_dir`` must derive the dir name from
+    the per-app short name (CN → ``eCan.cn``, intl → ``eCan``)."""
+
+    @pytest.fixture(autouse=True)
+    def _win32_only(self, monkeypatch):
+        # The function short-circuits to ``Path('.')`` on non-win32, so
+        # we must pretend we're on Windows for the duration of every
+        # test here. We restore sys.platform in the fixture teardown.
+        monkeypatch.setattr(sys, "platform", "win32")
+
+    def test_cn_installs_under_localappdata_eCan_cn(
+        self, installer_module, monkeypatch, tmp_path
+    ):
+        _set_app_id(monkeypatch, "cn")
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
+        monkeypatch.delenv("USERPROFILE", raising=False)
+
+        mgr = installer_module.InstallationManager()
+        result = mgr._get_windows_standard_install_dir()
+
+        assert result == tmp_path / "LocalAppData" / "eCan.cn", (
+            f"CN install dir was {result!r}; expected "
+            f"{tmp_path / 'LocalAppData' / 'eCan.cn'!r}. Without the "
+            f"fix this resolved to 'eCan' and CN users' upgrades "
+            f"silently went to the intl-style dir."
+        )
+
+    def test_intl_installs_under_localappdata_eCan(
+        self, installer_module, monkeypatch, tmp_path
+    ):
+        _set_app_id(monkeypatch, "intl")
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
+        monkeypatch.delenv("USERPROFILE", raising=False)
+
+        mgr = installer_module.InstallationManager()
+        result = mgr._get_windows_standard_install_dir()
+
+        assert result == tmp_path / "LocalAppData" / "eCan", (
+            f"Intl install dir was {result!r}; expected "
+            f"{tmp_path / 'LocalAppData' / 'eCan'!r}."
+        )
+
+    def test_falls_back_to_userprofile_when_localappdata_missing(
+        self, installer_module, monkeypatch, tmp_path
+    ):
+        _set_app_id(monkeypatch, "cn")
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+        monkeypatch.setenv("USERPROFILE", str(tmp_path / "User"))
+
+        mgr = installer_module.InstallationManager()
+        result = mgr._get_windows_standard_install_dir()
+
+        assert result == tmp_path / "User" / "AppData" / "Local" / "eCan.cn", (
+            f"CN fallback dir was {result!r}; expected "
+            f"{tmp_path / 'User' / 'AppData' / 'Local' / 'eCan.cn'!r}."
+        )
+
+    def test_falls_back_to_home_when_neither_env_set(
+        self, installer_module, monkeypatch, tmp_path
+    ):
+        _set_app_id(monkeypatch, "cn")
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+        monkeypatch.delenv("USERPROFILE", raising=False)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
+
+        mgr = installer_module.InstallationManager()
+        result = mgr._get_windows_standard_install_dir()
+
+        assert result == tmp_path / "Home" / "AppData" / "Local" / "eCan.cn", (
+            f"CN final-fallback dir was {result!r}; expected "
+            f"{tmp_path / 'Home' / 'AppData' / 'Local' / 'eCan.cn'!r}."
+        )
+
+    def test_no_longer_hardcodes_eCan_literal(self, installer_module):
+        """Static guard: the source must NOT contain a literal
+        ``return Path(localappdata) / 'eCan'``. A future grep should
+        trip if someone reverts to the hardcoded short name."""
+        src = (
+            Path(__file__).resolve().parents[2]
+            / "ota" / "core" / "installer.py"
+        )
+        text = src.read_text(encoding="utf-8")
+        # Locate the body of ``_get_windows_standard_install_dir`` so
+        # the literal 'eCan' inside other docstrings/comments doesn't
+        # false-positive the assertion.
+        m = re.search(
+            r"def _get_windows_standard_install_dir\(self.*?(?=\n    def |\nclass |\Z)",
+            text,
+            re.DOTALL,
+        )
+        assert m, "Could not locate _get_windows_standard_install_dir body"
+        body = m.group(0)
+        # The body must use a computed short name, not a hardcoded 'eCan'.
+        assert "_resolve_app_short_name" in body, (
+            "_get_windows_standard_install_dir must call "
+            "_resolve_app_short_name(); hardcoding 'eCan' broke CN "
+            "users."
+        )
+        assert "Path(localappdata) / 'eCan'" not in body, (
+            "The hardcoded 'eCan' literal has crept back into "
+            "_get_windows_standard_install_dir. CN users will install "
+            "into the intl dir again."
+        )
+        assert "Path(userprofile) / 'AppData' / 'Local' / 'eCan'" not in body, (
+            "The hardcoded 'eCan' literal has crept back into the "
+            "USERPROFILE fallback of "
+            "_get_windows_standard_install_dir."
+        )
+
+
+class TestCurrentProcessNameCNIntl:
+    """``_get_current_process_name`` must return ``eCan.cn`` (CN) /
+    ``eCan`` (intl), not the static ``ota_config.common.app_name``."""
+
+    def test_cn_returns_eCan_cn(self, installer_module, monkeypatch):
+        _set_app_id(monkeypatch, "cn")
+        mgr = installer_module.InstallationManager()
+        name = mgr._get_current_process_name()
+        assert name == "eCan.cn", (
+            f"CN process name was {name!r}; expected 'eCan.cn'. The "
+            f"previous implementation used ``ota_config.get_app_name()`` "
+            f"which returns 'eCan' for both apps and would make the "
+            f"OTA kill logic miss the running CN process."
+        )
+
+    def test_intl_returns_eCan(self, installer_module, monkeypatch):
+        _set_app_id(monkeypatch, "intl")
+        mgr = installer_module.InstallationManager()
+        name = mgr._get_current_process_name()
+        assert name == "eCan"
+
+
+class TestInstallExeDirParameterNoTrailingSeparator:
+    """Bug: ``_install_exe`` and ``_install_msi`` pasted the resolved
+    ``install_dir`` straight into Inno Setup ``/DIR="…"`` and MSI
+    ``INSTALLDIR="…"`` arguments. If the caller (or registry value)
+    provided a path ending in ``/`` or ``\\``, the installers would
+    treat the trailing separator inconsistently and could install into
+    the parent directory. ``_strip_trailing_separator`` defends against
+    that — pin the fix."""
+
+    def _capture_cmd_via_dev_launcher(self, installer_module, monkeypatch, install_options):
+        """Run ``_install_exe`` in dev mode and capture the cmd argument
+        we would have passed to Inno Setup. Dev mode uses
+        ``_launch_windows_installer_delayed`` directly, so we don't
+        have to fake the frozen-mode launch path."""
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(sys, "frozen", False, raising=False)
+        mgr = installer_module.InstallationManager()
+
+        captured = {}
+
+        def fake_launch(self, cmd, delay_seconds=3):
+            captured["cmd"] = list(cmd)
+            return 99999
+
+        monkeypatch.setattr(
+            installer_module.InstallationManager,
+            "_launch_windows_installer_delayed",
+            fake_launch,
+        )
+        # Stub download_manager so we don't pull in GUI / network deps.
+        from ota.core import download_manager as _dm
+        monkeypatch.setattr(
+            _dm.download_manager, "set_installing", lambda *a, **kw: None
+        )
+
+        fake_pkg = install_options.pop("_pkg")
+        result = mgr._install_exe(fake_pkg, install_options=install_options)
+        assert result is True, (
+            f"_install_exe returned False; expected True. "
+            f"captured={captured!r}"
+        )
+        return captured.get("cmd")
+
+    def test_dir_arg_strips_trailing_backslash_in_exe_cmd(
+        self, installer_module, monkeypatch, tmp_path
+    ):
+        """When ``install_options['install_dir']`` ends with ``\\``,
+        the ``/DIR=`` value must NOT.
+
+        NB: ``install_options['install_dir']`` is only consulted in
+        the frozen code path; dev mode falls back to
+        ``_get_windows_standard_install_dir``. So we must set
+        ``sys.frozen=True`` to exercise this branch.
+        """
+        target = tmp_path / "MyApps" / "eCan.cn"
+        target.mkdir(parents=True)
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        mgr = installer_module.InstallationManager()
+
+        captured = {}
+
+        def fake_launch(self, cmd, delay_seconds=3):
+            captured["cmd"] = list(cmd)
+            return 99999
+
+        monkeypatch.setattr(
+            installer_module.InstallationManager,
+            "_launch_windows_installer_delayed",
+            fake_launch,
+        )
+        from ota.core import download_manager as _dm
+        monkeypatch.setattr(
+            _dm.download_manager, "set_installing", lambda *a, **kw: None
+        )
+
+        # Stub writability probe so the install passes the can-write check.
+        monkeypatch.setattr(installer_module, "is_writable_dir", lambda p: True)
+
+        fake_pkg = tmp_path / "fake.exe"
+        fake_pkg.write_bytes(b"fake")
+        # Supply install_dir WITH a trailing backslash — this is the
+        # exact shape the bug reports showed leaking through.
+        result = mgr._install_exe(
+            fake_pkg,
+            install_options={
+                "silent": True,
+                "install_dir": str(target) + "\\",
+            },
+        )
+        assert result is True, (
+            f"_install_exe returned False; expected True. "
+            f"captured={captured!r}"
+        )
+        cmd = captured["cmd"]
+        # Find the /DIR="…" arg.
+        dir_args = [a for a in cmd if a.startswith('/DIR="')]
+        assert dir_args, f"No /DIR= arg found in cmd: {cmd!r}"
+        # Strip the /DIR=" prefix and trailing quote to inspect the value.
+        dir_value = dir_args[0][len('/DIR="'):-1]
+        assert not dir_value.endswith("\\"), (
+            f"/DIR= value still ends with '\\\\': {dir_value!r}. "
+            f"Inno Setup may install into the parent directory."
+        )
+        assert not dir_value.endswith("/"), (
+            f"/DIR= value still ends with '/': {dir_value!r}."
+        )
+        # And the value must equal the trailing-separator-stripped input.
+        assert dir_value == str(target), (
+            f"/DIR= value was {dir_value!r}; expected {str(target)!r}. "
+            f"Trailing separator was not stripped."
+        )
+
+    def test_dir_arg_strips_trailing_forward_slash_in_exe_cmd(
+        self, installer_module, monkeypatch, tmp_path
+    ):
+        """Same as the backslash case, but with a forward slash."""
+        target = tmp_path / "MyApps" / "eCan"
+        target.mkdir(parents=True)
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        mgr = installer_module.InstallationManager()
+
+        captured = {}
+
+        def fake_launch(self, cmd, delay_seconds=3):
+            captured["cmd"] = list(cmd)
+            return 99999
+
+        monkeypatch.setattr(
+            installer_module.InstallationManager,
+            "_launch_windows_installer_delayed",
+            fake_launch,
+        )
+        from ota.core import download_manager as _dm
+        monkeypatch.setattr(
+            _dm.download_manager, "set_installing", lambda *a, **kw: None
+        )
+        monkeypatch.setattr(installer_module, "is_writable_dir", lambda p: True)
+
+        fake_pkg = tmp_path / "fake.exe"
+        fake_pkg.write_bytes(b"fake")
+        result = mgr._install_exe(
+            fake_pkg,
+            install_options={
+                "silent": True,
+                "install_dir": str(target) + "/",
+            },
+        )
+        assert result is True
+        cmd = captured["cmd"]
+        dir_value = next(
+            a[len('/DIR="'):-1] for a in cmd if a.startswith('/DIR="')
+        )
+        assert not dir_value.endswith("/"), (
+            f"/DIR= value still ends with '/': {dir_value!r}."
+        )
+        assert dir_value == str(target)
+
+    def test_msi_installdir_arg_strips_trailing_backslash(
+        self, installer_module, monkeypatch, tmp_path
+    ):
+        """``_install_msi`` must also strip trailing separators from
+        ``INSTALLDIR=`` — same parser-inconsistency risk."""
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+
+        target = tmp_path / "MSIInstall" / "eCan.cn"
+        target.mkdir(parents=True)
+
+        mgr = installer_module.InstallationManager()
+        monkeypatch.setattr(
+            mgr, "_get_current_windows_install_dir", lambda: target
+        )
+
+        captured = {}
+
+        def fake_launch(self, cmd, delay_seconds=3):
+            captured["cmd"] = list(cmd)
+            return 99999
+
+        monkeypatch.setattr(
+            installer_module.InstallationManager,
+            "_launch_windows_installer_delayed",
+            fake_launch,
+        )
+        from ota.core import download_manager as _dm
+        monkeypatch.setattr(
+            _dm.download_manager, "set_installing", lambda *a, **kw: None
+        )
+
+        fake_pkg = tmp_path / "fake.msi"
+        fake_pkg.write_bytes(b"fake")
+        result = mgr._install_msi(
+            fake_pkg, install_options={"silent": True, "install_dir": str(target) + "\\"}
+        )
+        assert result is True
+        cmd = captured["cmd"]
+        installdir_args = [a for a in cmd if a.startswith("INSTALLDIR=")]
+        assert installdir_args, f"No INSTALLDIR= arg in cmd: {cmd!r}"
+        # INSTALLDIR="<path>" — strip both leading and trailing quote.
+        raw = installdir_args[0][len("INSTALLDIR="):]
+        assert raw.startswith('"') and raw.endswith('"'), (
+            f"INSTALLDIR= arg is not double-quoted: {installdir_args[0]!r}"
+        )
+        installdir_value = raw[1:-1]
+        assert not installdir_value.endswith("\\"), (
+            f"INSTALLDIR= value still ends with '\\\\': "
+            f"{installdir_value!r}. Windows Installer may resolve to "
+            f"the parent directory."
+        )
+        assert installdir_value == str(target)
+
+
+class TestGetWindowsAppIdPerAppDefault:
+    """``get_windows_app_id`` must NOT silently degrade a CN lookup
+    into an intl-key query when build_config_cn.json is missing.
+    The CN default GUID is distinct from the intl one."""
+
+    def test_cn_missing_config_returns_cn_default_not_intl(self, monkeypatch, tmp_path):
+        """When ``apps/cn/build/build_config_cn.json`` is missing, the
+        helper must return ``DEFAULT_CN_GUID`` (a CN-shaped GUID) and
+        NOT the intl default.
+
+        Regression: previously both apps fell back to
+        ``DEFAULT_INTL_GUID``, so a CN user's OTA upgrade would query
+        the intl uninstall key in the Windows registry — which is
+        always missing on a CN-only machine — and silently fall back
+        to the intl default install dir.
+        """
+        # Point PROJECT_ROOT at a temp dir so the build_config lookup
+        # finds nothing.
+        from utils import app_config_loader as _acl
+        monkeypatch.setattr(_acl, "PROJECT_ROOT", tmp_path)
+        # Drop the per-app cache so the lookup actually re-runs.
+        _acl.get_app_config.cache_clear()
+
+        result_cn = _acl.get_windows_app_id("cn")
+        from utils.app_config_loader import DEFAULT_CN_GUID, DEFAULT_INTL_GUID
+        assert result_cn == DEFAULT_CN_GUID, (
+            f"get_windows_app_id('cn') returned {result_cn!r}; "
+            f"expected DEFAULT_CN_GUID ({DEFAULT_CN_GUID!r}). "
+            f"Falling back to DEFAULT_INTL_GUID ({DEFAULT_INTL_GUID!r}) "
+            f"is the silent-fallback regression."
+        )
+        assert result_cn != DEFAULT_INTL_GUID, (
+            "CN default must NOT equal the intl default — that's the "
+            "exact silent-fallback bug this test pins."
+        )
+
+    def test_intl_missing_config_returns_intl_default(self, monkeypatch, tmp_path):
+        from utils import app_config_loader as _acl
+        monkeypatch.setattr(_acl, "PROJECT_ROOT", tmp_path)
+        _acl.get_app_config.cache_clear()
+
+        result = _acl.get_windows_app_id("intl")
+        from utils.app_config_loader import DEFAULT_INTL_GUID
+        assert result == DEFAULT_INTL_GUID
+
+    def test_malformed_config_falls_back_to_per_app_default(self, monkeypatch, tmp_path):
+        """A build_config file that exists but contains invalid JSON
+        must also fall back to the per-app default — the helper must
+        never raise."""
+        from utils import app_config_loader as _acl
+        monkeypatch.setattr(_acl, "PROJECT_ROOT", tmp_path)
+        # Build a fake apps/cn/build/build_config_cn.json with junk.
+        cn_dir = tmp_path / "apps" / "cn" / "build"
+        cn_dir.mkdir(parents=True)
+        (cn_dir / "build_config_cn.json").write_text("{not valid json", encoding="utf-8")
+
+        result = _acl.get_windows_app_id("cn")
+        from utils.app_config_loader import DEFAULT_CN_GUID
+        assert result == DEFAULT_CN_GUID
+
+    def test_per_app_defaults_are_distinct(self):
+        """Static guard: the two defaults must be different — if they
+        collapse to the same value, the per-app fallback has no
+        effect and CN users regress to querying intl's uninstall key."""
+        from utils.app_config_loader import DEFAULT_CN_GUID, DEFAULT_INTL_GUID
+        assert DEFAULT_CN_GUID != DEFAULT_INTL_GUID, (
+            f"DEFAULT_CN_GUID ({DEFAULT_CN_GUID!r}) must differ from "
+            f"DEFAULT_INTL_GUID ({DEFAULT_INTL_GUID!r}). Collapsing "
+            f"them to the same value undoes the per-app fallback."
+        )
+
+
+class TestAppImageTargetPathCNIntl:
+    """The Linux AppImage install path must use the per-app short name.
+    Regression: ``ota_config.get_app_name()`` returns ``"eCan"`` for
+    BOTH apps, so CN AppImages were being renamed to ``eCan.AppImage``
+    and the running ``eCan.cn`` process was never killed (the kill
+    logic targeted ``eCan``)."""
+
+    def test_cn_appimage_target_is_eCan_cn_AppImage(
+        self, installer_module, monkeypatch
+    ):
+        # Stub safe_makedirs so we don't actually create ~/.local/bin.
+        monkeypatch.setattr(
+            installer_module, "safe_makedirs",
+            lambda p, purpose=None: p,
+        )
+
+        _set_app_id(monkeypatch, "cn")
+        mgr = installer_module.InstallationManager()
+
+        # Stub shutil.copy2 / chmod / etc. so we don't touch the FS.
+        import shutil as _shutil
+        monkeypatch.setattr(_shutil, "copy2", lambda *a, **kw: None)
+        monkeypatch.setattr("os.chmod", lambda *a, **kw: None)
+
+        # Source-inspection check: the actual function-call form
+        # ``ota_config.get_app_name()`` must NOT appear in any
+        # EXECUTABLE line of ``_install_appimage``. Text occurrences
+        # inside docstrings / comments are fine because they're
+        # explanatory, not invocations.
+        text = (Path(__file__).resolve().parents[2] / "ota" / "core" / "installer.py").read_text(encoding="utf-8")
+        m = re.search(
+            r"def _install_appimage\(.*?(?=\n    def |\nclass |\Z)",
+            text,
+            re.DOTALL,
+        )
+        assert m, "Could not locate _install_appimage body"
+        body = _strip_comments(m.group(0))
+        call_pattern = re.compile(r"ota_config\.get_app_name\(")
+        assert not call_pattern.search(body), (
+            "_install_appimage still calls "
+            "``ota_config.get_app_name()`` as a function — that returns "
+            "'eCan' for both apps and produces 'eCan.AppImage' on CN "
+            "(wrong). Replace with ``_resolve_app_short_name()``."
+        )
+        assert "_resolve_app_short_name" in body, (
+            "_install_appimage must call _resolve_app_short_name()."
+        )
+
+
+class TestDEBInstallUsesCNIntlShortName:
+    """Same regression as TestAppImageTargetPathCNIntl, but for the
+    DEB install path (process name + restart binary)."""
+
+    def test_deb_install_uses_resolve_app_short_name(self, installer_module):
+        """Source-level guard: ``_install_deb`` must route through
+        ``_resolve_app_short_name`` and NOT call ``ota_config.get_app_name()``."""
+        text = (Path(__file__).resolve().parents[2] / "ota" / "core" / "installer.py").read_text(encoding="utf-8")
+        m = re.search(
+            r"def _install_deb\(.*?(?=\n    def |\nclass |\Z)",
+            text,
+            re.DOTALL,
+        )
+        assert m, "Could not locate _install_deb body"
+        body = _strip_comments(m.group(0))
+        assert "_resolve_app_short_name" in body, (
+            "_install_deb must call _resolve_app_short_name() so CN "
+            "targets 'eCan.cn' and intl targets 'eCan'."
+        )
+        call_pattern = re.compile(r"ota_config\.get_app_name\(")
+        assert not call_pattern.search(body), (
+            "_install_deb still calls ``ota_config.get_app_name()`` — "
+            "that returns 'eCan' for both apps."
+        )
+
+
+class TestPlatformsModuleCNIntl:
+    """``ota.core.platforms`` also referenced ``ota_config.get_app_name``
+    for the AppImage target path and the DEB restart path. Those two
+    call sites must also route through ``_resolve_app_short_name``."""
+
+    def test_platforms_module_uses_resolve_app_short_name(self):
+        text = (Path(__file__).resolve().parents[2] / "ota" / "core" / "platforms.py").read_text(encoding="utf-8")
+        body = _strip_comments(text)
+        call_pattern = re.compile(r"ota_config\.get_app_name\(")
+        assert not call_pattern.search(body), (
+            "ota/core/platforms.py still calls "
+            "``ota_config.get_app_name()``; that returns 'eCan' for "
+            "both apps. CN users' AppImage and DEB upgrades would "
+            "target the wrong file path."
+        )
+        assert "_resolve_app_short_name" in body, (
+            "ota/core/platforms.py must call "
+            "``_resolve_app_short_name`` (defined in "
+            "ota/core/installer.py) so CN/Intl AppImage and DEB "
+            "upgrades target the correct file path."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Helper: drop comment + docstring lines from a source body so that
+# textual source-grep checks don't false-positive on explanatory
+# mentions of the old ``ota_config.get_app_name()`` pattern.
+# ---------------------------------------------------------------------------
+def _strip_comments(body: str) -> str:
+    """Strip triple-quoted strings and ``#`` comment lines from ``body``.
+
+    Crude but adequate for the regression checks in this file:
+      * Triple-quoted string literals (either three-double-quote or
+        three-single-quote form) are dropped wholesale because
+        docstrings frequently mention deprecated API names without
+        invoking them.
+      * Lines whose first non-whitespace character is ``#`` are
+        dropped — the OTA installer uses ``#``-commented lines for
+        inline rationale and they don't represent executable code.
+
+    NOT a full Python tokeniser — we just need a comment-free view of
+    the body for the textual grep below.
+    """
+    out = re.sub(r'"""[\s\S]*?"""', '', body)
+    out = re.sub(r"'''[\s\S]*?'''", '', out)
+    cleaned = []
+    for line in out.split('\n'):
+        if line.lstrip().startswith('#'):
+            continue
+        cleaned.append(line)
+    return '\n'.join(cleaned)
+
+
