@@ -274,75 +274,89 @@ def launch_profile(
         return existing
 
     # Already someone else's? (a previous run of the app, or a manual launch)
+    #
+    # Everything here is about NOT trusting the recorded port. Three ways it
+    # can be wrong, in the order they must be settled:
+    #   1. nothing is there any more            -> stale, forget it
+    #   2. someone else's browser is there too  -> ambiguous, never drive it
+    #   3. it is ours but its relay died        -> orphan, recycle it
     recorded = _read_port_file(user_data_dir)
-    if recorded:
-        ver = _cdp_version(int(recorded.get("port") or 0))
-        if ver:
-            # Before trusting the port file, confirm the browser answering
-            # there is still THIS profile. A recorded port can be inherited by
-            # something else -- our browser died and another took it, or (seen
-            # 2026-09-18) the user's own Chrome was already listening on the
-            # same port and answered first. Attaching then drives their
-            # personal profile with no proxy and their real IP.
-            _serves = _port_serves_profile(int(recorded["port"]), user_data_dir)
-            if _serves is False:
-                _others = [f"pid {pid} ({d})"
-                           for pid, d in _data_dirs_on_port(int(recorded["port"]))
-                           if _norm_dir(d) != _norm_dir(user_data_dir)]
-                raise RuntimeError(
-                    f"port {recorded['port']} recorded for '{profile_id}' is "
-                    f"being served by another browser: {', '.join(_others)}. "
-                    f"Refusing to attach -- that is not this profile, and "
-                    f"driving it would use someone else's session without "
-                    f"this profile's proxy. Close it (a Chrome started with "
-                    f"--remote-debugging-port={recorded['port']} is the usual "
-                    f"cause), then run again."
-                )
-            logger.info(f"[fp-browser] attaching to the browser already on port "
-                        f"{recorded['port']} for '{profile_id}' "
-                        f"({ver.get('Browser')})")
-            # The relay belongs to whichever process launched the browser. If
-            # that process is gone the relay is gone with it, and the browser
-            # is now reaching the site from OUR address instead of the proxy
-            # exit — the one thing an anti-detect profile must never do.
-            relay_port = int(recorded.get("relay_port") or 0)
-            if relay_port and not _port_open(relay_port):
-                # An orphan: the launcher died (crash, kill, or an exit that
-                # skipped close_all) and took the relay with it. The browser
-                # is left with NO proxy, so nothing can legitimately still be
-                # using it, and attaching would egress from this machine's own
-                # address. Close it properly — which also flushes the session
-                # the profile exists to keep — and start a clean one below
-                # rather than making the user hunt down a stray window.
-                logger.warning(
-                    f"[fp-browser] '{profile_id}' is orphaned on port "
-                    f"{recorded['port']}: its relay (127.0.0.1:{relay_port}) "
-                    f"is dead, so it has no proxy. Closing it and relaunching."
-                )
-                if not close_profile(profile_id):
-                    raise RuntimeError(
-                        f"'{profile_id}' is running on port {recorded['port']} "
-                        f"with a dead proxy relay and could not be closed "
-                        f"automatically. Close that browser window, then run "
-                        f"again; attaching to it would send traffic from this "
-                        f"machine's own IP."
-                    )
-                _clear_port_file(user_data_dir)
-                recorded = None          # fall through to a fresh launch
+    if recorded and not _cdp_version(int(recorded.get("port") or 0)):
+        _clear_port_file(user_data_dir)          # (1)
+        recorded = None
 
-            if recorded:
-                br = LaunchedBrowser(
-                    profile_id=profile_id,
-                    user_data_dir=str(user_data_dir),
-                    debug_port=int(recorded["port"]),
-                    cdp_url=f"http://127.0.0.1:{recorded['port']}",
-                    pid=int(recorded.get("pid") or 0),
-                    attached=True,
+    if recorded:
+        _recorded_port = int(recorded["port"])
+        if _port_serves_profile(_recorded_port, user_data_dir) is False:   # (2)
+            # CDP on this port is ambiguous -- the reply may come from their
+            # browser. So neither drive it nor close it over CDP; closing
+            # would risk shutting their tabs.
+            _listeners = _data_dirs_on_port(_recorded_port)
+            _ours = [pid for pid, d in _listeners
+                     if _norm_dir(d) == _norm_dir(user_data_dir)]
+            _theirs = [f"pid {pid} ({d})" for pid, d in _listeners
+                       if _norm_dir(d) != _norm_dir(user_data_dir)]
+            logger.warning(
+                f"[fp-browser] the port recorded for '{profile_id}' "
+                f"({_recorded_port}) is shared with {', '.join(_theirs)}; "
+                f"forgetting it and starting on a port of our own"
+            )
+            _clear_port_file(user_data_dir)
+            if _ours:
+                # Two browsers asked for the same debugging port; only one
+                # owns the socket and the other is left with no CDP endpoint
+                # at all. Ours is unusable AND still holding the profile
+                # directory, so a fresh launch cannot succeed until that
+                # window is gone. Name it rather than make them hunt.
+                raise RuntimeError(
+                    f"'{profile_id}' is still open (pid {_ours[0]}) on port "
+                    f"{_recorded_port}, which it lost to {', '.join(_theirs)} "
+                    f"-- so it has no working CDP endpoint and cannot be "
+                    f"closed automatically. Close that browser window and run "
+                    f"again; the next launch picks a free port of its own."
                 )
-                _RUNNING[profile_id] = br
-                return br
-        elif recorded:
-            _clear_port_file(user_data_dir)  # stale
+            recorded = None
+
+    if recorded:
+        relay_port = int(recorded.get("relay_port") or 0)
+        if relay_port and not _port_open(relay_port):                      # (3)
+            # An orphan: the launcher died (crash, kill, or an exit that
+            # skipped close_all) and took the relay with it. The browser is
+            # left with NO proxy, so nothing can legitimately still be using
+            # it, and attaching would egress from this machine's own address.
+            # Close it properly -- which also flushes the session the profile
+            # exists to keep -- and start a clean one below.
+            logger.warning(
+                f"[fp-browser] '{profile_id}' is orphaned on port "
+                f"{recorded['port']}: its relay (127.0.0.1:{relay_port}) is "
+                f"dead, so it has no proxy. Closing it and relaunching."
+            )
+            if not close_profile(profile_id):
+                raise RuntimeError(
+                    f"'{profile_id}' is running on port {recorded['port']} "
+                    f"with a dead proxy relay and could not be closed "
+                    f"automatically. Close that browser window, then run "
+                    f"again; attaching to it would send traffic from this "
+                    f"machine's own IP."
+                )
+            _clear_port_file(user_data_dir)
+            recorded = None
+
+    if recorded:
+        ver = _cdp_version(int(recorded["port"]))
+        logger.info(f"[fp-browser] attaching to the browser already on port "
+                    f"{recorded['port']} for '{profile_id}' "
+                    f"({(ver or {}).get('Browser')})")
+        br = LaunchedBrowser(
+            profile_id=profile_id,
+            user_data_dir=str(user_data_dir),
+            debug_port=int(recorded["port"]),
+            cdp_url=f"http://127.0.0.1:{recorded['port']}",
+            pid=int(recorded.get("pid") or 0),
+            attached=True,
+        )
+        _RUNNING[profile_id] = br
+        return br
 
     port = int(debug_port) or _free_port()
     if _port_open(port, timeout=0.5):

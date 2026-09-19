@@ -193,15 +193,43 @@ def test_unknowable_ownership_is_not_a_failure(monkeypatch):
     assert fb._port_serves_profile(9228, Path(r"C:\x")) is None
 
 
-def test_attaching_to_a_contaminated_port_is_refused(profile, monkeypatch):
-    """The dangerous path: the port file is ours, but someone else answers."""
-    monkeypatch.setattr(fb, "_cdp_version", lambda port, timeout=1.0: {"Browser": "Chrome/153"})
-    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: True)
+def test_a_contaminated_port_is_never_attached_to(profile, monkeypatch):
+    """The dangerous path: the port file is ours, but someone else answers.
+
+    Nothing of ours is on the port any more, so the record is simply stale --
+    forget it and start fresh on a port of our own rather than driving their
+    browser or making the user intervene.
+    """
+    calls = _stub_launch(monkeypatch, new_port=7100)
+    monkeypatch.setattr(fb, "_cdp_version",
+                        lambda port, timeout=1.0: {"Browser": "Chrome/153"})
+    # 9228 is busy (their Chrome); the port we pick for ourselves is not.
+    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: port == 9228)
     monkeypatch.setattr(fb, "_data_dirs_on_port",
-                        lambda port: [(30508, r"C:\chrome_data")])
+                        lambda port: [(30508, r"C:\chrome_data")] if port == 9228 else [])
 
     _write_port_file(profile, port=9228, relay_port=51500)
-    with pytest.raises(RuntimeError, match="another browser"):
+    br = fb.launch_profile("etsy")
+
+    assert calls["popen"] == 1, "must launch its own browser"
+    assert br.debug_port == 7100, "and never hand back their port"
+    assert br.attached is False
+
+
+def test_our_own_browser_stuck_on_a_shared_port_is_named(profile, monkeypatch):
+    """When ours is also on that port it lost the race, so it has no CDP
+    endpoint and still holds the profile directory. Nothing can start until
+    that window closes, so say which one it is."""
+    _stub_launch(monkeypatch, new_port=7100)
+    monkeypatch.setattr(fb, "_cdp_version",
+                        lambda port, timeout=1.0: {"Browser": "Chrome/153"})
+    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: True)
+    monkeypatch.setattr(
+        fb, "_data_dirs_on_port",
+        lambda port: [(37640, profile["user_data_dir"]), (30508, r"C:\chrome_data")])
+
+    _write_port_file(profile, port=9228, relay_port=51500)
+    with pytest.raises(RuntimeError, match="37640"):
         fb.launch_profile("etsy")
 
 
