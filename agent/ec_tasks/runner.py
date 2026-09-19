@@ -9366,6 +9366,18 @@ class TaskRunner(Generic[Context]):
                 )
         except Exception:
             pass
+
+        # Which element-naming strategy actually carried this run. Site-agnostic:
+        # the platform only counts what sites report. Phase 1 of
+        # docs/SELF_HEALING_ROADMAP.md -- the distribution is the evidence for
+        # whether semantic targeting is worth building on.
+        try:
+            from agent.ec_skills.browser_use_extension import element_targeting
+            element_targeting.log_resolution_report(
+                reason=f"task={getattr(task, 'name', '')}"
+            )
+        except Exception:
+            pass
     
     def _on_skill_complete(
         self,
