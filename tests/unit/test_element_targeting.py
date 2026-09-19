@@ -19,7 +19,11 @@ from agent.ec_skills.browser_use_extension import element_targeting as et
 
 
 @pytest.fixture(autouse=True)
-def clean():
+def clean(tmp_path, monkeypatch):
+    # log_drift writes to the permanent journal. Point it somewhere disposable:
+    # a test run must not put fictional site changes into a record that is kept
+    # for years (it did, before this).
+    monkeypatch.setenv("ECAN_DRIFT_JOURNAL_DIR", str(tmp_path / "journal"))
     et.reset()
     yield
     et.reset()

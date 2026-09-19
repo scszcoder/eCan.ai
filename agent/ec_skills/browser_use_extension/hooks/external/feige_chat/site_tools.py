@@ -32,6 +32,7 @@ from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.sidebar_preview_js import (
     ROW_PREVIEW_FALLBACK_JS as _ROW_PREVIEW_FALLBACK_JS,
     ROW_NAME_JS as _ROW_NAME_JS,
+    SIDEBAR_SHAPE_JS as _SIDEBAR_SHAPE_JS,
 )
 
 from agent.ec_skills.browser_use_extension.extension_tools_service import (
@@ -154,7 +155,7 @@ _FEIGE_LAST_MSG = '[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span'
 _FEIGE_TIMESTAMP = '[class*="timerParticular"], .CEnLM8MEGksTdgi_8Lqf'
 _FEIGE_UNREAD = '[class*="badge-count"], .rxAvaVFJHvpEGMc1ejm1'
 
-_FEIGE_LIST_SESSIONS_JS = _ROW_NAME_JS + ";\n" + r"""
+_FEIGE_LIST_SESSIONS_JS = _ROW_NAME_JS + _SIDEBAR_SHAPE_JS + ";\n" + r"""
 (function(includeRead, maxSessions) {
   var __rebuiltFrame = null;
   function rowIsCurrent(row) {
@@ -227,8 +228,14 @@ _FEIGE_LIST_SESSIONS_JS = _ROW_NAME_JS + ";\n" + r"""
   var __nameStrategies = {};
   try { __nameStrategies = window.__ecanRowNameTally || {};
         window.__ecanRowNameTally = {}; } catch(e) {}
+  // What the sidebar is BUILT from, this scan. Cheap -- one pass over rows we
+  // already hold -- and it moves the moment the site ships a change, rather
+  // than waiting until a parser has already started failing.
+  var __shape = null;
+  try { __shape = __ecanSidebarShape(items); } catch(e) {}
   return JSON.stringify({ sessions: results, total_visible: items.length,
-                          name_strategies: __nameStrategies });
+                          name_strategies: __nameStrategies,
+                          sidebar_shape: __shape });
 })(INCLUDE_READ, MAX_SESSIONS);
 """
 
@@ -269,6 +276,39 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
                     _SITE_LABEL, "sidebar_row_name", data.get("name_strategies"),
                     detail=f"rows={len(sessions)}",
                 )
+            except Exception:
+                pass
+        # Separately: what the sidebar is built from. The tally above says which
+        # parser won; this says whether the page itself moved. When it has, the
+        # diff goes to the permanent change journal -- not to the run log, which
+        # is gone by the time anyone asks what the old layout looked like.
+        # Only recorded on a scan that actually saw rows: an empty sidebar (not
+        # logged in, wrong tab, frame still building) is not a site change, and
+        # letting it adopt an empty shape would make the NEXT healthy scan look
+        # like one.
+        if isinstance(data, dict) and data.get("sidebar_shape") and sessions:
+            try:
+                from agent.ec_skills.browser_use_extension import drift_journal
+                shape = dict(data.get("sidebar_shape") or {})
+                # The deploy marker rides its own key. It changes on EVERY
+                # site deploy, structural or not, so mixing it into the
+                # structural record would make that record cry wolf. Kept
+                # apart, it answers the question the structural record cannot:
+                # when does this site actually ship? Three years of it is a
+                # deploy calendar, and a change here landing on the same day as
+                # a parser collapse is the correlation worth having.
+                marker = shape.pop("build_marker", None)
+                drift_journal.note_shape(
+                    _SITE_LABEL, "sidebar_row", shape,
+                    kind="dom_shape_change",
+                    context={"rows_returned": len(sessions),
+                             "total_visible": int(total or 0)},
+                )
+                if marker:
+                    drift_journal.note_shape(
+                        _SITE_LABEL, "sidebar_build_marker", marker,
+                        kind="site_deploy",
+                    )
             except Exception:
                 pass
         logger.info(f"[Feige] Listed sessions: visible={total}, returned={len(sessions)}")

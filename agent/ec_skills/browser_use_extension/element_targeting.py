@@ -351,12 +351,67 @@ def detect_drift(baseline: Optional[Dict[str, Any]] = None) -> list:
     return signals
 
 
-def log_drift(baseline: Optional[Dict[str, Any]] = None) -> list:
-    """Check for drift and say so loudly. Returns the signals."""
+def log_drift(
+    baseline: Optional[Dict[str, Any]] = None,
+    *,
+    evidence: Optional[Dict[str, Any]] = None,
+) -> list:
+    """Check for drift, say so loudly, and put it on the permanent record.
+
+    Two outputs, for two different readers. The warning goes to the run log,
+    for whoever is watching today. The journal entry goes to
+    ``drift_journal``, for whoever asks in two years what the site looked like
+    the last time it moved -- by which time this run's log is long gone.
+
+    Args:
+        baseline: a report from a known-good period.
+        evidence: anything else the caller can add about the moment -- a DOM
+            structure sample, a websocket payload's field names. Optional, and
+            shape-summarised before it is stored; see :mod:`drift_journal`.
+
+    Returns the signals.
+    """
     signals = detect_drift(baseline)
     for signal in signals:
         logger.warning(
             f"[element-targeting] POSSIBLE SITE CHANGE — {signal.describe()}. "
             f"A parser that was carrying this element has stopped resolving it."
         )
+        _journal_drift(signal, baseline, evidence)
     return signals
+
+
+def _journal_drift(signal: "DriftSignal", baseline, extra) -> None:
+    """Write one drift signal to the permanent record. Never raises."""
+    try:
+        from . import drift_journal
+
+        was = (baseline or {}).get(signal.site, {}).get(signal.element, {})
+        now = resolution_report().get(signal.site, {}).get(signal.element, {})
+
+        # Strategy names and counts are our own vocabulary and integers -- no
+        # page content -- so they are recorded verbatim. Anything the caller
+        # attached goes through the journal's shape summariser instead.
+        drift_journal.record_event(
+            signal.site,
+            "strategy_collapse",
+            element=signal.element,
+            summary=signal.describe(),
+            evidence={
+                "collapsed_strategy": signal.strategy,
+                "baseline_share": round(signal.baseline_share, 4),
+                "strategies_before": was,
+                "strategies_after": now,
+            },
+            raw_ok=True,
+        )
+        if extra:
+            drift_journal.record_event(
+                signal.site,
+                "strategy_collapse_context",
+                element=signal.element,
+                summary=f"page evidence at {signal.describe()}",
+                evidence=extra,          # shape-summarised, not verbatim
+            )
+    except Exception:
+        pass

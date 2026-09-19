@@ -134,3 +134,134 @@ ROW_NAME_TALLY_DRAIN_JS = r"""
     } catch(e) { return {}; }
   })()
 """
+
+
+# ── what the sidebar is BUILT from ─────────────────────────────────────────
+#
+# The tally above says which parser won. This says what the page is made of --
+# and the difference matters, because the tally only moves once a parser has
+# already started failing, whereas this moves the moment the site ships the
+# change.
+#
+# Every entry in `anchors` is a DOM feature one of the branches in
+# ROW_NAME_JS (or the preview/badge readers) depends on. When Feige redeployed
+# in June the hashed wrappers vanished; in September `data-qa-id` stopped
+# appearing on rebuilt frames. Both would show here as an anchor going 0.
+#
+# Deliberately NO text and NO hashed class tokens:
+#   - text is customer data, and this is kept for years;
+#   - hashed tokens rotate on every Feige deploy, so recording them would
+#     report a change every time they ship anything, which is noise. The
+#     anchor counts already say whether a rotation actually broke a parser,
+#     which is the part worth a permanent record.
+SIDEBAR_SHAPE_JS = r"""
+  function __ecanSidebarShape(rows){
+    var anchors = {
+      'data_qa_id_nickname': '[data-qa-id="qa-conversation-nickname"]',
+      'qa_id_fuzzy_name':    '[data-qa-id*="nickname" i],[data-qa-id*="name" i]',
+      'name_line':           '[class*="nameLine"]',
+      'name_content':        '[class*="NameContent"]',
+      'titled_descendant':   '[title]',
+      'legacy_hashed_wrap':  '.MP1bk3ccfHC9V2SnPCGD',
+      'legacy_hashed_span':  '.Jv6FtqUv5VoYARd2pp4y',
+      'preview_msg_content': '[class*="msgContent"]',
+      'badge_count':         '[class*="badge-count"]',
+      'badge_sup':           'sup',
+      'user_label':          '[class*="userLabel"]',
+      'card_tag':            '[class*="cardTag"]'
+    };
+    var present = {}, attrs = {}, tags = {}, plainClasses = {};
+    var hashed = 0;
+    // Per-token row counts, for the build marker below.
+    var hashedRows = {};
+    // A build-hash looks like 'MP1bk3ccfHC9V2SnPCGD': long, no separators,
+    // and mixing case with digits. Human-authored class names rarely do.
+    var hashRe = /^[A-Za-z0-9_]{16,}$/;
+    var list = rows || [];
+    for (var i = 0; i < list.length && i < 40; i++) {
+      var row = list[i];
+      if (!row || !row.querySelector) continue;
+      var seenThisRow = {};
+      for (var key in anchors) {
+        if (!anchors.hasOwnProperty(key)) continue;
+        try { if (row.querySelector(anchors[key])) present[key] = (present[key]||0) + 1; }
+        catch(e) {}
+      }
+      try {
+        var all = row.querySelectorAll('*');
+        for (var j = 0; j < all.length && j < 120; j++) {
+          var el = all[j];
+          tags[String(el.tagName||'').toLowerCase()] = 1;
+          var at = el.attributes || [];
+          for (var a = 0; a < at.length && a < 16; a++) {
+            var an = String(at[a].name||'');
+            // Attribute NAMES are structure. Values can be anything, so no
+            // value is read here -- except data-qa-id, whose value is a
+            // stable machine identifier and is the thing that drifted.
+            attrs[an] = 1;
+            if (an === 'data-qa-id') {
+              var qv = String(at[a].value||'').slice(0, 60);
+              if (qv) attrs['data-qa-id=' + qv] = 1;
+            }
+          }
+          var cls = String(el.className && el.className.baseVal !== undefined
+                           ? el.className.baseVal : (el.className||''));
+          var toks = cls.split(/\s+/);
+          for (var c = 0; c < toks.length && c < 16; c++) {
+            var tok = toks[c];
+            if (!tok) continue;
+            if (hashRe.test(tok) && /[A-Z]/.test(tok) && /\d/.test(tok)) {
+              hashed++;
+              // Count each token ONCE per row: a token repeated down a row must
+              // not out-vote one that appears on every row.
+              if (seenThisRow[tok] !== 1) {
+                seenThisRow[tok] = 1;
+                hashedRows[tok] = (hashedRows[tok] || 0) + 1;
+              }
+            }
+            else plainClasses[tok.slice(0, 60)] = 1;
+          }
+        }
+      } catch(e) {}
+    }
+    function keys(o){ var k=[]; for (var x in o) if (o.hasOwnProperty(x)) k.push(x); return k.sort(); }
+
+    // ── the deploy marker ──────────────────────────────────────────────
+    // Build hashes rotate every time the site ships, whether or not anything
+    // structural moved. That makes them useless as a CHANGE signal (they would
+    // cry wolf on every routine deploy) but exactly right as a DEPLOY signal:
+    // three years of it is a calendar of when this site ships.
+    //
+    // Only tokens carried by at least half the sampled rows count, so which
+    // rows happened to be scrolled into view cannot move the marker. The
+    // tokens are reduced to one 32-bit digest: enough to tell "different
+    // build" from "same build", and not enough to reconstruct a selector.
+    var rowsSeen = Math.min(list.length, 40);
+    var stable = [];
+    for (var tok2 in hashedRows) {
+      if (hashedRows.hasOwnProperty(tok2) && hashedRows[tok2] * 2 >= rowsSeen) {
+        stable.push(tok2);
+      }
+    }
+    stable.sort();
+    var digest = 5381;
+    var joined = stable.join('|');
+    for (var d = 0; d < joined.length; d++) {
+      digest = ((digest * 33) ^ joined.charCodeAt(d)) >>> 0;
+    }
+
+    return {
+      rows_sampled: rowsSeen,
+      build_marker: stable.length
+        ? { digest: digest.toString(16), stable_token_count: stable.length }
+        : null,
+      anchors_present: keys(present),
+      anchors_missing: keys(anchors).filter(function(k){ return !present[k]; }),
+      attributes: keys(attrs),
+      tags: keys(tags),
+      plain_classes: keys(plainClasses),
+      hashed_class_count_bucket: hashed === 0 ? 'none'
+        : hashed < 50 ? 'few' : hashed < 300 ? 'many' : 'very many'
+    };
+  }
+"""

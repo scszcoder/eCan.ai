@@ -165,6 +165,9 @@ def _card_text(kv: dict) -> str:
     return "[商品卡片] " + title + (f" 商品ID:{goods_id}" if goods_id else "")
 
 
+from . import ws_protocol_watch as _ws_protocol_watch
+
+
 def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
     """Decode one WS frame -> list of CUSTOMER (sender_role=='1') text messages."""
     dec = decode(frame_bytes)
@@ -190,6 +193,15 @@ def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
                         continue
                     text = _str((_all(msg, 8) or [None])[0])
                     kv = _kvmap(msg)
+                    # Watch WHICH named fields the backend is still populating.
+                    # A rename or a silently-emptied field does not throw here
+                    # -- it surfaces layers downstream as a nameless customer
+                    # or a misrouted reply (ws192/ws193). Set update only, no
+                    # I/O; see ws_protocol_watch.
+                    try:
+                        _ws_protocol_watch.observe(kv)
+                    except Exception:
+                        pass
                     msg_type = str(kv.get("type") or "")
                     # ws025: a product card the CUSTOMER shares carries only the
                     # literal '[商品]' placeholder (or nothing) in field 8 and no
