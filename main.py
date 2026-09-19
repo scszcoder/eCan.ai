@@ -1172,6 +1172,19 @@ try:
                 stop_cloud_directory()
             except Exception:
                 pass
+            # Close any fingerprint-browser profile this process launched.
+            # Two reasons it must happen here: closing the tabs is what makes
+            # Chromium flush the session (killing it loses the login that is
+            # the whole point of the profile), and the SOCKS relay lives in
+            # THIS process — leaving the browser up orphans it with a dead
+            # proxy, which the next run then refuses to attach to.
+            try:
+                from agent.ec_skills.browser_use_extension.fingerprint import (
+                    fingerprint_browser as _fp_browser,
+                )
+                _fp_browser.close_all()
+            except Exception as _fp_exc:
+                logger.warning(f"Could not close browser profiles on quit: {_fp_exc}")
 
         app.aboutToQuit.connect(_cleanup_on_quit)
         logger.info("Registered OTA updater cleanup on application quit.")

@@ -224,24 +224,42 @@ def launch_profile(
             # exit — the one thing an anti-detect profile must never do.
             relay_port = int(recorded.get("relay_port") or 0)
             if relay_port and not _port_open(relay_port):
-                raise RuntimeError(
-                    f"'{profile_id}' is running on port {recorded['port']} but "
-                    f"its proxy relay (127.0.0.1:{relay_port}) is dead — the "
-                    f"process that launched it has exited. Close that browser "
-                    f"before reusing this profile; attaching now would send "
-                    f"traffic from this machine's own IP."
+                # An orphan: the launcher died (crash, kill, or an exit that
+                # skipped close_all) and took the relay with it. The browser
+                # is left with NO proxy, so nothing can legitimately still be
+                # using it, and attaching would egress from this machine's own
+                # address. Close it properly — which also flushes the session
+                # the profile exists to keep — and start a clean one below
+                # rather than making the user hunt down a stray window.
+                logger.warning(
+                    f"[fp-browser] '{profile_id}' is orphaned on port "
+                    f"{recorded['port']}: its relay (127.0.0.1:{relay_port}) "
+                    f"is dead, so it has no proxy. Closing it and relaunching."
                 )
-            br = LaunchedBrowser(
-                profile_id=profile_id,
-                user_data_dir=str(user_data_dir),
-                debug_port=int(recorded["port"]),
-                cdp_url=f"http://127.0.0.1:{recorded['port']}",
-                pid=int(recorded.get("pid") or 0),
-                attached=True,
-            )
-            _RUNNING[profile_id] = br
-            return br
-        _clear_port_file(user_data_dir)  # stale
+                if not close_profile(profile_id):
+                    raise RuntimeError(
+                        f"'{profile_id}' is running on port {recorded['port']} "
+                        f"with a dead proxy relay and could not be closed "
+                        f"automatically. Close that browser window, then run "
+                        f"again; attaching to it would send traffic from this "
+                        f"machine's own IP."
+                    )
+                _clear_port_file(user_data_dir)
+                recorded = None          # fall through to a fresh launch
+
+            if recorded:
+                br = LaunchedBrowser(
+                    profile_id=profile_id,
+                    user_data_dir=str(user_data_dir),
+                    debug_port=int(recorded["port"]),
+                    cdp_url=f"http://127.0.0.1:{recorded['port']}",
+                    pid=int(recorded.get("pid") or 0),
+                    attached=True,
+                )
+                _RUNNING[profile_id] = br
+                return br
+        elif recorded:
+            _clear_port_file(user_data_dir)  # stale
 
     port = int(debug_port) or _free_port()
     binary = resolve_browser_path(profile)
