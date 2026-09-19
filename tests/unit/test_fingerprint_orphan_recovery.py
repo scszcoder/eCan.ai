@@ -155,3 +155,61 @@ def test_the_app_closes_profiles_on_quit():
         "main.py no longer closes fingerprint profiles on quit; every exit "
         "will orphan a browser with a dead proxy relay"
     )
+
+
+# ── a debugging port is not proof of identity ──────────────────────────────
+
+def test_a_foreign_browser_on_the_port_is_detected(monkeypatch):
+    """Seen 2026-09-18: the user's own Chrome was listening on 9228, so
+    /json/version answered from THEIR browser -- personal profile, no proxy,
+    real IP -- and browser_use was handed that endpoint."""
+    from pathlib import Path
+    monkeypatch.setattr(fb, "_data_dirs_on_port",
+                        lambda port: [(37640, r"C:\ecan_browser_data\etsy_kq15tpi"),
+                                      (30508, r"C:\chrome_data")])
+    assert fb._port_serves_profile(9228, Path(r"C:\ecan_browser_data\etsy_kq15tpi")) is False
+
+
+def test_our_own_browser_alone_on_the_port_is_fine(monkeypatch):
+    from pathlib import Path
+    monkeypatch.setattr(fb, "_data_dirs_on_port",
+                        lambda port: [(37640, r"C:\ecan_browser_data\etsy_kq15tpi")])
+    assert fb._port_serves_profile(9228, Path(r"C:\ecan_browser_data\etsy_kq15tpi")) is True
+
+
+def test_trailing_separator_and_case_do_not_matter(monkeypatch):
+    """Windows hands back both spellings; a false mismatch would refuse every run."""
+    from pathlib import Path
+    monkeypatch.setattr(fb, "_data_dirs_on_port",
+                        lambda port: [(1, "c:\ECAN_browser_data\etsy_kq15tpi\\")])
+    assert fb._port_serves_profile(9228, Path(r"C:\ecan_browser_data\etsy_kq15tpi")) is True
+
+
+def test_unknowable_ownership_is_not_a_failure(monkeypatch):
+    """No psutil, or the OS refused the socket table: refusing every launch
+    would be worse than proceeding, so the caller only warns."""
+    monkeypatch.setattr(fb, "_data_dirs_on_port", lambda port: [])
+    from pathlib import Path
+    assert fb._port_serves_profile(9228, Path(r"C:\x")) is None
+
+
+def test_attaching_to_a_contaminated_port_is_refused(profile, monkeypatch):
+    """The dangerous path: the port file is ours, but someone else answers."""
+    monkeypatch.setattr(fb, "_cdp_version", lambda port, timeout=1.0: {"Browser": "Chrome/153"})
+    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: True)
+    monkeypatch.setattr(fb, "_data_dirs_on_port",
+                        lambda port: [(30508, r"C:\chrome_data")])
+
+    _write_port_file(profile, port=9228, relay_port=51500)
+    with pytest.raises(RuntimeError, match="another browser"):
+        fb.launch_profile("etsy")
+
+
+def test_a_pinned_port_that_is_taken_fails_loudly(profile, monkeypatch):
+    """An explicit CDP port the user chose must not be silently swapped."""
+    _stub_launch(monkeypatch, new_port=7100)
+    monkeypatch.setattr(fb, "_cdp_version", lambda port, timeout=1.0: None)
+    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: True)
+
+    with pytest.raises(RuntimeError, match="already in use"):
+        fb.launch_profile("etsy", debug_port=9228)

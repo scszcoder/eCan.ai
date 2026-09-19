@@ -85,6 +85,69 @@ def _port_open(port: int, timeout: float = 1.0) -> bool:
         return False
 
 
+def _norm_dir(path) -> str:
+    """Compare two user-data-dir strings without tripping on case or a
+    trailing separator — Windows hands us both spellings."""
+    return str(path).rstrip("\\/").lower()
+
+
+def _data_dirs_on_port(port: int) -> list:
+    """The ``--user-data-dir`` of every process listening on *port*.
+
+    A debugging port is not proof of identity. Another Chromium -- the user's
+    own browser, a leftover from other tooling -- can already be listening on
+    it, and ``/json/version`` will answer happily from THAT browser. Driving it
+    would mean the user's personal profile, with no proxy and their real IP.
+    So we ask the operating system who owns the socket and what profile they
+    opened, instead of trusting the port.
+    """
+    dirs = []
+    try:
+        import psutil
+    except Exception:
+        return dirs
+
+    pids = set()
+    try:
+        for conn in psutil.net_connections(kind="inet"):
+            if conn.laddr and conn.laddr.port == int(port) and conn.pid:
+                pids.add(conn.pid)
+    except (psutil.AccessDenied, OSError) as exc:
+        logger.debug(f"[fp-browser] cannot enumerate sockets ({exc})")
+        return dirs
+
+    for pid in pids:
+        try:
+            for arg in (psutil.Process(pid).cmdline() or []):
+                if arg.startswith("--user-data-dir="):
+                    dirs.append((pid, arg.split("=", 1)[1]))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return dirs
+
+
+def _port_serves_profile(port: int, user_data_dir: Path) -> Optional[bool]:
+    """True if the only browser on *port* is running *user_data_dir*.
+
+    None when we cannot tell (no psutil, or the OS refused the socket table) --
+    the caller treats that as "cannot verify" rather than as a failure, since
+    on a locked-down machine refusing every launch would be worse.
+    """
+    found = _data_dirs_on_port(port)
+    if not found:
+        return None
+    want = _norm_dir(user_data_dir)
+    foreign = [(pid, d) for pid, d in found if _norm_dir(d) != want]
+    if foreign:
+        for pid, d in foreign:
+            logger.error(
+                f"[fp-browser] port {port} is also served by pid {pid} running "
+                f"{d} -- that is NOT this profile"
+            )
+        return False
+    return True
+
+
 def _cdp_version(port: int, timeout: float = 1.0) -> Optional[dict]:
     """Return /json/version if a browser is listening on *port*, else None."""
     try:
@@ -215,6 +278,26 @@ def launch_profile(
     if recorded:
         ver = _cdp_version(int(recorded.get("port") or 0))
         if ver:
+            # Before trusting the port file, confirm the browser answering
+            # there is still THIS profile. A recorded port can be inherited by
+            # something else -- our browser died and another took it, or (seen
+            # 2026-09-18) the user's own Chrome was already listening on the
+            # same port and answered first. Attaching then drives their
+            # personal profile with no proxy and their real IP.
+            _serves = _port_serves_profile(int(recorded["port"]), user_data_dir)
+            if _serves is False:
+                _others = [f"pid {pid} ({d})"
+                           for pid, d in _data_dirs_on_port(int(recorded["port"]))
+                           if _norm_dir(d) != _norm_dir(user_data_dir)]
+                raise RuntimeError(
+                    f"port {recorded['port']} recorded for '{profile_id}' is "
+                    f"being served by another browser: {', '.join(_others)}. "
+                    f"Refusing to attach -- that is not this profile, and "
+                    f"driving it would use someone else's session without "
+                    f"this profile's proxy. Close it (a Chrome started with "
+                    f"--remote-debugging-port={recorded['port']} is the usual "
+                    f"cause), then run again."
+                )
             logger.info(f"[fp-browser] attaching to the browser already on port "
                         f"{recorded['port']} for '{profile_id}' "
                         f"({ver.get('Browser')})")
@@ -262,6 +345,20 @@ def launch_profile(
             _clear_port_file(user_data_dir)  # stale
 
     port = int(debug_port) or _free_port()
+    if _port_open(port, timeout=0.5):
+        # Something already answers here. Launching anyway is how we ended up
+        # driving the user's own Chrome: both processes bind, and /json/version
+        # replies from whichever one wins.
+        if debug_port:
+            raise RuntimeError(
+                f"port {port} is already in use, so '{profile_id}' cannot be "
+                f"launched there. Leave the CDP port on auto unless you have "
+                f"a reason to pin it -- a fixed port collides with any other "
+                f"browser already using it."
+            )
+        logger.warning(f"[fp-browser] port {port} is taken; picking another")
+        port = _free_port()
+
     binary = resolve_browser_path(profile)
     proxy_flags, stop_relay, relay_port = _proxy_flags(profile)
 
@@ -292,6 +389,29 @@ def launch_profile(
     while time.time() < deadline:
         ver = _cdp_version(port)
         if ver:
+            # Answering is not the same as being ours. Confirm the browser on
+            # this port opened THIS profile before handing the endpoint out.
+            serves = _port_serves_profile(port, user_data_dir)
+            if serves is False:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+                if stop_relay:
+                    stop_relay()
+                raise RuntimeError(
+                    f"port {port} is served by a different browser than "
+                    f"'{profile_id}'. Refusing to drive it: it would be "
+                    f"someone else's profile, without this profile's proxy or "
+                    f"fingerprint. Close whatever else is using {port} (often "
+                    f"a Chrome started with --remote-debugging-port), or leave "
+                    f"the node's CDP port on auto."
+                )
+            if serves is None:
+                logger.warning(
+                    f"[fp-browser] could not verify who owns port {port}; "
+                    f"proceeding on the assumption it is ours"
+                )
             break
         if proc.poll() is not None:
             if stop_relay:
