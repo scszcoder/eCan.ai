@@ -585,6 +585,30 @@ what is left, roughly in the order they are worth doing.
   - `agent/mcp/server/api/captcha2/captcha2_api.py` — positional arg after keyword arg
   - `agent/mcp/server/fingerprint_playwright/har_capture.py` — `await` outside function
 
+### ⚡ Runtime self-healing against changing sites (2026-09-19)
+
+Plan of record: **`docs/SELF_HEALING_ROADMAP.md`**. Read it before touching
+element resolution in any hook bundle.
+
+The gap in one line: we built the design-time authoring loop (skill editor,
+flowgram, validate-and-fix) and none of the runtime healing loop. When a site
+changes, the repair path is customer-notices -> logs -> human patches selectors
+-> build. That ran on ws189, ws193, mt062/063 and the June Feige redesign.
+
+Four phases, in order of prevent-before-repair: semantic targeting (L1),
+resolver fallback that picks from a live element table (L2), write back what
+was resolved (L3), site knowledge (L4). Phase 1 is logging-only and is the
+urgent one -- it produces the evidence for whether Phase 2 is worth building.
+
+Two industry sources converged on the same answer from opposite directions:
+`jev-ultrafast` (model returns an index into an observed table, never a
+selector) and `workflow-use` (schema deprecates cssSelector/xpath/elementHash
+in favour of target_text + container_hint + position_hint). The durable
+identifier is what a human would say, not what the DOM says.
+
+Separate track: a shadow experiment with TypeSafe's Jev on element resolution,
+Etsy/eBay only until the CN data-residency question is answered.
+
 ### Left open after the fingerprint-browser session (2026-09-18)
 
 The etsy_after_sales0 run now works end to end -- profile recovers itself,
