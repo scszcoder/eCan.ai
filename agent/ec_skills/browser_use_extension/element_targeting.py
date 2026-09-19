@@ -267,3 +267,96 @@ def _record_bulk(site: str, element: str, strategy: str, count: int,
             )
     except Exception:
         pass
+
+
+# ── change detection ───────────────────────────────────────────────────────
+#
+# You cannot schedule the event this whole design exists for. A site ships a
+# redesign when it suits them -- twice in two months, with no notice -- so an
+# evidence plan that depends on someone watching during the right week is not
+# a plan.
+#
+# But a redesign has a signature: the strategy that was resolving almost every
+# element stops resolving any. That shows up on the FIRST scan after the change,
+# which is typically long before a customer notices anything. The counters are
+# already there; this just reads them.
+
+# A strategy has to have been doing real work before its collapse means
+# anything. Below this, a run of misses is just noise.
+_DRIFT_MIN_BASELINE = 20
+
+# What counts as "was carrying the load".
+_DRIFT_DOMINANT_SHARE = 0.6
+
+
+@dataclass
+class DriftSignal:
+    site: str
+    element: str
+    strategy: str          # the one that collapsed
+    baseline_share: float  # how much of the work it used to do
+    recent_ok: int
+    recent_total: int
+
+    def describe(self) -> str:
+        return (
+            f"{self.site}/{self.element}: '{self.strategy}' was resolving "
+            f"{self.baseline_share:.0%} of elements and now resolves "
+            f"{self.recent_ok}/{self.recent_total}"
+        )
+
+
+def detect_drift(baseline: Optional[Dict[str, Any]] = None) -> list:
+    """Strategies that used to carry an element and have stopped.
+
+    Compares a *baseline* report (from a known-good period, e.g. persisted at
+    the end of a healthy run) against what is being seen now. Returns a list of
+    :class:`DriftSignal`.
+
+    This is a smoke alarm, not a diagnosis: a collapse can also mean the page
+    simply did not render, or the session landed somewhere unexpected. It says
+    "look now", which is the part currently missing -- today the first signal
+    is a customer complaining days later.
+    """
+    if not baseline:
+        return []
+
+    signals = []
+    current = resolution_report()
+    for site, elements in (baseline or {}).items():
+        for element, strategies in (elements or {}).items():
+            total_before = sum(
+                (c.get("ok", 0) + c.get("miss", 0)) for c in strategies.values()
+            )
+            if total_before < _DRIFT_MIN_BASELINE:
+                continue
+
+            now = current.get(site, {}).get(element, {})
+            total_now = sum((c.get("ok", 0) + c.get("miss", 0)) for c in now.values())
+            if total_now == 0:
+                continue        # nothing observed yet; not evidence of anything
+
+            for strategy, counts in strategies.items():
+                was = counts.get("ok", 0) / total_before if total_before else 0.0
+                if was < _DRIFT_DOMINANT_SHARE:
+                    continue
+                recent = now.get(strategy, {})
+                recent_ok = recent.get("ok", 0)
+                if recent_ok == 0:
+                    signals.append(DriftSignal(
+                        site=site, element=element, strategy=strategy,
+                        baseline_share=was, recent_ok=recent_ok,
+                        recent_total=total_now,
+                    ))
+    return signals
+
+
+def log_drift(baseline: Optional[Dict[str, Any]] = None) -> list:
+    """Check for drift and say so loudly. Returns the signals."""
+    signals = detect_drift(baseline)
+    for signal in signals:
+        logger.warning(
+            f"[element-targeting] POSSIBLE SITE CHANGE — {signal.describe()}. "
+            f"A parser that was carrying this element has stopped resolving it."
+        )
+    return signals

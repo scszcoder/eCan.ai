@@ -101,8 +101,32 @@ winning more often than selectors, we have evidence for Phase 2 rather than a
 belief.
 
 *Acceptance:* Feige runs unchanged; every element resolution records
-`strategy=semantic|selector|failed`; a week of real traffic gives a baseline.
-No behaviour change.
+`strategy=semantic|selector|failed`; no behaviour change.
+
+**Not a one-week study** (revised 2026-09-19). The event this whole design
+exists for cannot be scheduled -- Feige shipped twice in two months with no
+notice -- so an evidence plan that depends on someone watching during the right
+week is not a plan. The counters run *always*, which buys three things instead:
+
+1. **Dead-branch detection now.** Which of the six parsers still fire at all.
+   `legacy_hashed_wrap` is already suspected unreachable.
+2. **The next redesign is measured automatically**, whenever it lands, with a
+   before/after nobody had to be present for.
+3. **A change detector.** A redesign has a signature: the parser that was
+   resolving nearly every row resolves none. `detect_drift()` reads exactly
+   that and warns `POSSIBLE SITE CHANGE` on the FIRST scan after the change --
+   typically well before a customer is stuck. Today the first signal is a
+   complaint, days late.
+
+**And the hypothesis does not need new traffic — it is already in our history.**
+Both past incidents say the same thing. From `6da0d3e09` (ws193): *"mt062-era
+hashed selectors, **which the latest redesign broke**"*, and the fix put the
+broad/fuzzy readers *first*, keeping the hashed ones as "harmless secondary".
+`b3e7db40e` (ws189) is the same shape for the preview parser. Structural
+selectors died; semantic-ish ones survived; each repair moved semantics
+earlier. That is two real redesigns of evidence, which is why **L2 does not
+need to wait for a third** -- it converts the next one from "stuck customer,
+multi-day repair" into "slower, still working".
 
 *Why first:* it prevents the failure instead of repairing it, needs no new
 vendor, no new model, and is reversible.

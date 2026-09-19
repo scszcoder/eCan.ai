@@ -152,3 +152,86 @@ def test_the_platform_module_names_no_business(  ):
             f"platform module element_targeting.py mentions '{term}'; "
             f"business specifics belong in hooks/external/<site>/"
         )
+
+
+# ── change detection ───────────────────────────────────────────────────────
+#
+# The event this design exists for cannot be scheduled — Feige shipped twice in
+# two months with no notice. So the counters are not a one-week study; they run
+# always, and a collapse in the dominant strategy IS the alarm. It fires on the
+# first scan after a change, not when a customer complains days later.
+
+def _baseline(dominant_ok=95, other_ok=5):
+    et.reset()
+    for _ in range(dominant_ok):
+        et.record_resolution("s", "row_name", "data_qa_id")
+    for _ in range(other_ok):
+        et.record_resolution("s", "row_name", "titled_scan")
+    return et.resolution_report()
+
+
+def test_a_dominant_parser_going_silent_is_flagged():
+    """The signature of a redesign: what resolved everything now resolves none."""
+    base = _baseline()
+    et.reset()
+    for _ in range(30):                      # post-change: the fallback carries
+        et.record_resolution("s", "row_name", "titled_scan")
+
+    signals = et.detect_drift(base)
+    assert len(signals) == 1
+    assert signals[0].strategy == "data_qa_id"
+    assert "was resolving 95%" in signals[0].describe()
+
+
+def test_a_healthy_run_raises_nothing():
+    base = _baseline()
+    et.reset()
+    for _ in range(50):
+        et.record_resolution("s", "row_name", "data_qa_id")
+    assert et.detect_drift(base) == []
+
+
+def test_a_thin_baseline_is_not_evidence():
+    """A handful of resolutions is noise; collapsing from 3 means nothing."""
+    et.reset()
+    for _ in range(3):
+        et.record_resolution("s", "row_name", "data_qa_id")
+    base = et.resolution_report()
+    et.reset()
+    for _ in range(10):
+        et.record_resolution("s", "row_name", "titled_scan")
+    assert et.detect_drift(base) == []
+
+
+def test_a_minor_strategy_going_quiet_is_not_a_signal():
+    """Only a parser that was CARRYING the element matters."""
+    base = _baseline(dominant_ok=95, other_ok=5)
+    et.reset()
+    for _ in range(50):                      # dominant still fine, minor silent
+        et.record_resolution("s", "row_name", "data_qa_id")
+    assert et.detect_drift(base) == []
+
+
+def test_no_observations_yet_is_not_a_signal():
+    """Nothing seen since restart must not read as a collapse."""
+    base = _baseline()
+    et.reset()
+    assert et.detect_drift(base) == []
+
+
+def test_no_baseline_means_no_claims():
+    for _ in range(50):
+        et.record_resolution("s", "row_name", "titled_scan")
+    assert et.detect_drift(None) == []
+    assert et.detect_drift({}) == []
+
+
+def test_drift_is_logged_as_a_warning(monkeypatch):
+    captured = []
+    monkeypatch.setattr(et.logger, "warning", lambda msg: captured.append(msg))
+    base = _baseline()
+    et.reset()
+    for _ in range(30):
+        et.record_resolution("s", "row_name", "titled_scan")
+    et.log_drift(base)
+    assert captured and "POSSIBLE SITE CHANGE" in captured[0]
