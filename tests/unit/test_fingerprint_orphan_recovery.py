@@ -1,17 +1,20 @@
-"""An orphaned profile browser is recovered, never attached to.
+"""Reuse a profile's browser if it is genuinely usable; otherwise start fresh.
 
-When the process that launched a profile dies without closing it -- a crash, a
-kill, or an exit that skipped close_all -- the browser is left running with the
-SOCKS relay gone. It then has NO proxy, so reaching the site through it would
-come from this machine's own address: the one thing an anti-detect profile must
-never do.
+The question a run has to answer is "is there a Chromium already running THIS
+profile, and can I drive it?" -- and the answer comes from the operating
+system, not from the port file we wrote. That file records what we *intended*,
+and on 2026-09-18 it was wrong every way it can be: stale after the app exited
+without closing the browser, and then pointing at a port the user's own Chrome
+had won, so `/json/version` answered from their personal profile.
 
-Attaching is therefore refused. But refusing alone left the user hunting for a
-stray Chromium window before anything could run again (observed 2026-09-18: a
-leftover browser on port 9668 failed every retry of the etsy skill). Since an
-orphan has no proxy, nothing can legitimately still be using it, so it is closed
--- gracefully, which is also what flushes the session the profile exists to keep
--- and a fresh one is launched with a fresh relay.
+So `_running_browser_for()` looks for the process that opened this
+user-data-dir, and `healthy` means it can actually be driven: its debugging
+port answers CDP, and that port serves only this profile. Three outcomes:
+
+    healthy, proxy relay alive   -> reuse it
+    running but not usable       -> it also holds the profile directory, so it
+                                    has to go before anything can start
+    nothing running              -> launch, on a port nobody else is using
 """
 
 import pytest
@@ -53,116 +56,138 @@ def _write_port_file(profile, port, relay_port, pid=4242):
                     "started": 1}), encoding="utf-8")
 
 
-def _stub_launch(monkeypatch, new_port):
-    """Make a fresh launch succeed without starting a real browser."""
+def _stub_env(monkeypatch, *, running=None, new_port=7100,
+              relay_alive=True, port_busy=()):
+    """Stand in for the machine: what is running, and which ports are taken."""
     calls = {"popen": 0, "closed": []}
 
+    monkeypatch.setattr(fb, "_running_browser_for", lambda udd: running)
     monkeypatch.setattr(fb, "resolve_browser_path", lambda p: "chrome.exe")
     monkeypatch.setattr(fb, "_proxy_flags", lambda p: ([], lambda: None, 55555))
     monkeypatch.setattr(fb, "_free_port", lambda: new_port)
+    monkeypatch.setattr(fb, "_port_open",
+                        lambda port, timeout=1.0:
+                        (port in port_busy) or (relay_alive and port == 55555))
+    monkeypatch.setattr(fb, "_cdp_version",
+                        lambda port, timeout=1.0:
+                        {"Browser": "Chrome/1"} if port == new_port else None)
+    monkeypatch.setattr(fb, "_port_serves_profile", lambda port, udd: True)
+    monkeypatch.setattr(fb, "close_profile",
+                        lambda pid, grace=15.0: calls["closed"].append(pid) or True)
 
     class _Proc:
         pid = 9999
         def poll(self): return None
+        def terminate(self): pass
 
     def _popen(argv, **kw):
         calls["popen"] += 1
+        calls["argv"] = argv
         return _Proc()
 
     monkeypatch.setattr(fb.subprocess, "Popen", _popen)
     return calls
 
 
-def test_an_orphan_is_closed_and_relaunched(profile, monkeypatch):
-    calls = _stub_launch(monkeypatch, new_port=7100)
+# ── reuse ──────────────────────────────────────────────────────────────────
 
-    # Old browser answers on 9668; the new one answers on 7100.
-    monkeypatch.setattr(fb, "_cdp_version",
-                        lambda port, timeout=1.0:
-                        {"Browser": "Chrome/1"} if port in (9668, 7100) else None)
-    # Its relay is dead; nothing is listening anywhere.
-    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: False)
+def test_a_healthy_loaded_browser_is_reused(profile, monkeypatch):
+    """The point of the whole mechanism: don't relaunch what already works."""
+    calls = _stub_env(monkeypatch,
+                      running={"pid": 4242, "port": 9500, "healthy": True})
+    _write_port_file(profile, port=9500, relay_port=55555)
 
-    closed = []
-    monkeypatch.setattr(fb, "close_profile",
-                        lambda pid, grace=15.0: closed.append(pid) or True)
-
-    _write_port_file(profile, port=9668, relay_port=51500)
     br = fb.launch_profile("etsy")
 
-    assert closed == ["etsy"], "the orphan must be closed, not left running"
-    assert calls["popen"] == 1, "a fresh browser must be launched"
-    assert br.attached is False, "the recovered run owns its browser"
-    assert br.debug_port == 7100, "and must not reuse the orphan's port"
-
-
-def test_a_healthy_running_browser_is_still_attached_to(profile, monkeypatch):
-    """Recovery must not become 'always restart'."""
-    _stub_launch(monkeypatch, new_port=7100)
-    monkeypatch.setattr(fb, "_cdp_version",
-                        lambda port, timeout=1.0: {"Browser": "Chrome/1"} if port == 9668 else None)
-    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: True)  # relay alive
-
-    closed = []
-    monkeypatch.setattr(fb, "close_profile",
-                        lambda pid, grace=15.0: closed.append(pid) or True)
-
-    _write_port_file(profile, port=9668, relay_port=51500)
-    br = fb.launch_profile("etsy")
-
-    assert closed == [], "a live browser with a working relay must not be closed"
     assert br.attached is True
-    assert br.debug_port == 9668
+    assert br.debug_port == 9500
+    assert br.pid == 4242
+    assert calls["popen"] == 0, "must not start a second browser"
+    assert calls["closed"] == [], "and must not close the good one"
 
 
-def test_when_the_orphan_cannot_be_closed_we_refuse_rather_than_leak(profile, monkeypatch):
-    """Failing closed is still the fallback: never attach to a proxy-less browser."""
-    _stub_launch(monkeypatch, new_port=7100)
-    monkeypatch.setattr(fb, "_cdp_version",
-                        lambda port, timeout=1.0: {"Browser": "Chrome/1"} if port == 9668 else None)
-    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: False)
-    monkeypatch.setattr(fb, "close_profile", lambda pid, grace=15.0: False)
+def test_reuse_does_not_depend_on_the_port_file(profile, monkeypatch):
+    """No port file at all -- discovery alone is enough to find and reuse it."""
+    calls = _stub_env(monkeypatch,
+                      running={"pid": 4242, "port": 9500, "healthy": True},
+                      relay_alive=False)      # nothing recorded, so no relay check
 
-    _write_port_file(profile, port=9668, relay_port=51500)
-    with pytest.raises(RuntimeError, match="own IP"):
+    br = fb.launch_profile("etsy")
+
+    assert br.attached is True and br.debug_port == 9500
+    assert calls["popen"] == 0
+
+
+# ── running, but not usable ────────────────────────────────────────────────
+
+def test_a_browser_whose_relay_died_is_closed_and_replaced(profile, monkeypatch):
+    """No relay means no proxy, so it would reach the site from our own IP."""
+    calls = _stub_env(monkeypatch,
+                      running={"pid": 4242, "port": 9500, "healthy": True},
+                      relay_alive=False)
+    _write_port_file(profile, port=9500, relay_port=51500)   # relay recorded, dead
+
+    # After close_profile, nothing is running any more.
+    seq = [{"pid": 4242, "port": 9500, "healthy": True}, None]
+    monkeypatch.setattr(fb, "_running_browser_for", lambda udd: seq.pop(0) if seq else None)
+
+    br = fb.launch_profile("etsy")
+
+    assert calls["closed"] == ["etsy"], "the proxy-less browser must be closed"
+    assert calls["popen"] == 1, "and replaced"
+    assert br.attached is False
+
+
+def test_an_unreachable_browser_is_named_rather_than_guessed_at(profile, monkeypatch):
+    """It lost its debugging port to another browser, so it has no CDP endpoint
+    of its own -- and it still holds the profile directory."""
+    _stub_env(monkeypatch,
+              running={"pid": 37640, "port": 9228, "healthy": False})
+    _write_port_file(profile, port=9228, relay_port=55555)
+
+    with pytest.raises(RuntimeError, match="37640"):
         fb.launch_profile("etsy")
 
 
-def test_a_profile_with_no_proxy_is_not_treated_as_orphaned(profile, monkeypatch):
-    """relay_port 0 means a direct profile, which is a healthy configuration."""
-    _stub_launch(monkeypatch, new_port=7100)
-    monkeypatch.setattr(fb, "_cdp_version",
-                        lambda port, timeout=1.0: {"Browser": "Chrome/1"} if port == 9668 else None)
-    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: False)
+def test_an_unreachable_browser_is_not_closed_through_a_shared_port(profile, monkeypatch):
+    """Closing over a port that may belong to someone else's browser would
+    shut THEIR tabs, so it must not be attempted."""
+    calls = _stub_env(monkeypatch,
+                      running={"pid": 37640, "port": 9228, "healthy": False})
+    _write_port_file(profile, port=9228, relay_port=55555)
 
-    closed = []
-    monkeypatch.setattr(fb, "close_profile",
-                        lambda pid, grace=15.0: closed.append(pid) or True)
+    with pytest.raises(RuntimeError):
+        fb.launch_profile("etsy")
+    assert calls["closed"] == [], "must not reach through an ambiguous port"
 
-    _write_port_file(profile, port=9668, relay_port=0)
+
+# ── nothing running ────────────────────────────────────────────────────────
+
+def test_with_nothing_running_it_just_launches(profile, monkeypatch):
+    calls = _stub_env(monkeypatch, running=None)
     br = fb.launch_profile("etsy")
 
-    assert closed == []
-    assert br.attached is True
+    assert calls["popen"] == 1
+    assert br.attached is False
+    assert br.debug_port == 7100
 
 
-def test_the_app_closes_profiles_on_quit():
-    """The orphan exists because nothing called close_all on shutdown."""
-    from pathlib import Path
-    src = Path(__file__).resolve().parents[2] / "main.py"
-    text = src.read_text(encoding="utf-8", errors="ignore")
-    assert "close_all()" in text and "_cleanup_on_quit" in text, (
-        "main.py no longer closes fingerprint profiles on quit; every exit "
-        "will orphan a browser with a dead proxy relay"
-    )
+def test_a_busy_port_is_stepped_around_even_when_requested(profile, monkeypatch):
+    """The user's own Chrome on 9228 is a real setup other skills drive
+    against. Our debugging port is an internal detail, so we move -- failing
+    here is what left a run retrying forever on 2026-09-18."""
+    calls = _stub_env(monkeypatch, running=None, new_port=7100, port_busy=(9228,))
+
+    br = fb.launch_profile("etsy", debug_port=9228)
+
+    assert br.debug_port == 7100, "must move off the busy port, not fail"
+    assert calls["popen"] == 1
+    assert f"--remote-debugging-port=7100" in calls["argv"]
 
 
-# ── a debugging port is not proof of identity ──────────────────────────────
+# ── the port-identity helpers ──────────────────────────────────────────────
 
 def test_a_foreign_browser_on_the_port_is_detected(monkeypatch):
-    """Seen 2026-09-18: the user's own Chrome was listening on 9228, so
-    /json/version answered from THEIR browser -- personal profile, no proxy,
-    real IP -- and browser_use was handed that endpoint."""
     from pathlib import Path
     monkeypatch.setattr(fb, "_data_dirs_on_port",
                         lambda port: [(37640, r"C:\ecan_browser_data\etsy_kq15tpi"),
@@ -178,81 +203,27 @@ def test_our_own_browser_alone_on_the_port_is_fine(monkeypatch):
 
 
 def test_trailing_separator_and_case_do_not_matter(monkeypatch):
-    """Windows hands back both spellings; a false mismatch would refuse every run."""
+    """Windows hands back both spellings; a false mismatch would refuse runs."""
     from pathlib import Path
     monkeypatch.setattr(fb, "_data_dirs_on_port",
-                        lambda port: [(1, "c:\ECAN_browser_data\etsy_kq15tpi\\")])
+                        lambda port: [(1, "c:\\ECAN_browser_data\\etsy_kq15tpi\\")])
     assert fb._port_serves_profile(9228, Path(r"C:\ecan_browser_data\etsy_kq15tpi")) is True
 
 
 def test_unknowable_ownership_is_not_a_failure(monkeypatch):
     """No psutil, or the OS refused the socket table: refusing every launch
-    would be worse than proceeding, so the caller only warns."""
-    monkeypatch.setattr(fb, "_data_dirs_on_port", lambda port: [])
+    would be worse than the risk, so the caller only warns."""
     from pathlib import Path
+    monkeypatch.setattr(fb, "_data_dirs_on_port", lambda port: [])
     assert fb._port_serves_profile(9228, Path(r"C:\x")) is None
 
 
-def test_a_contaminated_port_is_never_attached_to(profile, monkeypatch):
-    """The dangerous path: the port file is ours, but someone else answers.
-
-    Nothing of ours is on the port any more, so the record is simply stale --
-    forget it and start fresh on a port of our own rather than driving their
-    browser or making the user intervene.
-    """
-    calls = _stub_launch(monkeypatch, new_port=7100)
-    monkeypatch.setattr(fb, "_cdp_version",
-                        lambda port, timeout=1.0: {"Browser": "Chrome/153"})
-    # 9228 is busy (their Chrome); the port we pick for ourselves is not.
-    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: port == 9228)
-    monkeypatch.setattr(fb, "_data_dirs_on_port",
-                        lambda port: [(30508, r"C:\chrome_data")] if port == 9228 else [])
-
-    _write_port_file(profile, port=9228, relay_port=51500)
-    br = fb.launch_profile("etsy")
-
-    assert calls["popen"] == 1, "must launch its own browser"
-    assert br.debug_port == 7100, "and never hand back their port"
-    assert br.attached is False
-
-
-def test_our_own_browser_stuck_on_a_shared_port_is_named(profile, monkeypatch):
-    """When ours is also on that port it lost the race, so it has no CDP
-    endpoint and still holds the profile directory. Nothing can start until
-    that window closes, so say which one it is."""
-    _stub_launch(monkeypatch, new_port=7100)
-    monkeypatch.setattr(fb, "_cdp_version",
-                        lambda port, timeout=1.0: {"Browser": "Chrome/153"})
-    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: True)
-    monkeypatch.setattr(
-        fb, "_data_dirs_on_port",
-        lambda port: [(37640, profile["user_data_dir"]), (30508, r"C:\chrome_data")])
-
-    _write_port_file(profile, port=9228, relay_port=51500)
-    with pytest.raises(RuntimeError, match="37640"):
-        fb.launch_profile("etsy")
-
-
-def test_a_requested_port_that_is_taken_steps_aside(profile, monkeypatch):
-    """Even an explicitly requested port gives way.
-
-    This browser's debugging port is an internal detail -- nothing outside
-    connects to it -- so a busy port is never worth failing over. The user's
-    own Chrome on 9228 is a real setup that other skills drive against;
-    colliding with it is ours to avoid, not theirs to work around. Refusing
-    here was what left a run retrying forever on 2026-09-18.
-    """
-    calls = _stub_launch(monkeypatch, new_port=7100)
-    # 9228 is busy; the port we then pick for ourselves is free.
-    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: port == 9228)
-    monkeypatch.setattr(fb, "_cdp_version",
-                        lambda port, timeout=1.0:
-                        {"Browser": "Chrome/1"} if port == 7100 else None)
-    monkeypatch.setattr(fb, "_data_dirs_on_port",
-                        lambda port: [(1, profile["user_data_dir"])] if port == 7100
-                        else [(30508, r"C:\chrome_data")])
-
-    br = fb.launch_profile("etsy", debug_port=9228)
-
-    assert br.debug_port == 7100, "must move off the busy port, not fail"
-    assert calls["popen"] == 1
+def test_the_app_closes_profiles_on_quit():
+    """A browser left running is what starts this whole problem."""
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[2] / "main.py"
+    text = src.read_text(encoding="utf-8", errors="ignore")
+    assert "close_all()" in text and "_cleanup_on_quit" in text, (
+        "main.py no longer closes fingerprint profiles on quit; every exit "
+        "will leave one running with a dead proxy relay"
+    )
