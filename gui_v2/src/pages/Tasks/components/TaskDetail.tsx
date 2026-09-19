@@ -1290,9 +1290,19 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                   declarations; values persist to metadata.task_vars and are
                   seeded into the run's prompt variables at start. */}
               <Col span={24}>
-                <Form.Item noStyle shouldUpdate={(prev: any, cur: any) =>
-                  JSON.stringify(prev.skills || []) !== JSON.stringify(cur.skills || [])
-                }>
+                {/* shouldUpdate only re-runs this render prop when a FORM
+                    VALUE changes, and availablePrinters is async component
+                    state — so a printer list that lands after the first paint
+                    would never be picked up and a printer variable would stay
+                    a plain text box. Keying on its length remounts the field
+                    when the list arrives. */}
+                <Form.Item
+                  noStyle
+                  key={`task-vars-${availablePrinters.length}`}
+                  shouldUpdate={(prev: any, cur: any) =>
+                    JSON.stringify(prev.skills || []) !== JSON.stringify(cur.skills || [])
+                  }
+                >
                   {({ getFieldValue }) => {
                     const selIds: string[] = (getFieldValue('skills') || []).map((s: any) => String(s || ''));
                     const declared: any[] = [];
@@ -1346,7 +1356,22 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                           {extraNames.map((nm) => (
                             <Col span={12} key={nm}>
                               <StyledFormItem label={nm} name={['task_vars', nm]}>
-                                <Input disabled={!(editMode || isNew)} />
+                                {/* Same treatment as a declared variable: a
+                                    printer is a printer whether the skill
+                                    declared it or it is a value carried from
+                                    an earlier run. Two branches rendering the
+                                    same field differently is just confusing. */}
+                                {isPrinterVar(nm) && availablePrinters.length > 0 ? (
+                                  <Select
+                                    disabled={!(editMode || isNew)}
+                                    allowClear
+                                    showSearch
+                                    placeholder={t('pages.tasks.pickPrinter', '选择打印机')}
+                                    options={availablePrinters.map((name) => ({ value: name, label: name }))}
+                                  />
+                                ) : (
+                                  <Input disabled={!(editMode || isNew)} />
+                                )}
                               </StyledFormItem>
                             </Col>
                           ))}
