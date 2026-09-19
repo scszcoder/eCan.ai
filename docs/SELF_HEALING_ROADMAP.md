@@ -367,3 +367,231 @@ requires 0.13.x, and `shutdown_browser` is already broken against 0.12's rename.
 - The CN residency question closes off hosted decision models entirely, in which
   case Phase 2's resolver must be a local/cheap LLM rather than Jev. **The
   roadmap is deliberately written so that substitution changes one component.**
+
+---
+
+# Part II — Detection, ground truth, and the fleet loop
+
+*Added 2026-09-19, after the Phase 1-3 code landed. Part I is about how a run
+heals. This part is about how we KNOW a site moved, and what happens across
+thousands of installs that each heal on their own.*
+
+## 10. What we actually built to detect a site change
+
+Three independent watchers, all feeding one permanent record
+(`agent/ec_skills/browser_use_extension/drift_journal.py`). They differ in how
+early they fire and how much they prove.
+
+| Watcher | Where | Fires when | Lead time |
+|---|---|---|---|
+| **Deploy marker** | `SIDEBAR_SHAPE_JS` → `sidebar_build_marker` | the site's build-hash tokens rotate | earliest — the day they ship, change or not |
+| **Structural fingerprint** | `SIDEBAR_SHAPE_JS` → `sidebar_row` | a DOM anchor a parser depends on appears/vanishes | the day they ship something that matters |
+| **ws field watcher** | `ws_protocol_watch.py` | a core frame field stops being populated | the day the backend moves |
+| **Strategy collapse** | `element_targeting.detect_drift` | a parser that was carrying an element resolves nothing | lagging — only once we are already failing |
+
+The first three are leading indicators; the fourth is confirmation. That
+ordering is the point: today the only signal is a customer complaining, which
+is one step *after* the fourth.
+
+### What the fingerprint contains
+
+Anchor presence (`data_qa_id_nickname`, `name_line`, `legacy_hashed_wrap`, …
+one per parser branch in `ROW_NAME_JS`), attribute names, tag names,
+non-hashed class tokens, and a bucketed count of hashed ones. No text, no
+attribute values except `data-qa-id` (a machine identifier), no build hashes
+verbatim.
+
+A test (`test_the_name_parser_and_the_fingerprint_probe_the_same_selectors`)
+keeps the watched anchors tied to what the parser actually depends on. They
+drifted apart once already — that is what ws193 was.
+
+## 11. Ground truth — the honest part
+
+**None of the four signals above is ground truth.** Every one has an innocent
+explanation:
+
+| Signal | Also caused by |
+|---|---|
+| fingerprint moved | logged out, wrong tab, partial render, different viewport, A/B bucket |
+| deploy marker moved | CDN variant, a different set of rows sampled |
+| core ws field silent | traffic mix (a window with no cards, no handovers) |
+| strategy collapse | empty sidebar, page never loaded |
+
+So what we have is **correlated evidence, not proof**, and the design says so
+rather than implying otherwise. Three consequences worth being explicit about:
+
+**1. We have no labelled positives.** Exactly two real events are known — the
+June sidebar redesign (mt062/063) and the September rebuild (ws193, commit
+`6da0d3e09`) — both diagnosed *after* the fact. The detector has never fired on
+a real one. We cannot quote a false-positive rate, and should not pretend to.
+
+**2. Local confidence comes from co-occurrence, not from any single signal.**
+The journal timestamps all four kinds, so the question "did the site change or
+is this machine broken?" is answered by whether they cluster:
+
+- deploy marker + fingerprint + strategy collapse within one scan → very likely a real change
+- fingerprint alone, nothing else → very likely this machine
+- strategy collapse with no fingerprint movement → very likely this machine
+
+**3. The only real ground truth is the run outcome.** Whether a customer got a
+reply is the fact that matters; "the site changed" is just the usual cause.
+Detection exists to shorten the path to a fix, never to replace the outcome as
+the measure.
+
+### Backtest before trusting it
+
+The two known events are partly reconstructable: the commits that fixed them
+record which selectors died. Building the before/after anchor sets from
+`6da0d3e09` and the mt062/063 fixes and asserting the fingerprint would have
+fired gives us **labelled positives today**, without waiting for a third
+redesign. Do this before building anything on top of the detector.
+
+## 12. The loop: ship → detect → heal → aggregate → ship
+
+The decided architecture. Each step exists because of a specific failure of the
+step before it.
+
+```
+  ┌─ 1. Build N ships with a BASELINE: expected shape + known-good descriptors
+  │
+  │  2. Machines compare against the SHIPPED baseline
+  │     → drift detected on day 1, instead of silently adopting a redesign
+  │       as "normal" (which is what a purely local baseline does on the
+  │       first machine to see it)
+  │
+  │  3. Heal locally (L1 → L2 → L3). Fully autonomous; no cloud dependency,
+  │     works offline, works for a CN install with no cloud access
+  │
+  │  4. Report the shape-only OUTCOME (~200 bytes, opt-in). Aggregate →
+  │     corroboration count, heal rate, cost, descriptor durability →
+  │     ranked list → a human picks
+  │
+  └─ 5. The winner becomes build N+1's baseline. Nobody has to heal again.
+```
+
+**Step 1 is the highest-value unbuilt piece** and needs no cloud at all. A
+machine-local baseline can only detect a change *relative to what that machine
+already saw*, so the first machine to meet a redesign records it as the new
+normal and never flags it. Shipping the baseline makes every machine detect the
+same event on day 1.
+
+**Step 5 is deliberately human-gated.** See §14.
+
+## 13. The three risks of per-machine healing
+
+Each machine heals independently, and **they will not converge on the same
+fix** — L2 is a model call, candidate tables differ by viewport and account,
+and gray rollouts mean different machines legitimately see different pages.
+That is acceptable. Uniformity is *not* the goal; forcing it would break
+whichever machines are in the other bucket.
+
+What is not acceptable is these three, in priority order.
+
+### 13a. Unbounded, unobserved cost — **fix locally, now**
+
+L2 is opus by decision ("no room for mistake"). A machine that never heals
+retries forever, and nothing today stops it or reports it.
+
+- Per-element, per-day cap on L2 calls (extend the existing `ResolverBudget`)
+- Exponential backoff per descriptor, not per call
+- **Circuit breaker**: after K failed resolutions for one element, stop calling
+  L2 at all, go degraded and loud. Silence plus spend is the worst outcome
+- Record spend per incident in the journal, so "what did this change cost us"
+  is answerable later
+
+This is a financial exposure, it is purely local, and it should not wait for
+anything else on this list.
+
+### 13b. The invisible tail — **make it self-reporting locally, proactive via fleet**
+
+At an 85% heal rate, 1000 installs means 150 broken ones, each discovered by an
+angry customer. Locally, without any cloud:
+
+- An unhealed element for more than N minutes is a **degraded** state, surfaced
+  in the `[AGENT-STATUS]` readiness ledger and the Agents-page dots — the
+  customer sees red in their own UI rather than silently getting no replies
+- `ecan support upload` includes the drift journal, so the bundle already
+  carries the evidence when they do report it
+
+That converts an invisible tail into a *reactive* but honest one. The fleet
+layer is what makes it proactive.
+
+### 13c. Fragile fixes rot silently — **refuse the fragile ones, measure lifetime**
+
+A descriptor like `position_hint: "item 2 of 3"` works until that customer has
+a fourth conversation. Locally every cycle looks like a success: heal, break,
+heal, break, forever.
+
+- **Refuse to promote descriptors that are fragile by construction.**
+  `learned_targets.record_success` already refuses non-semantic ones; extend it
+  to position-only descriptors, which depend on collection size
+- **Record lifetime**: promoted at T, retired at T+X. A local history of
+  descriptor-kind lifetimes lets a machine prefer kinds that have survived
+  longest *on this machine*
+- Fleet comparison makes this far stronger (N machines × lifetimes), but the
+  local version is already worth having
+
+## 14. The fleet layer — what it is, and what it must never be
+
+**What it is:** a small, opt-in, append-only stream of shape-only outcomes.
+
+```json
+{"site": "...", "element": "...", "old_strategy": "...",
+ "new_descriptor_kind": "...", "healed": true, "attempts": 2,
+ "l2_calls": 1, "build": "...", "marker_digest": "..."}
+```
+
+~200 bytes. No customer text, no selectors, no credentials — the data is
+already shape-only by construction, which makes this the one category of local
+data that does not collide with the local-only policy. It is still behavioural
+(it reveals that an install runs a given site, and when), so: **anonymous
+aggregate by default**, identified only for pilots who opt in.
+
+It buys exactly four things:
+
+1. **Corroboration → ground truth.** 200 machines seeing the same fingerprint
+   delta within six hours is the site. One machine seeing it is that machine.
+   *This is the only way to make that distinction*, and it is the strongest
+   argument for the fleet layer — stronger than the cost and tail arguments.
+2. Heal rate, and therefore the size of the tail
+3. Cost per incident
+4. Descriptor durability ranking → the next build's baseline
+
+**What it must never be: a control plane.** It never pushes anything to a
+machine.
+
+### Why the rev stays human-gated
+
+Auto-shipping fleet-derived descriptors is rejected on three grounds:
+
+- **Supply chain.** Descriptors derive from page content, and pages are
+  attacker-influenceable. An auto-rev path means a malicious page could in
+  principle steer what every install targets.
+- **Untested.** A fix that ships without anyone having run it is unverified by
+  definition.
+- **Unnecessary.** Nearly all the value is in *ranking* the candidates. A human
+  merging the winner costs days, not months, and removes the catastrophic case.
+
+## 15. Sequencing
+
+1. **Cost controls + circuit breaker** (§13a) — local, urgent, unbounded spend
+2. **Backtest the detector** against June/September (§11) — labelled positives
+   without waiting for a third redesign
+3. **Shipped baseline** (§12 step 1) — local, makes day-1 detection real
+4. **Degraded state surfaced locally** (§13b)
+5. **Fragile-descriptor refusal + lifetime tracking** (§13c)
+6. **Fleet layer** (§14) — *only after the local detector has caught one real
+   change.* Aggregating thousands of machines through an unvalidated detector
+   is building on sand.
+7. Never: automatic rev.
+
+## 16. What would invalidate Part II
+
+- The fingerprint proves noisy in practice — fires on viewport or A/B variation
+  often enough to be ignored. The backtest in §11 is the cheap way to find out.
+- The two historical events turn out not to be reconstructable from git, in
+  which case there is no labelled data and §15 step 6 has to wait for a real
+  event.
+- Customers decline the telemetry opt-in at a rate that makes corroboration
+  statistically useless, which collapses §14's main argument and leaves the
+  fleet layer as a cost dashboard only.
