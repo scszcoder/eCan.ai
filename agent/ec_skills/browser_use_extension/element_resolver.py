@@ -61,12 +61,57 @@ Rules:
 - Prefer the candidate whose visible text a person would read as the target.
   Structure, class names and attribute names are weak evidence; what a human
   would SEE and SAY is strong evidence.
+- Candidates may describe a string's SHAPE instead of quoting it (for example
+  "short text, 2 words, letters" or "duration-like"). Judge those on shape and
+  position exactly as you would on the text itself.
 - If several match, use the container and position hints to choose.
 - If nothing matches, answer null. A wrong pick causes a wrong action; null is
   safe and the caller will fall back.
 
 Reply with JSON only, no prose:
 {"index": <integer or null>, "confidence": <0.0-1.0>, "why": "<max 12 words>"}"""
+
+
+def describe_shape(text: str) -> str:
+    """What a string LOOKS like, without saying what it says.
+
+    "Alice Chen" -> "short text, 2 words, letters"
+    "2 分钟前"    -> "short text, duration-like"
+    "1"           -> "digits only"
+
+    This exists because the decisions L2 makes almost never need the content.
+    Choosing which element is the customer-name field is a judgement about
+    shape and position -- exactly the heuristic a site's own parser already
+    uses ("short, not a number, not a duration"). Sending the name itself adds
+    nothing to the decision and everything to the compliance question.
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return "empty"
+
+    bits = []
+    n = len(raw)
+    bits.append("short text" if n <= 24 else
+                "medium text" if n <= 120 else "long text")
+
+    if re.fullmatch(r"[\d\s:.,\-/]+", raw):
+        bits.append("digits only")
+    elif re.match(r"^\d+\s*(分钟|小时|秒|天|min|hour|sec|day)", raw):
+        bits.append("duration-like")
+    else:
+        words = len(raw.split())
+        if words <= 4:
+            bits.append(f"{words} word{'s' if words != 1 else ''}")
+        if re.search(r"[A-Za-z]", raw):
+            bits.append("letters")
+        if re.search(r"[\u4e00-\u9fff]", raw):
+            bits.append("cjk")
+        if re.search(r"\d", raw):
+            bits.append("contains digits")
+        if re.search(r"[@#/\\]", raw):
+            bits.append("has symbols")
+
+    return ", ".join(bits)
 
 
 @dataclass(frozen=True)
@@ -79,12 +124,33 @@ class Candidate:
     attributes: Optional[dict] = None   # small, already-filtered, for tie-breaks
     nearby: str = ""             # short surrounding context
 
-    def for_prompt(self) -> dict:
+    def for_prompt(self, *, shape_only: bool = False) -> dict:
+        """The candidate as the model will see it.
+
+        ``shape_only`` replaces every free-text field with a description of its
+        SHAPE rather than its content. Use it wherever the content is personal
+        data and the decision does not actually need it -- which, for choosing
+        between UI elements, is usually the case. See ``describe_shape``.
+        """
         out: dict = {"index": self.index}
-        if self.text:
-            out["text"] = self.text[:200]
         if self.role:
             out["role"] = self.role
+
+        if shape_only:
+            if self.text:
+                out["text_shape"] = describe_shape(self.text)
+            if self.nearby:
+                out["nearby_shape"] = describe_shape(self.nearby)
+            if self.attributes:
+                # Attribute NAMES are page structure, not user content; their
+                # values can be anything, so only the names travel.
+                out["attribute_names"] = [
+                    str(k)[:40] for k in list(self.attributes.keys())[:8]
+                ]
+            return out
+
+        if self.text:
+            out["text"] = self.text[:200]
         if self.nearby:
             out["nearby"] = self.nearby[:200]
         if self.attributes:
@@ -128,6 +194,23 @@ class ResolverBudget:
         return max(0, self.limit - self.used)
 
 
+def minimize_by_default() -> bool:
+    """Whether candidate content is withheld unless a caller opts in.
+
+    Defaults to ON. The resolver sends page-derived strings to a model that may
+    be hosted outside the deployment's jurisdiction, and for CN deployments
+    that content can include customer messages. Routing through a proxy changes
+    WHO calls the model, not WHAT crosses a border -- only not sending it does
+    that.
+
+    ``ECAN_RESOLVER_SEND_CONTENT=1`` opts a deployment back in, for cases where
+    shape is genuinely not enough and the data is known to be non-personal.
+    """
+    return str(os.getenv("ECAN_RESOLVER_SEND_CONTENT", "")).strip().lower() not in (
+        "1", "true", "yes", "on"
+    )
+
+
 def resolver_enabled() -> bool:
     """Off unless explicitly enabled. L2 spends money and calls a model on a
     path that currently just fails; it opts in."""
@@ -160,6 +243,7 @@ async def resolve_element(
     llm: Any = None,
     budget: Optional[ResolverBudget] = None,
     page_context: str = "",
+    shape_only: Optional[bool] = None,
 ) -> Resolution:
     """Ask which candidate matches *descriptor*. Never raises.
 
@@ -181,6 +265,7 @@ async def resolve_element(
     trimmed = list(candidates)[:MAX_CANDIDATES]
     valid_indices = {c.index for c in trimmed}
 
+    redact = minimize_by_default() if shape_only is None else bool(shape_only)
     payload = {
         "target": {
             "text": descriptor.target_text,
@@ -188,9 +273,11 @@ async def resolve_element(
             "position": descriptor.position_hint,
             "role": descriptor.role,
         },
-        "candidates": [c.for_prompt() for c in trimmed],
+        "candidates": [c.for_prompt(shape_only=redact) for c in trimmed],
     }
-    if page_context:
+    if page_context and not redact:
+        # Page context is free text from the page; it cannot be shape-summarised
+        # usefully, so under minimisation it simply does not travel.
         payload["page"] = page_context[:600]
 
     try:

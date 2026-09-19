@@ -161,15 +161,20 @@ def test_the_run_budget_stops_a_wholly_broken_page_from_burning_calls():
 
 # ── the prompt ─────────────────────────────────────────────────────────────
 
-def test_the_prompt_carries_the_candidates_and_the_target():
+def test_the_prompt_carries_the_target_and_a_usable_candidate_table():
+    """The TARGET is ours to describe, so it travels verbatim. The candidates
+    come off the page, so by default only their shape does — see the data
+    minimisation section below."""
     llm = _FakeLLM('{"index": 2}')
     _run(er.resolve_element(
         TargetDescriptor(target_text="customer name", container_hint="conversation list"),
         _candidates(), site="s", element="row_name", llm=llm))
     prompt = llm.prompts[0]
-    assert "Alice Chen" in prompt
     assert "customer name" in prompt
     assert "conversation list" in prompt
+    # Enough to choose between the three rows without quoting any of them.
+    assert "duration-like" in prompt and "digits only" in prompt
+    assert "Alice Chen" not in prompt
 
 
 def test_the_prompt_says_page_text_is_untrusted():
@@ -239,3 +244,83 @@ def test_the_resolver_module_names_no_business():
     src = pathlib.Path(er.__file__).read_text(encoding="utf-8").lower()
     for term in ("feige", "douyin", "jinritemai", "etsy", "ebay"):
         assert term not in src
+
+
+# ── data minimisation ──────────────────────────────────────────────────────
+#
+# Routing a call through a proxy changes WHO calls the model, not WHAT crosses
+# a border. The only thing that changes the latter is not sending it. These
+# tests pin that the resolver can ask its question without the content the
+# question is about.
+
+@pytest.mark.parametrize("text,expected_in", [
+    ("Alice Chen", "letters"),
+    ("2 分钟前", "duration-like"),
+    ("1", "digits only"),
+    ("12:34", "digits only"),
+    ("", "empty"),
+    ("客户张伟", "cjk"),
+])
+def test_shape_describes_without_quoting(text, expected_in):
+    shape = er.describe_shape(text)
+    assert expected_in in shape
+    if text.strip():
+        assert text not in shape, "the shape must not contain the content"
+
+
+def test_shape_mode_withholds_names_and_previews():
+    """The exact leak this guards: a sidebar row's text IS the customer name,
+    and `nearby` can carry message previews."""
+    c = er.Candidate(index=2, text="Alice Chen", role="listitem",
+                     nearby="Hi, where is my order #12345?",
+                     attributes={"title": "Alice Chen", "data-uid": "998877"})
+    payload = json.dumps(c.for_prompt(shape_only=True), ensure_ascii=False)
+
+    for secret in ("Alice", "Chen", "order", "12345", "998877"):
+        assert secret not in payload, f"{secret!r} leaked in shape-only mode"
+    assert "listitem" in payload, "role is page structure and may travel"
+    assert "title" in payload, "attribute NAMES may travel; values may not"
+
+
+def test_minimisation_is_the_default(monkeypatch):
+    monkeypatch.delenv("ECAN_RESOLVER_SEND_CONTENT", raising=False)
+    assert er.minimize_by_default()
+    monkeypatch.setenv("ECAN_RESOLVER_SEND_CONTENT", "1")
+    assert not er.minimize_by_default()
+
+
+def test_the_default_call_does_not_send_content(monkeypatch):
+    monkeypatch.delenv("ECAN_RESOLVER_SEND_CONTENT", raising=False)
+    llm = _FakeLLM('{"index": 2, "confidence": 0.9}')
+    _run(er.resolve_element(
+        TargetDescriptor(target_text="customer name"),
+        [er.Candidate(index=2, text="Alice Chen", nearby="my order #12345")],
+        site="s", element="row_name", llm=llm))
+    assert "Alice Chen" not in llm.prompts[0]
+    assert "12345" not in llm.prompts[0]
+
+
+def test_page_context_does_not_travel_under_minimisation(monkeypatch):
+    """Free page text cannot be shape-summarised usefully, so it is dropped."""
+    monkeypatch.delenv("ECAN_RESOLVER_SEND_CONTENT", raising=False)
+    llm = _FakeLLM('{"index": 1}')
+    _run(er.resolve_element(TargetDescriptor(target_text="x"),
+                            [er.Candidate(index=1, text="a")],
+                            site="s", element="row_name", llm=llm,
+                            page_context="SECRET ORDER DETAILS"))
+    assert "SECRET" not in llm.prompts[0]
+
+
+def test_a_caller_can_opt_in_explicitly():
+    llm = _FakeLLM('{"index": 2}')
+    _run(er.resolve_element(TargetDescriptor(target_text="x"),
+                            [er.Candidate(index=2, text="Alice Chen")],
+                            site="s", element="row_name", llm=llm,
+                            shape_only=False))
+    assert "Alice Chen" in llm.prompts[0]
+
+
+def test_the_prompt_explains_shape_descriptions():
+    """The model has to know a shape is a description, not a literal."""
+    assert "SHAPE" in er._SYSTEM_PROMPT
+    assert "duration-like" in er._SYSTEM_PROMPT

@@ -205,11 +205,39 @@ build, without a restart:
 - any Jev error, timeout, or malformed answer disables it for the rest of the
   process and logs once -- it must never be able to slow or break a turn
 
-The CN data-residency question is still open and still blocking *execution*:
-`api.typesafe.ai` is US-hosted, so shadow mode on Feige sends page state
-(including customer chat text) off-box. **Answer that before enabling it on CN
-traffic at all** -- shadow or not. Until then, shadow on Etsy/eBay, and on
-Feige only once residency is settled.
+**On CN residency, and why the proxy is not the answer by itself**
+(revised 2026-09-19): forwarding CN -> AWS -> `api.typesafe.ai` changes *who
+calls the model*, not *what crosses a border*. The page state still leaves the
+CN box; it takes a longer path with an extra intermediary. Adding a hop does
+not reduce a cross-border transfer.
+
+What the proxy genuinely fixes, and is worth doing regardless: the vendor key
+stays server-side instead of on every customer desktop; a CN desktop may not
+reach a US API at all, so proxying can make it *work*; one place to kill it
+globally without a client rollout; one auditable chokepoint.
+
+**What actually settles residency is not sending the content.** L2's decisions
+almost never need it -- choosing which element is the customer-name field is a
+judgement about shape and position, which is exactly the heuristic a site's own
+parser already uses ("short, not a number, not a duration"). So the resolver
+minimises by default: free text is replaced by a description of its SHAPE.
+
+    {"index": 2, "role": "listitem", "text_shape": "short text, 2 words, letters"}
+
+A model can still pick that row over a digits-only badge and a duration-like
+timestamp, and no name, message or order number leaves the machine.
+`ECAN_RESOLVER_SEND_CONTENT=1` opts back in where the data is known to be
+non-personal.
+
+Note this was a real defect, not a hypothetical: the first cut of
+`Candidate.for_prompt()` sent `text` and `nearby` verbatim, which for a sidebar
+row is the customer's name and a message preview.
+
+**On latency:** the extra hop *adds*, it does not save. Jev's 178 ms becomes
+178 ms plus two CN<->AWS round trips. The comparison that matters is
+Jev-via-proxy against strong-LLM-via-proxy, since both pay the same hop. And
+shadow mode need not cost anything at all -- it does not gate execution, so it
+should be fire-and-forget and never awaited on a turn.
 
 **Decide after ~1 week of real traffic:**
 
