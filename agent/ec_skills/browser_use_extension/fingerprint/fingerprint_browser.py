@@ -363,15 +363,20 @@ def launch_profile(
         # Something already answers here. Launching anyway is how we ended up
         # driving the user's own Chrome: both processes bind, and /json/version
         # replies from whichever one wins.
-        if debug_port:
-            raise RuntimeError(
-                f"port {port} is already in use, so '{profile_id}' cannot be "
-                f"launched there. Leave the CDP port on auto unless you have "
-                f"a reason to pin it -- a fixed port collides with any other "
-                f"browser already using it."
-            )
-        logger.warning(f"[fp-browser] port {port} is taken; picking another")
+        #
+        # Step aside rather than fail, even when the port was asked for
+        # explicitly. This browser's debugging port is an internal detail --
+        # nothing outside this module ever connects to it, so a requested port
+        # is a hint, not a contract. The user's own Chrome on 9228 is a real
+        # setup that other skills drive; colliding with it is our problem to
+        # avoid, not theirs to work around.
+        taken = port
         port = _free_port()
+        logger.warning(
+            f"[fp-browser] port {taken} is already in use "
+            f"({', '.join(d for _pid, d in _data_dirs_on_port(taken)) or 'unknown'}); "
+            f"starting '{profile_id}' on {port} instead"
+        )
 
     binary = resolve_browser_path(profile)
     proxy_flags, stop_relay, relay_port = _proxy_flags(profile)

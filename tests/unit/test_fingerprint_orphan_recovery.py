@@ -233,11 +233,26 @@ def test_our_own_browser_stuck_on_a_shared_port_is_named(profile, monkeypatch):
         fb.launch_profile("etsy")
 
 
-def test_a_pinned_port_that_is_taken_fails_loudly(profile, monkeypatch):
-    """An explicit CDP port the user chose must not be silently swapped."""
-    _stub_launch(monkeypatch, new_port=7100)
-    monkeypatch.setattr(fb, "_cdp_version", lambda port, timeout=1.0: None)
-    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: True)
+def test_a_requested_port_that_is_taken_steps_aside(profile, monkeypatch):
+    """Even an explicitly requested port gives way.
 
-    with pytest.raises(RuntimeError, match="already in use"):
-        fb.launch_profile("etsy", debug_port=9228)
+    This browser's debugging port is an internal detail -- nothing outside
+    connects to it -- so a busy port is never worth failing over. The user's
+    own Chrome on 9228 is a real setup that other skills drive against;
+    colliding with it is ours to avoid, not theirs to work around. Refusing
+    here was what left a run retrying forever on 2026-09-18.
+    """
+    calls = _stub_launch(monkeypatch, new_port=7100)
+    # 9228 is busy; the port we then pick for ourselves is free.
+    monkeypatch.setattr(fb, "_port_open", lambda port, timeout=1.0: port == 9228)
+    monkeypatch.setattr(fb, "_cdp_version",
+                        lambda port, timeout=1.0:
+                        {"Browser": "Chrome/1"} if port == 7100 else None)
+    monkeypatch.setattr(fb, "_data_dirs_on_port",
+                        lambda port: [(1, profile["user_data_dir"])] if port == 7100
+                        else [(30508, r"C:\chrome_data")])
+
+    br = fb.launch_profile("etsy", debug_port=9228)
+
+    assert br.debug_port == 7100, "must move off the busy port, not fail"
+    assert calls["popen"] == 1
