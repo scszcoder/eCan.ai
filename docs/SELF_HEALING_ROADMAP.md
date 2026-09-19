@@ -83,6 +83,15 @@ We have a partial L0 already (`extract_dom`, `bu_normalize_page_state`,
 
 ### Phase 1 — Semantic targeting (L1). *The urgent one.*
 
+> **Status 2026-09-19: instrumentation shipped** on branch
+> `feature/semantic-targeting-phase1` (`b08ad241a`). Measurement only; no
+> behaviour change. Awaiting a week of real traffic.
+>
+> Already found without any traffic: `legacy_hashed_wrap` appears
+> **unreachable** — it needs a short `title`, and the ws183 titled scan runs
+> first and accepts exactly that. Kept and ordered last until the counter
+> confirms, rather than deleted on a hunch.
+
 Add `target_text` / `container_hint` / `position_hint` alongside existing
 selectors in the Feige hook bundle. Resolution order: semantic first, selector
 as fallback, and **log which one won**.
@@ -104,6 +113,14 @@ When both semantic and selector resolution fail, don't fail the step. Build the
 indexed table from the live DOM and ask a model to pick an index — the
 `jev-ultrafast` shape. The model returns an integer; we resolve it to a node we
 observed. It cannot invent a selector.
+
+**Use the strongest model available here — Opus 5 / Codex class, not the cheap
+tier.** L2 runs rarely (only when naming has already failed) and it is choosing
+what to click on a live customer's store. A wrong pick is not a slow reply, it
+is the wrong action taken. The economics are the opposite of the hot path: cost
+per call is irrelevant at this frequency, and a mistake is expensive. Same for
+L3, which decides what gets *written back* and therefore what every later run
+inherits -- a bad descriptor learned once is a bug that propagates.
 
 *Acceptance:* a Feige run survives a selector break that would have failed it,
 and says so loudly in the log. Bounded: N resolver calls per run, then fail.
@@ -175,11 +192,24 @@ share a seam.
    succeeded. Agreement is not the metric; **who was right when they disagreed**
    is.
 
-**Run it on Etsy/eBay first, not Feige.** Two reasons, both hard: `api.typesafe.ai`
-is US-hosted, so the CN deployment means latency and customer chat text leaving
-the box (a Section 5 and compliance question, not a technical one); and Feige is
-our most latency-sensitive, most business-critical surface. Prove it where a
-mistake is cheap.
+**Feige is in scope** (decision 2026-09-19). We are still in alpha customer
+piloting, so there is room to learn on the real surface rather than only on a
+proxy for it -- and Feige is where the failure class actually lives.
+
+**The condition is a kill switch, not a staging order.** Jev is very early, so
+it rides along behind a flag that can be flipped off instantly, without a
+build, without a restart:
+
+- `ECAN_JEV_SHADOW=0|1` — off by default; shadow only, never executes
+- flipping to `0` must take effect on the next resolution, not the next run
+- any Jev error, timeout, or malformed answer disables it for the rest of the
+  process and logs once -- it must never be able to slow or break a turn
+
+The CN data-residency question is still open and still blocking *execution*:
+`api.typesafe.ai` is US-hosted, so shadow mode on Feige sends page state
+(including customer chat text) off-box. **Answer that before enabling it on CN
+traffic at all** -- shadow or not. Until then, shadow on Etsy/eBay, and on
+Feige only once residency is settled.
 
 **Decide after ~1 week of real traffic:**
 
@@ -193,6 +223,13 @@ mistake is cheap.
 **Kill criteria.** Confidently wrong on high-probability answers; or the CN
 question can't be answered; or agreement is so high it adds nothing over the
 cheap path.
+
+**The `jev-ultrafast` ideas stay regardless of the outcome.** They are
+architecture, not vendor: the indexed action space, a model that returns an
+index rather than a selector, one atomic snapshot per observation, and
+speculative parallel heads. If the Jev bake-off fails, Phase 2's resolver is a
+strong LLM over the same indexed table -- one component swaps, the design does
+not.
 
 **Cost of the experiment is near zero** — `$0.042` per million input tokens
 (vendor-stated), shadow only, no behaviour change, one env flag.
