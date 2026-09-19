@@ -190,8 +190,12 @@ def test_prune_is_never_called_automatically():
     """The floor only protects anything if nothing schedules a prune."""
     import subprocess
     root = pathlib.Path(dj.__file__).resolve().parents[3]
+    # Product code only: this file necessarily contains the pattern, and
+    # git grep searches tracked files, so it would otherwise find itself.
     hits = subprocess.run(
-        ["git", "grep", "-n", "drift_journal.prune", "--", "*.py"],
+        ["git", "grep", "-n", "drift_journal.prune", "--",
+         "agent/*.py", "gui/*.py", "gui_v2/*", "cli/*.py", "main.py",
+         "web_server.py", "utils/*.py"],
         cwd=root, capture_output=True, text=True).stdout
     assert not hits.strip(), f"something calls prune(): {hits}"
 
