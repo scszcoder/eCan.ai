@@ -1,0 +1,269 @@
+"""How an element is named, and which naming actually worked.
+
+Platform-side and deliberately business-free: no site, no selector, no DOM.
+Sites describe their own elements and report which strategy resolved them;
+this module owns the vocabulary and the bookkeeping.
+
+Why it exists
+-------------
+A stored selector is a bet that the site will not change. We keep losing that
+bet -- ws189, ws193, mt062/063 and the June sidebar redesign were all the same
+failure, and each was repaired by hand, days after a customer noticed.
+
+Two independent projects converged on the same answer (see
+``docs/SELF_HEALING_ROADMAP.md``): **the durable identifier is what a human
+would say, not what the DOM says.** ``TargetDescriptor`` is that vocabulary --
+visible text plus enough context to disambiguate -- and it is deliberately the
+same shape both of them landed on, so their findings transfer.
+
+What this module does NOT do (yet)
+----------------------------------
+Phase 1 is measurement only. Nothing here resolves an element, and no caller's
+behaviour changes. Sites keep resolving exactly as they do today and simply say
+which of their strategies won. A week of that tells us whether semantic naming
+actually holds up on a given site -- before anything is built on the assumption
+that it does.
+
+Phases 2 (resolve from a live element table) and 3 (persist what was resolved)
+are specified in the roadmap and both consume this vocabulary.
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional
+
+from utils.logger_helper import logger_helper as logger
+
+# Keep a rollup this size at most. Resolutions happen per element per poll, so
+# an unbounded counter map on a long-lived session would be a slow leak.
+_MAX_TRACKED_KEYS = 512
+
+# Emit a rollup no more often than this. Per-resolution logging would drown the
+# run log; the point is the distribution, not each event.
+_ROLLUP_INTERVAL_S = 300.0
+
+
+@dataclass(frozen=True)
+class TargetDescriptor:
+    """How a human would point at an element.
+
+    Mirrors the schema ``workflow-use`` arrived at after deprecating its own
+    ``cssSelector`` / ``xpath`` / ``elementHash`` fields. Kept identical on
+    purpose: their field semantics are field-tested, and staying compatible
+    means their examples read directly onto ours.
+
+    ``selector_fallbacks`` is where a CSS/XPath expression may still live --
+    ordered, lowest priority, and explicitly a fallback rather than the
+    identity of the element.
+    """
+
+    # PRIMARY: visible or accessible text. Disambiguate inline the way a person
+    # would -- "Send (in the reply box)", "Edit (item 2 of 3)".
+    target_text: str = ""
+
+    # Context hints, stored as TEXT, never as selectors.
+    container_hint: str = ""        # "Personal Information", "conversation list"
+    position_hint: str = ""         # "item 2 of 3", "first", "last"
+    role: str = ""                  # button, textbox, link, listitem...
+    interaction_hint: str = ""      # form_submit, navigation, table_action
+
+    # LAST RESORT, ordered. Present so a site can migrate incrementally rather
+    # than in one cut-over.
+    selector_fallbacks: tuple = ()
+
+    def is_semantic(self) -> bool:
+        """True when this names the element by meaning rather than structure."""
+        return bool(self.target_text or self.container_hint or self.position_hint)
+
+    def describe(self) -> str:
+        """Short human-readable form, for logs and failure messages."""
+        bits = [b for b in (self.target_text, self.container_hint,
+                            self.position_hint, self.role) if b]
+        return " | ".join(bits) or "(no semantic descriptor)"
+
+
+@dataclass
+class _Counter:
+    ok: int = 0
+    miss: int = 0
+
+    def total(self) -> int:
+        return self.ok + self.miss
+
+
+@dataclass
+class _Bucket:
+    """Per (site, element) strategy tallies."""
+    strategies: Dict[str, _Counter] = field(default_factory=dict)
+    first_seen: float = field(default_factory=time.time)
+    last_logged: float = 0.0
+
+
+_LOCK = threading.Lock()
+_BUCKETS: Dict[tuple, _Bucket] = {}
+
+
+def record_resolution(
+    site: str,
+    element: str,
+    strategy: str,
+    ok: bool = True,
+    *,
+    descriptor: Optional[TargetDescriptor] = None,
+    detail: str = "",
+) -> None:
+    """Note that *strategy* was the one that resolved *element* on *site*.
+
+    Call this wherever an element is located today, with whatever names the
+    site already uses. Cheap, thread-safe, and never raises -- instrumentation
+    must not be able to break the path it measures.
+
+    Args:
+        site: free-form owner label chosen by the calling bundle. Platform code
+            never interprets it.
+        element: what was being located ("sidebar_row_name", "send_button").
+        strategy: which approach won ("semantic_text", "data_qa_id",
+            "legacy_hashed_class", "none"). The names are the site's own.
+        ok: False when this strategy was tried and did not resolve.
+        descriptor: the semantic descriptor, when the site has one. Recorded
+            for Phase 3; unused today beyond the log line.
+        detail: short free text for the rollup log.
+    """
+    try:
+        key = (str(site or "?"), str(element or "?"))
+        strat = str(strategy or "unknown")
+        now = time.time()
+        emit = None
+
+        with _LOCK:
+            if key not in _BUCKETS and len(_BUCKETS) >= _MAX_TRACKED_KEYS:
+                return                      # full: drop rather than grow
+            bucket = _BUCKETS.setdefault(key, _Bucket())
+            counter = bucket.strategies.setdefault(strat, _Counter())
+            if ok:
+                counter.ok += 1
+            else:
+                counter.miss += 1
+
+            if now - bucket.last_logged >= _ROLLUP_INTERVAL_S:
+                bucket.last_logged = now
+                emit = (key, _format_bucket(bucket))
+
+        if emit:
+            (site_name, element_name), summary = emit
+            logger.info(
+                f"[element-targeting] {site_name}/{element_name}: {summary}"
+                + (f" | {detail}" if detail else "")
+            )
+    except Exception:
+        # Never let measurement break the thing being measured.
+        pass
+
+
+def _format_bucket(bucket: _Bucket) -> str:
+    """'data_qa_id=412/412 ok, legacy_hashed_class=3/9 ok' — busiest first."""
+    parts = []
+    for name, counter in sorted(
+        bucket.strategies.items(), key=lambda kv: kv[1].total(), reverse=True
+    ):
+        parts.append(f"{name}={counter.ok}/{counter.total()} ok")
+    return ", ".join(parts) or "(nothing recorded)"
+
+
+def resolution_report() -> Dict[str, Dict[str, Dict[str, int]]]:
+    """Everything recorded so far, as plain dicts.
+
+    Shape: ``{site: {element: {strategy: {"ok": n, "miss": n}}}}``. For the log
+    analyser and for answering the Phase 1 question: is the semantic strategy
+    carrying the load, or are the brittle ones still doing the work?
+    """
+    out: Dict[str, Dict[str, Dict[str, int]]] = {}
+    with _LOCK:
+        for (site, element), bucket in _BUCKETS.items():
+            per_element = out.setdefault(site, {}).setdefault(element, {})
+            for name, counter in bucket.strategies.items():
+                per_element[name] = {"ok": counter.ok, "miss": counter.miss}
+    return out
+
+
+def log_resolution_report(reason: str = "") -> None:
+    """Dump the whole report at INFO. Call at run end or on a drift signal."""
+    report = resolution_report()
+    if not report:
+        return
+    logger.info(f"[element-targeting] report{f' ({reason})' if reason else ''}:")
+    for site, elements in sorted(report.items()):
+        for element, strategies in sorted(elements.items()):
+            busiest = sorted(strategies.items(),
+                             key=lambda kv: kv[1]["ok"] + kv[1]["miss"],
+                             reverse=True)
+            summary = ", ".join(
+                f"{n}={c['ok']}/{c['ok'] + c['miss']} ok" for n, c in busiest
+            )
+            logger.info(f"[element-targeting]   {site}/{element}: {summary}")
+
+
+def reset() -> None:
+    """Drop all counters. Tests, and a fresh window after a site redesign."""
+    with _LOCK:
+        _BUCKETS.clear()
+
+
+def record_from_js_tally(
+    site: str,
+    element: str,
+    tally: Any,
+    *,
+    detail: str = "",
+) -> int:
+    """Record a ``{strategy: count}`` map produced in the page.
+
+    Site JS that resolves many elements in one pass (a sidebar scan, a results
+    table) should tally per strategy in-page and hand the map over, rather than
+    calling back per element. Returns how many resolutions were recorded.
+
+    Tolerant by design: a malformed tally from a page we do not control must
+    not raise into the caller.
+    """
+    if not isinstance(tally, dict):
+        return 0
+    recorded = 0
+    for strategy, count in tally.items():
+        try:
+            n = int(count)
+        except (TypeError, ValueError):
+            continue
+        if n <= 0:
+            continue
+        # One aggregate call rather than n calls: same counters, less lock churn.
+        _record_bulk(site, element, str(strategy), n, detail=detail)
+        recorded += n
+    return recorded
+
+
+def _record_bulk(site: str, element: str, strategy: str, count: int,
+                 *, detail: str = "") -> None:
+    try:
+        key = (str(site or "?"), str(element or "?"))
+        now = time.time()
+        emit = None
+        with _LOCK:
+            if key not in _BUCKETS and len(_BUCKETS) >= _MAX_TRACKED_KEYS:
+                return
+            bucket = _BUCKETS.setdefault(key, _Bucket())
+            counter = bucket.strategies.setdefault(str(strategy), _Counter())
+            counter.ok += count
+            if now - bucket.last_logged >= _ROLLUP_INTERVAL_S:
+                bucket.last_logged = now
+                emit = (key, _format_bucket(bucket))
+        if emit:
+            (site_name, element_name), summary = emit
+            logger.info(
+                f"[element-targeting] {site_name}/{element_name}: {summary}"
+                + (f" | {detail}" if detail else "")
+            )
+    except Exception:
+        pass

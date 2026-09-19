@@ -72,32 +72,65 @@ ROW_PREVIEW_FALLBACK_JS = r"""
 # click reader could not find 'sc' → cold-start message never scraped → stuck).
 # Sharing ONE reader stops the three parsers drifting apart again — same lesson
 # as ROW_PREVIEW_FALLBACK_JS above, for the name.
+# Phase 1 of docs/SELF_HEALING_ROADMAP.md: each branch tags itself before
+# returning, so a scan can tally WHICH parser is actually carrying the load.
+# Purely additive — every branch returns exactly what it returned before, and
+# a tagging failure cannot change a name. `__ecanRowNameTally` accumulates on
+# the page; the scan hands it to element_targeting and resets it.
+#
+# The point of the tally: the branches below are six years of scar tissue, and
+# nobody knows which still fire. If the semantic ones (titled-descendant scan)
+# carry traffic while the hashed-class ones are dead, the migration in Phase 2
+# is evidence-backed rather than a guess.
 ROW_NAME_JS = r"""
+  window.__ecanRowNameTally = window.__ecanRowNameTally || {};
+  function __ecanRowNameTag(strategy, value){
+    try { var t = window.__ecanRowNameTally;
+          t[strategy] = (t[strategy] || 0) + 1; } catch(e) {}
+    return value;
+  }
   function __ecanRowName(row){
     if(!row||!row.querySelector) return '';
     var nick=row.querySelector('[data-qa-id="qa-conversation-nickname"]');
-    if(nick){var nv=(nick.textContent||'').trim(); if(nv) return nv;}
+    if(nick){var nv=(nick.textContent||'').trim(); if(nv) return __ecanRowNameTag('data_qa_id_nickname', nv);}
     var line=row.querySelector('[class*="nameLine"]');
-    if(line){var lt=(line.getAttribute('title')||'').trim(); if(lt) return lt;
-      var nc=line.querySelector('[class*="NameContent"]'); if(nc){var ncv=(nc.textContent||'').trim(); if(ncv) return ncv;}}
-    var nc2=row.querySelector('[class*="NameContent"]'); if(nc2){var v=(nc2.textContent||'').trim(); if(v) return v;}
+    if(line){var lt=(line.getAttribute('title')||'').trim(); if(lt) return __ecanRowNameTag('name_line_title', lt);
+      var nc=line.querySelector('[class*="NameContent"]'); if(nc){var ncv=(nc.textContent||'').trim(); if(ncv) return __ecanRowNameTag('name_line_content', ncv);}}
+    var nc2=row.querySelector('[class*="NameContent"]'); if(nc2){var v=(nc2.textContent||'').trim(); if(v) return __ecanRowNameTag('name_content', v);}
     // ws110: broad fallback for selector drift — any data-qa-id mentioning
     // nickname/name, or a short title= that isn't a numeric preview/time.
     var alt=row.querySelector('[data-qa-id*="nickname" i],[data-qa-id*="name" i]');
-    if(alt){var av=(alt.getAttribute('title')||alt.textContent||'').trim(); if(av&&av.length<=24) return av;}
+    if(alt){var av=(alt.getAttribute('title')||alt.textContent||'').trim(); if(av&&av.length<=24) return __ecanRowNameTag('ws110_fuzzy_qa_id', av);}
     // ws183: iterate ALL titled descendants — the 重复来访 revisit-row variant's
     // FIRST [title] is the unread badge ('1'); the real name is a later one.
     // Skip badge counts and time-ago strings.
+    // NOTE: this is the closest thing here to SEMANTIC targeting — it finds the
+    // name by what it LOOKS like to a human (short, not a number, not a time)
+    // rather than by where it sits in the DOM. Watch this counter.
     var titledAll=row.querySelectorAll('[title]');
     for(var t=0;t<titledAll.length&&t<6;t++){
       var tv=(titledAll[t].getAttribute('title')||'').trim();
-      if(tv&&tv.length<=24&&!/^[\d:\s]+$/.test(tv)&&!/^\d+\s*(分钟|小时|秒|天)/.test(tv)) return tv;
+      if(tv&&tv.length<=24&&!/^[\d:\s]+$/.test(tv)&&!/^\d+\s*(分钟|小时|秒|天)/.test(tv)) return __ecanRowNameTag('ws183_titled_scan', tv);
     }
     // legacy hashed classes last (older layouts).
     var wrap=row.querySelector('.MP1bk3ccfHC9V2SnPCGD');
-    if(wrap){var wt=(wrap.getAttribute('title')||'').trim(); if(wt) return wt;}
+    if(wrap){var wt=(wrap.getAttribute('title')||'').trim(); if(wt) return __ecanRowNameTag('legacy_hashed_wrap', wt);}
     var span=row.querySelector('.Jv6FtqUv5VoYARd2pp4y');
-    if(span){var s=(span.textContent||'').trim(); if(s) return s;}
-    return '';
+    if(span){var s=(span.textContent||'').trim(); if(s) return __ecanRowNameTag('legacy_hashed_span', s);}
+    return __ecanRowNameTag('unresolved', '');
   }
+"""
+
+
+# Drains the page-side tally built by ROW_NAME_JS. Appended to a scan snippet
+# that already ran __ecanRowName over the rows, so the counts cost no extra DOM
+# work. Returns {} and resets, so each scan reports only its own rows.
+ROW_NAME_TALLY_DRAIN_JS = r"""
+  (function(){
+    try {
+      var t = window.__ecanRowNameTally || {};
+      window.__ecanRowNameTally = {};
+      return t;
+    } catch(e) { return {}; }
+  })()
 """

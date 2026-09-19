@@ -49,6 +49,11 @@ from agent.ec_skills.browser_use_extension.extension_tools_service import (
 )
 
 
+# Owner label this bundle reports under to platform-side, site-agnostic
+# bookkeeping (element_targeting). The platform never interprets it.
+_SITE_LABEL = "feige_chat"
+
+
 # ── Action models (moved from extension_tools_views.py) ──────────────────────
 class FeigeListSessionsAction(BaseModel):
 	"""List all visible customer sessions from the Feige (飞鸽) session panel.
@@ -216,7 +221,14 @@ _FEIGE_LIST_SESSIONS_JS = _ROW_NAME_JS + ";\n" + r"""
     if (!includeRead && unread === 0 && tags.length === 0) continue;
     results.push({ index: i, name: name, last_message: lastMsg, timestamp: ts, unread: unread, tags: tags });
   }
-  return JSON.stringify({ sessions: results, total_visible: items.length });
+  // Phase 1 (docs/SELF_HEALING_ROADMAP.md): hand back WHICH name parser
+  // resolved each row, tallied in-page so it costs no extra DOM pass and
+  // no second CDP round trip on the hot path. Drained per scan.
+  var __nameStrategies = {};
+  try { __nameStrategies = window.__ecanRowNameTally || {};
+        window.__ecanRowNameTally = {}; } catch(e) {}
+  return JSON.stringify({ sessions: results, total_visible: items.length,
+                          name_strategies: __nameStrategies });
 })(INCLUDE_READ, MAX_SESSIONS);
 """
 
@@ -247,6 +259,18 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
             data = _json.loads(data)
         sessions = data.get("sessions", []) if isinstance(data, dict) else []
         total = data.get("total_visible", 0) if isinstance(data, dict) else 0
+        # Phase 1: report which name parser actually carried this scan. Pure
+        # measurement — see docs/SELF_HEALING_ROADMAP.md. The platform module
+        # knows nothing about this site; it just counts what it is told.
+        if isinstance(data, dict) and data.get("name_strategies"):
+            try:
+                from agent.ec_skills.browser_use_extension import element_targeting
+                element_targeting.record_from_js_tally(
+                    _SITE_LABEL, "sidebar_row_name", data.get("name_strategies"),
+                    detail=f"rows={len(sessions)}",
+                )
+            except Exception:
+                pass
         logger.info(f"[Feige] Listed sessions: visible={total}, returned={len(sessions)}")
         return _json_result({"sessions": sessions, "total_visible": total})
     except Exception as e:
