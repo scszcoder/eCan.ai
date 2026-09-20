@@ -574,9 +574,20 @@ Auto-shipping fleet-derived descriptors is rejected on three grounds:
 
 ## 15. Sequencing
 
-1. **Cost controls + circuit breaker** (§13a) — local, urgent, unbounded spend
-2. **Backtest the detector** against June/September (§11) — labelled positives
-   without waiting for a third redesign
+0. **Rescue the emulation harness into version control** — see
+   `EMULATION_HARNESS.md` §7. It is the validation foundation and it currently
+   exists on one working copy, in no branch.
+1. **Consume the site's distress signal** (§17) — `ws_reader.py:180` discards
+   the wait warnings Feige already sends us. ~30 lines, and it is the only
+   source of labelled failures we have in production.
+2. **Layout-flip + mutation knob on the emulator**, then a detector stress
+   harness (`EMULATION_HARNESS.md` §6a). Detection rate and false-positive rate
+   per mutation class — better than the git-archaeology backtest, which becomes
+   the fallback.
+2b. **ws frame mutation replay** — labelled ws positives without a WS server.
+2c. **Cost controls + circuit breaker** (§13a). The exposure is LATENT, not
+   live: `resolver_enabled()` is off by default and L2 is not wired into any
+   site path yet. This must land before we turn it on, not before the above.
 3. **Shipped baseline** (§12 step 1) — local, makes day-1 detection real
 4. **Degraded state surfaced locally** (§13b)
 5. **Fragile-descriptor refusal + lifetime tracking** (§13c)
@@ -584,6 +595,85 @@ Auto-shipping fleet-derived descriptors is rejected on three grounds:
    change.* Aggregating thousands of machines through an unvalidated detector
    is building on sand.
 7. Never: automatic rev.
+
+## 17. Per-site declared signal sets
+
+*Decided 2026-09-19. This is the organising idea the rest of Part II hangs off,
+and it is mostly a refactor rather than an invention.*
+
+### The idea
+
+Each site bundle **hand-declares its own first-signal tripwires** — the small
+set of cheap, site-specific checks that fire before anything else when that
+site changes or when we start failing on it.
+
+Platform cannot know what failure looks like on a given site. Whoever built the
+bundle does: they know that `用户已等待超30秒` means we missed someone, that
+`qa-conversation-chat-item` is the load-bearing anchor, that the unread badge
+total should track our in-flight count. That knowledge currently exists as
+scattered constants and tribal memory. Declaring it makes it one table.
+
+### It already exists, undeclared
+
+The twelve anchors hard-coded in `SIDEBAR_SHAPE_JS` — `data_qa_id_nickname`,
+`name_line`, `legacy_hashed_wrap`, `preview_msg_content`, … — *are* a
+hand-crafted per-site signal set. They are just not declared as one: they are
+not extensible without editing JS, they are not enumerable by anything else,
+and `tmall_chat` cannot reuse the mechanism. That is the gap this closes.
+
+### The split
+
+Same boundary as everywhere else in this work:
+
+- **Platform** owns the *vocabulary*: what a signal is, how it is evaluated,
+  how often, what severity means, and how a trip is recorded (into the drift
+  journal). Business-free — it never knows a site.
+- **The bundle** owns the *list*: the actual selectors, strings and thresholds,
+  hand-written by whoever knows that site.
+
+### Four kinds
+
+| Kind | Asks | Example (feige_chat) | Value |
+|---|---|---|---|
+| **distress** | is the site itself telling us we failed? | `用户已等待超30秒` on the ws system-event channel | closest thing to ground truth; free |
+| **anchor** | does a feature a parser depends on still exist? | `[data-qa-id="qa-conversation-nickname"]` present on rows | fires the day they ship |
+| **invariant** | do two independent observation paths agree? | unread badge total ≈ our in-flight conversation count | catches silent misses |
+| **liveness** | is something that should happen still happening? | ws frames seen in the last N minutes; scans returning rows | catches total blindness |
+
+`distress` and `invariant` are the two that address the dangerous case — a
+customer arriving and us never noticing — because they do not depend on us
+having attempted anything. `anchor` and `liveness` generalise what §10 already
+does.
+
+### What it buys
+
+1. **Site #2 becomes a table, not a project.** Adding `tmall_chat` or a
+   marketplace skill means filling in declared signals, not writing new
+   detection code.
+2. **It documents what we depend on.** One enumerable place answering "what do
+   we actually rely on about this site?" — which is exactly what nobody could
+   answer during ws193.
+3. **It makes the detector testable.** The stress harness (§15 step 2) can
+   enumerate a site's declared signals and assert each one trips when its
+   condition is broken. A signal nobody can trip on demand is a signal nobody
+   should trust.
+4. **Severity becomes declarable.** A dead `legacy_hashed_wrap` is
+   uninteresting; a dead `data_qa_id_nickname` is an incident. Today both are
+   the same line in a report.
+
+### Note on the distress signal
+
+`ws_reader.py:180` currently does:
+
+```python
+continue  # .8 may be a JSON system-event string; skip here
+```
+
+The site emits its wait warnings on that exact channel, and we discard them.
+That single unconsumed signal is the highest-value item in Part II: it is
+supplied by the site, costs nothing, is independent of every parser we own,
+and turns every real miss into a **labelled failure** — the labelled data §11
+says we do not have.
 
 ## 16. What would invalidate Part II
 
