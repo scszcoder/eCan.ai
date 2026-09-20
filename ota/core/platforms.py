@@ -868,11 +868,18 @@ class LinuxUpdater:
             
             # Make AppImage executable
             os.chmod(package_path, 0o755)
-            
+
             # Determine installation location
             install_dir = safe_makedirs(Path.home() / '.local' / 'bin', purpose="AppImage install directory")
-            
-            app_name = ota_config.get_app_name()
+
+            # Per-app short name: ``eCan.cn.AppImage`` on CN, ``eCan.AppImage`` on intl.
+            # ``ota_config.get_app_name()`` returns ``"eCan"`` for BOTH apps
+            # and would silently install CN users' upgrade to the wrong
+            # filename. ``_resolve_app_short_name`` reads
+            # ``utils.app_config_loader.get_app_config().app_short_name``,
+            # which is sourced from apps/{cn,intl}/config/app_manifest.json.
+            from ota.core.installer import _resolve_app_short_name
+            app_name = _resolve_app_short_name()
             target_path = install_dir / f"{app_name}.AppImage"
             
             # Backup existing installation
@@ -916,9 +923,14 @@ class LinuxUpdater:
             
             if result.returncode == 0:
                 logger.info("[OTA] DEB package installed successfully")
-                
+
                 # Schedule restart
-                app_name = ota_config.get_app_name().lower()
+                # Per-app short name (lowercased) so CN's /usr/bin/eCan.cn
+                # and intl's /usr/bin/eCan are both addressed correctly.
+                # ``ota_config.get_app_name().lower()`` would be ``ecan``
+                # for both apps and miss CN's installed binary.
+                from ota.core.installer import _resolve_app_short_name
+                app_name = _resolve_app_short_name().lower()
                 self._schedule_restart(f"/usr/bin/{app_name}")
                 
                 return True

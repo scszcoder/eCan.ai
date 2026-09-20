@@ -23,8 +23,94 @@ from ota.config.loader import ota_config
 from ota.i18n import get_translator
 from .errors import safe_makedirs, is_writable_dir
 
+# Per-app short-name defaults used by ``_resolve_app_short_name`` when
+# the manifest is missing the field. See that function for the full
+# fallback policy.
+from utils.app_config_loader import (  # noqa: E402  (intentional local import)
+    DEFAULT_CN_APP_SHORT_NAME,
+    DEFAULT_INTL_APP_SHORT_NAME,
+)
+
 # Get translator instance
 _tr = get_translator()
+
+
+def _resolve_app_short_name() -> str:
+    """Return the install-dir-safe app short name: 'eCan' or 'eCan.cn'.
+
+    Reads from ``utils.app_config_loader.get_config()._manifest['app_short_name']``,
+    which is sourced from ``apps/{cn,intl}/config/app_manifest.json``
+    (CN: ``"eCan.cn"``, intl: ``"eCan"``). This short name is the on-disk
+    file/install-dir name used by every build artifact
+    (``eCan.cn.exe``/``eCan.cn.app``/``eCan.cn.AppImage`` for CN,
+    ``eCan.exe``/``eCan.app``/``eCan.AppImage`` for intl), so it is the
+    correct resolver for installer paths and process-kill logic.
+
+    Why not ``ota_config.get_app_name()``? That helper reads
+    ``ota/config/ota_config.yaml:common.app_name`` which is a static
+    ``"eCan"`` for BOTH CN and intl. Using it for CN users would
+    silently install into ``%LOCALAPPDATA%\\eCan`` instead of
+    ``%LOCALAPPDATA%\\eCan.cn``, target the wrong registry key for the
+    uninstall lookup, and miss the running ``eCan.cn.exe`` process
+    when we try to kill it for the OTA upgrade. The cost of this
+    helper existing once, here, is one import and one dict lookup per
+    OTA upgrade — worth paying.
+
+    Fallback policy: when the manifest is missing the ``app_short_name``
+    key (manifest absent, file unreadable, or field removed), use the
+    per-app default (``DEFAULT_CN_APP_SHORT_NAME`` for CN,
+    ``DEFAULT_INTL_APP_SHORT_NAME`` for intl) so a CN build does NOT
+    silently regress to intl paths. A WARNING is logged so the operator
+    notices if the manifest is deployed without the field. When the
+    config loader itself raises (import error, etc.), fall back to
+    ``DEFAULT_INTL_APP_SHORT_NAME`` so the OTA path is never blocked —
+    this matches the documented "never crash an OTA path" contract.
+    """
+    requested = os.environ.get('ECAN_APP_ID', 'intl')
+    default_short = (
+        DEFAULT_CN_APP_SHORT_NAME if requested == 'cn'
+        else DEFAULT_INTL_APP_SHORT_NAME
+    )
+    try:
+        from utils.app_config_loader import get_config
+        config = get_config()
+        manifest = config._manifest
+        # Only fall back when the manifest actually lacks the key. An
+        # empty-string ``app_short_name`` falls back via ``or default_short``
+        # so a partially-populated manifest still produces a usable name.
+        if 'app_short_name' in manifest:
+            return str(manifest['app_short_name']) or default_short
+        try:
+            from utils.logger_helper import logger_helper
+            logger_helper.warning(
+                "[OTA] app_short_name missing from manifest for app_id=%r; "
+                "falling back to per-app default %r. Verify "
+                "apps/%s/config/app_manifest.json is deployed alongside "
+                "the binary.",
+                requested, default_short, requested,
+            )
+        except Exception:
+            pass
+        return default_short
+    except Exception:
+        return DEFAULT_INTL_APP_SHORT_NAME
+
+
+def _strip_trailing_separator(p) -> str:
+    """Return ``str(p)`` with any trailing backslash/forward-slash removed.
+
+    Used to sanitize ``install_dir`` values before they are pasted into
+    Inno Setup ``/DIR="…"`` and MSI ``INSTALLDIR="…"`` command-line
+    arguments. The Inno Setup / Windows Installer parsers treat a
+    trailing separator differently than ``pathlib.Path``: they may
+    resolve ``D:\\MyApps\\eCan\\`` to a non-existent directory, or
+    quote-handle the trailing separator in unexpected ways, which can
+    silently install into the parent directory. The previous code did
+    this sanitization in the registry-read path but NOT for caller-
+    supplied ``install_options['install_dir']`` values, so any caller
+    that appended a trailing ``/`` was vulnerable to this regression.
+    """
+    return str(p).rstrip('\\/') or str(p)
 
 
 class InstallationManager:
@@ -60,16 +146,21 @@ class InstallationManager:
         
         Returns:
             Process name for the current app version (without .exe on Windows)
-            
+
         Platform-specific names:
         - Windows CN: eCan.cn.exe
         - Windows Intl: eCan.exe
         - macOS CN: eCan.cn (or eCan.cn.app)
         - macOS Intl: eCan (or eCan.app)
-        - Linux: ecan (from config or exe name)
+        - Linux: ecancn or ecan (from app_short_name)
         """
-        # Get app name from ota_config
-        app_name = ota_config.get_app_name()
+        # Use the per-app short name. ``ota_config.get_app_name()``
+        # returns ``"eCan"`` for BOTH CN and intl (it reads the static
+        # ``common.app_name`` from ota_config.yaml), which would cause
+        # ``_terminate_processes_in_dir`` to miss a running ``eCan.cn``
+        # process on a CN user's Linux machine. See
+        # ``_resolve_app_short_name`` for details.
+        app_name = _resolve_app_short_name()
         
         if self.platform == 'win32':
             # Windows: add .exe extension
@@ -229,15 +320,24 @@ class InstallationManager:
         if sys.platform != 'win32':
             return Path('.')
 
+        # Use the per-app short name (``eCan.cn`` for CN, ``eCan`` for
+        # intl). The previous code hardcoded ``'eCan'`` here, which
+        # silently installed CN users into ``%LOCALAPPDATA%\\eCan``
+        # instead of ``%LOCALAPPDATA%\\eCan.cn`` — the wrong directory
+        # for the CN app's uninstall/upgrade paths. See
+        # ``_resolve_app_short_name`` for why this can't be
+        # ``ota_config.get_app_name()``.
+        app_short_name = _resolve_app_short_name()
+
         localappdata = os.environ.get('LOCALAPPDATA')
         if localappdata:
-            return Path(localappdata) / 'eCan'
+            return Path(localappdata) / app_short_name
 
         userprofile = os.environ.get('USERPROFILE', '')
         if userprofile:
-            return Path(userprofile) / 'AppData' / 'Local' / 'eCan'
+            return Path(userprofile) / 'AppData' / 'Local' / app_short_name
 
-        return Path.home() / 'AppData' / 'Local' / 'eCan'
+        return Path.home() / 'AppData' / 'Local' / app_short_name
     
     def _get_current_windows_install_dir(self) -> Optional[Path]:
         r"""Read current installation directory from Windows Registry.
@@ -665,8 +765,11 @@ class InstallationManager:
             
             # Determine installation location
             install_dir = safe_makedirs(Path.home() / '.local' / 'bin', purpose="AppImage install directory")
-            
-            app_name = ota_config.get_app_name()
+
+            # Per-app short name: ``eCan.cn.AppImage`` on CN, ``eCan.AppImage`` on intl.
+            # ``ota_config.get_app_name()`` returns ``"eCan"`` for BOTH apps and would
+            # upgrade CN's AppImage to the wrong filename. See ``_resolve_app_short_name``.
+            app_name = _resolve_app_short_name()
             target_path = install_dir / f"{app_name}.AppImage"
             
             # Terminate the current version's process before overwriting
@@ -716,7 +819,12 @@ class InstallationManager:
             
             # Terminate the current version's process before installation
             # This ensures files are not locked during upgrade
-            app_name = ota_config.get_app_name().lower()
+            # ``_resolve_app_short_name()`` returns ``ecancn`` for CN,
+            # ``ecan`` for intl — matching the lowercase process name the
+            # Linux build emits. ``ota_config.get_app_name().lower()``
+            # would be ``ecan`` for both apps and miss CN's running
+            # ``eCan.cn`` process during the OTA kill step.
+            app_name = _resolve_app_short_name().lower()
             logger.info(f"[OTA] Terminating running {app_name} process before DEB installation...")
             self._terminate_current_process()
             time.sleep(1.0)
@@ -749,7 +857,11 @@ class InstallationManager:
                 
                 # Schedule restart if requested
                 if install_options.get('auto_restart', False):
-                    app_name = ota_config.get_app_name().lower()
+                    # Per-app short name (lowercased) so CN's /usr/bin/eCan.cn
+                    # and intl's /usr/bin/eCan are both addressed correctly.
+                    # The .deb binary on disk is named after app_short_name,
+                    # not after the static ``common.app_name`` in ota_config.yaml.
+                    app_name = _resolve_app_short_name().lower()
                     self._schedule_linux_restart(f"/usr/bin/{app_name}")
                 
                 return True
@@ -931,13 +1043,18 @@ rm -f "$0"
                     # exits immediately" theory) has been removed — the
                     # trade-off it tested no longer applies, and the
                     # silent-fallback risk above is real.
+                    # Strip any trailing backslash/forward-slash before
+                    # pasting the dir into Inno Setup's ``/DIR=`` argument.
+                    # Inno Setup / Windows Installer parsers treat a
+                    # trailing separator inconsistently and may install
+                    # into the parent directory. See ``_strip_trailing_separator``.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # ✅ Shows progress bar
                         '/NORESTART',
                         '/SP-',                  # ✅ Skip startup message
                         '/CLOSEAPPLICATIONS',
-                        f'/DIR="{install_dir}"',  # ✅ Pin install target
+                        f'/DIR="{_strip_trailing_separator(install_dir)}"',  # ✅ Pin install target
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
@@ -1035,13 +1152,16 @@ rm -f "$0"
                     # reasoning as in the frozen path above) so dev-mode
                     # upgrades install into the resolved directory rather
                     # than falling back to Inno Setup's ``DefaultDirName``.
+                    # ``_strip_trailing_separator`` defends against a
+                    # caller-supplied install_dir that ends in ``/`` or
+                    # ``\`` (see bug note on the frozen path above).
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
                         '/NORESTART',
                         '/SP-',                  # Skip startup message
                         '/CLOSEAPPLICATIONS',    # Force close running instances
-                        f'/DIR="{install_dir}"',
+                        f'/DIR="{_strip_trailing_separator(install_dir)}"',
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
@@ -1145,7 +1265,12 @@ rm -f "$0"
                             install_dir = Path(sys.executable).parent
                             logger.info(f"[OTA MSI] Using current executable directory: {str(install_dir)}")
 
-                    cmd.append(f'INSTALLDIR="{str(install_dir)}"')
+                    # ``_strip_trailing_separator`` defends against a
+                    # caller-supplied install_dir that ends in ``/`` or
+                    # ``\`` (Windows Installer parses trailing separators
+                    # inconsistently and may resolve to the parent
+                    # directory). Mirrors the Inno Setup ``/DIR=`` path.
+                    cmd.append(f'INSTALLDIR="{_strip_trailing_separator(install_dir)}"')
                     cmd.append('REINSTALLMODE=vamus')  # Reinstall all files
                     cmd.append('REINSTALL=ALL')  # Reinstall all features
                 else:
