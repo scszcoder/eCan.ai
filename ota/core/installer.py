@@ -23,6 +23,14 @@ from ota.config.loader import ota_config
 from ota.i18n import get_translator
 from .errors import safe_makedirs, is_writable_dir
 
+# Per-app short-name defaults used by ``_resolve_app_short_name`` when
+# the manifest is missing the field. See that function for the full
+# fallback policy.
+from utils.app_config_loader import (  # noqa: E402  (intentional local import)
+    DEFAULT_CN_APP_SHORT_NAME,
+    DEFAULT_INTL_APP_SHORT_NAME,
+)
+
 # Get translator instance
 _tr = get_translator()
 
@@ -30,7 +38,7 @@ _tr = get_translator()
 def _resolve_app_short_name() -> str:
     """Return the install-dir-safe app short name: 'eCan' or 'eCan.cn'.
 
-    Reads from ``utils.app_config_loader.get_app_config().app_short_name``,
+    Reads from ``utils.app_config_loader.get_config()._manifest['app_short_name']``,
     which is sourced from ``apps/{cn,intl}/config/app_manifest.json``
     (CN: ``"eCan.cn"``, intl: ``"eCan"``). This short name is the on-disk
     file/install-dir name used by every build artifact
@@ -48,26 +56,44 @@ def _resolve_app_short_name() -> str:
     helper existing once, here, is one import and one dict lookup per
     OTA upgrade — worth paying.
 
-    Falls back to ``"eCan"`` if the manifest is unreachable so the
-    helper never crashes an OTA path; in production the manifest is
-    always co-deployed with the binary.
+    Fallback policy: when the manifest is missing the ``app_short_name``
+    key (manifest absent, file unreadable, or field removed), use the
+    per-app default (``DEFAULT_CN_APP_SHORT_NAME`` for CN,
+    ``DEFAULT_INTL_APP_SHORT_NAME`` for intl) so a CN build does NOT
+    silently regress to intl paths. A WARNING is logged so the operator
+    notices if the manifest is deployed without the field. When the
+    config loader itself raises (import error, etc.), fall back to
+    ``DEFAULT_INTL_APP_SHORT_NAME`` so the OTA path is never blocked —
+    this matches the documented "never crash an OTA path" contract.
     """
+    requested = os.environ.get('ECAN_APP_ID', 'intl')
+    default_short = (
+        DEFAULT_CN_APP_SHORT_NAME if requested == 'cn'
+        else DEFAULT_INTL_APP_SHORT_NAME
+    )
     try:
         from utils.app_config_loader import get_config
-        # ``get_config()`` reads ``ECAN_APP_ID`` at every call and is
-        # not lru-cached on the env value itself, so runtime app
-        # switches (tests, dev tooling, packaged binaries that re-exec
-        # with a different app id) always pick up the current value.
-        # ``get_app_config`` (cached form) would return the first-ever
-        # instance and silently regress to intl on a CN run.
-        return str(get_config().app_short_name or 'eCan') or 'eCan'
+        config = get_config()
+        manifest = config._manifest
+        # Only fall back when the manifest actually lacks the key. An
+        # empty-string ``app_short_name`` falls back via ``or default_short``
+        # so a partially-populated manifest still produces a usable name.
+        if 'app_short_name' in manifest:
+            return str(manifest['app_short_name']) or default_short
+        try:
+            from utils.logger_helper import logger_helper
+            logger_helper.warning(
+                "[OTA] app_short_name missing from manifest for app_id=%r; "
+                "falling back to per-app default %r. Verify "
+                "apps/%s/config/app_manifest.json is deployed alongside "
+                "the binary.",
+                requested, default_short, requested,
+            )
+        except Exception:
+            pass
+        return default_short
     except Exception:
-        # Never let a config-loader failure prevent an OTA path
-        # resolution. The intl default matches the historical
-        # hardcoded behaviour so the worst-case outcome is "CN users
-        # get the intl-style path", which is no worse than the
-        # pre-fix state of this code.
-        return 'eCan'
+        return DEFAULT_INTL_APP_SHORT_NAME
 
 
 def _strip_trailing_separator(p) -> str:

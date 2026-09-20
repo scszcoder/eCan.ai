@@ -1721,6 +1721,125 @@ class TestResolveAppShortName:
         # so the monkeypatch on the module attribute is sufficient.
         assert installer_module._resolve_app_short_name() == "eCan"
 
+    def test_cn_missing_manifest_falls_back_to_eCan_cn_not_eCan(
+        self, installer_module, monkeypatch, tmp_path
+    ):
+        """Production regression: when ``apps/cn/config/app_manifest.json``
+        is missing, ``_resolve_app_short_name`` must return the CN default
+        ``"eCan.cn"`` (NOT the intl default ``"eCan"``).
+
+        Mirror of the ``get_windows_app_id`` regression test. The first
+        version of this helper returned the intl default ``"eCan"`` for
+        BOTH apps when the per-app manifest was missing, silently
+        regressing CN users to the intl install dir, AppImage target,
+        DEB process name, and registry uninstall key — exactly the
+        class of silent-fallback regression that ``get_windows_app_id``
+        was already pinned against.
+        """
+        from utils import app_config_loader as _acl
+        # Build the cn/intl/config dir layout but DO NOT write the
+        # cn manifest — the intl manifest is present so the singleton
+        # construction itself succeeds for intl, then we exercise cn.
+        (tmp_path / "apps" / "cn" / "config").mkdir(parents=True)
+        (tmp_path / "apps" / "intl" / "config").mkdir(parents=True)
+        import json as _json
+        (tmp_path / "apps" / "intl" / "config" / "app_manifest.json").write_text(
+            _json.dumps({"app_short_name": "eCan"})
+        )
+        # ``AppConfigLoader`` reads the project root via
+        # ``_get_project_root`` at init time (NOT the module-level
+        # ``PROJECT_ROOT`` constant), so patch the function reference
+        # it actually uses. Both the singleton dict and the lru_cache
+        # must be cleared so the next access constructs a fresh loader
+        # against the patched root.
+        monkeypatch.setattr(_acl, "_get_project_root", lambda: tmp_path)
+        _acl.get_app_config.cache_clear()
+
+        _set_app_id(monkeypatch, "cn")
+        from utils.app_config_loader import (
+            DEFAULT_CN_APP_SHORT_NAME,
+            DEFAULT_INTL_APP_SHORT_NAME,
+        )
+        result = installer_module._resolve_app_short_name()
+        assert result == DEFAULT_CN_APP_SHORT_NAME, (
+            f"_resolve_app_short_name() with a missing CN manifest "
+            f"returned {result!r}; expected the CN default "
+            f"({DEFAULT_CN_APP_SHORT_NAME!r}). Returning the intl "
+            f"default ({DEFAULT_INTL_APP_SHORT_NAME!r}) silently "
+            f"regresses CN users to the intl install dir, AppImage "
+            f"target, and DEB process name."
+        )
+        assert result != DEFAULT_INTL_APP_SHORT_NAME, (
+            "Returning the intl default for a CN lookup is the "
+            "exact silent-fallback regression this test pins."
+        )
+
+    def test_cn_empty_app_short_name_falls_back_to_eCan_cn(
+        self, installer_module, monkeypatch, tmp_path
+    ):
+        """A CN manifest that exists but has ``app_short_name: ""``
+        must also fall back to ``DEFAULT_CN_APP_SHORT_NAME`` so a
+        partially-populated manifest does not silently regress CN."""
+        from utils import app_config_loader as _acl
+        (tmp_path / "apps" / "cn" / "config").mkdir(parents=True)
+        (tmp_path / "apps" / "intl" / "config").mkdir(parents=True)
+        import json as _json
+        (tmp_path / "apps" / "cn" / "config" / "app_manifest.json").write_text(
+            _json.dumps({"app_short_name": ""})
+        )
+        (tmp_path / "apps" / "intl" / "config" / "app_manifest.json").write_text(
+            _json.dumps({"app_short_name": "eCan"})
+        )
+        monkeypatch.setattr(_acl, "_get_project_root", lambda: tmp_path)
+        _acl.get_app_config.cache_clear()
+
+        _set_app_id(monkeypatch, "cn")
+        from utils.app_config_loader import DEFAULT_CN_APP_SHORT_NAME
+        result = installer_module._resolve_app_short_name()
+        assert result == DEFAULT_CN_APP_SHORT_NAME, (
+            f"_resolve_app_short_name() with empty app_short_name in "
+            f"the CN manifest returned {result!r}; expected the CN "
+            f"default ({DEFAULT_CN_APP_SHORT_NAME!r})."
+        )
+
+    def test_intl_missing_manifest_falls_back_to_eCan(
+        self, installer_module, monkeypatch, tmp_path
+    ):
+        """Intl is unchanged by the per-app-default fix: missing intl
+        manifest still falls back to ``"eCan"`` (the intl default).
+        Pins the asymmetry on purpose so a future refactor cannot
+        accidentally collapse the two defaults."""
+        from utils import app_config_loader as _acl
+        (tmp_path / "apps" / "cn" / "config").mkdir(parents=True)
+        (tmp_path / "apps" / "intl" / "config").mkdir(parents=True)
+        monkeypatch.setattr(_acl, "_get_project_root", lambda: tmp_path)
+        _acl.get_app_config.cache_clear()
+
+        _set_app_id(monkeypatch, "intl")
+        from utils.app_config_loader import DEFAULT_INTL_APP_SHORT_NAME
+        result = installer_module._resolve_app_short_name()
+        assert result == DEFAULT_INTL_APP_SHORT_NAME, (
+            f"_resolve_app_short_name() with missing intl manifest "
+            f"returned {result!r}; expected the intl default "
+            f"({DEFAULT_INTL_APP_SHORT_NAME!r}). Intl behaviour is "
+            f"unchanged by this commit; do not regress it."
+        )
+
+    def test_per_app_short_name_defaults_are_distinct(self):
+        """Static guard: the two defaults must be different — if they
+        collapse to the same value, the per-app fallback has no
+        effect and CN users regress to intl install paths."""
+        from utils.app_config_loader import (
+            DEFAULT_CN_APP_SHORT_NAME,
+            DEFAULT_INTL_APP_SHORT_NAME,
+        )
+        assert DEFAULT_CN_APP_SHORT_NAME != DEFAULT_INTL_APP_SHORT_NAME, (
+            f"DEFAULT_CN_APP_SHORT_NAME ({DEFAULT_CN_APP_SHORT_NAME!r}) "
+            f"must differ from DEFAULT_INTL_APP_SHORT_NAME "
+            f"({DEFAULT_INTL_APP_SHORT_NAME!r}). Collapsing them to the "
+            f"same value undoes the per-app fallback."
+        )
+
 
 class TestStripTrailingSeparator:
     """``_strip_trailing_separator`` defends Inno Setup /MSI cmd args."""
@@ -2139,6 +2258,57 @@ class TestGetWindowsAppIdPerAppDefault:
             "exact silent-fallback bug this test pins."
         )
 
+    def test_cn_missing_config_with_system_config_present_returns_cn_default(self, monkeypatch, tmp_path):
+        """Production regression: when only ``build_config_cn.json``
+        is missing but ``build_system/build_config.json`` (which holds
+        the INTL GUID) IS present, the helper must still return
+        ``DEFAULT_CN_GUID`` and not silently read the INTL GUID out
+        of the system fallback file.
+
+        This was the exact bug left open by the previous version of
+        this helper: it routed through ``get_build_config_path``,
+        which itself falls back to the system file. The code happily
+        read ``installer.windows.app_id = INTL_GUID`` out of that
+        file and returned it for the CN call — no WARNING, no
+        recognition that the per-app file was gone. A CN-only machine
+        then queried the INTL registry key, which is always missing,
+        and silently fell back to the intl install dir.
+
+        Pin: even when the system config exists and contains the INTL
+        GUID, a missing per-app file must use ``DEFAULT_CN_GUID``.
+        """
+        from utils import app_config_loader as _acl
+        # Per-app dir does NOT have build_config_cn.json
+        cn_dir = tmp_path / "apps" / "cn" / "build"
+        cn_dir.mkdir(parents=True)
+        # System dir DOES have build_config.json with the INTL GUID
+        sys_dir = tmp_path / "build_system"
+        sys_dir.mkdir(parents=True)
+        import json as _json
+        (sys_dir / "build_config.json").write_text(_json.dumps({
+            "installer": {
+                "windows": {"app_id": "{6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1}"}
+            }
+        }))
+        monkeypatch.setattr(_acl, "PROJECT_ROOT", tmp_path)
+        _acl.get_app_config.cache_clear()
+
+        from utils.app_config_loader import DEFAULT_CN_GUID, DEFAULT_INTL_GUID
+        result_cn = _acl.get_windows_app_id("cn")
+        assert result_cn == DEFAULT_CN_GUID, (
+            f"With per-app build_config_cn.json missing but system "
+            f"build_config.json (INTL GUID) present, "
+            f"get_windows_app_id('cn') returned {result_cn!r}. "
+            f"It must return DEFAULT_CN_GUID ({DEFAULT_CN_GUID!r}); "
+            f"returning DEFAULT_INTL_GUID ({DEFAULT_INTL_GUID!r}) "
+            f"silently regresses CN to querying the intl registry key."
+        )
+        assert result_cn != DEFAULT_INTL_GUID, (
+            "Returning DEFAULT_INTL_GUID when CN config is missing is "
+            "the silent-fallback regression — pinned in the original "
+            "bug note on _default_guid_for_app_id."
+        )
+
     def test_intl_missing_config_returns_intl_default(self, monkeypatch, tmp_path):
         from utils import app_config_loader as _acl
         monkeypatch.setattr(_acl, "PROJECT_ROOT", tmp_path)
@@ -2172,6 +2342,56 @@ class TestGetWindowsAppIdPerAppDefault:
             f"DEFAULT_CN_GUID ({DEFAULT_CN_GUID!r}) must differ from "
             f"DEFAULT_INTL_GUID ({DEFAULT_INTL_GUID!r}). Collapsing "
             f"them to the same value undoes the per-app fallback."
+        )
+
+    def test_unknown_app_id_logs_distinct_warning(self, monkeypatch, caplog):
+        """When ``app_id`` is not 'cn' or 'intl' (e.g. a typo'd 'beta'
+        or a test that forgot to set ECAN_APP_ID), the helper must
+        still return ``DEFAULT_INTL_GUID`` (no crash) but log a
+        WARNING whose text does NOT claim a per-app path exists at
+        ``None``.
+
+        Regression: the previous warning message read "...expected at
+        %s" with ``per_app_cfg=None``, rendering as "expected at None"
+        — misleading an operator into looking for a non-existent
+        file. The fix splits the branch so an unknown app_id gets a
+        dedicated message that names the cause.
+        """
+        from utils import app_config_loader as _acl
+        import logging as _logging
+        # ``logger_helper`` runs with ``propagate=False`` on the
+        # underlying logger (see logger_helper.setup), so caplog
+        # attached to the root logger can't see its records. Flip
+        # propagate on for the test's duration so the WARNING shows
+        # up in caplog; the assertion below checks the message text,
+        # which is the actual regression target.
+        from utils.logger_helper import logger_helper
+        original_propagate = logger_helper.logger.propagate
+        logger_helper.logger.propagate = True
+        try:
+            with caplog.at_level(_logging.WARNING):
+                result = _acl.get_windows_app_id("beta")
+        finally:
+            logger_helper.logger.propagate = original_propagate
+        from utils.app_config_loader import DEFAULT_INTL_GUID
+        assert result == DEFAULT_INTL_GUID, (
+            f"get_windows_app_id('beta') returned {result!r}; "
+            f"expected DEFAULT_INTL_GUID ({DEFAULT_INTL_GUID!r}). "
+            f"Unknown app_id must not raise — it just uses the intl "
+            f"default GUID."
+        )
+        # The new warning must NOT contain the misleading "expected at
+        # None" fragment.
+        warning_texts = [r.getMessage() for r in caplog.records
+                        if r.levelno == _logging.WARNING]
+        assert any("unknown app_id" in t for t in warning_texts), (
+            "Expected a WARNING containing 'unknown app_id' for an "
+            f"unrecognized app_id. Got: {warning_texts!r}"
+        )
+        assert not any("expected at None" in t for t in warning_texts), (
+            "The 'expected at None' fragment was the original bug — "
+            "the operator would chase a non-existent file path. "
+            f"Got: {warning_texts!r}"
         )
 
 
