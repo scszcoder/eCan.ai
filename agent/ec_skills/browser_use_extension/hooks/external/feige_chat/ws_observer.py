@@ -586,6 +586,15 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 except Exception:
                     pass
                 for m in ws_reader.customer_messages(raw):   # sender_role == customer
+                    # On the books: this conversation was demonstrably ours to
+                    # answer. It is what makes a later "we missed this one"
+                    # claim defensible rather than inferred.
+                    try:
+                        from . import conversation_ledger as _conv_ledger
+                        _conv_ledger.note_customer_message(
+                            talk_id=m.conversation_id, uid=m.sender_uid)
+                    except Exception:
+                        pass
                     # ws025: a product card the customer shares carries no
                     # nickname/uname, so the reader leaves customer_name empty →
                     # the item is dropped at the actionable

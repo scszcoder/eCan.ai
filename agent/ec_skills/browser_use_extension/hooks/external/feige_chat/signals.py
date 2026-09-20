@@ -41,6 +41,7 @@ documented layout.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import List
 
@@ -68,6 +69,22 @@ SIGNALS: List[SiteSignal] = [
         severity="warning",
         means="the site says a customer has been waiting for a reply",
         example="用户已等待超30秒，请尽快回复",
+    ),
+    SiteSignal(
+        name="conversation_missed",
+        kind="invariant",
+        severity="incident",
+        means=("the site closed a conversation for non-reply AND we have a "
+               "record of seeing that customer's message — this one is ours"),
+        example="",      # not a phrase: raised by matching a notice to the ledger
+    ),
+    SiteSignal(
+        name="closure_for_unseen_conversation",
+        kind="invariant",
+        severity="warning",
+        means=("the site closed a conversation we have no record of seeing — "
+               "it may predate this process, or we may have been blind to it"),
+        example="",
     ),
     SiteSignal(
         name="handover_requested",
@@ -112,8 +129,35 @@ def register() -> None:
     site_signals.register(SITE, SIGNALS)
 
 
+def notice_customer_uid(text: str) -> str:
+    """The customer identifier carried by a notice, or "".
+
+    Measured against a real capture: the plaintext ``biz_conversation_id`` /
+    ``customer_id`` / ``customer_name`` fields are empty, and the populated
+    ``security_customer_id`` is exactly the ``security_pigeon_uid`` that rides
+    messages. That is the only join available between a notice and a
+    conversation.
+    """
+    try:
+        if "{" not in text:
+            return ""
+        obj = json.loads(text[text.find("{"):text.rfind("}") + 1])
+        data = obj.get("data") if isinstance(obj, dict) else None
+        if not isinstance(data, dict):
+            return ""
+        return str(data.get("security_customer_id")
+                   or data.get("security_biz_conversation_id") or "")
+    except Exception:
+        return ""
+
+
 def report_system_event(text: str, *, talk_id: str = "") -> str:
     """Match a system-event string and trip its signal. Returns the name.
+
+    A closure notice gets one extra step: it is matched against the
+    conversation ledger, so "the site closed a conversation" becomes either
+    "and it was ours to answer" or "and we never saw it". The first is a
+    definitive miss -- no inference, the site and our own records agree.
 
     Never raises: this runs off the frame decoder, and a message from a
     backend we do not control must not be able to break decoding.
@@ -124,13 +168,31 @@ def report_system_event(text: str, *, talk_id: str = "") -> str:
             return ""
         from agent.ec_skills.browser_use_extension import site_signals
         register()
+
+        evidence = {"talk_id": talk_id} if talk_id else {}
+
+        if name == "conversation_closed_unanswered":
+            from . import conversation_ledger
+            uid = notice_customer_uid(text)
+            outcome, why = conversation_ledger.verdict(uid=uid, talk_id=talk_id)
+            evidence["verdict"] = outcome
+            if outcome == "missed":
+                site_signals.trip(SITE, "conversation_missed",
+                                  detail=why, evidence=evidence)
+            elif outcome == "unknown":
+                site_signals.trip(SITE, "closure_for_unseen_conversation",
+                                  detail=why, evidence=evidence)
+            # "served" still trips the plain closure signal below: the site
+            # closed it for non-reply although we dispatched one, which is a
+            # delivery failure rather than a miss.
+
         site_signals.trip(
             SITE, name,
             detail=f"talk={talk_id}" if talk_id else "",
-            # Only the signal name and the opaque talk id. The notice itself is
-            # site boilerplate, but it arrives wrapped in JSON that also carries
-            # customer fields, so none of it travels.
-            evidence={"talk_id": talk_id} if talk_id else None,
+            # Only signal names, a verdict and the opaque talk id. The notice
+            # arrives wrapped in JSON that also carries customer fields, so
+            # none of that travels.
+            evidence=evidence or None,
         )
         return name
     except Exception:

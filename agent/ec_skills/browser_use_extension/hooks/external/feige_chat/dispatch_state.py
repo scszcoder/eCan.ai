@@ -71,6 +71,15 @@ def note_talk_dispatched(talk_id: str, msg_id: str = "") -> None:
         return
     with _talk_dispatch_lock:
         _talk_dispatch_at[talk] = (time.time(), str(msg_id or ""))
+    # Also on the long-window ledger. THIS map is a 15-second duplicate guard
+    # that pops expired entries, so it cannot answer "did we ever serve this
+    # conversation" -- which is what a closure notice arriving minutes later
+    # needs. See conversation_ledger.
+    try:
+        from . import conversation_ledger as _conv_ledger
+        _conv_ledger.note_served(talk_id=talk)
+    except Exception:
+        pass
 
 
 def talk_recently_dispatched(talk_id: str, msg_id: str = "",

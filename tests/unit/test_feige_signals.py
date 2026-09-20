@@ -37,12 +37,30 @@ def clean(tmp_path, monkeypatch):
 
 # ── every declared signal must be trippable ────────────────────────────────
 
-@pytest.mark.parametrize("signal", fs.SIGNALS, ids=lambda s: s.name)
-def test_every_declared_signal_trips_on_its_own_example(signal):
+PHRASE_MATCHED = [s for s in fs.SIGNALS
+                  if any(name == s.name for name, _ in fs._PATTERNS)]
+
+
+@pytest.mark.parametrize("signal", PHRASE_MATCHED, ids=lambda s: s.name)
+def test_every_phrase_signal_trips_on_its_own_example(signal):
     """A signal nobody can trip on demand is a signal nobody should trust.
     The `example` field is the promise; this is the proof."""
     assert signal.example, f"{signal.name} declares no example"
     assert fs.match_system_event(signal.example) == signal.name
+
+
+def test_every_signal_is_either_phrase_matched_or_raised_by_a_verdict():
+    """The same guarantee for the rest: an `invariant` signal is not a phrase,
+    it is a disagreement between two records, so its proof is a test that
+    trips it through the real path (below) rather than an example string."""
+    by_name = {s.name: s for s in fs.SIGNALS}
+    phrase_names = {name for name, _ in fs._PATTERNS}
+    for name, signal in by_name.items():
+        if name in phrase_names:
+            continue
+        assert signal.kind == "invariant", (
+            f"{name} is neither phrase-matched nor an invariant; nothing can "
+            f"trip it, so nothing should trust it")
 
 
 def test_all_signals_are_registered_with_the_platform():
