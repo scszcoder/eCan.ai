@@ -194,16 +194,32 @@ class InstallationManager:
     def _terminate_windows_process(self, process_name: str) -> None:
         """Terminate a Windows process by name.
 
-        Uses ``taskkill.exe /F /IM <name>``. The ``winreg`` import that
-        USED to sit at the top of this function is dead code (it never
-        reads the registry in this method) and has been removed. The
-        call was harmless on Windows but the unused import would crash
-        Linux / macOS test runners that monkey-patched ``sys.platform``
-        to ``'win32'`` for unit testing.
+        Uses ``taskkill.exe /F /IM <name> /T``. The ``/T`` flag also
+        kills child processes — ``QtWebEngineProcess.exe`` in particular
+        is spawned by the Qt WebEngine helper and remains a child of
+        ``eCan.exe`` / ``eCan.cn.exe``. Without ``/T`` those helpers
+        survive the parent's exit, keep file handles open on
+        ``app_context.py`` / ``*.dll``, and an Inno Setup OTA upgrade
+        that replaces the exe fails with
+        "DeleteFile failed; error code 5. 拒绝访问".
+
+        Primary Windows OTA path: ``_terminate_processes_in_dir``
+        already passes ``/T`` per-PID. This ``/IM`` (by name) helper
+        is the fallback used by ``_terminate_current_process`` when
+        ``self.platform == 'win32'`` — so ``/T`` here is just as
+        load-bearing for the same QtWebEngineProcess child-process
+        reason.
+
+        The ``winreg`` import that USED to sit at the top of this
+        function was dead code (it never reads the registry in this
+        method) and has been removed. The call was harmless on Windows
+        but the unused import would crash Linux / macOS test runners
+        that monkey-patched ``sys.platform`` to ``'win32'`` for unit
+        testing.
         """
         try:
             result = subprocess.run(
-                ['taskkill.exe', '/F', '/IM', process_name],
+                ['taskkill.exe', '/F', '/IM', process_name, '/T'],
                 capture_output=True,
                 text=True,
             )
@@ -2025,16 +2041,32 @@ rm -f "$0"
             return False
     
     def _create_restart_script(self, app_executable: str, delay_seconds: int) -> Optional[str]:
-        """Create restart script"""
+        """Create restart script.
+
+        The script filename includes ``<pid>_<ns>`` (PID + monotonic ns)
+        on every platform — including Windows. The previous Windows
+        branch used a fixed ``restart.bat`` filename; two concurrent
+        OTA flows (e.g. auto-check that fires while a manual install
+        is still in its restart grace window) would race on that name,
+        with the second flow's ``open(... 'w')`` truncating the
+        first's in-flight script. The MSI restart path is the only
+        Windows caller today, but the race is independent of who calls
+        it.
+        """
         try:
             # Use fixed user directory instead of temporary directory
             from config.app_info import app_info
             user_data_root = Path(app_info.appdata_path)
             script_dir = safe_makedirs(user_data_root / "ota_scripts", purpose="OTA scripts")
-            
+
+            # Unique filename so concurrent OTA flows don't clobber
+            # each other's restart helpers. Mirrors the pattern used
+            # by ``_launch_windows_installer_delayed`` (BAT launcher)
+            # and the Linux / DMG / PKG helper scripts.
+            unique_suffix = f"{os.getpid()}_{time.time_ns()}"
             if self.platform.startswith('win'):
                 # Windows batch script
-                script_path = script_dir / "restart.bat"
+                script_path = script_dir / f"restart_{unique_suffix}.bat"
                 script_content = f"""@echo off
 echo Waiting {delay_seconds} seconds before restart...
 timeout /t {delay_seconds} /nobreak >nul
@@ -2044,7 +2076,7 @@ del "%~f0"
 """
             else:
                 # Unix shell script
-                script_path = script_dir / "restart.sh"
+                script_path = script_dir / f"restart_{unique_suffix}.sh"
                 script_content = f"""#!/bin/bash
 echo "Waiting {delay_seconds} seconds before restart..."
 sleep {delay_seconds}

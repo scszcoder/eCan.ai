@@ -360,7 +360,20 @@ class InstallerBuilder:
     def _ensure_windows_icon_quality(self) -> bool:
         """Ensure Windows icon quality and configuration"""
         try:
-            icon_file = self.project_root / "eCan.ico"
+            # Per-app icon: prefer apps/{cn,intl}/build/build_config_{cn,intl}.json
+            # :installer.windows.icon_file, then fall back to the per-app
+            # ``installer.app_name``-based filename. The previous code
+            # hardcoded ``eCan.ico``, which is the intl icon and silently
+            # put the wrong splash icon into CN installers (which expect
+            # ``eCan.cn.ico`` per apps/cn/build/build_config_cn.json).
+            installer_config = self.config.config.get("installer", {}) if hasattr(self.config, "config") else self.config.get("installer", {})
+            windows_config = installer_config.get("windows", {})
+            app_info_cfg = self.config.get_app_info() if hasattr(self.config, "get_app_info") else self.config.get("app", {})
+            default_icon_name = (
+                windows_config.get("icon_file")
+                or f"{installer_config.get('app_name', app_info_cfg.get('name', 'eCan'))}.ico"
+            )
+            icon_file = self.project_root / default_icon_name
 
             # Validate ICO file existence
             if not icon_file.exists():
@@ -546,6 +559,16 @@ class InstallerBuilder:
             # not registry. This allows CN and Intl versions to be co-installed without conflict.
             # No registry entry needed for app variant detection.
 
+            # Per-app installer icon. Prefer apps/{cn,intl}/build/build_config_{cn,intl}.json
+            # :installer.windows.icon_file (CN ships eCan.cn.ico, intl ships eCan.ico);
+            # fall back to ``<installer.app_name>.ico``, then ``eCan.ico``. Mirrors the
+            # resolver used in ``_ensure_windows_icon_quality`` so the validator and the
+            # generated Inno Setup script stay in sync.
+            icon_file = (
+                windows_config.get('icon_file')
+                or f"{installer_config.get('app_name', app_info.get('name', 'eCan'))}.ico"
+            )
+
             # Define Inno Setup custom message constants to avoid f-string interpretation issues
             cm_create_desktop = "{cm:CreateDesktopIcon}"
             cm_additional_icons = "{cm:AdditionalIcons}"
@@ -586,7 +609,11 @@ DiskSpanning={disk_spanning}
 UsePreviousAppDir=yes
 PrivilegesRequired={privileges_required}
 InternalCompressLevel={internal_compress_level}
-SetupIconFile=..\eCan.ico
+; SetupIconFile is per-app — CN build reads ``eCan.cn.ico`` from
+; apps/cn/build/build_config_cn.json:installer.windows.icon_file, intl
+; reads ``eCan.ico`` from the intl config. The previous hardcoded
+; ``eCan.ico`` put the intl icon into the CN installer splash screen.
+SetupIconFile=..\{icon_file}
 UninstallDisplayIcon={run_target}
 CreateUninstallRegKey=yes
 AllowNoIcons=yes

@@ -2494,6 +2494,354 @@ class TestPlatformsModuleCNIntl:
 
 
 # ---------------------------------------------------------------------------
+# Windows taskkill /T — defensive /T flag in _terminate_windows_process
+# ---------------------------------------------------------------------------
+class TestTerminateWindowsProcessIncludesTreeFlag:
+    """``InstallationManager._terminate_windows_process`` invokes
+    ``taskkill.exe /F /IM <name>``. It is called from
+    ``_terminate_current_process`` when ``self.platform == 'win32'``
+    (see ``installer.py:188``), so this is the live Windows kill path
+    on any OTA flow that takes the "kill by current process name"
+    branch — not just a defensive future-proofing hook.
+
+    ``_terminate_processes_in_dir`` (per-PID ``/T``) is covered by
+    ``TestTerminateProcessesWindowsBranch``; this test pins the same
+    ``/T`` requirement for the by-name helper. Without ``/T`` on
+    either path, ``QtWebEngineProcess.exe`` children of
+    ``eCan.exe`` / ``eCan.cn.exe`` survive ``/F`` on the parent and
+    keep ``app_context.py`` / ``*.dll`` handles open, so Inno Setup
+    OTA replacement of the exe fails with
+    "DeleteFile failed; error code 5. 拒绝访问".
+    """
+
+    def test_taskkill_includes_slash_T(self, installer_module, monkeypatch):
+        """``_terminate_windows_process`` must pass ``/T`` to taskkill."""
+        captured = []
+
+        class FakeCompleted:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        def fake_run(cmd, *args, **kwargs):
+            captured.append(list(cmd))
+            return FakeCompleted()
+
+        monkeypatch.setattr(installer_module.subprocess, "run", fake_run)
+        mgr = installer_module.InstallationManager()
+        mgr._terminate_windows_process("eCan.cn.exe")
+
+        assert captured, (
+            "_terminate_windows_process did not invoke subprocess.run; "
+            "the taskkill call disappeared."
+        )
+        cmd = captured[0]
+        assert "taskkill.exe" in cmd[0].lower(), (
+            f"Expected taskkill.exe as argv[0], got: {cmd!r}"
+        )
+        assert "/T" in cmd, (
+            f"taskkill must include /T (kill process tree) so "
+            f"QtWebEngineProcess.exe children die too. Got: {cmd!r}"
+        )
+        # Also confirm the matched-by-name flag and the target exe both present.
+        assert "/IM" in cmd, f"taskkill must include /IM. Got: {cmd!r}"
+        assert "eCan.cn.exe" in cmd, (
+            f"taskkill target name 'eCan.cn.exe' missing from cmd. Got: {cmd!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# _create_restart_script: unique pid_ns filename on every platform
+# ---------------------------------------------------------------------------
+class TestCreateRestartScriptUniqueFilename:
+    """The Windows branch of ``_create_restart_script`` previously wrote a
+    fixed ``restart.bat`` filename. Two concurrent OTA flows (e.g.
+    auto-check that fires while a manual install is still in its
+    restart grace window) would race on that name, with the second
+    flow's ``open(..., 'w')`` truncating the first's in-flight script.
+
+    Fix: include ``<pid>_<ns>`` in the filename on every platform
+    (Windows + Unix), matching the pattern used by the BAT launcher,
+    DMG / PKG helper scripts, and the Linux restart helper.
+    """
+
+    def test_windows_filename_is_unique(self, installer_module, monkeypatch, tmp_path):
+        """Windows script must NOT be a fixed ``restart.bat`` — must be per-PID+ns."""
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(installer_module.sys, "platform", "win32")
+
+        # Stub app_info.appdata_path so the script lives under tmp_path
+        # and we don't pollute the real user's appdata.
+        class FakeAppInfo:
+            appdata_path = str(tmp_path)
+        sys.modules["config.app_info"] = type(sys)("config.app_info")
+        sys.modules["config.app_info"].app_info = FakeAppInfo()
+
+        mgr = installer_module.InstallationManager()
+        out = mgr._create_restart_script(r"C:\fake\eCan.exe", delay_seconds=2)
+
+        assert out is not None
+        name = Path(out).name
+        assert name != "restart.bat", (
+            f"REGRESSION: _create_restart_script wrote fixed 'restart.bat' "
+            f"on Windows. Two concurrent OTA flows would clobber each "
+            f"other's restart helpers. Got: {name}"
+        )
+        assert name.startswith("restart_"), (
+            f"Restart script name should start with 'restart_'. Got: {name}"
+        )
+        assert name.endswith(".bat"), (
+            f"Windows restart script must end with .bat. Got: {name}"
+        )
+
+    def test_unix_filename_is_unique(self, installer_module, monkeypatch, tmp_path):
+        """Unix script must use the per-PID+ns naming pattern."""
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        class FakeAppInfo:
+            appdata_path = str(tmp_path)
+        sys.modules["config.app_info"] = type(sys)("config.app_info")
+        sys.modules["config.app_info"].app_info = FakeAppInfo()
+
+        mgr = installer_module.InstallationManager()
+        out = mgr._create_restart_script("/usr/bin/fake", delay_seconds=2)
+
+        assert out is not None
+        name = Path(out).name
+        assert name != "restart.sh", (
+            f"REGRESSION: _create_restart_script wrote fixed 'restart.sh' "
+            f"on Unix. Got: {name}"
+        )
+        assert name.startswith("restart_"), (
+            f"Unix restart script name should start with 'restart_'. Got: {name}"
+        )
+        assert name.endswith(".sh"), (
+            f"Unix restart script must end with .sh. Got: {name}"
+        )
+
+    def test_concurrent_calls_produce_distinct_filenames(
+        self, installer_module, monkeypatch, tmp_path
+    ):
+        """Two back-to-back calls must produce different filenames."""
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setattr(installer_module.sys, "platform", "win32")
+
+        class FakeAppInfo:
+            appdata_path = str(tmp_path)
+        sys.modules["config.app_info"] = type(sys)("config.app_info")
+        sys.modules["config.app_info"].app_info = FakeAppInfo()
+
+        mgr = installer_module.InstallationManager()
+        out1 = mgr._create_restart_script(r"C:\fake\eCan.exe", delay_seconds=2)
+        out2 = mgr._create_restart_script(r"C:\fake\eCan.exe", delay_seconds=2)
+
+        assert out1 is not None and out2 is not None
+        assert Path(out1).name != Path(out2).name, (
+            "Two calls produced the same filename — the per-PID+ns "
+            "unique naming is broken."
+        )
+
+
+# ---------------------------------------------------------------------------
+# build_system/ecan_build.py: SetupIconFile must be per-app, not hardcoded
+# ---------------------------------------------------------------------------
+class TestInnoSetupSetupIconFilePerApp:
+    """``SetupIconFile=..\\eCan.ico`` was hardcoded in
+    ``build_system/ecan_build.py`` — CN builds shipped with the intl
+    icon in the installer splash screen. The fix: derive the icon from
+    ``apps/{cn,intl}/build/build_config_{cn,intl}.json
+    :installer.windows.icon_file`` (CN = ``eCan.cn.ico``, intl =
+    ``eCan.ico``), with ``<installer.app_name>.ico`` as a fallback.
+    """
+
+    def test_setup_icon_file_uses_per_app_icon_file(self):
+        text = Path(__file__).resolve().parents[2] / "build_system" / "ecan_build.py"
+        body = text.read_text(encoding="utf-8")
+        # Look for the literal hardcoded icon in the SetupIconFile line only
+        # (the SetupIconFile pattern must NOT appear with a literal eCan.ico).
+        # Allow other ``eCan.ico`` mentions (e.g. the build_cleaner / fallback
+        # validators) as long as the SetupIconFile line uses {icon_file}.
+        setup_icon_line = re.search(
+            r"^\s*SetupIconFile=.*$",
+            body,
+            flags=re.MULTILINE,
+        )
+        assert setup_icon_line, (
+            "Could not find a ``SetupIconFile=...`` line in "
+            "build_system/ecan_build.py."
+        )
+        line = setup_icon_line.group(0)
+        assert "{icon_file}" in line, (
+            "SetupIconFile line is hardcoded; CN builds will use "
+            "the intl icon in their installer splash screen. Must use "
+            "the per-app ``{icon_file}`` substitution (resolved from "
+            "apps/{cn,intl}/build/build_config_{cn,intl}.json"
+            ":installer.windows.icon_file). Got: "
+            f"{line!r}"
+        )
+
+    def test_icon_file_resolver_present(self):
+        """The Python code must define ``icon_file`` per-app before the f-string."""
+        text = Path(__file__).resolve().parents[2] / "build_system" / "ecan_build.py"
+        body = text.read_text(encoding="utf-8")
+        # The resolver should look like:
+        #   icon_file = (
+        #       windows_config.get('icon_file')
+        #       or f"{installer_config.get('app_name', ...)}.ico"
+        #   )
+        # Just check for the assignment + windows_config.get('icon_file').
+        assert "windows_config.get('icon_file')" in body, (
+            "build_system/ecan_build.py must resolve the per-app "
+            "SetupIconFile from ``windows_config['icon_file']`` so "
+            "CN builds use eCan.cn.ico and intl builds use eCan.ico."
+        )
+
+    def test_icon_quality_validator_uses_per_app_icon(self):
+        """``_ensure_windows_icon_quality`` must not hardcode eCan.ico either."""
+        text = Path(__file__).resolve().parents[2] / "build_system" / "ecan_build.py"
+        body = text.read_text(encoding="utf-8")
+        # The validator previously read self.project_root / "eCan.ico" — that
+        # would silently fail on a CN-only build (which only ships eCan.cn.ico).
+        # The fix resolves the icon name from windows_config first.
+        # Allow the literal name in *non-validator* contexts (e.g. the
+        # contract test) by scoping to the validator function.
+        validator_match = re.search(
+            r"def _ensure_windows_icon_quality.*?(?=\n    def |\nclass )",
+            body,
+            flags=re.DOTALL,
+        )
+        assert validator_match, (
+            "Could not locate _ensure_windows_icon_quality in "
+            "build_system/ecan_build.py."
+        )
+        validator_body = validator_match.group(0)
+        # Should NOT contain ``self.project_root / "eCan.ico"`` literal
+        assert 'self.project_root / "eCan.ico"' not in validator_body, (
+            "_ensure_windows_icon_quality still hardcodes 'eCan.ico'; "
+            "a CN-only build would silently fail validation because "
+            "the shipped icon is 'eCan.cn.ico'."
+        )
+
+    def test_cn_icon_file_actually_shipped(self):
+        """Regression guard: ``eCan.cn.ico`` (referenced by
+        ``apps/cn/build/build_config_cn.json:installer.windows.icon_file``)
+        must exist at the repo root, otherwise the per-app icon resolver
+        in ``_ensure_windows_icon_quality`` will silently fall through
+        the validation and the CN installer will ship without a CN
+        splash icon.
+
+        The file is shared with intl today (``apps/cn/branding/icon.ico``
+        is a symlink to ``resource/images/logos/icon_multi.ico`` — the
+        same set of images baked into ``eCan.ico``); this test is here
+        to catch the case where the file is accidentally deleted or
+        renamed, leaving the build referencing a missing icon.
+        """
+        icon = Path(__file__).resolve().parents[2] / "eCan.cn.ico"
+        assert icon.exists(), (
+            f"eCan.cn.ico missing at repo root: {icon}. "
+            f"The CN build config (apps/cn/build/build_config_cn.json) "
+            f"references this file via installer.windows.icon_file; a "
+            f"missing file means the CN installer will silently fall "
+            f"back to no icon. Restore from "
+            f"apps/cn/branding/icon.ico (which symlinks to "
+            f"resource/images/logos/icon_multi.ico)."
+        )
+        # Sanity check: header should be a valid ICO file.
+        with open(icon, "rb") as f:
+            header = f.read(6)
+        assert header[:2] == b"\x00\x00" and header[2:4] == b"\x01\x00", (
+            f"eCan.cn.ico is not a valid Windows ICO file "
+            f"(header={header!r}). Re-export from "
+            f"resource/images/logos/icon_multi.ico."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Per-platform icon files referenced by app.{cn,intl}/build/build_config*.json
+# must exist on disk. The build configs ship these as filenames only — a
+# missing file means the build silently falls back to a generic icon at
+# install / runtime. This block catches the full multi-platform set so the
+# build doesn't drift again (the previous ``eCan.cn.ico`` regression was
+# caught this way).
+# ---------------------------------------------------------------------------
+class TestPerAppIconFilesExist:
+    """Every ``apps/{cn,intl}/build/build_config_{cn,intl}.json:app.icons.*``
+    file must exist at the repo root, and every
+    ``installer.linux.icon`` PNG must exist at its referenced path.
+
+    These config keys are not currently broken — the build code has
+    multi-candidate fallbacks — but the silent fallback to ``desktop_256x256.png``
+    (Linux) or ``eCan.ico`` (macOS) means the CN installer never installs
+    with a CN splash icon. These tests make the contract explicit.
+    """
+
+    REQUIRED_FILES = [
+        # CN app config
+        ("CN macOS icon", "eCan.cn.icns"),
+        ("CN Linux icon (PNG)", "resource/images/icons/eCan.cn.png"),
+        # Intl app config (and base build_config.json)
+        ("Intl Linux icon (PNG)", "resource/images/icons/eCan.png"),
+        # OTA update_dialog.py fallback candidates
+        ("OTA update dialog app icon", "resource/images/icons/app_icon.png"),
+        ("OTA update dialog logo", "resource/images/logos/logo.png"),
+    ]
+
+    def _repo_root(self) -> Path:
+        return Path(__file__).resolve().parents[2]
+
+    def test_all_required_icon_files_present(self):
+        missing = []
+        for label, rel in self.REQUIRED_FILES:
+            p = self._repo_root() / rel
+            if not p.exists():
+                missing.append((label, rel))
+        assert not missing, (
+            "Per-app icon files referenced from "
+            "apps/{cn,intl}/build/build_config_{cn,intl}.json or "
+            "ota/gui/update_dialog.py are missing:\n"
+            + "\n".join(f"  - {label}: {rel}" for label, rel in missing)
+        )
+
+    def test_cn_icns_is_valid_macos_icon(self):
+        """The CN macOS icon must be a valid .icns (Apple Icon Image)."""
+        p = self._repo_root() / "eCan.cn.icns"
+        if not p.exists():
+            import pytest
+            pytest.skip("eCan.cn.icns missing (covered by other test)")
+        with open(p, "rb") as f:
+            magic = f.read(8)
+        # ICNS files start with the magic bytes ``icns`` (0x69636E73).
+        assert magic[:4] == b"icns", (
+            f"eCan.cn.icns does not start with the ICNS magic (got "
+            f"{magic[:4]!r}). A CN macOS installer built from this file "
+            f"would show a generic icon. Source from "
+            f"apps/cn/branding/icon.icns."
+        )
+
+    def test_png_files_have_valid_header(self):
+        """All required PNG icons must have the PNG magic header."""
+        pngs = [
+            "resource/images/icons/eCan.cn.png",
+            "resource/images/icons/eCan.png",
+            "resource/images/icons/app_icon.png",
+            "resource/images/logos/logo.png",
+        ]
+        for rel in pngs:
+            p = self._repo_root() / rel
+            if not p.exists():
+                # Skip if missing — covered by ``test_all_required_icon_files_present``.
+                continue
+            with open(p, "rb") as f:
+                magic = f.read(8)
+            # PNG signature: 89 50 4E 47 0D 0A 1A 0A
+            assert magic == b"\x89PNG\r\n\x1a\n", (
+                f"{rel} is not a valid PNG file (got magic={magic!r}). "
+                f"Re-export from resource/images/logos/desktop_256x256.png "
+                f"or dock_256x256.png."
+            )
+
+
+# ---------------------------------------------------------------------------
 # Helper: drop comment + docstring lines from a source body so that
 # textual source-grep checks don't false-positive on explanatory
 # mentions of the old ``ota_config.get_app_name()`` pattern.
