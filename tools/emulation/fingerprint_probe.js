@@ -29,7 +29,11 @@ function build(spec) {
     className: attrs.class || '',
     attributes: Object.keys(attrs).map((k) => ({ name: k, value: attrs[k] })),
     _kids: (spec.children || []).map(build),
+    // The fingerprint measures how deep an anchor sits, and the preview reader
+    // compares parents, so the stand-in has to model this much of the DOM.
+    parentElement: null,
   };
+  for (const kid of node._kids) kid.parentElement = node;
   return node;
 }
 

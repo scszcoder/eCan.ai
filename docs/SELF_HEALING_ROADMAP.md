@@ -705,7 +705,7 @@ measure the copy, which is the mistake ROW_NAME_JS exists to prevent.
 | `rewrap` — an extra wrapper appears | yes | good |
 | `retag` — `div` becomes `section` | yes | good |
 | `rename_hashes_routine` — rotation that leaves our anchors alone | **no** | **required** — see below |
-| `renest` — same elements, one level deeper | **no** | known gap, mostly benign |
+| `renest` — same elements, one level deeper | yes | closed 2026-09-19, see §18a |
 
 ### The two negatives are not the same
 
@@ -719,14 +719,34 @@ literal name* (`.Jv6FtqUv5VoYARd2pp4y`, `.MP1bk3ccfHC9V2SnPCGD`) is **not**
 routine — that parser branch just died, and it is correctly reported. Only a
 rotation that leaves those alone is noise.
 
-`renest` is a real blind spot: the fingerprint records *sets* of names, not
-nesting depth, so moving elements a level deeper is invisible to it. Mostly
-this is fine, because it is invisible to our parsers too — `ROW_NAME_JS` uses
-`row.querySelector(...)` throughout, which is depth-agnostic. **The exception
-worth knowing:** `ROW_PREVIEW_FALLBACK_JS` walks leaves and compares
-`parentElement`, so it *is* depth-sensitive. A pure re-nesting could break the
-preview reader while the fingerprint stays silent. That is the ws189 failure
-mode, and it is currently uncovered.
+### §18a. The re-nesting gap, and why it was worth closing
+
+`renest` was a blind spot: the fingerprint recorded *sets* of names, not depth,
+so moving elements a level deeper was invisible. That looked mostly harmless,
+because it is invisible to `ROW_NAME_JS` too — it uses `row.querySelector(...)`
+throughout, which is depth-agnostic.
+
+The exception is what made it worth fixing: **`ROW_PREVIEW_FALLBACK_JS` walks
+leaf nodes and compares `parentElement`**, so it *is* depth-sensitive. An extra
+wrapper between leaves means siblings that used to share a parent no longer do,
+and the preview comes back empty — with every class and attribute unchanged, so
+a presence-only fingerprint stays silent. That is precisely the ws189 failure:
+`skipped={'empty_preview': N==rows}` while the scan itself looked healthy.
+
+So the fingerprint now records the **minimum depth of each anchor below the
+row**. The minimum, not the depth per row: row variants legitimately nest
+differently (a tagged row sits a level deeper than a plain one), and taking the
+minimum keeps that from flapping the fingerprint on every scan while still
+moving when the site inserts a wrapper above them all.
+
+Two couplings this creates, both pinned by tests:
+
+* The shipped baseline had to be regenerated. Any change to the fingerprint's
+  shape makes every install report a day-one difference against a stale
+  baseline — worth remembering before the next field is added.
+* A test asserts the preview reader still compares `parentElement`. If it stops,
+  this watch is no longer paying for itself; if the watch is dropped while the
+  reader still does, the gap reopens silently.
 
 ### Three detector bugs the harness found immediately
 
@@ -756,8 +776,10 @@ something drove real layouts through it.
   layouts now live in `layouts.json` but only the harness reads them. Wiring the
   page to render from the same file gives browser-fidelity runs of the same
   cases (`EMULATION_HARNESS.md` §6a).
-- Nothing yet exercises `renest` against the preview reader, which is where that
-  blind spot would actually bite.
+- The harness exercises `renest` against the fingerprint, but still not against
+  the preview reader itself — it proves the change is *detected*, not that the
+  reader would have broken. Driving the real reader over a re-nested row would
+  close that last step.
 
 ## 16. What would invalidate Part II
 

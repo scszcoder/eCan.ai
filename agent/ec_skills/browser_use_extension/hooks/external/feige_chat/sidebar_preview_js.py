@@ -170,7 +170,24 @@ SIDEBAR_SHAPE_JS = r"""
       'user_label':          '[class*="userLabel"]',
       'card_tag':            '[class*="cardTag"]'
     };
-    var present = {}, attrs = {}, tags = {}, plainClasses = {};
+    // Depth matters, not just presence. ROW_NAME_JS uses querySelector
+    // throughout and does not care how deep an anchor sits -- but
+    // ROW_PREVIEW_FALLBACK_JS walks leaf nodes and compares parentElement, so
+    // it DOES. A site that re-nests without renaming anything would break the
+    // preview reader while a presence-only fingerprint stayed silent, which is
+    // exactly the ws189 failure. So the depth of each anchor below the row is
+    // part of what we watch.
+    //
+    // The MINIMUM depth across sampled rows is what travels: row variants
+    // legitimately differ (a tagged row nests one level deeper than a plain
+    // one), and the minimum is stable as long as any row still has the shallow
+    // form. It moves when the site inserts a wrapper above them all.
+    function __ecanDepth(el, row){
+      var d = 0, p = el;
+      while (p && p !== row && d < 30) { p = p.parentElement; d++; }
+      return p === row ? d : -1;
+    }
+    var present = {}, depths = {}, attrs = {}, tags = {}, plainClasses = {};
     var hashed = 0;
     // Per-token row counts, for the build marker below.
     var hashedRows = {};
@@ -214,8 +231,15 @@ SIDEBAR_SHAPE_JS = r"""
       var seenThisRow = {};
       for (var key in anchors) {
         if (!anchors.hasOwnProperty(key)) continue;
-        try { if (row.querySelector(anchors[key])) present[key] = (present[key]||0) + 1; }
-        catch(e) {}
+        try {
+          var hit = row.querySelector(anchors[key]);
+          if (!hit) continue;
+          present[key] = (present[key]||0) + 1;
+          var d = __ecanDepth(hit, row);
+          if (d > 0 && (depths[key] === undefined || d < depths[key])) {
+            depths[key] = d;
+          }
+        } catch(e) {}
       }
       try {
         // The row's OWN attributes and classes matter as much as its
@@ -282,6 +306,7 @@ SIDEBAR_SHAPE_JS = r"""
         ? { digest: digest.toString(16), stable_token_count: stable.length }
         : null,
       anchors_present: keys(present),
+      anchor_depths: depths,
       anchors_missing: keys(anchors).filter(function(k){ return !present[k]; }),
       attributes: keys(attrs),
       tags: keys(tags),

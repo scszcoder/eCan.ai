@@ -27,6 +27,17 @@
       "titled_descendant",
       "user_label"
     ],
+    "anchor_depths": {
+      "data_qa_id_nickname": 3,
+      "qa_id_fuzzy_name": 3,
+      "name_line": 2,
+      "name_content": 3,
+      "titled_descendant": 2,
+      "legacy_hashed_span": 3,
+      "preview_msg_content": 3,
+      "badge_sup": 3,
+      "user_label": 3
+    },
     "anchors_missing": [
       "badge_count",
       "card_tag",

@@ -95,6 +95,44 @@ def test_an_empty_sidebar_is_not_treated_as_a_site_change():
     )
 
 
+# ── depth: the re-nesting blind spot ───────────────────────────────────────
+#
+# ROW_NAME_JS uses querySelector and does not care how deep an anchor sits.
+# ROW_PREVIEW_FALLBACK_JS walks leaves and compares parentElement, so it DOES.
+# A presence-only fingerprint would stay silent while a re-nesting broke the
+# preview reader — which is the ws189 failure.
+
+def test_the_fingerprint_records_how_deep_each_anchor_sits():
+    assert "anchor_depths" in sp.SIDEBAR_SHAPE_JS
+    assert "__ecanDepth" in sp.SIDEBAR_SHAPE_JS
+
+
+def test_the_depth_walk_is_bounded():
+    """A malformed tree must not spin: the walk gives up rather than looping."""
+    assert "d < 30" in sp.SIDEBAR_SHAPE_JS
+
+
+def test_the_preview_reader_is_the_reason_depth_is_watched():
+    """Keep the two coupled: if the preview reader stops comparing parents,
+    this watch is no longer paying for itself; if the watch is dropped while it
+    still does, the gap reopens silently."""
+    assert "parentElement" in sp.ROW_PREVIEW_FALLBACK_JS, (
+        "the preview reader no longer walks parents — re-check whether depth "
+        "still needs watching"
+    )
+
+
+def test_the_shipped_baseline_carries_depths():
+    """The fingerprint shape changed; a baseline without depths would make
+    every install report a day-one change."""
+    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+        baseline,
+    )
+    depths = baseline.load()["sidebar_row"].get("anchor_depths")
+    assert depths, "the shipped baseline was not regenerated"
+    assert depths.get("name_line"), "a load-bearing anchor has no recorded depth"
+
+
 def test_no_customer_text_can_reach_the_fingerprint():
     """It is written to a store kept for three years."""
     js = sp.SIDEBAR_SHAPE_JS

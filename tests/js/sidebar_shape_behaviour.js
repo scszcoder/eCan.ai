@@ -26,9 +26,11 @@ function el(tag, attrs, kids) {
     className: a.class || '',
     attributes: Object.keys(a).map((k) => ({ name: k, value: a[k] })),
     _kids: kids || [],
+    parentElement: null,
     getAttribute: (k) => (k in a ? a[k] : null),
     get textContent() { return (node._kids || []).map((k) => k.textContent).join(''); },
   };
+  for (const kid of node._kids) kid.parentElement = node;
   return node;
 }
 
@@ -40,6 +42,7 @@ function descendants(node) {
 
 function row(kids) {
   const r = el('div', { class: 'conversationItem' }, kids);
+  for (const kid of kids) kid.parentElement = r;
   const all = descendants(r);
   r.querySelectorAll = function (sel) {
     if (sel === '*') return all;
@@ -162,6 +165,37 @@ check('hashed classes are counted per row, not in absolute totals',
       typeof before.hashed_classes_per_row === 'number' &&
       before.hashed_classes_per_row === rehashed.hashed_classes_per_row,
       'an absolute count moves with how many rows happened to be scrolled in');
+
+// ── depth: re-nesting must not be invisible ────────────────────────────────
+// The preview reader compares parentElement, so an extra wrapper breaks it
+// even when every class and attribute is unchanged.
+const nestedRow = row([
+  el('div', { class: 'newWrapper' }, [
+    el('span', { 'data-qa-id': 'qa-conversation-nickname', title: 'Alice' }),
+    el('div',  { class: 'nameLine MP1bk3ccfHC9V2SnPCGD', title: 'Alice' }),
+    el('div',  { class: 'msgContent aBcDeF1234567890Gh' }),
+    el('sup',  {}),
+  ]),
+]);
+const nested = __ecanSidebarShape([nestedRow]);
+
+check('depth is recorded for each anchor',
+      before.anchor_depths && before.anchor_depths.data_qa_id_nickname > 0);
+
+check('re-nesting moves the fingerprint even with nothing renamed',
+      JSON.stringify(before.anchor_depths) !== JSON.stringify(nested.anchor_depths),
+      'this is the ws189 shape: the preview reader breaks, names do not change');
+
+check('the same layout twice gives the same depths',
+      JSON.stringify(__ecanSidebarShape([oldRow]).anchor_depths) ===
+      JSON.stringify(before.anchor_depths));
+
+// Row variants legitimately nest differently; the MINIMUM keeps that from
+// reading as a change.
+check('a deeper row variant alongside a shallow one does not move the minimum',
+      JSON.stringify(__ecanSidebarShape([oldRow, nestedRow]).anchor_depths) ===
+      JSON.stringify(before.anchor_depths),
+      'row variants would otherwise flap the fingerprint every scan');
 
 // ── it must never carry customer text ──────────────────────────────────────
 const nosy = row([
