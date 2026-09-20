@@ -575,6 +575,16 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                                     f"(no prior customer frame this session); cannot ack-route")
                     except Exception as _hve:
                         logger.debug(f"[HumanMode] handover detect error: {_hve}")
+                # The site's own failure notices ride this same frame: "用户已
+                # 等待超30秒", and worse, "客服超时未回复用户，系统关闭会话" —
+                # the conversation CLOSED because we never answered. The decoder
+                # used to discard that whole channel. Read it before parsing
+                # messages out, so a frame that carries only a closure notice
+                # (and no customer message) still reports it.
+                try:
+                    ws_reader.report_system_events(raw)
+                except Exception:
+                    pass
                 for m in ws_reader.customer_messages(raw):   # sender_role == customer
                     # ws025: a product card the customer shares carries no
                     # nickname/uname, so the reader leaves customer_name empty →
