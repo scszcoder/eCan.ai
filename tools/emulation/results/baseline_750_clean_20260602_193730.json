@@ -1,0 +1,339 @@
+{
+  "run_id": "baseline_750_clean_20260602_193730",
+  "label": "baseline_750_clean",
+  "started_at": 1780454554881,
+  "computed_at": 1780454734889,
+  "customers": 20,
+  "total_queries": 20,
+  "metrics": {
+    "answered_queries": 0,
+    "placeholder_late": 20,
+    "duplicate_responses": 0,
+    "placeholder_after_real": 0
+  },
+  "event_count": 20,
+  "per_customer": {
+    "S017": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S005": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S007": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S015": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S016": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S006": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S011": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S013": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S004": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S014": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S001": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S012": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S008": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S010": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S002": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S018": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S009": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S003": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S020": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S019": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    }
+  },
+  "events": [
+    {
+      "mtype": "q_sent",
+      "cid": "S017",
+      "cust": "客户17",
+      "text": "男士32码裤子腰围多少厘米？",
+      "is_placeholder": false,
+      "ts": 1780454555143
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "有实物图吗？",
+      "is_placeholder": false,
+      "ts": 1780454555411
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S007",
+      "cust": "客户07",
+      "text": "现货商品多久发货？",
+      "is_placeholder": false,
+      "ts": 1780454555685
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S015",
+      "cust": "客户15",
+      "text": "童装150码身高多少？",
+      "is_placeholder": false,
+      "ts": 1780454555946
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S016",
+      "cust": "客户16",
+      "text": "男士32码裤子腰围多少厘米？",
+      "is_placeholder": false,
+      "ts": 1780454556196
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "退款一般几天到账？",
+      "is_placeholder": false,
+      "ts": 1780454556433
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S011",
+      "cust": "客户11",
+      "text": "偏远地区用什么快递？",
+      "is_placeholder": false,
+      "ts": 1780454556631
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S013",
+      "cust": "客户13",
+      "text": "女鞋38码脚长是多少？",
+      "is_placeholder": false,
+      "ts": 1780454557024
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "港澳台运费怎么算？",
+      "is_placeholder": false,
+      "ts": 1780454557203
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S014",
+      "cust": "客户14",
+      "text": "女士牛仔裤27码腰围是多少？",
+      "is_placeholder": false,
+      "ts": 1780454557453
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "顺丰特快国内多久能到？",
+      "is_placeholder": false,
+      "ts": 1780454557788
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S012",
+      "cust": "客户12",
+      "text": "你好在吗？",
+      "is_placeholder": false,
+      "ts": 1780454558020
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S008",
+      "cust": "客户08",
+      "text": "现货商品多久发货？",
+      "is_placeholder": false,
+      "ts": 1780454558257
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S010",
+      "cust": "客户10",
+      "text": "拆封过的化妆品能退吗？",
+      "is_placeholder": false,
+      "ts": 1780454558555
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "签收后发现破损怎么办？",
+      "is_placeholder": false,
+      "ts": 1780454558786
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S018",
+      "cust": "客户18",
+      "text": "胸围怎么量？",
+      "is_placeholder": false,
+      "ts": 1780454559087
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S009",
+      "cust": "客户09",
+      "text": "几点之前下单能当天发货？",
+      "is_placeholder": false,
+      "ts": 1780454559300
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有实物图吗？",
+      "is_placeholder": false,
+      "ts": 1780454559522
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S020",
+      "cust": "客户20",
+      "text": "男装L码的胸围是多少？",
+      "is_placeholder": false,
+      "ts": 1780454559799
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S019",
+      "cust": "客户19",
+      "text": "腰围怎么测量？",
+      "is_placeholder": false,
+      "ts": 1780454560114
+    }
+  ]
+}

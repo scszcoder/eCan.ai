@@ -1,0 +1,419 @@
+{
+  "run_id": "clean_render_1780554577",
+  "label": "clean_render",
+  "started_at": 1780554577811,
+  "computed_at": 1780554938024,
+  "customers": 6,
+  "total_queries": 29,
+  "metrics": {
+    "answered_queries": 7,
+    "placeholder_late": 16,
+    "duplicate_responses": 1,
+    "placeholder_after_real": 1
+  },
+  "event_count": 44,
+  "per_customer": {
+    "S004": {
+      "queries": 6,
+      "answered": 2,
+      "late": 2,
+      "duplicates": 0,
+      "placeholder_after_real": 1,
+      "events": 10
+    },
+    "S001": {
+      "queries": 6,
+      "answered": 2,
+      "late": 2,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 11
+    },
+    "S005": {
+      "queries": 5,
+      "answered": 0,
+      "late": 4,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 5
+    },
+    "S002": {
+      "queries": 5,
+      "answered": 1,
+      "late": 3,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 7
+    },
+    "S003": {
+      "queries": 4,
+      "answered": 1,
+      "late": 3,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 5
+    },
+    "S006": {
+      "queries": 3,
+      "answered": 1,
+      "late": 2,
+      "duplicates": 1,
+      "placeholder_after_real": 0,
+      "events": 6
+    }
+  },
+  "events": [
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "男鞋42码脚长多少？",
+      "is_placeholder": false,
+      "ts": 1780554605169
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "偏远地区用什么快递？",
+      "is_placeholder": false,
+      "ts": 1780554621164
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "有红色的吗？",
+      "is_placeholder": false,
+      "ts": 1780554635167
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780554641271
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "港澳台运费怎么算？",
+      "is_placeholder": false,
+      "ts": 1780554642292
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "偏远地区一般优先发邮政 EMS，因为覆盖更全、派送更稳。像新疆、西藏、海南、港澳台这些地区通常也会优先安排 EMS，具体还要看您的收货地址和商品情况哦。",
+      "is_placeholder": false,
+      "ts": 1780554644290
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "有的亲，红色款这边需要您发一下具体商品图片或链接，我帮您确认下哈～",
+      "is_placeholder": false,
+      "ts": 1780554653200
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780554656453
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "婴儿66码是多大月龄？",
+      "is_placeholder": false,
+      "ts": 1780554656652
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780554669535
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780554669660
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "退款一般几天到账？",
+      "is_placeholder": false,
+      "ts": 1780554675826
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780554681477
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780554682195
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780554683366
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "婴儿66码一般是参考3-6个月宝宝穿的哦。不过月龄只是参考，建议您优先按宝宝身高和体重来选，会更准确一些～",
+      "is_placeholder": false,
+      "ts": 1780554684678
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有的亲，M码这边有的～您看看要什么颜色，我帮您确认下。",
+      "is_placeholder": false,
+      "ts": 1780554687215
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780554690624
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "现货商品多久发货？",
+      "is_placeholder": false,
+      "ts": 1780554690802
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780554691703
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780554698424
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780554705924
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780554706068
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "有的呢，您想看哪些颜色呀？我这边可以帮您确认下现有颜色款式～",
+      "is_placeholder": false,
+      "ts": 1780554709553
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780554713157
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780554726697
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780554729757
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780554739159
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780554754842
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "这边暂时没有查到这款的具体含棉量信息呢，我帮您跟运营核实一下，稍后回复您～",
+      "is_placeholder": false,
+      "ts": 1780554757792
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780554786625
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "一般尺码表是按实际测量数据来对照选码的哦～如果您看到的是衣服成衣尺寸，通常默认是平铺测量，手工测量会有1-2cm左右误差。您要是方便的话，把刚才那张尺码表发我一下，我可以帮您一起看具体是哪种标注～",
+      "is_placeholder": false,
+      "ts": 1780554791696
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "一般尺码表默认是按实际测量数据来对照选码的，不是衣服随意拉伸后的数据哦。不同款式可能会有1-2cm左右的合理误差。您如果方便的话，也可以把您的身高体重或胸围/腰围发我，我帮您一起看看更适合哪个尺码～",
+      "is_placeholder": false,
+      "ts": 1780554805566
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780554805669
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780554823664
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780554838358
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780554855025
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780554870188
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "您好，现货商品一般在付款成功后48小时内安排发出；如果是预售或定制款，发货时间会以商品页面说明为准哦。",
+      "is_placeholder": false,
+      "ts": 1780554877212
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780554885258
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780554895510
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780554908168
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780554922431
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "您好，现货商品一般在付款成功后48小时内安排发出；如果是预售或定制款，发货时间会以商品页面说明为准哦。",
+      "is_placeholder": false,
+      "ts": 1780554926872
+    }
+  ]
+}

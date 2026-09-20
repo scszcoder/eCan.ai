@@ -1,0 +1,523 @@
+{
+  "run_id": "blackout_1780533335",
+  "label": "blackout",
+  "started_at": 1780533335728,
+  "computed_at": 1780533695925,
+  "customers": 6,
+  "total_queries": 54,
+  "metrics": {
+    "answered_queries": 1,
+    "placeholder_late": 4,
+    "duplicate_responses": 0,
+    "placeholder_after_real": 0
+  },
+  "event_count": 57,
+  "per_customer": {
+    "S005": {
+      "queries": 9,
+      "answered": 1,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 10
+    },
+    "S006": {
+      "queries": 9,
+      "answered": 0,
+      "late": 0,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 11
+    },
+    "S003": {
+      "queries": 9,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 9
+    },
+    "S001": {
+      "queries": 9,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 9
+    },
+    "S004": {
+      "queries": 9,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 9
+    },
+    "S002": {
+      "queries": 9,
+      "answered": 0,
+      "late": 0,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 9
+    }
+  },
+  "events": [
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "怎么申请售后？",
+      "is_placeholder": false,
+      "ts": 1780533353408
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "您好，申请售后可以先联系在线客服，并提供订单号、问题描述以及商品照片或视频。客服会在24小时内给您反馈处理方案；如果需要退回商品，请先按客服确认的退货地址和方式寄回，不要自行寄回哦。我们收到退货后，一般会在1-3个工作日内完成质检并处理退款或换货。",
+      "is_placeholder": false,
+      "ts": 1780533365055
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780533366465
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "国际EMS到北美几天？",
+      "is_placeholder": false,
+      "ts": 1780533370737
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780533383543
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "男士32码裤子腰围多少厘米？",
+      "is_placeholder": false,
+      "ts": 1780533388128
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780533402213
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "港澳台运费怎么算？",
+      "is_placeholder": false,
+      "ts": 1780533404698
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780533413697
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780533418512
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "腰围怎么测量？",
+      "is_placeholder": false,
+      "ts": 1780533422984
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780533431225
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780533435505
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "胸围怎么量？",
+      "is_placeholder": false,
+      "ts": 1780533439069
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有的哦～尺码表这边可以更详细给您参考：\n1. 服饰类一般建议按身高、体重，再结合胸围/腰围来选；\n2. 鞋子建议按实测脚长+0.5cm选择，学步期或长得快的小朋友可预留1cm左右；\n3. 如果是修身款，正常体型按平时尺码，偏壮建议大一码；宽松款一般按平时尺码即可。\n\n如果您方便的话，把您要看的具体商品类型发我一下，比如男装/女装/童装/鞋子，或者直接告诉我身高体重、胸围/腰围，我可以帮您更准确推荐尺码～",
+      "is_placeholder": false,
+      "ts": 1780533409341
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780533443329
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780533449417
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780533452955
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780533461507
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780533465036
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780533469647
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780533474100
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780533478968
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780533482749
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780533491454
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780533496086
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780533500292
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780533504075
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780533509357
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780533512773
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780533521275
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780533525251
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780533529360
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780533534420
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780533538546
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780533543941
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780533551572
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780533555411
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780533559104
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780533564490
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780533569114
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780533573966
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780533582049
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780533585680
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780533589294
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780533593517
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780533598964
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780533602978
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780533611258
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780533615232
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780533620415
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780533629371
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780533633362
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780533645012
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780533650040
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780533663757
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780533680399
+    }
+  ]
+}

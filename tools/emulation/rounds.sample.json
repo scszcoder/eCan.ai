@@ -1,0 +1,128 @@
+{
+  "settings": {
+    "repoRoot": "C:\\Users\\songc\\PycharmProjects\\eCan.ai",
+    "logFile": "runlogs\\eCan.log",
+    "emuPort": 9876,
+    "cdpPort": 9228,
+    "python": "python",
+    "skillDir": [
+      "my_skills/customer_front_desk_skill",
+      "my_skills/rt_chat_bot03_skill",
+      "my_skills/rt_chat_bot04_skill",
+      "my_skills/rt_chat_bot05_skill",
+      "my_skills/rt_chat_bot06_skill",
+      "my_skills/rt_chat_bot07_skill",
+      "my_skills/rt_chat_bot_skill"
+    ],
+    "readyMarker": "EventMonitor] DOM monitor loop start",
+    "readyMarkerCount": 1,
+    "readyTimeoutSec": 600,
+    "settleSec": 30,
+    "floodN": 20,
+    "floodWaitSec": 180,
+    "emulationTestFlags": false,
+    "seedFeigeTab": true,
+    "feigeUrl": "http://127.0.0.1:9876/im.jinritemai.com/",
+    "typingTabCount": 6,
+
+    "_comment": "skillDir lists every skill whose domCheckIntervalMs you want to vary: customer_front_desk (the sidebar new-message DETECTOR) + the rt_chat_bot* RESPONDERS (one chat_message_added monitor per tab). Adjust this list to match the responders your run actually starts (see the [BrowserAutomation] Parsed ... skill=rt_chat_botNN lines in runlogs/eCan.log). readyMarkerCount=1 waits for the first monitor (the detector) to go live; do NOT set it to the tab count. emulation knob names match emulation_config.json (renderer/dom/focus/send/llmFault/...)."
+  },
+
+  "rounds": [
+    {
+      "name": "baseline_750_clean",
+      "env": {},
+      "skill": { "interval": 750 },
+      "emulation": {
+        "renderer": { "stallEnabled": false },
+        "dom": { "churnEnabled": false },
+        "focus": { "churnEnabled": false },
+        "send": { "blockClickMs": 0, "delayAgentAppendMs": 0 }
+      },
+      "floodN": 20
+    },
+    {
+      "name": "interval_250_clean",
+      "env": {},
+      "skill": { "interval": 250 },
+      "emulation": {
+        "renderer": { "stallEnabled": false },
+        "dom": { "churnEnabled": false },
+        "focus": { "churnEnabled": false },
+        "send": { "blockClickMs": 0, "delayAgentAppendMs": 0 }
+      },
+      "floodN": 20
+    },
+    {
+      "name": "interval_750_renderer_stall",
+      "env": {},
+      "skill": { "interval": 750 },
+      "emulation": {
+        "renderer": { "stallEnabled": true, "blockMs": 450, "intervalMs": 1800 },
+        "dom": { "churnEnabled": true, "churnIntervalMs": 1000 },
+        "focus": { "churnEnabled": true }
+      },
+      "floodN": 20
+    },
+    {
+      "name": "interval_250_renderer_stall",
+      "env": {},
+      "skill": { "interval": 250 },
+      "emulation": {
+        "renderer": { "stallEnabled": true, "blockMs": 450, "intervalMs": 1800 },
+        "dom": { "churnEnabled": true, "churnIntervalMs": 1000 },
+        "focus": { "churnEnabled": true }
+      },
+      "floodN": 20
+    },
+    {
+      "name": "oob_off_750_heavy",
+      "env": { "ECAN_FRONTDESK_OOB_MIN_CUSTOMERS": "999" },
+      "skill": { "interval": 750 },
+      "emulation": {
+        "renderer": { "stallEnabled": true, "blockMs": 600, "intervalMs": 1500 },
+        "dom": { "churnEnabled": true, "churnIntervalMs": 700, "extraMessageRows": 400 },
+        "focus": { "churnEnabled": true, "switchProbability": 0.25 }
+      },
+      "floodN": 20
+    },
+    {
+      "_comment": "A/B BASELINE for detection_blackout (run this round FIRST). IDENTICAL ramp + DOM + churn as detection_blackout, with the ONLY difference being scrapeStall.enabled=false — so the eCan scrapes stay fast no matter how large the threads grow. EXPECT in results/<run>_detection.json: max detection_lag < ~35s, starvation_windows = 0, high_lag_in_starvation = 0. Any deviation here means the ramp/churn alone (not the scrape stall) is causing lag and the next round's result would be confounded.",
+      "name": "detection_blackout_clean",
+      "env": { "ECAN_FRONTDESK_OOB_MIN_CUSTOMERS": "3" },
+      "skill": { "interval": 750 },
+      "emulation": {
+        "renderer": { "stallEnabled": false },
+        "focus": { "churnEnabled": true, "switchIntervalMs": 1500, "switchProbability": 0.25, "rerenderDuringSend": true },
+        "send": { "blockClickMs": 0, "delayAgentAppendMs": 800 },
+        "dom": {
+          "churnEnabled": true, "churnIntervalMs": 1500,
+          "extraMessageRows": 30, "systemRows": 6, "selectorDelayMs": 0,
+          "scrapeStall": { "enabled": false, "baseMs": 120, "perMsgMs": 20, "perConvoMs": 500, "capMs": 30000 }
+        }
+      },
+      "floodN": 6,
+      "floodWaitSec": 720,
+      "flood": { "joinSpreadSec": 360, "followUpRounds": 18, "followUpIntervalMs": 30000 }
+    },
+    {
+      "_comment": "mt070 detection-blackout repro (2026-06-03). 6 customers join over 6 min, each then sends a follow-up every 30s for ~10 min so per-customer threads grow. The load-dependent scrapeStall makes every eCan scrape Runtime.evaluate busy-wait proportional to accumulated messages + concurrent customers, so once the threads have grown the scrapes cross the 6s detection-timeout cliff and the sidebar detector goes blind for 100s+. EXPECT in results/<run>_detection.json: max detection_lag >> 100s, starvation_windows > 0, several high_lag_in_starvation. Compare against the detection_blackout_clean baseline (scrapeStall off, run just before) where max lag stays < ~35s.",
+      "name": "detection_blackout",
+      "env": { "ECAN_FRONTDESK_OOB_MIN_CUSTOMERS": "3" },
+      "skill": { "interval": 750 },
+      "emulation": {
+        "renderer": { "stallEnabled": false },
+        "focus": { "churnEnabled": true, "switchIntervalMs": 1500, "switchProbability": 0.25, "rerenderDuringSend": true },
+        "send": { "blockClickMs": 0, "delayAgentAppendMs": 800 },
+        "dom": {
+          "churnEnabled": true, "churnIntervalMs": 1500,
+          "extraMessageRows": 30, "systemRows": 6, "selectorDelayMs": 0,
+          "scrapeStall": { "enabled": true, "baseMs": 120, "perMsgMs": 20, "perConvoMs": 500, "capMs": 30000 }
+        }
+      },
+      "floodN": 6,
+      "floodWaitSec": 720,
+      "flood": { "joinSpreadSec": 360, "followUpRounds": 18, "followUpIntervalMs": 30000 }
+    }
+  ]
+}

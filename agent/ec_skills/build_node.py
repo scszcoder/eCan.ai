@@ -1060,7 +1060,7 @@ def _compact_mcp_result_for_history(tool_name: str, result_text: str) -> str:
 
 # ─── Test-mode LLM fault injection (opt-in via ECAN_EMULATION_TEST_FLAGS=1) ──
 #
-# Reads ``customer_logs/emulation/emulation_config.json`` before each LLM
+# Reads ``tools/emulation/emulation_config.json`` before each LLM
 # invocation and synthesizes the configured fault. Used to reproduce the
 # customer's billing-exhausted live failure mode (OpenAI HTTP 429) locally
 # without depleting an API key. The "💀 LLM 429 注入" button on the
@@ -1083,8 +1083,12 @@ def _maybe_inject_llm_test_fault(skill_name: str, node_name: str) -> None:
         return
     try:
         from pathlib import Path
-        emu_root = Path(__file__).resolve().parents[2] / "customer_logs" / "emulation"
-        cfg_path = emu_root / "emulation_config.json"
+        # The harness moved into version control (2026-09-19); the old
+        # git-ignored location still works for a working copy that has it.
+        repo = Path(__file__).resolve().parents[2]
+        cfg_path = repo / "tools" / "emulation" / "emulation_config.json"
+        if not cfg_path.exists():
+            cfg_path = repo / "customer_logs" / "emulation" / "emulation_config.json"
         if not cfg_path.is_file():
             return
         mtime = cfg_path.stat().st_mtime

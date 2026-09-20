@@ -1,0 +1,17 @@
+{
+  "run_id": "t",
+  "label": null,
+  "started_at": 1780520449511,
+  "computed_at": 1780520449613,
+  "customers": 0,
+  "total_queries": 0,
+  "metrics": {
+    "answered_queries": 0,
+    "placeholder_late": 0,
+    "duplicate_responses": 0,
+    "placeholder_after_real": 0
+  },
+  "event_count": 0,
+  "per_customer": {},
+  "events": []
+}

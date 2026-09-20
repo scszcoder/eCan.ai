@@ -1,0 +1,635 @@
+{
+  "run_id": "final_check_1780551385",
+  "label": "final_check",
+  "started_at": 1780551385070,
+  "computed_at": 1780551745264,
+  "customers": 6,
+  "total_queries": 54,
+  "metrics": {
+    "answered_queries": 2,
+    "placeholder_late": 4,
+    "duplicate_responses": 0,
+    "placeholder_after_real": 0
+  },
+  "event_count": 71,
+  "per_customer": {
+    "S001": {
+      "queries": 9,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 14
+    },
+    "S004": {
+      "queries": 9,
+      "answered": 1,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 11
+    },
+    "S006": {
+      "queries": 9,
+      "answered": 0,
+      "late": 0,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 12
+    },
+    "S003": {
+      "queries": 9,
+      "answered": 1,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 14
+    },
+    "S005": {
+      "queries": 9,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 9
+    },
+    "S002": {
+      "queries": 9,
+      "answered": 0,
+      "late": 0,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 11
+    }
+  },
+  "events": [
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "质量问题可以退多久？",
+      "is_placeholder": false,
+      "ts": 1780551402996
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "拆封过的化妆品能退吗？",
+      "is_placeholder": false,
+      "ts": 1780551419749
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有的亲，童装尺码一般是按身高来选，年龄只是参考哦。\n\n婴幼儿常用尺码参考：59 / 66 / 73 / 80 / 90 / 100\n儿童/大童常用尺码参考：110 / 120 / 130 / 140 / 150 / 160 / 165\n\n比如：\n110码：适合约3-4岁\n120码：适合约4-6岁\n130码：适合约6-8岁\n140码：适合约8-10岁\n150码：适合约10-12岁\n160码：适合约12-14岁\n\n如果您方便的话，可以把孩子的身高、体重发我，我可以帮您更准确推荐尺码～",
+      "is_placeholder": false,
+      "ts": 1780551421227
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780551434307
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有的，童装尺码一般是按身高来选，年龄仅作参考哦。\n\n婴幼儿参考：59/66/73/80/90/100码，对应约0–3岁；\n儿童/大童参考：110/120/130/140/150/160/165码，对应约3–16岁。\n\n比如常见对应大致是：\n110码：3–4岁\n120码：4–6岁\n130码：6–8岁\n140码：8–10岁\n150码：10–12岁\n160码：12–14岁\n165码：14–16岁\n\n如果您方便的话，可以把宝宝的身高、体重发我，我可以帮您更准确推荐尺码～",
+      "is_placeholder": false,
+      "ts": 1780551435807
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "DHL寄到欧洲多久能到？",
+      "is_placeholder": false,
+      "ts": 1780551437276
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780551450408
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "童装150码身高多少？",
+      "is_placeholder": false,
+      "ts": 1780551454017
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780551456443
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "弹力面料的话，一般会比非弹力面料更有伸展性，选码可以参考平时尺码；如果是含莱卡/氨纶5%以上的面料，通常偏小一码也可以穿。不同款式版型还是会有差异，如果您把身高体重或想看的具体款发我，我可以帮您更准确推荐尺码～",
+      "is_placeholder": false,
+      "ts": 1780551344329
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780551464345
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780551468251
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "童装150码身高多少？",
+      "is_placeholder": false,
+      "ts": 1780551471529
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780551479713
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780551484747
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有优惠券吗？",
+      "is_placeholder": false,
+      "ts": 1780551488625
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780551493774
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780551498409
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780551501860
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780551510747
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780551515432
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780551519096
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780551523480
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780551527493
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780551532545
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780551539759
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780551544043
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780551549197
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780551549743
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780551553726
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780551558622
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780551561848
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780551569800
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780551574763
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780551578897
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780551583132
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780551587374
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780551592560
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780551601108
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780551601829
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780551603263
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780551605029
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "一般不支持哦。已拆封的化妆品属于拆封后会影响商品品质的商品，不适用7天无理由退货。\n如果是商品本身有质量问题，签收15天内可以申请售后，您这边可以把订单号和问题照片/视频发我，我帮您看下怎么处理～",
+      "is_placeholder": false,
+      "ts": 1780551460661
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780551609742
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780551613428
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780551615830
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780551617754
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780551622691
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780551629861
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780551633445
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780551635204
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780551635297
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780551639740
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780551643704
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780551644931
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780551648578
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780551652865
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780551655827
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780551659999
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780551666210
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780551664849
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780551669984
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780551677751
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780551682416
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780551680067
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "您好，DHL寄到欧洲一般参考时效是3-5个工作日哦，通常是揽收后的次日开始计算，不含节假日、清关和不可抗力延误。若是偏远地区或清关有波动，时间可能会稍微延长。您要是告诉我具体国家，我也可以帮您再细看下～",
+      "is_placeholder": false,
+      "ts": 1780551493207
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780551694198
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780551695189
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780551699564
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780551711595
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780551729293
+    }
+  ]
+}

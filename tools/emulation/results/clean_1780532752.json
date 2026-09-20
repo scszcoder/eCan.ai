@@ -1,0 +1,843 @@
+{
+  "run_id": "clean_1780532752",
+  "label": "clean",
+  "started_at": 1780532752560,
+  "computed_at": 1780533112771,
+  "customers": 6,
+  "total_queries": 54,
+  "metrics": {
+    "answered_queries": 24,
+    "placeholder_late": 3,
+    "duplicate_responses": 0,
+    "placeholder_after_real": 0
+  },
+  "event_count": 97,
+  "per_customer": {
+    "S004": {
+      "queries": 9,
+      "answered": 5,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 17
+    },
+    "S005": {
+      "queries": 9,
+      "answered": 4,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 17
+    },
+    "S002": {
+      "queries": 9,
+      "answered": 4,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 16
+    },
+    "S006": {
+      "queries": 9,
+      "answered": 3,
+      "late": 0,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 15
+    },
+    "S003": {
+      "queries": 9,
+      "answered": 5,
+      "late": 0,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 18
+    },
+    "S001": {
+      "queries": 9,
+      "answered": 3,
+      "late": 0,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 14
+    }
+  },
+  "events": [
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "胸围怎么量？",
+      "is_placeholder": false,
+      "ts": 1780532770452
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "顺丰特快国内多久能到？",
+      "is_placeholder": false,
+      "ts": 1780532787167
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "胸围一般是用软尺水平绕胸部最丰满的位置一圈来量，也就是经过乳点一周，皮尺贴身但不要勒太紧哦。\n如果您问的是尺码表里的胸围，通常是平铺测量后再按规则换算，具体还要看这款商品页面说明。您也可以把您的胸围数据发我，我帮您一起看看选哪个尺码更合适～",
+      "is_placeholder": false,
+      "ts": 1780532796892
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780532800791
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "退款一般几天到账？",
+      "is_placeholder": false,
+      "ts": 1780532804172
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "亲，顺丰特快国内一般是揽收次日起算：同城/省内多为次日到，常规跨省一般次日到，西部或偏远地区大概1-3天哦～ 具体还要看收件地址和实际揽收时间，您要是方便的话可以把寄送地区发我，我帮您再判断下。",
+      "is_placeholder": false,
+      "ts": 1780532805331
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532816571
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780532817512
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "一般是在退款审核通过，或者退回商品签收并质检通过后1-3个工作日原路退回；实际到账通常还要看支付平台或银行处理，一般是1-7个工作日。您这边如果是刚申请退款，也可以把订单情况发我，我帮您看看～",
+      "is_placeholder": false,
+      "ts": 1780532818435
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "现货商品多久发货？",
+      "is_placeholder": false,
+      "ts": 1780532823042
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "L码这边参考尺码是这样的：如果是女士上衣，胸围约90-94cm、肩宽38cm、袖长57cm、衣长62cm，建议身高165-168cm、体重55-60kg参考；如果是男士上衣，胸围约100-104cm、肩宽45cm、袖长62cm、衣长70cm，建议身高175-178cm、体重65-72kg参考。胸围是经过胸部最丰满的位置水平量一圈。尺码表一般建议按实际测量数据对照选择，不同面料会有1-2cm误差哦。您看的这款是男款还是女款？我可以继续帮您对一下更准确的尺码～",
+      "is_placeholder": false,
+      "ts": 1780532821576
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780532831762
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780532835038
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532835050
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有优惠券吗？",
+      "is_placeholder": false,
+      "ts": 1780532838557
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780532848634
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532850395
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532847324
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "您好，目前优惠活动要看具体商品哦～您把商品链接、截图或款式发我一下，我帮您看看有没有优惠券或活动价。",
+      "is_placeholder": false,
+      "ts": 1780532852116
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780532853285
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "男鞋42码脚长多少？",
+      "is_placeholder": false,
+      "ts": 1780532856147
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "有的呢，不过不同款式可选颜色不太一样～您把商品链接、商品截图或者具体款式发我一下，我帮您确认都有哪些颜色可以选。",
+      "is_placeholder": false,
+      "ts": 1780532854156
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780532861625
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780532864574
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780532868953
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532869808
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "L码这边参考尺码：如果是女上衣，胸围约90-94cm；如果是男上衣，胸围约100-104cm。您刚刚还问了腰围，方便的话告诉我您看的是上衣还是裤子，我再给您对应的腰围/尺码建议哦～",
+      "is_placeholder": false,
+      "ts": 1780532875332
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780532878242
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780532881876
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780532886499
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "L码这边参考是：胸围90-94cm，肩宽38cm，袖长57cm，衣长62cm哦。胸围测量的话，是经过胸部最丰满位置水平绕一圈来量～ 如果您把自己的身高体重发我，我也可以帮您再一起参考下选码。",
+      "is_placeholder": false,
+      "ts": 1780532887699
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有的呢～这边有更详细的尺码参考：如果是男士上衣，L码一般适合身高175-178cm、体重65-72kg、胸围100-104cm；如果是女士上衣，L码一般适合身高165-168cm、体重55-60kg、胸围90-94cm。选码建议优先按实际测量的胸围、肩宽这些数据来对照，会更准一些；不同面料和版型可能会有1-2cm误差。如果您方便的话，把身高体重或胸围发我，我可以帮您一起看看更适合哪个码～",
+      "is_placeholder": false,
+      "ts": 1780532889397
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532887064
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780532891472
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780532896359
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "亲，这边尺码表里肩宽参考是这样的：女装上衣XS-XXXL约35-41cm，男装上衣S-XXXL约43-48cm。您要是想看具体哪一个尺码的肩宽，可以把尺码发我，我帮您对一下哦～",
+      "is_placeholder": false,
+      "ts": 1780532894768
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780532899770
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532900628
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532905704
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780532907693
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780532912794
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "L码的话，女装上衣一般对应胸围90-94cm，参考身高165-168cm、体重55-60kg。您可以量一下胸围，对照会更准确～如果您把身高体重发我，我也可以帮您一起参考下选码。",
+      "is_placeholder": false,
+      "ts": 1780532911343
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "亲，这边尺码表里肩宽要看具体尺码哦～\n女款上衣参考是：XS 35cm、S 36cm、M 37cm、L 38cm。\n如果您方便的话，把您想要的尺码或者身高体重发我，我可以帮您一起对照推荐～",
+      "is_placeholder": false,
+      "ts": 1780532914798
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "这类商品一般要看具体款式和厚薄哦～如果是薄款，通常春夏或春秋都可以穿；如果是加绒/厚款，就更适合秋冬。您把商品链接、图片或款式名发我一下，我帮您更准确看下适合什么季节穿。",
+      "is_placeholder": false,
+      "ts": 1780532916902
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780532917244
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "有红色的吗？",
+      "is_placeholder": false,
+      "ts": 1780532920594
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有的哦～尺码表里胸围和腰围是这样参考的：如果是女装上衣，XS胸围78-82cm，S 82-86cm，M 86-90cm，L 90-94cm；如果是男士上衣，S胸围92-96cm，M 96-100cm，L 100-104cm，XL 104-108cm。腰围一般是按裤装尺码区分的，比如男裤28码腰围72cm，30码77cm，32码82cm，34码87cm。您如果方便的话，把您看的这款具体是上衣还是裤子、以及想要的尺码发我，我可以帮您对应得更准确些～",
+      "is_placeholder": false,
+      "ts": 1780532923231
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780532925020
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "L码的话，如果是上衣，常规尺码参考是：肩宽38cm、袖长57cm、衣长62cm，适合身高约165-168cm、体重约55-60kg，胸围约90-94cm。您要是方便的话，也可以把您的身高体重发我，我帮您一起看看更适合哪个码～",
+      "is_placeholder": false,
+      "ts": 1780532925160
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780532929780
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532927503
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780532938196
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "这个我帮您跟运营核实下具体面料成分，再回复您哈～",
+      "is_placeholder": false,
+      "ts": 1780532937644
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780532941914
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532941711
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "这边暂时没查到这款红色的准确信息呢，我先帮您确认一下颜色和尺码情况，稍后回复您～",
+      "is_placeholder": false,
+      "ts": 1780532943477
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532947195
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780532948380
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "有的哈～我们这边有更详细的通用尺码对照。您可以先按身高、体重、胸围/腰围这些数据来选码：\n男装上衣常见是 S-XXXL；女装上衣常见是 XS-XL；裤装可以按腰围和臀围对照；鞋子建议按实测脚长再预留0.5cm左右来选。\n如果您愿意的话，可以直接把您的身高、体重，以及想买的是上衣/裤子/鞋子发我，我可以帮您更准确推荐尺码～",
+      "is_placeholder": false,
+      "ts": 1780532947020
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780532951497
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780532954654
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532955519
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "这边暂时没查到这款的具体颜色信息呢，您可以把商品链接、商品图片，或者商品名称发我一下，我帮您进一步确认有没有其他颜色可选～",
+      "is_placeholder": false,
+      "ts": 1780532956050
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有红色的吗？",
+      "is_placeholder": false,
+      "ts": 1780532959595
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "这边暂时没查到这款面料含棉量的准确信息，我帮您跟运营核实下再回复您哈～",
+      "is_placeholder": false,
+      "ts": 1780532963110
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532967485
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780532968287
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780532972045
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "这款更适合按常规季节来穿，具体还要看它的面料厚薄和版型哦～如果您方便的话，把商品链接、商品图或者款号发我一下，我可以帮您更准确看看是适合春秋、夏季还是冬季穿。",
+      "is_placeholder": false,
+      "ts": 1780532974015
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780532976566
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780532980491
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780532984257
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532988131
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780532989233
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "这边暂时没查到这款准确的季节信息呢～我帮您跟运营核实下再回复您，您先稍等一下哈。",
+      "is_placeholder": true,
+      "ts": 1780532994358
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780532997864
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532996209
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有红色的吗？",
+      "is_placeholder": false,
+      "ts": 1780533002531
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780533006585
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780533011808
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780533014737
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780533012020
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780533019178
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780533028115
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780533032701
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780533037507
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780533039679
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780533045228
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780533049263
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780533062501
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780533065278
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780533067627
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780533079470
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "这款颜色信息我这边暂时没查到准确的，怕给您说错了。我帮您跟运营再确认一下，稍后回复您哈～",
+      "is_placeholder": false,
+      "ts": 1780533084975
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有的哦～这边有更详细的尺码参考。不同品类尺码标准不一样，比如上衣、裤子、鞋子都会分开对照。您可以把身高、体重，或者胸围/腰围/脚长发我，我帮您对照推荐更合适的尺码。\n\n如果您问的是童鞋，选码建议是：实测脚长+0.5cm；学步期或长得快的宝宝可以预留1cm，尽量不要超过1.5cm。\n\n如果您方便的话，也可以直接告诉我您想看的具体是哪一款，我给您按那款整理对应尺码建议～",
+      "is_placeholder": false,
+      "ts": 1780533091889
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780533096300
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "一般是按实际测量数据来对照选码的哦，不是单纯随便估的。像胸围、腰围这类通常是围度数据，袖长是从肩端到手腕的位置测量。不同面料和版型可能还会有1-2cm左右误差，您参考尺码表时可以稍微预留一点。要是您愿意的话，也可以把您的身高体重或平时穿的尺码发我，我帮您一起看看更合适~",
+      "is_placeholder": false,
+      "ts": 1780533109552
+    }
+  ]
+}

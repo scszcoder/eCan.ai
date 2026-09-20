@@ -13,7 +13,7 @@ from knowledge.lightrag_client import get_client
 # ─── Test-mode RAG fault injection (opt-in via ECAN_EMULATION_TEST_FLAGS=1) ─
 #
 # 2026-05-24 mt038 (mt019/20 local repro): mirrors the LLM 429 injector in
-# build_node.py.  Reads customer_logs/emulation/emulation_config.json's
+# build_node.py.  Reads tools/emulation/emulation_config.json's
 # ``ragFault`` stanza before every rag_query call.  Two modes:
 #
 #   "hang"  → asyncio.sleep(hangSeconds) before letting the real RAG call
@@ -33,8 +33,12 @@ async def _maybe_inject_rag_test_fault(query_text: str) -> None:
         return
     try:
         from pathlib import Path
-        emu_root = Path(__file__).resolve().parents[3] / "customer_logs" / "emulation"
-        cfg_path = emu_root / "emulation_config.json"
+        # The harness moved into version control (2026-09-19); the old
+        # git-ignored location still works for a working copy that has it.
+        repo = Path(__file__).resolve().parents[3]
+        cfg_path = repo / "tools" / "emulation" / "emulation_config.json"
+        if not cfg_path.exists():
+            cfg_path = repo / "customer_logs" / "emulation" / "emulation_config.json"
         if not cfg_path.is_file():
             return
         mtime = cfg_path.stat().st_mtime

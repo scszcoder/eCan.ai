@@ -1,0 +1,225 @@
+/* Feige emulation stylesheet.  Layout only — selectors/class names inside
+   the JS-rendered DOM match what the browser-automation node reads. */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; font-family: "PingFang SC","Microsoft YaHei",sans-serif; color: #252931; background: #f3f4f5; }
+#app { display: flex; height: 100vh; }
+
+/* panels */
+.panel { height: 100%; overflow: hidden; display: flex; flex-direction: column; background: #fff; border-right: 1px solid #eef0f2; }
+.panel-left { width: 300px; flex: 0 0 300px; }
+.panel-mid { flex: 1 1 auto; min-width: 0; }
+/* right panel: allow vertical scroll when the button list overflows the
+   viewport (three extra 图文模式 buttons pushed the total past 100vh on
+   shorter screens).  `overflow-y: auto` here overrides the `overflow:
+   hidden` set on `.panel` above. */
+.panel-right { width: 280px; flex: 0 0 280px; border-right: none; border-left: 1px solid #eef0f2; background: #fafbfc; overflow-y: auto; }
+
+/* ============== left panel ============== */
+.tab-bar { display: flex; border-bottom: 1px solid #eef0f2; }
+.tab { flex: 1; text-align: center; line-height: 40px; font-size: 13px; color: #565960; cursor: pointer; user-select: none; position: relative; }
+.tab.active { color: #1966ff; font-weight: 500; }
+.tab.active::after { content: ''; position: absolute; left: 25%; right: 25%; bottom: 0; height: 2px; background: #1966ff; border-radius: 2px; }
+.tab-count { font-size: 11px; color: #8b8f96; }
+.tab.active .tab-count { color: #1966ff; }
+
+.tab-panel { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.tab-panel.hidden { display: none; }
+
+.settings-row { display: flex; padding: 8px 12px; font-size: 12px; color: #565960; gap: 12px; cursor: pointer; border-bottom: 1px solid #f0f1f3; background: #fafbfc; }
+.settings-row .settings-cell { flex: 1; }
+.settings-row:hover { background: #f3f4f5; }
+
+.settings-popup { position: absolute; top: 80px; left: 12px; width: 260px; z-index: 10; padding: 12px 14px; background: #fff; border: 1px solid #eef0f2; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.08); font-size: 13px; }
+.settings-popup.hidden { display: none; }
+.settings-title { font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+.settings-section { padding: 6px 0; border-top: 1px solid #f0f1f3; }
+.settings-section:first-of-type { border-top: none; }
+.settings-label { color: #8b8f96; font-size: 12px; margin-bottom: 4px; }
+.settings-option { display: flex; align-items: center; padding: 4px 0; gap: 8px; cursor: pointer; }
+.settings-option .opt-text { flex: 1; line-height: 1.35; }
+.settings-option .opt-sub { color: #8b8f96; font-size: 11px; }
+
+.scroll-root { flex: 1 1 auto; overflow-y: auto; position: relative; }
+.pigeonChatNotScrollBox,
+.pigeonChatScrollBox { height: 100%; min-height: 0; }
+.pigeonChatNotScrollBox > div { height: 100%; min-height: 0; }
+.pigeonChatScrollBox > div { min-height: 100%; }
+.pigeonChatNotScrollBox .scroller {
+  height: 100% !important;
+  overflow-y: auto !important;
+  contain: none !important;
+}
+.pigeonChatNotScrollBox .scroller_content,
+.pigeonChatNotScrollBox .list_items { position: relative; min-height: 100%; }
+.empty-hint { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #aaa; font-size: 13px; }
+.empty-hint.hidden { display: none; }
+
+.section { border-bottom: 1px solid #f3f4f5; }
+.section .section-header { display: flex; align-items: center; gap: 6px; padding: 10px 12px; font-size: 12px; color: #565960; cursor: pointer; user-select: none; background: #fafbfc; }
+.section .section-header .section-name { flex: 1; }
+.section .section-header .count { color: #8b8f96; font-size: 11px; }
+.section .section-header .chevron { color: #aaa; font-size: 12px; transition: transform .15s; }
+.section.collapsed .section-body { display: none; }
+
+/* chat-item — DOM contract with the agent
+   - data-qa-id="qa-conversation-chat-item"
+   - .MP1bk3ccfHC9V2SnPCGD title=customer_name (primary)
+   - .Jv6FtqUv5VoYARd2pp4y customer_name (fallback)
+   - .lF_M7QiFB0ukHWpMfQde span  last_message
+   - .CEnLM8MEGksTdgi_8Lqf       timestamp (used as "等待" waiting counter)
+   - .rxAvaVFJHvpEGMc1ejm1       unread count
+   - img.zeVHjNO_lFGbJlreiSda    avatar
+   - .obeJrSyU4KwAzGeRfcbk span  tags (重复来访 …)
+*/
+.chat-item { display: flex; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #f3f4f5; cursor: pointer; position: relative; background: #fff; }
+.chat-item:hover { background: #f3f7ff; }
+.chat-item.active { background: #eaf2ff; }
+.chat-item .avatar-wrap { flex: 0 0 40px; position: relative; }
+.chat-item .avatar-wrap img { width: 40px; height: 40px; border-radius: 20px; object-fit: cover; display: block; }
+.chat-item .body { flex: 1 1 auto; min-width: 0; }
+.chat-item .row-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.chat-item .name-wrap { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.chat-item .name { font-size: 13px; color: #252931; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-item .ts { font-size: 11px; color: #8b8f96; flex: 0 0 auto; margin-left: 6px; }
+.chat-item .ts.ts-wait { color: #ff3b30; font-weight: 500; }
+.chat-item .row-bottom { display: flex; justify-content: space-between; align-items: center; }
+.chat-item .last-msg { font-size: 12px; color: #8b8f96; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-item .last-msg span { color: inherit; }
+.chat-item .unread-wrap { flex: 0 0 auto; margin-left: 6px; }
+.chat-item .unread-badge { display: inline-block; min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px; border-radius: 8px; background: #ff3b30; color: #fff; font-size: 11px; text-align: center; }
+.chat-item .tags { display: flex; gap: 4px; flex: 0 0 auto; }
+.chat-item .tags .tag { font-size: 11px; color: #1966ff; background: transparent; padding: 0; border-radius: 0; white-space: nowrap; }
+
+/* ============== middle panel ============== */
+.mid-header { flex: 0 0 auto; padding: 14px 18px; border-bottom: 1px solid #eef0f2; background: #fafbfc; }
+.mid-name { font-size: 15px; font-weight: 600; color: #252931; }
+.mid-sub { font-size: 12px; color: #8b8f96; margin-top: 2px; }
+
+.thread-scroll { flex: 1 1 auto; overflow-y: auto; padding: 16px 18px; background: #f7f8fa; position: relative; }
+.thread-empty { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #aaa; font-size: 13px; }
+.thread-empty.hidden { display: none; }
+.thread { display: flex; flex-direction: column; gap: 8px; }
+
+.date-separator { text-align: center; color: #8b8f96; font-size: 12px; margin: 12px 0 6px; }
+
+/* message wrapper — DOM contract: data-qa-id="qa-message-warpper"  (note Feige typo).
+   The emulation deliberately mirrors the real Feige production DOM: row
+   direction (agent-side vs customer-side) is encoded in INLINE styles on
+   the `Ie29C7uLyEjZzd8JeS8A` parent, not in a `.customer/.agent` class
+   hook.  CSS below therefore only targets real obfuscated Feige classes
+   and lets inline styles drive layout — identical to production. */
+.msgItemWrap { width: 100%; }
+
+/* row layout — flex gap/alignment handled here, direction is inline */
+.msgItemWrap .Ie29C7uLyEjZzd8JeS8A { display: flex; gap: 10px; margin-bottom: 4px; }
+.msgItemWrap .xPPA9AYUzftDhhVtlENd img { width: 32px; height: 32px; border-radius: 16px; display: block; }
+
+/* sender label (e.g. "智能客服") */
+.msgItemWrap .gow1kLMbwl371067rDpR { display: flex; font-size: 11px; color: #8b8f96; margin-bottom: 4px; }
+
+/* bubble: .iD7SHBvMhm4OhfCsBGr1  (agent adds .messageIsMe ; customer adds .messageNotMe).
+   Background color is also written inline by the real site; our inline
+   values take priority and this rule only supplies size/spacing. */
+.iD7SHBvMhm4OhfCsBGr1 { padding: 8px 12px; font-size: 13px; line-height: 1.5; max-width: 100%; word-break: break-word; }
+.iD7SHBvMhm4OhfCsBGr1.messageNotMe { border: 1px solid #eef0f2; }
+
+.iD7SHBvMhm4OhfCsBGr1 pre { margin: 0; font-family: inherit; font-size: inherit; line-height: inherit; white-space: pre-wrap; }
+
+/* spacer between bubble and meta (real Feige ships an empty div here) */
+.BPCj8gJpe3remPV_wWAv { width: 6px; flex-shrink: 0; }
+
+/* message meta (time + read mark).  Real Feige class is Vry36sSLfjhqZr9MfWnO. */
+.Vry36sSLfjhqZr9MfWnO { display: flex; flex-direction: column; align-items: flex-end; font-size: 11px; color: #8b8f96; }
+
+/* .O4UWWFoQxgMq4AWHMq25 = timestamp */
+.O4UWWFoQxgMq4AWHMq25 { color: #8b8f96; font-size: 11px; }
+/* n8Q1ZZgm6vKkQE4v_774 wraps the read mark; the real "已读" span is
+   styled via its own J6h_lAGn79Q9xo5UzUHw class. */
+.n8Q1ZZgm6vKkQE4v_774 { color: #8b8f96; font-size: 11px; }
+.J6h_lAGn79Q9xo5UzUHw { color: #1966ff; }
+
+/* system / event messages — keep the Feige class names so feige_get_chat_thread can match */
+.rcHPT4n3TlQD0Nu4sSiv { text-align: center; color: #aaa; font-size: 12px; margin: 4px 0; }
+.BqNO6cexAGBsZgUmEzIE,
+.e0Bi5IauHWvUG8773oi9 { text-align: center; color: #8b8f96; font-size: 12px; margin: 6px 0; }
+.BqNO6cexAGBsZgUmEzIE span,
+.e0Bi5IauHWvUG8773oi9 span { background: #eef0f2; padding: 4px 10px; border-radius: 10px; display: inline-block; }
+
+/* ============== chat input ============== */
+.toolbar { flex: 0 0 auto; padding: 8px 16px; border-top: 1px solid #eef0f2; background: #fafbfc; font-size: 12px; color: #565960; display: flex; gap: 16px; }
+.toolbar .tool { cursor: pointer; }
+.compose { flex: 0 0 auto; padding: 12px 16px 14px; background: #fff; border-top: 1px solid #eef0f2; position: relative; }
+.compose textarea { width: 100%; min-height: 72px; max-height: 140px; resize: none; border: 1px solid transparent; padding: 6px 120px 6px 0; outline: none; font-size: 13px; line-height: 1.5; background: #fff; color: #252931; font-family: inherit; }
+.compose textarea:focus { border-color: #dce0e5; }
+.send-btn { position: absolute; right: 16px; bottom: 14px; padding: 6px 22px; background: #1966ff; color: #fff; border-radius: 4px; cursor: pointer; user-select: none; font-size: 13px; }
+.send-btn:hover { background: #1557e0; }
+.send-btn[aria-disabled="true"] { background: #b9c7ee; cursor: not-allowed; }
+
+/* ============== right panel (test) ============== */
+.right-title { padding: 14px 16px; font-weight: 600; font-size: 14px; border-bottom: 1px solid #eef0f2; background: #fff; }
+.right-group { padding: 10px 14px; border-bottom: 1px solid #eef0f2; background: #fff; }
+.right-group-title { font-size: 12px; color: #8b8f96; margin-bottom: 6px; }
+.stress-row { display: flex; align-items: stretch; gap: 6px; margin: 4px 0; }
+.stress-row .test-btn { flex: 1 1 auto; margin: 0; }
+.stress-image-row { align-items: center; }
+.stress-check { flex: 1 1 auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #252931; }
+.stress-count { flex: 0 0 58px; width: 58px; border: 1px solid #dce0e5; border-radius: 4px; padding: 0 6px; color: #252931; font-size: 13px; outline: none; background: #fff; }
+.stress-count:focus { border-color: #1966ff; box-shadow: 0 0 0 2px rgba(25,102,255,.10); }
+.test-btn { display: block; width: 100%; margin: 4px 0; padding: 8px 10px; border: 1px solid #dce0e5; border-radius: 4px; background: #fff; color: #252931; font-size: 13px; cursor: pointer; text-align: left; }
+.test-btn:hover { border-color: #1966ff; color: #1966ff; }
+.test-btn.danger { border-color: #ff6a00; color: #ff6a00; }
+.test-btn.danger:hover { border-color: #ff3b30; color: #ff3b30; background: #fff7f3; }
+.chaos-group { background: #fffdf8; }
+.chaos-check { display: flex; align-items: center; gap: 6px; margin: 5px 0; font-size: 12px; color: #252931; }
+.chaos-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 5px 0; font-size: 12px; color: #565960; }
+.chaos-field input,
+.chaos-field select { width: 118px; border: 1px solid #dce0e5; border-radius: 4px; padding: 4px 6px; color: #252931; font-size: 12px; outline: none; background: #fff; }
+.chaos-field input:focus,
+.chaos-field select:focus { border-color: #1966ff; box-shadow: 0 0 0 2px rgba(25,102,255,.10); }
+.chaos-subtitle { margin-top: 10px; padding-top: 8px; border-top: 1px dashed #ece1cf; color: #a45b00; font-size: 11px; font-weight: 600; }
+.chaos-actions { margin-top: 8px; }
+.chaos-output { max-height: 180px; overflow: auto; margin: 6px 0 0; padding: 6px; border: 1px solid #eee1ce; border-radius: 4px; background: #fffaf0; color: #565960; font-size: 11px; white-space: pre-wrap; }
+.right-footer { padding: 10px 16px; font-size: 11px; color: #8b8f96; }
+
+/* ── new Feige sidebar card (2026-06-02 redesign) ────────────────────────
+   The card markup now uses Feige's semantic-prefix+hash classes
+   (conversationCard-/newAvatar-/newNameContent-/msgContent-/timerParticular-).
+   The real site ships CSS for these; the emulation does not, so without these
+   rules the avatar/text fall back to oversized browser defaults. Sized to
+   match the pre-redesign proportions. Uses [class*="…"] so the hash suffix
+   doesn't matter (same anchoring the scraper uses). Scoped to the chat-item. */
+[data-qa-id="qa-conversation-chat-item"] {
+  display: flex; gap: 10px; align-items: center;
+  padding: 10px 12px; border-bottom: 1px solid #f3f4f5;
+  cursor: pointer; position: relative; background: #fff;
+}
+[data-qa-id="qa-conversation-chat-item"]:hover { background: #f3f7ff; }
+[data-qa-id="qa-conversation-chat-item"].active { background: #eaf2ff; }
+
+[data-qa-id="qa-conversation-chat-item"] [class*="avatarContainer"] { flex: 0 0 40px; }
+[data-qa-id="qa-conversation-chat-item"] [class*="auxo-badge-top-right"] { position: relative; display: inline-block; line-height: 0; }
+[data-qa-id="qa-conversation-chat-item"] [class*="newAvatar"] { width: 40px; height: 40px; border-radius: 20px; object-fit: cover; display: block; }
+[data-qa-id="qa-conversation-chat-item"] [class*="auxo-badge-count"] {
+  position: absolute; top: -4px; right: -4px;
+  min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px;
+  border-radius: 8px; background: #ff3b30; color: #fff; font-size: 11px; text-align: center;
+}
+
+[data-qa-id="qa-conversation-chat-item"] [class*="cardContent"] { flex: 1 1 auto; min-width: 0; }
+[data-qa-id="qa-conversation-chat-item"] [class*="nameLine"] { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+[data-qa-id="qa-conversation-chat-item"] [class*="NameContent"] {
+  font-size: 13px; font-weight: 500; color: #252931;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+[data-qa-id="qa-conversation-chat-item"] [class*="userLabel"] span { font-size: 11px; color: #1966ff; white-space: nowrap; }
+[data-qa-id="qa-conversation-chat-item"] [class*="timerParticular"] {
+  font-size: 11px; color: #8b8f96; margin-left: auto; flex: 0 0 auto; white-space: nowrap;
+}
+[data-qa-id="qa-conversation-chat-item"] [class*="timerParticular"].ts-wait,
+[data-qa-id="qa-conversation-chat-item"] .ts-wait { color: #ff3b30; font-weight: 500; }
+
+[data-qa-id="qa-conversation-chat-item"] [class*="newContent-"] { display: flex; justify-content: space-between; align-items: center; }
+[data-qa-id="qa-conversation-chat-item"] [class*="msgContent"] {
+  font-size: 12px; color: #8b8f96; flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

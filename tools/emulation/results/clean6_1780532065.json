@@ -1,0 +1,235 @@
+{
+  "run_id": "clean6_1780532065",
+  "label": "clean6",
+  "started_at": 1780532065793,
+  "computed_at": 1780532305922,
+  "customers": 6,
+  "total_queries": 18,
+  "metrics": {
+    "answered_queries": 2,
+    "placeholder_late": 16,
+    "duplicate_responses": 0,
+    "placeholder_after_real": 0
+  },
+  "event_count": 21,
+  "per_customer": {
+    "S006": {
+      "queries": 3,
+      "answered": 0,
+      "late": 3,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 3
+    },
+    "S002": {
+      "queries": 3,
+      "answered": 0,
+      "late": 3,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 3
+    },
+    "S004": {
+      "queries": 3,
+      "answered": 0,
+      "late": 3,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 3
+    },
+    "S005": {
+      "queries": 3,
+      "answered": 0,
+      "late": 3,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 3
+    },
+    "S003": {
+      "queries": 3,
+      "answered": 0,
+      "late": 3,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 3
+    },
+    "S001": {
+      "queries": 3,
+      "answered": 2,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 6
+    }
+  },
+  "events": [
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "质量问题可以退多久？",
+      "is_placeholder": false,
+      "ts": 1780532074913
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "你们默认走什么快递？",
+      "is_placeholder": false,
+      "ts": 1780532084186
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "港澳台运费怎么算？",
+      "is_placeholder": false,
+      "ts": 1780532092847
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "国际订单清关延误怎么办？",
+      "is_placeholder": false,
+      "ts": 1780532101123
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "丢件了怎么处理？",
+      "is_placeholder": false,
+      "ts": 1780532109860
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "现货商品多久发货？",
+      "is_placeholder": false,
+      "ts": 1780532118471
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780532135975
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780532144494
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "亲，现货商品一般是付款成功后48小时内发出哦，预售和定制款除外。大促、节假日或遇到天气等特殊情况，发货可能会稍有延迟呢～",
+      "is_placeholder": false,
+      "ts": 1780532146203
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780532153700
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780532161409
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780532171312
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780532179276
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780532196144
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780532204228
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "人工服务正在回复中...",
+      "is_placeholder": true,
+      "ts": 1780532208235
+    },
+    {
+      "mtype": "agent_msg",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "亲，这边尺码表里有参考数据哦～如果您看的是女装上衣：S码胸围82-86cm，M码86-90cm，L码90-94cm。裤装的话常见腰围参考是：28码72cm、29码74cm、30码77cm、31码79cm、32码82cm。您要是方便的话，把您看的具体款式或尺码发我一下，我帮您更准确对一下～",
+      "is_placeholder": false,
+      "ts": 1780532212216
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780532213203
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780532222570
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780532230039
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780532239812
+    }
+  ]
+}
