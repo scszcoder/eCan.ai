@@ -82,6 +82,10 @@ _SEQUENCE = 0
 _LAST_SEEN: Dict[str, Any] = {}
 _SEQUENCE_SEEDED = False
 
+# What the BUILD expected each watched thing to look like, registered by the
+# bundles. See :func:`register_shipped_baseline`.
+_SHIPPED: Dict[str, Dict[str, Any]] = {}
+
 
 # ── where it lives ─────────────────────────────────────────────────────────
 
@@ -286,11 +290,20 @@ def note_shape(
             held_since = (entry.get("first_seen") if isinstance(entry, dict)
                           else None) or now_iso
 
+            compared_against = "local"
             if previous is None:
-                known[store_key] = {"shape": current, "first_seen": now_iso,
-                                    "last_seen": now_iso}
-                _save_known(known)
-                return None                     # first sighting is a baseline
+                # No local history. Fall back to what the build shipped, so a
+                # fresh install detects a change instead of adopting it.
+                shipped = canonical_shape(shipped_baseline(site, key)) \
+                    if shipped_baseline(site, key) is not None else None
+                if shipped is None:
+                    known[store_key] = {"shape": current, "first_seen": now_iso,
+                                        "last_seen": now_iso}
+                    _save_known(known)
+                    return None                 # nothing to compare against
+                previous = shipped
+                compared_against = "shipped"
+                held_since = "(shipped with this build)"
 
             delta = diff_shapes(previous, current)
             if not delta:
@@ -313,6 +326,11 @@ def note_shape(
             "was": previous,
             "now": current,
             "previous_shape_held_since": held_since,
+            # Which baseline this was measured against. "shipped" means this
+            # machine had no history and the build's expectation was used, so
+            # the difference may be an old build or a rollout bucket rather
+            # than a change -- see register_shipped_baseline.
+            "compared_against": compared_against,
         }
         if context:
             evidence["context"] = canonical_shape(context)
@@ -352,6 +370,36 @@ def _summarize_delta(key: str, delta: Dict[str, Any]) -> str:
 
     walk(delta)
     return f"{key} " + ("; ".join(bits[:6]) if bits else "changed shape")
+
+
+def register_shipped_baseline(site: str, shapes: Dict[str, Any]) -> None:
+    """Declare what this BUILD expected the site to look like.
+
+    Without this, the first sighting on a machine is adopted silently as the
+    baseline -- so the first machine to meet a redesign records it as normal and
+    never flags it. Only the *second* change would ever be caught, which is the
+    wrong one.
+
+    With a shipped baseline, a fresh install compares what it sees against what
+    the build expected and reports a difference on day 1.
+
+    A difference is not automatically a site change: the build may simply be old,
+    or this machine may be in a gradual-rollout bucket. The record says which
+    baseline it was compared against and which build observed it, so the two can
+    be told apart later -- and corroboration across machines is what settles it.
+    """
+    try:
+        _SHIPPED[str(site)] = dict(shapes or {})
+    except Exception as exc:
+        logger.debug(f"[drift-journal] could not register baseline: {exc}")
+
+
+def shipped_baseline(site: str, key: str = "") -> Optional[Any]:
+    """What the build expected, for one key or the whole site."""
+    site_shapes = _SHIPPED.get(str(site))
+    if site_shapes is None:
+        return None
+    return site_shapes.get(str(key)) if key else dict(site_shapes)
 
 
 def last_shape(site: str, key: str) -> Optional[Any]:

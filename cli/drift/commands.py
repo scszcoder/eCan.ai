@@ -21,6 +21,7 @@ the record of the LAST site change is still there when the next one lands.
 """
 
 import json
+import pathlib
 
 import click
 
@@ -136,6 +137,75 @@ def stats(as_json):
     if deploys:
         out.print(f"\ndeploys observed: {len(deploys)}, "
                   f"most recent {str(deploys[0].get('ts', ''))[:10]}")
+
+
+@drift.command('export-baseline')
+@click.option('--site', '-s', required=True,
+              help='Which bundle (e.g. feige_chat).')
+@click.option('--out', '-o', 'out_path', default='',
+              help='Where to write. Default: stdout.')
+def export_baseline(site, out_path):
+    """Write this machine's current shapes as a shippable baseline. QUERY command.
+
+    This is how build N+1's baseline gets made (SELF_HEALING_ROADMAP S12 step
+    5): run it on a machine known to be HEALTHY, and commit the result as the
+    bundle's baseline.json.
+
+    Two fields are dropped on purpose. The deploy marker rotates on every site
+    deploy, so shipping one would make every install report a deploy on day one.
+    The monotonic ever-seen sets are dropped because a fresh install has
+    legitimately seen none of them, and shipping a populated set would make it
+    report them all as lost.
+    """
+    out = get_output()
+    journal = _journal()
+    try:
+        known = json.loads(journal._shapes_path().read_text(encoding='utf-8'))
+    except Exception:
+        known = {}
+
+    prefix = f"{site}::"
+    shapes = {}
+    for store_key, entry in sorted(known.items()):
+        if not store_key.startswith(prefix) or not isinstance(entry, dict):
+            continue
+        shape = entry.get('shape')
+        if not isinstance(shape, dict):
+            continue
+        shape = {k: v for k, v in shape.items()
+                 if k not in ('build_marker', 'rows_sampled')}
+        for volatile in ('optional_ever_seen', 'unexpected_ever_seen'):
+            if volatile in shape:
+                shape[volatile] = []
+        shapes[store_key[len(prefix):]] = shape
+
+    if not shapes:
+        out.error(f"No shapes recorded for {site!r}. Run a browser task first, "
+                  f"then export from a machine you believe is healthy.")
+        raise SystemExit(1)
+
+    from datetime import datetime, timezone
+    payload = {
+        "_provenance": [
+            f"Exported from a live machine on "
+            f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')} via "
+            f"`ecan drift export-baseline --site {site}`.",
+            "Only valid if that machine was HEALTHY when exported: a baseline "
+            "taken from a broken install teaches every future install that "
+            "broken is normal.",
+            "build_marker / rows_sampled and the monotonic ever-seen sets are "
+            "deliberately omitted -- see the command's help.",
+        ],
+        **shapes,
+    }
+    text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+
+    if out_path:
+        pathlib.Path(out_path).write_text(text, encoding='utf-8')
+        out.success(f"Wrote {len(shapes)} shape(s) to {out_path}")
+        out.info("Commit it as the bundle's baseline.json to ship it.")
+    else:
+        out.print(text)
 
 
 @drift.command('shapes')

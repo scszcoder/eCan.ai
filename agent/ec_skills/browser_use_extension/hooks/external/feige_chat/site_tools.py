@@ -289,6 +289,11 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
         if isinstance(data, dict) and data.get("sidebar_shape") and sessions:
             try:
                 from agent.ec_skills.browser_use_extension import drift_journal
+                # What this build expected. Without it a fresh install adopts
+                # whatever it first sees as normal, so the first machine to meet
+                # a redesign never reports one.
+                from . import baseline as _baseline
+                _baseline.register()
                 shape = dict(data.get("sidebar_shape") or {})
                 # The deploy marker rides its own key. It changes on EVERY
                 # site deploy, structural or not, so mixing it into the

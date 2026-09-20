@@ -187,6 +187,8 @@ def _snapshot_and_reset() -> Dict[str, Any]:
 def _report(shape: Dict[str, Any]) -> None:
     try:
         from agent.ec_skills.browser_use_extension import drift_journal
+        from . import baseline as _baseline
+        _baseline.register()
 
         drift_journal.note_shape(
             _SITE_LABEL, "ws_message_fields", shape,
