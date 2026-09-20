@@ -158,9 +158,10 @@ check('no build hash is recorded verbatim',
       !JSON.stringify(before).includes('MP1bk3ccfHC9V2SnPCGD') &&
       !JSON.stringify(before).includes('aBcDeF1234567890Gh'));
 
-check('hashed classes are counted in buckets instead',
-      typeof before.hashed_class_count_bucket === 'string' &&
-      before.hashed_class_count_bucket === rehashed.hashed_class_count_bucket);
+check('hashed classes are counted per row, not in absolute totals',
+      typeof before.hashed_classes_per_row === 'number' &&
+      before.hashed_classes_per_row === rehashed.hashed_classes_per_row,
+      'an absolute count moves with how many rows happened to be scrolled in');
 
 // ── it must never carry customer text ──────────────────────────────────────
 const nosy = row([

@@ -675,6 +675,90 @@ supplied by the site, costs nothing, is independent of every parser we own,
 and turns every real miss into a **labelled failure** — the labelled data §11
 says we do not have.
 
+## 18. Measured detector coverage (2026-09-19)
+
+§11 said we had no labelled data and could not quote a detection rate. We can
+now, without waiting for a third redesign.
+
+`tests/unit/test_detector_stress.py` drives the **real** fingerprint
+(`SIDEBAR_SHAPE_JS`, through `tools/emulation/fingerprint_probe.js`) and the
+**real** decision path (`drift_journal.note_shape`) over the row layouts this
+site has actually shipped (`tools/emulation/layouts.json`) plus synthetic
+mutations. Nothing is reimplemented — a ported copy of either half would
+measure the copy, which is the mistake ROW_NAME_JS exists to prevent.
+
+### Both real events are caught
+
+| Event | Change | Detected |
+|---|---|---|
+| June redesign (mt062/063) | hashed wrappers gone, semantic prefixes in | yes |
+| September rebuild (ws193) | nickname `data-qa-id` no longer emitted | yes, and the delta names the vanished anchor |
+
+### Coverage by class of change
+
+| Mutation | Detected | Correct? |
+|---|---|---|
+| `drop_attribute` — a machine id stops being emitted | yes | required |
+| `drop_anchor_element` — the element a parser keys on disappears | yes | required |
+| `rename_hashes_all` — a rotation that also kills an anchor we name literally | yes | required |
+| `add_attribute` — the site starts emitting something new | yes | good |
+| `rewrap` — an extra wrapper appears | yes | good |
+| `retag` — `div` becomes `section` | yes | good |
+| `rename_hashes_routine` — rotation that leaves our anchors alone | **no** | **required** — see below |
+| `renest` — same elements, one level deeper | **no** | known gap, mostly benign |
+
+### The two negatives are not the same
+
+`rename_hashes_routine` **must not** fire. The site rotates build hashes on
+every deploy; reporting that on the structural record would write a phantom
+change per deploy and bury the real ones. The deploy marker catches it instead
+(§10), which is the whole reason the two live under separate keys.
+
+Note the distinction the harness forced: rotating a hash we depend on *by
+literal name* (`.Jv6FtqUv5VoYARd2pp4y`, `.MP1bk3ccfHC9V2SnPCGD`) is **not**
+routine — that parser branch just died, and it is correctly reported. Only a
+rotation that leaves those alone is noise.
+
+`renest` is a real blind spot: the fingerprint records *sets* of names, not
+nesting depth, so moving elements a level deeper is invisible to it. Mostly
+this is fine, because it is invisible to our parsers too — `ROW_NAME_JS` uses
+`row.querySelector(...)` throughout, which is depth-agnostic. **The exception
+worth knowing:** `ROW_PREVIEW_FALLBACK_JS` walks leaves and compares
+`parentElement`, so it *is* depth-sensitive. A pure re-nesting could break the
+preview reader while the fingerprint stays silent. That is the ws189 failure
+mode, and it is currently uncovered.
+
+### Three detector bugs the harness found immediately
+
+All three would have produced false or missing records in production, and none
+was visible by reading the code:
+
+1. **`prefix-HASH` classes were treated as stable.** The hash test required no
+   separator (`^[A-Za-z0-9_]{16,}$`), so `msgContent-JqEWJs` — *precisely* the
+   scheme the June redesign introduced — was recorded verbatim. Every routine
+   deploy would have fired a structural change. Now the prefix is kept as
+   structure and the suffix counted as a hash.
+2. **The hashed-class figure was an absolute count** over a variable number of
+   sampled rows, so scroll position alone moved the fingerprint. Now normalised
+   per row.
+3. **The row element was invisible to itself.** `querySelectorAll('*')` returns
+   descendants only, so the row's own attributes were never recorded — and
+   `data-qa-id="qa-conversation-chat-item"`, the selector the entire scan
+   depends on, lives there. A rename of it would have gone unrecorded.
+
+This is the argument for the harness in one paragraph: the detector looked
+correct, had tests, and was wrong in three ways that only showed up when
+something drove real layouts through it.
+
+### Still to do here
+
+- The emulator renders its rows from hard-coded HTML in `static/app.js`; the
+  layouts now live in `layouts.json` but only the harness reads them. Wiring the
+  page to render from the same file gives browser-fidelity runs of the same
+  cases (`EMULATION_HARNESS.md` §6a).
+- Nothing yet exercises `renest` against the preview reader, which is where that
+  blind spot would actually bite.
+
 ## 16. What would invalidate Part II
 
 - The fingerprint proves noisy in practice — fires on viewport or A/B variation

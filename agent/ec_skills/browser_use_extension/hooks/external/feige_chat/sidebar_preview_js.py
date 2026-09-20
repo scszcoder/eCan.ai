@@ -174,9 +174,39 @@ SIDEBAR_SHAPE_JS = r"""
     var hashed = 0;
     // Per-token row counts, for the build marker below.
     var hashedRows = {};
-    // A build-hash looks like 'MP1bk3ccfHC9V2SnPCGD': long, no separators,
-    // and mixing case with digits. Human-authored class names rarely do.
-    var hashRe = /^[A-Za-z0-9_]{16,}$/;
+    // Two flavours of build-generated class name, and BOTH must be recognised
+    // or the structural record fills with phantom changes on every deploy:
+    //
+    //   MP1bk3ccfHC9V2SnPCGD   fully opaque (the pre-June scheme)
+    //   msgContent-JqEWJs      semantic prefix + build hash (the June scheme)
+    //
+    // The prefix of the second IS structure and must survive a rotation; only
+    // the suffix is volatile. Recording the whole token as a plain class -- the
+    // original bug here -- made a routine redeploy look like a redesign.
+    var opaqueRe = /^[A-Za-z0-9_]{16,}$/;
+    var prefixHashRe = /^([A-Za-z][A-Za-z0-9_]*)-([A-Za-z0-9_]{5,})$/;
+    function classifyToken(tok, seenThisRow){
+      var m = prefixHashRe.exec(tok);
+      if (m && /[A-Z0-9]/.test(m[2])) {
+        plainClasses[m[1].slice(0, 60)] = 1;      // the durable half
+        noteHashed(tok, seenThisRow);             // identifies the build
+        return;
+      }
+      if (opaqueRe.test(tok) && /[A-Z]/.test(tok) && /\d/.test(tok)) {
+        noteHashed(tok, seenThisRow);
+        return;
+      }
+      plainClasses[tok.slice(0, 60)] = 1;
+    }
+    function noteHashed(tok, seenThisRow){
+      hashed++;
+      // Count each token ONCE per row: a token repeated down a row must not
+      // out-vote one that appears on every row.
+      if (seenThisRow[tok] !== 1) {
+        seenThisRow[tok] = 1;
+        hashedRows[tok] = (hashedRows[tok] || 0) + 1;
+      }
+    }
     var list = rows || [];
     for (var i = 0; i < list.length && i < 40; i++) {
       var row = list[i];
@@ -188,9 +218,16 @@ SIDEBAR_SHAPE_JS = r"""
         catch(e) {}
       }
       try {
+        // The row's OWN attributes and classes matter as much as its
+        // descendants': data-qa-id="qa-conversation-chat-item" lives THERE, and
+        // it is the selector the whole scan depends on. querySelectorAll('*')
+        // returns descendants only, so the row was invisible to itself -- a
+        // rename of the row's own id would have gone unrecorded.
         var all = row.querySelectorAll('*');
-        for (var j = 0; j < all.length && j < 120; j++) {
-          var el = all[j];
+        var nodes = [row];
+        for (var q = 0; q < all.length && q < 120; q++) nodes.push(all[q]);
+        for (var j = 0; j < nodes.length; j++) {
+          var el = nodes[j];
           tags[String(el.tagName||'').toLowerCase()] = 1;
           var at = el.attributes || [];
           for (var a = 0; a < at.length && a < 16; a++) {
@@ -208,18 +245,7 @@ SIDEBAR_SHAPE_JS = r"""
                            ? el.className.baseVal : (el.className||''));
           var toks = cls.split(/\s+/);
           for (var c = 0; c < toks.length && c < 16; c++) {
-            var tok = toks[c];
-            if (!tok) continue;
-            if (hashRe.test(tok) && /[A-Z]/.test(tok) && /\d/.test(tok)) {
-              hashed++;
-              // Count each token ONCE per row: a token repeated down a row must
-              // not out-vote one that appears on every row.
-              if (seenThisRow[tok] !== 1) {
-                seenThisRow[tok] = 1;
-                hashedRows[tok] = (hashedRows[tok] || 0) + 1;
-              }
-            }
-            else plainClasses[tok.slice(0, 60)] = 1;
+            if (toks[c]) classifyToken(toks[c], seenThisRow);
           }
         }
       } catch(e) {}
@@ -260,8 +286,10 @@ SIDEBAR_SHAPE_JS = r"""
       attributes: keys(attrs),
       tags: keys(tags),
       plain_classes: keys(plainClasses),
-      hashed_class_count_bucket: hashed === 0 ? 'none'
-        : hashed < 50 ? 'few' : hashed < 300 ? 'many' : 'very many'
+      // Per row, not absolute: how many rows a scan happened to have scrolled
+      // into view must not move the fingerprint.
+      hashed_classes_per_row: rowsSeen === 0 ? 0
+        : Math.round(hashed / rowsSeen)
     };
   }
 """
