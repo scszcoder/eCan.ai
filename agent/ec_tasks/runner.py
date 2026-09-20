@@ -9403,6 +9403,14 @@ class TaskRunner(Generic[Context]):
             degraded_state.refresh()
         except Exception:
             pass
+        # Which KINDS of descriptor actually last here. Quiet until something
+        # has retired, which is the normal state early on.
+        try:
+            from agent.ec_skills.browser_use_extension import learned_targets
+            learned_targets.log_kind_report(
+                reason=f"task={getattr(task, 'name', '')}")
+        except Exception:
+            pass
     
     def _on_skill_complete(
         self,

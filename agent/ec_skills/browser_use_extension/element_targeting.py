@@ -78,6 +78,27 @@ class TargetDescriptor:
         """True when this names the element by meaning rather than structure."""
         return bool(self.target_text or self.container_hint or self.position_hint)
 
+    def is_fragile(self) -> tuple:
+        """``(fragile, why)`` -- does this name the element only by WHERE it is?
+
+        A descriptor with neither visible text nor a container says nothing
+        about what the element *is*, only where it sits, and where moves.
+        ``position_hint="item 2 of 3"`` is the clearest case: it works until
+        that customer has a fourth conversation, and then it silently points at
+        the wrong row. Each cycle looks like a success locally -- heal, break,
+        heal, break -- so nothing ever flags it.
+
+        This is about the descriptor's *form*, not its track record. A fragile
+        descriptor that has worked twenty times is still fragile; it has just
+        not met the page that breaks it yet.
+        """
+        if self.target_text or self.container_hint:
+            return False, ""
+        if self.position_hint:
+            return True, ("names only a position, so it breaks when the "
+                          "collection changes size or order")
+        return True, "no semantic anchor at all"
+
     def describe(self) -> str:
         """Short human-readable form, for logs and failure messages."""
         bits = [b for b in (self.target_text, self.container_hint,

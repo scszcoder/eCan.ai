@@ -56,6 +56,12 @@ RETIRE_AFTER_MISSES = 3
 # Never keep more than this per (site, element). Pages change; the tail is junk.
 MAX_PER_ELEMENT = 8
 
+# How many retirements to remember. A retired descriptor is dropped from the
+# serving bucket immediately -- keeping it would cost a wasted attempt on every
+# resolution -- but its LIFETIME is the only evidence we get about which kinds
+# of descriptor actually last, so that outlives the descriptor itself.
+MAX_LIFETIMES = 200
+
 
 @dataclass
 class LearnedTarget:
@@ -71,6 +77,24 @@ class LearnedTarget:
     consecutive_misses: int = 0
     first_learned: float = field(default_factory=time.time)
     last_used: float = 0.0
+    promoted_at: float = 0.0    # when it first earned trust; 0 = never did
+
+    def kind(self) -> str:
+        """Which semantic fields carry this descriptor: 'text+container'...
+
+        The unit that lifetimes are aggregated over. Individual descriptors are
+        specific to one page and die with it; the KIND is what transfers -- if
+        text-anchored descriptors outlive container-anchored ones on this site,
+        that is worth knowing the next time there is a choice.
+        """
+        parts = []
+        if self.target_text:
+            parts.append("text")
+        if self.container_hint:
+            parts.append("container")
+        if self.position_hint:
+            parts.append("position")
+        return "+".join(parts) or "none"
 
     def descriptor(self) -> TargetDescriptor:
         return TargetDescriptor(
@@ -103,6 +127,7 @@ class _Store:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._data: Dict[str, Dict[str, List[LearnedTarget]]] = {}
+        self._lifetimes: List[dict] = []
         self._loaded = False
         self._dirty = False
 
@@ -126,6 +151,9 @@ class _Store:
             return
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
+            # Kept beside the descriptors but not one of them; a file written
+            # before this existed simply has none.
+            self._lifetimes = list((raw or {}).pop("_lifetimes", None) or [])
             for site, elements in (raw or {}).items():
                 for element, entries in (elements or {}).items():
                     bucket = self._data.setdefault(site, {}).setdefault(element, [])
@@ -154,6 +182,8 @@ class _Store:
                 }
                 for site, elements in self._data.items()
             }
+            if self._lifetimes:
+                payload["_lifetimes"] = self._lifetimes[-MAX_LIFETIMES:]
             tmp = path.with_suffix(".tmp")
             tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
                            encoding="utf-8")
@@ -183,7 +213,23 @@ def best_for(site: str, element: str) -> Optional[TargetDescriptor]:
         ]
         if not candidates:
             return None
-        best = max(candidates, key=lambda t: (t.score(), t.hits))
+        # Score dominates; kind survival only separates descriptors that have
+        # earned the same record. Letting it outrank the score would mean
+        # preferring a kind that once lasted a long time over one that is
+        # working right now.
+        lifetimes = {}
+        try:
+            from statistics import median
+            for row in _STORE._lifetimes:
+                lifetimes.setdefault(str(row.get("kind") or "?"), []).append(
+                    row.get("survived_s", 0))
+            lifetimes = {k: {"median_survived_s": float(median(v))}
+                         for k, v in lifetimes.items()}
+        except Exception:
+            lifetimes = {}
+        best = max(candidates,
+                   key=lambda t: (t.score(), _kind_rank(t.kind(), lifetimes),
+                                  t.hits))
         best.last_used = time.time()
         _STORE._dirty = True
         return best.descriptor()
@@ -195,6 +241,17 @@ def record_success(site: str, element: str, descriptor: TargetDescriptor,
     if not descriptor or not descriptor.is_semantic():
         # Refuse to learn something that is not semantic — that is how a
         # selector would sneak into the store.
+        return
+    fragile, why = descriptor.is_fragile()
+    if fragile:
+        # Fragile by construction, however well it has worked so far. Learning
+        # it would produce the quiet heal/break/heal cycle: every round looks
+        # like a success locally, so nothing ever flags it, and the descriptor
+        # is wrong again the moment the page grows.
+        logger.info(
+            f"[learned-targets] {site}/{element}: refusing to learn "
+            f"{descriptor.describe()!r} — {why}"
+        )
         return
     _update(site, element, descriptor, hit=True, source=source)
     _tell_guard(site, element, resolved=True, source=source)
@@ -260,6 +317,7 @@ def _update(site: str, element: str, descriptor: TargetDescriptor,
                 found.hits += 1
                 found.consecutive_misses = 0
                 if found.hits == PROMOTE_AFTER_HITS:
+                    found.promoted_at = time.time()
                     logger.info(
                         f"[learned-targets] {site}/{element}: promoted "
                         f"{descriptor.describe()!r} after {found.hits} hits"
@@ -274,6 +332,12 @@ def _update(site: str, element: str, descriptor: TargetDescriptor,
                         f"{found.consecutive_misses} consecutive misses"
                     )
 
+            # A retired descriptor leaves the serving bucket at once -- keeping
+            # it would cost a wasted attempt on every resolution -- but how long
+            # it lasted is the only evidence we ever get about which KINDS hold
+            # up, so that is banked before it goes.
+            for dead in [t for t in bucket if t.retired]:
+                _bank_lifetime(site, element, dead)
             bucket[:] = [t for t in bucket if not t.retired]
             if len(bucket) > MAX_PER_ELEMENT:
                 bucket.sort(key=lambda t: (t.score(), t.hits), reverse=True)
@@ -282,6 +346,76 @@ def _update(site: str, element: str, descriptor: TargetDescriptor,
             _STORE._dirty = True
     except Exception as exc:
         logger.debug(f"[learned-targets] update failed: {exc}")
+
+
+def _bank_lifetime(site: str, element: str, dead: "LearnedTarget") -> None:
+    """Record how long a descriptor lasted, keyed by its kind.
+
+    A descriptor that never earned promotion is recorded too: a kind that keeps
+    failing to earn trust is as informative as one that earns it and then dies.
+    """
+    try:
+        now = time.time()
+        _STORE._lifetimes.append({
+            "kind": dead.kind(),
+            "site": str(site),
+            "element": str(element),
+            "promoted": bool(dead.promoted_at),
+            "survived_s": int(now - dead.promoted_at) if dead.promoted_at else 0,
+            "hits": dead.hits,
+            "misses": dead.misses,
+            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+        })
+        del _STORE._lifetimes[:-MAX_LIFETIMES]
+        logger.info(
+            f"[learned-targets] {site}/{element}: {dead.kind()} descriptor "
+            f"lasted {int(now - dead.promoted_at) if dead.promoted_at else 0}s "
+            f"after promotion ({dead.hits} hits, {dead.misses} misses)"
+        )
+    except Exception as exc:
+        logger.debug(f"[learned-targets] could not bank lifetime: {exc}")
+
+
+def kind_lifetimes() -> Dict[str, Dict[str, float]]:
+    """How long each KIND of descriptor has survived on this machine.
+
+    ``{kind: {"retired": n, "never_promoted": n, "median_survived_s": x}}``.
+
+    The unit is the kind, not the descriptor: individual descriptors are
+    specific to one page and die with it, while the kind is what transfers to
+    the next choice. One machine's sample is small -- this is the local half of
+    what the fleet layer would answer properly (§14).
+    """
+    from statistics import median
+    buckets: Dict[str, List[dict]] = {}
+    with _STORE._lock:
+        _STORE.load()
+        for row in _STORE._lifetimes:
+            buckets.setdefault(str(row.get("kind") or "?"), []).append(row)
+
+    out: Dict[str, Dict[str, float]] = {}
+    for kind, rows in buckets.items():
+        promoted = [r for r in rows if r.get("promoted")]
+        out[kind] = {
+            "retired": len(rows),
+            "never_promoted": len(rows) - len(promoted),
+            "median_survived_s": float(
+                median([r.get("survived_s", 0) for r in promoted])
+            ) if promoted else 0.0,
+        }
+    return out
+
+
+def _kind_rank(kind: str, lifetimes: Dict[str, Dict[str, float]]) -> float:
+    """How well this kind has held up here. Unknown kinds rank neutral.
+
+    Neutral rather than worst: a kind with no history has not failed, it has
+    simply not been tried, and burying it would stop us ever learning about it.
+    """
+    row = lifetimes.get(kind)
+    if not row:
+        return 0.0
+    return float(row.get("median_survived_s", 0.0))
 
 
 def flush() -> None:
@@ -303,6 +437,8 @@ def report() -> Dict[str, Dict[str, List[dict]]]:
                         "misses": t.misses,
                         "trusted": t.trusted,
                         "score": round(t.score(), 3),
+                        "kind": t.kind(),
+                        "promoted_at": t.promoted_at,
                     }
                     for t in targets
                 ]
@@ -310,6 +446,22 @@ def report() -> Dict[str, Dict[str, List[dict]]]:
             }
             for site, elements in _STORE._data.items()
         }
+
+
+def log_kind_report(reason: str = "") -> None:
+    """Which kinds of descriptor last, on this machine. Quiet when nothing has
+    retired yet, which is the normal state early on."""
+    data = kind_lifetimes()
+    if not data:
+        return
+    logger.info(f"[learned-targets] kind lifetimes"
+                f"{f' ({reason})' if reason else ''}:")
+    for kind, row in sorted(data.items(),
+                            key=lambda kv: -kv[1]["median_survived_s"]):
+        logger.info(
+            f"[learned-targets]   {kind}: {int(row['median_survived_s'])}s "
+            f"median after promotion, {row['retired']} retired "
+            f"({row['never_promoted']} never earned trust)")
 
 
 def log_report(reason: str = "") -> None:
@@ -331,6 +483,7 @@ def reset(*, delete_file: bool = False) -> None:
     """Drop everything in memory. Tests, and a clean slate after a redesign."""
     with _STORE._lock:
         _STORE._data.clear()
+        _STORE._lifetimes.clear()
         _STORE._loaded = True     # do not re-read the file behind the caller
         _STORE._dirty = False
         if delete_file:
