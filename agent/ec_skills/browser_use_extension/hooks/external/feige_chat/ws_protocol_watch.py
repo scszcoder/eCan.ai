@@ -48,26 +48,33 @@ _SITE_LABEL = "feige_chat"
 
 # Keys that should show up at least once in any window of customer traffic.
 # One of these going quiet is the ws193 failure, and is worth an alarm.
+# Counts below are from a real capture (244 messages carrying a kv-map),
+# measured 2026-09-19 rather than guessed -- the first guess put a key that
+# appears twice in 244 messages in here, which would have flapped a false
+# schema change every window.
 CORE_KEYS = frozenset({
-    "type",
-    "sender_role",
-    "nickname",
-    "talk_id",
-    "pigeon_cid",
-    "security_sender_id",
+    "type",                 # 162/244
+    "sender_role",          # 160/244
+    "talk_id",              # 162/244
+    "pigeon_cid",           # 160/244
+    "nickname",             # 66/244 -- only on customer text frames, but far
+                            #           too common to go silent for 200 in a row
+    "s:client_message_id",  # 244/244 -- universal
 })
 
 # Read by the decoder, but legitimately absent from most windows: fallbacks
 # that only fire when the primary is missing, and fields that ride one message
 # type. Gains are reported; silence is not evidence. See the module docstring.
 OPTIONAL_KEYS = frozenset({
-    "uname",
-    "security_pigeon_uid",
-    "s:client_message_id",
-    "client_message_id",
-    "generic_search_keywords",
-    "goods_id",
-    "switch_human_triggered_word",
+    "uname",                        # 66/244
+    "security_pigeon_uid",          # 36/244
+    "security_sender_id",           # 2/244 -- measured, NOT core. A key this
+                                    #          rare is absent from most windows,
+                                    #          so silence proves nothing.
+    "client_message_id",            # 0/244 -- the unprefixed spelling is dead
+    "generic_search_keywords",      # 30/244 -- product cards only
+    "goods_id",                     # 50/244 -- product cards only
+    "switch_human_triggered_word",  # 0/244 -- handover frames only
 })
 
 EXPECTED_KEYS = CORE_KEYS | OPTIONAL_KEYS
@@ -77,8 +84,14 @@ EXPECTED_KEYS = CORE_KEYS | OPTIONAL_KEYS
 # system frame cannot make a core key look dead.
 _WINDOW_FRAMES = 200
 
-# A chatty protocol can carry many unfamiliar keys. Cap what travels.
-_MAX_UNEXPECTED = 40
+# A chatty protocol can carry many unfamiliar keys. The real capture had 93
+# distinct ones beyond what the decoder reads, several on every single message
+# (s:need_bcp, s:msg_priority, s:base_scene). The first cap here was 40, which
+# this protocol saturates -- and once saturated, WHICH keys were kept depended
+# on arrival order, so the "monotonic" set was not stable and would have
+# reported phantom schema changes. Hence a cap well above the real count, plus
+# deterministic selection if it is ever reached anyway.
+_MAX_UNEXPECTED = 256
 
 _LOCK = threading.Lock()
 _core_seen: Set[str] = set()
@@ -111,8 +124,18 @@ def observe(kv: Any) -> None:
                     _core_seen.add(name)
                 elif name in OPTIONAL_KEYS:
                     _optional_seen.add(name)
-                elif len(_unexpected) < _MAX_UNEXPECTED:
-                    _unexpected.add(name[:60])
+                elif name not in _unexpected:
+                    trimmed = name[:60]
+                    if len(_unexpected) < _MAX_UNEXPECTED:
+                        _unexpected.add(trimmed)
+                    else:
+                        # Keep a deterministic subset (lexicographically
+                        # smallest) so a saturated set does not depend on the
+                        # order frames happened to arrive in.
+                        largest = max(_unexpected)
+                        if trimmed < largest:
+                            _unexpected.discard(largest)
+                            _unexpected.add(trimmed)
             _frames += 1
             if _frames >= _WINDOW_FRAMES:
                 flush_now = _snapshot_and_reset()
