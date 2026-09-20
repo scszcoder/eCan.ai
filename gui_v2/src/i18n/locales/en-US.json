@@ -699,6 +699,7 @@
       "readiness_monitor": "DOM monitor",
       "readiness_dom": "DOM elements",
       "readiness_detection": "Detection",
+      "readiness_targeting": "Targeting",
       "readiness_updated": "updated",
       "noTaskAssigned": "No Task Assigned",
       "enableAgent": "Enable Agent",

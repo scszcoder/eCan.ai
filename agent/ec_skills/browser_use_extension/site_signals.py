@@ -141,6 +141,17 @@ def trip(site: str, name: str, *, detail: str = "",
         else:
             logger.info(line)
 
+        # An incident means a customer is affected right now. That belongs on
+        # the readiness dots, not only in the log -- a warning is worth knowing
+        # about, an incident is worth someone looking.
+        if signal.severity == "incident":
+            try:
+                from . import degraded_state
+                degraded_state.mark_degraded(
+                    f"signal:{name}", signal.means, site=site, element=name)
+            except Exception:
+                pass
+
         # Only faults go on the permanent record. `info` signals are ordinary
         # traffic; journalling them would bury the ones that matter.
         if signal.severity in ("incident", "warning"):

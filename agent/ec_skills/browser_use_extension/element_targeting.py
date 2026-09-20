@@ -378,6 +378,16 @@ def log_drift(
             f"A parser that was carrying this element has stopped resolving it."
         )
         _journal_drift(signal, baseline, evidence)
+        # A parser that was carrying an element and now resolves nothing is a
+        # degradation the operator should see, not just a log line.
+        try:
+            from . import degraded_state
+            degraded_state.mark_degraded(
+                "parser_collapse",
+                f"'{signal.strategy}' stopped resolving",
+                site=signal.site, element=signal.element)
+        except Exception:
+            pass
     return signals
 
 

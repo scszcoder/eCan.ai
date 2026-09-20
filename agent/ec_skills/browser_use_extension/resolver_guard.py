@@ -239,12 +239,14 @@ def record_outcome(site: str, element: str, resolved: bool) -> None:
     try:
         key = f"{site}::{element}"
         opened = False
+        recovered = False
         with _LOCK:
             _load()
             state = _STATE.setdefault(key, _ElementState())
             if resolved:
                 state.resolved += 1
                 state.consecutive_failures = 0
+                recovered = True
             else:
                 state.consecutive_failures += 1
                 if (state.consecutive_failures >= CIRCUIT_AFTER_FAILURES
@@ -253,6 +255,13 @@ def record_outcome(site: str, element: str, resolved: bool) -> None:
                     opened = True
             _save()
 
+        if recovered:
+            try:
+                from . import degraded_state
+                degraded_state.mark_recovered("resolver_circuit")
+            except Exception:
+                pass
+
         if opened:
             logger.error(
                 f"[resolver-guard] CIRCUIT OPEN {site}/{element}: "
@@ -260,6 +269,17 @@ def record_outcome(site: str, element: str, resolved: bool) -> None:
                 f"Not calling the resolver for this element for "
                 f"{int(CIRCUIT_COOLDOWN_S)}s. This element is BROKEN, not "
                 f"healing -- it needs a human.")
+            # Make it visible where the person running this will see it. A
+            # breaker that only trips in the log leaves the install broken and
+            # unremarkable, which is the failure mode this whole effort exists
+            # to leave behind.
+            try:
+                from . import degraded_state
+                degraded_state.mark_degraded(
+                    "resolver_circuit", "gave up resolving this element",
+                    site=site, element=element)
+            except Exception:
+                pass
             try:
                 from . import drift_journal
                 drift_journal.record_event(

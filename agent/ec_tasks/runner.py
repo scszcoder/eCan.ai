@@ -9396,6 +9396,13 @@ class TaskRunner(Generic[Context]):
             resolver_guard.log_report(reason=f"task={getattr(task, 'name', '')}")
         except Exception:
             pass
+        # Re-evaluate the degraded level: `watching` becomes `degraded` through
+        # time passing, and nothing here runs on a timer.
+        try:
+            from agent.ec_skills.browser_use_extension import degraded_state
+            degraded_state.refresh()
+        except Exception:
+            pass
     
     def _on_skill_complete(
         self,
