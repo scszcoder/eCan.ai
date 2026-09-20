@@ -9389,6 +9389,13 @@ class TaskRunner(Generic[Context]):
             )
         except Exception:
             pass
+        # What L2 cost, and what it has given up on. Silent when the resolver
+        # was never used, which is the normal case today.
+        try:
+            from agent.ec_skills.browser_use_extension import resolver_guard
+            resolver_guard.log_report(reason=f"task={getattr(task, 'name', '')}")
+        except Exception:
+            pass
     
     def _on_skill_complete(
         self,

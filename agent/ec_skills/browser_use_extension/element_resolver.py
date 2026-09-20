@@ -262,6 +262,25 @@ async def resolve_element(
         record_resolution(site, element, "resolver_budget_exhausted", ok=False)
         return Resolution(None, 0.0, "budget exhausted")
 
+    # The per-run budget above is held by the caller and dies with the process.
+    # The guard is per element, per day, and survives a restart -- which is what
+    # actually bounds the spend, because the run that matters here lasts for
+    # days and a machine stuck in a bad state restarts often. It also refuses
+    # outright once an element has proved unresolvable, rather than paying for
+    # the same answer every poll.
+    try:
+        from . import resolver_guard
+        permitted, why = resolver_guard.allow(site, element)
+        if not permitted:
+            logger.warning(
+                f"[element-resolver] {site}/{element}: not calling the model "
+                f"({why}); failing the way this path failed before L2 existed")
+            record_resolution(site, element, "resolver_guard_refused", ok=False)
+            return Resolution(None, 0.0, f"guard refused: {why}")
+        resolver_guard.record_attempt(site, element)
+    except Exception:
+        pass
+
     trimmed = list(candidates)[:MAX_CANDIDATES]
     valid_indices = {c.index for c in trimmed}
 

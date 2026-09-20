@@ -34,9 +34,18 @@ class _FakeLLM:
 
 
 @pytest.fixture(autouse=True)
-def clean():
+def clean(tmp_path, monkeypatch):
+    # resolve_element now consults resolver_guard, which persists per-element
+    # spend. Without pointing it somewhere disposable these tests share one
+    # budget, exhaust it mid-session, and then fail for the wrong reason — and
+    # they write guard state into the real appdata directory.
+    monkeypatch.setenv("ECAN_RESOLVER_GUARD_DIR", str(tmp_path / "guard"))
+    monkeypatch.setenv("ECAN_DRIFT_JOURNAL_DIR", str(tmp_path / "journal"))
+    from agent.ec_skills.browser_use_extension import resolver_guard
+    resolver_guard.reset()
     et.reset()
     yield
+    resolver_guard.reset()
     et.reset()
 
 

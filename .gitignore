@@ -172,3 +172,5 @@ ecan_browser_data/
 drift_journal/
 **/drift_journal/
 known_shapes.json
+resolver_guard.json
+**/resolver_guard.json

@@ -197,6 +197,7 @@ def record_success(site: str, element: str, descriptor: TargetDescriptor,
         # selector would sneak into the store.
         return
     _update(site, element, descriptor, hit=True, source=source)
+    _tell_guard(site, element, resolved=True, source=source)
 
 
 def record_failure(site: str, element: str, descriptor: TargetDescriptor) -> None:
@@ -204,6 +205,25 @@ def record_failure(site: str, element: str, descriptor: TargetDescriptor) -> Non
     if not descriptor:
         return
     _update(site, element, descriptor, hit=False)
+    _tell_guard(site, element, resolved=False, source="")
+
+
+def _tell_guard(site: str, element: str, *, resolved: bool, source: str) -> None:
+    """Report to the spend guard whether a resolution actually stuck.
+
+    This is the only place that knows the answer, and the guard's breaker is
+    useless without it: without an outcome it would keep paying for the same
+    failed resolution every poll. Only outcomes that came from the resolver are
+    charged — a descriptor that was already learned costs nothing, so its
+    success or failure says nothing about L2's spend.
+    """
+    if resolved and source and source != "resolver":
+        return
+    try:
+        from . import resolver_guard
+        resolver_guard.record_outcome(site, element, resolved)
+    except Exception:
+        pass
 
 
 def _update(site: str, element: str, descriptor: TargetDescriptor,

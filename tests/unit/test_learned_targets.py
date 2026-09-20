@@ -23,8 +23,16 @@ from agent.ec_skills.browser_use_extension.element_targeting import TargetDescri
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(lt._STORE, "_path", lambda: tmp_path / "learned.json")
+    # record_success/record_failure now report the outcome to resolver_guard,
+    # which persists. Point that somewhere disposable too, or these tests write
+    # real spend state into the appdata directory.
+    monkeypatch.setenv("ECAN_RESOLVER_GUARD_DIR", str(tmp_path / "guard"))
+    monkeypatch.setenv("ECAN_DRIFT_JOURNAL_DIR", str(tmp_path / "journal"))
+    from agent.ec_skills.browser_use_extension import resolver_guard
+    resolver_guard.reset()
     lt.reset()
     yield
+    resolver_guard.reset()
     lt.reset()
 
 
