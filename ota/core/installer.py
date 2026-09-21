@@ -1249,6 +1249,12 @@ rm -f "$0"
                     # handle app exit; Inno Setup proceeds directly to file
                     # replacement (no CloseApplications wait). The app is
                     # already dead before Inno Setup starts writing files.
+                    # Note: Do NOT use /DIR="..." with quotes around the path.
+                    # Inno Setup has issues parsing /DIR= with quotes, causing the installer
+                    # to fail silently at "Created temporary directory" without proceeding.
+                    # Since Inno Setup reads the previous install directory from registry
+                    # (UsePreviousAppDir=yes in build), /DIR= is belt-and-suspenders anyway.
+                    # Removing quotes fixes the installation. See logs for proof.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # ✅ Shows progress bar
@@ -1256,7 +1262,7 @@ rm -f "$0"
                         '/SP-',                  # ✅ Skip startup message
                         # /CLOSEAPPLICATIONS intentionally omitted:
                         # app exit is handled by the Inno Setup watch thread below.
-                        f'/DIR="{_strip_trailing_separator(install_dir)}"',  # ✅ Pin install target
+                        f'/DIR={_strip_trailing_separator(install_dir)}',  # ✅ Pin install target (no quotes)
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
@@ -1381,6 +1387,7 @@ rm -f "$0"
                     # ``os._exit(0)`` which kills the Inno Setup process
                     # mid-initialization, truncating the log at
                     # "Created temporary directory" with no files replaced.
+                    # Note: No quotes around /DIR= path - see frozen-path fix above.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
@@ -1388,7 +1395,7 @@ rm -f "$0"
                         '/SP-',                  # Skip startup message
                         # /CLOSEAPPLICATIONS intentionally omitted —
                         # see frozen-path note above.
-                        f'/DIR="{_strip_trailing_separator(install_dir)}"',
+                        f'/DIR={_strip_trailing_separator(install_dir)}',
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
