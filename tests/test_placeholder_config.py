@@ -157,23 +157,25 @@ class StoreKeyTests(_Base):
         with mock.patch.dict("os.environ", {ENV_STORE: "shop-42"}, clear=False):
             self.assertEqual(self.cfg.current_store_key(), "shop-42")
 
-    def test_scope_store_key_beats_agent_id(self) -> None:
+    def test_reads_the_task_store_id_from_the_run_scope(self) -> None:
         with mock.patch.dict("os.environ", {}, clear=False):
             sys.modules["os"].environ.pop(ENV_STORE, None)
             with mock.patch.object(
-                self.cfg, "_scope", return_value={"store_key": "S9", "agent_id": "A1"}
+                self.cfg, "_scope", return_value={"store_id": "S9", "agent_id": "A1"}
             ):
                 self.assertEqual(self.cfg.current_store_key(), "S9")
 
-    def test_agent_id_is_the_store_today(self) -> None:
-        """Fast Deploy creates one agent per store, so agent_id is the key
-        until a platform stamp derived from store_url lands."""
+    def test_agent_id_is_never_the_store(self) -> None:
+        """An agent is a skill/task HOLDER: one agent can serve several shops
+        through several tasks, so its id must never stand in for a store."""
         with mock.patch.dict("os.environ", {}, clear=False):
             sys.modules["os"].environ.pop(ENV_STORE, None)
-            with mock.patch.object(self.cfg, "_scope", return_value={"agent_id": "A1"}):
-                self.assertEqual(self.cfg.current_store_key(), "A1")
+            with mock.patch.object(
+                self.cfg, "_scope", return_value={"agent_id": "A1", "task_id": "T1"}
+            ):
+                self.assertEqual(self.cfg.current_store_key(), "")
 
-    def test_no_run_context_means_account_wide(self) -> None:
+    def test_unset_store_id_means_account_wide(self) -> None:
         with mock.patch.dict("os.environ", {}, clear=False):
             sys.modules["os"].environ.pop(ENV_STORE, None)
             with mock.patch.object(self.cfg, "_scope", return_value={}):

@@ -31,13 +31,18 @@ still see why a number looks the way it does.
 Store identity
 --------------
 ``current_store_key()`` is the shared notion of "which store is this run
-serving".  Today that resolves to the agent id, because Fast Deploy creates one
-agent per store; the resolver checks a ``store_key``/``store_id`` scope field
-first so a future platform stamp (derived from ``prompt_refs.store_url`` in
-``browser_node/runner.extract_store_url``) upgrades every caller at once.
-Billing's per-store dimension is meant to call THIS function — if store
-identity ever forks in two, the config panel and the bill start disagreeing
-about how many stores the customer has.
+serving".  It reads the ``store_id`` the task carries — declared as an ordinary
+per-task variable and published on the run scope by ``ec_tasks.runner`` (see
+``agent/ec_skills/prompt_variable_providers.resolve_store_id``).
+
+It is deliberately NOT the agent id: an agent is a skill/task holder, so one
+agent can serve several shops through several tasks, and a shared skill can be
+pointed at a different shop by each task that uses it.  Unset means "" — the
+account-wide default — which is also what the panel's 默认（全部店铺） row edits.
+
+Billing's per-store dimension is meant to call THIS function — if store identity
+ever forks in two, the config panel and the bill start disagreeing about how
+many stores the customer has.
 """
 
 from __future__ import annotations
@@ -98,7 +103,13 @@ def _scope() -> dict:
 
 
 def current_store_key() -> str:
-    """Which store the current run serves ("" = no run context → account default).
+    """Which store the current run serves ("" = unset → account-wide default).
+
+    The id comes from the TASK's ``store_id`` variable, published on the run
+    scope by ``ec_tasks.runner`` (see ``prompt_variable_providers.resolve_store_id``
+    for the declaration path and the store_url fallback).  Deliberately NOT the
+    agent id: an agent is a skill/task holder, and two tasks can point the same
+    shared skill at two different shops.
 
     Resolved in the dispatch context, never in the sweeper thread: ContextVars
     do not cross ``threading.Thread``, so callers stamp the resolved key onto
@@ -107,18 +118,14 @@ def current_store_key() -> str:
     env = (os.getenv("ECAN_FEIGE_STORE_ID") or "").strip()
     if env:
         return env
-    sc = _scope()
-    for field in ("store_key", "store_id"):
-        val = str(sc.get(field) or "").strip()
-        if val:
-            return val
-    return str(sc.get("agent_id") or "").strip()
+    return str(_scope().get("store_id") or "").strip()
 
 
 def current_store_label() -> str:
-    """Human label for the store selector — the agent name a 店主 recognises."""
+    """Human label for the store picker — the task name, since the task is what
+    binds a run to a shop.  Falls back to the agent name, then the raw id."""
     sc = _scope()
-    for field in ("store_name", "agent_name", "task_name"):
+    for field in ("store_name", "task_name", "agent_name"):
         val = str(sc.get(field) or "").strip()
         if val:
             return val

@@ -336,6 +336,77 @@ def _provide_max_steps(state: dict, mainwin: Any) -> str:
     return str(state.get("max_steps", 300))
 
 
+# ---------------------------------------------------------------------------
+# store_id — which shop this run serves.
+#
+# A store belongs to the TASK, not to the agent: one agent is a skill/task
+# holder that can be pointed at a different shop by a different task, and two
+# tasks can serve two shops through the same shared skill.  So store identity
+# rides the ordinary per-task variable path — declare ``store_id`` in the
+# skill's need_inputs (the skill editor's variable panel does this from a
+# prompt's {{store_id}}), fill it in on the Tasks page's 任务变量 section, and
+# apply_task_vars seeds it into ``prompt_refs`` at run start.
+#
+# Left unset it falls back to the deployed store URL (Fast Deploy seeds
+# ``store_url``/``store_urls`` via task_vars for exactly one shop), and failing
+# that to "" — which every consumer reads as "the account-wide default".
+# ---------------------------------------------------------------------------
+STORE_ID_VAR = "store_id"
+
+
+def store_id_from_url(url: Any) -> str:
+    """Stable, comparable id from a store URL: ``host/first-path-segment``.
+
+    Lowercased and scheme/``www.``-stripped so the same shop typed two ways
+    lands on one id.  Returns "" for anything that isn't an http(s) URL.
+    """
+    text = str(url or "").strip()
+    if not text.lower().startswith(("http://", "https://")):
+        return ""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(text)
+    except Exception:
+        return ""
+    host = (parsed.netloc or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if not host:
+        return ""
+    segment = (parsed.path or "").strip("/").split("/")[0]
+    return f"{host}/{segment}" if segment else host
+
+
+def resolve_store_id(refs: Any) -> str:
+    """Resolve the store id from a ``prompt_refs``-shaped mapping.
+
+    Accepts the run state or the refs/task_vars dict itself, so the task runner
+    (which has ``metadata['task_vars']`` before the state exists) and the
+    prompt cascade (which has the state) can share one answer.
+    """
+    if not isinstance(refs, dict):
+        return ""
+    refs = refs.get("prompt_refs") if isinstance(refs.get("prompt_refs"), dict) else refs
+    explicit = str(refs.get(STORE_ID_VAR) or "").strip()
+    if explicit:
+        return explicit
+    url = refs.get("store_url")
+    if not url:
+        urls = refs.get("store_urls")
+        if isinstance(urls, (list, tuple)) and urls:
+            url = urls[0]
+    return store_id_from_url(url)
+
+
+def _provide_store_id(state: dict, mainwin: Any) -> str:
+    """Built-in fallback for {{store_id}} — tier 4 of the cascade.
+
+    Tier 1 (``prompt_refs``) already answers when the task set the variable;
+    this only runs when it did not, so it derives the id from the store URL.
+    """
+    return resolve_store_id(state)
+
+
 # Register all built-in providers
 register_provider("skills_schema", _provide_skills_schema)
 register_provider("tools_schema", _provide_tools_schema)
@@ -348,6 +419,7 @@ register_provider("task_id", _provide_task_id)
 register_provider("human_input", _provide_human_input)
 register_provider("step_count", _provide_step_count)
 register_provider("max_steps", _provide_max_steps)
+register_provider("store_id", _provide_store_id)
 
 # ---------------------------------------------------------------------------
 # Reserved variable names — toolset/skillset names must not clash with these
