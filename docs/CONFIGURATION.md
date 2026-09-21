@@ -402,7 +402,7 @@ disabled in production without a code change.
 - **Default:** unset (= disabled)
 - **Values:** `1`, `true`
 - **Purpose:** When set, the eCan app reads
-  `customer_logs/emulation/emulation_config.json` before every LLM call
+  `tools/emulation/emulation_config.json` before every LLM call
   AND before every `rag_query` call, and injects the configured fault
   according to the JSON stanzas:
   - `llmFault.inject429Probability` — synthesizes OpenAI 429 / connection
@@ -434,7 +434,7 @@ customer at the configured interval — purely a front-end feature
 
 Each `mtNNN` marker tagged in the code corresponds to a specific
 production bug fix. The local emulator
-(`customer_logs/emulation/server.py`) exposes the trigger pattern
+(`tools/emulation/server.py`) exposes the trigger pattern
 needed to reproduce each bug under test conditions. The table below
 maps each marker to: (a) the bug it fixes, (b) the emulator control
 that reproduces the trigger, (c) the code anchor for the fix.
@@ -465,7 +465,7 @@ Updated 2026-05-24 alongside mt038.
 | **mt038C** | source-guard recognizes product-card bubbles (no_match drop when latest bubble is a card) | `并发消息` with `卡片 % > 0` (default 20) — any 客户 receiving a card-mode hand-off | `agent/ec_skills/browser_use_extension/extension_tools_service.py` (`allCustomerBubbles()` JS) |
 | **mt038D** | placeholder sweeper survives CDP recovery (was a sticky boolean flag → sweeper never restarted after `Invalidated cached BrowserSession`, customers stranded with no placeholder) | `并发消息` heavy enough to trigger 3 consecutive `get_or_create_cdp_session` timeouts → `[CDP-EVAL] recovery invalidated browser session` log line | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/dom_assets.py` (`_start_placeholder_sweeper` + `ensure_feige_tab_focused` call site) |
 | **mt038E** | placeholder key-mismatch suppress — when `arm()` / `cancel()` see different `source_msg_id` values under flood (PreDispatch scrape failed on one side OR LLM reply payload lost `source_customer_msg_id` on the other), the placeholder mis-fired AFTER the real reply had already landed | `并发消息` with `图文 % > 0` and/or `卡片 % > 0` — any flood where PreDispatch's per-customer tab focus times out (look for `armed cust='客户XX' source_msg_id='' fires_in=1.0s` followed by `fired placeholder` AFTER `feige_send_tool_success`) | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/placeholder_timer.py` (`cancel`, `mark_real_reply_delivered`, `claim_expired`, `is_real_reply_recent` — all stamp / consult the `(customer, '')` slot, gated by `entry.armed_at`) |
-| **mt038F (emulator)** | deep reset button — `重置所有聊天记录（mt030 基线）` wipes each customer's `dialogs[]` so multiple `并发消息` runs in the same emulator session don't accumulate stale Q+A pairs that trip mt030 | (test-tool: click before each flood run for a clean baseline) | `customer_logs/emulation/static/app.js` (`resetAllChatThreads`) + `index.html` button |
+| **mt038F (emulator)** | deep reset button — `重置所有聊天记录（mt030 基线）` wipes each customer's `dialogs[]` so multiple `并发消息` runs in the same emulator session don't accumulate stale Q+A pairs that trip mt030 | (test-tool: click before each flood run for a clean baseline) | `tools/emulation/static/app.js` (`resetAllChatThreads`) + `index.html` button |
 | **mt038F (F.2)** | mt030 honors mt017's "pre-existing baseline" tag — was wrongly skipping dispatch when the "agent" bubble was actually a smart_cs greeting / prior-session leftover that mt017 had already classified as not-our-reply | `并发消息` after `mt038F (emulator)` reset — under scrape-lock contention (~2s+) the emulator's auto-greeter races the customer Q in the chat thread; pre-F.2 trace shows `mt030 skip dispatch ... text='亲亲，在哒~...'`; post-F.2 logs `mt038F-F2 mt030 would fire but agent bubble is pre-existing baseline` instead | `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py` (`_agent_bubble_is_pre_existing_baseline` flag set in mt017 branches, consulted by mt030 check) |
 | **mt040A** | defer dispatch when the trigger row is a kept-for-enrichment system message — pre-mt040A the bot would scrape the thread, find a PRE-EXISTING customer product card (left over from prior browsing), and dispatch on it.  LLM then hallucinated a question the customer never asked; the bad reply tripped mt017's HUMAN-INTERVENTION mark; customer was ignored 7+ min | Live-Feige customer trace 2026-05-25 12:34:06 J14N9 (`store_auto_greeting` system event triggered PreDispatch → thread scrape returned pre-existing product card → bot hallucinated 透气 answer when customer's actual question was price).  Post-mt040A logs `mt040A defer dispatch for cust=... trigger row was system message ('store_auto_greeting')` and the dispatch waits for the customer's real text bubble to dom_observed | `agent/ec_skills/node_runtime/frontdesk_dispatch.py` stamps `item["_ecan_system_row_kept"] = system_reason`; `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/pre_dispatch_enrich.py` defers via skip_reason `mt040A_system_row_only` |
 | **mt040B.1** (telemetry-only) | instrument mt037C's bubble-walker and match-loop so the next live trace exposes WHY `verified_msg_id` capture is failing (0 captures in J14N9 trace despite many sends).  New counters: `mt037c_wraps_seen`, `mt037c_agent_classified`, `mt037c_with_data_id` (per-walk, accumulated across polls); `mt037c_total_attempts`, `mt037c_match_strategy` (0=none, 1=text_match, 2=newest_with_id), `mt037c_result_msg_id_len` (per-call). Strategy uses integer codes because `page_counters` serializer is int-only | Any successful send.  Grep `mt037c_` in `feige_send_tool_success` ledger entries; expected on healthy emulator runs: `match_strategy=1` or `2`, `result_msg_id_len > 0`.  If live Feige still shows `match_strategy=0` + `with_data_id=0` after this lands, root cause is data-id assignment slower than the 500 ms poll window (needs poll extension) | `agent/ec_skills/browser_use_extension/extension_tools_service.py` (`_walkAgentBubblesNewestFirst`, `latestAgentBubbleMsgId`) |
@@ -485,7 +485,7 @@ Updated 2026-05-24 alongside mt038.
 
 **How to use this table during a regression sweep:**
 
-1. Start the emulator: `python customer_logs/emulation/server.py`
+1. Start the emulator: `python tools/emulation/server.py`
 2. Launch eCan with `ECAN_EMULATION_TEST_FLAGS=1` so the LLM/RAG fault
    injectors are armed.
 3. For each marker you want to re-verify, set the listed emulator

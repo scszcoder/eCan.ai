@@ -1,0 +1,103 @@
+{
+  "_note": [
+    "Structural descriptions of the sidebar row layouts this site has actually",
+    "shipped. Used by the detector stress harness (tests/unit/test_detector_stress.py)",
+    "to measure whether the shape record in SIDEBAR_SHAPE_JS notices a change,",
+    "and to measure how often it cries wolf when nothing moved.",
+    "",
+    "Structure only: tag, attribute NAMES and values that are machine ids, and",
+    "class tokens. No customer text -- the shape record never reads text, so the",
+    "fixtures do not need any.",
+    "",
+    "Derived from static/app.js, which was itself built from DOM captured off the",
+    "live site (see the mt067-emulation comments there)."
+  ],
+
+  "mt062_legacy": {
+    "note": "Pre-June. Opaque hashed classes, no semantic prefixes. The name sat in .MP1bk3ccfHC9V2SnPCGD with the nickname qa-id present.",
+    "row": {
+      "tag": "div",
+      "classes": ["conversationCard", "needReply"],
+      "attributes": {"data-qa-id": "qa-conversation-chat-item", "data-kora": "conversation", "data-cid": "", "data-seq": ""},
+      "children": [
+        {"tag": "div", "classes": ["avatarContainer"], "children": [
+          {"tag": "span", "classes": ["auxo-badge"], "children": [
+            {"tag": "img", "classes": ["zeVHjNO_lFGbJlreiSda"], "attributes": {"src": "", "alt": ""}},
+            {"tag": "sup", "classes": [], "attributes": {}}
+          ]}
+        ]},
+        {"tag": "div", "classes": ["MP1bk3ccfHC9V2SnPCGD"], "attributes": {"title": ""}, "children": [
+          {"tag": "span", "classes": ["Jv6FtqUv5VoYARd2pp4y"], "attributes": {"data-qa-id": "qa-conversation-nickname", "title": ""}},
+          {"tag": "div", "classes": ["CEnLM8MEGksTdgi_8Lqf"], "attributes": {}}
+        ]},
+        {"tag": "div", "classes": ["lF_M7QiFB0ukHWpMfQde"], "attributes": {"data-btm": "d089038"}, "children": [
+          {"tag": "span", "classes": [], "attributes": {}}
+        ]}
+      ]
+    }
+  },
+
+  "redesign_2026_06": {
+    "note": "What the emulator renders today. Semantic-prefix+hash classes (conversationCard-/nameLine-/newNameContent-/msgContent-), stable data-qa-id on the row. This is the layout the June redesign introduced; the old hashed wrappers are gone.",
+    "row": {
+      "tag": "div",
+      "classes": ["conversationCard-ePRNJi", "newConversationCard-c5qnW3", "needReply-JehIyj"],
+      "attributes": {"data-btm-id": "a9034.b39122.c2622.conv", "data-kora": "conversation", "data-qa-id": "qa-conversation-chat-item", "data-cid": "", "data-seq": ""},
+      "children": [
+        {"tag": "div", "classes": ["avatarContainer-t7pXDD", "newAvatarContainer-zBZQl8"], "children": [
+          {"tag": "span", "classes": ["auxo-badge", "auxo-badge-top-right"], "children": [
+            {"tag": "img", "classes": ["newAvatar-zHhRmT", "newFrameAvatar-FTwOpk", "zeVHjNO_lFGbJlreiSda"], "attributes": {"src": "", "alt": ""}},
+            {"tag": "sup", "classes": [], "attributes": {}}
+          ]}
+        ]},
+        {"tag": "div", "classes": ["cardContent-t1Fuqy"], "children": [
+          {"tag": "div", "classes": ["nameLine-Q8PQwE"], "attributes": {"title": ""}, "children": [
+            {"tag": "span", "classes": ["newNameContent-DfqCyb", "newFrameNameContent-IViCcL", "Jv6FtqUv5VoYARd2pp4y"], "attributes": {"data-qa-id": "qa-conversation-nickname"}},
+            {"tag": "div", "classes": ["userLabelWrap-qkD0UF"], "children": [
+              {"tag": "div", "classes": ["userLabel-jVrDgb"], "children": [{"tag": "span", "classes": [], "attributes": {}}]}
+            ]},
+            {"tag": "div", "classes": [], "children": [
+              {"tag": "div", "classes": ["timerParticular-XjA0_t", "CEnLM8MEGksTdgi_8Lqf"], "attributes": {}}
+            ]}
+          ]},
+          {"tag": "div", "classes": ["content-VWj6Mr", "newFrameContent-q7nkzA", "newContent-5YZgki", "lF_M7QiFB0ukHWpMfQde"], "attributes": {"data-btm": "d089038"}, "children": [
+            {"tag": "div", "classes": ["msgContent-JqEWJs"], "children": [{"tag": "span", "classes": [], "attributes": {}}]},
+            {"tag": "div", "classes": ["cardIcon-Cgx51x"], "attributes": {}}
+          ]}
+        ]}
+      ]
+    }
+  },
+
+  "rebuild_2026_09": {
+    "note": "The September rebuild (ws193): the nickname qa-id is no longer emitted on rebuilt frames, and the build hashes rotated. This is the change that broke the click-open and verify readers while the scan still worked.",
+    "row": {
+      "tag": "div",
+      "classes": ["conversationCard-8Kq2Wn", "newConversationCard-Lp4xTz", "needReply-Rm7Yb1"],
+      "attributes": {"data-btm-id": "a9034.b39122.c2622.conv", "data-kora": "conversation", "data-qa-id": "qa-conversation-chat-item", "data-cid": "", "data-seq": ""},
+      "children": [
+        {"tag": "div", "classes": ["avatarContainer-Qw8Ln2", "newAvatarContainer-Vt3Kp9"], "children": [
+          {"tag": "span", "classes": ["auxo-badge", "auxo-badge-top-right"], "children": [
+            {"tag": "img", "classes": ["newAvatar-Zx4Mn8", "newFrameAvatar-Bq9Wt2"], "attributes": {"src": "", "alt": ""}},
+            {"tag": "sup", "classes": [], "attributes": {}}
+          ]}
+        ]},
+        {"tag": "div", "classes": ["cardContent-Hj5Rk3"], "children": [
+          {"tag": "div", "classes": ["nameLine-Nv8Qc4"], "attributes": {"title": ""}, "children": [
+            {"tag": "span", "classes": ["newNameContent-Yt2Bm7", "newFrameNameContent-Ld9Xs5"], "attributes": {}},
+            {"tag": "div", "classes": ["userLabelWrap-Pk3Zn6"], "children": [
+              {"tag": "div", "classes": ["userLabel-Wq7Vb2"], "children": [{"tag": "span", "classes": [], "attributes": {}}]}
+            ]},
+            {"tag": "div", "classes": [], "children": [
+              {"tag": "div", "classes": ["timerParticular-Cx4Jt8"], "attributes": {}}
+            ]}
+          ]},
+          {"tag": "div", "classes": ["content-Mz6Fq1", "newFrameContent-Rt8Yw3", "newContent-Kb5Nd9"], "attributes": {"data-btm": "d089038"}, "children": [
+            {"tag": "div", "classes": ["msgContent-Gv2Hp7"], "children": [{"tag": "span", "classes": [], "attributes": {}}]},
+            {"tag": "div", "classes": ["cardIcon-Ts9Lm4"], "attributes": {}}
+          ]}
+        ]}
+      ]
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "results_file": "C:\\Users\\songc\\PycharmProjects\\eCan.ai\\customer_logs\\emulation\\results\\blackout_fixed_1780540527.json",
+  "log_file": "C:\\Users\\songc\\PycharmProjects\\eCan.ai\\runlogs\\eCan.log",
+  "queries": 6,
+  "detected": 0,
+  "undetected": 6,
+  "detection_lag_s": {
+    "median": null,
+    "p90": null,
+    "max": null,
+    "mean": null
+  },
+  "over_35s": 0,
+  "hb": {
+    "count": 0,
+    "starvation_windows": 0,
+    "max_starvation_s": 0,
+    "no_match_polls": 0
+  },
+  "high_lag_in_starvation": 0,
+  "high_lag_in_no_match": 0,
+  "rows": [
+    {
+      "cust": "客户05",
+      "text": "怎么申请售后？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户01",
+      "text": "客服几点上班？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户05",
+      "text": "适合什么季节穿？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户02",
+      "text": "在吗在吗？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户01",
+      "text": "有更详细的尺码表吗？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户06",
+      "text": "客服几点上班？",
+      "lag_s": null,
+      "detected": false
+    }
+  ]
+}

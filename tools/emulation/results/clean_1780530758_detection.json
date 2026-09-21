@@ -1,0 +1,308 @@
+{
+  "results_file": "C:\\Users\\songc\\PycharmProjects\\eCan.ai\\customer_logs\\emulation\\results\\clean_1780530758.json",
+  "log_file": "C:\\Users\\songc\\PycharmProjects\\eCan.ai\\runlogs\\eCan.log",
+  "queries": 40,
+  "detected": 22,
+  "undetected": 18,
+  "detection_lag_s": {
+    "median": 96.4,
+    "p90": 176.4,
+    "max": 204.3,
+    "mean": 93.0
+  },
+  "over_35s": 18,
+  "hb": {
+    "count": 11,
+    "starvation_windows": 0,
+    "max_starvation_s": 0,
+    "no_match_polls": 0
+  },
+  "high_lag_in_starvation": 0,
+  "high_lag_in_no_match": 0,
+  "rows": [
+    {
+      "cust": "客户06",
+      "text": "有更详细的尺码表吗？",
+      "lag_s": 110.4,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户05",
+      "text": "新疆发货要加多少运费？",
+      "lag_s": 0.8,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户01",
+      "text": "童装呢？童装的尺码表？",
+      "lag_s": 176.4,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户04",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "lag_s": 51.5,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户02",
+      "text": "肩宽是多少？",
+      "lag_s": 104.8,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户03",
+      "text": "能不能便宜点？",
+      "lag_s": 0.9,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户03",
+      "text": "袖长大概是多少？",
+      "lag_s": 31.6,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户05",
+      "text": "有更详细的尺码表吗？",
+      "lag_s": 0.9,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户05",
+      "text": "袖长大概是多少？",
+      "lag_s": 54.0,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户04",
+      "text": "能不能便宜点？",
+      "lag_s": 59.5,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户06",
+      "text": "那L码呢？",
+      "lag_s": 96.4,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户03",
+      "text": "那L码呢？",
+      "lag_s": 77.1,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户01",
+      "text": "袖长大概是多少？",
+      "lag_s": 204.3,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户04",
+      "text": "童装呢？童装的尺码表？",
+      "lag_s": 53.9,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户06",
+      "text": "男鞋42码对应美国码是多少？",
+      "lag_s": 171.5,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户02",
+      "text": "有红色的吗？",
+      "lag_s": 112.2,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户05",
+      "text": "肩宽是多少？",
+      "lag_s": 74.7,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户04",
+      "text": "袖长大概是多少？",
+      "lag_s": 80.6,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户02",
+      "text": "男鞋42码脚长多少？",
+      "lag_s": 198.6,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户03",
+      "text": "肩宽是多少？",
+      "lag_s": 110.4,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户03",
+      "text": "肩宽是多少？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户05",
+      "text": "胸围呢？腰围呢？",
+      "lag_s": 144.9,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户06",
+      "text": "弹力面料的呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户06",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户01",
+      "text": "你好在吗？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户05",
+      "text": "牛仔裤是高腰还是低腰？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户04",
+      "text": "适合什么季节穿？",
+      "lag_s": 130.5,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户02",
+      "text": "袖长大概是多少？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户04",
+      "text": "牛仔裤是高腰还是低腰？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户05",
+      "text": "那L码呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户02",
+      "text": "M码呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户06",
+      "text": "弹力面料的呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户02",
+      "text": "如果偏胖建议怎么选？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户03",
+      "text": "弹力面料的呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户06",
+      "text": "那L码呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户06",
+      "text": "面料含棉量呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户01",
+      "text": "如果偏胖建议怎么选？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户05",
+      "text": "如果偏胖建议怎么选？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户04",
+      "text": "如果偏胖建议怎么选？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户02",
+      "text": "有别的颜色吗？",
+      "lag_s": null,
+      "detected": false
+    }
+  ]
+}

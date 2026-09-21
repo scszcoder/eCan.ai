@@ -165,3 +165,12 @@ browser_use_settings.json
 # and the per-profile CDP port file written inside one.
 ecan_browser_data/
 **/.ecan_cdp.json
+
+# Site-change journal: machine-local forensic history (3-year retention).
+# Structural only -- no customer content by construction -- but it is per-machine
+# observation data and belongs to the install, not the repo.
+drift_journal/
+**/drift_journal/
+known_shapes.json
+resolver_guard.json
+**/resolver_guard.json

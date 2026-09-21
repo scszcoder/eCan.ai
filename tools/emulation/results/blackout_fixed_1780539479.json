@@ -1,0 +1,883 @@
+{
+  "run_id": "blackout_fixed_1780539479",
+  "label": "blackout_fixed",
+  "started_at": 1780539479354,
+  "computed_at": 1780539839586,
+  "customers": 6,
+  "total_queries": 102,
+  "metrics": {
+    "answered_queries": 0,
+    "placeholder_late": 4,
+    "duplicate_responses": 0,
+    "placeholder_after_real": 0
+  },
+  "event_count": 102,
+  "per_customer": {
+    "S001": {
+      "queries": 16,
+      "answered": 0,
+      "late": 0,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 16
+    },
+    "S005": {
+      "queries": 17,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 17
+    },
+    "S004": {
+      "queries": 18,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 18
+    },
+    "S002": {
+      "queries": 18,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 18
+    },
+    "S003": {
+      "queries": 16,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 16
+    },
+    "S006": {
+      "queries": 17,
+      "answered": 0,
+      "late": 0,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 17
+    }
+  },
+  "events": [
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780539485006
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780539488787
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "胸围怎么量？",
+      "is_placeholder": false,
+      "ts": 1780539492862
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "女装M码适合多高的人？",
+      "is_placeholder": false,
+      "ts": 1780539498306
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780539502364
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780539506369
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "能不能便宜点？",
+      "is_placeholder": false,
+      "ts": 1780539510007
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780539514623
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "男士32码裤子腰围多少厘米？",
+      "is_placeholder": false,
+      "ts": 1780539515574
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780539519360
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780539523319
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780539528936
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780539532222
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "签收后发现破损怎么办？",
+      "is_placeholder": false,
+      "ts": 1780539532442
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780539535953
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780539540323
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780539545376
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780539546572
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780539548973
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "胸围怎么量？",
+      "is_placeholder": false,
+      "ts": 1780539549391
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780539552985
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780539558561
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有红色的吗？",
+      "is_placeholder": false,
+      "ts": 1780539561808
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780539563185
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780539565986
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "女士牛仔裤27码腰围是多少？",
+      "is_placeholder": false,
+      "ts": 1780539566885
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780539571424
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780539575188
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780539576572
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780539578395
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780539580212
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "定制商品可以退吗？",
+      "is_placeholder": false,
+      "ts": 1780539583290
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780539583600
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "有红色的吗？",
+      "is_placeholder": false,
+      "ts": 1780539589206
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780539592246
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780539593398
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780539596155
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780539597267
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "有红色的吗？",
+      "is_placeholder": false,
+      "ts": 1780539600802
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780539604993
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780539605646
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780539609180
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780539610818
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780539613354
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780539614224
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780539619512
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有红色的吗？",
+      "is_placeholder": false,
+      "ts": 1780539622095
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780539623134
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780539625129
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780539627363
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780539631232
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780539634270
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780539635642
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780539639411
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780539640268
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780539643905
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780539644029
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780539648317
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780539652293
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780539652743
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780539656111
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780539658354
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780539661272
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780539665417
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780539666127
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780539669317
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780539669917
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780539673008
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780539674815
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780539679715
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780539681421
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "有红色的吗？",
+      "is_placeholder": false,
+      "ts": 1780539683408
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780539685214
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780539687809
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780539691327
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780539695858
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780539699410
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780539700776
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780539703807
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780539704090
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780539708694
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "童装呢？童装的尺码表？",
+      "is_placeholder": false,
+      "ts": 1780539713482
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "那L码呢？",
+      "is_placeholder": false,
+      "ts": 1780539715956
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "肩宽是多少？",
+      "is_placeholder": false,
+      "ts": 1780539717218
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780539720917
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780539726370
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780539730810
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "袖长大概是多少？",
+      "is_placeholder": false,
+      "ts": 1780539734230
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "M码呢？",
+      "is_placeholder": false,
+      "ts": 1780539734365
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780539739817
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "面料含棉量呢？",
+      "is_placeholder": false,
+      "ts": 1780539743508
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780539748236
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780539750649
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780539755689
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "刚才那个尺码是平铺测量吗？",
+      "is_placeholder": false,
+      "ts": 1780539759579
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "有别的颜色吗？",
+      "is_placeholder": false,
+      "ts": 1780539764137
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780539773420
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780539777359
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "如果偏胖建议怎么选？",
+      "is_placeholder": false,
+      "ts": 1780539790259
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "弹力面料的呢？",
+      "is_placeholder": false,
+      "ts": 1780539794205
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "牛仔裤是高腰还是低腰？",
+      "is_placeholder": false,
+      "ts": 1780539807249
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "胸围呢？腰围呢？",
+      "is_placeholder": false,
+      "ts": 1780539823621
+    }
+  ]
+}

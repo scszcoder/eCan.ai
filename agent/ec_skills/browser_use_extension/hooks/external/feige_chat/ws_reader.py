@@ -17,7 +17,10 @@ Schema reverse-engineered from real captured frames (customer_logs/eCan_feigecap
         talk_id          : conversation id
         pigeon_cid       : pigeon conversation id
         type             : 'text' / ...
-System events arrive as JSON at frame .8 (e.g. "用户已等待超30秒").
+System events (e.g. "用户已等待超30秒", "客服超时未回复用户，系统关闭会话")
+arrive as JSON inside STRING fields at varying depths -- NOT reliably at .8,
+despite what this file used to claim. See ``report_system_events`` and
+``signals.py``; they are the only labelled failure data we get.
 
 Self-contained (no app deps) so it can be unit-tested offline:
   python ws_reader.py customer_logs/eCan_feigecap.jsonl
@@ -165,6 +168,66 @@ def _card_text(kv: dict) -> str:
     return "[商品卡片] " + title + (f" 商品ID:{goods_id}" if goods_id else "")
 
 
+from . import ws_protocol_watch as _ws_protocol_watch
+
+# Cap the walk. A frame we do not control must not be able to cost unbounded
+# work on the decode path; the real capture averaged ~40 strings per frame.
+_MAX_SIGNAL_STRINGS = 400
+_MAX_SIGNAL_DEPTH = 10
+
+
+def _walk_strings(dec, out: list, depth: int = 0) -> None:
+    """Collect every string value in a decoded frame, at any depth.
+
+    The module docstring above says system events arrive "as JSON at frame .8".
+    Against a real capture that finds NOTHING: the notices sit in string fields
+    at varying depths. Hence the full walk rather than a fixed path -- and
+    hence the warning not to trust the documented layout for new signals.
+    """
+    if depth > _MAX_SIGNAL_DEPTH or not dec or len(out) >= _MAX_SIGNAL_STRINGS:
+        return
+    for (_f, _wt, val) in dec:
+        if not isinstance(val, tuple):
+            continue
+        if val[0] == "str":
+            out.append(val[1])
+            if len(out) >= _MAX_SIGNAL_STRINGS:
+                return
+        elif val[0] == "msg":
+            _walk_strings(val[1], out, depth + 1)
+
+
+def system_event_strings(frame_bytes: bytes) -> list[str]:
+    """Every string in a frame, for system-event matching. Never raises."""
+    try:
+        found: list[str] = []
+        _walk_strings(decode(frame_bytes) or [], found)
+        return found
+    except Exception:
+        return []
+
+
+def report_system_events(frame_bytes: bytes) -> list[str]:
+    """Trip a declared signal for each system-event notice in this frame.
+
+    This is the channel the decoder used to drop on the floor. It is the only
+    place the site tells us outright that we failed a customer -- see
+    ``signals.py`` -- so it is read before anything is parsed out of the frame.
+
+    Returns the signal names that fired. Never raises.
+    """
+    fired: list[str] = []
+    try:
+        from . import signals as _signals
+        for text in system_event_strings(frame_bytes):
+            name = _signals.report_system_event(text)
+            if name:
+                fired.append(name)
+    except Exception:
+        pass
+    return fired
+
+
 def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
     """Decode one WS frame -> list of CUSTOMER (sender_role=='1') text messages."""
     dec = decode(frame_bytes)
@@ -190,6 +253,15 @@ def extract_messages(frame_bytes: bytes) -> list[CustomerMessage]:
                         continue
                     text = _str((_all(msg, 8) or [None])[0])
                     kv = _kvmap(msg)
+                    # Watch WHICH named fields the backend is still populating.
+                    # A rename or a silently-emptied field does not throw here
+                    # -- it surfaces layers downstream as a nameless customer
+                    # or a misrouted reply (ws192/ws193). Set update only, no
+                    # I/O; see ws_protocol_watch.
+                    try:
+                        _ws_protocol_watch.observe(kv)
+                    except Exception:
+                        pass
                     msg_type = str(kv.get("type") or "")
                     # ws025: a product card the CUSTOMER shares carries only the
                     # literal '[商品]' placeholder (or nothing) in field 8 and no

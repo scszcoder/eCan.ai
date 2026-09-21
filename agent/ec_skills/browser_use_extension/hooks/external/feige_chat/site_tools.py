@@ -32,6 +32,7 @@ from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.sidebar_preview_js import (
     ROW_PREVIEW_FALLBACK_JS as _ROW_PREVIEW_FALLBACK_JS,
     ROW_NAME_JS as _ROW_NAME_JS,
+    SIDEBAR_SHAPE_JS as _SIDEBAR_SHAPE_JS,
 )
 
 from agent.ec_skills.browser_use_extension.extension_tools_service import (
@@ -47,6 +48,11 @@ from agent.ec_skills.browser_use_extension.extension_tools_service import (
     custom_controller,
     live_chat_cdp_health_cooldown_remaining,
 )
+
+
+# Owner label this bundle reports under to platform-side, site-agnostic
+# bookkeeping (element_targeting). The platform never interprets it.
+_SITE_LABEL = "feige_chat"
 
 
 # ── Action models (moved from extension_tools_views.py) ──────────────────────
@@ -149,7 +155,8 @@ _FEIGE_LAST_MSG = '[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span'
 _FEIGE_TIMESTAMP = '[class*="timerParticular"], .CEnLM8MEGksTdgi_8Lqf'
 _FEIGE_UNREAD = '[class*="badge-count"], .rxAvaVFJHvpEGMc1ejm1'
 
-_FEIGE_LIST_SESSIONS_JS = _ROW_NAME_JS + ";\n" + r"""
+_FEIGE_LIST_SESSIONS_JS = (_ROW_NAME_JS + _SIDEBAR_SHAPE_JS + ";\n"
+                           + _ROW_PREVIEW_FALLBACK_JS + ";\n" + r"""
 (function(includeRead, maxSessions) {
   var __rebuiltFrame = null;
   function rowIsCurrent(row) {
@@ -183,6 +190,11 @@ _FEIGE_LIST_SESSIONS_JS = _ROW_NAME_JS + ";\n" + r"""
     var name = __ecanRowName(el);
     var lastMsgEl = el.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span');
     var lastMsg = lastMsgEl ? lastMsgEl.textContent.trim() : '';
+    // ws189 reached three of the four preview readers; this one was missed.
+    // .lF_M7Qi... is documented dead on the rebuilt frame, so without the
+    // structural leaf-walk this scan returns an empty preview on exactly the
+    // frames that have already gone wrong.
+    if (!lastMsg) lastMsg = __ecanRowPreviewFallback(el, name);
     var tsEl = el.querySelector('[class*="timerParticular"], .CEnLM8MEGksTdgi_8Lqf');
     var ts = tsEl ? tsEl.textContent.trim() : '';
     // Detect unread count and tags from .rxAvaVFJHvpEGMc1ejm1
@@ -216,9 +228,42 @@ _FEIGE_LIST_SESSIONS_JS = _ROW_NAME_JS + ";\n" + r"""
     if (!includeRead && unread === 0 && tags.length === 0) continue;
     results.push({ index: i, name: name, last_message: lastMsg, timestamp: ts, unread: unread, tags: tags });
   }
-  return JSON.stringify({ sessions: results, total_visible: items.length });
+  // Phase 1 (docs/SELF_HEALING_ROADMAP.md): hand back WHICH name parser
+  // resolved each row, tallied in-page so it costs no extra DOM pass and
+  // no second CDP round trip on the hot path. Drained per scan.
+  var __nameStrategies = {};
+  try { __nameStrategies = window.__ecanRowNameTally || {};
+        window.__ecanRowNameTally = {}; } catch(e) {}
+  // What the sidebar is BUILT from, this scan. Cheap -- one pass over rows we
+  // already hold -- and it moves the moment the site ships a change, rather
+  // than waiting until a parser has already started failing.
+  var __shape = null;
+  try { __shape = __ecanSidebarShape(items, MONITOR_ANCHORS); } catch(e) {}
+  return JSON.stringify({ sessions: results, total_visible: items.length,
+                          name_strategies: __nameStrategies,
+                          sidebar_shape: __shape });
 })(INCLUDE_READ, MAX_SESSIONS);
-"""
+""")
+
+
+def _monitor_anchors_json() -> str:
+    """The active DOM monitors' selectors, as a JS object literal.
+
+    Bounded and JSON-encoded: these strings come from user-editable skill
+    config, so they are never interpolated raw, and a malformed one can only
+    fail its own `querySelector` (each probe is individually guarded).
+    """
+    try:
+        import json as _json
+        from agent.ec_skills.browser_use_extension import event_monitor
+        selectors = event_monitor.selectors_in_use() or {}
+        if not selectors:
+            return "null"
+        trimmed = {str(k)[:40]: str(v)[:200]
+                   for k, v in list(selectors.items())[:24]}
+        return _json.dumps(trimmed, ensure_ascii=False)
+    except Exception:
+        return "null"
 
 
 @custom_controller.action(
@@ -229,6 +274,11 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
     try:
         js = _FEIGE_LIST_SESSIONS_JS.replace("INCLUDE_READ", "true" if params.include_read else "false")
         js = js.replace("MAX_SESSIONS", str(params.max_sessions))
+        # Watch what the DOM monitor is CONFIGURED with, not just the anchors
+        # hand-listed in the JS. Those live in skill config the user can edit,
+        # so the hand list cannot know about them — and the monitor's own
+        # selectors are exactly the ones a site change breaks.
+        js = js.replace("MONITOR_ANCHORS", _monitor_anchors_json())
         # Read-only sidebar scrape against the resolved Feige tab, focus=False.
         # A timeout here must not freeze sends or invalidate the shared
         # session (read_only=True) — the agent can simply retry the scan.
@@ -247,6 +297,56 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
             data = _json.loads(data)
         sessions = data.get("sessions", []) if isinstance(data, dict) else []
         total = data.get("total_visible", 0) if isinstance(data, dict) else 0
+        # Phase 1: report which name parser actually carried this scan. Pure
+        # measurement — see docs/SELF_HEALING_ROADMAP.md. The platform module
+        # knows nothing about this site; it just counts what it is told.
+        if isinstance(data, dict) and data.get("name_strategies"):
+            try:
+                from agent.ec_skills.browser_use_extension import element_targeting
+                element_targeting.record_from_js_tally(
+                    _SITE_LABEL, "sidebar_row_name", data.get("name_strategies"),
+                    detail=f"rows={len(sessions)}",
+                )
+            except Exception:
+                pass
+        # Separately: what the sidebar is built from. The tally above says which
+        # parser won; this says whether the page itself moved. When it has, the
+        # diff goes to the permanent change journal -- not to the run log, which
+        # is gone by the time anyone asks what the old layout looked like.
+        # Only recorded on a scan that actually saw rows: an empty sidebar (not
+        # logged in, wrong tab, frame still building) is not a site change, and
+        # letting it adopt an empty shape would make the NEXT healthy scan look
+        # like one.
+        if isinstance(data, dict) and data.get("sidebar_shape") and sessions:
+            try:
+                from agent.ec_skills.browser_use_extension import drift_journal
+                # What this build expected. Without it a fresh install adopts
+                # whatever it first sees as normal, so the first machine to meet
+                # a redesign never reports one.
+                from . import baseline as _baseline
+                _baseline.register()
+                shape = dict(data.get("sidebar_shape") or {})
+                # The deploy marker rides its own key. It changes on EVERY
+                # site deploy, structural or not, so mixing it into the
+                # structural record would make that record cry wolf. Kept
+                # apart, it answers the question the structural record cannot:
+                # when does this site actually ship? Three years of it is a
+                # deploy calendar, and a change here landing on the same day as
+                # a parser collapse is the correlation worth having.
+                marker = shape.pop("build_marker", None)
+                drift_journal.note_shape(
+                    _SITE_LABEL, "sidebar_row", shape,
+                    kind="dom_shape_change",
+                    context={"rows_returned": len(sessions),
+                             "total_visible": int(total or 0)},
+                )
+                if marker:
+                    drift_journal.note_shape(
+                        _SITE_LABEL, "sidebar_build_marker", marker,
+                        kind="site_deploy",
+                    )
+            except Exception:
+                pass
         logger.info(f"[Feige] Listed sessions: visible={total}, returned={len(sessions)}")
         return _json_result({"sessions": sessions, "total_visible": total})
     except Exception as e:

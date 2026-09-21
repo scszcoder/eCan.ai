@@ -1,0 +1,339 @@
+{
+  "run_id": "interval_250_clean_20260602_194541",
+  "label": "interval_250_clean",
+  "started_at": 1780455045062,
+  "computed_at": 1780455225076,
+  "customers": 20,
+  "total_queries": 20,
+  "metrics": {
+    "answered_queries": 0,
+    "placeholder_late": 20,
+    "duplicate_responses": 0,
+    "placeholder_after_real": 0
+  },
+  "event_count": 20,
+  "per_customer": {
+    "S009": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S003": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S016": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S008": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S019": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S020": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S012": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S014": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S004": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S005": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S007": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S018": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S013": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S006": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S002": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S017": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S011": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S015": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S010": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    },
+    "S001": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    }
+  },
+  "events": [
+    {
+      "mtype": "q_sent",
+      "cid": "S009",
+      "cust": "客户09",
+      "text": "DHL寄到欧洲多久能到？",
+      "is_placeholder": false,
+      "ts": 1780455045506
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S003",
+      "cust": "客户03",
+      "text": "客服几点上班？",
+      "is_placeholder": false,
+      "ts": 1780455045822
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S016",
+      "cust": "客户16",
+      "text": "女装M码适合多高的人？",
+      "is_placeholder": false,
+      "ts": 1780455046036
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S008",
+      "cust": "客户08",
+      "text": "客服几点上班？",
+      "is_placeholder": false,
+      "ts": 1780455046312
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S019",
+      "cust": "客户19",
+      "text": "生鲜出问题多久内联系客服？",
+      "is_placeholder": false,
+      "ts": 1780455046596
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S020",
+      "cust": "客户20",
+      "text": "弹力面料应该怎么选码？",
+      "is_placeholder": false,
+      "ts": 1780455047027
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S012",
+      "cust": "客户12",
+      "text": "定制商品可以退吗？",
+      "is_placeholder": false,
+      "ts": 1780455047285
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S014",
+      "cust": "客户14",
+      "text": "有优惠券吗？",
+      "is_placeholder": false,
+      "ts": 1780455047596
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S004",
+      "cust": "客户04",
+      "text": "国际订单清关延误怎么办？",
+      "is_placeholder": false,
+      "ts": 1780455047837
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "偏远地区用什么快递？",
+      "is_placeholder": false,
+      "ts": 1780455048096
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S007",
+      "cust": "客户07",
+      "text": "双11大促发货要多久？",
+      "is_placeholder": false,
+      "ts": 1780455048347
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S018",
+      "cust": "客户18",
+      "text": "能不能便宜点？",
+      "is_placeholder": false,
+      "ts": 1780455048578
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S013",
+      "cust": "客户13",
+      "text": "能不能便宜点？",
+      "is_placeholder": false,
+      "ts": 1780455048879
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "婴儿66码是多大月龄？",
+      "is_placeholder": false,
+      "ts": 1780455049046
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "能不能便宜点？",
+      "is_placeholder": false,
+      "ts": 1780455049350
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S017",
+      "cust": "客户17",
+      "text": "男鞋42码对应美国码是多少？",
+      "is_placeholder": false,
+      "ts": 1780455049577
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S011",
+      "cust": "客户11",
+      "text": "腰围怎么测量？",
+      "is_placeholder": false,
+      "ts": 1780455049809
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S015",
+      "cust": "客户15",
+      "text": "偏远地区用什么快递？",
+      "is_placeholder": false,
+      "ts": 1780455050090
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S010",
+      "cust": "客户10",
+      "text": "你好在吗？",
+      "is_placeholder": false,
+      "ts": 1780455050318
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "生鲜出问题多久内联系客服？",
+      "is_placeholder": false,
+      "ts": 1780455050559
+    }
+  ]
+}

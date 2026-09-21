@@ -1,0 +1,58 @@
+{
+  "dom": {
+    "churnEnabled": true,
+    "churnIntervalMs": 1000,
+    "extraMessageRows": 240,
+    "scrapeStall": {
+      "baseMs": 120,
+      "capMs": 30000,
+      "enabled": false,
+      "perConvoMs": 500,
+      "perMsgMs": 20
+    },
+    "selectorDelayMs": 12,
+    "systemRows": 12
+  },
+  "enabled": true,
+  "focus": {
+    "churnEnabled": true,
+    "removeComposeDuringSend": false,
+    "removeComposeMs": 1200,
+    "rerenderDuringSend": true,
+    "switchIntervalMs": 1500,
+    "switchProbability": 0.18
+  },
+  "followUp": {
+    "intervalMs": 25000,
+    "rounds": 0
+  },
+  "harness": {
+    "cdpUseDelayMs": 7000,
+    "cdpUseLateResponseMs": 7000,
+    "cdpUseNeverRespond": false,
+    "fakeRuntimeDelayMs": 7000,
+    "fakeRuntimeNeverResolve": false
+  },
+  "llmFault": {
+    "errorMode": "429",
+    "inject429Probability": 0.0
+  },
+  "preset": "realistic_site",
+  "probability": 0.55,
+  "ragFault": {
+    "hangSeconds": 30,
+    "injectProbability": 0.0,
+    "mode": "hang"
+  },
+  "renderer": {
+    "autoStopAfterMs": 180000,
+    "blockMs": 450,
+    "intervalMs": 1800,
+    "stallEnabled": true
+  },
+  "send": {
+    "blockClickMs": 1200,
+    "delayAgentAppendMs": 1800,
+    "neverAppendAgent": false
+  }
+}

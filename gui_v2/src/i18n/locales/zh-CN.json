@@ -731,6 +731,7 @@
       "readiness_monitor": "DOM 监控",
       "readiness_dom": "DOM 元素",
       "readiness_detection": "检测通道",
+      "readiness_targeting": "元素定位",
       "readiness_updated": "更新于",
       "noTaskAssigned": "暂无分配任务",
       "enableAgent": "启用智能体",

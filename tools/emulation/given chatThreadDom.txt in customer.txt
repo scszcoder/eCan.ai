@@ -1,0 +1,127 @@
+given chatThreadDom.txt in customer_logs, as well other dom samples dom2.txt dom3.txt dom4.txt, could you help make a feige emulation website (both front-end and backend)  and put it in customer_logs/emulation/ so that I can test my app locally first without having to build, and have my customer download and run test and ftp over the logs for analysis? also for ease of debug....   The key thing to emulate is here the same dom mutation as the real web site. so that my agent app's browser automation node's setup is as is, and as chat messages come, the dom mutation event monitor would fire and response message would kick in etc.
+
+
+function-wise, I want to create the following:
+the single web page is divided into 3 horizontally placed panels, the left most and the middle panel would emulate feige's as much as possible, the right panel would contains a few vertically placed test buttons. 
+The left panel:
+
+this would contain 2 tabs: one is 当前会话， the other is 最近联系 
+for the 当前会话(# of current happening chats) tab:
+on top of this tab, its a row of 3 columns:
+列表设置, 等待时长, 已分组>   
+clicking anywhere on this row would toggle show/hide a pop up widget:
+==================================
+列表设置(title label)
+> 消息排序
+
+radio button 等待时长
+当前：等待久优先
+
+radio button 消息发送时间
+默认：最近优先
+
+radio button 接入时间
+默认：最近优先
+
+
+> 消息分组
+
+
+radio button 分组 (default selected)
+
+
+radio button 不分组
+
+
+> 消费者标识
+
+
+radio button显示 (default selected)
+
+
+radio button不显示
+
+
+> 关闭会话后跳转至
+
+radio button等待最长时长会话 (default selected)
+
+radio button列表的下一个会话
+====================================
+below the settings row, there are two list sections:
+3分钟内待回复（# of customers chats）（expand/collapse icon）
+已超时待回复（# of customers chats）（expand/collapse icon）
+
+if a chat is unanswered for more than 3 minutes, it would be moved from 3分钟内待回复 list to 已超时待回复 list.
+sc 重复来访     （ticking time unanswered, update per second within 3 minute, update per minutes after 3 minuites）
+last message (either customer/service agent/system) could be cut off due to length limit, 
+
+
+for the 最近联系  tab:
+
+here there are the following sections, each is a expandable/collapsible list:
+系统通知    - default collapsed state
+最近搜索（0）- default collapsed state
+星标用户（0/200）- default collapsed state
+今日咨询未下单（0）- default collapsed state
+今日咨询下单未付款（0）- default collapsed state
+最近联系人- default expanded state
+  here it shows a list of past chatting customers listed in chronical order (most recent chat on top) of the last chat msg time stamp. each item has:
+ customer name, 重复来访， unanswered time （if this is an currently ongoing chat）/last msg timestamp （date only)
+  last message. (could be either customer, service agent, system message, could be cut off due to widget length)
+  click on any of this items would switch the whole page middle panel to the chat thread with this customer. 
+
+
+The middle panel:
+this is just a chat thread with a selected customer.
+on top is customer name, then below the customer name is the scrollable chat history panel., then the chat toolbar, then at the bottom is the chat text input box (for the customer to key in response, with a submit button at the bottom right corner).
+
+For msgs in chat history panel:
+1) customer msgs are left aligned,  store messages are right aligned, system notification messages are grayed chars and center aligned.
+2) chat messages are divided into dialogs, at the beginning of a dialog is a center aligned time stamp (in this format: 4月14日 14:23), then the messages.
+3) each customer messages has a gray time stamp next to its right in the format of hh:mm:ss
+3) each customer service agent's message has a gray time stamp next to its left in the format of hh:mm:ss, below this time stamp, there is also a status string showing "未读"/"已读"
+4) if customer sends a "转人工" message, there will be a gray center aligned system notification message showing "客服钛斯特的小店接入", and immediately following this notification is a 系统消息 "您好，现在是人工客服为您服务。为了更高效地帮您解决问题，我先查阅一下您和智能客服的对话记录，请您稍等片刻～"
+
+if a dialog seems stalled for a certain period of time, there are 2 more gray center aligned system notifications would show:
+
+昨天 15:36 - center aligned.
+当前会话已长时间未回复，若后续仍未回复，平台可能主动介入处理。 - center aligned. this would clear 当前会话 tab, and re-enter the 智能客服 auto answer mode. 
+昨天 21:34  - center aligned.
+
+客服超时未回复用户，系统关闭会话  - center aligned. this would wrap up a dialog within the thread.
+
+
+The right panel:
+
+1st button is "A客户发消息", this button emulate 1 customer （客户A) send in request （from a random pool of chat questions). 
+2nd button is "A客户请求人工"， this button emulate  1 customer（客户A) send in "请转人工" request
+3rd button is "A客户超时"， this button emulate  1 customer（客户A) has no activity for a while and auto system message would show "用户超时未回复，系统关闭会话"
+4th button is "A客户超时"， this button emulate  1 customer（客户A) has no activity for a while and auto system message would show "当前会话已长时间未回复，若后续仍未回复，平台可能主动介入处理。"
+
+
+5th button is "B客户发消息", this button emulate 1 customer （客户B) send in request （from a random pool of chat questions). 
+6th button is "B客户请求人工"， this button emulate  1 customer（客户B) send in "请转人工" request
+7th button is "B客户超时"， this button emulate  1 customer（客户B) has no activity for a while and auto system message would show "用户超时未回复，系统关闭会话"
+8th button is "B客户超时"， this button emulate  1 customer（客户B) has no activity for a while and auto system message would show "当前会话已长时间未回复，若后续仍未回复，平台可能主动介入处理。"
+
+9th button is "C客户发消息", this button emulate 1 customer （客户C) send in request （from a random pool of chat questions). 
+10th button is "C客户请求人工"， this button emulate  1 customer（客户C) send in "请转人工" request
+11th button is "C客户超时"， this button emulate  1 customer（客户C) has no activity for a while and auto system message would show "用户超时未回复，系统关闭会话"
+12th button is "C客户超时"， this button emulate  1 customer（客户C) has no activity for a while and auto system message would show "当前会话已长时间未回复，若后续仍未回复，平台可能主动介入处理。"
+
+
+13th button is "清除当前会话”， this would clear 当前会话 tab leave only a grayed "暂无会话中用户" in center of the tab panel
+
+
+backend processing:
+
+backend, when a chat sesssion is idle for a long time, the default service agent  is Feige's smart agent智能客服. 
+智能客服 (the entity that is responding, gray, smaller font, right aligned. )
+亲亲，在哒~很高兴为您服务，请问有什么可以帮您？(standard template 1st greeting message) 
+01:50:32 time stamp (to the left of the message) 
+已读(status, displayed below time stamp)
+抖音电商智能客服发送(gray smaller font, right aligned)
+
+
+

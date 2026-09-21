@@ -9366,6 +9366,51 @@ class TaskRunner(Generic[Context]):
                 )
         except Exception:
             pass
+
+        # Which element-naming strategy actually carried this run. Site-agnostic:
+        # the platform only counts what sites report. Phase 1 of
+        # docs/SELF_HEALING_ROADMAP.md -- the distribution is the evidence for
+        # whether semantic targeting is worth building on.
+        try:
+            from agent.ec_skills.browser_use_extension import element_targeting
+            element_targeting.log_resolution_report(
+                reason=f"task={getattr(task, 'name', '')}"
+            )
+        except Exception:
+            pass
+        # What the site told us about ITSELF during this run -- including,
+        # on a live chat site, whether it closed a conversation because we
+        # never replied. Reported separately from the targeting counters
+        # because it is about outcomes, not about which parser won.
+        try:
+            from agent.ec_skills.browser_use_extension import site_signals
+            site_signals.log_trip_report(
+                reason=f"task={getattr(task, 'name', '')}"
+            )
+        except Exception:
+            pass
+        # What L2 cost, and what it has given up on. Silent when the resolver
+        # was never used, which is the normal case today.
+        try:
+            from agent.ec_skills.browser_use_extension import resolver_guard
+            resolver_guard.log_report(reason=f"task={getattr(task, 'name', '')}")
+        except Exception:
+            pass
+        # Re-evaluate the degraded level: `watching` becomes `degraded` through
+        # time passing, and nothing here runs on a timer.
+        try:
+            from agent.ec_skills.browser_use_extension import degraded_state
+            degraded_state.refresh()
+        except Exception:
+            pass
+        # Which KINDS of descriptor actually last here. Quiet until something
+        # has retired, which is the normal state early on.
+        try:
+            from agent.ec_skills.browser_use_extension import learned_targets
+            learned_targets.log_kind_report(
+                reason=f"task={getattr(task, 'name', '')}")
+        except Exception:
+            pass
     
     def _on_skill_complete(
         self,

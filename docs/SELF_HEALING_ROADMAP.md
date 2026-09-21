@@ -83,6 +83,15 @@ We have a partial L0 already (`extract_dom`, `bu_normalize_page_state`,
 
 ### Phase 1 — Semantic targeting (L1). *The urgent one.*
 
+> **Status 2026-09-19: instrumentation shipped** on branch
+> `feature/semantic-targeting-phase1` (`b08ad241a`). Measurement only; no
+> behaviour change. Awaiting a week of real traffic.
+>
+> Already found without any traffic: `legacy_hashed_wrap` appears
+> **unreachable** — it needs a short `title`, and the ws183 titled scan runs
+> first and accepts exactly that. Kept and ordered last until the counter
+> confirms, rather than deleted on a hunch.
+
 Add `target_text` / `container_hint` / `position_hint` alongside existing
 selectors in the Feige hook bundle. Resolution order: semantic first, selector
 as fallback, and **log which one won**.
@@ -92,8 +101,32 @@ winning more often than selectors, we have evidence for Phase 2 rather than a
 belief.
 
 *Acceptance:* Feige runs unchanged; every element resolution records
-`strategy=semantic|selector|failed`; a week of real traffic gives a baseline.
-No behaviour change.
+`strategy=semantic|selector|failed`; no behaviour change.
+
+**Not a one-week study** (revised 2026-09-19). The event this whole design
+exists for cannot be scheduled -- Feige shipped twice in two months with no
+notice -- so an evidence plan that depends on someone watching during the right
+week is not a plan. The counters run *always*, which buys three things instead:
+
+1. **Dead-branch detection now.** Which of the six parsers still fire at all.
+   `legacy_hashed_wrap` is already suspected unreachable.
+2. **The next redesign is measured automatically**, whenever it lands, with a
+   before/after nobody had to be present for.
+3. **A change detector.** A redesign has a signature: the parser that was
+   resolving nearly every row resolves none. `detect_drift()` reads exactly
+   that and warns `POSSIBLE SITE CHANGE` on the FIRST scan after the change --
+   typically well before a customer is stuck. Today the first signal is a
+   complaint, days late.
+
+**And the hypothesis does not need new traffic — it is already in our history.**
+Both past incidents say the same thing. From `6da0d3e09` (ws193): *"mt062-era
+hashed selectors, **which the latest redesign broke**"*, and the fix put the
+broad/fuzzy readers *first*, keeping the hashed ones as "harmless secondary".
+`b3e7db40e` (ws189) is the same shape for the preview parser. Structural
+selectors died; semantic-ish ones survived; each repair moved semantics
+earlier. That is two real redesigns of evidence, which is why **L2 does not
+need to wait for a third** -- it converts the next one from "stuck customer,
+multi-day repair" into "slower, still working".
 
 *Why first:* it prevents the failure instead of repairing it, needs no new
 vendor, no new model, and is reversible.
@@ -104,6 +137,14 @@ When both semantic and selector resolution fail, don't fail the step. Build the
 indexed table from the live DOM and ask a model to pick an index — the
 `jev-ultrafast` shape. The model returns an integer; we resolve it to a node we
 observed. It cannot invent a selector.
+
+**Use the strongest model available here — Opus 5 / Codex class, not the cheap
+tier.** L2 runs rarely (only when naming has already failed) and it is choosing
+what to click on a live customer's store. A wrong pick is not a slow reply, it
+is the wrong action taken. The economics are the opposite of the hot path: cost
+per call is irrelevant at this frequency, and a mistake is expensive. Same for
+L3, which decides what gets *written back* and therefore what every later run
+inherits -- a bad descriptor learned once is a bug that propagates.
 
 *Acceptance:* a Feige run survives a selector break that would have failed it,
 and says so loudly in the log. Bounded: N resolver calls per run, then fail.
@@ -175,11 +216,52 @@ share a seam.
    succeeded. Agreement is not the metric; **who was right when they disagreed**
    is.
 
-**Run it on Etsy/eBay first, not Feige.** Two reasons, both hard: `api.typesafe.ai`
-is US-hosted, so the CN deployment means latency and customer chat text leaving
-the box (a Section 5 and compliance question, not a technical one); and Feige is
-our most latency-sensitive, most business-critical surface. Prove it where a
-mistake is cheap.
+**Feige is in scope** (decision 2026-09-19). We are still in alpha customer
+piloting, so there is room to learn on the real surface rather than only on a
+proxy for it -- and Feige is where the failure class actually lives.
+
+**The condition is a kill switch, not a staging order.** Jev is very early, so
+it rides along behind a flag that can be flipped off instantly, without a
+build, without a restart:
+
+- `ECAN_JEV_SHADOW=0|1` — off by default; shadow only, never executes
+- flipping to `0` must take effect on the next resolution, not the next run
+- any Jev error, timeout, or malformed answer disables it for the rest of the
+  process and logs once -- it must never be able to slow or break a turn
+
+**On CN residency, and why the proxy is not the answer by itself**
+(revised 2026-09-19): forwarding CN -> AWS -> `api.typesafe.ai` changes *who
+calls the model*, not *what crosses a border*. The page state still leaves the
+CN box; it takes a longer path with an extra intermediary. Adding a hop does
+not reduce a cross-border transfer.
+
+What the proxy genuinely fixes, and is worth doing regardless: the vendor key
+stays server-side instead of on every customer desktop; a CN desktop may not
+reach a US API at all, so proxying can make it *work*; one place to kill it
+globally without a client rollout; one auditable chokepoint.
+
+**What actually settles residency is not sending the content.** L2's decisions
+almost never need it -- choosing which element is the customer-name field is a
+judgement about shape and position, which is exactly the heuristic a site's own
+parser already uses ("short, not a number, not a duration"). So the resolver
+minimises by default: free text is replaced by a description of its SHAPE.
+
+    {"index": 2, "role": "listitem", "text_shape": "short text, 2 words, letters"}
+
+A model can still pick that row over a digits-only badge and a duration-like
+timestamp, and no name, message or order number leaves the machine.
+`ECAN_RESOLVER_SEND_CONTENT=1` opts back in where the data is known to be
+non-personal.
+
+Note this was a real defect, not a hypothetical: the first cut of
+`Candidate.for_prompt()` sent `text` and `nearby` verbatim, which for a sidebar
+row is the customer's name and a message preview.
+
+**On latency:** the extra hop *adds*, it does not save. Jev's 178 ms becomes
+178 ms plus two CN<->AWS round trips. The comparison that matters is
+Jev-via-proxy against strong-LLM-via-proxy, since both pay the same hop. And
+shadow mode need not cost anything at all -- it does not gate execution, so it
+should be fire-and-forget and never awaited on a turn.
 
 **Decide after ~1 week of real traffic:**
 
@@ -193,6 +275,13 @@ mistake is cheap.
 **Kill criteria.** Confidently wrong on high-probability answers; or the CN
 question can't be answered; or agreement is so high it adds nothing over the
 cheap path.
+
+**The `jev-ultrafast` ideas stay regardless of the outcome.** They are
+architecture, not vendor: the indexed action space, a model that returns an
+index rather than a selector, one atomic snapshot per observation, and
+speculative parallel heads. If the Jev bake-off fails, Phase 2's resolver is a
+strong LLM over the same indexed table -- one component swaps, the design does
+not.
 
 **Cost of the experiment is near zero** — `$0.042` per million input tokens
 (vendor-stated), shadow only, no behaviour change, one env flag.
@@ -261,7 +350,12 @@ requires 0.13.x, and `shutdown_browser` is already broken against 0.12's rename.
 **Phase 4 — site knowledge**
 - [ ] `domain-knowledge/<host>/*.md`, injected on navigation
 
-**Jev track**
+**Jev track** — run it on Etsy/eBay first, not Feige. Two reasons, both hard:
+`api.typesafe.ai` is US-hosted, so the CN deployment means latency and customer
+chat text leaving the box (a Section 5 and compliance question, not a technical
+one); and Feige is our most latency-sensitive, most business-critical surface.
+Prove it where a mistake is cheap.
+
 - [ ] Shadow element resolution on Etsy/eBay behind `ECAN_JEV_SHADOW=1`
 - [ ] Answer the CN data-residency question before any CN use
 - [ ] Probe the parallel-question request shape against our current model
@@ -278,3 +372,493 @@ requires 0.13.x, and `shutdown_browser` is already broken against 0.12's rename.
 - The CN residency question closes off hosted decision models entirely, in which
   case Phase 2's resolver must be a local/cheap LLM rather than Jev. **The
   roadmap is deliberately written so that substitution changes one component.**
+
+---
+
+# Part II — Detection, ground truth, and the fleet loop
+
+*Added 2026-09-19, after the Phase 1-3 code landed. Part I is about how a run
+heals. This part is about how we KNOW a site moved, and what happens across
+thousands of installs that each heal on their own.*
+
+## 10. What we actually built to detect a site change
+
+Three independent watchers, all feeding one permanent record
+(`agent/ec_skills/browser_use_extension/drift_journal.py`). They differ in how
+early they fire and how much they prove.
+
+| Watcher | Where | Fires when | Lead time |
+|---|---|---|---|
+| **Deploy marker** | `SIDEBAR_SHAPE_JS` → `sidebar_build_marker` | the site's build-hash tokens rotate | earliest — the day they ship, change or not |
+| **Structural fingerprint** | `SIDEBAR_SHAPE_JS` → `sidebar_row` | a DOM anchor a parser depends on appears/vanishes | the day they ship something that matters |
+| **ws field watcher** | `ws_protocol_watch.py` | a core frame field stops being populated | the day the backend moves |
+| **Strategy collapse** | `element_targeting.detect_drift` | a parser that was carrying an element resolves nothing | lagging — only once we are already failing |
+
+The first three are leading indicators; the fourth is confirmation. That
+ordering is the point: today the only signal is a customer complaining, which
+is one step *after* the fourth.
+
+### What the shape record contains
+
+Anchor presence (`data_qa_id_nickname`, `name_line`, `legacy_hashed_wrap`, …
+one per parser branch in `ROW_NAME_JS`), attribute names, tag names,
+non-hashed class tokens, and a bucketed count of hashed ones. No text, no
+attribute values except `data-qa-id` (a machine identifier), no build hashes
+verbatim.
+
+A test (`test_the_name_parser_and_the_fingerprint_probe_the_same_selectors`)
+keeps the watched anchors tied to what the parser actually depends on. They
+drifted apart once already — that is what ws193 was.
+
+## 11. Ground truth — the honest part
+
+**None of the four signals above is ground truth.** Every one has an innocent
+explanation:
+
+| Signal | Also caused by |
+|---|---|
+| fingerprint moved | logged out, wrong tab, partial render, different viewport, A/B bucket |
+| deploy marker moved | CDN variant, a different set of rows sampled |
+| core ws field silent | traffic mix (a window with no cards, no handovers) |
+| strategy collapse | empty sidebar, page never loaded |
+
+So what we have is **correlated evidence, not proof**, and the design says so
+rather than implying otherwise. Three consequences worth being explicit about:
+
+**1. We have no labelled positives.** Exactly two real events are known — the
+June sidebar redesign (mt062/063) and the September rebuild (ws193, commit
+`6da0d3e09`) — both diagnosed *after* the fact. The detector has never fired on
+a real one. We cannot quote a false-positive rate, and should not pretend to.
+
+**2. Local confidence comes from co-occurrence, not from any single signal.**
+The journal timestamps all four kinds, so the question "did the site change or
+is this machine broken?" is answered by whether they cluster:
+
+- deploy marker + fingerprint + strategy collapse within one scan → very likely a real change
+- fingerprint alone, nothing else → very likely this machine
+- strategy collapse with no fingerprint movement → very likely this machine
+
+**3. The only real ground truth is the run outcome.** Whether a customer got a
+reply is the fact that matters; "the site changed" is just the usual cause.
+Detection exists to shorten the path to a fix, never to replace the outcome as
+the measure.
+
+### Backtest before trusting it
+
+The two known events are partly reconstructable: the commits that fixed them
+record which selectors died. Building the before/after anchor sets from
+`6da0d3e09` and the mt062/063 fixes and asserting the shape record would have
+fired gives us **labelled positives today**, without waiting for a third
+redesign. Do this before building anything on top of the detector.
+
+## 12. The loop: ship → detect → heal → aggregate → ship
+
+The decided architecture. Each step exists because of a specific failure of the
+step before it.
+
+```
+  ┌─ 1. Build N ships with a BASELINE: expected shape + known-good descriptors
+  │
+  │  2. Machines compare against the SHIPPED baseline
+  │     → drift detected on day 1, instead of silently adopting a redesign
+  │       as "normal" (which is what a purely local baseline does on the
+  │       first machine to see it)
+  │
+  │  3. Heal locally (L1 → L2 → L3). Fully autonomous; no cloud dependency,
+  │     works offline, works for a CN install with no cloud access
+  │
+  │  4. Report the shape-only OUTCOME (~200 bytes, opt-in). Aggregate →
+  │     corroboration count, heal rate, cost, descriptor durability →
+  │     ranked list → a human picks
+  │
+  └─ 5. The winner becomes build N+1's baseline. Nobody has to heal again.
+```
+
+**Step 1 is the highest-value unbuilt piece** and needs no cloud at all. A
+machine-local baseline can only detect a change *relative to what that machine
+already saw*, so the first machine to meet a redesign records it as the new
+normal and never flags it. Shipping the baseline makes every machine detect the
+same event on day 1.
+
+**Step 5 is deliberately human-gated.** See §14.
+
+## 13. The three risks of per-machine healing
+
+Each machine heals independently, and **they will not converge on the same
+fix** — L2 is a model call, candidate tables differ by viewport and account,
+and gray rollouts mean different machines legitimately see different pages.
+That is acceptable. Uniformity is *not* the goal; forcing it would break
+whichever machines are in the other bucket.
+
+What is not acceptable is these three, in priority order.
+
+### 13a. Unbounded, unobserved cost — **fix locally, now**
+
+L2 is opus by decision ("no room for mistake"). A machine that never heals
+retries forever, and nothing today stops it or reports it.
+
+- Per-element, per-day cap on L2 calls (extend the existing `ResolverBudget`)
+- Exponential backoff per descriptor, not per call
+- **Circuit breaker**: after K failed resolutions for one element, stop calling
+  L2 at all, go degraded and loud. Silence plus spend is the worst outcome
+- Record spend per incident in the journal, so "what did this change cost us"
+  is answerable later
+
+This is a financial exposure, it is purely local, and it should not wait for
+anything else on this list.
+
+### 13b. The invisible tail — **make it self-reporting locally, proactive via fleet**
+
+At an 85% heal rate, 1000 installs means 150 broken ones, each discovered by an
+angry customer. Locally, without any cloud:
+
+- An unhealed element for more than N minutes is a **degraded** state, surfaced
+  in the `[AGENT-STATUS]` readiness ledger and the Agents-page dots — the
+  customer sees red in their own UI rather than silently getting no replies
+- `ecan support upload` includes the drift journal, so the bundle already
+  carries the evidence when they do report it
+
+That converts an invisible tail into a *reactive* but honest one. The fleet
+layer is what makes it proactive.
+
+### 13c. Fragile fixes rot silently — **refuse the fragile ones, measure lifetime**
+
+A descriptor like `position_hint: "item 2 of 3"` works until that customer has
+a fourth conversation. Locally every cycle looks like a success: heal, break,
+heal, break, forever.
+
+- **Refuse to promote descriptors that are fragile by construction.**
+  `learned_targets.record_success` already refuses non-semantic ones; extend it
+  to position-only descriptors, which depend on collection size
+- **Record lifetime**: promoted at T, retired at T+X. A local history of
+  descriptor-kind lifetimes lets a machine prefer kinds that have survived
+  longest *on this machine*
+- Fleet comparison makes this far stronger (N machines × lifetimes), but the
+  local version is already worth having
+
+## 14. The fleet layer — what it is, and what it must never be
+
+**What it is:** a small, opt-in, append-only stream of shape-only outcomes.
+
+```json
+{"site": "...", "element": "...", "old_strategy": "...",
+ "new_descriptor_kind": "...", "healed": true, "attempts": 2,
+ "l2_calls": 1, "build": "...", "marker_digest": "..."}
+```
+
+~200 bytes. No customer text, no selectors, no credentials — the data is
+already shape-only by construction, which makes this the one category of local
+data that does not collide with the local-only policy. It is still behavioural
+(it reveals that an install runs a given site, and when), so: **anonymous
+aggregate by default**, identified only for pilots who opt in.
+
+It buys exactly four things:
+
+1. **Corroboration → ground truth.** 200 machines seeing the same fingerprint
+   delta within six hours is the site. One machine seeing it is that machine.
+   *This is the only way to make that distinction*, and it is the strongest
+   argument for the fleet layer — stronger than the cost and tail arguments.
+2. Heal rate, and therefore the size of the tail
+3. Cost per incident
+4. Descriptor durability ranking → the next build's baseline
+
+**What it must never be: a control plane.** It never pushes anything to a
+machine.
+
+### Why the rev stays human-gated
+
+Auto-shipping fleet-derived descriptors is rejected on three grounds:
+
+- **Supply chain.** Descriptors derive from page content, and pages are
+  attacker-influenceable. An auto-rev path means a malicious page could in
+  principle steer what every install targets.
+- **Untested.** A fix that ships without anyone having run it is unverified by
+  definition.
+- **Unnecessary.** Nearly all the value is in *ranking* the candidates. A human
+  merging the winner costs days, not months, and removes the catastrophic case.
+
+## 15. Sequencing
+
+0. **Rescue the emulation harness into version control** — see
+   `EMULATION_HARNESS.md` §7. It is the validation foundation and it currently
+   exists on one working copy, in no branch.
+1. **Consume the site's distress signal** (§17) — `ws_reader.py:180` discards
+   the wait warnings Feige already sends us. ~30 lines, and it is the only
+   source of labelled failures we have in production.
+2. **Layout-flip + mutation knob on the emulator**, then a detector stress
+   harness (`EMULATION_HARNESS.md` §6a). Detection rate and false-positive rate
+   per mutation class — better than the git-archaeology backtest, which becomes
+   the fallback.
+2b. **ws frame mutation replay** — labelled ws positives without a WS server.
+2c. **Cost controls + circuit breaker** (§13a). The exposure is LATENT, not
+   live: `resolver_enabled()` is off by default and L2 is not wired into any
+   site path yet. This must land before we turn it on, not before the above.
+3. **Shipped baseline** (§12 step 1) — local, makes day-1 detection real
+4. **Degraded state surfaced locally** (§13b)
+5. **Fragile-descriptor refusal + lifetime tracking** (§13c)
+6. **Fleet layer** (§14) — *only after the local detector has caught one real
+   change.* Aggregating thousands of machines through an unvalidated detector
+   is building on sand.
+7. Never: automatic rev.
+
+## 17. Per-site declared signal sets
+
+*Decided 2026-09-19. This is the organising idea the rest of Part II hangs off,
+and it is mostly a refactor rather than an invention.*
+
+### The idea
+
+Each site bundle **hand-declares its own first-signal tripwires** — the small
+set of cheap, site-specific checks that fire before anything else when that
+site changes or when we start failing on it.
+
+Platform cannot know what failure looks like on a given site. Whoever built the
+bundle does: they know that `用户已等待超30秒` means we missed someone, that
+`qa-conversation-chat-item` is the load-bearing anchor, that the unread badge
+total should track our in-flight count. That knowledge currently exists as
+scattered constants and tribal memory. Declaring it makes it one table.
+
+### It already exists, undeclared
+
+The twelve anchors hard-coded in `SIDEBAR_SHAPE_JS` — `data_qa_id_nickname`,
+`name_line`, `legacy_hashed_wrap`, `preview_msg_content`, … — *are* a
+hand-crafted per-site signal set. They are just not declared as one: they are
+not extensible without editing JS, they are not enumerable by anything else,
+and `tmall_chat` cannot reuse the mechanism. That is the gap this closes.
+
+### The split
+
+Same boundary as everywhere else in this work:
+
+- **Platform** owns the *vocabulary*: what a signal is, how it is evaluated,
+  how often, what severity means, and how a trip is recorded (into the drift
+  journal). Business-free — it never knows a site.
+- **The bundle** owns the *list*: the actual selectors, strings and thresholds,
+  hand-written by whoever knows that site.
+
+### Four kinds
+
+| Kind | Asks | Example (feige_chat) | Value |
+|---|---|---|---|
+| **distress** | is the site itself telling us we failed? | `用户已等待超30秒` on the ws system-event channel | closest thing to ground truth; free |
+| **anchor** | does a feature a parser depends on still exist? | `[data-qa-id="qa-conversation-nickname"]` present on rows | fires the day they ship |
+| **invariant** | do two independent observation paths agree? | unread badge total ≈ our in-flight conversation count | catches silent misses |
+| **liveness** | is something that should happen still happening? | ws frames seen in the last N minutes; scans returning rows | catches total blindness |
+
+`distress` and `invariant` are the two that address the dangerous case — a
+customer arriving and us never noticing — because they do not depend on us
+having attempted anything. `anchor` and `liveness` generalise what §10 already
+does.
+
+### What it buys
+
+1. **Site #2 becomes a table, not a project.** Adding `tmall_chat` or a
+   marketplace skill means filling in declared signals, not writing new
+   detection code.
+2. **It documents what we depend on.** One enumerable place answering "what do
+   we actually rely on about this site?" — which is exactly what nobody could
+   answer during ws193.
+3. **It makes the detector testable.** The stress harness (§15 step 2) can
+   enumerate a site's declared signals and assert each one trips when its
+   condition is broken. A signal nobody can trip on demand is a signal nobody
+   should trust.
+4. **Severity becomes declarable.** A dead `legacy_hashed_wrap` is
+   uninteresting; a dead `data_qa_id_nickname` is an incident. Today both are
+   the same line in a report.
+
+### Note on the distress signal
+
+`ws_reader.py:180` currently does:
+
+```python
+continue  # .8 may be a JSON system-event string; skip here
+```
+
+The site emits its wait warnings on that exact channel, and we discard them.
+That single unconsumed signal is the highest-value item in Part II: it is
+supplied by the site, costs nothing, is independent of every parser we own,
+and turns every real miss into a **labelled failure** — the labelled data §11
+says we do not have.
+
+## 18. Measured detector coverage (2026-09-19)
+
+§11 said we had no labelled data and could not quote a detection rate. We can
+now, without waiting for a third redesign.
+
+`tests/unit/test_detector_stress.py` drives the **real** fingerprint
+(`SIDEBAR_SHAPE_JS`, through `tools/emulation/shape_probe.js`) and the
+**real** decision path (`drift_journal.note_shape`) over the row layouts this
+site has actually shipped (`tools/emulation/layouts.json`) plus synthetic
+mutations. Nothing is reimplemented — a ported copy of either half would
+measure the copy, which is the mistake ROW_NAME_JS exists to prevent.
+
+### Both real events are caught
+
+| Event | Change | Detected |
+|---|---|---|
+| June redesign (mt062/063) | hashed wrappers gone, semantic prefixes in | yes |
+| September rebuild (ws193) | nickname `data-qa-id` no longer emitted | yes, and the delta names the vanished anchor |
+
+### Coverage by class of change
+
+| Mutation | Detected | Correct? |
+|---|---|---|
+| `drop_attribute` — a machine id stops being emitted | yes | required |
+| `drop_anchor_element` — the element a parser keys on disappears | yes | required |
+| `rename_hashes_all` — a rotation that also kills an anchor we name literally | yes | required |
+| `add_attribute` — the site starts emitting something new | yes | good |
+| `rewrap` — an extra wrapper appears | yes | good |
+| `retag` — `div` becomes `section` | yes | good |
+| `rename_hashes_routine` — rotation that leaves our anchors alone | **no** | **required** — see below |
+| `renest` — same elements, one level deeper | yes | closed 2026-09-19, see §18a |
+
+### The two negatives are not the same
+
+`rename_hashes_routine` **must not** fire. The site rotates build hashes on
+every deploy; reporting that on the structural record would write a phantom
+change per deploy and bury the real ones. The deploy marker catches it instead
+(§10), which is the whole reason the two live under separate keys.
+
+Note the distinction the harness forced: rotating a hash we depend on *by
+literal name* (`.Jv6FtqUv5VoYARd2pp4y`, `.MP1bk3ccfHC9V2SnPCGD`) is **not**
+routine — that parser branch just died, and it is correctly reported. Only a
+rotation that leaves those alone is noise.
+
+### §18a. The re-nesting gap, and why it was worth closing
+
+`renest` was a blind spot: the shape record recorded *sets* of names, not depth,
+so moving elements a level deeper was invisible. That looked mostly harmless,
+because it is invisible to `ROW_NAME_JS` too — it uses `row.querySelector(...)`
+throughout, which is depth-agnostic.
+
+The exception is what made it worth fixing: **`ROW_PREVIEW_FALLBACK_JS` walks
+leaf nodes and compares `parentElement`**, so it *is* depth-sensitive. An extra
+wrapper between leaves means siblings that used to share a parent no longer do,
+and the preview comes back empty — with every class and attribute unchanged, so
+a presence-only fingerprint stays silent. That is precisely the ws189 failure:
+`skipped={'empty_preview': N==rows}` while the scan itself looked healthy.
+
+So the shape record now records the **minimum depth of each anchor below the
+row**. The minimum, not the depth per row: row variants legitimately nest
+differently (a tagged row sits a level deeper than a plain one), and taking the
+minimum keeps that from flapping the shape record on every scan while still
+moving when the site inserts a wrapper above them all.
+
+Two couplings this creates, both pinned by tests:
+
+* The shipped baseline had to be regenerated. Any change to the shape record's
+  shape makes every install report a day-one difference against a stale
+  baseline — worth remembering before the next field is added.
+* A test asserts the preview reader still compares `parentElement`. If it stops,
+  this watch is no longer paying for itself; if the watch is dropped while the
+  reader still does, the gap reopens silently.
+
+### Three detector bugs the harness found immediately
+
+All three would have produced false or missing records in production, and none
+was visible by reading the code:
+
+1. **`prefix-HASH` classes were treated as stable.** The hash test required no
+   separator (`^[A-Za-z0-9_]{16,}$`), so `msgContent-JqEWJs` — *precisely* the
+   scheme the June redesign introduced — was recorded verbatim. Every routine
+   deploy would have fired a structural change. Now the prefix is kept as
+   structure and the suffix counted as a hash.
+2. **The hashed-class figure was an absolute count** over a variable number of
+   sampled rows, so scroll position alone moved the shape record. Now normalised
+   per row.
+3. **The row element was invisible to itself.** `querySelectorAll('*')` returns
+   descendants only, so the row's own attributes were never recorded — and
+   `data-qa-id="qa-conversation-chat-item"`, the selector the entire scan
+   depends on, lives there. A rename of it would have gone unrecorded.
+
+This is the argument for the harness in one paragraph: the detector looked
+correct, had tests, and was wrong in three ways that only showed up when
+something drove real layouts through it.
+
+### Still to do here
+
+- The emulator renders its rows from hard-coded HTML in `static/app.js`; the
+  layouts now live in `layouts.json` but only the harness reads them. Wiring the
+  page to render from the same file gives browser-fidelity runs of the same
+  cases (`EMULATION_HARNESS.md` §6a).
+- The harness exercises `renest` against the shape record, but still not against
+  the preview reader itself — it proves the change is *detected*, not that the
+  reader would have broken. Driving the real reader over a re-nested row would
+  close that last step.
+
+## 19. GUI and terminology decisions (2026-09-20)
+
+GUI work itself is deferred to a later pass. These are the decisions that pass
+should start from, recorded now so they are not re-litigated.
+
+### 19a. "Fingerprint" is reserved for the anti-detect browser
+
+The product already has 指纹浏览器 / fingerprint browser — browser identity,
+profiles, proxies, `agent/mcp/server/fingerprint_playwright/`, and its own
+Settings page. Using the same word for a structural signature of a page
+guarantees the two get conflated, in the UI and in conversation.
+
+**Decided: this work never says "fingerprint".** It is a **site shape** /
+**structural signature**, and the user-facing name is **站点变更 / Site
+changes**.
+
+Most of the code already said "shape" (`SIDEBAR_SHAPE_JS`,
+`__ecanSidebarShape`, `note_shape`, `known_shapes.json`). The gaps were closed
+on the same day: `fingerprint_probe.js` became `shape_probe.js`, and the unused
+`dom_fingerprint()` was deleted rather than renamed — nothing called it.
+
+### 19b. The watch is DERIVED, never specified in a GUI
+
+The obvious feature request is "let me configure which selectors to watch".
+It should be refused.
+
+The watch already derives from what the skill declares — the browser-automation
+node's `cdpFilterExpr` (§18b) — so a user editing a selector in the skill editor
+is covered automatically. A second, hand-maintained list in a settings screen
+would recreate exactly the drift this work exists to detect: two declarations of
+"what we depend on", free to disagree. That is how `.lF_M7Qi…` stayed a live
+dependency for months after the JS readers abandoned it.
+
+**The GUI's job here is visibility, not specification.**
+
+### 19c. What belongs in the GUI, in priority order
+
+1. **站点变更 view (read-only).** Recorded changes newest first, the deploy
+   calendar, the current watched shape, the retention statement. Highest value
+   by a distance: the three-year record is CLI-only today, and customers and
+   support do not use a CLI — so for them the data does not exist.
+2. **Degraded-dot drill-down.** The dot ships in this branch; only a tooltip
+   explains it. A red dot nobody can investigate is an alarm without an address.
+3. **L2 switch and spend readout.** Enable, model, today's spend against the
+   cap, any open breaker. The only piece with money attached — if L2 is ever
+   enabled for customers, the spend has to be visible where they are.
+4. **Export baseline** button, carrying the "only from a healthy machine"
+   warning. Defensible, but the CLI is adequate; lowest priority.
+
+### 19d. What stays out, and why
+
+* **Anchor lists** — derive, do not specify (§19b).
+* **Signal declarations** — each needs `means` prose and a severity judgement.
+  That is code review, not a form.
+* **`CIRCUIT_AFTER_FAILURES`, `DEGRADED_AFTER_S`, `DAILY_CAP_*`** — tuning knobs
+  with cost and alarm-fatigue consequences. A customer setting the daily cap to
+  10,000 is a bill, not a preference. Show them **read-only** so support can see
+  what a machine is running.
+* **Retention years** — the three-year floor is a promise. An editable field
+  defeats it.
+
+### 19e. What this branch already touched in the GUI
+
+One thing: the sixth readiness dot on the Agents page (`ReadinessStrip.tsx`)
+plus its two i18n keys. Everything else is CLI, log lines, or files.
+
+## 16. What would invalidate Part II
+
+- The fingerprint proves noisy in practice — fires on viewport or A/B variation
+  often enough to be ignored. The backtest in §11 is the cheap way to find out.
+- The two historical events turn out not to be reconstructable from git, in
+  which case there is no labelled data and §15 step 6 has to wait for a real
+  event.
+- Customers decline the telemetry opt-in at a rate that makes corroboration
+  statistically useless, which collapses §14's main argument and leaves the
+  fleet layer as a cost dashboard only.

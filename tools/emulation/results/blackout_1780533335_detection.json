@@ -1,0 +1,400 @@
+{
+  "results_file": "C:\\Users\\songc\\PycharmProjects\\eCan.ai\\customer_logs\\emulation\\results\\blackout_1780533335.json",
+  "log_file": "C:\\Users\\songc\\PycharmProjects\\eCan.ai\\runlogs\\eCan.log",
+  "queries": 54,
+  "detected": 26,
+  "undetected": 28,
+  "detection_lag_s": {
+    "median": 31.7,
+    "p90": 149.5,
+    "max": 162.8,
+    "mean": 49.3
+  },
+  "over_35s": 12,
+  "hb": {
+    "count": 7,
+    "starvation_windows": 2,
+    "max_starvation_s": 72.4,
+    "no_match_polls": 0
+  },
+  "high_lag_in_starvation": 9,
+  "high_lag_in_no_match": 0,
+  "rows": [
+    {
+      "cust": "客户05",
+      "text": "怎么申请售后？",
+      "lag_s": 1.1,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户03",
+      "text": "国际EMS到北美几天？",
+      "lag_s": 0.9,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户05",
+      "text": "肩宽是多少？",
+      "lag_s": 0.9,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户01",
+      "text": "男士32码裤子腰围多少厘米？",
+      "lag_s": 0.5,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户03",
+      "text": "袖长大概是多少？",
+      "lag_s": 1.0,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户04",
+      "text": "港澳台运费怎么算？",
+      "lag_s": 0.6,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户05",
+      "text": "童装呢？童装的尺码表？",
+      "lag_s": 1.1,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户01",
+      "text": "有别的颜色吗？",
+      "lag_s": 1.1,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户06",
+      "text": "腰围怎么测量？",
+      "lag_s": 1.1,
+      "detected": true,
+      "in_starvation": true,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户03",
+      "text": "童装呢？童装的尺码表？",
+      "lag_s": 0.8,
+      "detected": true,
+      "in_starvation": true,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户04",
+      "text": "有别的颜色吗？",
+      "lag_s": 1.0,
+      "detected": true,
+      "in_starvation": true,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户02",
+      "text": "胸围怎么量？",
+      "lag_s": 61.1,
+      "detected": true,
+      "in_starvation": true,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户05",
+      "text": "有别的颜色吗？",
+      "lag_s": 56.8,
+      "detected": true,
+      "in_starvation": true,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户01",
+      "text": "童装呢？童装的尺码表？",
+      "lag_s": 50.7,
+      "detected": true,
+      "in_starvation": true,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户06",
+      "text": "M码呢？",
+      "lag_s": 47.2,
+      "detected": true,
+      "in_starvation": true,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户03",
+      "text": "胸围呢？腰围呢？",
+      "lag_s": 38.6,
+      "detected": true,
+      "in_starvation": true,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户04",
+      "text": "肩宽是多少？",
+      "lag_s": 35.1,
+      "detected": true,
+      "in_starvation": true,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户02",
+      "text": "M码呢？",
+      "lag_s": 31.7,
+      "detected": true,
+      "in_starvation": true,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户05",
+      "text": "牛仔裤是高腰还是低腰？",
+      "lag_s": 30.7,
+      "detected": true,
+      "in_starvation": true,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户01",
+      "text": "M码呢？",
+      "lag_s": 31.4,
+      "detected": true,
+      "in_starvation": true,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户06",
+      "text": "有别的颜色吗？",
+      "lag_s": 162.8,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户03",
+      "text": "M码呢？",
+      "lag_s": 154.1,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户04",
+      "text": "那L码呢？",
+      "lag_s": 149.5,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户02",
+      "text": "有更详细的尺码表吗？",
+      "lag_s": 145.3,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户05",
+      "text": "有别的颜色吗？",
+      "lag_s": 141.5,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户01",
+      "text": "面料含棉量呢？",
+      "lag_s": 136.2,
+      "detected": true,
+      "in_starvation": false,
+      "in_no_match": false
+    },
+    {
+      "cust": "客户06",
+      "text": "有别的颜色吗？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户03",
+      "text": "M码呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户04",
+      "text": "适合什么季节穿？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户02",
+      "text": "肩宽是多少？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户05",
+      "text": "肩宽是多少？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户01",
+      "text": "适合什么季节穿？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户06",
+      "text": "适合什么季节穿？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户03",
+      "text": "袖长大概是多少？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户04",
+      "text": "牛仔裤是高腰还是低腰？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户02",
+      "text": "胸围呢？腰围呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户05",
+      "text": "胸围呢？腰围呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户01",
+      "text": "牛仔裤是高腰还是低腰？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户06",
+      "text": "弹力面料的呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户03",
+      "text": "那L码呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户04",
+      "text": "胸围呢？腰围呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户02",
+      "text": "童装呢？童装的尺码表？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户05",
+      "text": "适合什么季节穿？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户01",
+      "text": "如果偏胖建议怎么选？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户06",
+      "text": "M码呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户03",
+      "text": "胸围呢？腰围呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户04",
+      "text": "弹力面料的呢？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户02",
+      "text": "如果偏胖建议怎么选？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户01",
+      "text": "牛仔裤是高腰还是低腰？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户06",
+      "text": "如果偏胖建议怎么选？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户04",
+      "text": "牛仔裤是高腰还是低腰？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户02",
+      "text": "牛仔裤是高腰还是低腰？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户06",
+      "text": "童装呢？童装的尺码表？",
+      "lag_s": null,
+      "detected": false
+    },
+    {
+      "cust": "客户02",
+      "text": "M码呢？",
+      "lag_s": null,
+      "detected": false
+    }
+  ]
+}

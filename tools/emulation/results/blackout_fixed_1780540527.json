@@ -1,0 +1,107 @@
+{
+  "run_id": "blackout_fixed_1780540527",
+  "label": "blackout_fixed",
+  "started_at": 1780540527621,
+  "computed_at": 1780540887860,
+  "customers": 4,
+  "total_queries": 6,
+  "metrics": {
+    "answered_queries": 0,
+    "placeholder_late": 6,
+    "duplicate_responses": 0,
+    "placeholder_after_real": 0
+  },
+  "event_count": 7,
+  "per_customer": {
+    "S006": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 2
+    },
+    "S005": {
+      "queries": 2,
+      "answered": 0,
+      "late": 2,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 2
+    },
+    "S001": {
+      "queries": 2,
+      "answered": 0,
+      "late": 2,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 2
+    },
+    "S002": {
+      "queries": 1,
+      "answered": 0,
+      "late": 1,
+      "duplicates": 0,
+      "placeholder_after_real": 0,
+      "events": 1
+    }
+  },
+  "events": [
+    {
+      "mtype": "agent_msg",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "亲，这边尺码表里是按标准尺码区间来的哦～\n女士上衣的话：S码胸围82-86cm，M码86-90cm，L码90-94cm，XL码94-98cm。\n如果您还想看腰围的话，要看具体是上衣、裤子还是裙子，不同款式数据不一样。您把想看的尺码或款式发我，我给您对一下～",
+      "is_placeholder": false,
+      "ts": 1780540577201
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "怎么申请售后？",
+      "is_placeholder": false,
+      "ts": 1780540582166
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "客服几点上班？",
+      "is_placeholder": false,
+      "ts": 1780540606014
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S005",
+      "cust": "客户05",
+      "text": "适合什么季节穿？",
+      "is_placeholder": false,
+      "ts": 1780540624256
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S002",
+      "cust": "客户02",
+      "text": "在吗在吗？",
+      "is_placeholder": false,
+      "ts": 1780540641163
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S001",
+      "cust": "客户01",
+      "text": "有更详细的尺码表吗？",
+      "is_placeholder": false,
+      "ts": 1780540660163
+    },
+    {
+      "mtype": "q_sent",
+      "cid": "S006",
+      "cust": "客户06",
+      "text": "客服几点上班？",
+      "is_placeholder": false,
+      "ts": 1780540689579
+    }
+  ]
+}

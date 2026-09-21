@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <title>飞鸽客服 · emulation</title>
+  <link rel="stylesheet" href="/static/styles.css"/>
+</head>
+<body>
+  <div id="app">
+    <!-- ============== LEFT PANEL : chat list ============== -->
+    <aside class="panel panel-left">
+      <div class="tab-bar auxo-tabs-nav-list" id="tabBar" role="tablist">
+        <div class="tab active auxo-tabs-tab auxo-tabs-tab-active" data-tab="current">
+          <div role="tab" aria-selected="true" class="auxo-tabs-tab-btn" id="rc-tabs-0-tab-current" aria-controls="rc-tabs-0-panel-current">
+            <span data-qa-id="qa-active-chat-tab">当前会话(<span class="tab-count" id="tabCountCurrent">0</span>)</span>
+          </div>
+        </div>
+        <div class="tab auxo-tabs-tab" data-tab="recent">
+          <div role="tab" aria-selected="false" class="auxo-tabs-tab-btn" id="rc-tabs-0-tab-history" aria-controls="rc-tabs-0-panel-history">
+            <span data-qa-id="qa-last-chat-tab">最近联系</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-row" id="settingsRow">
+        <div class="settings-cell">列表设置</div>
+        <div class="settings-cell">等待时长</div>
+        <div class="settings-cell">已分组 &rsaquo;</div>
+      </div>
+
+      <div id="settingsPopup" class="settings-popup hidden">
+        <div class="settings-title">列表设置</div>
+        <div class="settings-section">
+          <div class="settings-label">&gt; 消息排序</div>
+          <label class="settings-option">
+            <input type="radio" name="sortMode" value="wait" checked/>
+            <div class="opt-text"><div>等待时长</div><div class="opt-sub">当前：等待久优先</div></div>
+          </label>
+          <label class="settings-option">
+            <input type="radio" name="sortMode" value="sendTime"/>
+            <div class="opt-text"><div>消息发送时间</div><div class="opt-sub">默认：最近优先</div></div>
+          </label>
+          <label class="settings-option">
+            <input type="radio" name="sortMode" value="connTime"/>
+            <div class="opt-text"><div>接入时间</div><div class="opt-sub">默认：最近优先</div></div>
+          </label>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">&gt; 消息分组</div>
+          <label class="settings-option"><input type="radio" name="groupMode" value="grouped" checked/> 分组</label>
+          <label class="settings-option"><input type="radio" name="groupMode" value="flat"/> 不分组</label>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">&gt; 消费者标识</div>
+          <label class="settings-option"><input type="radio" name="idMode" value="show" checked/> 显示</label>
+          <label class="settings-option"><input type="radio" name="idMode" value="hide"/> 不显示</label>
+        </div>
+        <div class="settings-section">
+          <div class="settings-label">&gt; 关闭会话后跳转至</div>
+          <label class="settings-option"><input type="radio" name="closeNav" value="wait" checked/> 等待最长时长会话</label>
+          <label class="settings-option"><input type="radio" name="closeNav" value="next"/> 列表的下一个会话</label>
+        </div>
+      </div>
+
+      <!-- Scroll root.  2026-06-02 Feige redesign: rows now live under
+           .scroller > .scroller_content > .list_items (rendered by app.js).
+           The monitor's new cdpFilterExpr root is ".list_items"; the outer
+           #chantListScrollArea (now also class="scroller") is kept for the
+           emulation's own scroll handling. Re-rendered on tab switch. -->
+      <div id="chantListScrollArea" class="scroller scroll-root"></div>
+    </aside>
+
+    <!-- ============== MIDDLE PANEL : chat thread ============== -->
+    <main class="panel panel-mid" id="workspace-chat">
+      <header class="mid-header" id="midHeader">
+        <div id="topbar-left-info">
+          <div class="mid-name J2iNkmuwzFrTdP4jEOXK" id="midName">请选择一个会话</div>
+          <div class="mid-sub" id="midSub"></div>
+        </div>
+      </header>
+
+      <div class="thread-scroll messageList" id="threadScroll">
+        <div class="thread" id="thread" data-thread-root="1"></div>
+        <div class="thread-empty hidden" id="threadEmpty">暂未选择会话</div>
+      </div>
+
+      <div class="toolbar">
+        <span class="tool">订单</span>
+        <span class="tool">快捷短语</span>
+        <span class="tool">商品</span>
+        <span class="tool">表情</span>
+        <span class="tool">图片</span>
+      </div>
+
+      <div class="compose" id="im-input-box" role="button">
+        <textarea
+          data-qa-id="qa-send-message-textarea"
+          id="composeInput"
+          placeholder="请输入消息（Enter 发送，Shift+Enter 换行）"
+        ></textarea>
+        <div
+          data-qa-id="qa-send-message-button"
+          role="button"
+          class="send-btn"
+          id="sendBtn"
+          tabindex="0"
+        >发送</div>
+      </div>
+    </main>
+
+    <!-- ============== RIGHT PANEL : test buttons ============== -->
+    <aside class="panel panel-right">
+      <div class="right-title">测试面板</div>
+
+      <div class="right-group">
+        <div class="right-group-title">并发压测</div>
+        <div class="stress-row">
+          <button class="test-btn stress-main" data-action="stressHuman">并发转人工</button>
+          <input id="stressCountInput" class="stress-count" type="number" min="1" max="200" value="20" placeholder="人数" aria-label="人数">
+        </div>
+        <!-- 2026-05-24 mt038: weighted multimodal mix. -->
+        <!-- Defaults 20/20 = 20% image + 20% card + 60% text — guarantees -->
+        <!-- every flood hits "[图片]"/"[商品]" sidebar previews so mt038A/B -->
+        <!-- code paths actually run. Set image%=0, card%=0 for legacy text-only. -->
+        <div class="stress-row stress-image-row">
+          <label class="stress-percent">图文 %
+            <input id="stressImagePercentInput" class="stress-count" type="number" min="0" max="100" step="5" value="20" aria-label="图文百分比">
+          </label>
+          <label class="stress-percent">卡片 %
+            <input id="stressCardPercentInput" class="stress-count" type="number" min="0" max="100" step="5" value="20" aria-label="卡片百分比">
+          </label>
+        </div>
+        <button class="test-btn" data-action="stressMessage">并发消息</button>
+        <!-- 2026-05-26 mt048B race-mode floods.  Fire 并发消息 AND
+             inject human-intervention bubbles for ~50% of customers at
+             controlled timings.  Use to exercise the LLM judge
+             (ECAN_HUMAN_JUDGE_*) under flood pressure.  Each fired
+             bubble shows up in eCan's log as
+             "[HUMAN-INTERVENTION] cust=… marked human-handled" → look
+             for the follow-up "[mt048B] judge verdict" + "[DIRECT-
+             DELIVERY] mt048B" lines to confirm drop vs allow decisions. -->
+        <div class="mt048b-flood-row" style="margin-top:6px;display:flex;flex-direction:column;gap:4px;">
+          <div style="font-size:11px;opacity:0.75;">mt048B 人工干预（LLM judge 测试）</div>
+          <button class="test-btn" data-action="floodHumanBefore"
+                  title="并发消息 + 50% 客户在 bot 响应前 0.5-2s 注入实质性人工回复 — 测试 LLM judge 在 race 条件下能否识别 'human answered'，drop bot 回复">
+            并发消息 + 人工·前 (drop 路径)
+          </button>
+          <button class="test-btn" data-action="floodHumanAfter"
+                  title="并发消息 + 50% 客户在 bot 响应已落地后 8-12s 注入人工回复 — 测试 'human after agent' 场景：bot 回复已成功，人工后续插话应被忽略">
+            并发消息 + 人工·后 (无影响)
+          </button>
+          <button class="test-btn" data-action="floodHumanRace"
+                  title="并发消息 + 50% 客户在 0.5-12s 随机时机注入随机 flavor 人工回复 — 综合压测，混合 race 时机和回复类型">
+            并发消息 + 人工·race (综合)
+          </button>
+        </div>
+      </div>
+
+      <!-- ============== 真实站点压测 (live-site-style faults) ============== -->
+      <div class="right-group" id="realSitePanel">
+        <div class="right-group-title">真实站点模拟</div>
+        <div class="real-site-hint" style="font-size:11px;opacity:0.75;line-height:1.35;margin-bottom:6px;">
+          需要 eCan 端设置 <code>ECAN_EMULATION_TEST_FLAGS=1</code> 才能生效。
+          这些开关写入 <code>emulation_config.json</code>，eCan 在每次 LLM 调用前读取。
+        </div>
+        <label class="chaos-field">LLM 429 注入概率 %
+          <input id="llmFault429Probability" type="number" min="0" max="100" step="5" value="0">
+        </label>
+        <label class="chaos-field">LLM 故障模式
+          <select id="llmFaultErrorMode">
+            <option value="429" selected>OpenAI 429 (配额耗尽)</option>
+            <option value="connection">Connection error</option>
+          </select>
+        </label>
+        <button class="test-btn" data-action="saveLlmFault">保存 LLM 故障设定</button>
+        <button class="test-btn danger" data-action="clearLlmFault">关闭 LLM 故障</button>
+
+        <!-- 2026-05-24 mt038: RAG fault injection (mt019/20 repro) -->
+        <div class="chaos-subtitle">RAG 故障注入 (mt019/20)</div>
+        <label class="chaos-field">注入概率 %
+          <input id="ragFaultProbability" type="number" min="0" max="100" step="5" value="0">
+        </label>
+        <label class="chaos-field">故障模式
+          <select id="ragFaultMode">
+            <option value="hang" selected>挂起 N 秒 (hang)</option>
+            <option value="error">立即报错 (error)</option>
+          </select>
+        </label>
+        <label class="chaos-field">挂起秒数 (hang 模式)
+          <input id="ragFaultHangSeconds" type="number" min="0" max="120" step="5" value="30">
+        </label>
+        <button class="test-btn" data-action="saveRagFault">保存 RAG 故障设定</button>
+        <button class="test-btn danger" data-action="clearRagFault">关闭 RAG 故障</button>
+
+        <div class="chaos-subtitle">多轮对话</div>
+        <label class="chaos-field">每客户追问轮数
+          <input id="followUpRounds" type="number" min="0" max="10" step="1" value="0">
+        </label>
+        <label class="chaos-field">追问间隔 ms
+          <input id="followUpIntervalMs" type="number" min="5000" max="120000" step="1000" value="25000">
+        </label>
+        <button class="test-btn" data-action="runMultiRoundChat">💬 开始多轮对话压测</button>
+        <button class="test-btn danger" data-action="stopMultiRoundChat">停止多轮对话</button>
+      </div>
+
+      <div class="right-group chaos-group" id="chaosPanel">
+        <div class="right-group-title">CDP / Renderer Chaos</div>
+        <label class="chaos-check"><input id="chaosEnabled" type="checkbox" checked> 启用 chaos</label>
+        <label class="chaos-field">Preset
+          <select id="chaosPreset">
+            <option value="off">Off</option>
+            <option value="realistic_site" selected>Realistic Feige site</option>
+            <option value="runtime_timeout">Runtime.evaluate timeout</option>
+            <option value="slow_dom">Slow DOM</option>
+            <option value="renderer_stall">Renderer stall</option>
+            <option value="focus_churn">Focus churn</option>
+            <option value="full_flood">Full flood chaos</option>
+          </select>
+        </label>
+        <label class="chaos-field">Probability %
+          <input id="chaosProbability" type="number" min="0" max="100" step="1" value="55">
+        </label>
+
+        <div class="chaos-subtitle">Send path</div>
+        <label class="chaos-field">Block click ms <input id="chaosSendBlockMs" type="number" min="0" max="20000" step="100" value="1200"></label>
+        <label class="chaos-field">Delay append ms <input id="chaosSendDelayMs" type="number" min="0" max="20000" step="100" value="1800"></label>
+        <label class="chaos-check"><input id="chaosSendNeverAppend" type="checkbox"> Never append agent</label>
+
+        <div class="chaos-subtitle">Renderer</div>
+        <label class="chaos-check"><input id="chaosRendererEnabled" type="checkbox" checked> Stall renderer</label>
+        <label class="chaos-field">Block ms <input id="chaosRendererBlockMs" type="number" min="0" max="5000" step="100" value="450"></label>
+        <label class="chaos-field">Every ms <input id="chaosRendererIntervalMs" type="number" min="100" max="10000" step="100" value="1800"></label>
+        <label class="chaos-field">Auto stop ms <input id="chaosRendererAutoStopMs" type="number" min="1000" max="300000" step="1000" value="180000"></label>
+
+        <div class="chaos-subtitle">DOM / focus</div>
+        <label class="chaos-field">Selector delay ms <input id="chaosSelectorDelayMs" type="number" min="0" max="250" step="5" value="12"></label>
+        <label class="chaos-field">Extra rows <input id="chaosExtraRows" type="number" min="0" max="2000" step="10" value="240"></label>
+        <label class="chaos-field">System rows <input id="chaosSystemRows" type="number" min="0" max="200" step="1" value="12"></label>
+        <label class="chaos-check"><input id="chaosDomChurn" type="checkbox" checked> DOM churn</label>
+        <label class="chaos-field">Churn ms <input id="chaosDomChurnMs" type="number" min="100" max="10000" step="100" value="1000"></label>
+        <label class="chaos-check"><input id="chaosFocusChurn" type="checkbox" checked> Focus churn</label>
+        <label class="chaos-field">Switch ms <input id="chaosFocusSwitchMs" type="number" min="100" max="10000" step="100" value="1500"></label>
+        <label class="chaos-field">Switch prob % <input id="chaosFocusProbability" type="number" min="0" max="100" step="1" value="18"></label>
+        <label class="chaos-check"><input id="chaosRerenderDuringSend" type="checkbox" checked> Rerender during send</label>
+        <label class="chaos-check"><input id="chaosRemoveCompose" type="checkbox"> Remove compose during send</label>
+        <label class="chaos-field">Remove ms <input id="chaosRemoveComposeMs" type="number" min="100" max="10000" step="100" value="1200"></label>
+
+        <div class="chaos-subtitle">Harness</div>
+        <label class="chaos-field">Fake delay ms <input id="chaosFakeDelayMs" type="number" min="0" max="30000" step="100" value="7000"></label>
+        <label class="chaos-check"><input id="chaosFakeNever" type="checkbox"> Fake never resolve</label>
+        <label class="chaos-field">cdp_use delay ms <input id="chaosCdpUseDelayMs" type="number" min="0" max="30000" step="100" value="7000"></label>
+        <label class="chaos-check"><input id="chaosCdpUseNever" type="checkbox"> cdp_use never respond</label>
+        <label class="chaos-field">Late response ms <input id="chaosCdpUseLateMs" type="number" min="0" max="30000" step="100" value="7000"></label>
+        <div class="chaos-actions">
+          <button class="test-btn" data-action="saveChaos">保存 chaos</button>
+          <button class="test-btn danger" data-action="resetChaos">重置默认</button>
+          <button class="test-btn" data-action="runFakeHarness">Run fake CDP</button>
+          <button class="test-btn" data-action="runCdpUseHarness">Run cdp_use</button>
+        </div>
+        <pre id="chaosHarnessOutput" class="chaos-output"></pre>
+      </div>
+
+      <div class="right-group">
+        <div class="right-group-title">客户 A</div>
+        <button class="test-btn" data-action="sendMsg" data-cid="A">A客户发消息</button>
+        <button class="test-btn" data-action="requestHuman" data-cid="A">A客户请求人工</button>
+        <button class="test-btn" data-action="timeoutClose" data-cid="A">A客户超时·关闭会话</button>
+        <button class="test-btn" data-action="timeoutWarn" data-cid="A">A客户超时·平台介入</button>
+        <button class="test-btn" data-action="humanReply" data-cid="A" title="模拟人工客服直接在 Feige 端打字回复（绕过 eCan） — mt017/18/21 触发条件">A·人工直接回复 (mt017)</button>
+        <button class="test-btn" data-action="humanReplyRelevant" data-cid="A" title="模拟人工客服给出实质性的、对客户问题相关的回复 — mt048B LLM judge 应判定 answered=true，bot 回复应被丢弃">A·人工·正面答复 (mt048B drop)</button>
+        <button class="test-btn" data-action="humanReplyOfftopic" data-cid="A" title="模拟人工客服给出敷衍/无关的回复（如 '稍等一下'）— mt048B LLM judge 应判定 answered=false，bot 回复应通过">A·人工·随便回应 (mt048B keep)</button>
+        <button class="test-btn" data-action="sendUrlQuestion" data-cid="A" title="客户发一条带 URL 的提问（沙滩鞋 Amazon 链接 + 问题文本）— 测试 mt048C URL 检测，未来 mt048D 浏览器抓取">A·客户发URL+问题 (mt048C)</button>
+        <button class="test-btn" data-action="sendUrlOnly" data-cid="A" title="客户只发 URL，没有其他文字 — 测试裸 URL 的检测路径">A·客户只发URL (mt048C)</button>
+        <button class="test-btn" data-action="sendUrlThenText" data-cid="A" title="客户先发 URL，1-2s 后再发后续问题 — 测试 burst-rebuild 把 URL 串到 dispatched payload">A·客户URL→文 (mt048C burst)</button>
+        <button class="test-btn" data-action="injectHistorical" data-cid="A" title="向聊天线注入一对历史 Q+A（昨天的对话），sidebar 显示历史 Q 为 last_message — mt030 触发条件">A·注入历史会话 (mt030)</button>
+      </div>
+
+      <div class="right-group">
+        <div class="right-group-title">客户 B</div>
+        <button class="test-btn" data-action="sendMsg" data-cid="B">B客户发消息</button>
+        <button class="test-btn" data-action="requestHuman" data-cid="B">B客户请求人工</button>
+        <button class="test-btn" data-action="timeoutClose" data-cid="B">B客户超时·关闭会话</button>
+        <button class="test-btn" data-action="timeoutWarn" data-cid="B">B客户超时·平台介入</button>
+        <button class="test-btn" data-action="sendImageText1" data-cid="B" title="先发文字，约 1s 后发图片">B客户·图文模式 1（文→图）</button>
+        <button class="test-btn" data-action="sendImageText2" data-cid="B" title="先发图片，约 1s 后发文字">B客户·图文模式 2（图→文）</button>
+        <button class="test-btn" data-action="sendImageText3" data-cid="B" title="文字开头 → 图片 → 文字结尾，三段交错">B客户·图文模式 3（文→图→文）</button>
+        <button class="test-btn" data-action="sendProductCard0"     data-cid="B" title="只发商品卡片，无文字（裸卡片）">B客户·商品卡片 0（裸卡片）</button>
+        <button class="test-btn" data-action="sendProductCardText1" data-cid="B" title="先发文字，约 1s 后发商品卡片">B客户·商品卡片 1（文→卡）</button>
+        <button class="test-btn" data-action="sendProductCardText2" data-cid="B" title="先发商品卡片，约 1s 后发文字">B客户·商品卡片 2（卡→文）</button>
+        <button class="test-btn" data-action="sendProductCardText3" data-cid="B" title="文字开头 → 商品卡片 → 文字结尾，三段交错">B客户·商品卡片 3（文→卡→文）</button>
+        <button class="test-btn" data-action="sendImageOnly" data-cid="B" title="只发图片，无文字（裸图） — sidebar last_message='[图片]'，mt038B 触发">B客户·裸图（mt038B）</button>
+        <button class="test-btn" data-action="humanReply" data-cid="B" title="模拟人工客服直接在 Feige 端打字回复（绕过 eCan） — mt017/18/21 触发条件">B·人工直接回复 (mt017)</button>
+        <button class="test-btn" data-action="humanReplyRelevant" data-cid="B" title="模拟人工客服给出实质性的、对客户问题相关的回复 — mt048B LLM judge 应判定 answered=true，bot 回复应被丢弃">B·人工·正面答复 (mt048B drop)</button>
+        <button class="test-btn" data-action="humanReplyOfftopic" data-cid="B" title="模拟人工客服给出敷衍/无关的回复（如 '稍等一下'）— mt048B LLM judge 应判定 answered=false，bot 回复应通过">B·人工·随便回应 (mt048B keep)</button>
+        <button class="test-btn" data-action="sendUrlQuestion" data-cid="B" title="客户发一条带 URL 的提问（沙滩鞋 Amazon 链接 + 问题文本）— 测试 mt048C URL 检测，未来 mt048D 浏览器抓取">B·客户发URL+问题 (mt048C)</button>
+        <button class="test-btn" data-action="sendUrlOnly" data-cid="B" title="客户只发 URL，没有其他文字 — 测试裸 URL 的检测路径">B·客户只发URL (mt048C)</button>
+        <button class="test-btn" data-action="sendUrlThenText" data-cid="B" title="客户先发 URL，1-2s 后再发后续问题 — 测试 burst-rebuild 把 URL 串到 dispatched payload">B·客户URL→文 (mt048C burst)</button>
+        <button class="test-btn" data-action="injectHistorical" data-cid="B" title="向聊天线注入一对历史 Q+A（昨天的对话），sidebar 显示历史 Q 为 last_message — mt030 触发条件">B·注入历史会话 (mt030)</button>
+        <!-- 2026-05-25 J14N9-shape buttons -->
+        <button class="test-btn" data-action="sendBrowsingMarker" data-cid="B" title="推送系统级 '用户正在查看商品' 标记（wrap1 shape），sidebar last_message='用户正在查看商品'，聊天线的 wrap 没有 .Ie29C7uLyEjZzd8JeS8A row 所以 scraper 都跳过 — mt040A 触发条件">B·用户正在查看商品 (J14N9)</button>
+        <button class="test-btn danger" data-action="reproJ14N9" data-cid="B" title="一键重现 2026-05-25 12:34 J14N9 现场：转人工 → 用户正在查看商品 → 商品卡片 → 文字 → 45s 后改写。建议先点 '重置所有聊天记录' 再触发">🎬 重现 J14N9 现场</button>
+      </div>
+
+      <div class="right-group">
+        <div class="right-group-title">客户 C</div>
+        <button class="test-btn" data-action="sendMsg" data-cid="C">C客户发消息</button>
+        <button class="test-btn" data-action="requestHuman" data-cid="C">C客户请求人工</button>
+        <button class="test-btn" data-action="timeoutClose" data-cid="C">C客户超时·关闭会话</button>
+        <button class="test-btn" data-action="timeoutWarn" data-cid="C">C客户超时·平台介入</button>
+        <button class="test-btn" data-action="humanReply" data-cid="C" title="模拟人工客服直接在 Feige 端打字回复（绕过 eCan） — mt017/18/21 触发条件">C·人工直接回复 (mt017)</button>
+        <button class="test-btn" data-action="humanReplyRelevant" data-cid="C" title="模拟人工客服给出实质性的、对客户问题相关的回复 — mt048B LLM judge 应判定 answered=true，bot 回复应被丢弃">C·人工·正面答复 (mt048B drop)</button>
+        <button class="test-btn" data-action="humanReplyOfftopic" data-cid="C" title="模拟人工客服给出敷衍/无关的回复（如 '稍等一下'）— mt048B LLM judge 应判定 answered=false，bot 回复应通过">C·人工·随便回应 (mt048B keep)</button>
+        <button class="test-btn" data-action="sendUrlQuestion" data-cid="C" title="客户发一条带 URL 的提问（沙滩鞋 Amazon 链接 + 问题文本）— 测试 mt048C URL 检测，未来 mt048D 浏览器抓取">C·客户发URL+问题 (mt048C)</button>
+        <button class="test-btn" data-action="sendUrlOnly" data-cid="C" title="客户只发 URL，没有其他文字 — 测试裸 URL 的检测路径">C·客户只发URL (mt048C)</button>
+        <button class="test-btn" data-action="sendUrlThenText" data-cid="C" title="客户先发 URL，1-2s 后再发后续问题 — 测试 burst-rebuild 把 URL 串到 dispatched payload">C·客户URL→文 (mt048C burst)</button>
+        <button class="test-btn" data-action="injectHistorical" data-cid="C" title="向聊天线注入一对历史 Q+A（昨天的对话），sidebar 显示历史 Q 为 last_message — mt030 触发条件">C·注入历史会话 (mt030)</button>
+      </div>
+
+      <div class="right-group">
+        <button class="test-btn danger" data-action="clearCurrent">清除当前会话</button>
+        <!-- 2026-05-24 mt038F: deep reset for clean flood-test baseline. -->
+        <!-- clearCurrent only resets the sidebar; this also wipes each customer's -->
+        <!-- dialogs[] so the next 并发消息 doesn't trigger mt030 false-positives -->
+        <!-- from prior-flood Q+A pairs left in the chat thread. -->
+        <button class="test-btn danger" data-action="resetAllThreads" title="清空所有客户的聊天记录（dialogs[]），用于在多次并发压测之间获得干净的基线，避免 eCan 端 mt030 误判">重置所有聊天记录（mt030 基线）</button>
+      </div>
+
+      <div class="right-footer" id="rightFooter">emulation ready</div>
+    </aside>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

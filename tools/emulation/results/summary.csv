@@ -1,0 +1,6 @@
+﻿timestamp,round,run_id,customers,total_queries,answered,placeholder_late,duplicate,placeholder_after_real,result_file
+2026-06-02T19:45:34,baseline_750_clean,baseline_750_clean_20260602_193730,20,20,0,20,0,0,C:\Users\songc\PycharmProjects\eCan.ai\customer_logs\emulation\results\baseline_750_clean_20260602_193730.json
+2026-06-02T19:53:45,interval_250_clean,interval_250_clean_20260602_194541,20,20,0,20,0,0,C:\Users\songc\PycharmProjects\eCan.ai\customer_logs\emulation\results\interval_250_clean_20260602_194541.json
+2026-06-02T20:01:54,interval_750_renderer_stall,interval_750_renderer_stall_20260602_195351,20,20,0,20,0,0,C:\Users\songc\PycharmProjects\eCan.ai\customer_logs\emulation\results\interval_750_renderer_stall_20260602_195351.json
+2026-06-02T20:10:05,interval_250_renderer_stall,interval_250_renderer_stall_20260602_200201,20,20,0,20,0,0,C:\Users\songc\PycharmProjects\eCan.ai\customer_logs\emulation\results\interval_250_renderer_stall_20260602_200201.json
+2026-06-02T20:18:17,oob_off_750_heavy,oob_off_750_heavy_20260602_201012,20,20,0,20,0,0,C:\Users\songc\PycharmProjects\eCan.ai\customer_logs\emulation\results\oob_off_750_heavy_20260602_201012.json

@@ -1,0 +1,105 @@
+{
+  "_provenance": [
+    "Shipped baseline: what this build expects the site to look like.",
+    "",
+    "sidebar_row: produced by running the real SIDEBAR_SHAPE_JS over the",
+    "  redesign_2026_06 fixture in tools/emulation/layouts.json, which was",
+    "  built from DOM captured off the live site. NOT from a live machine.",
+    "ws_message_fields: from the CORE_KEYS/OPTIONAL_KEYS classification in",
+    "  ws_protocol_watch, whose frequencies were measured against a real",
+    "  244-message capture on 2026-09-19.",
+    "",
+    "build_marker and rows_sampled are deliberately absent: the marker",
+    "rotates on every site deploy, so shipping one would make every install",
+    "report a deploy on day one.",
+    "",
+    "Regenerate from a healthy machine with: ecan drift export-baseline"
+  ],
+  "sidebar_row": {
+    "anchors_present": [
+      "badge_sup",
+      "data_qa_id_nickname",
+      "legacy_hashed_span",
+      "name_content",
+      "name_line",
+      "preview_msg_content",
+      "qa_id_fuzzy_name",
+      "titled_descendant",
+      "user_label"
+    ],
+    "anchor_depths": {
+      "data_qa_id_nickname": 3,
+      "qa_id_fuzzy_name": 3,
+      "name_line": 2,
+      "name_content": 3,
+      "titled_descendant": 2,
+      "legacy_hashed_span": 3,
+      "preview_msg_content": 3,
+      "badge_sup": 3,
+      "user_label": 3
+    },
+    "anchors_missing": [
+      "badge_count",
+      "card_tag",
+      "legacy_hashed_wrap"
+    ],
+    "attributes": [
+      "alt",
+      "class",
+      "data-btm",
+      "data-btm-id",
+      "data-cid",
+      "data-kora",
+      "data-qa-id",
+      "data-qa-id=qa-conversation-chat-item",
+      "data-qa-id=qa-conversation-nickname",
+      "data-seq",
+      "src",
+      "title"
+    ],
+    "tags": [
+      "div",
+      "img",
+      "span",
+      "sup"
+    ],
+    "plain_classes": [
+      "auxo-badge",
+      "auxo-badge-top-right",
+      "avatarContainer",
+      "cardContent",
+      "cardIcon",
+      "content",
+      "conversationCard",
+      "msgContent",
+      "nameLine",
+      "needReply",
+      "newAvatar",
+      "newAvatarContainer",
+      "newContent",
+      "newConversationCard",
+      "newFrameAvatar",
+      "newFrameContent",
+      "newFrameNameContent",
+      "newNameContent",
+      "timerParticular",
+      "userLabel",
+      "userLabelWrap",
+      "zeVHjNO_lFGbJlreiSda"
+    ],
+    "hashed_classes_per_row": 22
+  },
+  "ws_message_fields": {
+    "core_populated": [
+      "nickname",
+      "pigeon_cid",
+      "s:client_message_id",
+      "sender_role",
+      "talk_id",
+      "type"
+    ],
+    "core_silent": [],
+    "optional_ever_seen": [],
+    "unexpected_ever_seen": []
+  }
+}

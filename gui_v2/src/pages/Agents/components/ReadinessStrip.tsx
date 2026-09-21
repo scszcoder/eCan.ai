@@ -3,10 +3,15 @@
  * [AGENT-STATUS] ledger (utils/agent_status.py), delivered through
  * get_all_agents_runtime_status as `readiness`.
  *
- * Five dots: Chrome attach, site tab, DOM monitor, DOM elements, detection
- * path. Hover shows the raw values. Renders nothing until the backend has
- * reported at least one key for this agent, so cards of idle agents stay
- * unchanged.
+ * Six dots: Chrome attach, site tab, DOM monitor, DOM elements, detection
+ * path, and targeting health. Hover shows the raw values. Renders nothing until
+ * the backend has reported at least one key for this agent, so cards of idle
+ * agents stay unchanged.
+ *
+ * The targeting dot is the one the operator needs when nothing looks broken:
+ * it goes amber while a problem is being watched and red once it has persisted,
+ * so an install that has stopped resolving an element — or that the site has
+ * told us is failing customers — looks wrong here instead of only in the log.
  */
 import React from 'react';
 import { Tooltip } from 'antd';
@@ -54,6 +59,14 @@ function detectionLevel(r: Readiness): Level {
   if (r.detection === 'ws' || r.detection === 'dom') return 'ok';
   return 'unknown';
 }
+function targetingLevel(r: Readiness): Level {
+  // 'watching' is a problem seen but not yet persistent — amber, not red, so a
+  // page that rendered late does not read as an outage.
+  if (r.targeting === 'degraded') return 'bad';
+  if (r.targeting === 'watching') return 'warn';
+  if (r.targeting === 'ok') return 'ok';
+  return 'unknown';
+}
 
 export const ReadinessStrip: React.FC<{ readiness?: Readiness | null }> = ({ readiness }) => {
   const { t } = useTranslation();
@@ -70,6 +83,8 @@ export const ReadinessStrip: React.FC<{ readiness?: Readiness | null }> = ({ rea
       detail: `items=${r.dom_items ?? '?'}${r.dom_roots != null ? ` roots=${r.dom_roots}` : ''}${r.dom_last_items_at ? ` last=${r.dom_last_items_at}` : ''}` },
     { key: 'detection', level: detectionLevel(r), label: t('pages.agents.readiness_detection', 'Detection'),
       detail: `${r.detection ?? '?'}` },
+    { key: 'targeting', level: targetingLevel(r), label: t('pages.agents.readiness_targeting', 'Targeting'),
+      detail: `${r.targeting ?? '?'}${r.targeting_detail ? ` — ${r.targeting_detail}` : ''}` },
   ];
   const updated = r.updated_at ? `${t('pages.agents.readiness_updated', 'updated')} ${r.updated_at}` : '';
   return (

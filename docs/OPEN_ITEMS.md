@@ -448,8 +448,15 @@ what is left, roughly in the order they are worth doing.
   (`sidebar_preview_js.py`) + an `EMPTY-PREVIEW DUMP` (row outerHTML 1500) so the
   real preview class can be pinned. **Still open**: (a) live validation of the
   fallback on the customer frame; (b) `event_monitor.py` `last_message` field
-  and `_FEIGE_LIST_SESSIONS_JS` still use only the dead hashed selector
-  (DOM-monitor path is paused under WS-live, so not on the hot path today);
+  still uses only the dead hashed selector, with NO fallback chain (unlike its
+  `name` field, which has two). Mitigated today only because the DOM-monitor
+  path is paused under WS-live — i.e. the backstop path is broken precisely
+  when it is needed, after WS drops. **`_FEIGE_LIST_SESSIONS_JS` was the other
+  half of (b) and is now FIXED (2026-09-20)**: it backs the agent-callable
+  `feige_list_sessions` tool, is not covered by the WS-live pause, and had read
+  the preview with the dead selector alone since ws189 reached the other three
+  readers. It now composes and calls `__ecanRowPreviewFallback`, with a test
+  asserting every snippet that touches the dead selector carries the fallback;
   (c) `hasUnread()` in the scan JS matches the rebuilt frame's `auxo-badge`
   avatar wrapper on every row (unread=true everywhere) — harmless today because
   unread is no longer a routing gate (ws104), but wrong; (d) the deeper
