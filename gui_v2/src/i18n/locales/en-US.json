@@ -4018,6 +4018,13 @@
     "from": "from",
     "purchase": "Purchase",
     "alipay": "Alipay",
+    "planBestFor": "Best for",
+    "planTbd": "To be confirmed",
+    "backToPlans": "Back to plans",
+    "planDetailsTitle": "Plan details",
+    "planDetailsSubtitle": "What each plan includes, how you are charged, and what is never billed.",
+    "planWhatsIncluded": "What's included in this plan?",
+    "planCompare": "View plan details",
     "wechatPay": "WeChat Pay"
   },
   "tokenUsage": {

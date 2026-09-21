@@ -4077,6 +4077,13 @@
     "from": "起",
     "purchase": "购买",
     "alipay": "支付宝",
+    "planBestFor": "适合",
+    "planTbd": "待确认",
+    "backToPlans": "返回套餐",
+    "planDetailsTitle": "套餐说明",
+    "planDetailsSubtitle": "每个套餐包含什么、怎么计费、什么不计费。",
+    "planWhatsIncluded": "这个套餐包含什么？",
+    "planCompare": "查看套餐说明",
     "wechatPay": "微信支付"
   },
   "tokenUsage": {
