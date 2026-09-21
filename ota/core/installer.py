@@ -733,16 +733,29 @@ class InstallationManager:
                         # anyway, and a stale PID after our 2 s sleep
                         # would otherwise crash this loop.
                         try:
-                            subprocess.run(
+                            result = subprocess.run(
                                 ['taskkill.exe', '/F', '/PID', str(pid), '/T'],
                                 capture_output=True,
                                 text=True,
                                 timeout=5,
                             )
+                            # Log taskkill output for debugging
+                            if result.returncode != 0:
+                                logger.warning(
+                                    f"[OTA] taskkill /F /PID {pid} /T failed "
+                                    f"(exit={result.returncode}): {result.stderr.strip()}"
+                                )
+                            else:
+                                logger.debug(
+                                    f"[OTA] taskkill /F /PID {pid} /T succeeded"
+                                )
                         except (FileNotFoundError, subprocess.TimeoutExpired):
                             # taskkill.exe missing (Nano Server, etc.)
                             # or hung — Inno Setup's CloseApplications
                             # will retry.
+                            logger.warning(
+                                f"[OTA] taskkill /F /PID {pid} /T timed out or failed"
+                            )
                             pass
                     else:
                         # POSIX (non-macOS): SIGTERM is sufficient.
@@ -756,6 +769,63 @@ class InstallationManager:
             # Give processes time to fully terminate
             logger.info("Waiting for processes to terminate...")
             time.sleep(2.0)
+
+            # CRITICAL: Verify all processes are actually dead before proceeding.
+            # taskkill returning success doesn't guarantee the process exited
+            # immediately - Windows may still be releasing file handles.
+            # If any process is still alive, Inno Setup will hang waiting
+            # for file locks. See: "Created temporary directory" hang in
+            # OTA logs - Inno Setup stuck because files were still locked.
+            try:
+                import psutil
+                still_alive = []
+                for pid in pids_to_kill:
+                    try:
+                        proc = psutil.Process(pid)
+                        # Process exists - check if it's actually running
+                        if proc.status() != psutil.STATUS_ZOMBIE:
+                            still_alive.append(pid)
+                    except psutil.NoSuchProcess:
+                        # Process is gone - this is good
+                        pass
+                    except psutil.AccessDenied:
+                        # Can't access but process exists - consider it alive
+                        still_alive.append(pid)
+
+                if still_alive:
+                    logger.warning(
+                        f"[OTA] {len(still_alive)} process(es) still alive after taskkill: "
+                        f"{still_alive}. Waiting additional 3 seconds for file handles to release..."
+                    )
+                    time.sleep(3.0)
+
+                    # Check again
+                    still_alive_final = []
+                    for pid in still_alive:
+                        try:
+                            proc = psutil.Process(pid)
+                            if proc.status() != psutil.STATUS_ZOMBIE:
+                                still_alive_final.append(pid)
+                        except psutil.NoSuchProcess:
+                            pass
+                        except psutil.AccessDenied:
+                            still_alive_final.append(pid)
+
+                    if still_alive_final:
+                        logger.error(
+                            f"[OTA] Processes still alive after extended wait: {still_alive_final}. "
+                            f"Inno Setup may fail to install. Consider using /CLOSEAPPLICATIONS flag."
+                        )
+                    else:
+                        logger.info("[OTA] All processes terminated successfully after extended wait")
+                else:
+                    logger.info("[OTA] All target processes terminated successfully")
+
+            except ImportError:
+                # psutil not available - rely on taskkill alone
+                logger.debug("[OTA] psutil not available, skipping process verification")
+            except Exception as e:
+                logger.warning(f"[OTA] Process verification failed: {e}")
             
         except Exception as e:
             logger.debug(f"Pre-install process termination failed (safe to ignore): {e}")
