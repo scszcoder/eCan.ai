@@ -324,12 +324,12 @@ class InstallConfirmDialog(QDialog):
         warning_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(warning_label)
 
-        # Manual install fallback — clickable link to latest.json so the user
-        # can grab the installer directly if they prefer skipping this flow.
+        # Manual install fallback — clickable link to the installer so the user
+        # can grab it directly if they prefer skipping this flow.
+        # Use download_url from update_info if available, otherwise fall back to latest.json
+        manual_url = self.update_info.get('download_url') if self.update_info else ota_config.get_latest_json_url()
         manual_install_label = QLabel(
-            'Or install manually via the links in '
-            f'<a href="{ota_config.get_latest_json_url()}" '
-            'style="color:#58a6ff; text-decoration:underline;">latest.json</a>.'
+            _tr.tr('manual_install_via').format(url=manual_url)
         )
         manual_install_label.setTextFormat(Qt.RichText)
         manual_install_label.setOpenExternalLinks(True)
@@ -489,10 +489,10 @@ class UpdateDialog(QDialog):
         # of the OTA flow we're in (idle, downloading, update available, error)
         # so the user always has a way to grab the latest installer directly
         # when auto-update is unavailable or fails.
+        # Use download_url from update_info if available, otherwise fall back to latest.json
+        manual_url = self.update_info.get('download_url') if self.update_info else ota_config.get_latest_json_url()
         manual_install_label = QLabel(
-            'You can always install the latest version manually using the '
-            f'links in <a href="{ota_config.get_latest_json_url()}" '
-            'style="color:#58a6ff; text-decoration:underline;">latest.json</a>.'
+            _tr.tr('manual_install_fallback').format(url=manual_url)
         )
         manual_install_label.setTextFormat(Qt.RichText)
         manual_install_label.setOpenExternalLinks(True)
@@ -1270,9 +1270,10 @@ class UpdateDialog(QDialog):
 class UpdateNotificationDialog(QDialog):
     """Simple update notification dialog"""
     
-    def __init__(self, update_info="New version available", parent=None):
+    def __init__(self, update_info="New version available", download_url=None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Update Notification")
+        self.download_url = download_url
+        self.setWindowTitle(_tr.tr("software_update"))
         self.setModal(True)
         self.setFixedSize(320, 200)
 
@@ -1288,10 +1289,10 @@ class UpdateNotificationDialog(QDialog):
 
         # Manual install fallback link — always visible on every update pop-up
         # so the user has a direct path to the latest installer.
+        # Use download_url if available, otherwise fall back to latest.json
+        manual_url = self.download_url if self.download_url else ota_config.get_latest_json_url()
         manual_install_label = QLabel(
-            'Or install manually via '
-            f'<a href="{ota_config.get_latest_json_url()}" '
-            'style="color:#58a6ff; text-decoration:underline;">latest.json</a>.'
+            _tr.tr('manual_install_simple').format(url=manual_url)
         )
         manual_install_label.setTextFormat(Qt.RichText)
         manual_install_label.setOpenExternalLinks(True)
@@ -1304,13 +1305,13 @@ class UpdateNotificationDialog(QDialog):
         # Buttons
         button_layout = QHBoxLayout()
         
-        later_button = QPushButton("Later")
+        later_button = QPushButton(_tr.tr("remind_later"))
         later_button.clicked.connect(self.reject)
         button_layout.addWidget(later_button)
         
         button_layout.addItem(QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum))
         
-        install_button = QPushButton("Update Now")
+        install_button = QPushButton(_tr.tr("update_now"))
         install_button.clicked.connect(self.accept)
         install_button.setDefault(True)
         button_layout.addWidget(install_button)

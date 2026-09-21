@@ -138,6 +138,11 @@ class OTATranslations:
             'picker_user_badge': 'FOR {user}',
             'picker_install_selected': 'Install Selected',
             'picker_no_release_notes': 'No release notes for this version.',
+
+            # Manual install fallback
+            'manual_install_fallback': 'You can always install the latest version manually using the links in <a href="{url}">latest.json</a>.',
+            'manual_install_via': 'Or install manually via the links in <a href="{url}">latest.json</a>.',
+            'manual_install_simple': 'Or install manually via <a href="{url}">latest.json</a>.',
         },
         'zh-CN': {
             # Window titles
@@ -264,6 +269,11 @@ class OTATranslations:
             'picker_user_badge': '专属 {user}',
             'picker_install_selected': '安装所选版本',
             'picker_no_release_notes': '此版本暂无发布说明。',
+
+            # 手动安装备选方案
+            'manual_install_fallback': '您也可以手动安装最新版本，下载链接请查看 <a href="{url}">latest.json</a>。',
+            'manual_install_via': '或通过 <a href="{url}">latest.json</a> 中的链接手动安装。',
+            'manual_install_simple': '或通过 <a href="{url}">latest.json</a> 手动安装。',
         }
     }
     
