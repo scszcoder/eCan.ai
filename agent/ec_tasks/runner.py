@@ -5524,6 +5524,30 @@ class TaskRunner(Generic[Context]):
                     f"[LIVE-CHAT-CUSTOMER-STATE] cust={_customer_name!r} "
                     f"phase=answered_strong source_msg_id={_source_msg_id!r}"
                 )
+                # Billable outcome (2026-09-21, shadow mode: recorded, not
+                # charged). THIS is the delivery-confirmed point — deliberately
+                # not the `mark_real_reply_delivered` call further up, which
+                # stamps "in progress" BEFORE the send eval and would bill
+                # attempts. The site bundle owns the meter identity and the
+                # idempotency key, so no business meaning enters this file.
+                try:
+                    _meter_bridge = _live_chat_bridge()
+                    _meter = _meter_bridge.billable_delivery_meter()
+                    if _meter:
+                        from agent.ec_skills import metering as _metering
+                        _metering.emit(
+                            _meter[0], _meter[1],
+                            idempotency_key=_meter_bridge.billable_delivery_key(
+                                _customer_name, _source_msg_id
+                            ),
+                            evidence={
+                                "customer": _customer_name,
+                                "source_msg_id": _source_msg_id,
+                            },
+                        )
+                except Exception as _meter_err:
+                    # Metering must never break the path it measures.
+                    logger.debug(f"[METER] delivery emit skipped: {_meter_err}")
                 # Placeholder cancel — PER-TURN (2026-05-20 v2 revert).
                 # cancel_any_for_customer was too aggressive: an older
                 # in-flight turn's reply landing would kill the LATEST

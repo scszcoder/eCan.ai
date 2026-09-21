@@ -1,3 +1,28 @@
+# ──────────────────────────────────────────────────────────────────
+# Billable business outcomes this bundle can emit.
+#
+# The platform never learns what a "Feige reply" is: runner.py asks the runner
+# bridge for the meter identity and emits generically, so these codes are the
+# ONLY place the business meaning lives.
+#
+# `billable_definition` is contractual, not decorative — it is what a customer
+# is shown and what we would be held to in a dispute, so the NOT list matters
+# as much as the counted one.
+meters:
+  - scenario_code: cs_chat
+    meter_code: message_replied
+    unit: "条"
+    display_name_zh: "客服回复"
+    display_name_en: "Customer-service reply"
+    billable_definition: >
+      One customer turn answered by one reply we successfully delivered.
+      Counted once per (store, conversation, source message) no matter how many
+      times delivery is attempted or observed.
+      NOT counted: 过渡话术 stand-by lines, retries and duplicate dispatch of the
+      same turn, sends that failed or the customer never received, and turns a
+      human operator answered instead of us (outcome reason
+      `human_intervention_skip`).
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Feige chat — reference external hook bundle.
 #

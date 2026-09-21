@@ -1,0 +1,215 @@
+"""Business-outcome metering, shadow slice (2026-09-21).
+
+Tier 1 bills per delivered reply instead of per token. The two things that can
+silently make that wrong are both about WHERE the event is emitted, so they are
+pinned here as source assertions rather than left to review:
+
+  * emitting at `mark_real_reply_delivered` would bill ATTEMPTS — that call
+    stamps "real reply in progress" BEFORE the send eval runs.
+  * emitting on `_outcome.ok` alone would bill turns a HUMAN answered, because
+    the human-intervention path also sets ok=True (reason
+    `human_intervention_skip`).
+
+The rest covers idempotency (one delivered turn, observed many times, must be
+one billable row) and the platform-purity rule: no business meaning in platform
+files.
+"""
+
+from __future__ import annotations
+
+import unittest
+from datetime import datetime
+from pathlib import Path
+from unittest import mock
+
+RUNNER_SRC = Path("agent/ec_tasks/runner.py").read_text(encoding="utf-8")
+METERING_SRC = Path("agent/ec_skills/metering.py").read_text(encoding="utf-8")
+BRIDGE_SRC = Path(
+    "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/runner_bridge.py"
+).read_text(encoding="utf-8")
+
+
+class EmissionPointTests(unittest.TestCase):
+    """The delivery-confirmed point, and the two near-misses around it."""
+
+    def test_emits_in_the_all_ok_branch(self) -> None:
+        idx = RUNNER_SRC.find('_outcome.reason = "all_ok"')
+        self.assertGreater(idx, -1, "the success branch moved")
+        block = RUNNER_SRC[idx:idx + 1800]
+        self.assertIn("billable_delivery_meter()", block)
+        self.assertIn("metering", block)
+        self.assertIn("billable_delivery_key(", block)
+
+    def test_does_not_emit_at_the_in_progress_stamp(self) -> None:
+        """mark_real_reply_delivered fires BEFORE the send eval — emitting
+        there bills attempts, including ones that never reach the customer."""
+        idx = RUNNER_SRC.find("mark_real_reply_delivered(")
+        self.assertGreater(idx, -1)
+        # Window covers that call site and its immediate handling.
+        block = RUNNER_SRC[idx:idx + 1200]
+        self.assertNotIn("metering.emit", block)
+        self.assertNotIn("billable_delivery_meter", block)
+
+    def test_human_answered_turn_is_not_billable(self) -> None:
+        """The human-intervention path sets ok=True too; it must not emit."""
+        idx = RUNNER_SRC.find('_outcome.reason = "human_intervention_skip"')
+        self.assertGreater(idx, -1)
+        block = RUNNER_SRC[max(0, idx - 1500):idx + 400]
+        self.assertNotIn("metering.emit", block)
+        self.assertNotIn("billable_delivery_meter", block)
+
+    def test_emission_is_guarded(self) -> None:
+        """Metering must never break the path it measures."""
+        idx = RUNNER_SRC.find("billable_delivery_meter()")
+        block = RUNNER_SRC[max(0, idx - 400):idx + 1200]
+        self.assertIn("try:", block)
+        self.assertIn("except Exception", block)
+
+
+class PlatformPurityTests(unittest.TestCase):
+    """Business meaning stays in the bundle (standing directive)."""
+
+    def test_platform_files_name_no_site_and_no_meter_codes(self) -> None:
+        for name, src in (("runner.py", RUNNER_SRC), ("metering.py", METERING_SRC)):
+            with self.subTest(file=name):
+                self.assertNotIn("feige", src.lower())
+                self.assertNotIn("cs_chat", src)
+                self.assertNotIn("message_replied", src)
+
+    def test_the_bundle_owns_the_meter_identity(self) -> None:
+        self.assertIn("def billable_delivery_meter", BRIDGE_SRC)
+        self.assertIn('"cs_chat", "message_replied"', BRIDGE_SRC)
+        self.assertIn("def billable_delivery_key", BRIDGE_SRC)
+
+    def test_declared_in_the_manifest_with_a_written_definition(self) -> None:
+        import yaml
+        d = yaml.safe_load(Path(
+            "agent/ec_skills/browser_use_extension/hooks/external/feige_chat/hook.yaml"
+        ).read_text(encoding="utf-8"))
+        meters = d.get("meters") or []
+        self.assertTrue(meters, "bundle must declare its meters")
+        m = meters[0]
+        self.assertEqual((m["scenario_code"], m["meter_code"]), ("cs_chat", "message_replied"))
+        # The NOT list is the contractual part — it is what a customer is shown.
+        definition = m["billable_definition"]
+        for excluded in ("过渡话术", "retries", "failed", "human"):
+            self.assertIn(excluded, definition)
+
+
+class IdempotencyKeyTests(unittest.TestCase):
+    """One delivered turn = one billable event, however often it is observed."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            runner_bridge, placeholder_config,
+        )
+        self.bridge = runner_bridge.FeigeRunnerBridge()
+        self.cfg = placeholder_config
+        self.cfg.invalidate()
+
+    def test_key_is_stable_across_repeat_delivery(self) -> None:
+        with mock.patch.object(self.cfg, "current_store_key", return_value="S1"):
+            a = self.bridge.billable_delivery_key("客户01", "msg-1")
+            b = self.bridge.billable_delivery_key("客户01", "msg-1")
+        self.assertEqual(a, b)
+
+    def test_key_separates_turns_customers_and_stores(self) -> None:
+        with mock.patch.object(self.cfg, "current_store_key", return_value="S1"):
+            base = self.bridge.billable_delivery_key("客户01", "msg-1")
+            self.assertNotEqual(base, self.bridge.billable_delivery_key("客户01", "msg-2"))
+            self.assertNotEqual(base, self.bridge.billable_delivery_key("客户02", "msg-1"))
+        with mock.patch.object(self.cfg, "current_store_key", return_value="S2"):
+            self.assertNotEqual(base, self.bridge.billable_delivery_key("客户01", "msg-1"))
+
+    def test_key_carries_no_timestamp(self) -> None:
+        """A time component would defeat the whole point under retry."""
+        with mock.patch.object(self.cfg, "current_store_key", return_value="S1"):
+            key = self.bridge.billable_delivery_key("客户01", "msg-1")
+        self.assertEqual(key, "feige:S1:客户01:msg-1")
+
+    def test_missing_msg_id_still_yields_a_usable_key(self) -> None:
+        with mock.patch.object(self.cfg, "current_store_key", return_value=""):
+            self.assertEqual(self.bridge.billable_delivery_key("客户01", ""), "feige:-:客户01:-")
+
+
+class EmitApiTests(unittest.TestCase):
+    """The generic emit surface."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills import metering
+        self.metering = metering
+
+    def test_refuses_incomplete_events(self) -> None:
+        for args in (("", "m"), ("s", "")):
+            self.assertFalse(self.metering.emit(*args, idempotency_key="k"))
+        self.assertFalse(self.metering.emit("s", "m", idempotency_key=""))
+
+    def test_records_through_the_service_with_scope_attribution(self) -> None:
+        svc = mock.Mock()
+        svc.record_event.return_value = True
+        scope = {"store_id": "S1", "agent_id": "A1", "task_id": "T1", "skill_id": "K1"}
+        with mock.patch.object(self.metering, "_service", return_value=svc):
+            with mock.patch.object(self.metering, "_scope", return_value=scope):
+                ok = self.metering.emit(
+                    "cs_chat", "message_replied",
+                    idempotency_key="feige:S1:c:m",
+                    evidence={"customer": "c"},
+                    occurred_at=datetime(2026, 9, 21, 12, 0, 0),
+                )
+        self.assertTrue(ok)
+        row = svc.record_event.call_args[0][0]
+        self.assertEqual(row["scenario_code"], "cs_chat")
+        self.assertEqual(row["idempotency_key"], "feige:S1:c:m")
+        self.assertEqual(row["store_id"], "S1")
+        self.assertEqual(row["agent_id"], "A1")
+        self.assertEqual(row["status"], "pending")
+        self.assertEqual(row["quantity"], 1)
+        self.assertIn("customer", row["evidence"])   # serialised to JSON text
+
+    def test_duplicate_is_reported_as_not_new_not_an_error(self) -> None:
+        svc = mock.Mock()
+        svc.record_event.return_value = False      # unique index said "known"
+        with mock.patch.object(self.metering, "_service", return_value=svc):
+            self.assertFalse(self.metering.emit("s", "m", idempotency_key="k"))
+
+    def test_never_raises_into_the_delivery_path(self) -> None:
+        with mock.patch.object(self.metering, "_service", side_effect=RuntimeError("db gone")):
+            self.assertFalse(self.metering.emit("s", "m", idempotency_key="k"))
+
+    def test_no_db_still_leaves_a_trace(self) -> None:
+        """A shadow-mode run on a machine without a DB must not be silently
+        unmeasured — the log line is the fallback record."""
+        with mock.patch.object(self.metering, "_service", return_value=None):
+            with mock.patch.object(self.metering.logger, "info") as info:
+                self.metering.emit("cs_chat", "message_replied", idempotency_key="k")
+        self.assertTrue(any("not persisted" in str(c) for c in info.call_args_list))
+
+
+class SchemaTests(unittest.TestCase):
+    def test_model_matches_the_cloud_row_shape(self) -> None:
+        from agent.db.models import UsageEvent
+        cols = {c.name for c in UsageEvent.__table__.columns}
+        for required in (
+            "idempotency_key", "scenario_code", "meter_code", "quantity",
+            "owner", "store_id", "agent_id", "task_id", "skill_id", "vehicle_id",
+            "occurred_at", "reported_at", "status", "evidence", "cost_basis", "source",
+        ):
+            self.assertIn(required, cols)
+
+    def test_idempotency_key_is_unique(self) -> None:
+        from agent.db.models import UsageEvent
+        self.assertTrue(UsageEvent.__table__.columns["idempotency_key"].unique)
+
+    def test_migration_is_registered(self) -> None:
+        from agent.db.migrations.migration_config import (
+            get_latest_version, VERSION_HISTORY, VERSION_DEPENDENCIES,
+        )
+        self.assertEqual(get_latest_version(), "3.1.6")
+        self.assertIn("3.1.6", VERSION_HISTORY)
+        self.assertEqual(VERSION_DEPENDENCIES["3.1.6"], "3.1.5")
+        manager = Path("agent/db/migrations/migration_manager.py").read_text(encoding="utf-8")
+        self.assertIn('"3.1.6": "migration_315_to_316"', manager)
+
+
+if __name__ == "__main__":
+    unittest.main()

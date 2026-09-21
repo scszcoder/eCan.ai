@@ -332,6 +332,35 @@ class FeigeRunnerBridge:
         )
 
     # ------------------------------------------------------------------
+    # Billable business outcome (2026-09-21, shadow mode)
+    # ------------------------------------------------------------------
+    def billable_delivery_meter(self) -> tuple[str, str] | None:
+        """``(scenario_code, meter_code)`` to count when a reply is delivered.
+
+        The runner emits the meter generically; this is the only place the
+        business meaning of "a delivered live-chat reply" lives, which keeps
+        ``cs_chat`` out of platform code. Keep in sync with the ``meters:``
+        block in hook.yaml — that block is what the customer is shown.
+
+        ``None`` would mean "this site has nothing billable", and the runner
+        skips emission.
+        """
+        return ("cs_chat", "message_replied")
+
+    def billable_delivery_key(self, customer_key: str, source_msg_id: str) -> str:
+        """Business identity of one answered turn, for idempotency.
+
+        Built from the turn itself — store, conversation, source message — never
+        from a timestamp, so every retry, drift-recovery re-send and duplicate
+        dispatch of the SAME turn collapses onto one billable event. This is the
+        same (customer, source_msg_id) identity the placeholder timer already
+        keys on, which is why the two agree about what "one turn" means.
+        """
+        from . import placeholder_config
+        store = placeholder_config.current_store_key() or "-"
+        return f"feige:{store}:{customer_key}:{source_msg_id or '-'}"
+
+    # ------------------------------------------------------------------
     # Direct-delivery tool names (registered on the browser-use
     # controller).  The runner looks these up generically.
     # ------------------------------------------------------------------
