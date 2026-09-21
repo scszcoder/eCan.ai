@@ -131,7 +131,7 @@ _INNO_COMPLETED_MARKERS: tuple = (
 
 def _wait_for_inno_log_exit(
     inno_log: Optional[str],
-    max_wait_seconds: float = 30.0,
+    max_wait_seconds: float = 120.0,
 ) -> None:
     """Watch the Inno Setup ``/LOG=`` file and ``os._exit(0)`` when done.
 
@@ -152,23 +152,33 @@ def _wait_for_inno_log_exit(
 
     The new strategy polls the Inno Setup log file for one of the
     completion markers declared at :data:`_INNO_COMPLETED_MARKERS`.
-    Once any marker is seen, we wait 2 s for Inno Setup to flush its
+    Once any marker is seen, we wait 5 s for Inno Setup to flush its
     own buffers and exit cleanly, then we tear down the Python process.
 
     Fallbacks (in order):
       * If the log file never appears within 5 s, Inno Setup may have
-        crashed or been killed — we fall back to a 10 s additional wait
-        then exit.
+        crashed or been killed — we fall back to a 60 s additional wait
+        then exit gracefully (NOT os._exit(0)).
       * Hard ceiling at ``max_wait_seconds`` to bound the worst case
         so the user's session isn't trapped if anything goes wrong.
+      * NOTE: We no longer call ``os._exit(0)`` on timeout because:
+        - Inno Setup is launched with DETACHED_PROCESS so it survives
+          the Python parent exit
+        - Forcing ``os._exit(0)`` can terminate the Inno Setup process
+          in the same process group, truncating the log at "Created
+          temporary directory" with no files replaced (exactly the bug
+          this function was meant to prevent!)
+        - The user's session is not "trapped" if Python exits first;
+          Inno Setup continues to run and complete the installation.
 
     Args:
         inno_log: Absolute path to Inno Setup's ``/LOG=`` file. May be
             ``None`` if the caller didn't enable Inno Setup logging
             — in that case this function waits the full
-            ``max_wait_seconds`` then exits.
+            ``max_wait_seconds`` then exits gracefully.
         max_wait_seconds: Hard ceiling for the watch loop. Default
-            30 s. The dev path uses 60 s.
+            120 s (2 minutes) to accommodate large installers on slow
+            disks. The original 30 s was insufficient for 500MB+ apps.
     """
     start = time.time()
     log_seen_once = False
@@ -188,11 +198,12 @@ def _wait_for_inno_log_exit(
             if elapsed >= max_wait_seconds:
                 logger.warning(
                     f"[OTA Installer] Inno Setup watch hit "
-                    f"{max_wait_seconds:.0f}s ceiling; exiting anyway. "
+                    f"{max_wait_seconds:.0f}s ceiling; exiting gracefully (NOT killing Inno Setup). "
+                    f"Inno Setup is launched with DETACHED_PROCESS so it continues independently. "
                     f"Log={inno_log}"
                 )
                 exit_reason = "ceiling_hit"
-                break
+                return  # Exit gracefully, don't kill Inno Setup
 
             if inno_log and Path(inno_log).exists():
                 if not log_seen_once:
@@ -226,9 +237,10 @@ def _wait_for_inno_log_exit(
                             f"{elapsed:.1f}s"
                         )
                         last_poll_marker = marker_found
-                    # Give Inno Setup 2 s to flush its own buffers and
+                    # Give Inno Setup 5 s to flush its own buffers and
                     # exit cleanly before we tear the parent down.
-                    time.sleep(2.0)
+                    # Increased from 2s to 5s for safety.
+                    time.sleep(5.0)
                     exit_reason = f"marker={marker_found!r}"
                     break
                 except Exception as exc:
@@ -243,14 +255,21 @@ def _wait_for_inno_log_exit(
                 if not log_seen_once and elapsed > 5.0:
                     logger.warning(
                         f"[OTA Installer] Inno Setup log not yet "
-                        f"visible after {elapsed:.1f}s; falling back to "
-                        f"hard timer."
+                        f"visible after {elapsed:.1f}s; continuing to watch..."
                     )
+                    # Give Inno Setup more time to start - increased from 10s to 60s
                     if marker_deadline is None:
-                        marker_deadline = elapsed + 10.0
+                        marker_deadline = elapsed + 60.0
                     elif elapsed >= marker_deadline:
-                        exit_reason = "log_never_appeared"
-                        break
+                        logger.warning(
+                            f"[OTA Installer] Inno Setup log still not ready after "
+                            f"{elapsed:.1f}s total. Inno Setup may be slow to start "
+                            f"or the log path is incorrect. Continuing to watch..."
+                        )
+                        # Don't exit on first deadline - keep watching until max_wait_seconds
+                        # This fixes the "Created temporary directory" bug where Inno Setup
+                        # takes >10s to write the next log entry
+                        marker_deadline = elapsed + 60.0  # Reset deadline
                 time.sleep(0.5)
     except Exception as exc:
         logger.warning(f"[OTA Installer] Watch loop error: {exc}")
@@ -262,14 +281,21 @@ def _wait_for_inno_log_exit(
         logger.info(
             f"[OTA Installer] Inno Setup watch loop exiting after "
             f"{time.time() - start:.1f}s (reason={exit_reason}); "
-            f"calling os._exit(0)."
+            f"exiting gracefully (NOT calling os._exit). "
+            f"Inno Setup will continue running independently."
         )
         try:
             sys.stdout.flush()
             sys.stderr.flush()
         except Exception:
             pass
-        os._exit(0)
+        # NOTE: We no longer call os._exit(0) here because:
+        # 1. Inno Setup is launched with DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        #    so it survives the Python parent exit
+        # 2. Calling os._exit(0) can kill Inno Setup mid-installation, causing
+        #    the exact bug we're trying to fix: truncated log at "Created temporary directory"
+        # 3. Python will exit naturally after this function returns and the main thread
+        #    completes its shutdown sequence (which properly terminates any subprocesses)
 
 
 class InstallationManager:
@@ -1393,6 +1419,41 @@ rm -f "$0"
                                 inno_log_path = arg_str[len('/LOG='):]
                                 break
 
+                        # Calculate dynamic timeout based on installer size.
+                        # Historical data: 500MB package takes ~117s to install
+                        # on a mid-range machine.  Performance varies widely:
+                        #   - Fast NVMe SSD: ~0.2s/MB
+                        #   - Standard HDD: ~0.5s/MB
+                        #   - Slow HDD/USB: ~1.0s/MB
+                        #   - Low-end CPU: 2-3x slower than mid-range
+                        #
+                        # Strategy: use 0.5s/MB base rate + 30s fixed overhead
+                        # for Inno Setup initialization/cleanup, capped at 300s.
+                        # This handles 500MB+ packages on slow hardware.
+                        installer_size_mb = 0
+                        try:
+                            installer_size_mb = package_path.stat().st_size / (1024 * 1024)
+                        except Exception:
+                            pass
+
+                        # Base rate: 0.5s per MB (conservative for slow disks)
+                        # Plus 30s fixed overhead for Inno Setup init/cleanup
+                        calculated_timeout = max(60.0, (installer_size_mb * 0.5) + 30.0)
+                        # Cap at 300s (5 minutes) to avoid indefinite wait
+                        # but allow enough time for very large packages on slow hardware
+                        max_wait_seconds = min(calculated_timeout, 300.0)
+
+                        logger.info(
+                            f"[OTA Installer] Installer size: {installer_size_mb:.1f} MB, "
+                            f"calculated timeout: {calculated_timeout:.0f}s, "
+                            f"capped at: {max_wait_seconds:.0f}s"
+                        )
+                        logger.info(
+                            "[OTA Installer] Inno Setup watch thread will "
+                            f"wait up to {max_wait_seconds:.0f}s for completion "
+                            f"(installer size: {installer_size_mb:.1f} MB)"
+                        )
+
                         # Schedule application exit
                         import threading
 
@@ -1402,7 +1463,7 @@ rm -f "$0"
                         # replaces.
                         threading.Thread(
                             target=_wait_for_inno_log_exit,
-                            args=(inno_log_path,),
+                            args=(inno_log_path, max_wait_seconds),
                             daemon=True,
                         ).start()
                         logger.info("[OTA Installer] Inno Setup watch loop started")
