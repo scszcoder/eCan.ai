@@ -1,23 +1,25 @@
 import sys
 import os
-from PySide6.QtWidgets import (QDialog, QLabel, QVBoxLayout, QHBoxLayout, 
+from PySide6.QtWidgets import (QDialog, QLabel, QVBoxLayout, QHBoxLayout,
                                QPushButton, QFrame, QWidget)
 from PySide6.QtCore import Qt, QSize, QUrl
 from PySide6.QtGui import QPixmap, QFont, QIcon, QDesktopServices
 from config.app_info import app_info
 from gui.messages import get_message
+from utils.app_env import is_cn
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None, version="1.0.0"):
         super().__init__(parent)
         self.version = version
+        self._is_cn = is_cn()
         self.setWindowTitle(get_message('about_title'))
         self.setFixedSize(500, 450)
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
-        
+
         # Setup UI
         self.setup_ui()
-        
+
         # Apply styles
         self.apply_styles()
 
@@ -59,8 +61,10 @@ class AboutDialog(QDialog):
 
         main_layout.addSpacing(20)
 
-        # Website Link
-        link_label = QLabel('<a href="https://www.ecan.ai" style="color: #58a6ff; text-decoration: none;">www.ecan.ai</a>')
+        # Website Link - use CN/INTL specific URL
+        website_url = get_message('about_website_url')
+        website_text = get_message('about_website')
+        link_label = QLabel(f'<a href="{website_url}" style="color: #58a6ff; text-decoration: none;">{website_text}</a>')
         link_label.setObjectName("linkLabel")
         link_label.setAlignment(Qt.AlignCenter)
         link_label.setOpenExternalLinks(True)
@@ -68,6 +72,14 @@ class AboutDialog(QDialog):
         main_layout.addWidget(link_label)
 
         main_layout.addStretch()
+
+        # Publisher Info
+        publisher_label = QLabel(get_message('about_publisher'))
+        publisher_label.setObjectName("publisherLabel")
+        publisher_label.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(publisher_label)
+
+        main_layout.addSpacing(5)
 
         # Team Info
         team_label = QLabel(get_message('about_designed_by'))
@@ -130,6 +142,10 @@ class AboutDialog(QDialog):
         }
         QLabel#linkLabel {
             font-size: 14px;
+        }
+        QLabel#publisherLabel {
+            font-size: 11px;
+            color: #7d8590;
         }
         QLabel#teamLabel {
             font-size: 11px;

@@ -97,9 +97,7 @@ class VersionCheckDialog(QDialog):
         manual_label.setOpenExternalLinks(True)
         manual_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
         manual_label.setText(
-            'You can always install the latest version manually using the '
-            f'links in <a href="{_manual_install_url()}" '
-            'style="color:#58a6ff; text-decoration:underline;">latest.json</a>.'
+            get_message('manual_install_fallback', url=_manual_install_url())
         )
         main_layout.addSpacing(10)
         main_layout.addWidget(manual_label)

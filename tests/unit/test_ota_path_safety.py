@@ -173,7 +173,8 @@ class TestWindowsInstallerLaunchesDirectly:
             "/SILENT",
             "/NORESTART",
             "/SP-",
-            "/CLOSEAPPLICATIONS",
+            # NOTE: /CLOSEAPPLICATIONS intentionally omitted — app exit is
+            # handled by the Inno Setup watch thread.
             r'/DIR="C:\Users\me\AppData\Local\eCan.cn"',
             "/LOG=C:\\Temp\\install.log",
         ]

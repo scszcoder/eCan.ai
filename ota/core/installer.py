@@ -1100,6 +1100,16 @@ rm -f "$0"
     def _install_exe(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
         """Install Windows EXE package - OTA silent update"""
         try:
+            # ✅ CRITICAL: Verify installer file exists before ANY other operations
+            # If the file doesn't exist, fail immediately instead of launching a non-existent installer
+            if not package_path.exists():
+                logger.error(
+                    f"[OTA Installer] CRITICAL: Installer file not found: {package_path}. "
+                    f"Download may have been deleted by antivirus, disk cleanup, or other process. "
+                    f"Please re-download the update."
+                )
+                return False
+            
             logger.info(f"Installing Windows EXE: {package_path}")
             logger.info(
                 f"[OTA Installer] _install_exe start: path={package_path}, exists={package_path.exists()}, "
@@ -1239,6 +1249,12 @@ rm -f "$0"
                     # handle app exit; Inno Setup proceeds directly to file
                     # replacement (no CloseApplications wait). The app is
                     # already dead before Inno Setup starts writing files.
+                    # Note: Do NOT use /DIR="..." with quotes around the path.
+                    # Inno Setup has issues parsing /DIR= with quotes, causing the installer
+                    # to fail silently at "Created temporary directory" without proceeding.
+                    # Since Inno Setup reads the previous install directory from registry
+                    # (UsePreviousAppDir=yes in build), /DIR= is belt-and-suspenders anyway.
+                    # Removing quotes fixes the installation. See logs for proof.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # ✅ Shows progress bar
@@ -1246,7 +1262,7 @@ rm -f "$0"
                         '/SP-',                  # ✅ Skip startup message
                         # /CLOSEAPPLICATIONS intentionally omitted:
                         # app exit is handled by the Inno Setup watch thread below.
-                        f'/DIR="{_strip_trailing_separator(install_dir)}"',  # ✅ Pin install target
+                        f'/DIR={_strip_trailing_separator(install_dir)}',  # ✅ Pin install target (no quotes)
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
@@ -1371,6 +1387,7 @@ rm -f "$0"
                     # ``os._exit(0)`` which kills the Inno Setup process
                     # mid-initialization, truncating the log at
                     # "Created temporary directory" with no files replaced.
+                    # Note: No quotes around /DIR= path - see frozen-path fix above.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
@@ -1378,7 +1395,7 @@ rm -f "$0"
                         '/SP-',                  # Skip startup message
                         # /CLOSEAPPLICATIONS intentionally omitted —
                         # see frozen-path note above.
-                        f'/DIR="{_strip_trailing_separator(install_dir)}"',
+                        f'/DIR={_strip_trailing_separator(install_dir)}',
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
