@@ -175,7 +175,7 @@ class TestWindowsInstallerLaunchesDirectly:
             "/SP-",
             # NOTE: /CLOSEAPPLICATIONS intentionally omitted — app exit is
             # handled by the Inno Setup watch thread.
-            r'/DIR="C:\Users\me\AppData\Local\eCan.cn"',
+            r'/DIR=C:\Users\me\AppData\Local\eCan.cn',
             "/LOG=C:\\Temp\\install.log",
         ]
         mgr._launch_windows_installer_delayed(cmd, delay_seconds=3)
@@ -210,17 +210,16 @@ class TestWindowsInstallerLaunchesDirectly:
             f"Adding or re-ordering args here would re-introduce the "
             f"cmd.exe round-trip the 2026-09-21 fix removed."
         )
-        # ``/DIR="..."`` must arrive with its quotes — this is the
-        # specific payload that the BAT path corrupted.
+        # ``/DIR=...`` without quotes is correct — Inno Setup 6.x handles it.
         dir_args = [a for a in argv if a.startswith("/DIR=")]
         assert len(dir_args) == 1, (
             f"Expected exactly one /DIR= arg, got {dir_args!r}"
         )
-        assert dir_args[0] == r'/DIR="C:\Users\me\AppData\Local\eCan.cn"', (
-            f"/DIR= arg lost its quotes: {dir_args[0]!r}. The 2026-09-21 "
-            f"bug was exactly this corruption — Inno Setup's "
-            f"folder-name validator sees the embedded ``\"`` and rejects "
-            f"the path."
+        assert dir_args[0] == r'/DIR=C:\Users\me\AppData\Local\eCan.cn', (
+            f"/DIR= arg mismatch: {dir_args[0]!r}. "
+            f"The 2026-09-21 fix changed from quoted /DIR=\"...\" to "
+            f"unquoted /DIR=... because Inno Setup 6.x handles paths without "
+            f"quotes correctly, and quoting caused silent failures."
         )
 
     def test_launch_sets_detached_creation_flags(self, installer_module, monkeypatch):
@@ -242,7 +241,7 @@ class TestWindowsInstallerLaunchesDirectly:
 
         mgr = installer_module.InstallationManager()
         mgr._launch_windows_installer_delayed(
-            [r"C:\fake\Setup.exe", "/SILENT", r'/DIR="C:\fake"'],
+            [r"C:\fake\Setup.exe", "/SILENT", r'/DIR=C:\fake'],
             delay_seconds=3,
         )
 
@@ -729,13 +728,13 @@ class TestInstallExeDirParameter:
             f"captured_cmd={captured_cmd!r}"
         )
         cmd = captured_cmd["cmd"]
-        # Look for a /DIR="<our resolved dir>" token in the cmd.
-        expected = f'/DIR="{target_dir}"'
+        # Look for a /DIR=<our resolved dir> token in the cmd (no quotes).
+        expected = f'/DIR={target_dir}'
         assert any(
-            expected == arg or arg.startswith(f'/DIR="{target_dir}')
+            expected == arg or arg.startswith(f'/DIR={target_dir}')
             for arg in cmd
         ), (
-            f"Inno Setup command MUST include ``/DIR=\"{target_dir}\"`` so "
+            f"Inno Setup command MUST include ``/DIR={target_dir}`` so "
             f"the installer writes to the directory we validated as "
             f"writable. Without it Inno Setup falls back to "
             f"``DefaultDirName`` and silently installs to "
@@ -791,9 +790,9 @@ class TestInstallExeDirParameter:
         )
         cmd = captured_cmd["cmd"]
         assert any(
-            arg.startswith(f'/DIR="{target_dir}"') for arg in cmd
+            arg.startswith(f'/DIR={target_dir}') for arg in cmd
         ), (
-            f"Dev-mode Inno Setup command must include ``/DIR=\"{target_dir}\"`` "
+            f"Dev-mode Inno Setup command must include ``/DIR={target_dir}`` "
             f"so the install goes to the resolved directory. Got cmd: {cmd!r}"
         )
 
@@ -2357,11 +2356,11 @@ class TestInstallExeDirParameterNoTrailingSeparator:
             f"captured={captured!r}"
         )
         cmd = captured["cmd"]
-        # Find the /DIR="…" arg.
-        dir_args = [a for a in cmd if a.startswith('/DIR="')]
+        # Find the /DIR=... arg (no quotes since 2026-09-21 fix).
+        dir_args = [a for a in cmd if a.startswith('/DIR=')]
         assert dir_args, f"No /DIR= arg found in cmd: {cmd!r}"
-        # Strip the /DIR=" prefix and trailing quote to inspect the value.
-        dir_value = dir_args[0][len('/DIR="'):-1]
+        # Strip the /DIR= prefix to inspect the value.
+        dir_value = dir_args[0][len('/DIR='):]
         assert not dir_value.endswith("\\"), (
             f"/DIR= value still ends with '\\\\': {dir_value!r}. "
             f"Inno Setup may install into the parent directory."
@@ -2415,7 +2414,7 @@ class TestInstallExeDirParameterNoTrailingSeparator:
         assert result is True
         cmd = captured["cmd"]
         dir_value = next(
-            a[len('/DIR="'):-1] for a in cmd if a.startswith('/DIR="')
+            a[len('/DIR='):] for a in cmd if a.startswith('/DIR=')
         )
         assert not dir_value.endswith("/"), (
             f"/DIR= value still ends with '/': {dir_value!r}."
