@@ -4,7 +4,7 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-09-16_
+_Last updated: 2026-09-21_
 
 ---
 
@@ -679,6 +679,38 @@ on the profile record. Both hardcode a policy, so decide deliberately.
   CN skill-editor chat fallback fixes.
 
 ## 🔵 Planned work
+
+### Open commercial decisions for business-metric billing (2026-09-21)
+
+Design + backend brief: `docs/BILLING_METERING_SERVER_TODO.md`. The plan
+explanation page is shipped (`/account/payment-plan/details`, reached from the ?
+on each plan card); these are the terms it deliberately does NOT state, because
+inventing them would put a made-up number in front of a paying customer.
+
+**Settled already** (so nobody re-litigates): ¥68 is a monthly **minimum
+charge** (保底), not a bundled quantity — 月度应付 = max(¥68, Σ usage), unused
+part does not roll over. `cs_chat.message_replied` is ¥0.05. Both plans charge
+identical unit prices; they differ only by `minimum_charge_minor`.
+
+Open, none of them blocking Phase A (metering in shadow mode):
+
+1. **Per-meter list prices beyond ¥0.05/reply.** Needed before a second
+   scenario (`ebay_aftersales`: label printed / return handled / dispute
+   handled) can leave shadow mode. Blocks Phase B seeding of `price_book_item`.
+2. **Subscription auto-renew, and mid-period cancellation vs the minimum.**
+   Pro-rate the floor, or charge it in full? This one has to be decided before
+   the first renewal cycle runs, not after — the period-close true-up job
+   (§6.1a) needs the rule, and getting it wrong overcharges a real customer.
+3. **Refund wording for reversals.** The ledger supports reversal rows; what a
+   customer is told when an event is reversed is unwritten.
+4. **Whether unused PAYG balance expires.** Currently omitted from the plan page
+   entirely rather than shown as an open question. If it does expire, that is a
+   term that must appear before purchase, not after.
+
+Also unresolved and cheaper to settle early: margin. Token cost per reply is not
+stable (Q&A prompts have hit 38-86K tokens) and a failed delivery is never
+billed, so it is pure loss. The cost-per-event and failed-delivery-cost
+dashboards should exist **before** prices are fixed for scenario two.
 
 ### Own fingerprint browser: profile + proxy + session management (2026-09-17)
 

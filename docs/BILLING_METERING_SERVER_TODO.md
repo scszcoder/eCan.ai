@@ -309,6 +309,9 @@ exists.
 
 ## 8. Open commercial inputs
 
+Tracked in `docs/OPEN_ITEMS.md` → 🔵 Planned work → "Open commercial decisions
+for business-metric billing"; keep the two in sync when one is answered.
+
 Settled: the ¥68 is a **monthly minimum charge**, not a bundled quantity (§5a),
 and `cs_chat.message_replied` is ¥0.05. Still open, none of them blocking Phase A:
 
