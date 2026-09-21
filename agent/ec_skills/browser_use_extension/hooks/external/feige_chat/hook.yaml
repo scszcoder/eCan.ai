@@ -79,6 +79,29 @@ config_schema:
       description: "Tool the dispatcher executes for a bypass.  Must be in permissions.tools."
       default: "feige_send_message"
 
+    # 过渡话术 (placeholder) — the stand-by line typed when a real reply is
+    # late, so the site's 未回复 red-flag clock resets.  Deliberately absent
+    # from the ``config:`` defaults block above: ``plugin_config.merged()``
+    # folds those defaults in, and placeholder_config resolves user choices
+    # only (store override → account default → env → legacy file), so a
+    # manifest default here would silently outrank an operator's env var.
+    # These are the ACCOUNT defaults; a per-store override of the same three
+    # keys lives in plugin_storage under ``placeholder:<store_key>``.
+    placeholder_enabled:
+      type: boolean
+      title: "过渡话术开关 / Stand-by reply enabled"
+      description: "Type a short stand-by line when the real reply is late."
+    placeholder_timeout_s:
+      type: number
+      title: "触发等待秒数 / Trigger after (seconds)"
+      description: "Seconds to wait for the real reply before the stand-by line is typed.  0 disables."
+      minimum: 0
+    placeholder_texts:
+      type: array
+      title: "过渡话术 / Stand-by lines"
+      description: "Up to 5 lines, used in order on repeat fires.  Blank and duplicate lines are dropped."
+      items: {type: string}
+
 # ──────────────────────────────────────────────────────────────────
 # Phase 3 GUI surface — iframe-hosted config panels. Plugin authors
 # copy these three files from feige_chat/gui/ as a starting point.

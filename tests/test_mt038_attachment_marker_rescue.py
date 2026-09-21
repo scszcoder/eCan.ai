@@ -2517,7 +2517,10 @@ class Mt048ASourceTests(unittest.TestCase):
 
     def test_loader_helpers_defined(self) -> None:
         self.assertIn("def _load_placeholder_texts_from_file()", PH_SRC_048)
-        self.assertIn("def _get_placeholder_texts()", PH_SRC_048)
+        # 2026-09-21: takes the store the turn was armed for, so the config
+        # panel's per-store 过渡话术 reaches the right customer.  The file
+        # loader below it is unchanged and still the fallback tier.
+        self.assertIn("def _get_placeholder_texts(store_key: str = \"\")", PH_SRC_048)
 
     def test_cache_via_lock(self) -> None:
         # Thread-safe lazy cache.
@@ -2526,7 +2529,7 @@ class Mt048ASourceTests(unittest.TestCase):
 
     def test_consumer_uses_loader(self) -> None:
         # Old direct reference replaced with loader call.
-        self.assertIn("_texts = _get_placeholder_texts()", PH_SRC_048)
+        self.assertIn("_texts = _get_placeholder_texts(entry.store_key)", PH_SRC_048)
         self.assertIn("text_idx = min(entry.placeholders_typed, len(_texts) - 1)", PH_SRC_048)
         # Regression guard: bare _PLACEHOLDER_TEXTS only appears as part of
         # the constant names (default/cache/max/filename), never as a bare
@@ -2553,6 +2556,20 @@ class Mt048ABehaviourTests(unittest.TestCase):
         self.mod = importlib.import_module(mod_name)
         # Reset cache so each test starts clean.
         self.mod._PLACEHOLDER_TEXTS_CACHE = None
+        # 2026-09-21: the config panel's per-store / account tiers are
+        # consulted before this file.  This class exercises the FILE loader,
+        # so silence the GUI tiers — otherwise the result depends on whatever
+        # the developer happens to have saved in plugins/_config.
+        from unittest import mock as _mock
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+            placeholder_config as _ph_cfg,
+        )
+        _ph_cfg.invalidate()
+        for _name in ("_account_config", "_store_config"):
+            _patch = _mock.patch.object(_ph_cfg, _name, return_value={})
+            _patch.start()
+            self.addCleanup(_patch.stop)
+        self.addCleanup(_ph_cfg.invalidate)
 
     def _patch_user_data(self, tmp_dir):
         from unittest import mock as _mock

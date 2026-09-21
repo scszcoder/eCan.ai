@@ -312,7 +312,20 @@ class FeigeRunnerBridge:
     def placeholder_timeout_s(self) -> float:
         """Per-turn placeholder-timer deadline in seconds (0 = disabled).
         Site-branded knob name + default stay on this side of the
-        boundary (frontdesk_dispatch round 2, 2026-08-01)."""
+        boundary (frontdesk_dispatch round 2, 2026-08-01).
+
+        2026-09-21: the config panel's per-store / account setting wins over
+        the env var.  A 店主 who switches 过渡话术 off in the GUI must not keep
+        getting them because a support engineer once exported ECAN_FEIGE_* on
+        that machine (Fast Deploy seeds the env at deploy time, cli/deploy).
+        """
+        try:
+            from . import placeholder_config
+            gui = placeholder_config.timeout_override()
+            if gui is not None:
+                return gui
+        except Exception:
+            pass  # degrade exactly like the old failed lazy import
         from .tunables import resolve_float, DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S
         return resolve_float(
             "FEIGE_PLACEHOLDER_TIMEOUT_S", DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S, None

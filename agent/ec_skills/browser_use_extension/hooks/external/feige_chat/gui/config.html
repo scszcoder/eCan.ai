@@ -5,6 +5,20 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <title>feige_chat — config</title>
   <link rel="stylesheet" href="theme.css" />
+  <style>
+    /* Only the controls theme.css does not already cover. */
+    .row select {
+      background: var(--input-bg, transparent);
+      color: inherit;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font: inherit;
+    }
+    .row label.check { display: flex; align-items: center; gap: 6px; color: inherit; font-size: 13px; }
+    .row label.check input { width: auto; }
+    .muted-block { opacity: 0.5; pointer-events: none; }
+  </style>
 </head>
 <body>
   <div class="card">
@@ -30,6 +44,57 @@
     <div class="footer">
       <button id="save" class="primary">Save</button>
       <span id="status" class="status"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>过渡话术 / Stand-by reply</h2>
+    <p class="hint">
+      真实回复较慢时，先给顾客发一句话，避免平台判定「未回复」。
+      A short line typed while the real answer is still being written.
+    </p>
+
+    <div class="row">
+      <label for="storeSel">店铺 / Store</label>
+      <select id="storeSel"></select>
+    </div>
+
+    <div class="row" id="inheritRow" hidden>
+      <label class="check">
+        <input type="checkbox" id="inherit" />
+        跟随默认设置 / Use the account default
+      </label>
+    </div>
+
+    <div id="phFields">
+      <div class="row">
+        <label class="check">
+          <input type="checkbox" id="phEnabled" />
+          启用过渡话术 / Enabled
+        </label>
+      </div>
+
+      <div class="row">
+        <label for="phTimeout">触发等待（秒） / Trigger after (seconds)</label>
+        <input id="phTimeout" type="number" min="0" step="1" />
+      </div>
+
+      <div class="row">
+        <label>话术（最多 5 条，按顺序使用） / Lines (max 5, used in order)</label>
+        <div id="phTexts" class="kv"></div>
+        <button id="addText" class="ghost">+ 添加一条 / add line</button>
+      </div>
+    </div>
+
+    <p class="hint" id="phEnvNote" hidden></p>
+    <p class="hint" id="phLegacyNote" hidden>
+      以上话术来自旧的配置文件（placeholder_texts.json），点「保存」后由本界面接管。
+    </p>
+    <p class="hint">空行与重复行会被自动忽略；界面设置优先于环境变量。</p>
+
+    <div class="footer">
+      <button id="phSave" class="primary">保存 / Save</button>
+      <span id="phStatus" class="status"></span>
     </div>
   </div>
 
@@ -102,7 +167,212 @@
         cfg = JSON.parse(JSON.stringify(data.config_effective));
         applyToForm();
       }
+      if (data && data.config_user) {
+        accountPh = readPh(data.config_user);
+        if (currentStore() === '') renderPh();
+      }
     });
+
+    // =====================================================================
+    // 过渡话术 — account default lives in plugin config, a per-store override
+    // in the plugin KV under ``placeholder:<store_key>``.  Same three keys in
+    // both places, so placeholder_config.py resolves store → account → env.
+    // =====================================================================
+    const PH_KEYS = ['placeholder_enabled', 'placeholder_timeout_s', 'placeholder_texts'];
+    const PH_STORE_PREFIX = 'placeholder:';
+    const PH_MAX_TEXTS = 5;
+    const PH_DEFAULT_TIMEOUT = 20;
+
+    let stores = {};        // store_key -> {label, last_seen, env_timeout_s}
+    let accountPh = {};     // explicit account-level choices (never manifest defaults)
+    let storePh = {};       // store_key -> explicit per-store choices
+    let phDraft = { placeholder_enabled: false, placeholder_timeout_s: 0, placeholder_texts: [] };
+
+    function currentStore() {
+      return document.getElementById('storeSel').value || '';
+    }
+
+    function readPh(src) {
+      const out = {};
+      if (!src || typeof src !== 'object') return out;
+      for (const k of PH_KEYS) if (src[k] !== undefined && src[k] !== null) out[k] = src[k];
+      return out;
+    }
+
+    /** Trim, drop blanks, dedupe, cap — mirrors placeholder_config.sanitize_texts
+     *  so the panel can never save a list the runtime would silently shorten. */
+    function sanitizeTexts(list) {
+      const out = [];
+      const seen = new Set();
+      for (const item of (Array.isArray(list) ? list : [])) {
+        const text = String(item == null ? '' : item).trim();
+        if (!text || seen.has(text)) continue;
+        seen.add(text);
+        out.push(text);
+        if (out.length >= PH_MAX_TEXTS) break;
+      }
+      return out;
+    }
+
+    function renderStoreOptions() {
+      const sel = document.getElementById('storeSel');
+      const keep = sel.value;
+      sel.innerHTML = '';
+      sel.appendChild(el('option', { value: '' }, ['默认（全部店铺） / Account default']));
+      Object.entries(stores)
+        .sort((a, b) => (b[1]?.last_seen || 0) - (a[1]?.last_seen || 0))
+        .forEach(([key, meta]) => {
+          sel.appendChild(el('option', { value: key }, [String((meta && meta.label) || key)]));
+        });
+      if (keep) sel.value = keep;
+    }
+
+    function renderTexts() {
+      const root = document.getElementById('phTexts');
+      root.innerHTML = '';
+      const list = phDraft.placeholder_texts || [];
+      list.forEach((text, idx) => {
+        const row = el('div', { class: 'kv-row' });
+        const inp = el('input', { type: 'text', value: text, placeholder: '人工服务正在回复中...' });
+        const del = el('button', { class: 'danger' }, ['×']);
+        inp.addEventListener('input', () => { phDraft.placeholder_texts[idx] = inp.value; });
+        del.addEventListener('click', () => {
+          phDraft.placeholder_texts.splice(idx, 1);
+          renderTexts();
+        });
+        row.appendChild(inp); row.appendChild(del);
+        root.appendChild(row);
+      });
+      document.getElementById('addText').disabled = list.length >= PH_MAX_TEXTS;
+    }
+
+    function renderPh() {
+      const key = currentStore();
+      const isStore = key !== '';
+      const override = isStore ? (storePh[key] || null) : null;
+      const inheriting = isStore && !override;
+
+      document.getElementById('inheritRow').hidden = !isStore;
+      document.getElementById('inherit').checked = inheriting;
+      document.getElementById('phFields').className = inheriting ? 'muted-block' : '';
+
+      const src = inheriting ? accountPh : (override || accountPh);
+      // Nothing configured in the GUI yet, but this machine may still be
+      // running a phrase from the pre-GUI text file.  Show THAT, so the panel
+      // never claims a default the customer is not actually getting; the
+      // runtime mirrors it into the store registry because an iframe cannot
+      // read the file itself.  Adopting it is an explicit Save, never a
+      // silent rewrite of the customer's config.
+      let legacy = null;
+      if (!src.placeholder_texts) {
+        for (const meta of Object.values(stores)) {
+          if (meta && Array.isArray(meta.legacy_texts) && meta.legacy_texts.length) {
+            legacy = meta.legacy_texts;
+            break;
+          }
+        }
+      }
+      phDraft = {
+        placeholder_enabled: src.placeholder_enabled === true,
+        placeholder_timeout_s: Number(src.placeholder_timeout_s ?? 0) || 0,
+        placeholder_texts: sanitizeTexts(src.placeholder_texts || legacy || []),
+      };
+      document.getElementById('phLegacyNote').hidden = !legacy;
+
+      document.getElementById('phEnabled').checked = phDraft.placeholder_enabled;
+      document.getElementById('phTimeout').value = phDraft.placeholder_timeout_s || '';
+      renderTexts();
+
+      // Env is invisible from here, so the runtime mirrors it into the store
+      // registry; showing it stops support wondering why a number "looks off".
+      const envNote = document.getElementById('phEnvNote');
+      const envVal = isStore ? stores[key]?.env_timeout_s : null;
+      if (envVal !== null && envVal !== undefined) {
+        envNote.textContent =
+          `该机器设置了环境变量 ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S=${envVal}，界面设置会覆盖它。`;
+        envNote.hidden = false;
+      } else {
+        envNote.hidden = true;
+      }
+    }
+
+    function readPhForm() {
+      const timeoutRaw = parseFloat(document.getElementById('phTimeout').value);
+      const enabled = document.getElementById('phEnabled').checked;
+      const texts = sanitizeTexts(phDraft.placeholder_texts || []);
+      let timeout = Number.isFinite(timeoutRaw) && timeoutRaw >= 0 ? timeoutRaw : null;
+      if (timeout === null) timeout = enabled ? PH_DEFAULT_TIMEOUT : 0;
+      return {
+        placeholder_enabled: enabled,
+        placeholder_timeout_s: timeout,
+        placeholder_texts: texts,
+      };
+    }
+
+    document.getElementById('storeSel').addEventListener('change', renderPh);
+
+    document.getElementById('inherit').addEventListener('change', (e) => {
+      const key = currentStore();
+      if (!key) return;
+      if (e.target.checked) {
+        delete storePh[key];          // persisted on Save
+      } else {
+        storePh[key] = JSON.parse(JSON.stringify(accountPh));
+      }
+      renderPh();
+    });
+
+    document.getElementById('addText').addEventListener('click', () => {
+      if (!phDraft.placeholder_texts) phDraft.placeholder_texts = [];
+      if (phDraft.placeholder_texts.length >= PH_MAX_TEXTS) return;
+      phDraft.placeholder_texts.push('');
+      renderTexts();
+    });
+
+    document.getElementById('phSave').addEventListener('click', async () => {
+      const status = document.getElementById('phStatus');
+      const key = currentStore();
+      const inheriting = key !== '' && document.getElementById('inherit').checked;
+      try {
+        if (key === '') {
+          const patch = readPhForm();
+          await ecan.plugin.config.set(patch);
+          accountPh = patch;
+        } else if (inheriting) {
+          await ecan.plugin.storage.del(PH_STORE_PREFIX + key);
+          delete storePh[key];
+        } else {
+          const patch = readPhForm();
+          await ecan.plugin.storage.set(PH_STORE_PREFIX + key, patch);
+          storePh[key] = patch;
+        }
+        renderPh();
+        status.textContent = '已保存，立即生效。 / Saved — live within a second.';
+        status.className = 'status ok';
+        ecan.plugin.ui.notify('success', '过渡话术已保存');
+      } catch (e) {
+        status.textContent = e.message || '保存失败 / Save failed';
+        status.className = 'status err';
+      }
+    });
+
+    async function initPlaceholder(configUser) {
+      accountPh = readPh(configUser);
+      try {
+        const known = await ecan.plugin.storage.get('stores');
+        stores = (known && typeof known === 'object') ? known : {};
+      } catch (e) {
+        stores = {};
+      }
+      for (const key of Object.keys(stores)) {
+        try {
+          const blob = await ecan.plugin.storage.get(PH_STORE_PREFIX + key);
+          if (blob && typeof blob === 'object') storePh[key] = readPh(blob);
+        } catch (e) { /* a missing per-store blob just means "inherits" */ }
+      }
+      renderStoreOptions();
+      renderPh();
+    }
 
     (async function init() {
       try {
@@ -111,6 +381,7 @@
         const r = await ecan.plugin.config.get();
         cfg = JSON.parse(JSON.stringify(r.config_effective || {}));
         applyToForm();
+        await initPlaceholder(r.config_user || {});
         // Right-size the host iframe to our content.
         const h = document.body.scrollHeight + 24;
         ecan.plugin.ui.resize(h);

@@ -167,13 +167,28 @@ def _load_placeholder_texts_from_file() -> Optional[list[str]]:
     return cleaned
 
 
-def _get_placeholder_texts() -> list[str]:
+def _get_placeholder_texts(store_key: str = "") -> list[str]:
     """Return the active placeholder text list, loading on first call.
 
     mt048A — operator overrides via <user_data_home>/ecan/placeholder_texts.json.
     Empty / malformed / missing file falls back to ``_PLACEHOLDER_DEFAULT_TEXTS``.
     Cached for the lifetime of the process.
+
+    2026-09-21 — the GUI tiers (per-store override, then the account default,
+    both edited in the bundle's own config panel) are consulted FIRST and are
+    re-read within a second of a save, so a 店主 who types a new phrase does
+    not have to restart the app.  The mt048A file below stays exactly as it
+    was, as the fallback for installs deployed before the panel existed.
     """
+    try:
+        from . import placeholder_config
+        gui_texts = placeholder_config.texts_override(store_key)
+    except Exception as exc:  # bundle usable without the plugin system
+        logger.debug(f"[placeholder_timer] GUI placeholder texts unavailable: {exc}")
+        gui_texts = None
+    if gui_texts:
+        return gui_texts
+
     global _PLACEHOLDER_TEXTS_CACHE
     if _PLACEHOLDER_TEXTS_CACHE is not None:
         return _PLACEHOLDER_TEXTS_CACHE
@@ -197,6 +212,21 @@ def _get_placeholder_texts() -> list[str]:
         return _PLACEHOLDER_TEXTS_CACHE
 
 
+def _current_store_key() -> str:
+    """Store this run serves, and register it for the config panel's picker.
+
+    Best-effort: an install without the plugin system (cloud worker, tests)
+    resolves to "" and gets the account-wide settings, exactly as before.
+    """
+    try:
+        from . import placeholder_config
+        placeholder_config.note_active_store()
+        return placeholder_config.current_store_key()
+    except Exception as exc:
+        logger.debug(f"[placeholder_timer] store key unavailable: {exc}")
+        return ""
+
+
 @dataclass
 class _TimerEntry:
     customer_key: str
@@ -205,6 +235,9 @@ class _TimerEntry:
     deadline_at: float
     placeholders_typed: int = 0
     cancelled: bool = False
+    # Which store armed this turn.  Stamped at arm() time because the sweeper
+    # runs on its own thread, where the run's ContextVar scope is not visible.
+    store_key: str = ""
 
 
 # Module-level registry — process-wide
@@ -739,6 +772,10 @@ def arm(customer_key: str, source_msg_id: str = "", *, timeout_s: float) -> None
     # accounting carries forward across the upgrade.
     upgraded_typed = 0
     upgrade_log = ""
+    # Resolved outside the registry lock: it reads the run's ContextVar scope
+    # and (throttled) touches the bundle KV, neither of which belongs under a
+    # lock the sweeper also contends for.
+    store_key = _current_store_key()
     with _REGISTRY_LOCK:
         if source_msg_id:
             empty_key = _make_key(customer_key, "")
@@ -756,6 +793,7 @@ def arm(customer_key: str, source_msg_id: str = "", *, timeout_s: float) -> None
                 source_msg_id=str(source_msg_id or ""),
                 armed_at=armed_at,
                 deadline_at=deadline,
+                store_key=store_key,
             )
             entry.placeholders_typed = upgraded_typed
             _REGISTRY[key] = entry
@@ -764,6 +802,8 @@ def arm(customer_key: str, source_msg_id: str = "", *, timeout_s: float) -> None
             # we don't spam endlessly on rapid re-dispatch.
             entry.deadline_at = deadline
             entry.cancelled = False
+            if store_key:
+                entry.store_key = store_key
             if upgraded_typed > entry.placeholders_typed:
                 entry.placeholders_typed = upgraded_typed
     delay_to_fire = max(0.0, deadline - now)
@@ -1051,7 +1091,8 @@ def claim_expired(
                     entry.deadline_at = max(entry.deadline_at, _last_claim + _min_iv)
                     continue
             # mt048A: resolved lazily so operator file overrides apply.
-            _texts = _get_placeholder_texts()
+            # The store stamped at arm() time picks the right per-store phrase.
+            _texts = _get_placeholder_texts(entry.store_key)
             text_idx = min(entry.placeholders_typed, len(_texts) - 1)
             text = _texts[text_idx]
             entry.placeholders_typed += 1
