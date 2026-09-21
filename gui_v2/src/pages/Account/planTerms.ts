@@ -172,7 +172,7 @@ export const BILLING_RULES: { title: Bilingual; billed: Bilingual[]; notBilled: 
 
 /**
  * How a skill's price is decided. This is the honest short version of the
- * three-tier trust model in docs/BILLING_METERING_SERVER_TODO.md — customers
+ * tiered pricing model (see the backend billing brief) — customers
  * copying and editing template skills need to know why their bill may switch
  * from per-result back to per-usage.
  */

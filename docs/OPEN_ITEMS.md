@@ -689,7 +689,8 @@ on the profile record. Both hardcode a policy, so decide deliberately.
 
 ### Open commercial decisions for business-metric billing (2026-09-21)
 
-Design + backend brief: `docs/BILLING_METERING_SERVER_TODO.md`. The plan
+Design + backend brief: `cn/tencent/BILLING_METERING_SERVER_TODO.md` in the
+**eCan_lambda** repo (it carries cost basis and pricing internals). The plan
 explanation page is shipped (`/account/payment-plan/details`, reached from the ?
 on each plan card); these are the terms it deliberately does NOT state, because
 inventing them would put a made-up number in front of a paying customer.
@@ -714,10 +715,8 @@ Open, none of them blocking Phase A (metering in shadow mode):
    entirely rather than shown as an open question. If it does expire, that is a
    term that must appear before purchase, not after.
 
-Also unresolved and cheaper to settle early: margin. Token cost per reply is not
-stable (Q&A prompts have hit 38-86K tokens) and a failed delivery is never
-billed, so it is pure loss. The cost-per-event and failed-delivery-cost
-dashboards should exist **before** prices are fixed for scenario two.
+Unit economics, cost-per-event dashboards and anything else touching margin are
+tracked in the backend brief, not here.
 
 ### Own fingerprint browser: profile + proxy + session management (2026-09-17)
 
