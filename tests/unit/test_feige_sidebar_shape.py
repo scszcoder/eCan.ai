@@ -45,7 +45,7 @@ EXPECTED_ANCHORS = {
 
 
 def test_every_parser_hook_is_probed():
-    """An anchor missing from the fingerprint is a parser whose death would go
+    """An anchor missing from the shape record is a parser whose death would go
     unrecorded."""
     import re
     probed = set(re.findall(r"'([a-z0-9_]+)':\s+'", sp.SIDEBAR_SHAPE_JS))
@@ -55,7 +55,7 @@ def test_every_parser_hook_is_probed():
 
 
 def test_the_name_parser_and_the_fingerprint_probe_the_same_selectors():
-    """If they drift apart, the fingerprint starts watching a DOM feature
+    """If they drift apart, the shape record starts watching a DOM feature
     nothing actually depends on — the exact failure ROW_NAME_JS was shared to
     prevent."""
     for selector in ('[data-qa-id="qa-conversation-nickname"]',
@@ -91,7 +91,7 @@ def test_an_empty_sidebar_is_not_treated_as_a_site_change():
     import inspect
     src = inspect.getsource(site_tools.feige_list_sessions)
     assert "and sessions:" in src, (
-        "the fingerprint must only be recorded from a scan that saw rows"
+        "the shape record must only be recorded from a scan that saw rows"
     )
 
 
@@ -137,7 +137,7 @@ def test_no_customer_text_can_reach_the_fingerprint():
     """It is written to a store kept for three years."""
     js = sp.SIDEBAR_SHAPE_JS
     assert "textContent" not in js, (
-        "the fingerprint must read structure, never text"
+        "the shape record must read structure, never text"
     )
     # Exactly one attribute value is read, and it is a machine identifier.
     assert js.count(".value") == 1 and "data-qa-id" in js
@@ -254,7 +254,7 @@ def test_a_hostile_selector_cannot_break_out_of_the_literal(monkeypatch):
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node not installed")
 def test_a_configured_selector_is_actually_probed(tmp_path):
-    """End to end: inject a selector, and the fingerprint reports on it."""
+    """End to end: inject a selector, and the shape record reports on it."""
     import json
     js_file = tmp_path / "shape.js"
     js_file.write_text(sp.SIDEBAR_SHAPE_JS, encoding="utf-8")
@@ -267,7 +267,7 @@ def test_a_configured_selector_is_actually_probed(tmp_path):
     rows.write_text(json.dumps([row] * 4), encoding="utf-8")
 
     probe = (pathlib.Path(__file__).resolve().parents[2] / "tools" / "emulation"
-             / "fingerprint_probe.js")
+             / "shape_probe.js")
     # The probe's stand-in only models the selectors the built-in list asks
     # for, so a configured one resolves to "absent" — which is exactly what
     # must be REPORTED rather than ignored.

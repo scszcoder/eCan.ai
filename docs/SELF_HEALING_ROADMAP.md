@@ -393,7 +393,7 @@ The first three are leading indicators; the fourth is confirmation. That
 ordering is the point: today the only signal is a customer complaining, which
 is one step *after* the fourth.
 
-### What the fingerprint contains
+### What the shape record contains
 
 Anchor presence (`data_qa_id_nickname`, `name_line`, `legacy_hashed_wrap`, …
 one per parser branch in `ROW_NAME_JS`), attribute names, tag names,
@@ -442,7 +442,7 @@ the measure.
 
 The two known events are partly reconstructable: the commits that fixed them
 record which selectors died. Building the before/after anchor sets from
-`6da0d3e09` and the mt062/063 fixes and asserting the fingerprint would have
+`6da0d3e09` and the mt062/063 fixes and asserting the shape record would have
 fired gives us **labelled positives today**, without waiting for a third
 redesign. Do this before building anything on top of the detector.
 
@@ -681,7 +681,7 @@ says we do not have.
 now, without waiting for a third redesign.
 
 `tests/unit/test_detector_stress.py` drives the **real** fingerprint
-(`SIDEBAR_SHAPE_JS`, through `tools/emulation/fingerprint_probe.js`) and the
+(`SIDEBAR_SHAPE_JS`, through `tools/emulation/shape_probe.js`) and the
 **real** decision path (`drift_journal.note_shape`) over the row layouts this
 site has actually shipped (`tools/emulation/layouts.json`) plus synthetic
 mutations. Nothing is reimplemented — a ported copy of either half would
@@ -721,7 +721,7 @@ rotation that leaves those alone is noise.
 
 ### §18a. The re-nesting gap, and why it was worth closing
 
-`renest` was a blind spot: the fingerprint recorded *sets* of names, not depth,
+`renest` was a blind spot: the shape record recorded *sets* of names, not depth,
 so moving elements a level deeper was invisible. That looked mostly harmless,
 because it is invisible to `ROW_NAME_JS` too — it uses `row.querySelector(...)`
 throughout, which is depth-agnostic.
@@ -733,15 +733,15 @@ and the preview comes back empty — with every class and attribute unchanged, s
 a presence-only fingerprint stays silent. That is precisely the ws189 failure:
 `skipped={'empty_preview': N==rows}` while the scan itself looked healthy.
 
-So the fingerprint now records the **minimum depth of each anchor below the
+So the shape record now records the **minimum depth of each anchor below the
 row**. The minimum, not the depth per row: row variants legitimately nest
 differently (a tagged row sits a level deeper than a plain one), and taking the
-minimum keeps that from flapping the fingerprint on every scan while still
+minimum keeps that from flapping the shape record on every scan while still
 moving when the site inserts a wrapper above them all.
 
 Two couplings this creates, both pinned by tests:
 
-* The shipped baseline had to be regenerated. Any change to the fingerprint's
+* The shipped baseline had to be regenerated. Any change to the shape record's
   shape makes every install report a day-one difference against a stale
   baseline — worth remembering before the next field is added.
 * A test asserts the preview reader still compares `parentElement`. If it stops,
@@ -759,7 +759,7 @@ was visible by reading the code:
    deploy would have fired a structural change. Now the prefix is kept as
    structure and the suffix counted as a hash.
 2. **The hashed-class figure was an absolute count** over a variable number of
-   sampled rows, so scroll position alone moved the fingerprint. Now normalised
+   sampled rows, so scroll position alone moved the shape record. Now normalised
    per row.
 3. **The row element was invisible to itself.** `querySelectorAll('*')` returns
    descendants only, so the row's own attributes were never recorded — and
@@ -776,10 +776,76 @@ something drove real layouts through it.
   layouts now live in `layouts.json` but only the harness reads them. Wiring the
   page to render from the same file gives browser-fidelity runs of the same
   cases (`EMULATION_HARNESS.md` §6a).
-- The harness exercises `renest` against the fingerprint, but still not against
+- The harness exercises `renest` against the shape record, but still not against
   the preview reader itself — it proves the change is *detected*, not that the
   reader would have broken. Driving the real reader over a re-nested row would
   close that last step.
+
+## 19. GUI and terminology decisions (2026-09-20)
+
+GUI work itself is deferred to a later pass. These are the decisions that pass
+should start from, recorded now so they are not re-litigated.
+
+### 19a. "Fingerprint" is reserved for the anti-detect browser
+
+The product already has 指纹浏览器 / fingerprint browser — browser identity,
+profiles, proxies, `agent/mcp/server/fingerprint_playwright/`, and its own
+Settings page. Using the same word for a structural signature of a page
+guarantees the two get conflated, in the UI and in conversation.
+
+**Decided: this work never says "fingerprint".** It is a **site shape** /
+**structural signature**, and the user-facing name is **站点变更 / Site
+changes**.
+
+Most of the code already said "shape" (`SIDEBAR_SHAPE_JS`,
+`__ecanSidebarShape`, `note_shape`, `known_shapes.json`). The gaps were closed
+on the same day: `fingerprint_probe.js` became `shape_probe.js`, and the unused
+`dom_fingerprint()` was deleted rather than renamed — nothing called it.
+
+### 19b. The watch is DERIVED, never specified in a GUI
+
+The obvious feature request is "let me configure which selectors to watch".
+It should be refused.
+
+The watch already derives from what the skill declares — the browser-automation
+node's `cdpFilterExpr` (§18b) — so a user editing a selector in the skill editor
+is covered automatically. A second, hand-maintained list in a settings screen
+would recreate exactly the drift this work exists to detect: two declarations of
+"what we depend on", free to disagree. That is how `.lF_M7Qi…` stayed a live
+dependency for months after the JS readers abandoned it.
+
+**The GUI's job here is visibility, not specification.**
+
+### 19c. What belongs in the GUI, in priority order
+
+1. **站点变更 view (read-only).** Recorded changes newest first, the deploy
+   calendar, the current watched shape, the retention statement. Highest value
+   by a distance: the three-year record is CLI-only today, and customers and
+   support do not use a CLI — so for them the data does not exist.
+2. **Degraded-dot drill-down.** The dot ships in this branch; only a tooltip
+   explains it. A red dot nobody can investigate is an alarm without an address.
+3. **L2 switch and spend readout.** Enable, model, today's spend against the
+   cap, any open breaker. The only piece with money attached — if L2 is ever
+   enabled for customers, the spend has to be visible where they are.
+4. **Export baseline** button, carrying the "only from a healthy machine"
+   warning. Defensible, but the CLI is adequate; lowest priority.
+
+### 19d. What stays out, and why
+
+* **Anchor lists** — derive, do not specify (§19b).
+* **Signal declarations** — each needs `means` prose and a severity judgement.
+  That is code review, not a form.
+* **`CIRCUIT_AFTER_FAILURES`, `DEGRADED_AFTER_S`, `DAILY_CAP_*`** — tuning knobs
+  with cost and alarm-fatigue consequences. A customer setting the daily cap to
+  10,000 is a bill, not a preference. Show them **read-only** so support can see
+  what a machine is running.
+* **Retention years** — the three-year floor is a promise. An editable field
+  defeats it.
+
+### 19e. What this branch already touched in the GUI
+
+One thing: the sixth readiness dot on the Agents page (`ReadinessStrip.tsx`)
+plus its two i18n keys. Everything else is CLI, log lines, or files.
 
 ## 16. What would invalidate Part II
 

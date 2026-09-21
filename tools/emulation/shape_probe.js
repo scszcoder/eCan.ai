@@ -1,13 +1,13 @@
 // Runs the REAL sidebar fingerprint over a structured row description.
 //
-// Usage:  node fingerprint_probe.js <shape_js_file> <rows_json_file>
+// Usage:  node shape_probe.js <shape_js_file> <rows_json_file>
 //
-// Prints the fingerprint as JSON on stdout. Nothing is ported or reimplemented
-// here: the fingerprint source is read from the file the app actually ships, so
+// Prints the shape record as JSON on stdout. Nothing is ported or reimplemented
+// here: the shape record source is read from the file the app actually ships, so
 // the harness cannot drift from the thing it is measuring — which is the exact
 // failure (two copies of one parser) that ROW_NAME_JS was consolidated to stop.
 //
-// A minimal element stand-in is enough because the fingerprint only ever reads
+// A minimal element stand-in is enough because the shape record only ever reads
 // tagName, attributes, className and querySelector(All). It never reads text.
 
 const fs = require('fs');
@@ -49,7 +49,7 @@ function attrsOf(node) {
   return a;
 }
 
-// Only the selector shapes the fingerprint asks for. Anything else returns no
+// Only the selector shapes the shape record asks for. Anything else returns no
 // match, which is the honest answer for a stand-in.
 function matches(node, sel) {
   const a = attrsOf(node);
@@ -99,7 +99,7 @@ function asRow(spec) {
 }
 
 // Optional 4th arg: the selectors the DOM monitor is configured with, which
-// the fingerprint probes alongside its built-in list.
+// the shape record probes alongside its built-in list.
 let extraAnchors = null;
 if (process.argv[4]) {
   try { extraAnchors = JSON.parse(process.argv[4]); } catch (e) { extraAnchors = null; }

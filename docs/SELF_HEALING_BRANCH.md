@@ -51,7 +51,7 @@ The bundle owns *which selectors*, *which phrases*, *which thresholds*.
 existing path:
 
 - element-resolution counters (`element_targeting`)
-- sidebar structural fingerprint + deploy marker (`SIDEBAR_SHAPE_JS`)
+- sidebar structural signature + deploy marker (`SIDEBAR_SHAPE_JS`)
 - ws protocol field watcher (`ws_protocol_watch`)
 - the site's distress notices (`signals`, `conversation_ledger`)
 - the permanent journal (`drift_journal`) and the readiness dot
@@ -110,7 +110,7 @@ This is deliberate sequencing: the spending limits and the measurement landed
 |---|---|
 | `tools/emulation/**` | The Feige emulator, **rescued from the git-ignored `customer_logs/`** where it existed on one working copy and in no branch. `sample0.png` is a generated placeholder; the original was a real screenshot of the live site and is deliberately not tracked. |
 | `tools/emulation/layouts.json` | Structural descriptions of the row layouts the site has actually shipped (mt062 legacy, the June redesign, the September rebuild). |
-| `tools/emulation/fingerprint_probe.js` | Runs the **real** fingerprint over those layouts in node. Nothing is reimplemented — a ported copy would measure the copy. |
+| `tools/emulation/shape_probe.js` | Runs the **real** fingerprint over those layouts in node. Nothing is reimplemented — a ported copy would measure the copy. |
 
 ---
 
@@ -119,7 +119,7 @@ This is deliberate sequencing: the spending limits and the measurement landed
 | File | Change |
 |---|---|
 | `hooks/.../sidebar_preview_js.py` | Added `SIDEBAR_SHAPE_JS`: anchor presence, anchor **depth**, attribute and tag names, and a non-reversible deploy-marker digest. Depth is there because the preview reader compares `parentElement` and would otherwise break invisibly. |
-| `hooks/.../site_tools.py` | The sidebar scan now carries the fingerprint back on its existing payload (no second CDP round trip) and reports it to the journal. |
+| `hooks/.../site_tools.py` | The sidebar scan now carries the shape record back on its existing payload (no second CDP round trip) and reports it to the journal. |
 | `hooks/.../ws_reader.py` | Stopped discarding the system-event channel — `continue # .8 may be a JSON system-event string; skip here`. Added a bounded recursive string walk, because the documented "field .8" location finds nothing in real captures. |
 | `hooks/.../ws_observer.py` | Reads system events **before** parsing messages (a frame carrying only a closure notice has no message in it), and records every inbound conversation on the ledger. |
 | `hooks/.../dispatch_state.py` | `note_talk_dispatched` also writes to the long-window ledger. Its own map is a 15-second duplicate guard that pops entries, so it cannot answer "did we ever serve this". |

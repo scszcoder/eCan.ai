@@ -2,11 +2,11 @@
   "_note": [
     "Structural descriptions of the sidebar row layouts this site has actually",
     "shipped. Used by the detector stress harness (tests/unit/test_detector_stress.py)",
-    "to measure whether the fingerprint in SIDEBAR_SHAPE_JS notices a change,",
+    "to measure whether the shape record in SIDEBAR_SHAPE_JS notices a change,",
     "and to measure how often it cries wolf when nothing moved.",
     "",
     "Structure only: tag, attribute NAMES and values that are machine ids, and",
-    "class tokens. No customer text -- the fingerprint never reads text, so the",
+    "class tokens. No customer text -- the shape record never reads text, so the",
     "fixtures do not need any.",
     "",
     "Derived from static/app.js, which was itself built from DOM captured off the",

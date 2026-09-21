@@ -6,7 +6,7 @@ fired on one. No labelled data, so no detection rate and no false-positive
 rate.
 
 This closes that, without waiting for a third redesign. It drives the **real**
-fingerprint (`SIDEBAR_SHAPE_JS`, via `tools/emulation/fingerprint_probe.js`)
+fingerprint (`SIDEBAR_SHAPE_JS`, via `tools/emulation/shape_probe.js`)
 and the **real** decision path (`drift_journal.note_shape`) over row layouts
 this site has actually shipped, plus synthetic mutations of them. Nothing is
 reimplemented: a ported copy of either half would measure the copy.
@@ -32,7 +32,7 @@ pytestmark = pytest.mark.skipif(not shutil.which("node"),
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 LAYOUTS_FILE = ROOT / "tools" / "emulation" / "layouts.json"
-PROBE = ROOT / "tools" / "emulation" / "fingerprint_probe.js"
+PROBE = ROOT / "tools" / "emulation" / "shape_probe.js"
 ROWS_PER_SCAN = 12
 
 
@@ -59,7 +59,7 @@ def shape_js(tmp_path_factory):
 
 
 def fingerprint(shape_js, row_spec, tmp_path, n=ROWS_PER_SCAN):
-    """Run the real fingerprint over n copies of a row description."""
+    """Run the real shape probe over n copies of a row description."""
     rows_file = tmp_path / "rows.json"
     rows_file.write_text(json.dumps([row_spec] * n), encoding="utf-8")
     out = subprocess.run(["node", str(PROBE), str(shape_js), str(rows_file)],
@@ -139,7 +139,7 @@ def rename_hashes(spec):
     """A deploy that rotates EVERY hash, including anchors we depend on.
 
     Rotates both flavours the site uses -- `prefix-HASH` and fully opaque --
-    because recognising only one of them was a real bug in the fingerprint.
+    because recognising only one of them was a real bug in the shape record.
     """
     out = _clone(spec)
     for node in _walk(out):

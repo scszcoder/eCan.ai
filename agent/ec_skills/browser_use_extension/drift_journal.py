@@ -47,7 +47,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 from utils.logger_helper import logger_helper as logger
 
@@ -147,44 +147,6 @@ def canonical_shape(shape: Any) -> Any:
     return f"<{type(shape).__name__}>"
 
 
-def dom_fingerprint(nodes: Iterable[Any]) -> Dict[str, List[str]]:
-    """The structural signature of some DOM nodes -- names only, never values.
-
-    Give it dicts describing nodes (``{"tag", "attributes", "classes",
-    "role"}``) and it returns the union of what those nodes are BUILT from.
-    Two fingerprints differing means the site changed how it builds that thing,
-    which is exactly the event worth recording -- and it contains nothing any
-    customer wrote.
-    """
-    tags, attrs, classes, roles = set(), set(), set(), set()
-    for node in list(nodes or [])[:200]:
-        if not isinstance(node, dict):
-            continue
-        if node.get("tag"):
-            tags.add(str(node["tag"])[:40].lower())
-        if node.get("role"):
-            roles.add(str(node["role"])[:40])
-
-        raw_attrs = node.get("attributes")
-        if isinstance(raw_attrs, dict):
-            attrs.update(str(k)[:60] for k in list(raw_attrs)[:40])
-        elif isinstance(raw_attrs, (list, tuple, set)):
-            attrs.update(str(k)[:60] for k in list(raw_attrs)[:40])
-
-        raw_classes = node.get("classes")
-        if isinstance(raw_classes, str):
-            raw_classes = raw_classes.split()
-        if isinstance(raw_classes, (list, tuple, set)):
-            classes.update(str(c)[:60] for c in list(raw_classes)[:40])
-
-    return {
-        "tags": sorted(tags),
-        "attributes": sorted(attrs),
-        "classes": sorted(classes),
-        "roles": sorted(roles),
-    }
-
-
 def diff_shapes(before: Any, after: Any) -> Dict[str, Any]:
     """What changed between two shapes. An empty dict means nothing did.
 
@@ -256,7 +218,8 @@ def note_shape(
 
     This is the main entry point. Call it with the structure the site is
     presenting right now -- the attribute names on a row, the field names in a
-    websocket payload, the output of :func:`dom_fingerprint`. Returns the diff
+    websocket payload, or a structural signature a site builds itself.
+    Returns the diff
     when the shape changed (having journalled it), or ``None`` when it did not.
 
     The first sighting is not a change. It is adopted silently as the baseline,
