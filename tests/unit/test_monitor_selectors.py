@@ -114,3 +114,107 @@ def test_it_is_site_agnostic():
         assert term not in src.lower(), (
             f"selectors_in_use() mentions {term!r}; it must stay generic"
         )
+
+
+# ── a monitor on its page finding nothing ───────────────────────────────────
+#
+# `dom_items=0` with `site_tab=found` was already computed and already
+# reported; its only consumer was a UI dot. "The selector died" and "nobody
+# wrote in" are indistinguishable from the count alone, and the first is
+# invisible until a customer complains.
+
+from agent.ec_skills.browser_use_extension import degraded_state as ds
+
+
+@pytest.fixture(autouse=True)
+def clean_degraded():
+    ds.reset()
+    yield
+    ds.reset()
+
+
+def test_one_empty_poll_is_not_a_failure():
+    """A frame mid-rebuild or a list still painting yields zero for a tick."""
+    state = {}
+    em._note_item_yield("sidebar", "http://x", 0, state)
+    assert ds.active() == {}
+
+
+def test_a_sustained_zero_is_recorded():
+    state = {}
+    for _ in range(em._NO_ITEMS_STREAK_FOR_DEGRADED):
+        em._note_item_yield("sidebar", "http://x", 0, state)
+    assert "monitor_no_items:sidebar" in ds.active()
+
+
+def test_it_says_so_loudly_exactly_once(monkeypatch):
+    """A per-poll warning would drown the log; silence would hide it."""
+    lines = []
+    monkeypatch.setattr(em.logger, "warning", lambda m: lines.append(m))
+    state = {}
+    for _ in range(em._NO_ITEMS_STREAK_FOR_DEGRADED * 3):
+        em._note_item_yield("sidebar", "http://x", 0, state)
+    hits = [l for l in lines if "ZERO items" in l]
+    assert len(hits) == 1
+    assert "item selector no longer matches" in hits[0]
+
+
+def test_finding_items_again_clears_it():
+    state = {}
+    for _ in range(em._NO_ITEMS_STREAK_FOR_DEGRADED):
+        em._note_item_yield("sidebar", "http://x", 0, state)
+    em._note_item_yield("sidebar", "http://x", 3, state)
+    assert ds.active() == {}
+    assert state["_no_items_streak"] == 0
+
+
+def test_the_streak_restarts_after_a_recovery():
+    state = {}
+    for _ in range(em._NO_ITEMS_STREAK_FOR_DEGRADED):
+        em._note_item_yield("sidebar", "http://x", 0, state)
+    em._note_item_yield("sidebar", "http://x", 1, state)
+    em._note_item_yield("sidebar", "http://x", 0, state)
+    assert ds.active() == {}, "one empty poll after recovery is not a failure"
+
+
+def test_monitors_are_tracked_separately():
+    a, b = {}, {}
+    for _ in range(em._NO_ITEMS_STREAK_FOR_DEGRADED):
+        em._note_item_yield("sidebar", "http://x", 0, a)
+        em._note_item_yield("thread", "http://x", 5, b)
+    active = ds.active()
+    assert "monitor_no_items:sidebar" in active
+    assert "monitor_no_items:thread" not in active
+
+
+def test_it_never_raises(monkeypatch):
+    monkeypatch.setattr(ds, "mark_degraded",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    state = {}
+    for _ in range(em._NO_ITEMS_STREAK_FOR_DEGRADED + 1):
+        em._note_item_yield("sidebar", "http://x", 0, state)   # must not raise
+
+
+def test_the_threshold_is_a_count_not_a_duration():
+    """The poll interval is configurable per skill, so a time-based threshold
+    would mean different sensitivity per skill."""
+    import inspect
+    src = inspect.getsource(em._note_item_yield)
+    assert "streak" in src
+    assert "time.time" not in src
+
+
+def test_it_is_called_where_the_pair_is_reported():
+    import inspect
+    src = inspect.getsource(em)
+    assert "_note_item_yield(str(getattr(cfg" in src, (
+        "the liveness check is not wired to the place that already computes "
+        "site_tab and dom_items"
+    )
+
+
+def test_this_liveness_check_stays_site_agnostic():
+    import inspect
+    src = inspect.getsource(em._note_item_yield)
+    for term in ("feige", "douyin", "jinritemai", "qa-conversation"):
+        assert term not in src.lower()

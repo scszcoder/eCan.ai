@@ -679,6 +679,53 @@ async def _monitor_runtime_evaluate(
     )
 
 
+# Consecutive polls of "we are on the right page and found zero items" before
+# it is treated as a liveness failure rather than a quiet moment. A count
+# rather than a duration, because the poll interval is configurable per skill.
+# One empty poll is ordinary: a frame mid-rebuild, a list still painting.
+_NO_ITEMS_STREAK_FOR_DEGRADED = 5
+
+
+def _note_item_yield(label: str, url: str, found: int, mutation_state: dict) -> None:
+    """Track whether a monitor that IS on its page is yielding anything.
+
+    The site_tab/dom_items pair was already computed and already reported; its
+    only consumer was a readiness dot. This turns a sustained zero into a
+    recorded liveness failure, because "the selector died" and "nobody wrote in"
+    are indistinguishable from the count alone -- and the first is invisible
+    today until a customer complains.
+
+    Site-agnostic: the label is the skill's own and is never interpreted.
+    """
+    try:
+        from . import degraded_state
+
+        source = f"monitor_no_items:{label}" if label else "monitor_no_items"
+        if found > 0:
+            if mutation_state.get("_no_items_streak"):
+                mutation_state["_no_items_streak"] = 0
+                degraded_state.mark_recovered(source)
+            return
+
+        streak = int(mutation_state.get("_no_items_streak") or 0) + 1
+        mutation_state["_no_items_streak"] = streak
+        if streak == _NO_ITEMS_STREAK_FOR_DEGRADED:
+            logger.warning(
+                f"[EventMonitor] label='{label}' is on its page but has found "
+                f"ZERO items for {streak} consecutive polls. Either nothing is "
+                f"arriving, or the configured item selector no longer matches. "
+                f"Check `ecan drift shapes` against this page."
+            )
+        if streak >= _NO_ITEMS_STREAK_FOR_DEGRADED:
+            degraded_state.mark_degraded(
+                source,
+                f"on page, zero items for {streak} polls",
+                element=str(label or "monitor"),
+            )
+    except Exception as exc:
+        logger.debug(f"[EventMonitor] could not note item yield: {exc}")
+
+
 def selectors_in_use(configs: Optional[List[Any]] = None) -> Dict[str, str]:
     """Every CSS selector the DOM monitors currently depend on, by role.
 
@@ -3190,6 +3237,11 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
                     site_tab="found", site_tab_url=current_url[:120], dom_items=len(items),
                     **({"dom_last_items_at": _agent_status._now_iso()} if items else {}),
                 )
+        # On the right page and finding nothing: either nothing arrived, or the
+        # configured selector died. Indistinguishable from the count alone, so a
+        # sustained zero is recorded rather than left to a UI dot.
+        _note_item_yield(str(getattr(cfg, "label", "") or ""),
+                         current_url, len(items), mutation_state)
 
         keys_initialized = bool(mutation_state.get("keys_initialized"))
         previous_keys = mutation_state.get("last_keys") or []
