@@ -18,7 +18,8 @@ Two surfaces:
 
 Cost is authoritative from the DB (`cost_usd`, computed at ingest by
 `token_tracker`). `cost` is the display-currency value (RMB on CN builds via a
-fixed 7.25, else USD). The client sends `tz_offset_minutes` (JS
+display rate defaulting to 7.0 and overridable with `ECAN_USD_TO_CNY`, else
+USD). The client sends `tz_offset_minutes` (JS
 `-new Date().getTimezoneOffset()`, minutes east of UTC) so day/hour buckets are
 local, not the stored UTC.
 

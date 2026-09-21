@@ -15,7 +15,44 @@ import json
 # pricing table); CN builds display RMB. Conversion happens here at the API
 # boundary so every usage endpoint reports the same currency and the frontend
 # just renders what it gets.
-_USD_TO_CNY = 7.25
+#
+# 2026-09-21: 7.25 -> 7.0, and overridable via ECAN_USD_TO_CNY so the rate can
+# be corrected without a rebuild.
+#
+# Deliberately NOT a live FX lookup. This is a usage-DISPLAY path that cannot
+# currently fail, and a network call would (a) make it fail, and (b) make the
+# same past day render a different number on every reload — worse than a
+# slightly stale rate for anything money-shaped. The real fix is that money the
+# customer OWES should be rendered from the server's own figure and currency
+# (the cloud billing responses already carry `currency`), so the client never
+# decides a rate at all; this constant then only ever converts our cost display.
+_USD_TO_CNY_DEFAULT = 7.0
+_USD_TO_CNY_ENV = 'ECAN_USD_TO_CNY'
+# Bounds exist so a typo'd env var (0, "", 725) cannot silently distort every
+# figure in the billing UI; out-of-range values fall back to the default.
+_USD_TO_CNY_MIN, _USD_TO_CNY_MAX = 1.0, 20.0
+
+
+def _usd_to_cny() -> float:
+    """Display FX rate: env override when sane, else the built-in default."""
+    import os
+    raw = os.getenv(_USD_TO_CNY_ENV)
+    if raw:
+        try:
+            rate = float(raw)
+            if _USD_TO_CNY_MIN <= rate <= _USD_TO_CNY_MAX:
+                return rate
+            logger.warning(
+                f"[TokenUsage] {_USD_TO_CNY_ENV}={raw!r} outside "
+                f"[{_USD_TO_CNY_MIN}, {_USD_TO_CNY_MAX}] — using "
+                f"{_USD_TO_CNY_DEFAULT}"
+            )
+        except (TypeError, ValueError):
+            logger.warning(
+                f"[TokenUsage] {_USD_TO_CNY_ENV}={raw!r} is not a number — "
+                f"using {_USD_TO_CNY_DEFAULT}"
+            )
+    return _USD_TO_CNY_DEFAULT
 
 
 def _display_currency_fields(cost_usd: float) -> Dict[str, Any]:
@@ -23,7 +60,7 @@ def _display_currency_fields(cost_usd: float) -> Dict[str, Any]:
     try:
         from utils.app_env import is_cn
         if is_cn():
-            return {'cost': round(float(cost_usd or 0.0) * _USD_TO_CNY, 4), 'currency': 'CNY'}
+            return {'cost': round(float(cost_usd or 0.0) * _usd_to_cny(), 4), 'currency': 'CNY'}
     except Exception:
         pass
     return {'cost': round(float(cost_usd or 0.0), 4), 'currency': 'USD'}
