@@ -193,6 +193,14 @@ def _version_candidates(value: str) -> set[str]:
 
 
 def _numeric_version_key(value: str) -> Optional[tuple[int, ...]]:
+    """Return just the numeric tuple for a version.
+
+    Kept for the one call site that needs only the numeric part (the
+    cleanup-function "is this even a parseable version" gate). New
+    comparison work should use :func:`_version_key` instead, which
+    adds the trailing-letter rank so ``0.9.98a < 0.9.98b`` orders
+    correctly.
+    """
     keys: list[tuple[int, ...]] = []
     for item in _version_candidates(value):
         parts = re.findall(r"\d+", item)
@@ -209,18 +217,66 @@ def _numeric_version_key(value: str) -> Optional[tuple[int, ...]]:
     return max(keys, key=lambda item: (len(item), item))
 
 
+# Trailing single-letter build-suffix ordering used in our internal
+# versioning (``0.9.97z``, ``0.9.98a``, ``0.9.98b``, ...). Letters are
+# treated as iterative builds within a numeric base, so ``a < b < c <
+# ... < z``. Values whose last char is not a-z (e.g. ``-rc1``, ``.0``,
+# trailing digits) return 0 and collapse to the bare numeric key.
+_LETTER_RANK: dict[str, int] = {chr(ord("a") + i): i + 1 for i in range(26)}
+
+
+def _trailing_letter_rank(value: str) -> int:
+    """Ordinal of a trailing single-letter build suffix (``a=1``…``z=26``),
+    or ``0`` if the value has no such suffix."""
+    if not value:
+        return 0
+    last = value[-1].lower()
+    return _LETTER_RANK.get(last, 0)
+
+
+def _version_key(value: str) -> Optional[tuple[tuple[int, ...], int]]:
+    """Structured ordering key for ``value``.
+
+    Returns ``((num1, num2, ...), letter_rank)`` so two versions are
+    ordered first by their numeric tuple and then by the trailing
+    letter. This is what fixes the chicken-and-egg OTA bug: previously
+    ``0.9.98a`` and ``0.9.98b`` both parsed to ``(0, 9, 98)`` and
+    compared as equal, so the cleanup routine would delete the
+    ``0.9.98b`` installer that the broken launcher needed as an
+    escape hatch. With the letter rank, ``0.9.98b > 0.9.98a`` and the
+    cleanup keeps it.
+
+    Returns ``None`` if the value contains no numeric parts at all.
+    """
+    keys: list[tuple[tuple[int, ...], int]] = []
+    for item in _version_candidates(value):
+        parts = re.findall(r"\d+", item)
+        if not parts:
+            continue
+        try:
+            numeric = tuple(int(part) for part in parts)
+        except Exception:
+            continue
+        if not numeric:
+            continue
+        keys.append((numeric, _trailing_letter_rank(item)))
+    if not keys:
+        return None
+    return max(keys, key=lambda item: (len(item[0]), item[0], item[1]))
+
+
 def _compare_versions(left: str, right: str) -> Optional[int]:
-    left_key = _numeric_version_key(left)
-    right_key = _numeric_version_key(right)
+    left_key = _version_key(left)
+    right_key = _version_key(right)
     if not left_key or not right_key:
         return None
-    width = max(len(left_key), len(right_key))
-    left_padded = left_key + (0,) * (width - len(left_key))
-    right_padded = right_key + (0,) * (width - len(right_key))
-    if left_padded < right_padded:
-        return -1
-    if left_padded > right_padded:
-        return 1
+    width = max(len(left_key[0]), len(right_key[0]))
+    left_num = left_key[0] + (0,) * (width - len(left_key[0]))
+    right_num = right_key[0] + (0,) * (width - len(right_key[0]))
+    if left_num != right_num:
+        return -1 if left_num < right_num else 1
+    if left_key[1] != right_key[1]:
+        return -1 if left_key[1] < right_key[1] else 1
     return 0
 
 
@@ -234,6 +290,11 @@ def _versions_match(current_version: str, *target_versions: str) -> bool:
     return False
 
 
+# 30-day TTL: even a "keep" (newer) installer is discarded after this long so
+# abandoned upgrade directories don't hoard 575 MB forever.
+_KEEP_NEWER_INSTALLER_MAX_AGE_DAYS = 30
+
+
 def _cleanup_downloaded_installers_for_current_version(current_version: str, logger=None) -> tuple[int, int, int]:
     download_dir = _get_download_dir_path()
     if not download_dir.exists() or not download_dir.is_dir():
@@ -244,6 +305,7 @@ def _cleanup_downloaded_installers_for_current_version(current_version: str, log
     cleaned_count = 0
     cleaned_size = 0
     failed_count = 0
+    cutoff_time = time.time() - (_KEEP_NEWER_INSTALLER_MAX_AGE_DAYS * 86400)
     try:
         for child in list(download_dir.iterdir()):
             if not child.is_file():
@@ -254,8 +316,27 @@ def _cleanup_downloaded_installers_for_current_version(current_version: str, log
             comparison = _compare_versions(installer_version, current_version)
             if comparison is None:
                 continue
+
+            # Decide whether to keep or delete.
+            keep = False
             if comparison > 0 and not _versions_match(current_version, installer_version):
+                # Installer is strictly newer than the running version and not
+                # a fuzzy match — treat it as an in-flight upgrade or escape-hatch
+                # installer. Keep it unless the TTL expired.
+                try:
+                    if child.stat().st_mtime < cutoff_time:
+                        if logger:
+                            logger.info(
+                                f"[OTA] TTL expired ({_KEEP_NEWER_INSTALLER_MAX_AGE_DAYS}d) for newer "
+                                f"installer {child.name}; removing."
+                            )
+                    else:
+                        keep = True
+                except OSError:
+                    pass
+            if keep:
                 continue
+
             ok, size = _unlink_file_with_retry(child, logger=logger)
             if ok:
                 cleaned_count += 1
