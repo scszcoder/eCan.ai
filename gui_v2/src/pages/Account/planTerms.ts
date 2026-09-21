@@ -2,13 +2,14 @@
  * Plan terms — the single editable source for what each plan actually costs.
  *
  * Commercial wording lives here rather than in the i18n JSON so that changing a
- * price or an inclusion means editing ONE file, with both languages side by side
- * and no chance of the zh and en copies drifting apart. Page chrome (titles,
+ * price or a term means editing ONE file, with both languages side by side and
+ * no chance of the zh and en copies drifting apart. Page chrome (titles,
  * buttons) still goes through i18n as usual.
  *
- * Anything still awaiting a commercial decision is marked `confirmed: false`;
- * the page renders those with a visible 待确认 badge so an unconfirmed term
- * cannot quietly reach a paying customer.
+ * The model both plans share: every billable action has the SAME unit price,
+ * and the plans differ only by a monthly minimum spend (¥68 vs none). The
+ * minimum is an amount of money, not a bundled quantity — so it prices any mix
+ * of replies, labels and returns without us having to guess a customer's mix.
  */
 
 export interface Bilingual {
@@ -19,8 +20,6 @@ export interface Bilingual {
 export interface TermLine {
   label: Bilingual;
   value: Bilingual;
-  /** false → rendered with a "to be confirmed" badge and muted. */
-  confirmed?: boolean;
 }
 
 export interface PlanTerms {
@@ -41,49 +40,55 @@ export const PLAN_TERMS: PlanTerms[] = [
     key: 'subscription',
     name: { zh: '订阅套餐', en: 'Subscription Plan' },
     tagline: {
-      zh: '每月固定费用，包含一定额度的用量，超出部分按量计费。',
-      en: 'A fixed monthly fee that includes an allowance; usage beyond it is billed per unit.',
+      zh: '按实际运行的任务计费，每月最低消费 ¥68；当月用量不足 ¥68 也按 ¥68 收取。',
+      en: 'Billed on the tasks you actually run, with a ¥68 monthly minimum; a month that uses less than ¥68 is still charged ¥68.',
     },
     price: {
-      cn: { zh: '¥68 / 月', en: '¥68 / month' },
+      cn: { zh: '¥68 / 月起', en: 'From ¥68 / month' },
       intl: { zh: '见结算页', en: 'See checkout' },
     },
     bestFor: {
-      zh: '每月用量稳定、希望账单可预测的店铺。',
-      en: 'Shops with steady monthly volume that want a predictable bill.',
+      zh: '每月稳定有客服量的店铺。',
+      en: 'Shops with steady monthly volume.',
     },
     includes: [
       {
-        label: { zh: '月费', en: 'Monthly fee' },
-        value: { zh: '¥68，按月计费', en: '¥68, billed monthly' },
-        confirmed: true,
+        label: { zh: '月度最低消费', en: 'Monthly minimum' },
+        value: {
+          zh: '¥68 — 当月用量不足 ¥68 时，仍按 ¥68 收取',
+          en: '¥68 — a month that uses less than ¥68 is still charged ¥68',
+        },
       },
       {
-        label: { zh: '包含额度', en: 'Included allowance' },
+        label: { zh: '计费方式', en: 'How you are charged' },
         value: {
-          zh: '待确认 — 每月包含的客服回复条数尚未最终确定',
-          en: 'To be confirmed — the number of included replies per month is not final',
+          zh: `按实际完成的业务量计费，例如每条客服回复 ¥${BILLED_UNIT_PRICE_CNY_PER_REPLY.toFixed(2)}`,
+          en: `On business results actually delivered — e.g. ¥${BILLED_UNIT_PRICE_CNY_PER_REPLY.toFixed(2)} per customer-service reply`,
         },
-        confirmed: false,
       },
       {
-        label: { zh: '超出部分', en: 'Beyond the allowance' },
+        label: { zh: '月费如何使用', en: 'How the ¥68 is used' },
         value: {
-          zh: `每条客服回复 ¥${BILLED_UNIT_PRICE_CNY_PER_REPLY.toFixed(2)}，从账户余额扣除`,
-          en: `¥${BILLED_UNIT_PRICE_CNY_PER_REPLY.toFixed(2)} per customer-service reply, deducted from your balance`,
+          zh: '¥68 在当月按用量抵扣，用不完不结转到下月',
+          en: 'The ¥68 is drawn down by that month’s usage; any unused part does not roll over',
         },
-        confirmed: true,
+      },
+      {
+        label: { zh: '超出部分', en: 'Beyond the minimum' },
+        value: {
+          zh: '超过 ¥68 的部分按同样单价从账户余额扣除',
+          en: 'Usage past ¥68 is deducted from your balance at the same unit price',
+        },
       },
       {
         label: { zh: '支付方式', en: 'Payment methods' },
         value: { zh: '支付宝 / 微信支付', en: 'Alipay / WeChat Pay' },
-        confirmed: true,
       },
     ],
     notes: [
       {
-        zh: '订阅与余额是两回事：月费开通服务并带来包含额度，超出额度的用量从余额扣除。',
-        en: 'The subscription and your balance are separate: the monthly fee enables the service and provides the allowance, while usage beyond it is deducted from your balance.',
+        zh: '最低消费是一笔金额，不是固定条数：¥68 可以全部用在客服回复上，也可以用在其他业务动作上，按您实际运行的任务扣减。',
+        en: 'The minimum is an amount of money, not a fixed number of units: the ¥68 can go entirely to customer-service replies or to any other billable action, drawn down by the tasks you actually run.',
       },
     ],
   },
@@ -91,8 +96,8 @@ export const PLAN_TERMS: PlanTerms[] = [
     key: 'additional',
     name: { zh: '附加计划（按量充值）', en: 'Additional Plan (pay as you go)' },
     tagline: {
-      zh: '没有月费，先充值再按实际完成的业务量扣费。',
-      en: 'No monthly fee — top up first, then pay for the business results actually delivered.',
+      zh: '没有最低消费，先充值，按实际运行的任务扣费，用多少扣多少。',
+      en: 'No minimum — top up first, then pay only for the tasks you actually run.',
     },
     price: {
       cn: { zh: '最低充值 ¥0.50', en: 'From ¥0.50' },
@@ -104,33 +109,33 @@ export const PLAN_TERMS: PlanTerms[] = [
     },
     includes: [
       {
-        label: { zh: '月费', en: 'Monthly fee' },
+        label: { zh: '月度最低消费', en: 'Monthly minimum' },
         value: { zh: '无', en: 'None' },
-        confirmed: true,
       },
       {
         label: { zh: '最低充值', en: 'Minimum top-up' },
         value: { zh: '¥0.50', en: '¥0.50' },
-        confirmed: true,
       },
       {
         label: { zh: '计费方式', en: 'How you are charged' },
         value: {
-          zh: `每条客服回复 ¥${BILLED_UNIT_PRICE_CNY_PER_REPLY.toFixed(2)}，从余额实时扣除`,
-          en: `¥${BILLED_UNIT_PRICE_CNY_PER_REPLY.toFixed(2)} per customer-service reply, deducted from your balance as it happens`,
+          zh: `与订阅套餐同价，例如每条客服回复 ¥${BILLED_UNIT_PRICE_CNY_PER_REPLY.toFixed(2)}，从余额实时扣除`,
+          en: `The same unit prices as the subscription — e.g. ¥${BILLED_UNIT_PRICE_CNY_PER_REPLY.toFixed(2)} per customer-service reply, deducted from your balance as it happens`,
         },
-        confirmed: true,
       },
       {
-        label: { zh: '余额有效期', en: 'Balance expiry' },
-        value: { zh: '待确认', en: 'To be confirmed' },
-        confirmed: false,
+        label: { zh: '支付方式', en: 'Payment methods' },
+        value: { zh: '支付宝 / 微信支付', en: 'Alipay / WeChat Pay' },
       },
     ],
     notes: [
       {
         zh: '余额用完后服务会暂停，充值后立即恢复。',
         en: 'Service pauses when the balance runs out and resumes as soon as you top up.',
+      },
+      {
+        zh: '两个套餐的单价完全相同，区别只在于订阅套餐有 ¥68 的月度最低消费。',
+        en: 'Both plans charge exactly the same unit prices. The only difference is the subscription’s ¥68 monthly minimum.',
       },
     ],
   },

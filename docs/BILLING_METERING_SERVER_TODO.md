@@ -57,20 +57,23 @@ A **charge plan** binds a skill to a set of meters and prices. It is proposed by
 an LLM review and approved by a human (first-party/marketplace) or auto-approved
 under a no-loss guard (private skills).
 
-**Billing fingerprint** — a hash over the *billing-relevant surface only*:
+**Billing shape** — a hash over the *billing-relevant surface only*:
 node types and topology, declared meter emit points, tool/permission grants,
 hook bundles, model tier(s), and whether a code node exists. Deliberately **not**
 the free-text prompt wording.
 
-- Copy a certified template, reword the prompts → fingerprint unchanged → the
+- Copy a certified template, reword the prompts → shape unchanged → the
   plan **inherits**. This is the common case and it works with no review.
-- Add a node, tool, model or code node → fingerprint changes → plan becomes
+- Add a node, tool, model or code node → shape changes → plan becomes
   `needs_review`, and the skill bills at **Tier 0** until re-approved.
 
-Prompt wording does change token cost, and the fingerprint deliberately ignores
-it — that is what the fair-use guard is for. Keep the two jobs separate:
-fingerprint answers *"is this the same billing shape?"*, fair-use answers
+Prompt wording does change token cost, and the billing shape deliberately ignores
+it — that is what the fair-use guard is for. Keep the two jobs separate: the
+shape answers *"is this the same thing we priced?"*, the fair-use guard answers
 *"is it still economic?"*.
+
+("Shape" and never "fingerprint": 指纹浏览器 owns that word in this product —
+see the terminology rule recorded with the site-shape work.)
 
 The LLM reviewer's output is advisory and always recorded (model, version,
 prompt hash, verdict, projected cost per event) so a price can be audited later.
@@ -80,7 +83,7 @@ prompt hash, verdict, projected cost per event) so a price can be audited later.
 ## 4. Schema
 
 Mirror the names exactly on both backends. Local SQLite mirrors `usage_meters`,
-`usage_events` and `usage_period_counter` for offline display and replay; the
+`usage_event` and `usage_period_total` for offline display and replay; the
 cloud is authoritative for money.
 
 ```sql
@@ -100,7 +103,7 @@ skill_charge_plan(
   plan_id            uuid PK,
   skill_id           text,
   skill_version      text,
-  billing_fingerprint text,    -- see §3
+  billing_shape_hash text,    -- see §3
   status             text,     -- 'draft' | 'approved' | 'needs_review' | 'suspended'
   tier               int,      -- 0 | 1 | 2
   derived_from_plan_id uuid,   -- set when copied from a template
@@ -117,28 +120,38 @@ skill_charge_plan_item(
   PRIMARY KEY (plan_id, scenario_code, meter_code)
 )
 
--- 4.3 Price book — versioned, effective-dated, NEVER edited in place
+-- 4.3 Price book — versioned, effective-dated, NEVER edited in place.
+-- One price per meter. It does NOT vary by plan: both plans bill the same
+-- ¥0.05 reply; they differ only by the monthly minimum in 4.4.
 price_book(version PK, effective_from timestamptz, currency, partner_id)
 price_book_item(
-  version, plan_id, scenario_code, meter_code,
-  included_quantity  bigint,   -- 0 for PAYG
-  unit_price_minor   bigint,   -- PAYG: the price; subscription: the OVERAGE price
-  tier_json          jsonb,    -- optional volume tiers
-  PRIMARY KEY (version, plan_id, scenario_code, meter_code)
+  version, scenario_code, meter_code,
+  unit_price_minor   bigint,
+  PRIMARY KEY (version, scenario_code, meter_code)
 )
 account_price_override(account_id, scenario_code, meter_code,
                        unit_price_minor, effective_from)
 
--- 4.4 Plans & entitlement
+-- 4.4 Plans & entitlement.
+-- The ONLY structural difference between the two live plans is the monthly
+-- minimum: subscription 6800, additional/PAYG 0.  Everything else — how an
+-- event is priced, how the balance is drawn down — is identical, which is why
+-- there is no per-meter quota anywhere in this schema.
 plan(
-  plan_id PK, plan_type text,  -- 'payg' | 'subscription'
-  currency, base_fee_minor bigint, billing_period text, partner_id,
+  plan_id PK, plan_type text,     -- 'payg' | 'subscription'
+  currency,
+  minimum_charge_minor bigint,    -- 保底: billed even if usage is less (6800 | 0)
+  minimum_topup_minor  bigint,    -- 50 for PAYG's ¥0.50 floor
+  billing_period text, partner_id,
   version, effective_from
 )
 account_plan(account_id, plan_id, status,
              current_period_start, current_period_end, auto_renew)
-usage_period_counter(account_id, period_start, scenario_code, meter_code,
-                     quantity_used bigint)   -- makes "3,412 / 5,000" O(1)
+-- Money, not units: the minimum is a spend floor across every meter, so a
+-- customer running replies AND labels draws the same pot.  Makes the
+-- "¥41.30 of ¥68 used" display O(1) and needs no per-meter quota.
+usage_period_total(account_id, period_start,
+                   charged_minor bigint, minimum_applied bool)
 
 -- 4.5 The event ledger — append-only
 usage_event(
@@ -185,11 +198,11 @@ mutation { reportUsageEvents(input:{ events:[UsageEventInput!]! }) {
 query { getUsageSummary(input:{ start_date, end_date, tz_offset_minutes }) {
   currency
   days { date  meters { scenario_code meter_code quantity cost } }
-  period { included_quantity quantity_used remaining }   # subscription only
+  period { minimum_charge charged_so_far remaining_to_minimum }  # subscription only
 } }
 
 query { getSkillChargePlan(input:{ skill_id, skill_version }) {
-  status tier billing_fingerprint fair_use_factor
+  status tier billing_shape_hash fair_use_factor
   items { scenario_code meter_code unit_price_minor }
   review { reviewed_by reviewed_at projected_cost_per_event_minor notes }
 } }
@@ -204,16 +217,44 @@ see `BILLING_TOPUP_API_CONTRACT.md`.
 
 ---
 
+## 5a. How the two live plans actually bill
+
+Both plans bill **the tasks the customer actually runs**, at the same per-meter
+price. The subscription adds a monthly floor:
+
+```
+月度应付 = max(minimum_charge, Σ rated usage in the period)
+```
+
+- **订阅套餐 / Subscription — ¥68/month minimum.** The ¥68 is collected up front
+  by the existing `createPaymentOrder(purpose:'subscription')` flow and credited
+  to the balance, then **consumed by usage** at rate-card prices. Use ¥41.30 of
+  it and you are still charged ¥68 — that is what "minimum" means, and the
+  remainder does **not** roll over. Use ¥90 and the extra ¥22 draws from balance.
+- **附加计划 / Additional (PAYG) — no minimum.** Top up (≥ ¥0.50), usage draws
+  the balance down as it happens, nothing is forfeited.
+
+It is a **money floor, not a bundled quantity.** "¥68 includes N replies" would
+have to be re-answered for every new meter (labels, returns, disputes) and would
+strand a customer who ran a different mix than we guessed. A money floor prices
+any mix correctly on day one, which is the whole reason the meter template
+exists.
+
 ## 6. Jobs
 
-1. **Rating** — `usage_event(status=pending)` → resolve plan version in effect
-   **at `occurred_at`** → consume `included_quantity` via `usage_period_counter`
-   → write a `charge` row → mark `rated`. Must be idempotent per `event_id`.
+1. **Rating** — `usage_event(status=pending)` → resolve the price in effect
+   **at `occurred_at`** → write a `charge` row → add to
+   `usage_period_total.charged_minor` → mark `rated`. Idempotent per `event_id`.
+1a. **Minimum true-up at period close** — if
+   `charged_minor < plan.minimum_charge_minor`, post ONE additional `charge` row
+   for the difference (description: 保底差额 / minimum commitment) and set
+   `minimum_applied`. Idempotent per `(account_id, period_start)` — this job
+   double-charging is the worst bug in the system, so key it accordingly.
 2. **Price resolution order** — `account_price_override` → partner book →
    platform list. Record the resolved version and unit price **on the charge row**
    so an old invoice stays reproducible after a price change.
 3. **Period rollover** — open the next `account_plan` period, reset counters,
-   charge `base_fee_minor` for subscriptions.
+   run the minimum true-up (6.1a) before the period is closed.
 4. **Reconciliation** — `usage_event_intent` with no matching confirmed event
    after 24h → report, **never bill** (a failed delivery is never billed).
 5. **Fair-use sweep** — events whose `cost_basis` exceeds
@@ -228,7 +269,7 @@ see `BILLING_TOPUP_API_CONTRACT.md`.
 ## 7. TODO, in dependency order
 
 ### Phase A — metering, shadow mode (no money moves)
-- [ ] Create `usage_meters`, `usage_event`, `usage_period_counter` on CN TCB **and** AWS, identical field names.
+- [ ] Create `usage_meters`, `usage_event`, `usage_period_total` on CN TCB **and** AWS, identical field names.
 - [ ] `reportUsageEvents` mutation, idempotent on `idempotency_key`, batch-capable.
 - [ ] Seed the catalog with `cs_chat.message_replied`, including the written
       definition of what does not count (placeholders, retries, undelivered sends).
@@ -239,15 +280,18 @@ see `BILLING_TOPUP_API_CONTRACT.md`.
       against token totals per customer before anything flips.
 
 ### Phase B — pricing & rating
-- [ ] `plan`, `account_plan`, `price_book`, `price_book_item`, `account_price_override`.
-- [ ] Seed the two live plans (§8) once their terms are confirmed.
+- [ ] `plan`, `account_plan`, `price_book`, `price_book_item`, `account_price_override`, `usage_period_total`.
+- [ ] Seed the two live plans: subscription `minimum_charge_minor = 6800`,
+      additional `minimum_charge_minor = 0, minimum_topup_minor = 50`.
+- [ ] Seed `price_book_item`: `cs_chat.message_replied = 5` (¥0.05).
 - [ ] Rating job + charge rows into `billing_entries` with the full column set.
+- [ ] **Minimum true-up at period close**, idempotent per `(account_id, period_start)`.
 - [ ] `partner` table + `partner_id` on accounts; markup default 0.
-- [ ] Period rollover + subscription base-fee charge.
+- [ ] Period rollover; confirm the up-front ¥68 credit is consumed, not doubled.
 
 ### Phase C — custom-skill safety
-- [ ] `skill_charge_plan` / `_item`; compute and store `billing_fingerprint`.
-- [ ] Inheritance on copy: same fingerprint → inherit; changed → `needs_review` + Tier 0.
+- [ ] `skill_charge_plan` / `_item`; compute and store `billing_shape_hash`.
+- [ ] Inheritance on copy: same billing shape → inherit; changed → `needs_review` + Tier 0.
 - [ ] LLM review pipeline producing a **draft** plan + `review_evidence`.
 - [ ] Auto-approve only under the no-loss guard (price ≥ projected cost × margin).
 - [ ] Fair-use sweep + auto-suspend to Tier 0.
@@ -263,13 +307,14 @@ see `BILLING_TOPUP_API_CONTRACT.md`.
 
 ---
 
-## 8. Open commercial inputs needed before Phase B
+## 8. Open commercial inputs
 
-These are decisions, not engineering, and the plan explanation page is blocked
-on the first one:
+Settled: the ¥68 is a **monthly minimum charge**, not a bundled quantity (§5a),
+and `cs_chat.message_replied` is ¥0.05. Still open, none of them blocking Phase A:
 
-- **What the ¥68/month subscription includes** — included quantity per meter,
-  which features, and whether it also draws down balance for overage.
-- Per-meter list prices beyond `cs_chat.message_replied` (¥0.05).
-- Whether the subscription auto-renews and how cancellation is handled.
+- Per-meter list prices beyond `cs_chat.message_replied` — needed before the
+  second scenario (`ebay_aftersales`) can leave shadow mode.
+- Whether the subscription auto-renews, and how cancellation mid-period
+  interacts with the minimum (pro-rate, or charge the full floor?).
 - Refund policy wording for reversals.
+- Whether an unused balance on the PAYG plan expires.

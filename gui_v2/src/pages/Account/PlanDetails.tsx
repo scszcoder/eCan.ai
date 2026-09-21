@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Button, Card, Col, Row, Typography, Tag, Divider, Space } from 'antd';
+import { Button, Card, Col, Row, Typography, Divider, Space } from 'antd';
 import {
     ArrowLeftOutlined,
     CheckCircleOutlined,
@@ -23,10 +23,9 @@ const { Title, Text, Paragraph } = Typography;
  * Plan explanation page — reached from the ? icon on each plan card.
  *
  * Its whole job is removing ambiguity about what a plan consists of, so it
- * spells out the fee, the allowance, the per-unit price, and — the part
- * customers actually argue about — what is NOT billed. Terms come from
- * planTerms.ts; anything not yet commercially confirmed renders with a visible
- * badge rather than a confident-looking number.
+ * spells out the monthly minimum, the per-unit price, how the minimum is drawn
+ * down, and — the part customers actually argue about — what is NOT billed.
+ * Terms come from planTerms.ts so a price change is one edit in one file.
  */
 const PlanDetails: React.FC = () => {
     const { t, i18n } = useTranslation();
@@ -68,14 +67,7 @@ const PlanDetails: React.FC = () => {
                         <Text type="secondary">{say(line.label)}</Text>
                     </Col>
                     <Col xs={24} sm={16}>
-                        <Text type={line.confirmed === false ? 'secondary' : undefined}>
-                            {say(line.value)}
-                        </Text>
-                        {line.confirmed === false && (
-                            <Tag color="warning" style={{ marginLeft: 8 }}>
-                                {t('account.planTbd', '待确认')}
-                            </Tag>
-                        )}
+                        <Text>{say(line.value)}</Text>
                     </Col>
                 </Row>
             ))}
