@@ -548,13 +548,19 @@ class InstallationManager:
                         # Read InstallLocation value
                         install_location, _ = winreg.QueryValueEx(key, "InstallLocation")
                         if install_location:
-                            # Normalize: strip trailing backslash/forward slash so
-                            # Path() doesn't produce an extra separator on Windows.
-                            # eCan registry keys sometimes write the value with a
+                            # Expand any embedded environment variables
+                            # (e.g. ``%LOCALAPPDATA%``) and strip trailing
+                            # backslash/forward slash so ``Path()`` doesn't
+                            # produce an extra separator on Windows. eCan
+                            # registry keys sometimes write the value with a
                             # trailing ``\`` (e.g. ``D:\MyApps\eCan\``), which
-                            # Path treats as a trailing empty component that
-                            # ``.exists()`` then says is a non-existent directory.
-                            normalized = install_location.rstrip('\\/')
+                            # ``Path`` treats as a trailing empty component
+                            # that ``.exists()`` then says is a non-existent
+                            # directory. Same fix-up is also applied to
+                            # ``REG_EXPAND_SZ`` values whose expansion
+                            # ``winreg`` does *not* perform for us.
+                            expanded = os.path.expandvars(install_location)
+                            normalized = expanded.rstrip('\\/')
                             install_path = Path(normalized)
                             if install_path.exists():
                                 logger.info(f"[OTA] Found current installation directory from registry: {install_path}")
@@ -1320,6 +1326,7 @@ rm -f "$0"
                     except Exception as e:
                         logger.error(f"Failed to launch installer: {e}")
                         logger.error(f"[OTA Installer] Failed after download_manager.set_installing(True): {e}")
+                        download_manager.set_installing(False)
                         return False
                 else:
                     # Development environment - use /SILENT for OTA testing
@@ -1433,6 +1440,11 @@ rm -f "$0"
         except Exception as e:
             logger.error(f"EXE installation error: {e}")
             logger.error(f"[OTA Installer] _install_exe fatal error: {e}")
+            try:
+                from ota.core.download_manager import download_manager
+                download_manager.set_installing(False)
+            except Exception:
+                pass
             return False
     
     def _install_msi(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
@@ -1571,6 +1583,11 @@ rm -f "$0"
 
         except Exception as e:
             logger.error(f"MSI installation error: {e}")
+            try:
+                from ota.core.download_manager import download_manager
+                download_manager.set_installing(False)
+            except Exception:
+                pass
             return False
     
     def _install_pkg(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
