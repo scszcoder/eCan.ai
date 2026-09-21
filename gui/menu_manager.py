@@ -1145,14 +1145,22 @@ class MenuManager:
                                   f"Local server script not found: {start_script}")
                 return
 
-            # Start server in new command line window
+            # Start server in new command line window.
+            #
+            # Bypass the ``shell=True`` layer: passing ``start_script``
+            # as a separate argv element lets Python hand it to
+            # ``cmd.exe`` via ``list2cmdline``, so ``cmd.exe`` parses
+            # the path's own quoting rather than re-tokenising
+            # MSVRT-escaped quotes (which ``python`` would otherwise
+            # receive as a literal ``\"...\"`` and reject). Mirrors the
+            # 2026-09-21 OTA installer fix.
             from utils.subprocess_helper import popen_no_window
             if sys.platform == "win32":
                 # Windows
                 popen_no_window([
                     "cmd", "/c", "start", "cmd", "/k",
-                    f"python \"{start_script}\""
-                ], shell=True)
+                    "python", str(start_script),
+                ])
             else:
                 # macOS/Linux
                 popen_no_window([
