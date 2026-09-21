@@ -7026,9 +7026,23 @@ class TaskRunner(Generic[Context]):
             _vehicle_id = resolve_local_vehicle_id(getattr(self.agent, 'mainwin', None))
         except Exception:
             _vehicle_id = None
+        # Which shop this run serves, from the task's own variables — a store
+        # belongs to the TASK, not the agent (one agent holds many tasks; two
+        # tasks can point the same shared skill at two shops).  Published on the
+        # run scope so per-store consumers on the dispatch path can read it
+        # without threading the run state through every call site; "" means the
+        # account-wide default.
+        _store_id = ''
+        try:
+            from agent.ec_skills.prompt_variable_providers import resolve_store_id
+            _task_vars = (getattr(task2run, 'metadata', None) or {}).get('task_vars')
+            _store_id = resolve_store_id(_task_vars)
+        except Exception:
+            _store_id = ''
         with _log_scope(
             agent_id=getattr(card, 'id', None) or (card.get('id') if isinstance(card, dict) else None),
             agent_name=self._get_agent_name(),
+            store_id=_store_id,
             task_id=getattr(task2run, 'id', None) if task2run is not None else None,
             task_name=getattr(task2run, 'name', None) if task2run is not None else None,
             skill_name=(getattr(_skill, 'name', None) or getattr(_skill, 'skill_name', None)

@@ -65,6 +65,7 @@ const Prompts = lazyWithRetry(() => import('../pages/Prompts/PromptsEnhanced'));
 const Avatars = lazyWithRetry(() => import('../pages/Avatars/Avatars'));
 const Account = lazyWithRetry(() => import('../pages/Account/Account'));
 const PaymentPlan = lazyWithRetry(() => import('../pages/Account/PaymentPlan'));
+const PlanDetails = lazyWithRetry(() => import('../pages/Account/PlanDetails'));
 const ShippingLabel = lazyWithRetry(() => import('../pages/ShippingLabel/ShippingLabel'));
 const RAGDocuments = lazyWithRetry(() => import('../pages/RAG/RAGDocuments'));
 const Plugins = lazyWithRetry(() => import('../pages/Plugins/Plugins'));
@@ -423,6 +424,11 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'account/payment-plan',
                 element: <LazyWrapper><PaymentPlan /></LazyWrapper>,
+                keepAlive: false,
+            },
+            {
+                path: 'account/payment-plan/details',
+                element: <LazyWrapper><PlanDetails /></LazyWrapper>,
                 keepAlive: false,
             },
             {

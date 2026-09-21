@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Card, Col, Row, Typography, message, Input, Space } from 'antd';
-import { ArrowLeftOutlined, AlipayCircleOutlined, WechatOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, AlipayCircleOutlined, WechatOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ipcApi } from '../../services/ipc/api';
@@ -60,6 +60,20 @@ const PaymentPlan: React.FC = () => {
         navigate('/account');
     };
 
+    // Deep-links to the plan explanation page, anchored at the plan in question.
+    // The card copy alone ("unlock premium features") is what made the plans
+    // ambiguous in the first place, so every card gets one.
+    const explain = (planKey: 'subscription' | 'additional') => (
+        <Button
+            type="text"
+            size="small"
+            aria-label={t('account.planWhatsIncluded', '这个套餐包含什么？')}
+            title={t('account.planWhatsIncluded', '这个套餐包含什么？')}
+            icon={<QuestionCircleOutlined />}
+            onClick={() => navigate(`/account/payment-plan/details#${planKey}`)}
+        />
+    );
+
     const handleCnPay = async (planKey: string, amount: number) => {
         setPayingPlan(planKey);
         try {
@@ -101,6 +115,16 @@ const PaymentPlan: React.FC = () => {
                     </Button>
                     <Title level={3} style={{ margin: 0 }}>{t('account.paymentPlan', 'Payment Plan')}</Title>
                     <Text type="secondary">{t('account.choosePlan', 'Choose a subscription plan that fits your needs.')}</Text>
+                    &nbsp;
+                    <Button
+                        type="link"
+                        size="small"
+                        style={{ padding: 0 }}
+                        icon={<QuestionCircleOutlined />}
+                        onClick={() => navigate('/account/payment-plan/details')}
+                    >
+                        {t('account.planCompare', '查看套餐说明')}
+                    </Button>
                 </Col>
             </Row>
 
@@ -138,7 +162,11 @@ const PaymentPlan: React.FC = () => {
                     </Card>
                     <Row gutter={[24, 24]}>
                         <Col xs={24} md={12} lg={8}>
-                            <Card title={t('account.subscriptionPlan', 'Subscription Plan')} style={{ textAlign: 'center' }}>
+                            <Card
+                                title={t('account.subscriptionPlan', 'Subscription Plan')}
+                                extra={explain('subscription')}
+                                style={{ textAlign: 'center' }}
+                            >
                                 <div style={{ marginBottom: 16 }}>
                                     <Text type="secondary">{t('account.subscribeDesc', 'Subscribe to unlock premium features and enhanced capabilities.')}</Text>
                                 </div>
@@ -154,7 +182,11 @@ const PaymentPlan: React.FC = () => {
                             </Card>
                         </Col>
                         <Col xs={24} md={12} lg={8}>
-                            <Card title={t('account.additionalPlan', 'Additional Plan')} style={{ textAlign: 'center' }}>
+                            <Card
+                                title={t('account.additionalPlan', 'Additional Plan')}
+                                extra={explain('additional')}
+                                style={{ textAlign: 'center' }}
+                            >
                                 <div style={{ marginBottom: 16 }}>
                                     <Text type="secondary">
                                         {t('account.additionalDesc', 'Choose this plan for result-driven monthly charging, with a minimum of ¥0.50 initial top-up.')}
@@ -183,7 +215,11 @@ const PaymentPlan: React.FC = () => {
             ) : (
                 <Row gutter={[24, 24]}>
                     <Col xs={24} md={12} lg={8}>
-                        <Card title={t('account.subscriptionPlan', 'Subscription Plan')} style={{ textAlign: 'center' }}>
+                        <Card
+                                title={t('account.subscriptionPlan', 'Subscription Plan')}
+                                extra={explain('subscription')}
+                                style={{ textAlign: 'center' }}
+                            >
                             <div style={{ marginBottom: 16 }}>
                                 <Text type="secondary">
                                     {t('account.subscribeDesc', 'Subscribe to unlock premium features and enhanced capabilities.')}
@@ -199,7 +235,11 @@ const PaymentPlan: React.FC = () => {
                         </Card>
                     </Col>
                     <Col xs={24} md={12} lg={8}>
-                        <Card title={t('account.additionalPlan', 'Additional Plan')} style={{ textAlign: 'center' }}>
+                        <Card
+                                title={t('account.additionalPlan', 'Additional Plan')}
+                                extra={explain('additional')}
+                                style={{ textAlign: 'center' }}
+                            >
                             <div style={{ marginBottom: 16 }}>
                                 <Text type="secondary">
                                     {t('account.additionalDesc', 'Choose this plan for result-driven monthly charging, with a minimum of $0.50 initial top-up.')}

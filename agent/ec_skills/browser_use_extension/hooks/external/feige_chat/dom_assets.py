@@ -470,7 +470,13 @@ def _start_placeholder_sweeper(browser_session) -> None:
     if existing_task is not None and not existing_task.done():
         return  # task alive — no-op
 
-    _timeout = _ph_rf("FEIGE_PLACEHOLDER_TIMEOUT_S", _D_PHT, None)
+    # GUI (per-store → account) wins over env; falls back to the same
+    # _ph_rf tunable read this line used before the config panel existed.
+    try:
+        from . import placeholder_config as _ph_cfg
+        _timeout = _ph_cfg.effective_timeout_s()
+    except Exception:
+        _timeout = _ph_rf("FEIGE_PLACEHOLDER_TIMEOUT_S", _D_PHT, None)
     # Prefer the explicit ECAN_FEIGE_MAX_PLACEHOLDERS_PER_INFLIGHT env
     # var; if unset, fall back to the legacy ECAN_FEIGE_PLACEHOLDER_MAX
     # (transparent to operators still using the old name).
@@ -3161,9 +3167,17 @@ async def _scrape_locked_body(
                     resolve_float as _mt055c_rf,
                     DEFAULT_FEIGE_PLACEHOLDER_TIMEOUT_S as _MT055C_DEF,
                 )
-                _mt055c_timeout = _mt055c_rf(
-                    "FEIGE_PLACEHOLDER_TIMEOUT_S", _MT055C_DEF, None
-                )
+                # GUI (per-store → account) wins over env, same as the
+                # sweeper gate and the runner bridge.
+                try:
+                    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
+                        placeholder_config as _mt055c_cfg,
+                    )
+                    _mt055c_timeout = _mt055c_cfg.effective_timeout_s()
+                except Exception:
+                    _mt055c_timeout = _mt055c_rf(
+                        "FEIGE_PLACEHOLDER_TIMEOUT_S", _MT055C_DEF, None
+                    )
                 if _mt055c_timeout > 0:
                     _mt055c_armed = _mt055c_ph_timer.arm_watchdog(
                         customer_key=customer_name,
