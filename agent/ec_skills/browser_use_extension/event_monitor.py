@@ -679,6 +679,61 @@ async def _monitor_runtime_evaluate(
     )
 
 
+def selectors_in_use(configs: Optional[List[Any]] = None) -> Dict[str, str]:
+    """Every CSS selector the DOM monitors currently depend on, by role.
+
+    ``{"root": "#listScrollArea", "item": "[data-qa-id=...]",
+       "field:customer_name": ".someHashedClass", ...}``
+
+    These are the selectors a site change would break, and until now nothing
+    watched them: they live in skill config that a user can edit in the skill
+    editor, so a hand-written watch list elsewhere cannot know about them and
+    goes stale the moment someone changes one.
+
+    Site-agnostic -- it walks the extractor config's own shape and never
+    interprets a selector. Never raises; an empty dict just means no monitor
+    is running.
+    """
+    out: Dict[str, str] = {}
+    try:
+        sets = list(_active_monitor_sets.values())
+        for monitor_set in sets:
+            for cfg in (configs if configs is not None
+                        else getattr(monitor_set, "configs", []) or []):
+                try:
+                    extractor = _resolve_dom_extractor_config(cfg)
+                except Exception:
+                    continue
+                if not isinstance(extractor, dict):
+                    continue
+
+                for i, root in enumerate(extractor.get("roots") or []):
+                    if isinstance(root, str) and root.strip() and root != "body":
+                        out[f"root_{i}" if i else "root"] = root.strip()
+
+                for item in extractor.get("items") or []:
+                    if not isinstance(item, dict):
+                        continue
+                    sel = item.get("selector")
+                    if isinstance(sel, str) and sel.strip():
+                        out.setdefault("item", sel.strip())
+                    for name, spec in (item.get("fields") or {}).items():
+                        if not isinstance(spec, dict):
+                            continue
+                        for n, candidate in enumerate(
+                                [spec] + list(spec.get("fallback") or [])):
+                            if not isinstance(candidate, dict):
+                                continue
+                            fsel = candidate.get("selector")
+                            if isinstance(fsel, str) and fsel.strip():
+                                key = (f"field:{name}" if not n
+                                       else f"field:{name}#{n}")
+                                out.setdefault(key, fsel.strip())
+    except Exception as exc:
+        logger.debug(f"[EventMonitor] could not list selectors in use: {exc}")
+    return out
+
+
 def register_monitor_set(monitor_set: ActiveMonitorSet) -> None:
     """Register an active monitor set in the global registry."""
     global _active_monitor_sets

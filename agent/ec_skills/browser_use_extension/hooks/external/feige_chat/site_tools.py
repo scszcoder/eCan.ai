@@ -238,12 +238,32 @@ _FEIGE_LIST_SESSIONS_JS = (_ROW_NAME_JS + _SIDEBAR_SHAPE_JS + ";\n"
   // already hold -- and it moves the moment the site ships a change, rather
   // than waiting until a parser has already started failing.
   var __shape = null;
-  try { __shape = __ecanSidebarShape(items); } catch(e) {}
+  try { __shape = __ecanSidebarShape(items, MONITOR_ANCHORS); } catch(e) {}
   return JSON.stringify({ sessions: results, total_visible: items.length,
                           name_strategies: __nameStrategies,
                           sidebar_shape: __shape });
 })(INCLUDE_READ, MAX_SESSIONS);
 """)
+
+
+def _monitor_anchors_json() -> str:
+    """The active DOM monitors' selectors, as a JS object literal.
+
+    Bounded and JSON-encoded: these strings come from user-editable skill
+    config, so they are never interpolated raw, and a malformed one can only
+    fail its own `querySelector` (each probe is individually guarded).
+    """
+    try:
+        import json as _json
+        from agent.ec_skills.browser_use_extension import event_monitor
+        selectors = event_monitor.selectors_in_use() or {}
+        if not selectors:
+            return "null"
+        trimmed = {str(k)[:40]: str(v)[:200]
+                   for k, v in list(selectors.items())[:24]}
+        return _json.dumps(trimmed, ensure_ascii=False)
+    except Exception:
+        return "null"
 
 
 @custom_controller.action(
@@ -254,6 +274,11 @@ async def feige_list_sessions(params: FeigeListSessionsAction, browser_session: 
     try:
         js = _FEIGE_LIST_SESSIONS_JS.replace("INCLUDE_READ", "true" if params.include_read else "false")
         js = js.replace("MAX_SESSIONS", str(params.max_sessions))
+        # Watch what the DOM monitor is CONFIGURED with, not just the anchors
+        # hand-listed in the JS. Those live in skill config the user can edit,
+        # so the hand list cannot know about them — and the monitor's own
+        # selectors are exactly the ones a site change breaks.
+        js = js.replace("MONITOR_ANCHORS", _monitor_anchors_json())
         # Read-only sidebar scrape against the resolved Feige tab, focus=False.
         # A timeout here must not freeze sends or invalidate the shared
         # session (read_only=True) — the agent can simply retry the scan.

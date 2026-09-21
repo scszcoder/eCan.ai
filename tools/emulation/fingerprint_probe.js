@@ -71,7 +71,19 @@ function matches(node, sel) {
     case 'sup':                     return node.tagName === 'SUP';
     case '[class*="userLabel"]':    return has('userLabel');
     case '[class*="cardTag"]':      return has('cardTag');
-    default: return false;
+    default: {
+      // Configured selectors are arbitrary. Support the shapes this fixture
+      // can honestly answer — a class-contains match and an attribute presence
+      // — and return no match for anything else, which is the truthful answer
+      // for a stand-in rather than a guess.
+      const cls_m = /^\[class\*=["']([^"']+)["']\]$/.exec(sel);
+      if (cls_m) return has(cls_m[1]);
+      const dot_m = /^\.([A-Za-z0-9_-]+)$/.exec(sel);
+      if (dot_m) return has(dot_m[1]);
+      const attr_m = /^\[([A-Za-z-]+)\]$/.exec(sel);
+      if (attr_m) return attr_m[1] in a;
+      return false;
+    }
   }
 }
 
@@ -86,5 +98,12 @@ function asRow(spec) {
   return root;
 }
 
+// Optional 4th arg: the selectors the DOM monitor is configured with, which
+// the fingerprint probes alongside its built-in list.
+let extraAnchors = null;
+if (process.argv[4]) {
+  try { extraAnchors = JSON.parse(process.argv[4]); } catch (e) { extraAnchors = null; }
+}
+
 const built = rows.map(asRow);
-process.stdout.write(JSON.stringify(__ecanSidebarShape(built)));
+process.stdout.write(JSON.stringify(__ecanSidebarShape(built, extraAnchors)));

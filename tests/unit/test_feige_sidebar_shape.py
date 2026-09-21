@@ -199,3 +199,84 @@ def test_the_fallback_only_runs_when_the_selectors_miss():
     """It walks every leaf in the row, so it must not run on the happy path."""
     js = site_tools._FEIGE_LIST_SESSIONS_JS
     assert "if (!lastMsg) lastMsg = __ecanRowPreviewFallback" in js
+
+
+# ── the monitor's configured selectors must be watched too ─────────────────
+#
+# The DOM monitor depends on selectors stored in skill config that a user can
+# edit in the skill editor. A hand-written anchor list in this JS cannot know
+# about them, and goes stale the moment someone changes one — which is how the
+# live skill ended up depending on `.lF_M7QiFB0ukHWpMfQde` long after the JS
+# readers had abandoned it. So the watch is derived from the config at scan
+# time, not only from the hand list.
+
+def test_the_fingerprint_accepts_configured_anchors():
+    assert "__ecanSidebarShape(rows, extraAnchors)" in sp.SIDEBAR_SHAPE_JS
+
+
+def test_the_scan_injects_them():
+    assert "MONITOR_ANCHORS" in site_tools._FEIGE_LIST_SESSIONS_JS
+    assert "__ecanSidebarShape(items, MONITOR_ANCHORS)" in (
+        site_tools._FEIGE_LIST_SESSIONS_JS)
+
+
+def test_the_substitution_happens_before_the_js_is_sent():
+    import inspect
+    src = inspect.getsource(site_tools.feige_list_sessions)
+    assert '"MONITOR_ANCHORS"' in src and "_monitor_anchors_json" in src
+
+
+def test_with_no_monitor_running_the_literal_is_valid_js():
+    """A scan with no monitor must not produce `undefined` in the snippet."""
+    assert site_tools._monitor_anchors_json() == "null"
+
+
+def test_configured_selectors_are_bounded_and_json_encoded(monkeypatch):
+    """They come from user-editable config, so they are never interpolated
+    raw, and a chatty config cannot bloat the snippet."""
+    import json
+    from agent.ec_skills.browser_use_extension import event_monitor
+    monkeypatch.setattr(event_monitor, "selectors_in_use",
+                        lambda: {f"k{i}": f".sel{i}" for i in range(80)})
+    literal = site_tools._monitor_anchors_json()
+    parsed = json.loads(literal)          # must be valid JSON, not raw JS
+    assert len(parsed) <= 24
+
+
+def test_a_hostile_selector_cannot_break_out_of_the_literal(monkeypatch):
+    from agent.ec_skills.browser_use_extension import event_monitor
+    monkeypatch.setattr(event_monitor, "selectors_in_use",
+                        lambda: {"evil": '";throw new Error("x");//'})
+    import json
+    parsed = json.loads(site_tools._monitor_anchors_json())
+    assert parsed["evil"] == '";throw new Error("x");//'   # escaped, inert
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node not installed")
+def test_a_configured_selector_is_actually_probed(tmp_path):
+    """End to end: inject a selector, and the fingerprint reports on it."""
+    import json
+    js_file = tmp_path / "shape.js"
+    js_file.write_text(sp.SIDEBAR_SHAPE_JS, encoding="utf-8")
+
+    rows = tmp_path / "rows.json"
+    row = {"tag": "div", "classes": ["conversationCard-x"],
+           "attributes": {"data-qa-id": "qa-conversation-chat-item"},
+           "children": [{"tag": "span", "classes": ["nameLine-y"],
+                         "attributes": {"title": ""}}]}
+    rows.write_text(json.dumps([row] * 4), encoding="utf-8")
+
+    probe = (pathlib.Path(__file__).resolve().parents[2] / "tools" / "emulation"
+             / "fingerprint_probe.js")
+    # The probe's stand-in only models the selectors the built-in list asks
+    # for, so a configured one resolves to "absent" — which is exactly what
+    # must be REPORTED rather than ignored.
+    result = subprocess.run(
+        ["node", str(probe), str(js_file), str(rows),
+         json.dumps({"field:last_message": '[class*="msgContent"]'})],
+        capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    shape = json.loads(result.stdout)
+    watched = set(shape["anchors_present"]) | set(shape["anchors_missing"])
+    assert "cfg:field:last_message" in watched, (
+        f"a configured selector was not watched: {sorted(watched)}")

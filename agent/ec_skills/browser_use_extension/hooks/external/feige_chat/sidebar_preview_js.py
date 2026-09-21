@@ -155,7 +155,13 @@ ROW_NAME_TALLY_DRAIN_JS = r"""
 #     anchor counts already say whether a rotation actually broke a parser,
 #     which is the part worth a permanent record.
 SIDEBAR_SHAPE_JS = r"""
-  function __ecanSidebarShape(rows){
+  function __ecanSidebarShape(rows, extraAnchors){
+    // `extraAnchors` are the selectors the DOM monitor is CONFIGURED with,
+    // injected at call time. They matter because they live in skill config a
+    // user can edit: a hand-written list here cannot know about them, and goes
+    // stale the moment someone changes one in the skill editor. This is how the
+    // watch stays tied to what the system actually depends on rather than to
+    // what somebody remembered to type.
     var anchors = {
       'data_qa_id_nickname': '[data-qa-id="qa-conversation-nickname"]',
       'qa_id_fuzzy_name':    '[data-qa-id*="nickname" i],[data-qa-id*="name" i]',
@@ -187,6 +193,19 @@ SIDEBAR_SHAPE_JS = r"""
       while (p && p !== row && d < 30) { p = p.parentElement; d++; }
       return p === row ? d : -1;
     }
+    try {
+      if (extraAnchors) {
+        for (var ek in extraAnchors) {
+          if (!extraAnchors.hasOwnProperty(ek)) continue;
+          var esel = extraAnchors[ek];
+          // Never shadow a built-in: a configured selector that happens to
+          // share a name must not silently replace the one we reason about.
+          if (typeof esel === 'string' && esel && !anchors['cfg:' + ek]) {
+            anchors['cfg:' + ek] = esel;
+          }
+        }
+      }
+    } catch(e) {}
     var present = {}, depths = {}, attrs = {}, tags = {}, plainClasses = {};
     var hashed = 0;
     // Per-token row counts, for the build marker below.
