@@ -154,3 +154,48 @@ def test_the_fingerprint_behaves(tmp_path):
                             capture_output=True, text=True)
     print(result.stdout, result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# ── every preview reader must carry the structural fallback ────────────────
+#
+# ws189 replaced a dead hashed preview selector with a leaf-walking fallback
+# and wired it into three readers. The fourth — the agent-callable
+# `feige_list_sessions` scan — was missed, and read the preview with the dead
+# selector alone for the whole of the intervening period. That is the same
+# class of drift ROW_NAME_JS was consolidated to stop, on the preview instead
+# of the name.
+
+DEAD_PREVIEW_SELECTOR = "lF_M7QiFB0ukHWpMfQde"
+
+
+def _composed_snippets():
+    """Every composed JS blob in site_tools, by attribute name."""
+    return {name: value for name, value in vars(site_tools).items()
+            if name.startswith("_FEIGE_") and isinstance(value, str)
+            and "querySelector" in value}
+
+
+def test_every_snippet_reading_the_dead_selector_also_has_the_fallback():
+    offenders = []
+    for name, js in _composed_snippets().items():
+        if DEAD_PREVIEW_SELECTOR not in js:
+            continue
+        if "__ecanRowPreviewFallback" not in js:
+            offenders.append(name)
+    assert not offenders, (
+        f"{offenders} read the preview with a selector documented dead on the "
+        f"rebuilt frame, with no structural fallback — this is the ws189 shape"
+    )
+
+
+def test_the_sessions_scan_actually_calls_the_fallback():
+    """Composing it in without calling it would look fixed and not be."""
+    js = site_tools._FEIGE_LIST_SESSIONS_JS
+    assert "function __ecanRowPreviewFallback" in js
+    assert "__ecanRowPreviewFallback(el, name)" in js
+
+
+def test_the_fallback_only_runs_when_the_selectors_miss():
+    """It walks every leaf in the row, so it must not run on the happy path."""
+    js = site_tools._FEIGE_LIST_SESSIONS_JS
+    assert "if (!lastMsg) lastMsg = __ecanRowPreviewFallback" in js

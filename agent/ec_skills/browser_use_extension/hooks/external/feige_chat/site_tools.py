@@ -155,7 +155,8 @@ _FEIGE_LAST_MSG = '[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span'
 _FEIGE_TIMESTAMP = '[class*="timerParticular"], .CEnLM8MEGksTdgi_8Lqf'
 _FEIGE_UNREAD = '[class*="badge-count"], .rxAvaVFJHvpEGMc1ejm1'
 
-_FEIGE_LIST_SESSIONS_JS = _ROW_NAME_JS + _SIDEBAR_SHAPE_JS + ";\n" + r"""
+_FEIGE_LIST_SESSIONS_JS = (_ROW_NAME_JS + _SIDEBAR_SHAPE_JS + ";\n"
+                           + _ROW_PREVIEW_FALLBACK_JS + ";\n" + r"""
 (function(includeRead, maxSessions) {
   var __rebuiltFrame = null;
   function rowIsCurrent(row) {
@@ -189,6 +190,11 @@ _FEIGE_LIST_SESSIONS_JS = _ROW_NAME_JS + _SIDEBAR_SHAPE_JS + ";\n" + r"""
     var name = __ecanRowName(el);
     var lastMsgEl = el.querySelector('[class*="msgContent"], .lF_M7QiFB0ukHWpMfQde span');
     var lastMsg = lastMsgEl ? lastMsgEl.textContent.trim() : '';
+    // ws189 reached three of the four preview readers; this one was missed.
+    // .lF_M7Qi... is documented dead on the rebuilt frame, so without the
+    // structural leaf-walk this scan returns an empty preview on exactly the
+    // frames that have already gone wrong.
+    if (!lastMsg) lastMsg = __ecanRowPreviewFallback(el, name);
     var tsEl = el.querySelector('[class*="timerParticular"], .CEnLM8MEGksTdgi_8Lqf');
     var ts = tsEl ? tsEl.textContent.trim() : '';
     // Detect unread count and tags from .rxAvaVFJHvpEGMc1ejm1
@@ -237,7 +243,7 @@ _FEIGE_LIST_SESSIONS_JS = _ROW_NAME_JS + _SIDEBAR_SHAPE_JS + ";\n" + r"""
                           name_strategies: __nameStrategies,
                           sidebar_shape: __shape });
 })(INCLUDE_READ, MAX_SESSIONS);
-"""
+""")
 
 
 @custom_controller.action(
