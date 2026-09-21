@@ -1432,6 +1432,132 @@ class TestReadPendingInstallStateQuarantine:
 
 
 # ---------------------------------------------------------------------------
+# Version comparison: letter-suffix ordering (Windows OTA escape-hatch bug)
+# ---------------------------------------------------------------------------
+# Bug 2026-09-21:
+#   _numeric_version_key stripped trailing letters from version strings,
+#   so 0.9.98a and 0.9.98b both parsed to (0, 9, 98) and compared as
+#   equal.  _cleanup_downloaded_installers_for_current_version then
+#   deleted the 0.9.98b installer while 0.9.98a was still running — the
+#   very file the broken BAT launcher needed as an escape hatch.  The fix
+#   adds a letter-rank secondary key so a < b < ... < z in ordering.
+# ---------------------------------------------------------------------------
+
+
+class TestLetterSuffixVersionOrdering:
+    """Regression: 0.9.98a < 0.9.98b, and cleanup must keep the newer file."""
+
+    @pytest.fixture
+    def state_module(self, monkeypatch, tmp_path):
+        from config.app_info import app_info  # type: ignore
+        monkeypatch.setattr(app_info, "appdata_path", str(tmp_path))
+        for _name in list(sys.modules):
+            if _name == "ota.core.install_state":
+                del sys.modules[_name]
+        return __import__("ota.core.install_state", fromlist=["*"])
+
+    def test_compare_versions_respects_letter_suffix(self, state_module):
+        """0.9.98b must compare greater than 0.9.98a."""
+        assert state_module._compare_versions("0.9.98a", "0.9.98b") == -1
+        assert state_module._compare_versions("0.9.98b", "0.9.98a") == 1
+        assert state_module._compare_versions("0.9.98a", "0.9.98a") == 0
+
+    def test_compare_versions_across_series(self, state_module):
+        """Letter suffixes must not override numeric base."""
+        assert state_module._compare_versions("0.9.97z", "0.9.98a") == -1
+        assert state_module._compare_versions("0.9.98a", "0.9.97z") == 1
+
+    def test_compare_versions_alpha_ordering(self, state_module):
+        """a < b < ... < z."""
+        assert state_module._compare_versions("0.9.98a", "0.9.98z") == -1
+        assert state_module._compare_versions("0.9.98m", "0.9.98r") == -1
+        assert state_module._compare_versions("0.9.98z", "0.9.98a") == 1
+
+    def test_cleanup_keeps_newer_letter_suffix_file(self, state_module, tmp_path):
+        """Regression: 0.9.98a running, 0.9.98b installer present → file survives.
+
+        This is the chicken-and-egg escape-hatch scenario: the broken BAT
+        launcher on 0.9.98a fails to install 0.9.98b; the installer file is
+        the user's only way out and must NOT be deleted on the next startup.
+        """
+        download_dir = tmp_path / "ota_downloads"
+        download_dir.mkdir(exist_ok=True)
+        escape_hatch = download_dir / "eCan.cn-0.9.98b-windows-amd64-Setup.exe"
+        escape_hatch.write_bytes(b"escape-hatch-bytes")
+
+        count, size, failed = state_module._cleanup_downloaded_installers_for_current_version(
+            current_version="0.9.98a", logger=None
+        )
+        assert escape_hatch.exists(), (
+            "0.9.98b installer was deleted while 0.9.98a was running. "
+            "This is the escape-hatch file for the broken-BAT launcher bug — "
+            "it must survive startup cleanup."
+        )
+        assert count == 0, "Nothing should have been deleted"
+
+    def test_cleanup_keeps_newer_numeric_version_file(self, state_module, tmp_path):
+        """0.9.97z running, 0.9.98a installer present → file survives."""
+        download_dir = tmp_path / "ota_downloads"
+        download_dir.mkdir(exist_ok=True)
+        newer = download_dir / "eCan.cn-0.9.98a-windows-amd64-Setup.exe"
+        newer.write_bytes(b"newer-bytes")
+
+        count, size, failed = state_module._cleanup_downloaded_installers_for_current_version(
+            current_version="0.9.97z", logger=None
+        )
+        assert newer.exists(), "0.9.98a installer must survive when 0.9.97z is running"
+        assert count == 0
+
+    def test_cleanup_deletes_older_letter_suffix_file(self, state_module, tmp_path):
+        """0.9.98b running, 0.9.98a installer present → file is deleted."""
+        download_dir = tmp_path / "ota_downloads"
+        download_dir.mkdir(exist_ok=True)
+        older = download_dir / "eCan.cn-0.9.98a-windows-amd64-Setup.exe"
+        older.write_bytes(b"older-bytes")
+
+        count, size, failed = state_module._cleanup_downloaded_installers_for_current_version(
+            current_version="0.9.98b", logger=None
+        )
+        assert not older.exists(), "0.9.98a installer must be deleted when 0.9.98b is running"
+        assert count == 1
+
+    def test_cleanup_deletes_same_version(self, state_module, tmp_path):
+        """0.9.98a running, 0.9.98a installer present → file is deleted."""
+        download_dir = tmp_path / "ota_downloads"
+        download_dir.mkdir(exist_ok=True)
+        same = download_dir / "eCan.cn-0.9.98a-windows-amd64-Setup.exe"
+        same.write_bytes(b"same-version-bytes")
+
+        count, size, failed = state_module._cleanup_downloaded_installers_for_current_version(
+            current_version="0.9.98a", logger=None
+        )
+        assert not same.exists(), "Same-version installer must be deleted (already applied)"
+        assert count == 1
+
+    def test_cleanup_ttl_removes_stale_newer_file(self, state_module, tmp_path):
+        """Newer installer older than 30 days is deleted even though it's 'newer'."""
+        import time
+
+        download_dir = tmp_path / "ota_downloads"
+        download_dir.mkdir(exist_ok=True)
+        stale_newer = download_dir / "eCan.cn-0.9.98b-windows-amd64-Setup.exe"
+        stale_newer.write_bytes(b"stale-newer-bytes")
+        # Back-date the file to 31 days ago
+        old_mtime = time.time() - (31 * 86400)
+        import os
+        os.utime(stale_newer, (old_mtime, old_mtime))
+
+        count, size, failed = state_module._cleanup_downloaded_installers_for_current_version(
+            current_version="0.9.98a", logger=None
+        )
+        assert not stale_newer.exists(), (
+            "Stale newer installer (>30 days) must be deleted regardless "
+            "of version ordering — TTL is the safety net against infinite hoarding."
+        )
+        assert count == 1
+
+
+# ---------------------------------------------------------------------------
 # Disk space pre-flight check before download (Windows OTA failure #2)
 # ---------------------------------------------------------------------------
 
