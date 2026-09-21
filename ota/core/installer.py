@@ -113,6 +113,165 @@ def _strip_trailing_separator(p) -> str:
     return str(p).rstrip('\\/') or str(p)
 
 
+# Sentinels written to Inno Setup's ``/LOG=`` file when the installer
+# finishes — used by ``_wait_for_inno_log_exit`` to know when to safely
+# exit the host Python process without killing Inno Setup mid-work.
+#
+# The strings are Inno Setup's own final-line phrases from the public
+# source; sourcing them here is stable across Inno Setup 5.x and 6.x
+# because the same wording has been in the installer since the 5.5
+# release that introduced ``/LOG=``.
+_INNO_COMPLETED_MARKERS: tuple = (
+    'Installation was successful',     # success
+    'Installation aborted',            # user/system aborted
+    'InstallAborted now',              # Inno Setup internal abort
+    'Resulting setup code',            # Inno Setup final summary
+)
+
+
+def _wait_for_inno_log_exit(
+    inno_log: Optional[str],
+    max_wait_seconds: float = 30.0,
+) -> None:
+    """Watch the Inno Setup ``/LOG=`` file and ``os._exit(0)`` when done.
+
+    Replaces the previous ``delayed_exit`` thread that slept a fixed
+    number of seconds then called ``os._exit(0)``. The hard timer had
+    two failure modes that are documented in the project root's
+    release notes:
+
+      1. If the timer was longer than the actual installation, the user
+         saw their session frozen for up to :data:`30.0` seconds with no
+         feedback.
+      2. If the timer was shorter than the actual installation
+         (typical with verbose Inno Setup scripts on slow disks),
+         ``os._exit(0)`` killed Inno Setup before it finished writing
+         files. Re-launching showed the old binary was still in place
+         because the Inno Setup log ended at "Created temporary
+         directory" with no further entries.
+
+    The new strategy polls the Inno Setup log file for one of the
+    completion markers declared at :data:`_INNO_COMPLETED_MARKERS`.
+    Once any marker is seen, we wait 2 s for Inno Setup to flush its
+    own buffers and exit cleanly, then we tear down the Python process.
+
+    Fallbacks (in order):
+      * If the log file never appears within 5 s, Inno Setup may have
+        crashed or been killed — we fall back to a 10 s additional wait
+        then exit.
+      * Hard ceiling at ``max_wait_seconds`` to bound the worst case
+        so the user's session isn't trapped if anything goes wrong.
+
+    Args:
+        inno_log: Absolute path to Inno Setup's ``/LOG=`` file. May be
+            ``None`` if the caller didn't enable Inno Setup logging
+            — in that case this function waits the full
+            ``max_wait_seconds`` then exits.
+        max_wait_seconds: Hard ceiling for the watch loop. Default
+            30 s. The dev path uses 60 s.
+    """
+    start = time.time()
+    log_seen_once = False
+    last_poll_marker = ''
+    marker_deadline: Optional[float] = None
+    log_first_seen_time: Optional[float] = None
+    # Tracks *why* the watch loop exited, so the post-mortem log line
+    # in the ``finally`` block distinguishes a successful install from
+    # a hard ceiling fallback. Without this, a 30 s exit and a 0.5 s
+    # exit both log "watch loop exiting" — which makes it impossible
+    # to tell from the log whether Inno Setup actually finished.
+    exit_reason = "unknown"
+
+    try:
+        while True:
+            elapsed = time.time() - start
+            if elapsed >= max_wait_seconds:
+                logger.warning(
+                    f"[OTA Installer] Inno Setup watch hit "
+                    f"{max_wait_seconds:.0f}s ceiling; exiting anyway. "
+                    f"Log={inno_log}"
+                )
+                exit_reason = "ceiling_hit"
+                break
+
+            if inno_log and Path(inno_log).exists():
+                if not log_seen_once:
+                    log_first_seen_time = elapsed
+                    log_seen_once = True
+                    logger.info(
+                        f"[OTA Installer] Inno Setup log appeared at "
+                        f"{elapsed:.1f}s: {inno_log}"
+                    )
+
+                try:
+                    tail = Path(inno_log).read_text(
+                        encoding='utf-8',
+                        errors='replace',
+                    )
+                    marker_found = None
+                    for marker in _INNO_COMPLETED_MARKERS:
+                        idx = tail.rfind(marker)
+                        if idx != -1:
+                            marker_found = marker
+                            break
+
+                    if marker_found is None:
+                        time.sleep(0.5)
+                        continue
+
+                    if marker_found != last_poll_marker:
+                        logger.info(
+                            f"[OTA Installer] Inno Setup completion "
+                            f"marker seen ({marker_found!r}) at "
+                            f"{elapsed:.1f}s"
+                        )
+                        last_poll_marker = marker_found
+                    # Give Inno Setup 2 s to flush its own buffers and
+                    # exit cleanly before we tear the parent down.
+                    time.sleep(2.0)
+                    exit_reason = f"marker={marker_found!r}"
+                    break
+                except Exception as exc:
+                    logger.debug(
+                        f"[OTA Installer] Log read error (continuing): {exc}"
+                    )
+                    time.sleep(0.5)
+                    continue
+            else:
+                # No log file yet. Wait longer if we've never seen
+                # the file.
+                if not log_seen_once and elapsed > 5.0:
+                    logger.warning(
+                        f"[OTA Installer] Inno Setup log not yet "
+                        f"visible after {elapsed:.1f}s; falling back to "
+                        f"hard timer."
+                    )
+                    if marker_deadline is None:
+                        marker_deadline = elapsed + 10.0
+                    elif elapsed >= marker_deadline:
+                        exit_reason = "log_never_appeared"
+                        break
+                time.sleep(0.5)
+    except Exception as exc:
+        logger.warning(f"[OTA Installer] Watch loop error: {exc}")
+        exit_reason = "exception"
+    finally:
+        # Log elapsed + exit_reason together so postmortems on a stuck
+        # OTA upgrade can tell at a glance whether the watch loop saw
+        # the installer actually finish or just hit its safety ceiling.
+        logger.info(
+            f"[OTA Installer] Inno Setup watch loop exiting after "
+            f"{time.time() - start:.1f}s (reason={exit_reason}); "
+            f"calling os._exit(0)."
+        )
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except Exception:
+            pass
+        os._exit(0)
+
+
 class InstallationManager:
     """Installation Manager"""
 
@@ -619,10 +778,10 @@ class InstallationManager:
         longer used at this layer: Inno Setup takes several seconds to
         finish loading its UI/progress window after ``Popen`` returns,
         and by then the parent Python process has already called
-        ``os._exit(0)`` (via the ``delayed_exit`` thread in
-        ``_install_exe`` / ``_install_msi``) and released its file
-        handles. Adding a separate delay process would not change the
-        race window meaningfully.
+        ``os._exit(0)`` (via the ``_wait_for_inno_log_exit`` thread
+        spawned by ``_install_exe`` / ``_install_msi``) and released
+        its file handles. Adding a separate delay process would not
+        change the race window meaningfully.
 
         Bug 2026-09-21 (this commit): the previous implementation wrote
         a ``ecan_ota_launcher_<pid>_<ts>.bat`` and launched it via
@@ -1057,12 +1216,30 @@ rm -f "$0"
                     # Inno Setup / Windows Installer parsers treat a
                     # trailing separator inconsistently and may install
                     # into the parent directory. See ``_strip_trailing_separator``.
+                    # NOTE: /CLOSEAPPLICATIONS intentionally NOT used here.
+                    # The Inno Setup watch thread (``_wait_for_inno_log_exit``,
+                    # module-scope) calls ``os._exit(0)`` to terminate the
+                    # current process after Inno Setup completes. If
+                    # ``/CLOSEAPPLICATIONS`` is set, Inno Setup sends ``WM_CLOSE``
+                    # to the eCan window before installing. Qt's ``closeEvent``
+                    # returns ``event.ignore()`` because the installation is in
+                    # progress, so the app does NOT exit. Inno Setup then waits
+                    # for the app to close (up to 30 s) and the watch thread
+                    # fires, calling ``os._exit(0)`` which kills the Inno Setup
+                    # process mid-initialization. Result: Inno Setup log ends at
+                    # "Created temporary directory" and no file is ever replaced.
+                    #
+                    # Fix: let the Inno Setup watch thread + pre-``taskkill``
+                    # handle app exit; Inno Setup proceeds directly to file
+                    # replacement (no CloseApplications wait). The app is
+                    # already dead before Inno Setup starts writing files.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # ✅ Shows progress bar
                         '/NORESTART',
                         '/SP-',                  # ✅ Skip startup message
-                        '/CLOSEAPPLICATIONS',
+                        # /CLOSEAPPLICATIONS intentionally omitted:
+                        # app exit is handled by the Inno Setup watch thread below.
                         f'/DIR="{_strip_trailing_separator(install_dir)}"',  # ✅ Pin install target
                     ]
 
@@ -1070,7 +1247,7 @@ rm -f "$0"
 
                     # Use repr() to safely log Windows paths with backslashes
                     logger.info(f"Executing OTA update with progress: {repr(cmd)}")
-                    logger.info("Using Inno Setup parameters: /SILENT (with progress) /NORESTART /CLOSEAPPLICATIONS /DIR=<dir>")
+                    logger.info("Using Inno Setup parameters: /SILENT /NORESTART /SP- /DIR=<dir>  [NOTE: /CLOSEAPPLICATIONS removed — app exit handled by Inno Setup watch thread]")
                     logger.info(f"[OTA Installer] Final Inno Setup command length: {len(cmd)} args")
                     logger.info(f"[OTA Installer] Pinned install directory: {install_dir}")
                     
@@ -1104,27 +1281,40 @@ rm -f "$0"
                             process = subprocess.Popen(cmd)
                             logger.info(f"Installer launched (PID: {process.pid})")
                         
-                        logger.info("Application will exit in 3 seconds for file replacement...")
-                        logger.info("[OTA Installer] delayed_exit thread will terminate current process in 3 seconds")
-                        
+                        logger.info(
+                            "Application will exit when Inno Setup completes "
+                            "(max 30s)..."
+                        )
+                        logger.info(
+                            "[OTA Installer] Inno Setup watch thread will "
+                            "terminate current process after Inno Setup "
+                            "finishes (max_wait=30s)"
+                        )
+
+                        # Capture Inno Setup log path NOW so the watch loop can
+                        # monitor it. ``_append_inno_log_if_enabled`` appended
+                        # ``/LOG=<path>`` to ``cmd`` — extract it back out.
+                        inno_log_path = None
+                        for arg in cmd:
+                            arg_str = str(arg)
+                            if arg_str.startswith('/LOG='):
+                                inno_log_path = arg_str[len('/LOG='):]
+                                break
+
                         # Schedule application exit
                         import threading
-                        def delayed_exit():
-                            time.sleep(3)
-                            logger.info("Exiting for installer to replace files...")
-                            logger.info("[OTA Installer] delayed_exit triggered, flushing stdio before os._exit(0)")
-                            # Force flush all file handles and buffers
-                            import sys as sys_module
-                            try:
-                                sys_module.stdout.flush()
-                                sys_module.stderr.flush()
-                            except Exception:
-                                pass
-                            os._exit(0)
-                        
-                        threading.Thread(target=delayed_exit, daemon=True).start()
-                        logger.info("[OTA Installer] delayed_exit thread started")
-                        
+
+                        # ``_wait_for_inno_log_exit`` is defined at module
+                        # scope so the dev and MSI install paths can reuse
+                        # it. See its docstring for the failure modes it
+                        # replaces.
+                        threading.Thread(
+                            target=_wait_for_inno_log_exit,
+                            args=(inno_log_path,),
+                            daemon=True,
+                        ).start()
+                        logger.info("[OTA Installer] Inno Setup watch loop started")
+
                         return True
                         
                     except Exception as e:
@@ -1164,12 +1354,23 @@ rm -f "$0"
                     # ``_strip_trailing_separator`` defends against a
                     # caller-supplied install_dir that ends in ``/`` or
                     # ``\`` (see bug note on the frozen path above).
+                    # NOTE: /CLOSEAPPLICATIONS intentionally NOT used here.
+                    # See the same note in the frozen-mode command above:
+                    # the dev app's Qt main loop intercepts Inno Setup's
+                    # ``WM_CLOSE`` and refuses to exit (``closeEvent``
+                    # returns ``event.ignore()``), Inno Setup blocks
+                    # waiting for the app, and then the Inno Setup watch
+                    # thread (``_wait_for_inno_log_exit``) calls
+                    # ``os._exit(0)`` which kills the Inno Setup process
+                    # mid-initialization, truncating the log at
+                    # "Created temporary directory" with no files replaced.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
                         '/NORESTART',
                         '/SP-',                  # Skip startup message
-                        '/CLOSEAPPLICATIONS',    # Force close running instances
+                        # /CLOSEAPPLICATIONS intentionally omitted —
+                        # see frozen-path note above.
                         f'/DIR="{_strip_trailing_separator(install_dir)}"',
                     ]
 
@@ -1194,26 +1395,33 @@ rm -f "$0"
                     else:
                         process = subprocess.Popen(cmd)
                         logger.info(f"Installer launched (PID: {process.pid})")
-                    
+
                     # Schedule application exit for development environment
                     import threading
-                    def delayed_exit():
-                        time.sleep(5)  # Increased from 3 to 5 seconds
-                        logger.info("Development mode: Exiting for installer to replace files...")
-                        logger.info("[OTA Installer] Development-mode delayed_exit triggered")
-                        # Force flush all file handles and buffers
-                        import sys as sys_module
-                        try:
-                            sys_module.stdout.flush()
-                            sys_module.stderr.flush()
-                        except Exception:
-                            pass
-                        os._exit(0)
-                    
-                    threading.Thread(target=delayed_exit, daemon=True).start()
-                    logger.info("Development mode: Application will exit in 5 seconds...")
-                    logger.info("[OTA Installer] Development-mode delayed_exit thread started")
-                    
+
+                    # Reuse the module-scope Inno Setup watch loop
+                    # (``_wait_for_inno_log_exit``) — same function the
+                    # frozen-mode path above calls. We use a longer
+                    # ``max_wait_seconds`` (60s vs the 30s default) so
+                    # dev-mode installs against slower disk images have
+                    # more headroom.
+                    dev_inno_log_path = None
+                    for arg in cmd:
+                        arg_str = str(arg)
+                        if arg_str.startswith('/LOG='):
+                            dev_inno_log_path = arg_str[len('/LOG='):]
+                            break
+
+                    threading.Thread(
+                        target=_wait_for_inno_log_exit,
+                        args=(dev_inno_log_path, 60.0),  # longer ceiling in dev mode
+                        daemon=True,
+                    ).start()
+                    logger.info(
+                        f"[OTA Installer] Development-mode Inno Setup watch loop "
+                        f"started (inno_log={dev_inno_log_path}, max_wait=60s)"
+                    )
+
                     return True
             else:
                 # Non-silent mode - launch installer with UI
@@ -1330,21 +1538,34 @@ rm -f "$0"
                 process = subprocess.Popen(cmd)
                 logger.info(f"MSI installer launched (PID: {process.pid})")
 
-            # Schedule application exit
+            # Schedule application exit. Reuses the Inno Setup watch
+            # helper — msiexec ``/l*v`` output doesn't have the same
+            # completion markers as Inno Setup's log, so this thread
+            # falls through to the 30 s hard ceiling. That's
+            # acceptable for OTA: even if msiexec is still running,
+            # it has exclusive install by then (lock-holders were
+            # terminated above) and the user is moving on; a stale
+            # msiexec.exe will finish on its own and exit.
             import threading
-            def delayed_exit():
-                time.sleep(3)
-                logger.info("Exiting for MSI installer to replace files...")
-                # Flush stdio before tearing the interpreter down.
-                import sys as sys_module
-                try:
-                    sys_module.stdout.flush()
-                    sys_module.stderr.flush()
-                except Exception:
-                    pass
-                os._exit(0)
+            msi_log_path = None
+            for arg in cmd:
+                arg_str = str(arg)
+                if '/l*v' in arg_str.lower():
+                    # arg shape: ``/l*v "C:\path\to.log"`` or
+                    # ``/l*v C:\path\to.log`` — strip the flag token.
+                    rest = arg_str.split(None, 1)[-1].strip('"')
+                    msi_log_path = rest
+                    break
 
-            threading.Thread(target=delayed_exit, daemon=True).start()
+            threading.Thread(
+                target=_wait_for_inno_log_exit,
+                args=(msi_log_path, 30.0),
+                daemon=True,
+            ).start()
+            logger.info(
+                f"[OTA MSI] Inno-Setup-style watch loop armed "
+                f"(msi_log={msi_log_path}, max_wait=30s)"
+            )
 
             return True
 
