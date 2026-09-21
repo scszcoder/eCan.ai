@@ -211,5 +211,67 @@ class SchemaTests(unittest.TestCase):
         self.assertIn('"3.1.6": "migration_315_to_316"', manager)
 
 
+class MigrationOnExistingDbTests(unittest.TestCase):
+    """The migration has to run on a customer's populated DB, not just a fresh
+    one. If it fails there the feature records nothing and says nothing."""
+
+    def _db(self):
+        import tempfile, pathlib
+        from sqlalchemy import create_engine, text
+        db = pathlib.Path(tempfile.mkdtemp(prefix="mig_test_")) / "existing.db"
+        engine = create_engine(f"sqlite:///{db}")
+        with engine.begin() as c:   # an install that already has data
+            c.execute(text("CREATE TABLE token_usage (id VARCHAR(64) PRIMARY KEY, cost_usd FLOAT)"))
+            c.execute(text("INSERT INTO token_usage VALUES ('t1', 0.0042)"))
+        return engine
+
+    def test_upgrades_twice_without_damage(self) -> None:
+        from sqlalchemy import text
+        from sqlalchemy.orm import sessionmaker
+        from agent.db.migrations.versions.migration_315_to_316 import Migration_315_to_316
+
+        engine = self._db()
+        mig = Migration_315_to_316(engine=engine)
+        Session = sessionmaker(bind=engine)
+
+        for _ in range(2):          # re-running a migration must be safe
+            session = Session()
+            try:
+                self.assertTrue(mig.validate_preconditions(session))
+                self.assertTrue(mig.upgrade(session))
+                self.assertTrue(mig.validate_postconditions(session))
+            finally:
+                session.close()
+
+        with engine.begin() as c:
+            self.assertEqual(c.execute(text("SELECT COUNT(*) FROM token_usage")).scalar(), 1)
+            cols = {r[1] for r in c.execute(text("PRAGMA table_info(usage_event)")).fetchall()}
+        for required in ("idempotency_key", "scenario_code", "meter_code", "store_id",
+                         "occurred_at", "status", "evidence", "cost_basis", "source"):
+            self.assertIn(required, cols)
+
+    def test_migrated_schema_enforces_idempotency(self) -> None:
+        """The unique index must exist in the SHIPPED DDL, not only on the model."""
+        from sqlalchemy import text
+        from sqlalchemy.orm import sessionmaker
+        from agent.db.migrations.versions.migration_315_to_316 import Migration_315_to_316
+
+        engine = self._db()
+        session = sessionmaker(bind=engine)()
+        try:
+            Migration_315_to_316(engine=engine).upgrade(session)
+        finally:
+            session.close()
+
+        insert = ("INSERT INTO usage_event (id, idempotency_key, scenario_code, meter_code,"
+                  " quantity, occurred_at, status, source) VALUES"
+                  " ('{i}','same-key','cs_chat','message_replied',1,'2026-09-21','pending','client')")
+        with engine.begin() as c:
+            c.execute(text(insert.format(i="a")))
+        with self.assertRaises(Exception):
+            with engine.begin() as c:
+                c.execute(text(insert.format(i="b")))
+
+
 if __name__ == "__main__":
     unittest.main()
