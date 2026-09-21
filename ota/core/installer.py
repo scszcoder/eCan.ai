@@ -1100,6 +1100,16 @@ rm -f "$0"
     def _install_exe(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
         """Install Windows EXE package - OTA silent update"""
         try:
+            # ✅ CRITICAL: Verify installer file exists before ANY other operations
+            # If the file doesn't exist, fail immediately instead of launching a non-existent installer
+            if not package_path.exists():
+                logger.error(
+                    f"[OTA Installer] CRITICAL: Installer file not found: {package_path}. "
+                    f"Download may have been deleted by antivirus, disk cleanup, or other process. "
+                    f"Please re-download the update."
+                )
+                return False
+            
             logger.info(f"Installing Windows EXE: {package_path}")
             logger.info(
                 f"[OTA Installer] _install_exe start: path={package_path}, exists={package_path.exists()}, "

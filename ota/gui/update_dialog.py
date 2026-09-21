@@ -914,11 +914,27 @@ class UpdateDialog(QDialog):
             f"is_downloaded={getattr(package_manager.current_package, 'is_downloaded', None)}, "
             f"is_verified={getattr(package_manager.current_package, 'is_verified', None)}"
         )
-        if package_exists:
-            try:
-                logger.info(f"[UpdateDialog] package file size before install: {os.path.getsize(package_path)} bytes")
-            except Exception as e:
-                logger.warning(f"[UpdateDialog] Failed to stat package before install: {e}")
+        
+        # ✅ CRITICAL: Verify package exists before launching installer
+        # If the file doesn't exist, fail immediately instead of launching a non-existent installer
+        if not package_exists:
+            logger.error(
+                f"[UpdateDialog] CRITICAL: Installer file not found: {package_path}. "
+                f"The downloaded installer may have been deleted by antivirus, disk cleanup, or another process. "
+                f"Please re-download the update."
+            )
+            self.status_label.setText(_tr.tr("package_not_found"))
+            QMessageBox.warning(
+                self,
+                _tr.tr("installation_failed"),
+                _tr.tr("package_not_found_message")
+            )
+            return
+        
+        try:
+            logger.info(f"[UpdateDialog] package file size before install: {os.path.getsize(package_path)} bytes")
+        except Exception as e:
+            logger.warning(f"[UpdateDialog] Failed to stat package before install: {e}")
         
         # ✅ OTA update installation options - silent mode
         install_opts = {
