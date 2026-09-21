@@ -64,8 +64,8 @@ the free-text prompt wording.
 
 - Copy a certified template, reword the prompts → shape unchanged → the
   plan **inherits**. This is the common case and it works with no review.
-- Add a node, tool, model or code node → shape changes → plan becomes
-  `needs_review`, and the skill bills at **Tier 0** until re-approved.
+- Add a node, tool, model or code node → shape changes → the skill bills at
+  **Tier 0** until a new plan is approved.
 
 Prompt wording does change token cost, and the billing shape deliberately ignores
 it — that is what the fair-use guard is for. Keep the two jobs separate: the
@@ -77,6 +77,78 @@ see the terminology rule recorded with the site-shape work.)
 
 The LLM reviewer's output is advisory and always recorded (model, version,
 prompt hash, verdict, projected cost per event) so a price can be audited later.
+
+### 3.1 When a review runs — demotion is derived, promotion is triggered
+
+**Do not store a plan status that every save has to maintain.** Store the
+approved plan's `billing_shape_hash` and derive the rest:
+
+```
+effective_tier =
+    plan.tier   if plan.status == 'approved'
+                and shape(skill_version) == plan.billing_shape_hash
+    else 0
+```
+
+Both halves are needed and they catch different things: the **status** catches a
+plan the fair-use sweep suspended (job 6.5 — the shape is unchanged there, so
+the hash comparison alone would keep saying "approved"), and the **hash**
+catches a skill edited after approval (no job runs there, so status alone would
+be stale). Either one on its own leaves a hole.
+
+Rating does that comparison when it prices an event; the skill editor's 计费 tab
+does it when it renders. No save hook, no event storm, no write amplification,
+and no way for a missed trigger to leave a stale `approved` on a skill that has
+changed underneath it. (`save_agent_skill` may be an autosave — anything writing
+status on save would flicker mid-edit and hammer the DB.)
+
+The property that matters: **demotion to Tier 0 is instant and automatic; only
+promotion needs a review.** Billing is never blocked on an LLM. The worst case
+for a customer mid-edit is that they pay usage-based rates for a while — never
+that we lose money while a review queue drains.
+
+Promotion is what gets triggered, at the moments pricing actually matters:
+
+| Trigger | Why |
+|---|---|
+| Publish to marketplace | A public template needs a published price |
+| First run of a new shape (a task binds this skill version and executes) | The real "this is about to cost money" moment |
+| Manual 申请审核 from the 计费 tab | Customer wants per-result pricing back now |
+| `subscribe_to_skill` (copying a template) | Shape matches the parent → **inherit, no review at all** |
+
+**Not on save.** Someone rearranging nodes changes the shape 20× in an hour and
+19 of those are intermediate states nobody will ever run. The hash is recomputed
+on save because it is a pure function costing microseconds; the LLM runs only
+when a new shape is about to earn money. Expected volume is roughly **one review
+per skill version that actually gets deployed** — iterating in the editor is free.
+
+### 3.2 Re-validation is evidence-driven, not calendar-driven
+
+A skill whose shape never changes still drifts economically: prompt wording grows
+(deliberately outside the shape), model prices move, a site change makes runs
+longer. The **fair-use guard is the continuous check** — it runs on every rated
+event comparing actual cost against price, which is a per-event audit and
+strictly better than "re-review every 90 days". A skill only returns for review
+when the data says it has gone uneconomic.
+
+Calendar triggers stay rare and narrow: a price-book version change (re-run the
+margin *projection*, not the skill review), and an annual audit for
+marketplace-published plans, where a price is published to strangers.
+
+```
+every save        -> recompute shape hash (free, no LLM, no status write)
+publish / 1st run -> LLM review, once per shape that gets used
+every rated event -> fair-use guard (continuous economic check)
+price-book change -> re-project margins
+annually          -> audit marketplace-published plans only
+```
+
+**Accepted trade-off:** "first run of a new shape" means the first run of an
+edited skill bills at Tier 0 while the review happens asynchronously, so a
+customer can see one usage-priced turn before per-result pricing resumes. We
+accept it and say so in the 计费 tab. Deferring the promotion to the next period
+boundary would avoid a mid-run price change but would make the tab lie about
+what the current turn costs.
 
 ---
 
@@ -103,8 +175,11 @@ skill_charge_plan(
   plan_id            uuid PK,
   skill_id           text,
   skill_version      text,
-  billing_shape_hash text,    -- see §3
-  status             text,     -- 'draft' | 'approved' | 'needs_review' | 'suspended'
+  billing_shape_hash text,    -- see §3; the shape this plan was approved FOR
+  -- Only states a human/job actually sets. 'needs_review' is deliberately NOT
+  -- here: a shape mismatch is DERIVED at read time (§3.1), never written on
+  -- save, so a missed trigger cannot leave a stale 'approved' behind.
+  status             text,     -- 'draft' | 'approved' | 'suspended'
   tier               int,      -- 0 | 1 | 2
   derived_from_plan_id uuid,   -- set when copied from a template
   fair_use_factor    numeric,  -- default 3.0
@@ -258,8 +333,10 @@ exists.
 4. **Reconciliation** — `usage_event_intent` with no matching confirmed event
    after 24h → report, **never bill** (a failed delivery is never billed).
 5. **Fair-use sweep** — events whose `cost_basis` exceeds
-   `fair_use_factor × unit_price` → bill the excess at Tier 0 and flag the plan
-   `needs_review`.
+   `fair_use_factor × unit_price` → bill the excess at Tier 0 and set the plan
+   `status = 'suspended'` (a real stored state: the shape still matches, so the
+   derived check in §3.1 would keep saying "approved"). This sweep IS the
+   continuous re-validation — there is no calendar re-review job.
 6. **Margin dashboard** (internal) — cost per event per meter, and
    **failed-delivery cost per month**. Since failures are never billed, that is
    pure loss and also the best regression alarm the send path will ever have.
@@ -290,14 +367,27 @@ exists.
 - [ ] Period rollover; confirm the up-front ¥68 credit is consumed, not doubled.
 
 ### Phase C — custom-skill safety
-- [ ] `skill_charge_plan` / `_item`; compute and store `billing_shape_hash`.
-- [ ] Inheritance on copy: same billing shape → inherit; changed → `needs_review` + Tier 0.
+- [ ] `skill_charge_plan` / `_item`; `billing_shape_hash` as a pure function of
+      the billing-relevant surface (§3), recomputed on `save_agent_skill` /
+      `new_agent_skill`. Hash only — **no status write on save**.
+- [ ] Derive the effective tier by comparing current shape to the approved
+      plan's hash (§3.1), at rating time and at 计费-tab render time. Do NOT
+      add a stored status that saves must keep in sync.
+- [ ] Inheritance on copy (`subscribe_to_skill`): same shape → inherit the
+      parent's plan with **no review**; changed → Tier 0 until approved.
+- [ ] Review triggers, and only these: marketplace publish, first run of a new
+      shape, manual `requestSkillChargeReview`. Never on save.
 - [ ] LLM review pipeline producing a **draft** plan + `review_evidence`.
 - [ ] Auto-approve only under the no-loss guard (price ≥ projected cost × margin).
-- [ ] Fair-use sweep + auto-suspend to Tier 0.
+- [ ] Fair-use sweep + auto-suspend to Tier 0 — this is the continuous
+      re-validation (§3.2); do not add a calendar re-review job.
+- [ ] Re-project margins on a price-book version change; annual audit job
+      scoped to marketplace-published plans only.
 - [ ] Enforce: `meter.emit` reachable **only** from platform node runtime and
       certified hook bundles, never a customer code node.
-- [ ] `getSkillChargePlan` / `requestSkillChargeReview` for the skill-editor tab.
+- [ ] `getSkillChargePlan` / `requestSkillChargeReview` for the skill-editor tab;
+      the tab must state that the first run of an edited skill is usage-priced
+      while the review runs (§3.2 trade-off).
 
 ### Phase D — cutover
 - [ ] Flip one willing customer to Tier 1; keep Tier 0 shadow running alongside.
