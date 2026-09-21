@@ -28,6 +28,7 @@ touch real OTA directories).
 import os
 import platform
 import re
+import subprocess
 import sys
 import stat
 import textwrap
@@ -100,76 +101,203 @@ def installer_module():
 # ---------------------------------------------------------------------------
 
 
-class TestBatTemplate:
-    """The Windows OTA launcher BAT must not interpret placeholders as positional args."""
+class TestWindowsInstallerLaunchesDirectly:
+    """The Windows OTA installer launcher must invoke Inno Setup via
+    ``subprocess.Popen`` directly — NOT via a ``cmd /c <bat> <args>``
+    indirection. The previous BAT layer corrupted quoting because
+    cmd.exe's argv tokenization is incompatible with the MSVCRT
+    escaping ``subprocess.Popen`` uses on Windows:
+
+      * Python passes ``/DIR="path"`` as a single argv element.
+      * ``subprocess.Popen`` MSVRT-escapes it to ``/DIR=\"path\"`` in
+        the command-line string passed to ``CreateProcess``.
+      * cmd.exe tokenizes that string. The first char after ``=`` is
+        ``\\`` (NOT ``"``), so cmd.exe leaves the backslash-quote pair
+        as literal characters in the token — it does NOT re-strip the
+        escaping the way MSVRT would.
+      * The BAT's ``%*`` therefore contains the literal
+        ``/DIR=\"path\"``, which ``start "" %*`` forwards verbatim to
+        Inno Setup.
+      * Inno Setup's argv parser (MSVRT rules) sees the value as
+        ``\\"path\\"`` — embedded ``"`` characters that its folder-name
+        validator rejects with
+        "Folder name cannot contain any of the following characters:
+        / : * ? \" < > |". The OTA upgrade aborts before any file is
+        replaced.
+
+    Pinning the fix: ``_launch_windows_installer_delayed`` must
+    invoke Inno Setup directly, AND the previous BAT launcher
+    template file must no longer exist on disk (it would let a future
+    refactor silently re-introduce the broken indirection).
+    """
 
     REPO_ROOT = Path(__file__).resolve().parents[2]
     BAT_TEMPLATE = REPO_ROOT / "ota" / "resources" / "ecan_ota_launcher_template.bat"
 
-    def test_template_file_exists(self):
-        """The launcher template must exist on disk."""
-        assert self.BAT_TEMPLATE.exists(), f"BAT template missing: {self.BAT_TEMPLATE}"
+    def test_bat_template_file_does_not_exist(self):
+        """The BAT launcher template must be gone — its only purpose
+        was the broken ``cmd /c`` indirection. If a future refactor
+        re-creates it, this test fires so we can audit the change."""
+        assert not self.BAT_TEMPLATE.exists(), (
+            f"BAT launcher template re-appeared at {self.BAT_TEMPLATE}. "
+            f"This template was the root cause of bug 2026-09-21 (Inno "
+            f"Setup ``/DIR=\"path\"`` arg arriving as ``/DIR=\\\"path\\\"`` "
+            f"and failing folder-name validation). Before re-introducing "
+            f"it, fix the cmd.exe argv round-trip — ``subprocess.Popen`` "
+            f"MSVRT escaping is incompatible with cmd.exe's parsing."
+        )
 
-    def test_template_has_no_positional_arg_placeholder(self):
-        """``%N%`` style tokens must not appear in the template.
-
-        Python's ``str.replace("__ARGS_COUNT__", "2")`` would turn the
-        literal ``%__ARGS_COUNT__%`` in the source into ``%2%``, which
-        batch parses as positional arg 2 + literal ``%``. We pin the
-        template to NOT contain any ``%N%`` pattern so this regression
-        cannot recur.
+    def test_launch_uses_popen_directly(self, installer_module, monkeypatch):
+        """``_launch_windows_installer_delayed`` must call
+        ``subprocess.Popen`` with the installer exe as argv[0] —
+        NO ``cmd.exe`` in the argv. This is the structural test for
+        the fix.
         """
-        text = self.BAT_TEMPLATE.read_text(encoding="utf-8")
-        # Reject any %N% where N is 0-9 (positional args). %% is fine —
-        # it's the literal-% escape and won't fire replacement twice.
-        offenders = re.findall(r"%[0-9]%", text)
-        assert not offenders, (
-            f"BAT template contains positional-arg tokens {offenders}; "
-            f"these get rewritten by ``str.replace`` at runtime into "
-            f"something other than the literal count. Remove the ``%`` "
-            f"around placeholders."
+        monkeypatch.setattr(sys, "platform", "win32")
+
+        captured = {}
+
+        class FakePopen:
+            pid = 12345
+
+        def fake_popen(argv, *args, **kwargs):
+            captured["argv"] = list(argv)
+            captured["kwargs"] = kwargs
+            return FakePopen()
+
+        monkeypatch.setattr(installer_module.subprocess, "Popen", fake_popen)
+
+        mgr = installer_module.InstallationManager()
+        cmd = [
+            r"C:\fake\eCan.cn-Setup.exe",
+            "/SILENT",
+            "/NORESTART",
+            "/SP-",
+            "/CLOSEAPPLICATIONS",
+            r'/DIR="C:\Users\me\AppData\Local\eCan.cn"',
+            "/LOG=C:\\Temp\\install.log",
+        ]
+        mgr._launch_windows_installer_delayed(cmd, delay_seconds=3)
+
+        assert "argv" in captured, (
+            "Popen was not invoked — _launch_windows_installer_delayed "
+            "did not call subprocess.Popen."
+        )
+        argv = captured["argv"]
+        # argv[0] MUST be the installer exe. If cmd.exe ever sneaks
+        # back in (e.g. someone re-introduces a ``cmd /c <bat>`` layer),
+        # argv[0] would be ``cmd`` and this assertion fires.
+        assert argv[0] != "cmd" and not argv[0].lower().endswith("cmd.exe"), (
+            f"argv[0]={argv[0]!r} suggests the ``cmd /c`` indirection "
+            f"came back. Inno Setup's argv must come straight from "
+            f"Python's MSVRT escaping so ``/DIR=\"path\"`` round-trips "
+            f"with the surrounding quotes intact."
+        )
+        # The installer exe must be argv[0] verbatim.
+        assert argv[0] == cmd[0], (
+            f"argv[0]={argv[0]!r} doesn't match the installer exe "
+            f"{cmd[0]!r}."
+        )
+        # The full argv must be the installer exe + every installer
+        # arg, in order. cmd.exe parsing in the BAT path would
+        # re-interpret ``/DIR=\"path\"`` and lose the quotes — the
+        # direct path must keep them.
+        assert argv == cmd, (
+            f"_launch_windows_installer_delayed did NOT pass the "
+            f"installer args verbatim. "
+            f"expected={cmd!r} got={argv!r}. "
+            f"Adding or re-ordering args here would re-introduce the "
+            f"cmd.exe round-trip the 2026-09-21 fix removed."
+        )
+        # ``/DIR="..."`` must arrive with its quotes — this is the
+        # specific payload that the BAT path corrupted.
+        dir_args = [a for a in argv if a.startswith("/DIR=")]
+        assert len(dir_args) == 1, (
+            f"Expected exactly one /DIR= arg, got {dir_args!r}"
+        )
+        assert dir_args[0] == r'/DIR="C:\Users\me\AppData\Local\eCan.cn"', (
+            f"/DIR= arg lost its quotes: {dir_args[0]!r}. The 2026-09-21 "
+            f"bug was exactly this corruption — Inno Setup's "
+            f"folder-name validator sees the embedded ``\"`` and rejects "
+            f"the path."
         )
 
-    def test_template_uses_disable_delayed_expansion(self):
-        """``!`` in installer paths must not be re-interpreted."""
-        text = self.BAT_TEMPLATE.read_text(encoding="utf-8")
-        # Case-insensitive — batch is case-insensitive about keywords.
-        assert re.search(r"setlocal\s+DisableDelayedExpansion", text, re.IGNORECASE), (
-            "BAT template must use ``setlocal DisableDelayedExpansion`` "
-            "to defeat delayed-expansion re-interpretation of ``!`` in "
-            "installer paths."
+    def test_launch_sets_detached_creation_flags(self, installer_module, monkeypatch):
+        """The Popen call must declare DETACHED_PROCESS so the installer
+        survives the parent Python process's ``os._exit(0)``. Without
+        this the installer would be killed mid-replace."""
+        monkeypatch.setattr(sys, "platform", "win32")
+
+        captured = {}
+
+        class FakePopen:
+            pid = 99
+
+        def fake_popen(argv, *args, **kwargs):
+            captured["kwargs"] = kwargs
+            return FakePopen()
+
+        monkeypatch.setattr(installer_module.subprocess, "Popen", fake_popen)
+
+        mgr = installer_module.InstallationManager()
+        mgr._launch_windows_installer_delayed(
+            [r"C:\fake\Setup.exe", "/SILENT", r'/DIR="C:\fake"'],
+            delay_seconds=3,
         )
 
-    def test_template_uses_argv_passthrough(self):
-        """``start "" %*`` must forward all installer args verbatim."""
-        text = self.BAT_TEMPLATE.read_text(encoding="utf-8")
-        assert "start \"\" %*" in text, (
-            "BAT template must forward args via ``start \"\" %*`` so "
-            "paths with spaces / quotes / ampersands round-trip cleanly."
+        flags = captured["kwargs"].get("creationflags", 0)
+        # Integer literals (not ``subprocess.DETACHED_PROCESS``) so this
+        # test runs on macOS/Linux runners too — those constants only
+        # exist on the Windows build of ``subprocess``.
+        DETACHED_PROCESS = 0x00000008
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
+        assert flags & DETACHED_PROCESS, (
+            f"creationflags=0x{flags:x} missing DETACHED_PROCESS "
+            f"(0x{DETACHED_PROCESS:x}). Without it the "
+            f"installer is killed when the Python parent calls "
+            f"``os._exit(0)`` — the OTA replace silently fails."
+        )
+        assert flags & CREATE_NEW_PROCESS_GROUP, (
+            f"creationflags=0x{flags:x} missing CREATE_NEW_PROCESS_GROUP "
+            f"(0x{CREATE_NEW_PROCESS_GROUP:x}). The installer "
+            f"should run in its own process group so Ctrl+C signals to "
+            f"the parent don't propagate to it."
         )
 
-    def test_template_placeholder_will_render_as_literal_int(self):
-        """After str.replace the count line is human-readable."""
-        text = self.BAT_TEMPLATE.read_text(encoding="utf-8")
-        # Substitute the placeholders ourselves and verify the result
-        # is human-readable. This catches future regressions where
-        # someone re-introduces ``%`` around ``__ARGS_COUNT__``.
-        rendered = text.replace("__DELAY_SECONDS__", "3").replace("__ARGS_COUNT__", "2")
-        echo_line = next(
-            (line for line in rendered.splitlines() if "Launching installer" in line),
-            None,
+    def test_launch_redirects_stdio_to_devnull(self, installer_module, monkeypatch):
+        """stdin/stdout/stderr must all be DEVNULL — the installer's
+        output would otherwise hit a Python console window that pops
+        up over the user's session during a silent OTA upgrade."""
+        monkeypatch.setattr(sys, "platform", "win32")
+
+        captured = {}
+
+        class FakePopen:
+            pid = 99
+
+        def fake_popen(argv, *args, **kwargs):
+            captured["kwargs"] = kwargs
+            return FakePopen()
+
+        monkeypatch.setattr(installer_module.subprocess, "Popen", fake_popen)
+
+        mgr = installer_module.InstallationManager()
+        mgr._launch_windows_installer_delayed(
+            [r"C:\fake\Setup.exe"], delay_seconds=3,
         )
-        assert echo_line is not None, "Template missing the 'Launching installer' echo line"
-        # The rendered line must contain the literal ``2 argument(s)``
-        # text — no batch metacharacters. This proves the template
-        # doesn't depend on positional-arg expansion for the count.
-        assert "2 argument(s)" in echo_line, (
-            f"Rendered echo line missing '2 argument(s)': {echo_line!r}"
+
+        kwargs = captured["kwargs"]
+        assert kwargs.get("stdin") == subprocess.DEVNULL, (
+            f"stdin={kwargs.get('stdin')!r}, expected DEVNULL. "
+            f"Otherwise the installer inherits the parent's stdin."
         )
-        # And it must NOT contain %2% — that would mean positional
-        # expansion was reintroduced.
-        assert "%2%" not in echo_line, (
-            f"Rendered echo line still has %2% positional-arg token: {echo_line!r}"
+        assert kwargs.get("stdout") == subprocess.DEVNULL, (
+            f"stdout={kwargs.get('stdout')!r}, expected DEVNULL. "
+            f"Otherwise Inno Setup writes progress to the parent's "
+            f"stdout (a Python console window pops up).",
+        )
+        assert kwargs.get("stderr") == subprocess.DEVNULL, (
+            f"stderr={kwargs.get('stderr')!r}, expected DEVNULL."
         )
 
 

@@ -608,28 +608,54 @@ class InstallationManager:
             logger.debug(f"Failed to enable Inno Setup logging (safe to ignore): {e}")
 
     def _launch_windows_installer_delayed(self, cmd: list[str], delay_seconds: int = 10) -> int:
-        """Launch installer through a detached BAT script.
+        """Launch the Inno Setup installer detached from the Python parent.
 
-        Uses a .bat file launched via ``cmd /c`` so the child process truly
-        survives the parent calling ``os._exit(0)``.  Previous approach used
-        ``powershell`` directly with ``DETACHED_PROCESS``, but PowerShell
-        children were still killed when the Python process exited.
+        Uses ``subprocess.Popen`` directly with ``DETACHED_PROCESS |
+        CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`` so the installer
+        survives the parent's ``os._exit(0)``.
 
-        Edge-case handling:
-          * The BAT is named ``ecan_ota_launcher_<pid>_<ts>.bat`` (NOT a
-            fixed name) so concurrent OTA flows don't clobber each
-            other's launchers.
-          * The installer exe + args are passed via ``%*`` (argv to the
-            BAT) instead of being interpolated into a single command
-            line, so paths with spaces, double-quotes, ampersands,
-            carets, parens, or percent signs round-trip cleanly. The
-            old ``list2cmdline + f-string`` approach lost quoting and
-            broke for installer paths under e.g. ``D:\\My & Co Apps\\eCan``.
-          * ``setlocal DisableDelayedExpansion`` ensures any ``!`` in
-            installer paths is not re-interpreted by the BAT engine.
+        The ``delay_seconds`` argument is accepted for API compatibility
+        with the previous BAT-indirection implementation but is no
+        longer used at this layer: Inno Setup takes several seconds to
+        finish loading its UI/progress window after ``Popen`` returns,
+        and by then the parent Python process has already called
+        ``os._exit(0)`` (via the ``delayed_exit`` thread in
+        ``_install_exe`` / ``_install_msi``) and released its file
+        handles. Adding a separate delay process would not change the
+        race window meaningfully.
+
+        Bug 2026-09-21 (this commit): the previous implementation wrote
+        a ``ecan_ota_launcher_<pid>_<ts>.bat`` and launched it via
+        ``cmd /c <bat> <args>`` so the BAT could sleep ``delay_seconds``
+        before running ``start "" %*``. cmd.exe's argv tokenization in
+        that path is incompatible with the MSVCRT-style escaping
+        ``subprocess.Popen`` uses on Windows:
+
+          1. Python MSVRT-escapes ``/DIR="path"`` to ``/DIR=\"path\"``
+             when building the command line for ``cmd /c``.
+          2. cmd.exe tokenizes the result: the first char after ``=`` is
+             ``\\`` (NOT ``"``), so cmd.exe leaves the backslash-quote
+             pair in the arg token as literal characters — it does NOT
+             re-strip the escaping.
+          3. The BAT's ``%*`` therefore contains the literal
+             ``/DIR=\"path\"``, which ``start "" %*`` forwards verbatim
+             to Inno Setup.
+          4. Inno Setup's argv parser (MSVCRT rules) sees the value as
+             ``\\"path\\"`` — embedded ``"`` characters that its
+             folder-name validator rejects with
+             "Folder name cannot contain any of the following characters:
+             / : * ? \" < > |". The OTA upgrade aborts before any file
+             is replaced.
+
+        Bypassing ``cmd /c`` and calling Inno Setup directly via
+        ``subprocess.Popen`` lets Python's MSVRT escaping round-trip
+        cleanly: the child receives the exact argv list, including
+        proper quoting around any spaces / special characters in the
+        install path.
 
         Returns:
-            PID of the launched script process.
+            PID of the launched installer process (a positive integer),
+            or ``-1`` on launch failure.
         """
         if sys.platform != 'win32':
             raise RuntimeError("Windows-only helper")
@@ -637,88 +663,55 @@ class InstallationManager:
         exe_path = str(cmd[0])
         raw_args = [str(arg) for arg in cmd[1:]] if len(cmd) > 1 else []
 
-        # Use fixed user directory instead of temporary directory
-        from config.app_info import app_info
-        user_data_root = Path(app_info.appdata_path)
-        scripts_dir = safe_makedirs(user_data_root / "ota_scripts", purpose="OTA scripts")
+        # DETACHED_PROCESS (0x00000008)         — child has no inherited
+        #                                        console; doesn't share
+        #                                        parent's stdin/stdout
+        #                                        handles.
+        # CREATE_NEW_PROCESS_GROUP (0x00000200) — child becomes the root
+        #                                        of a new process group;
+        #                                        Ctrl+C sent to the
+        #                                        parent will NOT
+        #                                        propagate.
+        # CREATE_NO_WINDOW (0x08000000)         — no new console window
+        #                                        pops up over the
+        #                                        user's session.
+        #
+        # We use integer literals here rather than
+        # ``subprocess.DETACHED_PROCESS`` / ``CREATE_NEW_PROCESS_GROUP``
+        # / ``CREATE_NO_WINDOW`` because those constants only exist on
+        # the Windows build of ``subprocess`` — accessing them on a
+        # macOS / Linux test runner that monkey-patches ``sys.platform``
+        # to ``'win32'`` would raise ``AttributeError`` before the test
+        # can stub out ``subprocess.Popen``. The flag values are stable
+        # Windows API constants and don't drift across Python versions.
+        creation_flags = 0x00000008 | 0x00000200 | 0x08000000
 
-        template_path = Path(__file__).resolve().parent.parent / "resources" / "ecan_ota_launcher_template.bat"
-        if not template_path.exists():
-            raise FileNotFoundError(f"OTA launcher BAT template not found: {template_path}")
-
-        # Unique BAT per launch so concurrent OTA flows don't race.
-        bat_path = scripts_dir / f"ecan_ota_launcher_{os.getpid()}_{time.time_ns()}.bat"
-
-        # Windows MAX_PATH (260 chars) guard: ``subprocess.Popen`` silently
-        # truncates command lines beyond 32 767 chars (the Windows kernel
-        # limit), but the .bat file path itself must fit under the
-        # filesystem's 260-char MAX_PATH ceiling, otherwise the ``cmd /c
-        # <bat_path>`` call fails with "The system cannot find the file
-        # specified" before we even get to the installer. Users with
-        # very long usernames or deeply-nested ``LOCALAPPDATA`` paths
-        # (``C:\Users\<longname>\AppData\Local\eCan\ota_scripts\...``)
-        # can hit this. The fix: probe the resolved path and fail fast
-        # with a clear message instead of silently mangling the call.
-        bat_path_str = str(bat_path)
-        if sys.platform == 'win32' and len(bat_path_str) > 220:
-            # 220 chars gives headroom for cmd.exe's own internal argv
-            # parsing (some env vars like ``=ExitCode`` are prepended).
-            # 260 is the filesystem hard limit.
-            logger.error(
-                f"[OTA] BAT launcher path exceeds safe Windows path length "
-                f"({len(bat_path_str)} > 220 chars). "
-                f"This would cause ``cmd /c`` to fail silently. "
-                f"Path: {bat_path_str}"
-            )
-            raise RuntimeError(
-                f"OTA cannot write the launcher script because the "
-                f"path is too long ({len(bat_path_str)} chars). "
-                f"On Windows, paths over 220 characters can cause "
-                f"installer failures. Consider moving your user profile "
-                f"to a shorter path, or contact support."
-            )
-
-        template_text = template_path.read_text(encoding='utf-8')
-        bat_content = (
-            template_text
-            .replace("__DELAY_SECONDS__", str(int(delay_seconds)))
-            .replace("__ARGS_COUNT__", str(len(raw_args)))
-        )
-
-        with open(bat_path, 'w', encoding='utf-8-sig', newline='\r\n') as f:
-            f.write(bat_content)
-
-        creation_flags = (
-            subprocess.DETACHED_PROCESS |
-            subprocess.CREATE_NEW_PROCESS_GROUP |
-            subprocess.CREATE_NO_WINDOW
-        )
-
-        logger.info(f"BAT launcher written to: {bat_path}")
-        logger.info(f"[OTA Installer] BAT launcher directory ensured: {scripts_dir}")
-        logger.info(f"[OTA Installer] BAT launcher template used: {template_path}")
-        logger.info(f"Installer executable: {exe_path}")
+        logger.info(f"[OTA] Launching installer directly (no BAT indirection): {exe_path}")
         logger.info(f"[OTA Installer] Installer argument count: {len(raw_args)}")
         for idx, arg in enumerate(raw_args):
             logger.debug(f"[OTA Installer]   arg[{idx}] = {arg}")
-        logger.info(f"Delay before launch: {delay_seconds}s")
+        # The ``delay_seconds`` parameter is unused now but kept in the
+        # signature so the call sites in ``_install_exe`` / ``_install_msi``
+        # don't need to change.
+        logger.debug(f"[OTA Installer] delay_seconds={delay_seconds} (no-op in direct-launch path)")
 
-        # Build argv to the BAT launcher. The BAT template uses ``%*``
-        # to forward everything after the bat_path verbatim, so we
-        # don't need to do any cmd-line quoting ourselves — the BAT
-        # engine handles it. ``cmd /c`` is the right Windows idiom for
-        # invoking a script that should run detached.
-        p = subprocess.Popen(
-            ['cmd', '/c', str(bat_path), exe_path, *raw_args],
-            creationflags=creation_flags,
-            close_fds=True,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        logger.info(f"BAT launcher started successfully (PID: {p.pid})")
-        logger.info(f"[OTA Installer] BAT launcher process detached successfully: pid={p.pid}, creation_flags={creation_flags}")
-        return p.pid
+        try:
+            p = subprocess.Popen(
+                [exe_path, *raw_args],
+                creationflags=creation_flags,
+                close_fds=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            logger.info(
+                f"[OTA Installer] Installer detached successfully: "
+                f"pid={p.pid}, creation_flags=0x{creation_flags:x}"
+            )
+            return p.pid
+        except Exception as e:
+            logger.error(f"[OTA] Failed to launch installer directly: {e}")
+            return -1
     
     def _create_backup(self) -> bool:
         """Create backup of current application"""
