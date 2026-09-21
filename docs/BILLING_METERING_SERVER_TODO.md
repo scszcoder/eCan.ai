@@ -35,11 +35,14 @@ So billing rests on what the **server** observes, in three tiers:
 | **2 — Marketplace / partner** | Tier 1 + revenue share | As Tier 1 | Published/partner skills |
 
 **Tier 0 is the floor and the default.** A skill with no approved charge plan is
-billed exactly as it is today. This is what makes the whole thing safe: gaming a
-business meter can only ever push a customer *back to Tier 0*, which costs more
-and is less predictable — never to zero. There is no exploit that makes work
-free, because the resource the work consumes is metered by the component holding
-the API keys.
+billed on resource consumption. This is what makes the whole thing safe: gaming
+a business meter can only ever push a customer *back to Tier 0*, which costs
+more and is less predictable — never to zero. There is no exploit that makes
+work free, because the resource the work consumes is metered by the component
+holding the API keys.
+
+That "costs more" is load-bearing, and **it is not true of the code as it
+stands** — see §2a.
 
 Two implementation rules follow, and neither is optional:
 
@@ -50,6 +53,76 @@ Two implementation rules follow, and neither is optional:
    cost exceeds `fair_use_factor ×` its price, the excess bills at Tier 0 rates
    and the plan is flagged for re-review. This covers both accidental margin
    blowups (Q&A prompts have hit 86K tokens) and prompt-stuffing after approval.
+
+## 2a. Tier 0 pricing — 10× markup, applied server-side only
+
+### What the code does today (measured 2026-09-21)
+
+`agent/ec_skills/llm_pricing.py` is the client-side pricing table: USD per 1K
+tokens, `(input, output)`, e.g. `deepseek-chat (0.00014, 0.00028)`,
+`claude-sonnet-5 (0.002, 0.008)`, unmatched models falling to a `default` of
+`(0.01, 0.02)`. `calc_cost()` is `(in/1000)*pin + (out/1000)*pout` and **applies
+no markup of any kind** — grep for markup/margin/multiplier across the pricing
+module and the billing handler returns nothing. Display converts to RMB at a
+fixed `_USD_TO_CNY = 7.25`.
+
+So Tier 0 is currently a **cost pass-through at vendor list price**. Two
+consequences: it earns nothing, and the §2 claim that falling back to Tier 0
+"costs more" is false — it costs the same as the work itself.
+
+Worse, at list prices ¥0.05/reply does not clear cost. One Feige Q&A turn at the
+observed 38–86K prompt range:
+
+| model | 40K in / 500 out | 86K in / 500 out |
+|---|---|---|
+| deepseek-chat | ¥0.042 (~17% margin) | ¥0.088 — **2× underwater** |
+| qwen (falls to `default`) | ¥2.97 — **59×** | ¥6.31 — **126×** |
+| claude-sonnet-5 | ¥0.62 — **12×** | ¥1.28 — **26×** |
+
+### Decision: mark Tier 0 up 10×
+
+Approved 2026-09-21. The app is in alpha and Tier 1 is intended to go live the
+same day, so the usual objection — that a 10× raise lands on customers with no
+cheaper alternative to move to — does not apply here. With Tier 1 live, 10×
+makes Tier 0 roughly 8× the price of a ¥0.05 certified reply, which is exactly
+what the three-tier model wants: the fallback should be unattractive, and §2's
+"costs more" becomes true.
+
+**The markup belongs in `llm_proxy` (private `eCan_lambda` repo), and nowhere
+else.** The proxy holds the API keys and debits the balance; it is the only
+component whose number a customer actually pays. Express it as a named
+configurable factor, not a literal `10`, so it can be tuned per account or
+partner without a redeploy.
+
+### Rule: `cost` and `price` stay separate
+
+**`llm_pricing.py` must keep returning TRUE vendor cost — do not mirror the
+markup into this repo.** That table feeds `token_tracker` → the local
+`token_usage` table → the `llm.getBillingDaily/Hourly` IPC handlers, which
+`BILLING_TOPUP_API_CONTRACT.md` §A defines as a **display** surface; the cloud
+is authoritative for money. A markup applied here would change what the desktop
+*shows* without changing what anyone is *charged*, so the display would disagree
+with the real bill by exactly 10× — worse than doing nothing, and the
+client-side-papering-over-backend anti-pattern of CLAUDE.md §5.
+
+Keeping cost unmarked is also load-bearing for the rest of this design: the
+fair-use guard compares **actual cost** against price (§3.2), `usage_event.
+cost_basis` records it per event, and the margin dashboard (job 6.6) needs it.
+Bake 10× into `cost_usd` and you lose the ability to measure your own margin.
+
+The client-side follow-up is therefore *not* a markup constant — it is that any
+GUI surface showing money the customer pays should render the **server's**
+figure (`getBillingHistory`), rather than recomputing locally from a table that
+deliberately holds cost.
+
+### Known gap: qwen is not in the pricing table
+
+Vendors present: `openai`, `anthropic`, `deepseek`, `google`, `default`. The CN
+stack runs **qwen** (3.6/3.7/3.8) heavily, and every qwen call currently falls to
+`default` `(0.01, 0.02)` — roughly GPT-4-turbo rates and nowhere near qwen's real
+price. Whatever the markup, the underlying number recorded against qwen usage is
+wrong today, in the expensive direction. Needs real qwen/dashscope rates before
+Tier 0 pricing can be trusted for the CN fleet.
 
 ## 3. Charge plans for custom and copied skills
 
@@ -344,6 +417,18 @@ exists.
 ---
 
 ## 7. TODO, in dependency order
+
+### Phase A0 — Tier 0 markup (§2a; independent of everything below)
+- [ ] Apply the 10x markup in `llm_proxy` when debiting balance. Named
+      configurable factor, not a literal — tunable per account/partner later.
+- [ ] Do NOT mirror the markup into `agent/ec_skills/llm_pricing.py`; that table
+      stays TRUE vendor cost, because fair-use, `cost_basis` and the margin
+      dashboard all compare against it.
+- [ ] Add real qwen / dashscope rates to the pricing table — CN's primary models
+      currently fall to the `default` (0.01, 0.02) and are mispriced.
+- [ ] Client follow-up: money the customer pays renders the SERVER figure
+      (`getBillingHistory`), never a local recompute.
+- [ ] Sanity-check the fixed `_USD_TO_CNY = 7.25` display rate while here.
 
 ### Phase A — metering, shadow mode (no money moves)
 - [ ] Create `usage_meters`, `usage_event`, `usage_period_total` on CN TCB **and** AWS, identical field names.
