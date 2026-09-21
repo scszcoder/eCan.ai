@@ -73,15 +73,18 @@ class MenuMessages:
             'rla_gate_rejected_title': 'Report not sent',
             'sqlite_merge': 'SQLite Merge...',
             'test': 'Test',
-            
+
             # About Dialog
             'about_title': 'About eCan',
             'about_text': '<h2>eCan</h2><p>Version: {version}</p><p>An intelligent automation platform for e-commerce operations.</p><p>© {year} eCan.ai. All Rights Reserved.</p>',
             'version_label': 'Version {version}',
             'about_desc': 'Enterprise Intelligent E-commerce Automation Platform',
-            'about_designed_by': 'Designed by eCan.ai Team',
+            'about_website': 'www.ecan.ai',
+            'about_website_url': 'https://www.ecan.ai',
+            'about_publisher': 'eCan.AI Inc.',
+            'about_designed_by': 'Designed by eCan.AI Team',
             'about_copyright': '© {year} eCan.ai. All Rights Reserved.',
-            
+
             # Settings Dialog
             'settings_title': 'eCan Settings',
             'app_settings': 'Application Settings',
@@ -194,6 +197,7 @@ class MenuMessages:
             'update_latest_title': 'You are up to date!',
             'update_available_title': 'Update Available',
             'update_latest_desc': 'eCan {version} is the latest version available.',
+            'manual_install_fallback': 'You can always install the latest version manually using the links in <a href="{url}">latest.json</a>.',
         },
         'zh-CN': {
             # 菜单
@@ -253,15 +257,18 @@ class MenuMessages:
             'rla_gate_rejected_title': '未提交',
             'sqlite_merge': 'SQLite 合并...',
             'test': '测试',
-            
+
             # About Dialog
             'about_title': '关于 eCan',
             'about_text': '<h2>eCan</h2><p>版本: {version}</p><p>智能电商运营自动化平台。</p><p>© {year} eCan.ai. 保留所有权利。</p>',
             'version_label': '版本 {version}',
             'about_desc': '企业级智能电商运营自动化平台',
-            'about_designed_by': 'eCan.ai 团队设计',
+            'about_website': 'www.fastprecisiontech.com',
+            'about_website_url': 'https://www.fastprecisiontech.com',
+            'about_publisher': 'eCan.AI Team',
+            'about_designed_by': 'eCan.AI 团队设计',
             'about_copyright': '© {year} eCan.ai. 保留所有权利。',
-            
+
             # 设置对话框
             'settings_title': 'eCan 设置',
             'app_settings': '应用程序设置',
@@ -373,6 +380,7 @@ class MenuMessages:
             'update_latest_title': '您已是最新版本！',
             'update_available_title': '有新版本可用',
             'update_latest_desc': 'eCan {version} 是当前最新版本。',
+            'manual_install_fallback': '您也可以手动安装最新版本，下载链接请查看 <a href="{url}">latest.json</a>。',
         }
     }
     
