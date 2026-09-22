@@ -74,10 +74,18 @@ def _split_user_prefix(raw_version: str) -> Tuple[Optional[str], str]:
     # Reject reserved prerelease / channel words.
     if head.lower() in _FORBIDDEN_USER_PREFIXES:
         return None, raw_version
-    # Loose sanity check: a user prefix should look like an identifier,
-    # not contain whitespace or weird punctuation. We allow letters,
-    # digits, dot, dash. Anything else -> treat the ``_`` as version data.
-    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", head):
+    # User prefixes are short identifier-style strings (e.g. ``songc``,
+    # ``john-doe``). The ``v0.7.0-lq_dev_multi-final-cc4240f`` style
+    # CI build suffixes MUST NOT be misread as ``v0.7.0-lq`` +
+    # ``dev_multi-...``: the underscore there is part of the
+    # prerelease tag, not a user/version separator. Keep this regex
+    # in lockstep with ``_PREFIXED_DIR_RE`` in
+    # ``build_system/scripts/generate_appcast.py`` so the writer
+    # (``upload_to_s3.py`` / ``upload_to_cos.py``) and reader agree
+    # on what counts as a user tag. Notably: NO dots in the head —
+    # that is what previously let ``v0.7.0-lq`` slip through as a
+    # fake user prefix and break version comparison.
+    if not re.match(r"^[A-Za-z][A-Za-z0-9_-]*$", head):
         return None, raw_version
     return head.lower(), rest
 
