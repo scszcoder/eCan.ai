@@ -158,6 +158,12 @@ const CostValue = styled.span`
   white-space: nowrap;
 `;
 
+const CostLabel = styled.span`
+  margin-right: 3px;
+  opacity: 0.75;
+  font-size: 10px;
+`;
+
 const LoadingWrapper = styled.div`
   display: flex;
   align-items: center;
@@ -282,7 +288,15 @@ export const TokenUsageDisplay: React.FC = () => {
             {formatNumber(outputTokens)}
           </TokenRow>
         </TokenColumn>
-        <CostValue>{formatCurrency(totalCost, currency)}</CostValue>
+        {/* Labelled on purpose. This sits beside the avatar where a wallet
+            balance normally lives, and it is NOT one: it is month-to-date
+            SPEND. A customer with 164.3 of balance read this 92.54 as
+            "funds left" and reported a discrepancy (2026-09-22). The
+            balance itself is on the Account page (acctInfo.fund). */}
+        <CostValue>
+          <CostLabel>{isCN ? '本月' : 'MTD'}</CostLabel>
+          {formatCurrency(totalCost, currency)}
+        </CostValue>
       </Content>
     </Wrapper>
   );

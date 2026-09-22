@@ -389,13 +389,30 @@ function detectLlmQuotaError(logText: string): void {
   if (now - lastQuotaBannerAt < QUOTA_BANNER_COOLDOWN_MS) return;
   lastQuotaBannerAt = now;
 
-  // Prefer i18n translation but fall back to literal strings if the keys
-  // are missing (i18n.t returns the key itself when unresolved).
-  const key = 'common.llm_quota_limit_banner';
-  const translated = i18n.t(key);
-  const fallback = (i18n.language || '').toLowerCase().startsWith('zh')
-    ? 'AI模型额度已用尽，请检查账单或更换模型'
-    : 'LLM Reached Quota Limit';
+  // Name the provider whose quota ran out. This banner used to say
+  // "请检查账单" ("check your billing"), which points the customer at their
+  // eCan balance for something that is not it: the exhausted quota belongs to
+  // the MODEL PROVIDER's account behind the proxy. On 2026-09-22 a customer
+  // with ¥164.3 of balance sat blocked by 544 of these while reading a message
+  // telling them to check their bill. Their balance was untouched — precisely
+  // because every call was failing.
+  const provider = (
+    logText.match(/Upstream\s+([a-z0-9_-]+)\s+429/i) ||
+    logText.match(/([a-z0-9_-]+)\s+quota\s+exceeded/i) ||
+    []
+  )[1];
+  const zh = (i18n.language || '').toLowerCase().startsWith('zh');
+  const key = provider
+    ? 'common.llm_quota_limit_banner_provider'
+    : 'common.llm_quota_limit_banner';
+  const translated = i18n.t(key, { provider });
+  const fallback = zh
+    ? (provider
+        ? `${provider} 模型服务额度已用尽，调用失败。请更换模型或联系管理员补充额度（与您的账户余额无关）`
+        : 'AI模型服务额度已用尽，调用失败。请更换模型或联系管理员（与您的账户余额无关）')
+    : (provider
+        ? `${provider} model quota is exhausted — calls are failing. Switch model or ask your administrator to top up. This is not your account balance.`
+        : 'Model quota is exhausted — calls are failing. Switch model or ask your administrator to top up. This is not your account balance.');
   const text = translated && translated !== key ? translated : fallback;
 
   useAdStore.getState().setErrorBanner({
