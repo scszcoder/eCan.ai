@@ -53,16 +53,24 @@ _ALLOWED_EXTS = {
     ".woff", ".woff2",
 }
 
+# The host mounts us with ``sandbox="allow-scripts"`` and deliberately WITHOUT
+# ``allow-same-origin``, so the document gets an **opaque origin**. CSP's
+# ``'self'`` resolves to the document's origin, and an opaque origin matches
+# nothing — so a policy written with ``'self'`` blocks every script the page
+# loads, including bridge.js, and the panel is inert with no error we log.
+# Source expressions match the RESOURCE URL rather than the document origin, so
+# naming our own origin explicitly works under the sandbox and keeps the policy
+# just as tight. ``{origin}`` is substituted per request in ``_send_common``.
 _DEFAULT_CSP = (
     "default-src 'none'; "
-    "script-src 'self'; "
-    "style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data:; "
-    "font-src 'self' data:; "
+    "script-src {origin}; "
+    "style-src {origin} 'unsafe-inline'; "
+    "img-src {origin} data:; "
+    "font-src {origin} data:; "
     "connect-src 'none'; "
     "frame-ancestors *; "  # parent app frames us; in production we tighten this
     "form-action 'none'; "
-    "base-uri 'self'"
+    "base-uri 'none'"
 )
 
 
@@ -113,9 +121,14 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         # doesn't get spammed.
         logger.debug(f"[PluginGuiServer] {self.address_string()} - " + (format % args))
 
+    def _csp(self) -> str:
+        """CSP naming our own origin, because 'self' cannot work under the
+        host's ``sandbox="allow-scripts"`` opaque origin (see _DEFAULT_CSP)."""
+        return _DEFAULT_CSP.format(origin=f"http://127.0.0.1:{_PORT}")
+
     def end_headers(self):
         # Common headers applied to every response.
-        self.send_header("Content-Security-Policy", _DEFAULT_CSP)
+        self.send_header("Content-Security-Policy", self._csp())
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Cache-Control", "no-store")

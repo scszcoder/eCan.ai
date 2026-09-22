@@ -71,18 +71,27 @@ def _scope() -> dict:
 
 
 def _service():
-    """Usage-event DB service, or None when there is no DB (cloud worker, tests)."""
+    """Usage-event DB service, or None when there is no DB (cloud worker, tests).
+
+    Resolved through ``AppContext``, which is how the DB manager is actually
+    reachable at runtime — the services are plain attributes on it. The first
+    version of this imported a module-level ``ec_db_mgr``, which does not
+    exist; every emit on the 0.9.98m customer build logged
+    "(not persisted: no DB)" and the shadow run recorded nothing at all.
+    """
     try:
-        from agent.db.db_manager import ec_db_mgr
+        from app_context import AppContext
+        db = AppContext.get_ec_db_mgr()
     except Exception as exc:
-        logger.debug(f"{LOG_TAG} db manager unavailable: {exc}")
+        logger.debug(f"{LOG_TAG} app context unavailable: {exc}")
         return None
-    try:
-        from agent.db.services.db_usage_event_service import DBUsageEventService
-        return DBUsageEventService.initialize(ec_db_mgr)
-    except Exception as exc:
-        logger.debug(f"{LOG_TAG} usage-event service unavailable: {exc}")
+    if db is None:
+        logger.debug(f"{LOG_TAG} no db manager on the app context")
         return None
+    svc = getattr(db, "usage_event_service", None)
+    if svc is None:
+        logger.debug(f"{LOG_TAG} db manager has no usage_event_service")
+    return svc
 
 
 def emit(
