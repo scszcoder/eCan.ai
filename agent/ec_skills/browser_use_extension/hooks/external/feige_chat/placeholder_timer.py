@@ -870,6 +870,99 @@ def arm_watchdog(
     return True
 
 
+def _alias_cancel_enabled() -> bool:
+    """ws194 kill switch. Default ON — it is a fix — but this is the delivery
+    hot path, so leave a way to turn it off without a build."""
+    return os.environ.get("ECAN_FEIGE_PH_ALIAS_CANCEL", "1") != "0"
+
+
+def _cancel_conversation_aliases(
+    customer_key: str, source_msg_id: str, now: float
+) -> None:
+    """ws194: cancel the SAME turn armed under the conversation's OTHER identity.
+
+    One conversation can carry two customer_keys — the real nickname and the
+    synthetic ``card:<talk_id>`` used before the row has a name. ws074 already
+    taught placeholder DEDUP to collapse them via :func:`_ph_talk_id`; cancel
+    never followed, so delivering under one identity left the other identity's
+    timer armed and it fired a 过渡句 seconds AFTER the customer had been
+    answered. Live 0.9.98m trace: answered 09:36:34 as
+    ``card:7688166838034826525``, placeholder fired 09:36:56 as ``陆地飞鱼`` —
+    same conversation, 4 occurrences in one session.
+
+    Deliberately NOT ``cancel_any_for_customer`` semantics. That was reverted on
+    2026-05-20 because cancelling everything for a conversation let an older
+    turn's reply kill the LATEST turn's timer, leaving the customer with no
+    acknowledgement at all. So an alias entry is cancelled only when it is
+    provably the same TURN: identical ``source_msg_id``, or one side blank
+    (the mt052C/mt038E case where arm and cancel legitimately disagree about
+    the id). An alias holding a different, non-blank id is a different turn and
+    is left alone — and logged, so the next customer log says whether that case
+    exists in the wild.
+    """
+    my_talk = _ph_talk_id(customer_key)
+    if not my_talk:
+        return
+
+    # Snapshot under the lock, resolve talk ids OUTSIDE it: _ph_talk_id can
+    # reach into ws_session, and this codebase has paid for doing work while
+    # holding a dispatch-path lock (ws175).
+    with _REGISTRY_LOCK:
+        candidates = [
+            (key, e.customer_key, e.source_msg_id)
+            for key, e in _REGISTRY.items()
+            if e.customer_key != customer_key
+        ]
+    if not candidates:
+        return
+
+    same_turn, other_turn = [], []
+    for key, cust, msg in candidates:
+        if _ph_talk_id(cust) != my_talk:
+            continue
+        if msg == source_msg_id or not msg or not source_msg_id:
+            same_turn.append((key, cust, msg))
+        else:
+            other_turn.append((cust, msg))
+
+    for cust, msg in other_turn:
+        logger.info(
+            f"[placeholder_timer] ws194 alias-kept talk={my_talk!r} "
+            f"cust={cust!r} src_msg={msg!r} — different turn from the reply we "
+            f"just delivered as {customer_key!r}/{source_msg_id!r}"
+        )
+
+    if not same_turn:
+        return
+
+    inflight = []
+    with _REGISTRY_LOCK:
+        for key, cust, msg in same_turn:
+            if _REGISTRY.pop(key, None) is None:
+                continue
+            # Same stamps the exact-key path sets, so a placeholder already
+            # claimed but not yet typed is suppressed at submit time too.
+            _REAL_REPLY_AT[key] = now
+            _REAL_REPLY_AT[(str(cust), "")] = now
+            task = _INFLIGHT_PLACEHOLDER_TASKS.pop(key, None)
+            if task is not None:
+                inflight.append((cust, msg, task))
+            logger.info(
+                f"[placeholder_timer] ws194 alias-cancel talk={my_talk!r} "
+                f"cancelled cust={cust!r} src_msg={msg!r} because the reply "
+                f"was delivered as {customer_key!r}"
+            )
+    for cust, msg, task in inflight:
+        try:
+            task.cancel()
+            logger.info(
+                f"[placeholder_timer] ws194 cancelled IN-FLIGHT alias placeholder "
+                f"cust={cust!r} src_msg={msg!r}"
+            )
+        except Exception as exc:
+            logger.debug(f"[placeholder_timer] ws194 alias task.cancel failed: {exc}")
+
+
 def cancel(customer_key: str, source_msg_id: str = "") -> bool:
     """Cancel the timer for ``(customer_key, source_msg_id)``.
 
@@ -922,6 +1015,15 @@ def cancel(customer_key: str, source_msg_id: str = "") -> bool:
             )
         except Exception as _cx:
             logger.debug(f"[placeholder_timer] inflight task.cancel failed: {_cx}")
+    # ws194: the same turn may also be armed under this conversation's OTHER
+    # identity (real name vs synthetic card:<talk_id>). Run after the exact-key
+    # work so nothing above changes behaviour, and never let it raise into the
+    # delivery path.
+    if _alias_cancel_enabled():
+        try:
+            _cancel_conversation_aliases(str(customer_key), str(source_msg_id or ""), now)
+        except Exception as _ax:
+            logger.debug(f"[placeholder_timer] ws194 alias cancel failed: {_ax}")
     return entry is not None
 
 

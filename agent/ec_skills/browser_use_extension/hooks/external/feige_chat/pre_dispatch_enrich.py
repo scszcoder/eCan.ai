@@ -1449,6 +1449,18 @@ async def _scrape_and_override_last_message(
                 f"(msg_id=...{msg_id[-8:] if msg_id else ''})"
             )
             item["last_message"] = merged
+            # ws195 (2026-09-22): reaching this branch PROVES the sidebar holds
+            # customer text the scraped bubble does not — i.e. the thread DOM is
+            # behind the sidebar. mt052A's comment assumes the scraped bubble is
+            # the NEWER one; when the DOM lags a WS frame it is the OLDER one,
+            # and ``msg_id`` then points at a turn we have already answered.
+            # Stage-2 dedup would read that as "customer said nothing new" and
+            # drop a live question. Live 0.9.98m trace: 陆地飞鱼 asked
+            # 身高125穿哪个码 at 09:37:44 (WS msg_id=1876994098202732) while the
+            # scrape still returned 会不会透气 (...3B48992F, answered 09:36:49);
+            # dedup skipped, assigned=0, and the customer waited 1m44s and had
+            # to re-ask. Mark the item so dedup knows this id is not the latest.
+            item["_ws195_sidebar_ahead_of_bubble"] = True
         elif _mt057_sidebar_is_system:
             logger.info(
                 f"[BrowserAutomation] {log_tag} mt057 thread-scrape "
@@ -2401,8 +2413,23 @@ async def enrich_item(
         )
 
     # Stage 2: strict msg-id dedup (only meaningful when scrape gave us an id).
+    #
+    # ws195: skip the dedup entirely when the merge upstream established that
+    # the sidebar carries customer text the scraped bubble does not. The id we
+    # would dedup on belongs to the OLDER bubble, so "already dispatched" is
+    # true and irrelevant — there is a newer question sitting in last_message.
+    # Deduping here is how 身高125穿哪个码 went unanswered for 1m44s.
+    _ws195_stale_id = bool(item.get("_ws195_sidebar_ahead_of_bubble")) and \
+        os.environ.get("ECAN_FEIGE_WS195_STALE_ID_GUARD", "1") != "0"
+    if _ws195_stale_id:
+        logger.info(
+            f"[BrowserAutomation] {log_tag} ws195 dedup BYPASS for "
+            f"cust={customer_key!r}: sidebar is ahead of the scraped bubble, "
+            f"so msg_id=...{scraped_msg_id[-8:] if scraped_msg_id else ''} is "
+            f"the previous turn — dispatching the newer question"
+        )
     try:
-        if _check_msg_id_dedup(
+        if not _ws195_stale_id and _check_msg_id_dedup(
             customer_key,
             scraped_msg_id,
             customer_last_dispatched_msg_id,

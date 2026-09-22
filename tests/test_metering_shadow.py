@@ -273,5 +273,123 @@ class MigrationOnExistingDbTests(unittest.TestCase):
                 c.execute(text(insert.format(i="b")))
 
 
+class PluginPanelCspTests(unittest.TestCase):
+    """plugin_gui_server serves panels with `script-src 'self'`, so an inline
+    <script> never executes in the packaged app — the page renders its shell,
+    makes no bridge call, and logs nothing. That is exactly how the 过渡话术
+    panel reached a customer looking empty. Panel logic must live in a .js file.
+    """
+
+    GUI = Path("agent/ec_skills/browser_use_extension/hooks/external/feige_chat/gui")
+
+    def test_csp_still_forbids_inline_scripts(self) -> None:
+        """If this ever gains 'unsafe-inline', the guard below is pointless —
+        but weakening it for every installed plugin is not the fix we want."""
+        src = Path(
+            "agent/ec_skills/browser_use_extension/plugin_gui_server.py"
+        ).read_text(encoding="utf-8")
+        i = src.find("_DEFAULT_CSP")
+        csp = src[i:i + 700]
+        script_src = [l for l in csp.splitlines() if "script-src" in l][0]
+        # However the source is expressed ('self' then, an explicit origin now),
+        # inline must stay out — that is what keeps panel logic in .js files.
+        self.assertNotIn("unsafe-inline", script_src)
+
+    def test_no_panel_ships_an_inline_script(self) -> None:
+        import re
+        for page in sorted(self.GUI.glob("*.html")):
+            with self.subTest(page=page.name):
+                html = page.read_text(encoding="utf-8")
+                inline = [
+                    b for b in re.findall(
+                        r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.S
+                    ) if b.strip()
+                ]
+                self.assertEqual(
+                    inline, [],
+                    f"{page.name} has an inline <script>; it will be CSP-blocked "
+                    f"and the panel will look empty. Move it to a .js file.",
+                )
+
+    def test_every_panel_loads_the_bridge_and_its_own_logic(self) -> None:
+        import re
+        for page in sorted(self.GUI.glob("*.html")):
+            with self.subTest(page=page.name):
+                html = page.read_text(encoding="utf-8")
+                srcs = re.findall(r'<script[^>]*\bsrc="([^"]+)"', html)
+                self.assertIn("bridge.js", srcs)
+                self.assertIn(f"{page.stem}.js", srcs)
+                self.assertTrue((self.GUI / f"{page.stem}.js").is_file())
+
+    def test_panel_logic_keeps_the_placeholder_section(self) -> None:
+        js = (self.GUI / "config.js").read_text(encoding="utf-8")
+        for needed in ("placeholder_texts", "PH_STORE_PREFIX", "storeSel", "phSave"):
+            self.assertIn(needed, js)
+
+
+class ServiceResolutionTests(unittest.TestCase):
+    """How metering reaches the DB. The first version imported a module-level
+    `ec_db_mgr` that does not exist, so every emit on the 0.9.98m customer build
+    logged "(not persisted: no DB)" and the shadow run recorded NOTHING. The
+    services are attributes on the manager behind AppContext."""
+
+    def setUp(self) -> None:
+        from agent.ec_skills import metering
+        self.metering = metering
+
+    def test_resolves_through_app_context(self) -> None:
+        mgr = mock.Mock()
+        mgr.usage_event_service = mock.sentinel.svc
+        with mock.patch("app_context.AppContext.get_ec_db_mgr", return_value=mgr):
+            self.assertIs(self.metering._service(), mock.sentinel.svc)
+
+    def test_no_manager_degrades_quietly(self) -> None:
+        with mock.patch("app_context.AppContext.get_ec_db_mgr", return_value=None):
+            self.assertIsNone(self.metering._service())
+            self.assertFalse(
+                self.metering.emit("cs_chat", "message_replied", idempotency_key="k")
+            )
+
+    def test_manager_without_the_service_degrades_quietly(self) -> None:
+        mgr = mock.Mock(spec=[])       # no usage_event_service attribute
+        with mock.patch("app_context.AppContext.get_ec_db_mgr", return_value=mgr):
+            self.assertIsNone(self.metering._service())
+
+    def test_db_manager_registers_the_service(self) -> None:
+        """Regression guard: metering is only as good as this attribute."""
+        src = Path("agent/db/ec_db_mgr.py").read_text(encoding="utf-8")
+        self.assertIn("self.usage_event_service = DBUsageEventService(", src)
+        self.assertIn("from .services.db_usage_event_service import DBUsageEventService", src)
+
+
+class PluginGuiCspOriginTests(unittest.TestCase):
+    """The host mounts panels with sandbox="allow-scripts" and no
+    allow-same-origin, so the document has an OPAQUE origin and CSP 'self'
+    matches nothing — which blocks bridge.js too, not just inline code."""
+
+    SRC = Path("agent/ec_skills/browser_use_extension/plugin_gui_server.py")
+
+    def test_csp_names_an_origin_rather_than_self(self) -> None:
+        src = self.SRC.read_text(encoding="utf-8")
+        i = src.find("_DEFAULT_CSP")
+        csp = src[i:i + 700]
+        self.assertIn("script-src {origin}", csp)
+        self.assertNotIn("'self'", csp)
+
+    def test_served_header_substitutes_the_real_port(self) -> None:
+        import urllib.request
+        from agent.ec_skills.browser_use_extension import plugin_gui_server as g
+        port = g.start()
+        try:
+            url = g.get_gui_url("feige_chat", "config_panel")
+            self.assertTrue(url)
+            with urllib.request.urlopen(url) as r:
+                csp = r.headers.get("Content-Security-Policy")
+            self.assertIn(f"script-src http://127.0.0.1:{port}", csp)
+            self.assertNotIn("'self'", csp)
+        finally:
+            g.stop()
+
+
 if __name__ == "__main__":
     unittest.main()
