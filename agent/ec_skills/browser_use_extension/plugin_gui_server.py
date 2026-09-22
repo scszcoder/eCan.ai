@@ -197,6 +197,18 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(500, f"read failed: {e}")
             return
 
+        # The DOCUMENT fetch is logged at INFO — one line per panel open, and
+        # the only way to tell "the page loaded and its scripts did nothing"
+        # from "the frame never requested anything at all". Those two have
+        # completely different causes and the previous diagnostic pass could
+        # not separate them: only failures were raised above DEBUG, so a
+        # healthy 200 looked exactly like silence. Sub-resources (js/css) stay
+        # at DEBUG to keep the stream quiet.
+        if ext in (".html", ".htm"):
+            logger.info(
+                f"[PluginGuiServer] SERVED document {self.path!r} "
+                f"({len(data)} bytes) — the frame did fetch the page"
+            )
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
