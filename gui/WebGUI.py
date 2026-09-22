@@ -843,7 +843,7 @@ class WebGUI(QMainWindow):
             # Check if OTA update is in progress - skip confirmation dialog
             from ota.core.download_manager import download_manager
             if hasattr(download_manager, '_ota_installing') and download_manager._ota_installing:
-                logger.info("OTA update in progress - skipping exit confirmation")
+                logger.info("OTA update in progress - accepting close and exiting naturally")
                 event.accept()
                 try:
                     from utils.crash_boundary import mark_clean_exit, set_crash_boundary_phase
@@ -860,9 +860,11 @@ class WebGUI(QMainWindow):
                 except Exception as e:
                     logger.warning(f"Error stopping LightragServer: {e}")
                 
-                # Force exit for OTA update
-                logger.info("Force exiting for OTA update with os._exit(0)")
-                os._exit(0)
+                # FIX 2026-09-22: Don't call os._exit(0) anymore.
+                # With /CLOSEAPPLICATIONS, Inno Setup's Restart Manager handles app shutdown.
+                # Calling os._exit(0) could kill Inno Setup before it finishes replacing files.
+                # Just accept the event and let the app exit naturally via Qt's event loop.
+                logger.info("Accepting close event - app will exit naturally")
                 return
             
             # Create custom dialog with i18n support
