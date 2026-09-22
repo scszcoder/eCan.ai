@@ -112,9 +112,24 @@ class CustomWebEnginePage(QWebEnginePage):
             lineNumber: Line number where the message originated
             sourceID: Source file/URL where the message originated
         """
-        if not self._enable_console_capture:
+        # JavaScript ERRORS always reach eCan.log, even in a packaged build.
+        #
+        # Until 2026-09-22 this returned early unless console capture had been
+        # switched on, and the dedicated browser_console.log was created in dev
+        # mode only — so a production install discarded every console message,
+        # errors included. Three builds were spent chasing a blank plugin panel
+        # whose cause the browser was reporting the whole time to a listener
+        # that dropped it. Errors are rare, always actionable, and the cheapest
+        # diagnostic we have for anything that fails inside the web layer.
+        #
+        # Info/warning volume is still gated: those are chatty and only useful
+        # when someone has deliberately asked for them.
+        _is_error = (
+            level == QWebEnginePage.JavaScriptConsoleMessageLevel.ErrorMessageLevel
+        )
+        if not self._enable_console_capture and not _is_error:
             return
-        
+
         # Map Qt console levels to logger levels
         level_map = {
             QWebEnginePage.JavaScriptConsoleMessageLevel.InfoMessageLevel: "INFO",
