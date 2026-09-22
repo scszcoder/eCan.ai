@@ -71,18 +71,32 @@ set "WAIT_COUNT=0"
 :WAIT_LOOP
 if !WAIT_COUNT! GEQ 120 goto WAIT_DONE
 
-REM Build the tasklist filter based on WAIT_MODE.
+REM Run tasklist. Two prior bugs combined to make this loop
+REM a no-op in production:
+REM   1. ``set "FILTER=/FI \"IMAGENAME eq %WAIT_TARGET%\""``
+REM      inside the if/else block -- cmd.exe's ``set`` does NOT
+REM      process ``\"`` as an escape, so FILTER ended up with
+REM      literal backslashes (``/FI \"IMAGENAME eq ...\"``) and
+REM      tasklist failed with ``Invalid parameter/option - 'eq'``.
+REM   2. ``2^>nul`` -- the caret escapes the ``>``, so tasklist
+REM      received the literal string ``2>nul`` as an argument
+REM      instead of stderr redirection. Same ``Invalid parameter/
+REM      option - '2>nul'`` failure mode.
+REM The fix: build the filter inline (no intermediate FILTER
+REM variable) and use bare ``2>nul`` (no caret) for stderr
+REM redirection. The previous ``set "FILTER=..."`` construction
+REM looked correct on paper but silently bypassed the host-process
+REM wait in production, causing "Created temporary directory"
+REM hangs when Inno Setup tried to overwrite locked files.
+REM
+REM ``/NH`` suppresses the header row that bare ``tasklist``
+REM emits on Vista+ -- without it, ``find`` matches the header
+REM text and exits 0, which would skip the wait entirely.
 if /I "%WAIT_MODE%"=="pid" (
-    set "FILTER=/FI \"PID eq %WAIT_TARGET%\""
-    set "GREP_PATTERN=%WAIT_TARGET%"
+    tasklist /FI "PID eq %WAIT_TARGET%" /NH 2>nul | find /I "%WAIT_TARGET%" >nul 2>&1
 ) else (
-    set "FILTER=/FI \"IMAGENAME eq %WAIT_TARGET%\""
-    set "GREP_PATTERN=%WAIT_TARGET%"
+    tasklist /FI "IMAGENAME eq %WAIT_TARGET%" /NH 2>nul | find /I "%WAIT_TARGET%" >nul 2>&1
 )
-
-REM Run tasklist. The escaped quotes around the filter are
-REM required because of set inside an if/else.
-tasklist %FILTER% /NH 2^>nul | find /I "%GREP_PATTERN%" >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
     REM Target still running -- wait 1 second and re-check
     set /a WAIT_COUNT+=1
