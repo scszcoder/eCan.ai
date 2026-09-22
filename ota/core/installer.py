@@ -1215,17 +1215,18 @@ rm -f "$0"
                 return False
             
             logger.info(f"Installing Windows EXE: {package_path}")
-            logger.info(
-                f"[OTA Installer] _install_exe start: path={package_path}, exists={package_path.exists()}, "
-                f"silent={install_options.get('silent', True)}, frozen={is_frozen} (force_frozen={force_frozen}), "
-                f"sys_executable={sys.executable}"
-            )
 
             # Force frozen=True for testing via env var (allows dev mode to test full OTA flow)
             force_frozen = os.environ.get('ECAN_FORCE_FROZEN_OTA', '').lower() in ('1', 'true', 'yes')
             is_frozen = getattr(sys, 'frozen', False) or force_frozen
             if force_frozen and not getattr(sys, 'frozen', False):
                 logger.warning("[OTA] Force-frozen mode ENABLED via ECAN_FORCE_FROZEN_OTA env var")
+
+            logger.info(
+                f"[OTA Installer] _install_exe start: path={package_path}, exists={package_path.exists()}, "
+                f"silent={install_options.get('silent', True)}, frozen={is_frozen} (force_frozen={force_frozen}), "
+                f"sys_executable={sys.executable}"
+            )
 
             # For OTA updates, use truly silent installation
             if install_options.get('silent', True):
