@@ -242,15 +242,19 @@ def _wait_for_inno_log_exit(
                     # Increased from 2s to 5s for safety.
                     time.sleep(5.0)
                     exit_reason = f"marker={marker_found!r}"
-                    # CRITICAL: Call os._exit(0) to terminate the Python process
-                    # AFTER Inno Setup has finished. The Inno Setup installer was
-                    # launched with DETACHED_PROCESS so it survives the parent exit.
-                    # This ensures the app exits and the new version can be launched.
+                    # FIX 2026-09-22: Don't call os._exit(0) anymore.
+                    # With /CLOSEAPPLICATIONS, Inno Setup's Restart Manager will:
+                    # 1. Send WM_CLOSE to the app
+                    # 2. The app's closeEvent accepts the close and exits naturally
+                    # 3. Inno Setup waits for the app to exit (max 30s by default)
+                    # 4. Inno Setup then proceeds with file replacement
+                    # Calling os._exit(0) here could kill Inno Setup before it finishes,
+                    # causing the "Created temporary directory" bug.
                     logger.info(
                         f"[OTA Installer] Inno Setup installation complete. "
-                        f"Terminating Python process to allow new version to launch."
+                        f"Application will exit naturally to allow file replacement."
                     )
-                    os._exit(0)  # Immediate exit, bypassing Python cleanup
+                    return  # Exit the watch thread, don't kill the process
                 except Exception as exc:
                     logger.debug(
                         f"[OTA Installer] Log read error (continuing): {exc}"
@@ -1343,36 +1347,37 @@ rm -f "$0"
                     # Inno Setup / Windows Installer parsers treat a
                     # trailing separator inconsistently and may install
                     # into the parent directory. See ``_strip_trailing_separator``.
-                    # NOTE: /CLOSEAPPLICATIONS intentionally NOT used here.
-                    # The Inno Setup watch thread (``_wait_for_inno_log_exit``,
-                    # module-scope) calls ``os._exit(0)`` to terminate the
-                    # current process after Inno Setup completes. If
-                    # ``/CLOSEAPPLICATIONS`` is set, Inno Setup sends ``WM_CLOSE``
-                    # to the eCan window before installing. Qt's ``closeEvent``
-                    # returns ``event.ignore()`` because the installation is in
-                    # progress, so the app does NOT exit. Inno Setup then waits
-                    # for the app to close (up to 30 s) and the watch thread
-                    # fires, calling ``os._exit(0)`` which kills the Inno Setup
-                    # process mid-initialization. Result: Inno Setup log ends at
-                    # "Created temporary directory" and no file is ever replaced.
                     #
-                    # Fix: let the Inno Setup watch thread + pre-``taskkill``
-                    # handle app exit; Inno Setup proceeds directly to file
-                    # replacement (no CloseApplications wait). The app is
-                    # already dead before Inno Setup starts writing files.
+                    # FIX 2026-09-22: Added /CLOSEAPPLICATIONS back.
+                    # Inno Setup's Restart Manager will:
+                    # 1. Send WM_CLOSE to the app
+                    # 2. App's closeEvent accepts and exits naturally
+                    # 3. Inno Setup waits for app to exit (max 30s)
+                    # 4. Inno Setup proceeds with file replacement
+                    # Previous removal was because closeEvent called os._exit(0),
+                    # killing Inno Setup mid-work. Now closeEvent just returns
+                    # and lets app exit naturally. Watch thread also no longer
+                    # calls os._exit(0) - it just returns.
+                    #
                     # Note: Do NOT use /DIR="..." with quotes around the path.
                     # Inno Setup has issues parsing /DIR= with quotes, causing the installer
                     # to fail silently at "Created temporary directory" without proceeding.
                     # Since Inno Setup reads the previous install directory from registry
                     # (UsePreviousAppDir=yes in build), /DIR= is belt-and-suspenders anyway.
                     # Removing quotes fixes the installation. See logs for proof.
+                    # FIX 2026-09-22: Re-add /CLOSEAPPLICATIONS to let Inno Setup properly
+                    # close the application via Windows Restart Manager. This handles
+                    # the case where Qt's closeEvent ignores WM_CLOSE during installation.
+                    # Previous removal was because Qt's closeEvent called os._exit(0) which
+                    # killed Inno Setup. Now closeEvent just accepts and lets app exit naturally.
+                    # The watch thread also no longer calls os._exit(0) - it just returns
+                    # and lets Inno Setup complete via Restart Manager.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # ✅ Shows progress bar
                         '/NORESTART',
                         '/SP-',                  # ✅ Skip startup message
-                        # /CLOSEAPPLICATIONS intentionally omitted:
-                        # app exit is handled by the Inno Setup watch thread below.
+                        '/CLOSEAPPLICATIONS',    # ✅ Let Inno Setup close app via Restart Manager
                         f'/DIR={_strip_trailing_separator(install_dir)}',  # ✅ Pin install target (no quotes)
                     ]
 
@@ -1380,7 +1385,7 @@ rm -f "$0"
 
                     # Use repr() to safely log Windows paths with backslashes
                     logger.info(f"Executing OTA update with progress: {repr(cmd)}")
-                    logger.info("Using Inno Setup parameters: /SILENT /NORESTART /SP- /DIR=<dir>  [NOTE: /CLOSEAPPLICATIONS removed — app exit handled by Inno Setup watch thread]")
+                    logger.info("Using Inno Setup parameters: /SILENT /NORESTART /SP- /CLOSEAPPLICATIONS /DIR=<dir>")
                     logger.info(f"[OTA Installer] Final Inno Setup command length: {len(cmd)} args")
                     logger.info(f"[OTA Installer] Pinned install directory: {install_dir}")
                     
@@ -1536,24 +1541,15 @@ rm -f "$0"
                     # ``_strip_trailing_separator`` defends against a
                     # caller-supplied install_dir that ends in ``/`` or
                     # ``\`` (see bug note on the frozen path above).
-                    # NOTE: /CLOSEAPPLICATIONS intentionally NOT used here.
-                    # See the same note in the frozen-mode command above:
-                    # the dev app's Qt main loop intercepts Inno Setup's
-                    # ``WM_CLOSE`` and refuses to exit (``closeEvent``
-                    # returns ``event.ignore()``), Inno Setup blocks
-                    # waiting for the app, and then the Inno Setup watch
-                    # thread (``_wait_for_inno_log_exit``) calls
-                    # ``os._exit(0)`` which kills the Inno Setup process
-                    # mid-initialization, truncating the log at
-                    # "Created temporary directory" with no files replaced.
                     # Note: No quotes around /DIR= path - see frozen-path fix above.
+                    # FIX 2026-09-22: Added /CLOSEAPPLICATIONS for dev mode too.
+                    # See frozen-path note for full explanation.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
                         '/NORESTART',
                         '/SP-',                  # Skip startup message
-                        # /CLOSEAPPLICATIONS intentionally omitted —
-                        # see frozen-path note above.
+                        '/CLOSEAPPLICATIONS',    # ✅ Let Inno Setup close app via Restart Manager
                         f'/DIR={_strip_trailing_separator(install_dir)}',
                     ]
 
