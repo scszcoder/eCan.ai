@@ -102,6 +102,13 @@ config_schema:
 
 # Phase 3+ — iframe-hosted GUI. Omit the block entirely to fall back
 # to the schema-driven auto-form.
+#
+# NO INLINE <script>. Panels are served with `script-src 'self'`, so an inline
+# block is silently refused by the browser: the page renders its shell, makes no
+# bridge call, and logs nothing — the panel just looks empty. Put panel logic in
+# a .js file beside the page (`<script src="config.js"></script>`). The three
+# reference panels do this; `tests/test_metering_shadow.py::PluginPanelCspTests`
+# fails the build if one regresses.
 gui:
   host_api_version: 1
   slots:
@@ -262,6 +269,7 @@ event (Phase 4 — not pushed yet).
 |--------------------------------------------------|--------------------------------------------------------|
 | Plugin not in Plugins list after install        | Manifest validation failed — check the install dialog's error. |
 | Iframe shows "This plugin does not declare …"   | `gui` block missing or `slots.config_panel` absent.    |
+| Panel loads but is EMPTY, no bridge calls in the log | An inline `<script>`; `script-src 'self'` blocked it. Move the code to a `.js` file. |
 | Bridge call rejects with `DENIED`               | Method not in `gui.permissions.bridge_methods`.        |
 | `tools.invoke` returns `NOT_IMPLEMENTED`        | Backend tool gate is Phase 4; expected for now.        |
 | `config.set` rejects with `VALIDATION_FAILED`   | Value doesn't match `config_schema`.                   |

@@ -273,5 +273,57 @@ class MigrationOnExistingDbTests(unittest.TestCase):
                 c.execute(text(insert.format(i="b")))
 
 
+class PluginPanelCspTests(unittest.TestCase):
+    """plugin_gui_server serves panels with `script-src 'self'`, so an inline
+    <script> never executes in the packaged app — the page renders its shell,
+    makes no bridge call, and logs nothing. That is exactly how the 过渡话术
+    panel reached a customer looking empty. Panel logic must live in a .js file.
+    """
+
+    GUI = Path("agent/ec_skills/browser_use_extension/hooks/external/feige_chat/gui")
+
+    def test_csp_still_forbids_inline_scripts(self) -> None:
+        """If this ever gains 'unsafe-inline', the guard below is pointless —
+        but weakening it for every installed plugin is not the fix we want."""
+        src = Path(
+            "agent/ec_skills/browser_use_extension/plugin_gui_server.py"
+        ).read_text(encoding="utf-8")
+        i = src.find("_DEFAULT_CSP")
+        csp = src[i:i + 500]
+        self.assertIn("script-src 'self'", csp)
+        self.assertNotIn("script-src 'self' 'unsafe-inline'", csp)
+
+    def test_no_panel_ships_an_inline_script(self) -> None:
+        import re
+        for page in sorted(self.GUI.glob("*.html")):
+            with self.subTest(page=page.name):
+                html = page.read_text(encoding="utf-8")
+                inline = [
+                    b for b in re.findall(
+                        r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.S
+                    ) if b.strip()
+                ]
+                self.assertEqual(
+                    inline, [],
+                    f"{page.name} has an inline <script>; it will be CSP-blocked "
+                    f"and the panel will look empty. Move it to a .js file.",
+                )
+
+    def test_every_panel_loads_the_bridge_and_its_own_logic(self) -> None:
+        import re
+        for page in sorted(self.GUI.glob("*.html")):
+            with self.subTest(page=page.name):
+                html = page.read_text(encoding="utf-8")
+                srcs = re.findall(r'<script[^>]*\bsrc="([^"]+)"', html)
+                self.assertIn("bridge.js", srcs)
+                self.assertIn(f"{page.stem}.js", srcs)
+                self.assertTrue((self.GUI / f"{page.stem}.js").is_file())
+
+    def test_panel_logic_keeps_the_placeholder_section(self) -> None:
+        js = (self.GUI / "config.js").read_text(encoding="utf-8")
+        for needed in ("placeholder_texts", "PH_STORE_PREFIX", "storeSel", "phSave"):
+            self.assertIn(needed, js)
+
+
 if __name__ == "__main__":
     unittest.main()
