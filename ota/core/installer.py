@@ -242,7 +242,15 @@ def _wait_for_inno_log_exit(
                     # Increased from 2s to 5s for safety.
                     time.sleep(5.0)
                     exit_reason = f"marker={marker_found!r}"
-                    break
+                    # CRITICAL: Call os._exit(0) to terminate the Python process
+                    # AFTER Inno Setup has finished. The Inno Setup installer was
+                    # launched with DETACHED_PROCESS so it survives the parent exit.
+                    # This ensures the app exits and the new version can be launched.
+                    logger.info(
+                        f"[OTA Installer] Inno Setup installation complete. "
+                        f"Terminating Python process to allow new version to launch."
+                    )
+                    os._exit(0)  # Immediate exit, bypassing Python cleanup
                 except Exception as exc:
                     logger.debug(
                         f"[OTA Installer] Log read error (continuing): {exc}"
