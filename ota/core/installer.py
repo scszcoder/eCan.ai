@@ -242,7 +242,15 @@ def _wait_for_inno_log_exit(
                     # Increased from 2s to 5s for safety.
                     time.sleep(5.0)
                     exit_reason = f"marker={marker_found!r}"
-                    break
+                    # CRITICAL: Call os._exit(0) to terminate the Python process
+                    # AFTER Inno Setup has finished. The Inno Setup installer was
+                    # launched with DETACHED_PROCESS so it survives the parent exit.
+                    # This ensures the app exits and the new version can be launched.
+                    logger.info(
+                        f"[OTA Installer] Inno Setup installation complete. "
+                        f"Terminating Python process to allow new version to launch."
+                    )
+                    os._exit(0)  # Immediate exit, bypassing Python cleanup
                 except Exception as exc:
                     logger.debug(
                         f"[OTA Installer] Log read error (continuing): {exc}"
@@ -1207,15 +1215,22 @@ rm -f "$0"
                 return False
             
             logger.info(f"Installing Windows EXE: {package_path}")
+
+            # Force frozen=True for testing via env var (allows dev mode to test full OTA flow)
+            force_frozen = os.environ.get('ECAN_FORCE_FROZEN_OTA', '').lower() in ('1', 'true', 'yes')
+            is_frozen = getattr(sys, 'frozen', False) or force_frozen
+            if force_frozen and not getattr(sys, 'frozen', False):
+                logger.warning("[OTA] Force-frozen mode ENABLED via ECAN_FORCE_FROZEN_OTA env var")
+
             logger.info(
                 f"[OTA Installer] _install_exe start: path={package_path}, exists={package_path.exists()}, "
-                f"silent={install_options.get('silent', True)}, frozen={getattr(sys, 'frozen', False)}, "
+                f"silent={install_options.get('silent', True)}, frozen={is_frozen} (force_frozen={force_frozen}), "
                 f"sys_executable={sys.executable}"
             )
-            
+
             # For OTA updates, use truly silent installation
             if install_options.get('silent', True):
-                if getattr(sys, 'frozen', False):
+                if is_frozen:
                     # Priority 1: Explicit install_dir from install_options (rarely set)
                     configured_install_dir = install_options.get('install_dir')
                     if configured_install_dir:
@@ -1477,14 +1492,27 @@ rm -f "$0"
                         return False
                 else:
                     # Development environment - use /SILENT for OTA testing
-                    logger.warning("Running in development mode, using /SILENT for OTA testing")
+                    # When ECAN_FORCE_FROZEN_OTA=1, use frozen mode behavior for testing
+                    if force_frozen:
+                        logger.warning("Force-frozen mode: using full OTA flow (process termination + watch thread)")
+                    else:
+                        logger.warning("Running in development mode, using /SILENT for OTA testing")
                     logger.info("[OTA Installer] Entering development-mode EXE install path")
-                    
-                    # Note: We do NOT terminate processes here in dev mode because:
-                    # 1. Dev version runs from workspace, not LOCALAPPDATA\eCan
-                    # 2. Killing LOCALAPPDATA\eCan processes may trigger unexpected exits
-                    # 3. The 6-second delayed installer launch gives enough time for dev app to exit
-                    logger.info("Skipping pre-install process termination in dev mode (relying on delayed launch)")
+
+                    # When force_frozen is set, terminate processes like in production
+                    if force_frozen:
+                        logger.info("Force-frozen: terminating processes before installation")
+                        self._terminate_processes_in_dir(
+                            install_dir,
+                            timeout_seconds=5.0,
+                            extra_process_names={'qtwebengineprocess.exe'},
+                        )
+                    else:
+                        # Note: We do NOT terminate processes here in dev mode because:
+                        # 1. Dev version runs from workspace, not LOCALAPPDATA\eCan
+                        # 2. Killing LOCALAPPDATA\eCan processes may trigger unexpected exits
+                        # 3. The 6-second delayed installer launch gives enough time for dev app to exit
+                        logger.info("Skipping pre-install process termination in dev mode (relying on delayed launch)")
                     
                     # Set OTA installation flag to skip exit confirmation dialog
                     from ota.core.download_manager import download_manager
