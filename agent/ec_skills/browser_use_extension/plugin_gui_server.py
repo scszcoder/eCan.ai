@@ -117,9 +117,19 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     """Serve plugin GUI assets with path-traversal hardening."""
 
     def log_message(self, format, *args):  # noqa: A002 (BaseHTTPRequestHandler signature)
-        # Route into the shared logger at DEBUG so the eCan log stream
-        # doesn't get spammed.
+        # Access lines stay at DEBUG so the eCan log stream doesn't get spammed.
+        # Failures are surfaced by send_error() below instead of by sniffing a
+        # status code out of this formatted string.
         logger.debug(f"[PluginGuiServer] {self.address_string()} - " + (format % args))
+
+    def send_error(self, code, message=None, explain=None):  # noqa: D102
+        # BaseHTTPRequestHandler logs the code but not WHY; the reason string
+        # is the whole diagnostic value here (missing gui/, traversal, symlink,
+        # unsupported type).
+        logger.warning(
+            f"[PluginGuiServer] {code} for {self.path!r}: {message!r}"
+        )
+        super().send_error(code, message, explain)
 
     def _csp(self) -> str:
         """CSP naming our own origin, because 'self' cannot work under the
@@ -274,6 +284,33 @@ def get_gui_url(bundle: str, slot: str) -> Optional[str]:
     # Reject anything that already contains traversal.
     if ".." in entry.split("/") or entry.startswith("/"):
         return None
+
+    # Pre-flight, logged at INFO because customers run at INFO and a panel that
+    # fails to load is otherwise completely silent: the host gets a URL, the
+    # iframe shows a broken-document icon, and nothing reaches eCan.log. We
+    # still return the URL (the 404 is the honest answer if the file is gone) —
+    # this only makes the cause visible on the machine where it happens, which
+    # is the difference between diagnosing it and guessing at it.
+    gui_dir = _bundle_gui_dir(bundle)
+    if gui_dir is None:
+        logger.warning(
+            f"[PluginGuiServer] {bundle!r} slot={slot!r} declares "
+            f"entrypoint={entry!r} but the bundle has no readable gui/ "
+            f"directory — the panel will 404 and render blank"
+        )
+    else:
+        target = gui_dir / entry
+        logger.info(
+            f"[PluginGuiServer] {bundle!r} slot={slot!r} -> {target} "
+            f"(exists={target.is_file()})"
+        )
+        if not target.is_file():
+            logger.warning(
+                f"[PluginGuiServer] {bundle!r} slot={slot!r} entrypoint is "
+                f"MISSING on disk: {target} — the panel will 404 and render "
+                f"blank. In a packaged build this means the bundle's gui/ "
+                f"files were not shipped."
+            )
     return f"http://127.0.0.1:{_PORT}/p/{bundle}/{entry}"
 
 
