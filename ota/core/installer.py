@@ -880,97 +880,194 @@ class InstallationManager:
         except Exception as e:
             logger.debug(f"Failed to enable Inno Setup logging (safe to ignore): {e}")
 
-    def _launch_windows_installer_delayed(self, cmd: list[str], delay_seconds: int = 10) -> int:
+    def _launch_windows_installer_delayed(
+        self,
+        cmd: list[str],
+        delay_seconds: int = 10,
+        wait_for_process_name: Optional[str] = None,
+        wait_for_pid: Optional[int] = None,
+        extra_wait_seconds: int = 5,
+    ) -> int:
         """Launch the Inno Setup installer detached from the Python parent.
 
-        Uses ``subprocess.Popen`` directly with ``DETACHED_PROCESS |
-        CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`` so the installer
-        survives the parent's ``os._exit(0)``.
+        Writes a small launcher BAT (template at
+        ``ota/resources/ecan_ota_launcher_template.bat``) that:
 
-        The ``delay_seconds`` argument is accepted for API compatibility
-        with the previous BAT-indirection implementation but is no
-        longer used at this layer: Inno Setup takes several seconds to
-        finish loading its UI/progress window after ``Popen`` returns,
-        and by then the parent Python process has already called
-        ``os._exit(0)`` (via the ``_wait_for_inno_log_exit`` thread
-        spawned by ``_install_exe`` / ``_install_msi``) and released
-        its file handles. Adding a separate delay process would not
-        change the race window meaningfully.
+        1. Polls ``tasklist`` until either:
+           * the specific host PID is gone (``wait_for_pid`` set), or
+           * any process with the host image name is gone
+             (``wait_for_process_name`` set, e.g. ``eCan.cn.exe``).
 
-        Bug 2026-09-21 (this commit): the previous implementation wrote
-        a ``ecan_ota_launcher_<pid>_<ts>.bat`` and launched it via
-        ``cmd /c <bat> <args>`` so the BAT could sleep ``delay_seconds``
-        before running ``start "" %*``. cmd.exe's argv tokenization in
-        that path is incompatible with the MSVCRT-style escaping
-        ``subprocess.Popen`` uses on Windows:
+           Without this step Inno Setup hits a file-lock race:
+           the host process is ``taskkill``ed but Windows hasn't
+           released its DLL handles yet, so Inno Setup wedges at
+           "Created temporary directory" while trying to read its
+           own embedded payload.
+        2. Sleeps ``extra_wait_seconds`` more for the OS to flush
+           file handles.
+        3. Runs Inno Setup via ``start "" /B <command>`` so the
+           BAT exits immediately and Inno Setup runs independently.
+        4. Self-deletes the BAT after a 2 s ping delay.
 
-          1. Python MSVRT-escapes ``/DIR="path"`` to ``/DIR=\"path\"``
-             when building the command line for ``cmd /c``.
-          2. cmd.exe tokenizes the result: the first char after ``=`` is
-             ``\\`` (NOT ``"``), so cmd.exe leaves the backslash-quote
-             pair in the arg token as literal characters — it does NOT
-             re-strip the escaping.
-          3. The BAT's ``%*`` therefore contains the literal
-             ``/DIR=\"path\"``, which ``start "" %*`` forwards verbatim
-             to Inno Setup.
-          4. Inno Setup's argv parser (MSVCRT rules) sees the value as
-             ``\\"path\\"`` — embedded ``"`` characters that its
-             folder-name validator rejects with
-             "Folder name cannot contain any of the following characters:
-             / : * ? \" < > |". The OTA upgrade aborts before any file
-             is replaced.
+        The launcher is launched via ``cmd /c`` with DETACHED_PROCESS
+        so it survives the Python parent's exit.
 
-        Bypassing ``cmd /c`` and calling Inno Setup directly via
-        ``subprocess.Popen`` lets Python's MSVRT escaping round-trip
-        cleanly: the child receives the exact argv list, including
-        proper quoting around any spaces / special characters in the
-        install path.
+        Why a BAT launcher instead of ``subprocess.Popen`` directly?
+
+        The previous implementation called ``Popen`` with
+        ``DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW``
+        and then asked the Python ``_wait_for_inno_log_exit`` watch
+        thread to monitor Inno Setup's ``/LOG=`` file. That had two
+        failure modes that hit us repeatedly between 2026-09-21 and
+        2026-09-22:
+
+          a) **Process-group race.** Inno Setup is launched in a
+             new process group, but on Windows 10 the OS can still
+             kill children of a parent group when the parent
+             process exits (the
+             ``CREATE_BREAKAWAY_FROM_JOB`` semantics are subtle).
+             When the Python parent exited the Inno Setup child
+             was torn down within ~100 ms, so the installer never
+             reached "Starting the installation process" -- it
+             stopped at "Created temporary directory" with no
+             further log lines.
+          b) **App-crash on close.** The host Python process
+             (eCan.cn.exe built via PyInstaller) was crashing with
+             ``STATUS_STACK_BUFFER_OVERRUN (0xc0000409)`` in
+             ``Qt6Core.dll`` during its shutdown sequence while
+             Inno Setup was starting up. The crash left Windows
+             file handles in an undefined state and Inno Setup
+             wedged for the same reason.
+
+        The launcher BAT decouples these two events: the BAT is
+        the only thing the Python parent needs to outlive itself
+        for, and the BAT then waits for the host process to be
+        gone *before* it starts Inno Setup. If the host crashes
+        during shutdown, the BAT just waits a bit longer and Inno
+        Setup still runs.
+
+        Why no ``/CLOSEAPPLICATIONS``?
+
+        The Python side terminates the host application
+        proactively (via ``_terminate_processes_in_dir`` /
+        ``taskkill /F /T``) BEFORE the BAT is launched. By the
+        time Inno Setup starts, no ``eCan.cn.exe`` (or
+        ``QtWebEngineProcess.exe`` child) is alive, so
+        ``/CLOSEAPPLICATIONS`` would be a no-op -- and including
+        it has historically interacted badly with Inno Setup's
+        RestartManager session, occasionally producing the same
+        "Created temporary directory" hang. The previous fix
+        tried ``/CLOSEAPPLICATIONS`` plus a closeEvent that
+        ``event.accept()``-ed cleanly; that turned out to be the
+        trigger for the Qt6Core.dll stack-overrun crash.
+
+        Args:
+            cmd: Full Inno Setup argv (first element is the
+                installer path; rest are ``/flag=value`` args).
+            delay_seconds: Accepted for API compatibility with the
+                previous implementation; no longer used by this
+                layer (the BAT does its own wait).
+            wait_for_process_name: Image name to wait for (e.g.
+                ``eCan.cn.exe``). Used when ``wait_for_pid`` is
+                not available. ``None`` means "don't wait by
+                image name" -- the BAT will still use the PID if
+                supplied, otherwise it will fall back to a 5 s
+                sleep before launching Inno Setup.
+            wait_for_pid: Specific host PID to wait for. Preferred
+                over ``wait_for_process_name`` because it avoids
+                the case where a sibling Python process (e.g. an
+                IDE, the test runner) is also named ``python.exe``
+                and would otherwise be waited on indefinitely.
+            extra_wait_seconds: Post-exit sleep. 5 is the default
+                and works for the common case; bumped to 10 when
+                logs show persistent EBUSY on file replacement.
 
         Returns:
-            PID of the launched installer process (a positive integer),
-            or ``-1`` on launch failure.
+            PID of the launched launcher BAT process (a positive
+            integer), or ``-1`` on launch failure. The launcher
+            then independently launches Inno Setup and the caller
+            must ``sys.exit(0)`` to release file handles.
         """
         if sys.platform != 'win32':
             raise RuntimeError("Windows-only helper")
 
-        exe_path = str(cmd[0])
-        raw_args = [str(arg) for arg in cmd[1:]] if len(cmd) > 1 else []
+        # Prefer PID-based wait (more precise); fall back to image
+        # name. Never launch Inno Setup without some wait -- a
+        # bare "launch immediately" is exactly the bug we're fixing.
+        if wait_for_pid is not None and wait_for_pid > 0:
+            wait_mode = 'pid'
+            wait_target = str(int(wait_for_pid))
+        elif wait_for_process_name:
+            wait_mode = 'name'
+            wait_target = wait_for_process_name
+        else:
+            logger.error(
+                "[OTA] Launcher invoked without wait_for_pid or "
+                "wait_for_process_name; refusing to launch Inno Setup "
+                "with no exit coordination -- this is the exact "
+                "failure mode the launcher was designed to prevent."
+            )
+            return -1
 
-        # DETACHED_PROCESS (0x00000008)         — child has no inherited
+        # DETACHED_PROCESS (0x00000008)         -- child has no inherited
         #                                        console; doesn't share
         #                                        parent's stdin/stdout
         #                                        handles.
-        # CREATE_NEW_PROCESS_GROUP (0x00000200) — child becomes the root
+        # CREATE_NEW_PROCESS_GROUP (0x00000200) -- child becomes the root
         #                                        of a new process group;
         #                                        Ctrl+C sent to the
         #                                        parent will NOT
         #                                        propagate.
-        # CREATE_NO_WINDOW (0x08000000)         — no new console window
+        # CREATE_NO_WINDOW (0x08000000)         -- no new console window
         #                                        pops up over the
         #                                        user's session.
-        #
-        # We use integer literals here rather than
-        # ``subprocess.DETACHED_PROCESS`` / ``CREATE_NEW_PROCESS_GROUP``
-        # / ``CREATE_NO_WINDOW`` because those constants only exist on
-        # the Windows build of ``subprocess`` — accessing them on a
-        # macOS / Linux test runner that monkey-patches ``sys.platform``
-        # to ``'win32'`` would raise ``AttributeError`` before the test
-        # can stub out ``subprocess.Popen``. The flag values are stable
-        # Windows API constants and don't drift across Python versions.
-        creation_flags = 0x00000008 | 0x00000200 | 0x08000000
+        # CREATE_BREAKAWAY_FROM_JOB (0x01000000) -- child breaks away from
+        #                                        the parent process's Job
+        #                                        Object. Required when the
+        #                                        host runs inside a Job
+        #                                        (e.g. Windows Store apps,
+        #                                        sandboxed environments, or
+        #                                        when a parent process set
+        #                                        JOB_OBJECT_LIMIT_BREAKAWAY_OK).
+        #                                        Without this flag, the
+        #                                        launched BAT may be
+        #                                        terminated when the Python
+        #                                        parent exits, or Inno Setup
+        #                                        may fail to start due to
+        #                                        Job Object restrictions on
+        #                                        file handles or process
+        #                                        creation.
+        creation_flags = 0x00000008 | 0x00000200 | 0x08000000 | 0x01000000
 
-        logger.info(f"[OTA] Launching installer directly (no BAT indirection): {exe_path}")
-        logger.info(f"[OTA Installer] Installer argument count: {len(raw_args)}")
-        for idx, arg in enumerate(raw_args):
-            logger.debug(f"[OTA Installer]   arg[{idx}] = {arg}")
-        # The ``delay_seconds`` parameter is unused now but kept in the
-        # signature so the call sites in ``_install_exe`` / ``_install_msi``
-        # don't need to change.
-        logger.debug(f"[OTA Installer] delay_seconds={delay_seconds} (no-op in direct-launch path)")
+        try:
+            launcher_bat_path = self._write_inno_launcher_bat(
+                wait_mode=wait_mode,
+                wait_target=wait_target,
+                extra_wait_seconds=extra_wait_seconds,
+                inno_cmd=cmd,
+            )
+        except Exception as e:
+            logger.error(f"[OTA] Failed to write launcher BAT: {e}")
+            return -1
+
+        # Build the launcher invocation: ``cmd /c <bat>``.
+        # We use a list (not a string) so subprocess.Popen handles
+        # the MSVRT escaping of ``launcher_bat_path`` itself --
+        # critical if the user's TEMP path contains spaces.
+        launcher_cmd = ['cmd.exe', '/c', str(launcher_bat_path)]
+
+        logger.info(
+            f"[OTA] Launching Inno Setup via launcher BAT: {launcher_bat_path}"
+        )
+        logger.info(
+            f"[OTA Installer] Launcher will wait mode={wait_mode} "
+            f"target={wait_target!r}, extra_wait={extra_wait_seconds}s, "
+            f"then run: {cmd}"
+        )
 
         try:
             p = subprocess.Popen(
-                [exe_path, *raw_args],
+                launcher_cmd,
                 creationflags=creation_flags,
                 close_fds=True,
                 stdin=subprocess.DEVNULL,
@@ -978,13 +1075,96 @@ class InstallationManager:
                 stderr=subprocess.DEVNULL,
             )
             logger.info(
-                f"[OTA Installer] Installer detached successfully: "
-                f"pid={p.pid}, creation_flags=0x{creation_flags:x}"
+                f"[OTA Installer] Launcher BAT detached successfully: "
+                f"pid={p.pid}, creation_flags=0x{creation_flags:x}, "
+                f"bat={launcher_bat_path}"
             )
             return p.pid
         except Exception as e:
-            logger.error(f"[OTA] Failed to launch installer directly: {e}")
+            logger.error(f"[OTA] Failed to launch launcher BAT: {e}")
             return -1
+
+    def _write_inno_launcher_bat(
+        self,
+        wait_mode: str,
+        wait_target: str,
+        extra_wait_seconds: int,
+        inno_cmd: list,
+    ) -> Path:
+        """Write the OTA launcher BAT to a per-PID temp file.
+
+        Returns the path to the written BAT.
+
+        The template lives at ``ota/resources/ecan_ota_launcher_template.bat``
+        in the source tree. At runtime we copy it into ``%TEMP%`` with
+        four placeholders substituted:
+
+          * ``{WAIT_MODE}`` -- ``pid`` or ``name``.
+              ``pid`` (preferred) makes the BAT poll
+              ``tasklist /FI "PID eq <n>"`` and exit as soon as the
+              specific PID is gone. ``name`` makes the BAT poll
+              ``tasklist /FI "IMAGENAME eq <name>"`` and exit when
+              any process with that image name is gone. Use ``pid``
+              whenever the host process's PID is known; it avoids
+              accidentally waiting on a sibling process with the
+              same image name (e.g. a Python dev test runner
+              sharing the box with the launcher).
+          * ``{WAIT_TARGET}`` -- the PID (integer) or image name
+              (``eCan.cn.exe``, ``eCan.exe``) to wait on.
+          * ``{EXTRA_WAIT_SECONDS}`` -- sleep after process exit
+          * ``{INNO_CMD}`` -- full Inno Setup command line, already
+             pre-formatted so cmd.exe's ``start`` parses it correctly
+
+        ``INNO_CMD`` is constructed by joining the ``inno_cmd`` list
+        into a single string. We use ``subprocess.list2cmdline`` so the
+        argument quoting follows cmd.exe's rules -- which is what
+        ``start`` expects. Embedding those rules in Python rather than
+        trying to escape them from a template variable is the only
+        way to avoid the cmd.exe/MSVCRT quoting mismatch that broke
+        the previous BAT implementation (see git blame for the
+        ``/DIR=\"path\"`` bug).
+        """
+        template_path = Path(__file__).resolve().parent.parent / 'resources' / 'ecan_ota_launcher_template.bat'
+        try:
+            template = template_path.read_text(encoding='utf-8')
+        except FileNotFoundError:
+            # Fall back: synthesise a minimal launcher inline. We
+            # never want to silently skip the wait-for-process step,
+            # so we raise loudly if the template is missing.
+            logger.error(
+                f"[OTA] Launcher template not found at {template_path}. "
+                f"Refusing to launch Inno Setup without the safety "
+                f"wait-for-process logic."
+            )
+            raise
+
+        if wait_mode not in ('pid', 'name'):
+            logger.error(
+                f"[OTA] Invalid wait_mode={wait_mode!r}; falling back to 'name'"
+            )
+            wait_mode = 'name'
+
+        inno_cmdline = subprocess.list2cmdline([str(a) for a in inno_cmd])
+        # Substitute into template. Use placeholder markers that
+        # cannot collide with anything in cmd's grammar.
+        rendered = (
+            template
+            .replace('{WAIT_MODE}', wait_mode)
+            .replace('{WAIT_TARGET}', str(wait_target))
+            .replace('{EXTRA_WAIT_SECONDS}', str(int(extra_wait_seconds)))
+            .replace('{INNO_CMD}', inno_cmdline)
+        )
+
+        # Per-PID temp file so concurrent OTA flows don't clobber
+        # each other's launcher.
+        out_path = Path(tempfile.gettempdir()) / f'ecan_ota_launcher_{os.getpid()}_{int(time.time())}.bat'
+        out_path.write_text(rendered, encoding='utf-8')
+        logger.info(
+            f"[OTA Installer] Wrote launcher BAT: {out_path} "
+            f"(wait_mode={wait_mode}, target={wait_target!r}, "
+            f"extra_wait={extra_wait_seconds}s, inno_cmd_length={len(inno_cmdline)})"
+        )
+        return out_path
     
     def _create_backup(self) -> bool:
         """Create backup of current application"""
@@ -1311,9 +1491,20 @@ rm -f "$0"
                     # pre-kill the installer hits file-lock errors on
                     # `app_context.py`, `QtWebEngineProcess.exe`, etc.
                     # See Bug #6 in this file's history.
+                    #
+                    # We pass a long-ish ``timeout_seconds`` (15 s)
+                    # because the launcher BAT polls ``tasklist`` after
+                    # we exit, and we want taskkill to have a real
+                    # chance to release handles before the BAT starts
+                    # Inno Setup — otherwise the BAT wakes up, sees the
+                    # process gone, immediately starts Inno Setup, and
+                    # Inno Setup hits "DeleteFile failed" on the
+                    # half-released DLLs. See
+                    # ``_launch_windows_installer_delayed`` for the
+                    # full design rationale.
                     self._terminate_processes_in_dir(
                         install_dir,
-                        timeout_seconds=5.0,
+                        timeout_seconds=15.0,
                         extra_process_names={'qtwebengineprocess.exe'},
                     )
 
@@ -1348,16 +1539,23 @@ rm -f "$0"
                     # trailing separator inconsistently and may install
                     # into the parent directory. See ``_strip_trailing_separator``.
                     #
-                    # FIX 2026-09-22: Added /CLOSEAPPLICATIONS back.
-                    # Inno Setup's Restart Manager will:
-                    # 1. Send WM_CLOSE to the app
-                    # 2. App's closeEvent accepts and exits naturally
-                    # 3. Inno Setup waits for app to exit (max 30s)
-                    # 4. Inno Setup proceeds with file replacement
-                    # Previous removal was because closeEvent called os._exit(0),
-                    # killing Inno Setup mid-work. Now closeEvent just returns
-                    # and lets app exit naturally. Watch thread also no longer
-                    # calls os._exit(0) - it just returns.
+                    # FIX 2026-09-22: REMOVED ``/CLOSEAPPLICATIONS``.
+                    # The Python side terminates the host application
+                    # proactively (via ``_terminate_processes_in_dir``
+                    # / ``taskkill /F /T``) BEFORE the launcher BAT is
+                    # invoked. The launcher BAT then waits for the
+                    # process to be gone and for an additional safety
+                    # window before launching Inno Setup, so
+                    # ``/CLOSEAPPLICATIONS`` would be a no-op — and
+                    # including it historically triggered Inno Setup's
+                    # RestartManager session, which interacted badly
+                    # with PySide6's closeEvent path and produced the
+                    # ``STATUS_STACK_BUFFER_OVERRUN (0xc0000409)`` in
+                    # ``Qt6Core.dll`` that crashed eCan.cn.exe mid-
+                    # install. Removing it cuts the chain that caused
+                    # "Created temporary directory" + crash + Inno Setup
+                    # wedged-with-no-log. The launcher BAT handles
+                    # close coordination now.
                     #
                     # Note: Do NOT use /DIR="..." with quotes around the path.
                     # Inno Setup has issues parsing /DIR= with quotes, causing the installer
@@ -1365,19 +1563,11 @@ rm -f "$0"
                     # Since Inno Setup reads the previous install directory from registry
                     # (UsePreviousAppDir=yes in build), /DIR= is belt-and-suspenders anyway.
                     # Removing quotes fixes the installation. See logs for proof.
-                    # FIX 2026-09-22: Re-add /CLOSEAPPLICATIONS to let Inno Setup properly
-                    # close the application via Windows Restart Manager. This handles
-                    # the case where Qt's closeEvent ignores WM_CLOSE during installation.
-                    # Previous removal was because Qt's closeEvent called os._exit(0) which
-                    # killed Inno Setup. Now closeEvent just accepts and lets app exit naturally.
-                    # The watch thread also no longer calls os._exit(0) - it just returns
-                    # and lets Inno Setup complete via Restart Manager.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # ✅ Shows progress bar
                         '/NORESTART',
                         '/SP-',                  # ✅ Skip startup message
-                        '/CLOSEAPPLICATIONS',    # ✅ Let Inno Setup close app via Restart Manager
                         f'/DIR={_strip_trailing_separator(install_dir)}',  # ✅ Pin install target (no quotes)
                     ]
 
@@ -1385,111 +1575,106 @@ rm -f "$0"
 
                     # Use repr() to safely log Windows paths with backslashes
                     logger.info(f"Executing OTA update with progress: {repr(cmd)}")
-                    logger.info("Using Inno Setup parameters: /SILENT /NORESTART /SP- /CLOSEAPPLICATIONS /DIR=<dir>")
+                    logger.info("Using Inno Setup parameters: /SILENT /NORESTART /SP- /DIR=<dir>")
                     logger.info(f"[OTA Installer] Final Inno Setup command length: {len(cmd)} args")
                     logger.info(f"[OTA Installer] Pinned install directory: {install_dir}")
-                    
+
                     # Set OTA installation flag to skip exit confirmation dialog
                     from ota.core.download_manager import download_manager
                     download_manager.set_installing(True)
                     logger.info("[OTA Installer] download_manager.set_installing(True) called")
-                    
-                    # Launch installer without waiting
+
+                    # Resolve the host process image name so the
+                    # launcher BAT knows what to wait on. CN uses
+                    # ``eCan.cn.exe``, intl uses ``eCan.exe``. We use
+                    # the same per-app resolver as
+                    # ``_terminate_processes_in_dir`` so the two stay
+                    # in sync.
+                    host_proc_name = self._get_current_process_name()
+                    # 5-second extra sleep after the host process is
+                    # confirmed gone. This matches the historical
+                    # 5s "wait for file handles" budget that proved
+                    # sufficient on the test machines, while leaving
+                    # headroom for the rare slow case (large installer
+                    # + AV doing a post-kill scan).
+                    extra_wait_seconds = 5
+
+                    # Launch installer via the launcher BAT. The BAT
+                    # is responsible for waiting until ``host_proc_name``
+                    # is gone and for the extra post-exit sleep before
+                    # it starts Inno Setup — see
+                    # ``_launch_windows_installer_delayed``.
                     try:
-                        # On Windows we always go through
-                        # ``_launch_windows_installer_delayed`` (a
-                        # detached BAT launcher that survives our
-                        # ``os._exit(0)``); the eager
-                        # ``subprocess.DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP``
-                        # ``| CREATE_NO_WINDOW`` flag block used to be
-                        # computed here too, but it crashed on macOS /
-                        # Linux test runners that monkey-patch
-                        # ``sys.platform`` to ``'win32'`` because those
-                        # constants only exist on the Windows build of
-                        # the ``subprocess`` module. The flag block is
-                        # already constructed inside
-                        # ``_launch_windows_installer_delayed`` where
-                        # it's actually used, so removing it from here
-                        # doesn't change runtime behaviour.
                         if sys.platform == 'win32':
-                            pid = self._launch_windows_installer_delayed(cmd, delay_seconds=3)
-                            logger.info(f"Installer launch script started (PID: {pid})")
-                            logger.info("[OTA Installer] Windows delayed installer launcher started successfully")
+                            launcher_pid = self._launch_windows_installer_delayed(
+                                cmd,
+                                delay_seconds=3,  # ignored, kept for ABI
+                                wait_for_process_name=host_proc_name,
+                                extra_wait_seconds=extra_wait_seconds,
+                            )
+                            logger.info(
+                                f"Installer launcher BAT started (PID: {launcher_pid}); "
+                                f"waiting for {host_proc_name} to exit before Inno Setup runs"
+                            )
+                            logger.info(
+                                "[OTA Installer] Launcher BAT will wait for "
+                                f"{host_proc_name} to exit, sleep {extra_wait_seconds}s, "
+                                "then run Inno Setup"
+                            )
                         else:
                             process = subprocess.Popen(cmd)
                             logger.info(f"Installer launched (PID: {process.pid})")
-                        
-                        logger.info(
-                            "Application will exit when Inno Setup completes "
-                            "(max 30s)..."
-                        )
-                        logger.info(
-                            "[OTA Installer] Inno Setup watch thread will "
-                            "terminate current process after Inno Setup "
-                            "finishes (max_wait=30s)"
-                        )
 
-                        # Capture Inno Setup log path NOW so the watch loop can
-                        # monitor it. ``_append_inno_log_if_enabled`` appended
-                        # ``/LOG=<path>`` to ``cmd`` — extract it back out.
-                        inno_log_path = None
-                        for arg in cmd:
-                            arg_str = str(arg)
-                            if arg_str.startswith('/LOG='):
-                                inno_log_path = arg_str[len('/LOG='):]
-                                break
-
-                        # Calculate dynamic timeout based on installer size.
-                        # Historical data: 500MB package takes ~117s to install
-                        # on a mid-range machine.  Performance varies widely:
-                        #   - Fast NVMe SSD: ~0.2s/MB
-                        #   - Standard HDD: ~0.5s/MB
-                        #   - Slow HDD/USB: ~1.0s/MB
-                        #   - Low-end CPU: 2-3x slower than mid-range
+                        # FIX 2026-09-22: Don't start a watch thread
+                        # and don't call ``os._exit(0)`` from the
+                        # Python side. The launcher BAT handles
+                        # everything:
+                        #   * waits for the host process to exit
+                        #   * sleeps ``extra_wait_seconds`` for file
+                        #     handles to release
+                        #   * launches Inno Setup via ``start "" /B``
                         #
-                        # Strategy: use 0.5s/MB base rate + 30s fixed overhead
-                        # for Inno Setup initialization/cleanup, capped at 300s.
-                        # This handles 500MB+ packages on slow hardware.
-                        installer_size_mb = 0
+                        # The previous implementation started a
+                        # ``_wait_for_inno_log_exit`` thread that
+                        # polled the Inno Setup ``/LOG=`` file. That
+                        # thread was a daemon — when the Python
+                        # parent exited, the thread was killed
+                        # mid-poll and the user saw no progress.
+                        # Worse, having a live Python thread on a
+                        # Qt+PySide6 application while Inno Setup was
+                        # starting up was a strong contributor to the
+                        # ``STATUS_STACK_BUFFER_OVERRUN (0xc0000409)``
+                        # in ``Qt6Core.dll`` crash: Qt was trying to
+                        # process a paint/close event at the same time
+                        # as Inno Setup's RestartManager session was
+                        # probing it.
+                        #
+                        # We still want to leave the application in a
+                        # clean state for the OS to reclaim, so we
+                        # flush log buffers and ``sys.exit(0)`` instead
+                        # of ``os._exit(0)``: ``sys.exit`` raises
+                        # ``SystemExit`` which Python's atexit handlers
+                        # run, and Qt's app.exec() returns cleanly.
+                        # The launcher BAT does not depend on any of
+                        # this — it's already running and polling
+                        # ``tasklist``.
+                        logger.info(
+                            "[OTA Installer] Inno Setup will be started by "
+                            "the launcher BAT; Python will now exit cleanly"
+                        )
                         try:
-                            installer_size_mb = package_path.stat().st_size / (1024 * 1024)
+                            sys.stdout.flush()
+                            sys.stderr.flush()
                         except Exception:
                             pass
-
-                        # Base rate: 0.5s per MB (conservative for slow disks)
-                        # Plus 30s fixed overhead for Inno Setup init/cleanup
-                        calculated_timeout = max(60.0, (installer_size_mb * 0.5) + 30.0)
-                        # Cap at 300s (5 minutes) to avoid indefinite wait
-                        # but allow enough time for very large packages on slow hardware
-                        max_wait_seconds = min(calculated_timeout, 300.0)
-
-                        logger.info(
-                            f"[OTA Installer] Installer size: {installer_size_mb:.1f} MB, "
-                            f"calculated timeout: {calculated_timeout:.0f}s, "
-                            f"capped at: {max_wait_seconds:.0f}s"
-                        )
-                        logger.info(
-                            "[OTA Installer] Inno Setup watch thread will "
-                            f"wait up to {max_wait_seconds:.0f}s for completion "
-                            f"(installer size: {installer_size_mb:.1f} MB)"
-                        )
-
-                        # Schedule application exit
-                        import threading
-
-                        # ``_wait_for_inno_log_exit`` is defined at module
-                        # scope so the dev and MSI install paths can reuse
-                        # it. See its docstring for the failure modes it
-                        # replaces.
-                        threading.Thread(
-                            target=_wait_for_inno_log_exit,
-                            args=(inno_log_path, max_wait_seconds),
-                            daemon=True,
-                        ).start()
-                        logger.info("[OTA Installer] Inno Setup watch loop started")
-
+                        # Returning True tells the GUI thread that the
+                        # install completed (i.e. the launcher was
+                        # successfully started). The GUI's natural
+                        # shutdown — via closeEvent + sys.exit — then
+                        # completes in the background while the BAT
+                        # waits for ``host_proc_name`` to vanish.
                         return True
-                        
+
                     except Exception as e:
                         logger.error(f"Failed to launch installer: {e}")
                         logger.error(f"[OTA Installer] Failed after download_manager.set_installing(True): {e}")
@@ -1509,15 +1694,15 @@ rm -f "$0"
                         logger.info("Force-frozen: terminating processes before installation")
                         self._terminate_processes_in_dir(
                             install_dir,
-                            timeout_seconds=5.0,
+                            timeout_seconds=15.0,
                             extra_process_names={'qtwebengineprocess.exe'},
                         )
                     else:
                         # Note: We do NOT terminate processes here in dev mode because:
                         # 1. Dev version runs from workspace, not LOCALAPPDATA\eCan
                         # 2. Killing LOCALAPPDATA\eCan processes may trigger unexpected exits
-                        # 3. The 6-second delayed installer launch gives enough time for dev app to exit
-                        logger.info("Skipping pre-install process termination in dev mode (relying on delayed launch)")
+                        # 3. The launcher BAT's wait-loop handles host-process exit safely
+                        logger.info("Skipping pre-install process termination in dev mode (relying on launcher BAT wait)")
                     
                     # Set OTA installation flag to skip exit confirmation dialog
                     from ota.core.download_manager import download_manager
@@ -1542,14 +1727,16 @@ rm -f "$0"
                     # caller-supplied install_dir that ends in ``/`` or
                     # ``\`` (see bug note on the frozen path above).
                     # Note: No quotes around /DIR= path - see frozen-path fix above.
-                    # FIX 2026-09-22: Added /CLOSEAPPLICATIONS for dev mode too.
-                    # See frozen-path note for full explanation.
+                    #
+                    # FIX 2026-09-22: REMOVED ``/CLOSEAPPLICATIONS`` for
+                    # dev mode too (same reason as frozen path above) —
+                    # the launcher BAT now coordinates the close timing
+                    # instead of Inno Setup's RestartManager session.
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
                         '/NORESTART',
                         '/SP-',                  # Skip startup message
-                        '/CLOSEAPPLICATIONS',    # ✅ Let Inno Setup close app via Restart Manager
                         f'/DIR={_strip_trailing_separator(install_dir)}',
                     ]
 
@@ -1559,6 +1746,14 @@ rm -f "$0"
                     logger.info(f"[OTA Installer] Development command length: {len(cmd)} args")
                     logger.info(f"[OTA Installer] Pinned dev install directory: {install_dir}")
 
+                    # Resolve the host process image name and use the
+                    # launcher BAT in dev mode too. We still don't
+                    # terminate the dev Python process — the BAT's
+                    # wait-loop just keeps polling until it sees the
+                    # dev process is gone.
+                    host_proc_name = self._get_current_process_name()
+                    extra_wait_seconds = 5
+
                     # Same cross-platform note as the frozen path above:
                     # ``subprocess.DETACHED_PROCESS`` is Windows-only and
                     # would crash when ``sys.platform`` is mocked to
@@ -1566,41 +1761,33 @@ rm -f "$0"
                     # flag block is constructed inside
                     # ``_launch_windows_installer_delayed`` instead.
                     if sys.platform == 'win32':
-                        # Use a modest delay in dev mode to allow app shutdown without excessive waiting
-                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=5)
-                        logger.info(f"Installer launch script started (PID: {pid})")
-                        logger.info("Installer will start in 5 seconds after app exits")
-                        logger.info("[OTA Installer] Development-mode delayed launcher started successfully")
+                        launcher_pid = self._launch_windows_installer_delayed(
+                            cmd,
+                            delay_seconds=5,  # ignored, kept for ABI
+                            wait_for_process_name=host_proc_name,
+                            extra_wait_seconds=extra_wait_seconds,
+                        )
+                        logger.info(
+                            f"Installer launcher BAT started (PID: {launcher_pid}); "
+                            f"will wait for {host_proc_name} to exit, then run Inno Setup"
+                        )
+                        logger.info("[OTA Installer] Development-mode launcher BAT started successfully")
                     else:
                         process = subprocess.Popen(cmd)
                         logger.info(f"Installer launched (PID: {process.pid})")
 
-                    # Schedule application exit for development environment
-                    import threading
-
-                    # Reuse the module-scope Inno Setup watch loop
-                    # (``_wait_for_inno_log_exit``) — same function the
-                    # frozen-mode path above calls. We use a longer
-                    # ``max_wait_seconds`` (60s vs the 30s default) so
-                    # dev-mode installs against slower disk images have
-                    # more headroom.
-                    dev_inno_log_path = None
-                    for arg in cmd:
-                        arg_str = str(arg)
-                        if arg_str.startswith('/LOG='):
-                            dev_inno_log_path = arg_str[len('/LOG='):]
-                            break
-
-                    threading.Thread(
-                        target=_wait_for_inno_log_exit,
-                        args=(dev_inno_log_path, 60.0),  # longer ceiling in dev mode
-                        daemon=True,
-                    ).start()
+                    # FIX 2026-09-22: Don't start a watch thread or
+                    # call ``os._exit`` in dev mode either. The
+                    # launcher BAT owns the wait-and-launch flow.
                     logger.info(
-                        f"[OTA Installer] Development-mode Inno Setup watch loop "
-                        f"started (inno_log={dev_inno_log_path}, max_wait=60s)"
+                        "[OTA Installer] Inno Setup will be started by "
+                        "the launcher BAT; Python will now exit cleanly"
                     )
-
+                    try:
+                        sys.stdout.flush()
+                        sys.stderr.flush()
+                    except Exception:
+                        pass
                     return True
             else:
                 # Non-silent mode - launch installer with UI
@@ -1682,7 +1869,7 @@ rm -f "$0"
                 # install dir. Same rationale as in ``_install_exe``.
                 self._terminate_processes_in_dir(
                     install_dir,
-                    timeout_seconds=5.0,
+                    timeout_seconds=15.0,
                     extra_process_names={'qtwebengineprocess.exe'},
                 )
 
@@ -1706,51 +1893,44 @@ rm -f "$0"
 
             # Use BAT launcher + delayed exit on Windows (same pattern
             # as ``_install_exe``) so the msiexec child survives the
-            # Python ``os._exit(0)``. The previous code called
-            # ``subprocess.Popen`` directly then ``os._exit(0)`` after
-            # a 3-second sleep — that worked for the simple case but
-            # would silently break if the parent process was killed
-            # before the sleep elapsed, leaving msiexec orphaned.
+            # Python exit. The launcher BAT now waits for the host
+            # process to be gone, sleeps a safety window, then runs
+            # msiexec via ``start "" /B``. The previous code started
+            # a Python watch thread that polled the MSI ``/l*v`` log;
+            # that thread was a daemon and was killed when the parent
+            # exited, leaving no postmortem trail.
             if sys.platform == 'win32':
+                host_proc_name = self._get_current_process_name()
                 try:
-                    pid = self._launch_windows_installer_delayed(cmd, delay_seconds=3)
-                    logger.info(f"MSI BAT launcher started (PID: {pid})")
+                    pid = self._launch_windows_installer_delayed(
+                        cmd,
+                        delay_seconds=3,  # ignored, kept for ABI
+                        wait_for_process_name=host_proc_name,
+                        extra_wait_seconds=5,
+                    )
+                    logger.info(
+                        f"MSI launcher BAT started (PID: {pid}); "
+                        f"will wait for {host_proc_name} to exit, then run msiexec"
+                    )
                 except Exception as e:
-                    logger.error(f"Failed to start MSI BAT launcher: {e}")
+                    logger.error(f"Failed to start MSI launcher BAT: {e}")
                     return False
             else:
                 process = subprocess.Popen(cmd)
                 logger.info(f"MSI installer launched (PID: {process.pid})")
 
-            # Schedule application exit. Reuses the Inno Setup watch
-            # helper — msiexec ``/l*v`` output doesn't have the same
-            # completion markers as Inno Setup's log, so this thread
-            # falls through to the 30 s hard ceiling. That's
-            # acceptable for OTA: even if msiexec is still running,
-            # it has exclusive install by then (lock-holders were
-            # terminated above) and the user is moving on; a stale
-            # msiexec.exe will finish on its own and exit.
-            import threading
-            msi_log_path = None
-            for arg in cmd:
-                arg_str = str(arg)
-                if '/l*v' in arg_str.lower():
-                    # arg shape: ``/l*v "C:\path\to.log"`` or
-                    # ``/l*v C:\path\to.log`` — strip the flag token.
-                    rest = arg_str.split(None, 1)[-1].strip('"')
-                    msi_log_path = rest
-                    break
-
-            threading.Thread(
-                target=_wait_for_inno_log_exit,
-                args=(msi_log_path, 30.0),
-                daemon=True,
-            ).start()
+            # FIX 2026-09-22: Don't start a watch thread or call
+            # ``os._exit`` here — the launcher BAT owns the wait
+            # and launch flow on Windows.
             logger.info(
-                f"[OTA MSI] Inno-Setup-style watch loop armed "
-                f"(msi_log={msi_log_path}, max_wait=30s)"
+                "[OTA MSI] msiexec will be started by the launcher BAT; "
+                "Python will now exit cleanly"
             )
-
+            try:
+                sys.stdout.flush()
+                sys.stderr.flush()
+            except Exception:
+                pass
             return True
 
         except Exception as e:
