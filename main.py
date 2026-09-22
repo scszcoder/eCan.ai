@@ -1256,6 +1256,17 @@ try:
         )
         plugin_init_thread.start()
 
+        # Ships locally-recorded business-outcome events (agent/ec_skills/
+        # metering.py, shadow mode since 2026-09-21) to the cloud billing
+        # ledger. CN-only in practice — the cloud endpoint call no-ops
+        # (leaves events pending, logs at debug) when unconfigured or signed
+        # out, so this is safe to start unconditionally.
+        try:
+            from agent.ec_skills import metering_reporter
+            metering_reporter.start()
+        except Exception as e:
+            logger.warning(f"⚠️  Metering reporter failed to start: {e}")
+
         # Env-gated automated login for the flood-test harness. No-op unless
         # ECAN_AUTOLOGIN=1. Scheduled via call_later so it fires AFTER the loop
         # is running (handleLogin schedules the main-window launch on this loop).

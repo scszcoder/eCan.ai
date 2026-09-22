@@ -72,6 +72,47 @@ class DBUsageEventService(BaseService):
             logger.error(f"[UsageEvent] record_event failed for {key!r}: {e}")
             return False
 
+    def get_unreported_events(self, *, limit: int = 200) -> List[Dict[str, Any]]:
+        """Events not yet sent to the cloud ledger, oldest first — what the
+        reporter should send next. Filters on ``reported_at``, not ``status``:
+        status tracks the RATING outcome (pending -> rated | rejected |
+        reversed), which this client never learns back, so it stays 'pending'
+        long after a row has successfully reached the cloud. reported_at is
+        the sync dimension."""
+        try:
+            with self.session_scope() as session:
+                rows = (
+                    session.query(UsageEvent)
+                    .filter(UsageEvent.reported_at.is_(None))
+                    .order_by(UsageEvent.occurred_at.asc())
+                    .limit(limit)
+                    .all()
+                )
+                return [self._to_dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"[UsageEvent] get_unreported_events failed: {e}")
+            return []
+
+    def mark_reported(self, ids: List[str]) -> int:
+        """Stamp reported_at on rows that reached the cloud ledger (accepted
+        OR duplicate — a duplicate means the cloud already has it, so there is
+        nothing left to send). Never touches status: that is the rating
+        outcome, not the sync outcome."""
+        if not ids:
+            return 0
+        try:
+            with self.session_scope() as session:
+                from datetime import datetime as _dt
+                updated = (
+                    session.query(UsageEvent)
+                    .filter(UsageEvent.id.in_(ids), UsageEvent.reported_at.is_(None))
+                    .update({UsageEvent.reported_at: _dt.utcnow()}, synchronize_session=False)
+                )
+                return int(updated or 0)
+        except Exception as e:
+            logger.error(f"[UsageEvent] mark_reported failed: {e}")
+            return 0
+
     def get_events(
         self,
         *,
