@@ -397,6 +397,20 @@ class FeigeRunnerBridge:
         return "feige_chat"
 
     # ------------------------------------------------------------------
+    # Which browser owns live chat for a store. The runner asks before it
+    # pre-navigates a session to the store URL: on this site that URL is
+    # the chat workstation page, so a background browser opening it lets
+    # the platform mark conversations read and blinds the front desk.
+    # Returns "" when nothing is observing, which means "no opinion".
+    # ------------------------------------------------------------------
+    def chat_browser_cdp_url(self, store_key: str = "") -> str:
+        try:
+            from . import ws_observer
+            return ws_observer.chat_browser_cdp_url(store_key)
+        except Exception:
+            return ""
+
+    # ------------------------------------------------------------------
     # Site-specific delivery-failure reason codes the runner should
     # treat as retryable (unioned with its generic set at check time).
     # ------------------------------------------------------------------

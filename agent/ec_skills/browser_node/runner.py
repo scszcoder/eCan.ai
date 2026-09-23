@@ -2270,6 +2270,53 @@ def _same_site(url_a: str, url_b: str) -> bool:
         return False
 
 
+def _another_browser_owns_live_chat(browser_session: Any, state: dict | None) -> str:
+    """The CDP endpoint of a DIFFERENT browser already running live chat, or "".
+
+    A site bundle that serves live chat answers this through the runner
+    bridge; with no bundle loaded, or nothing observing, the answer is "" and
+    nothing changes. Kept generic on purpose — the runner asks "does someone
+    else own chat for this store", never anything site-specific.
+
+    Why it exists: one store may run two browsers on the same seller login —
+    one for chat, one for background work (listing, orders, ads) so a slow
+    upload cannot starve the chat renderer. On sites where the store URL *is*
+    the chat workstation page, a background task that inherits ``store_url``
+    from the deploy would open the conversation list in the wrong browser. The
+    platform then marks those conversations read and the chat browser's
+    unread-based detection goes blind — a silent failure, and the customer
+    simply waits.
+    """
+    try:
+        from agent.ec_skills.live_chat_dispatch import runner_bridge
+        bridge = runner_bridge()
+        if bridge is None:
+            return ""
+        getter = getattr(bridge, "chat_browser_cdp_url", None)
+        if getter is None:
+            return ""
+        store_key = ""
+        try:
+            from agent.ec_skills.prompt_variable_providers import resolve_store_id
+            store_key = resolve_store_id(state or {})
+        except Exception:
+            pass
+        owner = str(getter(store_key) or "").strip()
+        if not owner:
+            return ""
+        mine = str(getattr(browser_session, "cdp_url", "") or "").strip()
+        if not mine:
+            bp = getattr(browser_session, "browser_profile", None)
+            mine = str(getattr(bp, "cdp_url", "") or "").strip() if bp else ""
+        # Unknown own endpoint: say nothing rather than block a session we
+        # cannot identify.
+        if not mine or mine == owner:
+            return ""
+        return owner
+    except Exception:
+        return ""
+
+
 async def navigate_blank_tab_to_store_url(browser_session: Any, state: dict | None) -> str | None:
     """Third pre-run anchoring strategy (2026-09-05): when the focused tab is
     BLANK (about:blank / new-tab) and the run carries a store URL, open the
@@ -2293,6 +2340,18 @@ async def navigate_blank_tab_to_store_url(browser_session: Any, state: dict | No
         current_url = str(getattr(current_target, "url", "") or "").strip()
         if current_url not in _BLANK_TAB_URLS:
             return None  # a real page is loaded — don't hijack it
+        if os.environ.get("ECAN_BACKGROUND_CHAT_PAGE_GUARD", "1") != "0":
+            _chat_owner = _another_browser_owns_live_chat(browser_session, state)
+            if _chat_owner:
+                logger.error(
+                    f"[BrowserAutomation] NOT pre-navigating this browser to {store_url} — "
+                    f"{_chat_owner} already runs live chat for this store. On this site the "
+                    f"store URL is the chat workstation page, so opening it here would let "
+                    f"the platform mark conversations read and blind the chat browser's "
+                    f"unread detection. Give background work its own start URL (or its own "
+                    f"store profile); set ECAN_BACKGROUND_CHAT_PAGE_GUARD=0 to override."
+                )
+                return None
         from browser_use.browser.events import NavigateToUrlEvent, SwitchTabEvent
         try:
             from utils import agent_status as _agent_status
