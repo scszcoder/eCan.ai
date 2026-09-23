@@ -1002,7 +1002,7 @@ jobs:
         # now works for all four self-hosted runner types.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 5
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -1026,13 +1026,14 @@ jobs:
           export NO_PROXY='*'
           # Disable git's low-speed abort (lowSpeedLimit=0) because the China-runner→Gitee
           # link can sustain < 1 byte/sec for extended periods without being dead.
-          # We keep lowSpeedTime=300 as a sanity ceiling; the step-level timeout-minutes: 10
-          # is the real upper bound. curl 28 (OPERATION_TIMEOUTED) was firing at 30 s even
-          # when the connection was alive but slow.
+          # lowSpeedTime is irrelevant when lowSpeedLimit=0 (check is disabled).
+          # Real cap is the step-level timeout-minutes: 5 (3 retries × ~1 min 30 s of
+          # actual fetch budget + 2 × 10 s back-off). 10 min was excessive for a
+          # --depth=1 fetch.
           for i in 1 2 3; do
             echo "[Gitee fetch] attempt $i of 3 for $ref"
             git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-              -c http.lowSpeedLimit=0 -c http.lowSpeedTime=300 \
+              -c http.lowSpeedLimit=0 \
               -c "http.extraHeader=Authorization: Basic $basic" \
               fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref" && echo "[Gitee fetch] success" && break
             echo "[Gitee fetch] attempt $i failed (exit $?), retrying in 10s..."
@@ -1873,7 +1874,7 @@ jobs:
         # now works for all four self-hosted runner types.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 5
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -1897,13 +1898,14 @@ jobs:
           export NO_PROXY='*'
           # Disable git's low-speed abort (lowSpeedLimit=0) because the China-runner→Gitee
           # link can sustain < 1 byte/sec for extended periods without being dead.
-          # We keep lowSpeedTime=300 as a sanity ceiling; the step-level timeout-minutes: 10
-          # is the real upper bound. curl 28 (OPERATION_TIMEOUTED) was firing at 30 s even
-          # when the connection was alive but slow.
+          # lowSpeedTime is irrelevant when lowSpeedLimit=0 (check is disabled).
+          # Real cap is the step-level timeout-minutes: 5 (3 retries × ~1 min 30 s of
+          # actual fetch budget + 2 × 10 s back-off). 10 min was excessive for a
+          # --depth=1 fetch.
           for i in 1 2 3; do
             echo "[Gitee fetch] attempt $i of 3 for $ref"
             git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-              -c http.lowSpeedLimit=0 -c http.lowSpeedTime=300 \
+              -c http.lowSpeedLimit=0 \
               -c "http.extraHeader=Authorization: Basic $basic" \
               fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref" && echo "[Gitee fetch] success" && break
             echo "[Gitee fetch] attempt $i failed (exit $?), retrying in 10s..."
@@ -2522,7 +2524,7 @@ jobs:
         # now works for all four self-hosted runner types.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 5
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -2546,13 +2548,14 @@ jobs:
           export NO_PROXY='*'
           # Disable git's low-speed abort (lowSpeedLimit=0) because the China-runner→Gitee
           # link can sustain < 1 byte/sec for extended periods without being dead.
-          # We keep lowSpeedTime=300 as a sanity ceiling; the step-level timeout-minutes: 10
-          # is the real upper bound. curl 28 (OPERATION_TIMEOUTED) was firing at 30 s even
-          # when the connection was alive but slow.
+          # lowSpeedTime is irrelevant when lowSpeedLimit=0 (check is disabled).
+          # Real cap is the step-level timeout-minutes: 5 (3 retries × ~1 min 30 s of
+          # actual fetch budget + 2 × 10 s back-off). 10 min was excessive for a
+          # --depth=1 fetch.
           for i in 1 2 3; do
             echo "[Gitee fetch] attempt $i of 3 for $ref"
             git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-              -c http.lowSpeedLimit=0 -c http.lowSpeedTime=300 \
+              -c http.lowSpeedLimit=0 \
               -c "http.extraHeader=Authorization: Basic $basic" \
               fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref" && echo "[Gitee fetch] success" && break
             echo "[Gitee fetch] attempt $i failed (exit $?), retrying in 10s..."
@@ -3108,7 +3111,7 @@ jobs:
         # now works for all four self-hosted runner types.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 5
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -3132,13 +3135,14 @@ jobs:
           export NO_PROXY='*'
           # Disable git's low-speed abort (lowSpeedLimit=0) because the China-runner→Gitee
           # link can sustain < 1 byte/sec for extended periods without being dead.
-          # We keep lowSpeedTime=300 as a sanity ceiling; the step-level timeout-minutes: 10
-          # is the real upper bound. curl 28 (OPERATION_TIMEOUTED) was firing at 30 s even
-          # when the connection was alive but slow.
+          # lowSpeedTime is irrelevant when lowSpeedLimit=0 (check is disabled).
+          # Real cap is the step-level timeout-minutes: 5 (3 retries × ~1 min 30 s of
+          # actual fetch budget + 2 × 10 s back-off). 10 min was excessive for a
+          # --depth=1 fetch.
           for i in 1 2 3; do
             echo "[Gitee fetch] attempt $i of 3 for $ref"
             git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-              -c http.lowSpeedLimit=0 -c http.lowSpeedTime=300 \
+              -c http.lowSpeedLimit=0 \
               -c "http.extraHeader=Authorization: Basic $basic" \
               fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref" && echo "[Gitee fetch] success" && break
             echo "[Gitee fetch] attempt $i failed (exit $?), retrying in 10s..."
