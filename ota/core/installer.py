@@ -1822,6 +1822,7 @@ rm -f "$0"
                     # PID-based wait is unambiguous and works for
                     # both dev (``python.exe``) and frozen
                     # (``eCan.cn.exe``) hosts.
+                    host_proc_name = self._get_current_process_name()
                     host_pid = os.getpid()
                     extra_wait_seconds = 5
 
