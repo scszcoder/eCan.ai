@@ -502,6 +502,68 @@ def test_upload_to_s3_glob_anchored_to_version():
         )
 
 
+@pytest.mark.parametrize(
+    "script_name,functions",
+    [
+        (
+            "upload_to_cos.py",
+            (
+                "upload_windows_artifacts",
+                "upload_macos_artifacts",
+                "upload_linux_artifacts",
+            ),
+        ),
+        (
+            "upload_to_s3.py",
+            (
+                "upload_windows_artifacts",
+                "upload_macos_artifacts",
+                "upload_linux_artifacts",
+            ),
+        ),
+    ],
+)
+def test_upload_artifacts_ship_signature_file(script_name, functions):
+    """Every per-platform upload function must upload the per-artifact
+    Ed25519 ``.sig`` alongside the installer.
+
+    Regression guard for the v0.9.98s incident: ``upload_to_cos.py::
+    upload_macos_artifacts`` was missing the ``.sig`` upload step.
+    The build side (``signing_manager.OTASigningManager.sign_for_ota``)
+    wrote the 64-byte Ed25519 signature into ``dist/<installer>.sig``
+    correctly, but the macOS upload branch never copied it to COS.
+    The appcast generator then had no ``sparkle:edSignature`` to embed,
+    and the production client rejected the package with
+    ``Missing signature while signature_required=true`` →
+    "文件验证失败！".
+
+    Without this test, the asymmetry between the windows/linux and
+    macOS branches can silently return — exactly the same way it
+    landed the first time.
+    """
+    from pathlib import Path
+    text = (Path(__file__).parent.parent.parent
+            / f"build_system/scripts/{script_name}").read_text()
+    for fn in functions:
+        start = text.find(f"def {fn}(")
+        assert start != -1, f"{script_name}: missing function {fn}"
+        end = text.find("\n    def ", start + 1)
+        if end == -1:
+            end = len(text)
+        block = text[start:end]
+        # Look for either ``.sig`` extension or ``sig_key`` reference —
+        # whichever idiom the file uses. Both files use ``.sig``
+        # today; the sig_key check keeps the test robust if the
+        # naming ever changes.
+        assert (".sig" in block) and ("sig_key" in block or "sig_file" in block), (
+            f"{script_name}::{fn}() must upload the per-artifact Ed25519 "
+            f"``.sig`` file. Without it the appcast ships without "
+            f"``sparkle:edSignature`` and the production client rejects "
+            f"the update with 'Missing signature while "
+            f"signature_required=true' (i18n: '文件验证失败！')."
+        )
+
+
 def test_macos_amd64_attempt_if_fully_inside_expression(release_cn):
     """The macOS amd64 retry chain's `if:` block must be entirely
     inside `${{ ... }}`. A mixed literal/Expression form (e.g. plain

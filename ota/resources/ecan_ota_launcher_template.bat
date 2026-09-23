@@ -47,6 +47,17 @@ set "WAIT_MODE={WAIT_MODE}"
 set "WAIT_TARGET={WAIT_TARGET}"
 set "EXTRA_WAIT_SECONDS={EXTRA_WAIT_SECONDS}"
 
+REM ping -n N waits ~N-1 seconds (ping -n 2 = ~1s). We use +1 offset
+REM because Windows' `timeout` command exits immediately when stdin is
+REM not a real console (cmd.exe launched via subprocess.Popen without
+REM DETACHED_PROCESS inherits a pipe for stdin), whereas `ping` works
+REM reliably in that mode. Also, `timeout` is fundamentally incompatible
+REM with `DETACHED_PROCESS + tasklist | find` pipelines: with DETACHED,
+REM the `find` part of the pipe hangs waiting on stdin that never closes,
+REM which is the exact bug this BAT was supposed to fix.
+set "POLL_COUNT=2"
+set /a EXTRA_WAIT_PING_COUNT=EXTRA_WAIT_SECONDS+1
+
 echo [OTA Launcher] Wait mode: %WAIT_MODE%
 echo [OTA Launcher] Wait target: %WAIT_TARGET%
 echo [OTA Launcher] Extra wait after exit: %EXTRA_WAIT_SECONDS% seconds
@@ -98,9 +109,21 @@ if /I "%WAIT_MODE%"=="pid" (
     tasklist /FI "IMAGENAME eq %WAIT_TARGET%" /NH 2>nul | find /I "%WAIT_TARGET%" >nul 2>&1
 )
 if %ERRORLEVEL% EQU 0 (
-    REM Target still running -- wait 1 second and re-check
+    REM Target still running -- wait ~1 second and re-check.
+    REM We use ``ping 127.0.0.1 -n 2`` instead of ``timeout /t 1``
+    REM because:
+    REM   * ``timeout`` requires a real console for stdin; when launched
+    REM     without DETACHED_PROCESS, cmd.exe inherits Python's pipe
+    REM     stdin and ``timeout`` returns immediately with "不支持键盘输入
+    REM     系统请求" instead of waiting. This was the cause of OTA
+    REM     installations "completing" instantly without ever launching
+    REM     Inno Setup on dev machines.
+    REM   * ``ping 127.0.0.1 -n 2`` reliably sleeps ~1 second regardless
+    REM     of stdio configuration (no console needed, no interactive
+    REM     input required). Verified on Windows 10/11 with all combos
+    of subprocess.Popen creationflags.
     set /a WAIT_COUNT+=1
-    timeout /t 1 /nobreak >nul 2>&1
+    ping 127.0.0.1 -n %POLL_COUNT% >nul 2>&1
     goto WAIT_LOOP
 )
 
@@ -121,7 +144,7 @@ REM common case. The Python side passes a longer value (e.g.
 REM 10 s on AV-heavy systems) when logs show persistent EBUSY.
 REM ----------------------------------------------------------
 echo [OTA Launcher] Sleeping %EXTRA_WAIT_SECONDS% seconds for file-handle release...
-timeout /t %EXTRA_WAIT_SECONDS% /nobreak >nul 2>&1
+ping 127.0.0.1 -n %EXTRA_WAIT_PING_COUNT% >nul 2>&1
 
 REM ----------------------------------------------------------
 REM Phase 3: Launch Inno Setup.
