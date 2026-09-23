@@ -2065,6 +2065,131 @@ class TaskRunnerRegistry:
             )
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Listener discovery — "which agents are in my group?"
+#
+# A front desk needs to know its own Q&A agents, not every agent in the
+# process. The answer is already in the event-routing table: a pend_event
+# node's ``agentIds`` becomes a ``context.senderId`` match_field at task
+# launch (see _augment_match_fields / _amend_event_routing_for_task), which
+# is the filter that decides whether a dispatch is *accepted*. Deriving the
+# group from that same declaration means it cannot drift from delivery —
+# an agent named here will accept the message.
+# ─────────────────────────────────────────────────────────────────────
+
+_SENDER_EVENT_PATH = "context.senderId"
+
+
+def _routing_rules_of(entry: Any) -> List[Dict[str, Any]]:
+    """Unwrap a routing entry: either a bare rule or a ``_rule_chain``."""
+    if not isinstance(entry, dict):
+        return []
+    chain = entry.get("_rule_chain")
+    if isinstance(chain, list):
+        return [r for r in chain if isinstance(r, dict)]
+    return [entry]
+
+
+def _declared_senders(rule: Dict[str, Any]) -> List[str]:
+    """Sender ids a routing rule accepts, from its context.senderId filters.
+
+    An empty result means the rule carries NO sender filter. For *delivery*
+    that is a deliberate catch-all — _extract_event_types_from_skill drops an
+    unresolvable ``{{front_desk_agent_id}}`` rather than installing a literal
+    that would blackhole every event. For *grouping* it must never be read as
+    "listens to everyone": a Q&A agent whose placeholder failed to resolve
+    would otherwise join every front desk's group and answer other stores'
+    customers. Unresolved templates are skipped here for the same reason.
+    """
+    out: List[str] = []
+    for mf in rule.get("match_fields") or []:
+        if not isinstance(mf, dict):
+            continue
+        if str(mf.get("event_path") or "").strip() != _SENDER_EVENT_PATH:
+            continue
+        literal = mf.get("literal")
+        if isinstance(literal, str):
+            literal = [literal]
+        if not isinstance(literal, list):
+            continue
+        for value in literal:
+            text = str(value or "").strip()
+            if text and "{{" not in text:
+                out.append(text)
+    return out
+
+
+def _listener_agent_for_rule(runner: "TaskRunner", rule: Dict[str, Any]) -> str:
+    """The agent owning the task a routing rule points at, or ""."""
+    task_id = str(rule.get("_auto_added_by_task") or "").strip()
+    if not task_id:
+        selector = str(rule.get("task_selector") or "").strip()
+        if selector.startswith("id:"):
+            task_id = selector[3:].strip()
+    if not task_id:
+        return ""
+    try:
+        task = runner._find_task_by_id(task_id)
+    except Exception:
+        return ""
+    if task is None:
+        # A rule for a task this runner isn't running — a stale entry from the
+        # on-disk routing config. Attributing it to the runner's own agent
+        # would invent a listener, so drop it.
+        return ""
+    agent_id = str(getattr(task, "agent_id", "") or "").strip()
+    if agent_id:
+        return agent_id
+    # Task rows created by fast-deploy link agent→task, not task→agent, so
+    # agent_id can be blank. The rule lives on the runner of the agent that
+    # owns the task, so that runner's agent is the right answer.
+    card = getattr(getattr(runner, "agent", None), "card", None)
+    return str(getattr(card, "id", "") or "").strip()
+
+
+def find_my_listeners(sender_agent_id: str) -> List[str]:
+    """Agents whose running tasks have declared ``sender_agent_id`` as a
+    permitted sender — i.e. those that will actually accept a dispatch from it.
+
+    This is the answer to "which Q&A agents are in my group?". It reads the
+    live routing table instead of a roster, so the group is always consistent
+    with what the recipients will accept.
+
+    Only *launched* tasks appear: routing rules are installed by
+    ``_amend_event_routing_for_task`` at task launch. An agent whose task has
+    not started is not a listener — correct, since it could not receive the
+    dispatch either.
+
+    Returns agent ids deduplicated, in discovery order, never including the
+    caller. An empty list means "nobody is listening to me" and callers must
+    not read it as a cue to fall back to every live agent.
+    """
+    me = str(sender_agent_id or "").strip()
+    if not me:
+        return []
+
+    found: List[str] = []
+    seen: Set[str] = set()
+    for runner in list(getattr(TaskRunnerRegistry, "_runners", []) or []):
+        routing = getattr(runner, "_global_event_routing", None)
+        if not isinstance(routing, dict):
+            continue
+        for entry in list(routing.values()):
+            for rule in _routing_rules_of(entry):
+                if me not in _declared_senders(rule):
+                    continue
+                agent_id = _listener_agent_for_rule(runner, rule)
+                if agent_id and agent_id != me and agent_id not in seen:
+                    seen.add(agent_id)
+                    found.append(agent_id)
+
+    logger.info(
+        f"[Listeners] sender={me[-8:]} -> {len(found)} listener(s): "
+        f"{[a[-8:] for a in found]}"
+    )
+    return found
+
+
 class TaskRunner(Generic[Context]):
     """
     Main task runner that manages task execution.

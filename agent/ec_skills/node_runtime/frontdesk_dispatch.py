@@ -35,6 +35,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -1454,6 +1455,85 @@ async def _open_tab_for_session(
         return ""
 
 
+# ── Listener-derived grouping ────────────────────────────────────────
+# "Who is in my group?" is answered by the agents that DECLARED this sender
+# on their pend_event node, not by a name convention. The declaration read
+# here is the same context.senderId filter that decides whether a dispatch is
+# accepted, so the group cannot drift from delivery.
+#
+# Why it matters: two stores on one machine both have 客服应答 tasks, so the
+# keyword filter alone routes store A's customers to store B's agents —
+# silently, with a wrong-store answer. Each store's Q&A tasks carry their own
+# ``front_desk_agent_id`` (written at 快速生成 by cli/deploy/commands.py), so
+# the listener sets are disjoint without any new concept.
+
+def _narrow_to_listeners(
+    cfg: "DispatchConfig", sender_agent_id: str, live: list[dict]
+) -> list[dict] | None:
+    """Restrict the live pool to this sender's declared listeners.
+
+    Returns the narrowed pool, or ``None`` when strict mode is on and nobody
+    is listening (the caller then aborts dispatch).
+
+    Default is permissive: a skill whose pend_event nodes declare no sender
+    keeps today's keyword-only behaviour, with a WARNING. Strict mode is what
+    multi-store needs — it turns "nobody listening" into a hard stop rather
+    than a broadcast — and is enabled once a deployment is validated.
+    """
+    if os.environ.get("ECAN_DISPATCH_USE_LISTENERS", "1") == "0":
+        return live
+    strict = os.environ.get("ECAN_DISPATCH_LISTENERS_STRICT", "0") == "1"
+    # Read the runner module out of sys.modules rather than importing it. This
+    # module documents "no core imports (avoids circular imports)", and
+    # ec_tasks.runner pulls in the whole agent stack. The check is also exactly
+    # right: a TaskRunner cannot exist unless its module was imported, so an
+    # absent module means there are no runners and nothing to narrow by.
+    runner_mod = sys.modules.get("agent.ec_tasks.runner")
+    if runner_mod is None:
+        return live
+    try:
+        listener_ids = set(runner_mod.find_my_listeners(sender_agent_id))
+    except Exception as exc:
+        logger.warning(
+            f"[BrowserAutomation] {cfg.log_tag} listener lookup failed ({exc}); "
+            f"falling back to recipient_filter"
+        )
+        return live
+
+    if not listener_ids:
+        msg = (
+            f"[BrowserAutomation] {cfg.log_tag} no agent has declared "
+            f"{sender_agent_id[-8:]} as a permitted sender — the Q&A skills' "
+            f"pend_event agentIds are unset, or their task_vars "
+            f"front_desk_agent_id did not resolve"
+        )
+        if strict:
+            logger.error(f"{msg}. Aborting dispatch (LISTENERS_STRICT=1).")
+            return None
+        logger.warning(f"{msg}. Falling back to recipient_filter.")
+        return live
+
+    narrowed = [a for a in live if a.get("id") in listener_ids]
+    if not narrowed:
+        msg = (
+            f"[BrowserAutomation] {cfg.log_tag} {len(listener_ids)} listener(s) "
+            f"declared {sender_agent_id[-8:]} but none is in the live pool "
+            f"{[a.get('id', '')[-8:] for a in live]}"
+        )
+        if strict:
+            logger.error(f"{msg}. Aborting dispatch (LISTENERS_STRICT=1).")
+            return None
+        logger.warning(f"{msg}. Falling back to recipient_filter.")
+        return live
+
+    if len(narrowed) != len(live):
+        logger.info(
+            f"[BrowserAutomation] {cfg.log_tag} listener grouping narrowed pool "
+            f"{len(live)} -> {len(narrowed)}: {[a.get('id', '')[-8:] for a in narrowed]}"
+        )
+    return narrowed
+
+
 def _resolve_recipient_agents(
     cfg: DispatchConfig,
     ctx: DispatchContext,
@@ -1491,6 +1571,11 @@ def _resolve_recipient_agents(
             f"[BrowserAutomation] {cfg.log_tag} excluded {len(dropped)} "
             f"non-live agents from recipient pool: {dropped}"
         )
+
+    listener_pool = _narrow_to_listeners(cfg, sender_agent_id, live)
+    if listener_pool is None:
+        return []
+    live = listener_pool
 
     def _matches(a: dict) -> bool:
         if cfg.task_keywords:
