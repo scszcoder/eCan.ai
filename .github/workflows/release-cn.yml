@@ -1002,7 +1002,7 @@ jobs:
         # now works for all four self-hosted runner types.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 3
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -1024,10 +1024,24 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export HTTP_PROXY= HTTPS_PROXY=
           export NO_PROXY='*'
-          git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+          # Fail-fast policy: cap the step at timeout-minutes: 3 (was 10) so a
+          # throttled/RST-throttled runner surfaces the problem in ~3 min instead
+          # of burning the full 10 min. Single attempt, no retry loop — when the
+          # root cause is per-runner IP/network throttling (macOS aarch64 self-
+          # hosted runner was observed failing every attempt with curl 18 / 56
+          # within seconds; Windows runner on the same network completes in ~3s),
+          # retrying the same broken path just stacks sleep on top of the same
+          # slow transfer. lowSpeedTime=90 (was 300) still tolerates a legitimate
+          # slow stretch but stays well under the 3-min cap.
+          echo "[Gitee fetch] fetching $ref (single attempt, 3-min step cap)"
+          if ! git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
+            -c http.lowSpeedLimit=0 -c http.lowSpeedTime=90 \
             -c "http.extraHeader=Authorization: Basic $basic" \
-            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"
+            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"; then
+            echo "::error::Gitee fetch failed for ref '$ref' (single attempt). Verify the tag exists on https://gitee.com/songszchen/eCan.ai and that GITEE_TOKEN has read access. If this is a self-hosted CN runner failing with curl 18/56 (transfer closed / connection reset), the runner's outbound IP is likely being RST-throttled — escalate to SRE."
+            exit 1
+          fi
+          echo "[Gitee fetch] success"
           git checkout --force --detach FETCH_HEAD
           sha=$(git rev-parse --short HEAD)
           echo "[OK] Checked out $ref at $sha"
@@ -1859,7 +1873,7 @@ jobs:
         # now works for all four self-hosted runner types.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 3
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -1881,10 +1895,24 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export HTTP_PROXY= HTTPS_PROXY=
           export NO_PROXY='*'
-          git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+          # Fail-fast policy: cap the step at timeout-minutes: 3 (was 10) so a
+          # throttled/RST-throttled runner surfaces the problem in ~3 min instead
+          # of burning the full 10 min. Single attempt, no retry loop — when the
+          # root cause is per-runner IP/network throttling (macOS aarch64 self-
+          # hosted runner was observed failing every attempt with curl 18 / 56
+          # within seconds; Windows runner on the same network completes in ~3s),
+          # retrying the same broken path just stacks sleep on top of the same
+          # slow transfer. lowSpeedTime=90 (was 300) still tolerates a legitimate
+          # slow stretch but stays well under the 3-min cap.
+          echo "[Gitee fetch] fetching $ref (single attempt, 3-min step cap)"
+          if ! git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
+            -c http.lowSpeedLimit=0 -c http.lowSpeedTime=90 \
             -c "http.extraHeader=Authorization: Basic $basic" \
-            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"
+            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"; then
+            echo "::error::Gitee fetch failed for ref '$ref' (single attempt). Verify the tag exists on https://gitee.com/songszchen/eCan.ai and that GITEE_TOKEN has read access. If this is a self-hosted CN runner failing with curl 18/56 (transfer closed / connection reset), the runner's outbound IP is likely being RST-throttled — escalate to SRE."
+            exit 1
+          fi
+          echo "[Gitee fetch] success"
           git checkout --force --detach FETCH_HEAD
           sha=$(git rev-parse --short HEAD)
           echo "[OK] Checked out $ref at $sha"
@@ -2494,7 +2522,7 @@ jobs:
         # now works for all four self-hosted runner types.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 3
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -2516,10 +2544,24 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export HTTP_PROXY= HTTPS_PROXY=
           export NO_PROXY='*'
-          git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+          # Fail-fast policy: cap the step at timeout-minutes: 3 (was 10) so a
+          # throttled/RST-throttled runner surfaces the problem in ~3 min instead
+          # of burning the full 10 min. Single attempt, no retry loop — when the
+          # root cause is per-runner IP/network throttling (macOS aarch64 self-
+          # hosted runner was observed failing every attempt with curl 18 / 56
+          # within seconds; Windows runner on the same network completes in ~3s),
+          # retrying the same broken path just stacks sleep on top of the same
+          # slow transfer. lowSpeedTime=90 (was 300) still tolerates a legitimate
+          # slow stretch but stays well under the 3-min cap.
+          echo "[Gitee fetch] fetching $ref (single attempt, 3-min step cap)"
+          if ! git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
+            -c http.lowSpeedLimit=0 -c http.lowSpeedTime=90 \
             -c "http.extraHeader=Authorization: Basic $basic" \
-            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"
+            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"; then
+            echo "::error::Gitee fetch failed for ref '$ref' (single attempt). Verify the tag exists on https://gitee.com/songszchen/eCan.ai and that GITEE_TOKEN has read access. If this is a self-hosted CN runner failing with curl 18/56 (transfer closed / connection reset), the runner's outbound IP is likely being RST-throttled — escalate to SRE."
+            exit 1
+          fi
+          echo "[Gitee fetch] success"
           git checkout --force --detach FETCH_HEAD
           sha=$(git rev-parse --short HEAD)
           echo "[OK] Checked out $ref at $sha"
@@ -3066,7 +3108,7 @@ jobs:
         # now works for all four self-hosted runner types.
         if: github.event.inputs.runner_group != 'github-hosted'
         shell: bash
-        timeout-minutes: 10
+        timeout-minutes: 3
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
@@ -3088,10 +3130,24 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export HTTP_PROXY= HTTPS_PROXY=
           export NO_PROXY='*'
-          git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+          # Fail-fast policy: cap the step at timeout-minutes: 3 (was 10) so a
+          # throttled/RST-throttled runner surfaces the problem in ~3 min instead
+          # of burning the full 10 min. Single attempt, no retry loop — when the
+          # root cause is per-runner IP/network throttling (macOS aarch64 self-
+          # hosted runner was observed failing every attempt with curl 18 / 56
+          # within seconds; Windows runner on the same network completes in ~3s),
+          # retrying the same broken path just stacks sleep on top of the same
+          # slow transfer. lowSpeedTime=90 (was 300) still tolerates a legitimate
+          # slow stretch but stays well under the 3-min cap.
+          echo "[Gitee fetch] fetching $ref (single attempt, 3-min step cap)"
+          if ! git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
+            -c http.lowSpeedLimit=0 -c http.lowSpeedTime=90 \
             -c "http.extraHeader=Authorization: Basic $basic" \
-            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"
+            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"; then
+            echo "::error::Gitee fetch failed for ref '$ref' (single attempt). Verify the tag exists on https://gitee.com/songszchen/eCan.ai and that GITEE_TOKEN has read access. If this is a self-hosted CN runner failing with curl 18/56 (transfer closed / connection reset), the runner's outbound IP is likely being RST-throttled — escalate to SRE."
+            exit 1
+          fi
+          echo "[Gitee fetch] success"
           git checkout --force --detach FETCH_HEAD
           sha=$(git rev-parse --short HEAD)
           echo "[OK] Checked out $ref at $sha"
