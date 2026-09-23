@@ -62,7 +62,10 @@ class DBTokenUsageService(BaseService):
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
         duration_ms: Optional[int] = None,
-        skill_name: Optional[str] = None
+        skill_name: Optional[str] = None,
+        store_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        task_id: Optional[str] = None
     ) -> Optional[TokenUsage]:
         """
         Record a token usage entry.
@@ -105,7 +108,10 @@ class DBTokenUsageService(BaseService):
                     start_time=start_time,
                     end_time=end_time,
                     duration_ms=duration_ms,
-                    skill_name=skill_name
+                    skill_name=skill_name,
+                    store_id=store_id,
+                    agent_id=agent_id,
+                    task_id=task_id
                 )
                 
                 session.add(usage)

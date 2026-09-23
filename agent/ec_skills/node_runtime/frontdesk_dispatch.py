@@ -1662,6 +1662,19 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
         "session_id": item["session_id"],
         "chat_url": item.get("chat_url", ""),
     }
+    # Which store this turn belongs to, taken from the sender's run scope.
+    # Today every deployed task carries its own store_id, so the recipient does
+    # not need this to answer correctly — it is on the wire so a turn can be
+    # attributed end to end, and so a SHARED Q&A pool (one worker serving
+    # several stores) has the context it will need. A worker that ignores it
+    # behaves exactly as before.
+    try:
+        from utils.log_scope import get_scope
+        _store = str((get_scope() or {}).get("store_id") or "").strip()
+        if _store:
+            payload["store_id"] = _store
+    except Exception:
+        pass
     if tab_id:
         payload["tab_id"] = tab_id
     if item.get("customer_name"):

@@ -13,6 +13,30 @@ from pathlib import Path
 from utils.logger_helper import logger_helper as logger
 
 
+def _run_attribution() -> Dict[str, Optional[str]]:
+    """store / agent / task for the call being recorded, from the run scope.
+
+    Read at RECORD time out of the ContextVar rather than threaded through
+    every call site — the same reason attribution_headers() reads it per
+    request instead of stamping a shared LLM instance: concurrent runs each
+    see their own values, so a busy store cannot be billed for a quiet one's
+    tokens.
+
+    Missing scope yields None, which the columns document as "recorded before
+    stores were distinguished". Never raises: attribution is not worth losing
+    a usage row over.
+    """
+    try:
+        from utils.log_scope import get_scope
+        sc = get_scope()
+    except Exception:
+        return {"store_id": None, "agent_id": None, "task_id": None}
+    return {
+        key: (str(sc.get(key) or "").strip() or None)
+        for key in ("store_id", "agent_id", "task_id")
+    }
+
+
 class TokenTracker:
     """
     Singleton token tracker for recording LLM token usage across skills.
@@ -127,6 +151,7 @@ class TokenTracker:
                 return False
             
             usage_timestamp = datetime.utcnow()
+            attribution = _run_attribution()
 
             # Record usage
             usage = service.record_usage(
@@ -145,7 +170,8 @@ class TokenTracker:
                 start_time=start_time,
                 end_time=end_time,
                 duration_ms=duration_ms,
-                skill_name=skill_name
+                skill_name=skill_name,
+                **attribution
             )
 
             jsonl_payload = {
@@ -166,6 +192,7 @@ class TokenTracker:
                 "end_time": end_time.isoformat() + "Z" if end_time else None,
                 "duration_ms": duration_ms,
                 "skill_name": skill_name,
+                **attribution,
                 "metadata": metadata or {},
             }
             self._append_jsonl(jsonl_payload)
@@ -248,6 +275,7 @@ class TokenTracker:
                 return False
             
             usage_timestamp = datetime.utcnow()
+            attribution = _run_attribution()
 
             # Record usage
             usage = service.record_usage(
@@ -266,7 +294,8 @@ class TokenTracker:
                 start_time=start_time,
                 end_time=end_time,
                 duration_ms=duration_ms,
-                skill_name=skill_name
+                skill_name=skill_name,
+                **attribution
             )
 
             jsonl_payload = {
@@ -288,6 +317,7 @@ class TokenTracker:
                 "end_time": end_time.isoformat() + "Z" if end_time else None,
                 "duration_ms": duration_ms,
                 "skill_name": skill_name,
+                **attribution,
                 "metadata": metadata or {},
             }
             self._append_jsonl(jsonl_payload)
