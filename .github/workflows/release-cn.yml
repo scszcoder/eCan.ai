@@ -1024,10 +1024,19 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export HTTP_PROXY= HTTPS_PROXY=
           export NO_PROXY='*'
-          git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
-            -c "http.extraHeader=Authorization: Basic $basic" \
-            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"
+          for i in 1 2 3; do
+            echo "[Gitee fetch] attempt $i of 3 for $ref"
+            git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
+              -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+              -c "http.extraHeader=Authorization: Basic $basic" \
+              fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref" && echo "[Gitee fetch] success" && break
+            echo "[Gitee fetch] attempt $i failed (exit $?), retrying in 10s..."
+            sleep 10
+          done
+          if ! git rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
+            echo "::error::All 3 Gitee fetch attempts failed for ref '$ref'. Verify the tag exists on https://gitee.com/songszchen/eCan.ai and that GITEE_TOKEN has read access."
+            exit 1
+          fi
           git checkout --force --detach FETCH_HEAD
           sha=$(git rev-parse --short HEAD)
           echo "[OK] Checked out $ref at $sha"
@@ -1881,10 +1890,19 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export HTTP_PROXY= HTTPS_PROXY=
           export NO_PROXY='*'
-          git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
-            -c "http.extraHeader=Authorization: Basic $basic" \
-            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"
+          for i in 1 2 3; do
+            echo "[Gitee fetch] attempt $i of 3 for $ref"
+            git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
+              -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+              -c "http.extraHeader=Authorization: Basic $basic" \
+              fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref" && echo "[Gitee fetch] success" && break
+            echo "[Gitee fetch] attempt $i failed (exit $?), retrying in 10s..."
+            sleep 10
+          done
+          if ! git rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
+            echo "::error::All 3 Gitee fetch attempts failed for ref '$ref'. Verify the tag exists on https://gitee.com/songszchen/eCan.ai and that GITEE_TOKEN has read access."
+            exit 1
+          fi
           git checkout --force --detach FETCH_HEAD
           sha=$(git rev-parse --short HEAD)
           echo "[OK] Checked out $ref at $sha"
@@ -2516,10 +2534,19 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export HTTP_PROXY= HTTPS_PROXY=
           export NO_PROXY='*'
-          git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
-            -c "http.extraHeader=Authorization: Basic $basic" \
-            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"
+          for i in 1 2 3; do
+            echo "[Gitee fetch] attempt $i of 3 for $ref"
+            git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
+              -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+              -c "http.extraHeader=Authorization: Basic $basic" \
+              fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref" && echo "[Gitee fetch] success" && break
+            echo "[Gitee fetch] attempt $i failed (exit $?), retrying in 10s..."
+            sleep 10
+          done
+          if ! git rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
+            echo "::error::All 3 Gitee fetch attempts failed for ref '$ref'. Verify the tag exists on https://gitee.com/songszchen/eCan.ai and that GITEE_TOKEN has read access."
+            exit 1
+          fi
           git checkout --force --detach FETCH_HEAD
           sha=$(git rev-parse --short HEAD)
           echo "[OK] Checked out $ref at $sha"
@@ -3088,10 +3115,19 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export HTTP_PROXY= HTTPS_PROXY=
           export NO_PROXY='*'
-          git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-            -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
-            -c "http.extraHeader=Authorization: Basic $basic" \
-            fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref"
+          for i in 1 2 3; do
+            echo "[Gitee fetch] attempt $i of 3 for $ref"
+            git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
+              -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+              -c "http.extraHeader=Authorization: Basic $basic" \
+              fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref" && echo "[Gitee fetch] success" && break
+            echo "[Gitee fetch] attempt $i failed (exit $?), retrying in 10s..."
+            sleep 10
+          done
+          if ! git rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
+            echo "::error::All 3 Gitee fetch attempts failed for ref '$ref'. Verify the tag exists on https://gitee.com/songszchen/eCan.ai and that GITEE_TOKEN has read access."
+            exit 1
+          fi
           git checkout --force --detach FETCH_HEAD
           sha=$(git rev-parse --short HEAD)
           echo "[OK] Checked out $ref at $sha"
