@@ -1066,13 +1066,22 @@ class InstallationManager:
         )
 
         try:
+            # NOTE: Do NOT pass stdin/stdout/stderr=DEVNULL here.
+            # When DETACHED_PROCESS (creation_flags) is combined with redirected
+            # DEVNULL handles, Windows fails to close pipe EOF in the cmd→find
+            # pipeline inside the launcher BAT. find.exe hangs forever waiting
+            # for input that never comes, the BAT never exits its WAIT_LOOP,
+            # and Inno Setup is never launched.  The launcher BAT stays alive
+            # long after Python exits, and the whole OTA upgrade silently
+            # fails with no Inno Setup log generated.
+            # Fix: let the BAT inherit the parent's std handles (or no-op
+            # redirect from Python's side).  DETACHED_PROCESS is sufficient to
+            # make the child survive the Python parent's exit; we do not need
+            # to close/replace its std handles.
             p = subprocess.Popen(
                 launcher_cmd,
                 creationflags=creation_flags,
                 close_fds=True,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
             )
             logger.info(
                 f"[OTA Installer] Launcher BAT detached successfully: "
