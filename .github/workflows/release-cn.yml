@@ -1024,10 +1024,15 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export HTTP_PROXY= HTTPS_PROXY=
           export NO_PROXY='*'
+          # Disable git's low-speed abort (lowSpeedLimit=0) because the China-runner→Gitee
+          # link can sustain < 1 byte/sec for extended periods without being dead.
+          # We keep lowSpeedTime=300 as a sanity ceiling; the step-level timeout-minutes: 10
+          # is the real upper bound. curl 28 (OPERATION_TIMEOUTED) was firing at 30 s even
+          # when the connection was alive but slow.
           for i in 1 2 3; do
             echo "[Gitee fetch] attempt $i of 3 for $ref"
             git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-              -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+              -c http.lowSpeedLimit=0 -c http.lowSpeedTime=300 \
               -c "http.extraHeader=Authorization: Basic $basic" \
               fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref" && echo "[Gitee fetch] success" && break
             echo "[Gitee fetch] attempt $i failed (exit $?), retrying in 10s..."
@@ -1890,10 +1895,15 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export HTTP_PROXY= HTTPS_PROXY=
           export NO_PROXY='*'
+          # Disable git's low-speed abort (lowSpeedLimit=0) because the China-runner→Gitee
+          # link can sustain < 1 byte/sec for extended periods without being dead.
+          # We keep lowSpeedTime=300 as a sanity ceiling; the step-level timeout-minutes: 10
+          # is the real upper bound. curl 28 (OPERATION_TIMEOUTED) was firing at 30 s even
+          # when the connection was alive but slow.
           for i in 1 2 3; do
             echo "[Gitee fetch] attempt $i of 3 for $ref"
             git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-              -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+              -c http.lowSpeedLimit=0 -c http.lowSpeedTime=300 \
               -c "http.extraHeader=Authorization: Basic $basic" \
               fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref" && echo "[Gitee fetch] success" && break
             echo "[Gitee fetch] attempt $i failed (exit $?), retrying in 10s..."
@@ -2534,10 +2544,15 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export HTTP_PROXY= HTTPS_PROXY=
           export NO_PROXY='*'
+          # Disable git's low-speed abort (lowSpeedLimit=0) because the China-runner→Gitee
+          # link can sustain < 1 byte/sec for extended periods without being dead.
+          # We keep lowSpeedTime=300 as a sanity ceiling; the step-level timeout-minutes: 10
+          # is the real upper bound. curl 28 (OPERATION_TIMEOUTED) was firing at 30 s even
+          # when the connection was alive but slow.
           for i in 1 2 3; do
             echo "[Gitee fetch] attempt $i of 3 for $ref"
             git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-              -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+              -c http.lowSpeedLimit=0 -c http.lowSpeedTime=300 \
               -c "http.extraHeader=Authorization: Basic $basic" \
               fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref" && echo "[Gitee fetch] success" && break
             echo "[Gitee fetch] attempt $i failed (exit $?), retrying in 10s..."
@@ -3115,10 +3130,15 @@ jobs:
           export GIT_TERMINAL_PROMPT=0
           export HTTP_PROXY= HTTPS_PROXY=
           export NO_PROXY='*'
+          # Disable git's low-speed abort (lowSpeedLimit=0) because the China-runner→Gitee
+          # link can sustain < 1 byte/sec for extended periods without being dead.
+          # We keep lowSpeedTime=300 as a sanity ceiling; the step-level timeout-minutes: 10
+          # is the real upper bound. curl 28 (OPERATION_TIMEOUTED) was firing at 30 s even
+          # when the connection was alive but slow.
           for i in 1 2 3; do
             echo "[Gitee fetch] attempt $i of 3 for $ref"
             git -c http.sslVerify=false -c http.proxy= -c https.proxy= \
-              -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
+              -c http.lowSpeedLimit=0 -c http.lowSpeedTime=300 \
               -c "http.extraHeader=Authorization: Basic $basic" \
               fetch --no-tags --prune --no-recurse-submodules --depth=1 origin "$ref" && echo "[Gitee fetch] success" && break
             echo "[Gitee fetch] attempt $i failed (exit $?), retrying in 10s..."
