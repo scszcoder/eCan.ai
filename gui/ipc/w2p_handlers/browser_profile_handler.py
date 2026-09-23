@@ -82,6 +82,17 @@ def _to_dto(profile: Dict[str, Any], status: Optional[Dict[str, Any]] = None) ->
         },
         "fingerprint_profile": profile.get("fingerprint_profile", "") or "",
         "imported_from": dict(profile.get("imported_from") or {}),
+        # Which shop this login is for, and whether the session still works.
+        # profile_status below answers "is the browser up", which says nothing
+        # about whether the seller session inside it is still valid -- the
+        # question an operator with several stores actually has.
+        "store_id": profile.get("store_id", "") or "",
+        "machine_id": profile.get("machine_id", "") or "",
+        "login": {
+            "state": profile.get("login_state", "") or "unknown",
+            "checked_at": int(profile.get("login_checked_at") or 0),
+            "detail": profile.get("login_detail", "") or "",
+        },
         "status": status if status is not None else {},
     }
 
@@ -239,9 +250,60 @@ def handle_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCR
                                      f"Failed to read profile status: {e}")
 
 
+@IPCHandlerRegistry.handler('browser_profile.needs_login')
+def handle_needs_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Every profile whose seller session still needs a human.
+
+    The provisioning to-do list: a machine can create profiles and install
+    skills on its own, but it cannot sign in as the seller, so this is the one
+    step that has to come back to a person. Answers it for all stores at once,
+    which is the point — one store you would notice, eight you would not.
+    """
+    try:
+        registry, _fb, _svc = _fp()
+        pending = registry.profiles_needing_login()
+        return create_success_response(request, {
+            'profiles': pending,
+            'count': len(pending),
+        })
+    except Exception as e:
+        logger.error(f"[browser-profile] needs_login failed: {e}")
+        return create_error_response(request, 'BROWSER_PROFILE_ERROR',
+                                     f"Failed to list profiles needing login: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Write
 # ---------------------------------------------------------------------------
+
+@IPCHandlerRegistry.handler('browser_profile.set_login_state')
+def handle_set_login_state(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Record whether this profile's seller session works.
+
+    The operator is the authoritative source right now: they are the one who
+    just signed in, and no site-independent check can tell a logged-in store
+    page from a logged-out one. A per-site detector can refine this later
+    without changing the state model.
+    """
+    try:
+        p = params or {}
+        profile_id = (p.get('id') or '').strip()
+        state = (p.get('state') or '').strip()
+        if not profile_id or not state:
+            return create_error_response(request, 'INVALID_PARAMS',
+                                         'A profile id and a state are required')
+        registry, _fb, _svc = _fp()
+        ok = registry.set_login_state(profile_id, state, str(p.get('detail') or ''))
+        if not ok:
+            return create_error_response(
+                request, 'INVALID_PARAMS',
+                f"Unknown profile '{profile_id}' or unsupported state '{state}'")
+        return create_success_response(request, registry.login_state(profile_id))
+    except Exception as e:
+        logger.error(f"[browser-profile] set_login_state failed: {e}")
+        return create_error_response(request, 'BROWSER_PROFILE_ERROR',
+                                     f"Failed to set login state: {e}")
+
 
 @IPCHandlerRegistry.handler('browser_profile.save')
 def handle_save(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
