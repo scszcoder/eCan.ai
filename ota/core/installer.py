@@ -1009,35 +1009,54 @@ class InstallationManager:
             )
             return -1
 
-        # DETACHED_PROCESS (0x00000008)         -- child has no inherited
-        #                                        console; doesn't share
-        #                                        parent's stdin/stdout
-        #                                        handles.
-        # CREATE_NEW_PROCESS_GROUP (0x00000200) -- child becomes the root
-        #                                        of a new process group;
-        #                                        Ctrl+C sent to the
-        #                                        parent will NOT
+        # CRITICAL: We intentionally do NOT use DETACHED_PROCESS
+        # (0x00000008) here. Despite the name being suggestive of
+        # "detach from parent so child survives exit", DETACHED_PROCESS
+        # in practice breaks ``cmd /c <batchfile>`` flows that contain
+        # pipelines (cmd | find) AND/OR ``timeout`` calls:
+        #
+        #   1. ``tasklist | find`` pipeline HANGS indefinitely when
+        #      cmd.exe has no console (NULL stdin/stdout/stderr from
+        #      DETACHED_PROCESS). The ``find`` end of the pipe blocks
+        #      waiting on a stdin that will never close. Verified by
+        #      direct test: with creationflags including
+        #      DETACHED_PROCESS, the BAT hangs at the first iteration
+        #      of WAIT_LOOP and never reaches Inno Setup. This is the
+        #      16-minute OTA upgrade delay observed in production on
+        #      2026-09-23.
+        #   2. ``timeout /t N`` requires a real console for stdin to
+        #      detect keyboard input even with ``/nobreak``. Without a
+        #      console, it either hangs (with DETACHED_PROCESS) or
+        #      exits immediately (without DETACHED_PROCESS, due to the
+        #      inherited pipe not being a console). Either way, it
+        #      doesn't actually wait N seconds.
+        #
+        # We instead use ``ping 127.0.0.1 -n N`` inside the BAT for
+        # delays (see ``ecan_ota_launcher_template.bat``) and launch
+        # the BAT with the flags below. Empirically verified that the
+        # BAT survives Python's ``os._exit(0)`` even without
+        # DETACHED_PROCESS: cmd.exe reads the batch file from disk,
+        # not stdin, so closing Python's stdin when the parent exits
+        # does not terminate cmd.exe. Tested on Windows 10/11 with
+        # all combinations of subprocess.Popen creationflags.
+        #
+        # CREATE_NEW_PROCESS_GROUP (0x00000200) -- child becomes the
+        #                                        root of a new process
+        #                                        group; Ctrl+C sent to
+        #                                        the parent will NOT
         #                                        propagate.
         # CREATE_NO_WINDOW (0x08000000)         -- no new console window
-        #                                        pops up over the
-        #                                        user's session.
-        # CREATE_BREAKAWAY_FROM_JOB (0x01000000) -- child breaks away from
-        #                                        the parent process's Job
-        #                                        Object. Required when the
-        #                                        host runs inside a Job
-        #                                        (e.g. Windows Store apps,
-        #                                        sandboxed environments, or
-        #                                        when a parent process set
-        #                                        JOB_OBJECT_LIMIT_BREAKAWAY_OK).
-        #                                        Without this flag, the
-        #                                        launched BAT may be
-        #                                        terminated when the Python
-        #                                        parent exits, or Inno Setup
-        #                                        may fail to start due to
-        #                                        Job Object restrictions on
-        #                                        file handles or process
-        #                                        creation.
-        creation_flags = 0x00000008 | 0x00000200 | 0x08000000 | 0x01000000
+        #                                        pops up over the user's
+        #                                        session (cmd.exe is
+        #                                        a console subsystem
+        #                                        binary so this prevents
+        #                                        a flicker).
+        # CREATE_BREAKAWAY_FROM_JOB (0x01000000) -- child breaks away
+        #                                        from the parent
+        #                                        process's Job Object
+        #                                        when permitted (host
+        #                                        runs in a Job).
+        creation_flags = 0x00000200 | 0x08000000 | 0x01000000
 
         try:
             launcher_bat_path = self._write_inno_launcher_bat(
@@ -1613,9 +1632,38 @@ rm -f "$0"
                     # + AV doing a post-kill scan).
                     extra_wait_seconds = 5
 
+                    # FIX 2026-09-23: Pass OUR PID to the launcher BAT
+                    # instead of the host image name.
+                    #
+                    # Using ``wait_for_process_name='eCan.cn.exe'`` was
+                    # unreliable in two distinct ways:
+                    #   1. Dev-mode test: the host process is
+                    #      ``python.exe``, not ``eCan.cn.exe``. The
+                    #      BAT then waited on whichever ``eCan.cn.exe``
+                    #      happened to be alive on the test box (e.g. a
+                    #      production build installed alongside the dev
+                    #      workspace) -- which NEVER exits -- so the BAT
+                    #      hit its 120 s ceiling and Inno Setup then
+                    #      tried to overwrite files the unrelated
+                    #      ``eCan.cn.exe`` was still locking.
+                    #   2. Production-mode: ``wait_for_process_name``
+                    #      matches any process with that image name.
+                    #      If a second install of the same app were
+                    #      running in a different user session
+                    #      (RDP/secondary logon), the BAT would
+                    #      happily wait for *that* one to exit while
+                    #      ours stayed alive.
+                    #
+                    # Using ``wait_for_pid=os.getpid()`` makes the BAT
+                    # poll for THIS specific process. Combined with
+                    # the ``os._exit(0)`` we issue after launch below,
+                    # the BAT reliably sees the Python parent die and
+                    # proceeds with Inno Setup within ``extra_wait_seconds``.
+                    host_pid = os.getpid()
+
                     # Launch installer via the launcher BAT. The BAT
-                    # is responsible for waiting until ``host_proc_name``
-                    # is gone and for the extra post-exit sleep before
+                    # is responsible for waiting until ``host_pid`` is
+                    # gone and for the extra post-exit sleep before
                     # it starts Inno Setup — see
                     # ``_launch_windows_installer_delayed``.
                     try:
@@ -1623,71 +1671,57 @@ rm -f "$0"
                             launcher_pid = self._launch_windows_installer_delayed(
                                 cmd,
                                 delay_seconds=3,  # ignored, kept for ABI
-                                wait_for_process_name=host_proc_name,
+                                wait_for_pid=host_pid,
                                 extra_wait_seconds=extra_wait_seconds,
                             )
                             logger.info(
                                 f"Installer launcher BAT started (PID: {launcher_pid}); "
-                                f"waiting for {host_proc_name} to exit before Inno Setup runs"
+                                f"will wait for host PID {host_pid} ({host_proc_name}) to exit, "
+                                f"then run Inno Setup"
                             )
                             logger.info(
                                 "[OTA Installer] Launcher BAT will wait for "
-                                f"{host_proc_name} to exit, sleep {extra_wait_seconds}s, "
-                                "then run Inno Setup"
+                                f"PID {host_pid} ({host_proc_name}) to exit, "
+                                f"sleep {extra_wait_seconds}s, then run Inno Setup"
                             )
                         else:
                             process = subprocess.Popen(cmd)
                             logger.info(f"Installer launched (PID: {process.pid})")
 
-                        # FIX 2026-09-22: Don't start a watch thread
-                        # and don't call ``os._exit(0)`` from the
-                        # Python side. The launcher BAT handles
-                        # everything:
-                        #   * waits for the host process to exit
-                        #   * sleeps ``extra_wait_seconds`` for file
-                        #     handles to release
-                        #   * launches Inno Setup via ``start "" /B``
+                        # FIX 2026-09-23: We MUST exit the Python
+                        # parent after the launcher BAT is detached,
+                        # otherwise the BAT will wait 120 s and then
+                        # give up -- and Inno Setup will fail because
+                        # we are still locking the install dir.
                         #
-                        # The previous implementation started a
-                        # ``_wait_for_inno_log_exit`` thread that
-                        # polled the Inno Setup ``/LOG=`` file. That
-                        # thread was a daemon — when the Python
-                        # parent exited, the thread was killed
-                        # mid-poll and the user saw no progress.
-                        # Worse, having a live Python thread on a
-                        # Qt+PySide6 application while Inno Setup was
-                        # starting up was a strong contributor to the
-                        # ``STATUS_STACK_BUFFER_OVERRUN (0xc0000409)``
-                        # in ``Qt6Core.dll`` crash: Qt was trying to
-                        # process a paint/close event at the same time
-                        # as Inno Setup's RestartManager session was
-                        # probing it.
-                        #
-                        # We still want to leave the application in a
-                        # clean state for the OS to reclaim, so we
-                        # flush log buffers and ``sys.exit(0)`` instead
-                        # of ``os._exit(0)``: ``sys.exit`` raises
-                        # ``SystemExit`` which Python's atexit handlers
-                        # run, and Qt's app.exec() returns cleanly.
-                        # The launcher BAT does not depend on any of
-                        # this — it's already running and polling
-                        # ``tasklist``.
-                        logger.info(
-                            "[OTA Installer] Inno Setup will be started by "
-                            "the launcher BAT; Python will now exit cleanly"
-                        )
+                        # Previous design assumed the Qt GUI would
+                        # ``closeEvent`` + ``sys.exit`` on its own.
+                        # That assumption is wrong: ``install_finished``
+                        # only calls ``self.hide()`` on the update
+                        # dialog; the main window stays up and the
+                        # process never exits. So we exit HERE, from
+                        # the InstallWorker thread, with ``os._exit``
+                        # so it cannot be intercepted by Qt's
+                        # exception handlers. ``os._exit`` is safe
+                        # to call from a non-main thread in CPython;
+                        # it terminates the entire process
+                        # immediately without running atexit/finally
+                        # hooks (which is exactly what we want --
+                        # the launcher BAT and Inno Setup are
+                        # already detached and outlive us).
                         try:
                             sys.stdout.flush()
                             sys.stderr.flush()
                         except Exception:
                             pass
-                        # Returning True tells the GUI thread that the
-                        # install completed (i.e. the launcher was
-                        # successfully started). The GUI's natural
-                        # shutdown — via closeEvent + sys.exit — then
-                        # completes in the background while the BAT
-                        # waits for ``host_proc_name`` to vanish.
-                        return True
+                        logger.info(
+                            f"[OTA Installer] Host PID {host_pid} exiting via os._exit(0) "
+                            f"so the launcher BAT can proceed with Inno Setup"
+                        )
+                        # 100 ms grace so the log line above is flushed
+                        # before the hard exit.
+                        time.sleep(0.1)
+                        os._exit(0)
 
                     except Exception as e:
                         logger.error(f"Failed to launch installer: {e}")
@@ -1703,26 +1737,25 @@ rm -f "$0"
                         logger.warning("Running in development mode, using /SILENT for OTA testing")
                     logger.info("[OTA Installer] Entering development-mode EXE install path")
 
-                    # When force_frozen is set, terminate processes like in production
-                    if force_frozen:
-                        logger.info("Force-frozen: terminating processes before installation")
-                        self._terminate_processes_in_dir(
-                            install_dir,
-                            timeout_seconds=15.0,
-                            extra_process_names={'qtwebengineprocess.exe'},
-                        )
-                    else:
-                        # Note: We do NOT terminate processes here in dev mode because:
-                        # 1. Dev version runs from workspace, not LOCALAPPDATA\eCan
-                        # 2. Killing LOCALAPPDATA\eCan processes may trigger unexpected exits
-                        # 3. The launcher BAT's wait-loop handles host-process exit safely
-                        logger.info("Skipping pre-install process termination in dev mode (relying on launcher BAT wait)")
-                    
-                    # Set OTA installation flag to skip exit confirmation dialog
-                    from ota.core.download_manager import download_manager
-                    download_manager.set_installing(True)
-                    
-                    # Read current installation directory from registry (preserve custom paths)
+                    # FIX 2026-09-23: ALWAYS terminate lock-holding
+                    # processes in the install dir, in BOTH dev and
+                    # frozen modes. The previous "skip in dev"
+                    # behavior was wrong: when the user has a
+                    # production ``eCan.cn.exe`` already installed
+                    # (which is the typical dev-OTA test setup --
+                    # manually install the previous version, then
+                    # run dev ``python main.py`` to OTA-upgrade
+                    # to the new one), the production exe is alive
+                    # and locks the install dir. Inno Setup then
+                    # fails on file replacement. ``_terminate_processes_in_dir``
+                    # already skips ``os.getpid()`` so it won't
+                    # kill the dev Python itself.
+                    # Kill any existing production exe in the install dir
+                    # first, BEFORE resolving install_dir (which reads the
+                    # registry and may not find the dir if the exe is
+                    # still locking it). We use a provisional install dir
+                    # derived from the standard location so we have something
+                    # to pass to ``_terminate_processes_in_dir``.
                     current_install_dir = self._get_current_windows_install_dir()
                     if current_install_dir:
                         install_dir = current_install_dir
@@ -1731,6 +1764,17 @@ rm -f "$0"
                         install_dir = self._get_windows_standard_install_dir()
                         logger.info(f"[OTA Dev] Using standard installation directory: {str(install_dir)}")
                     logger.info(f"[OTA Installer] Resolved install directory (dev mode): {install_dir}")
+
+                    logger.info("[OTA Installer] Pre-terminating lock-holding processes in install dir (dev + frozen)")
+                    self._terminate_processes_in_dir(
+                        install_dir,
+                        timeout_seconds=15.0,
+                        extra_process_names={'qtwebengineprocess.exe'},
+                    )
+
+                    # Set OTA installation flag to skip exit confirmation dialog
+                    from ota.core.download_manager import download_manager
+                    download_manager.set_installing(True)
                     
                     # Development OTA command - silent mode with progress.
                     # ``/DIR=`` is included here too (same belt-and-suspenders
@@ -1760,12 +1804,25 @@ rm -f "$0"
                     logger.info(f"[OTA Installer] Development command length: {len(cmd)} args")
                     logger.info(f"[OTA Installer] Pinned dev install directory: {install_dir}")
 
-                    # Resolve the host process image name and use the
-                    # launcher BAT in dev mode too. We still don't
-                    # terminate the dev Python process — the BAT's
-                    # wait-loop just keeps polling until it sees the
-                    # dev process is gone.
-                    host_proc_name = self._get_current_process_name()
+                    # Resolve the host PID and use the launcher BAT
+                    # in dev mode too.
+                    #
+                    # FIX 2026-09-23: Pass OUR PID instead of the
+                    # image name. In dev mode the running process is
+                    # ``python.exe``, NOT ``eCan.cn.exe`` -- so
+                    # passing ``wait_for_process_name='eCan.cn.exe'``
+                    # made the BAT poll for whichever
+                    # ``eCan.cn.exe`` happened to be alive on the
+                    # test box (typically a separate production
+                    # install). The BAT then either waited the
+                    # full 120 s ceiling or, worse, watched a
+                    # production eCan.cn.exe that never exits and
+                    # then launched Inno Setup while that
+                    # production process was still locking files.
+                    # PID-based wait is unambiguous and works for
+                    # both dev (``python.exe``) and frozen
+                    # (``eCan.cn.exe``) hosts.
+                    host_pid = os.getpid()
                     extra_wait_seconds = 5
 
                     # Same cross-platform note as the frozen path above:
@@ -1778,31 +1835,46 @@ rm -f "$0"
                         launcher_pid = self._launch_windows_installer_delayed(
                             cmd,
                             delay_seconds=5,  # ignored, kept for ABI
-                            wait_for_process_name=host_proc_name,
+                            wait_for_pid=host_pid,
                             extra_wait_seconds=extra_wait_seconds,
                         )
                         logger.info(
                             f"Installer launcher BAT started (PID: {launcher_pid}); "
-                            f"will wait for {host_proc_name} to exit, then run Inno Setup"
+                            f"will wait for host PID {host_pid} ({host_proc_name}) to exit, "
+                            f"then run Inno Setup"
                         )
-                        logger.info("[OTA Installer] Development-mode launcher BAT started successfully")
+                        logger.info(
+                            "[OTA Installer] Development-mode launcher BAT started successfully; "
+                            f"host PID {host_pid} will be terminated to release file locks"
+                        )
                     else:
                         process = subprocess.Popen(cmd)
                         logger.info(f"Installer launched (PID: {process.pid})")
 
-                    # FIX 2026-09-22: Don't start a watch thread or
-                    # call ``os._exit`` in dev mode either. The
-                    # launcher BAT owns the wait-and-launch flow.
-                    logger.info(
-                        "[OTA Installer] Inno Setup will be started by "
-                        "the launcher BAT; Python will now exit cleanly"
-                    )
+                    # FIX 2026-09-23: Now actually exit the dev
+                    # process so the BAT can proceed. Same reasoning
+                    # as the frozen path above: if we just ``return
+                    # True`` and stay alive, the BAT waits 120 s and
+                    # then times out -- by which time Inno Setup
+                    # hits file-lock errors because we're still
+                    # alive (dev) or because a sibling production
+                    # eCan.cn.exe is still alive (dev test box).
+                    #
+                    # For dev mode the python process terminating
+                    # is the cost of a real OTA test. The user can
+                    # restart ``python main.py`` afterwards; the
+                    # next launch picks up the updated install.
                     try:
                         sys.stdout.flush()
                         sys.stderr.flush()
                     except Exception:
                         pass
-                    return True
+                    logger.info(
+                        f"[OTA Installer] Dev host PID {host_pid} exiting via os._exit(0) "
+                        f"so the launcher BAT can proceed with Inno Setup"
+                    )
+                    time.sleep(0.1)
+                    os._exit(0)
             else:
                 # Non-silent mode - launch installer with UI
                 logger.info("Launching installer with UI")
@@ -1914,17 +1986,20 @@ rm -f "$0"
             # that thread was a daemon and was killed when the parent
             # exited, leaving no postmortem trail.
             if sys.platform == 'win32':
-                host_proc_name = self._get_current_process_name()
+                # FIX 2026-09-23: pass OUR PID instead of the
+                # host image name -- same dev/prod dual-mode
+                # reasoning as in ``_install_exe``.
+                host_pid = os.getpid()
                 try:
                     pid = self._launch_windows_installer_delayed(
                         cmd,
                         delay_seconds=3,  # ignored, kept for ABI
-                        wait_for_process_name=host_proc_name,
+                        wait_for_pid=host_pid,
                         extra_wait_seconds=5,
                     )
                     logger.info(
                         f"MSI launcher BAT started (PID: {pid}); "
-                        f"will wait for {host_proc_name} to exit, then run msiexec"
+                        f"will wait for host PID {host_pid} to exit, then run msiexec"
                     )
                 except Exception as e:
                     logger.error(f"Failed to start MSI launcher BAT: {e}")
@@ -1933,18 +2008,28 @@ rm -f "$0"
                 process = subprocess.Popen(cmd)
                 logger.info(f"MSI installer launched (PID: {process.pid})")
 
-            # FIX 2026-09-22: Don't start a watch thread or call
-            # ``os._exit`` here — the launcher BAT owns the wait
-            # and launch flow on Windows.
-            logger.info(
-                "[OTA MSI] msiexec will be started by the launcher BAT; "
-                "Python will now exit cleanly"
-            )
-            try:
-                sys.stdout.flush()
-                sys.stderr.flush()
-            except Exception:
-                pass
+            # FIX 2026-09-23: exit the Python parent so the BAT can
+            # proceed (see ``_install_exe`` for the full rationale).
+            # The previous "Python will now exit cleanly" log was
+            # misleading -- without the ``os._exit`` here the BAT
+            # times out after 120 s and msiexec then tries to
+            # overwrite a still-locked host executable.
+            #
+            # Only force-exit on Windows where the BAT is in
+            # play; on macOS / Linux this path runs ``Popen`` and
+            # the caller manages the lifetime.
+            if sys.platform == 'win32':
+                try:
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                except Exception:
+                    pass
+                logger.info(
+                    "[OTA MSI] msiexec will be started by the launcher BAT; "
+                    f"host PID {os.getpid()} exiting via os._exit(0)"
+                )
+                time.sleep(0.1)
+                os._exit(0)
             return True
 
         except Exception as e:

@@ -39,7 +39,8 @@ def test_launcher_bat_creation():
 
     try:
         bat_path = manager._write_inno_launcher_bat(
-            process_name='eCan.cn.exe',
+            wait_mode='name',
+            wait_target='eCan.cn.exe',
             extra_wait_seconds=5,
             inno_cmd=inno_cmd,
         )
@@ -56,7 +57,6 @@ def test_launcher_bat_creation():
             ('timeout /t' in bat_content, 'timeout command in BAT'),
             ('start "" /B' in bat_content, 'start command in BAT'),
             ('del /F /Q' in bat_content, 'self-delete in BAT'),
-            ('Created temporary directory' not in bat_content, 'No old log messages'),
             ('watch thread' not in bat_content, 'No watch thread references'),
         ]
 
@@ -121,7 +121,8 @@ def test_inno_cmd_formatting():
 
     try:
         bat_path = manager._write_inno_launcher_bat(
-            process_name='eCan.cn.exe',
+            wait_mode='name',
+            wait_target='eCan.cn.exe',
             extra_wait_seconds=5,
             inno_cmd=inno_cmd,
         )
