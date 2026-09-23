@@ -478,6 +478,20 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     log.append(f"Task variables: store_url={store_urls[0]} (+{len(store_urls) - 1} more)"
                if len(store_urls) > 1 else f"Task variables: store_url={store_urls[0]}")
 
+    # ── Store identity. NOT derivable from the URL here: every 飞鸽 seller
+    #    shares https://im.jinritemai.com/pc_seller_v2/..., so resolve_store_id's
+    #    URL fallback returns the same constant for every store. Left unset, a
+    #    second store's per-store placeholder config and metering would silently
+    #    merge into the first one's bucket — populated-looking and wrong.
+    store_id = str(cfg.get("store_id") or "").strip()
+    if store_id:
+        task_vars["store_id"] = store_id
+        log.append(f"Store id: {store_id}")
+    else:
+        log.append("WARNING: no store_id given. Fine for a single store; if you "
+                   "deploy a second one, its per-store settings and usage will "
+                   "merge with this one's. Re-run with a store id to separate them.")
+
     # ── Vehicle: pin the new agents to THIS machine (affinity gate).
     # ONLY the verified local machine id may be pinned. Never fall back to an
     # arbitrary DB row: on the v0.9.95t customer machine the first row was a

@@ -21,6 +21,10 @@ export interface ScenarioSchema {
     /** Show the add/replace switch (replace = delete this owner's existing
      *  tasks on the scenario's skills + the agents assigned to them, then add). */
     replaceMode?: boolean;
+    /** Show the store-id field. Needed wherever the store URL does NOT identify
+     *  the store: every 飞鸽 seller shares one workstation URL, so a URL-derived
+     *  id would silently merge two stores' per-store config and metering. */
+    storeId?: boolean;
 }
 
 export interface BusinessScenario {
@@ -37,6 +41,7 @@ export interface ScenarioConfig {
     storeUrls: string[];
     qaAgents?: number;
     mode?: 'add' | 'replace';
+    storeId?: string;
 }
 
 const CS_SCHEMA: ScenarioSchema = { storeUrls: true, qaAgents: { default: 6, min: 1, max: 16 } };
@@ -45,6 +50,7 @@ const DOUYIN_CS_SCHEMA: ScenarioSchema = {
     qaAgents: { default: 8, min: 1, max: 16 },
     defaultStoreUrl: 'https://im.jinritemai.com/pc_seller_v2/main/workspace',
     replaceMode: true,
+    storeId: true,
 };
 const OPS_SCHEMA: ScenarioSchema = { storeUrls: true };
 
@@ -71,5 +77,6 @@ export function defaultConfig(s: BusinessScenario): ScenarioConfig {
         storeUrls: [s.schema.defaultStoreUrl ?? ''],
         ...(s.schema.qaAgents ? { qaAgents: s.schema.qaAgents.default } : {}),
         ...(s.schema.replaceMode ? { mode: 'add' as const } : {}),
+        ...(s.schema.storeId ? { storeId: '' } : {}),
     };
 }
