@@ -246,14 +246,13 @@ class NarrowToListenersTests(unittest.TestCase):
         from agent.ec_skills.node_runtime import frontdesk_dispatch as fd
 
         self.fd = fd
-        self.cfg = fd.DispatchConfig(log_tag="Test")
         self.live = [{"id": QA1}, {"id": QA2}]
 
     def _run(self, listeners, env=None):
         with patch(
             "agent.ec_tasks.runner.find_my_listeners", return_value=listeners
         ), patch.dict("os.environ", env or {}, clear=False):
-            return self.fd._narrow_to_listeners(self.cfg, FD, self.live)
+            return self.fd.narrow_to_listeners(self.live, FD, log_tag="Test")
 
     def test_narrows_to_the_declared_listeners(self):
         self.assertEqual(self._run([QA1]), [{"id": QA1}])
@@ -282,7 +281,7 @@ class NarrowToListenersTests(unittest.TestCase):
             "os.environ", {"ECAN_DISPATCH_USE_LISTENERS": "0"}, clear=False
         ):
             self.assertEqual(
-                self.fd._narrow_to_listeners(self.cfg, FD, self.live), self.live
+                self.fd.narrow_to_listeners(self.live, FD, log_tag="Test"), self.live
             )
 
     def test_lookup_failure_falls_back_rather_than_crashing_dispatch(self):
@@ -291,7 +290,7 @@ class NarrowToListenersTests(unittest.TestCase):
 
         with patch("agent.ec_tasks.runner.find_my_listeners", _boom):
             self.assertEqual(
-                self.fd._narrow_to_listeners(self.cfg, FD, self.live), self.live
+                self.fd.narrow_to_listeners(self.live, FD, log_tag="Test"), self.live
             )
 
 

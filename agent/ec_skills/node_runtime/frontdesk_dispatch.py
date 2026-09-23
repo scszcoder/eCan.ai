@@ -1467,10 +1467,15 @@ async def _open_tab_for_session(
 # ``front_desk_agent_id`` (written at 快速生成 by cli/deploy/commands.py), so
 # the listener sets are disjoint without any new concept.
 
-def _narrow_to_listeners(
-    cfg: "DispatchConfig", sender_agent_id: str, live: list[dict]
+def narrow_to_listeners(
+    agents: list[dict], sender_agent_id: str, *, log_tag: str = "Dispatch"
 ) -> list[dict] | None:
-    """Restrict the live pool to this sender's declared listeners.
+    """Restrict a pool of agents to this sender's declared listeners.
+
+    Public because both dispatch paths need it: this module's
+    ``_resolve_recipient_agents``, and the site bundles, which build their own
+    roster to inject into the front-desk prompt. Narrowing only one of them
+    leaves the other free to dispatch across stores.
 
     Returns the narrowed pool, or ``None`` when strict mode is on and nobody
     is listening (the caller then aborts dispatch).
@@ -1481,7 +1486,7 @@ def _narrow_to_listeners(
     than a broadcast — and is enabled once a deployment is validated.
     """
     if os.environ.get("ECAN_DISPATCH_USE_LISTENERS", "1") == "0":
-        return live
+        return agents
     strict = os.environ.get("ECAN_DISPATCH_LISTENERS_STRICT", "0") == "1"
     # Read the runner module out of sys.modules rather than importing it. This
     # module documents "no core imports (avoids circular imports)", and
@@ -1490,19 +1495,19 @@ def _narrow_to_listeners(
     # absent module means there are no runners and nothing to narrow by.
     runner_mod = sys.modules.get("agent.ec_tasks.runner")
     if runner_mod is None:
-        return live
+        return agents
     try:
         listener_ids = set(runner_mod.find_my_listeners(sender_agent_id))
     except Exception as exc:
         logger.warning(
-            f"[BrowserAutomation] {cfg.log_tag} listener lookup failed ({exc}); "
+            f"[BrowserAutomation] {log_tag} listener lookup failed ({exc}); "
             f"falling back to recipient_filter"
         )
-        return live
+        return agents
 
     if not listener_ids:
         msg = (
-            f"[BrowserAutomation] {cfg.log_tag} no agent has declared "
+            f"[BrowserAutomation] {log_tag} no agent has declared "
             f"{sender_agent_id[-8:]} as a permitted sender — the Q&A skills' "
             f"pend_event agentIds are unset, or their task_vars "
             f"front_desk_agent_id did not resolve"
@@ -1511,25 +1516,25 @@ def _narrow_to_listeners(
             logger.error(f"{msg}. Aborting dispatch (LISTENERS_STRICT=1).")
             return None
         logger.warning(f"{msg}. Falling back to recipient_filter.")
-        return live
+        return agents
 
-    narrowed = [a for a in live if a.get("id") in listener_ids]
+    narrowed = [a for a in agents if a.get("id") in listener_ids]
     if not narrowed:
         msg = (
-            f"[BrowserAutomation] {cfg.log_tag} {len(listener_ids)} listener(s) "
+            f"[BrowserAutomation] {log_tag} {len(listener_ids)} listener(s) "
             f"declared {sender_agent_id[-8:]} but none is in the live pool "
-            f"{[a.get('id', '')[-8:] for a in live]}"
+            f"{[a.get('id', '')[-8:] for a in agents]}"
         )
         if strict:
             logger.error(f"{msg}. Aborting dispatch (LISTENERS_STRICT=1).")
             return None
         logger.warning(f"{msg}. Falling back to recipient_filter.")
-        return live
+        return agents
 
-    if len(narrowed) != len(live):
+    if len(narrowed) != len(agents):
         logger.info(
-            f"[BrowserAutomation] {cfg.log_tag} listener grouping narrowed pool "
-            f"{len(live)} -> {len(narrowed)}: {[a.get('id', '')[-8:] for a in narrowed]}"
+            f"[BrowserAutomation] {log_tag} listener grouping narrowed pool "
+            f"{len(agents)} -> {len(narrowed)}: {[a.get('id', '')[-8:] for a in narrowed]}"
         )
     return narrowed
 
@@ -1572,7 +1577,7 @@ def _resolve_recipient_agents(
             f"non-live agents from recipient pool: {dropped}"
         )
 
-    listener_pool = _narrow_to_listeners(cfg, sender_agent_id, live)
+    listener_pool = narrow_to_listeners(live, sender_agent_id, log_tag=cfg.log_tag)
     if listener_pool is None:
         return []
     live = listener_pool
