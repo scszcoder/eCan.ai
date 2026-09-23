@@ -26,7 +26,11 @@ def get_local_port(default: int = DEFAULT_PORT) -> int:
             return int(val)
         except ValueError:
             pass
-    return default
+    # A named instance moves off the shared default so two processes can serve
+    # at once; the default instance stays exactly on ``default``. An explicit
+    # ECAN_LOCAL_SERVER_PORT above still wins — it is the manual override.
+    from config.instance import instance_port
+    return instance_port(default)
 
 
 def base_url(host: Optional[str] = None, port: Optional[int] = None) -> str:

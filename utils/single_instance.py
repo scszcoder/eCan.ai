@@ -106,6 +106,7 @@ def install_single_instance():
     Enhanced with stale lock detection and PID validation.
     """
     username = getpass.getuser()
+    from config.instance import instance_suffix
 
     # Resolve per-app identifier once here so the mutex name and file lock
     # key both derive from the same value. AppConfigLoader never raises when
@@ -124,7 +125,12 @@ def install_single_instance():
             import ctypes
             from ctypes import wintypes
 
-            mutex_name = f"Global\\{_app_short_name}.AI.SingleInstance"
+            # Suffixed so one store's process does not lock out the next.
+            # Safe only because the data home (config/app_info.py) and the
+            # IPC port (agent/mcp/config.py) are already instance-scoped —
+            # this is the gate that actually permits the second process.
+            from config.instance import instance_suffix
+            mutex_name = f"Global\\{_app_short_name}.AI.SingleInstance{instance_suffix()}"
             kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
             CreateMutexW = kernel32.CreateMutexW
             CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
@@ -167,7 +173,10 @@ def install_single_instance():
     # can run concurrently without colliding on the lock file. Reuse the
     # _app_short_name we already resolved above instead of re-instantiating
     # AppConfigLoader.
-    app_id = f"{_app_short_name}.AI"
+    # The instance id joins username + app_id in the hash for the same reason
+    # it suffixes the mutex above: on non-Windows this file lock IS the gate,
+    # and on Windows it is the fallback when the mutex call fails.
+    app_id = f"{_app_short_name}.AI{instance_suffix()}"
     unique_id = hashlib.md5(f"{username}_{app_id}".encode()).hexdigest()[:16]
     lock_file_path = os.path.join(tempfile.gettempdir(), f'ecan_main_{unique_id}.lock')
 

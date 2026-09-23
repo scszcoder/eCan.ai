@@ -390,8 +390,16 @@ class GeneralSettings:
 
     @property
     def local_server_port(self) -> str:
-        """Local server port"""
-        return self._data.get("local_server_port", "4668")
+        """Local server port.
+
+        This is the value LocalServer actually binds (via
+        MainWindow.get_local_server_port), so the default must follow the
+        instance: a second instance that fell back to a literal 4668 would
+        collide with the first and fail to start. A value the user saved still
+        wins, and settings live in the instance's own data home anyway.
+        """
+        from agent.mcp.config import get_local_port
+        return self._data.get("local_server_port", str(get_local_port()))
 
     @local_server_port.setter
     def local_server_port(self, value: str):

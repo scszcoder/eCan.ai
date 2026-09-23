@@ -97,6 +97,19 @@ class AppInfo:
             root_dir = self._prod_appdata_path()
         else:
             root_dir = self._dev_appdata_path()
+
+        # Multi-store runs one process per store, and everything instance-scoped
+        # hangs off this one path: ecan.db, runlogs, browser profiles, plugin
+        # config. Suffixing here is what keeps two instances from sharing a
+        # SQLite file or truncating each other's eCan.log. Empty id (the
+        # default, and every existing install) leaves the path untouched.
+        from config.instance import instance_id
+        _inst = instance_id()
+        if _inst:
+            root_dir = os.path.join(root_dir, f"instance-{_inst}")
+            if not os.path.exists(root_dir):
+                os.makedirs(root_dir, exist_ok=True)
+            print(f"instance appdata path: {root_dir}")
         print(f"ecbot appdata home path:{root_dir}")
 
         return root_dir

@@ -504,7 +504,8 @@ class MainWindow:
         os_name = self._safe_os_name()
         arch = self._safe_arch()
         ecan_ver = self._safe_ecan_ver()
-        api_port = 4668
+        from agent.mcp.config import get_local_port
+        api_port = get_local_port()
 
         # Capture `self` by reference; the daemon thread only writes to
         # ``self._lan_discovery`` once ``start_lan_discovery`` returns.
