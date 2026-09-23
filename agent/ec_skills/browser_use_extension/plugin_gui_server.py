@@ -68,7 +68,22 @@ _DEFAULT_CSP = (
     "img-src {origin} data:; "
     "font-src {origin} data:; "
     "connect-src 'none'; "
-    "frame-ancestors *; "  # parent app frames us; in production we tighten this
+    # The packaged app loads its UI from a LOCAL FILE
+    # (web_engine_view.load_local_file -> file:///.../gui_v2/dist/index.html),
+    # so our ancestor's scheme is `file:`. A bare `*` does NOT cover that:
+    # per CSP3 it matches only network schemes (http/https/ws/wss) or a scheme
+    # equal to the protected resource's own. The customer's console said so
+    # outright:
+    #
+    #   Refused to frame 'http://127.0.0.1:52348/' because an ancestor violates
+    #   the following Content Security Policy directive: "frame-ancestors *".
+    #   Note that '*' matches only URLs with network schemes ... The scheme
+    #   'http:' must be added explicitly.
+    #
+    # That is the entire "works in dev, blank after install" difference: under
+    # `pnpm dev` the ancestor is http://localhost:3000, a network scheme, so `*`
+    # matches and the panel loads. Schemes are therefore listed explicitly.
+    "frame-ancestors * file: http: https:; "
     "form-action 'none'; "
     "base-uri 'none'"
 )

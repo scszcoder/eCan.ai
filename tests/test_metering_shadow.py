@@ -369,6 +369,20 @@ class PluginGuiCspOriginTests(unittest.TestCase):
 
     SRC = Path("agent/ec_skills/browser_use_extension/plugin_gui_server.py")
 
+    def test_frame_ancestors_lists_schemes_not_just_star(self) -> None:
+        """The packaged app loads its UI from file:///.../index.html, so our
+        ancestor's scheme is `file:`. CSP3 `*` matches only network schemes
+        (http/https/ws/wss) or the resource's own, so a bare `*` refuses the
+        frame in a packaged build while working under `pnpm dev` over http.
+        That difference is the entire "blank after install" report."""
+        src = self.SRC.read_text(encoding="utf-8")
+        i = src.find("_DEFAULT_CSP")
+        csp = src[i:i + 1800]
+        fa = [l for l in csp.splitlines()
+              if l.strip().startswith('"frame-ancestors')][0]
+        self.assertIn("file:", fa)
+        self.assertIn("http:", fa)
+
     def test_csp_names_an_origin_rather_than_self(self) -> None:
         src = self.SRC.read_text(encoding="utf-8")
         i = src.find("_DEFAULT_CSP")
