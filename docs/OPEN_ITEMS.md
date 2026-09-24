@@ -699,6 +699,25 @@ on the profile record. Both hardcode a policy, so decide deliberately.
 
 ## 🔵 Planned work
 
+### ⚡ Store placement: the assignment decides where a store runs (2026-09-24)
+
+Design: `docs/STORE_PLACEMENT_DESIGN.md` — awaiting owner decisions D1–D3.
+Blocks running one account's stores on more than one machine: today a second
+machine adopts the same agents (fail-open "no-affinity" / "stale-pin-adopt" in
+`vehicle_affinity.agent_launch_allowed`) → duplicate customer replies, and
+`store_assign` is display-only. Needs server work (`store_claim`, release,
+desktop liveness in the vehicle reaper) plus a client gate, reconciler and a
+new `EC_Agent.stop()`.
+
+### Store registry has no intl backend (2026-09-24)
+
+`store_report` / `store_list` / `store_assign` / `store_archive` exist only on
+the CN `ecbAccountManager`. On intl, `store_api._call` targets
+`<graphql host>/ecbAccountManager`, which has no intl counterpart (inferred
+from the code, not tried live), so the heartbeat's store report and
+Settings → Stores should come back as a typed WARNING, not a crash. Store placement depends on these actions, so intl
+multi-machine needs the AWS side first. Deliberately deferred.
+
 ### Open commercial decisions for business-metric billing (2026-09-21)
 
 Design + backend brief: `cn/tencent/BILLING_METERING_SERVER_TODO.md` in the
