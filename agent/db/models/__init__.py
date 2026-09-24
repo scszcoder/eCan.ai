@@ -104,6 +104,9 @@ from .avatar_model import (
 from .usage_event_model import (
     UsageEvent
 )
+from .store_model import (
+    Store
+)
 from .token_usage_model import (
     TokenUsage
 )
@@ -167,6 +170,7 @@ __all__ = [
     # Token usage models
     'TokenUsage',
     'UsageEvent',
+    'Store',
     
     # Association models
     'DBAgentOrgRel',
@@ -200,6 +204,7 @@ MODEL_REGISTRY = {
     'DBAvatarResource': DBAvatarResource,
     'TokenUsage': TokenUsage,
     'UsageEvent': UsageEvent,
+    'Store': Store,
     'DBAgentOrgRel': DBAgentOrgRel,
     'DBAgentSkillRel': DBAgentSkillRel,
     'DBAgentTaskRel': DBAgentTaskRel,

@@ -352,10 +352,20 @@ def _load_system_skill(name: str):
     return None
 
 
-def _replace_cleanup(ctx, owner: str, skill_ids, log: list) -> dict:
+def _task_store_id(row: dict) -> str:
+    md = (row or {}).get("metadata")
+    tv = md.get("task_vars") if isinstance(md, dict) else None
+    return str((tv or {}).get("store_id") or "").strip() if isinstance(tv, dict) else ""
+
+
+def _replace_cleanup(ctx, owner: str, skill_ids, log: list, store_id: str = "") -> dict:
     """Fast Deploy 'replace' mode: delete this owner's existing tasks that use
-    the given (shared) skills, and every agent of this owner that has one of
-    those tasks assigned — then the caller proceeds with a normal 'add'.
+    the given (shared) skills FOR THIS STORE, and the agents serving only them
+    — then the caller proceeds with a normal 'add'.
+
+    Scoped by ``store_id`` (tasks with no store id when it is blank). It used
+    to delete every task on these skills, so replacing store B wiped store A's
+    agents too. An agent that still serves another store's task is kept.
     Other owners' rows are never touched. Returns {"tasks": [...], "agents": [...]}."""
     from ..base.sync import cloud_sync
     from agent.cloud_api.constants import DataType, Operation
@@ -368,7 +378,8 @@ def _replace_cleanup(ctx, owner: str, skill_ids, log: list) -> dict:
             if not tid or tid in task_ids:
                 continue
             rows = (ctx.db.task_service.query_tasks(id=tid) or {}).get("data") or []
-            if rows and str(rows[0].get("owner") or "") == str(owner):
+            if (rows and str(rows[0].get("owner") or "") == str(owner)
+                    and _task_store_id(rows[0]) == store_id):
                 task_ids.append(tid)
 
     agent_ids: list = []
@@ -379,7 +390,11 @@ def _replace_cleanup(ctx, owner: str, skill_ids, log: list) -> dict:
             if not aid:
                 continue
             assoc = (ctx.db.agent_service.get_agent_task_associations(aid) or {}).get("data") or []
-            if any(str((x or {}).get("task_id") or "") in task_ids for x in assoc):
+            linked = {str((x or {}).get("task_id") or "") for x in assoc} - {""}
+            if linked & set(task_ids):
+                if linked - set(task_ids):
+                    log.append(f"Replace mode: kept agent {aid} -- it also serves tasks of another store")
+                    continue
                 agent_ids.append(aid)
 
     # Agents first (their task links go with them), then the tasks.
@@ -395,8 +410,25 @@ def _replace_cleanup(ctx, owner: str, skill_ids, log: list) -> dict:
         cloud_sync(DataType.TASK, {"id": tid}, Operation.DELETE)
 
     log.append(f"Replace mode: deleted {len(agent_ids)} agent(s) and {len(task_ids)} task(s) "
-               f"using the 抖店客服 skills (owner={owner})")
+               f"using the 抖店客服 skills for store {store_id or '(none)'} (owner={owner})")
     return {"tasks": task_ids, "agents": agent_ids}
+
+
+def _register_store(ctx, store_id: str, cfg: dict, store_urls: list, log: list) -> None:
+    """Make sure the store exists in the local catalog; a deploy into a new id
+    defines it. Never renames an existing store. Best-effort: the catalog is
+    bookkeeping, and a failure must not fail a deployment."""
+    try:
+        svc = getattr(ctx.db, "store_service", None)
+        if svc is None:
+            return
+        fields = {"store_id": store_id, "platform": "douyin", "store_urls": store_urls}
+        if not svc.get_store(store_id):
+            fields.update(name=str(cfg.get("store_name") or store_id), source="fast_deploy")
+        svc.upsert_store(fields)
+        log.append(f"Store registered: {store_id}")
+    except Exception as e:
+        log.append(f"Store catalog not updated (non-fatal): {e}")
 
 
 def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
@@ -410,9 +442,10 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     log = []
     created = {"skills": [], "tasks": [], "agents": []}
 
-    # ── 0) 'replace' mode: clear this owner's previous 抖店客服 deployment first.
+    # ── 0) 'replace' mode: clear THIS STORE's previous 抖店客服 deployment first.
     if str(cfg.get("mode") or "add").strip().lower() == "replace":
-        _replace_cleanup(ctx, owner, (_DDCS_FD_SKILL_ID, _DDCS_QA_SKILL_ID), log)
+        _replace_cleanup(ctx, owner, (_DDCS_FD_SKILL_ID, _DDCS_QA_SKILL_ID), log,
+                         store_id=str(cfg.get("store_id") or "").strip())
     else:
         log.append("Add mode: existing tasks/agents kept")
 
@@ -487,6 +520,7 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     if store_id:
         task_vars["store_id"] = store_id
         log.append(f"Store id: {store_id}")
+        _register_store(ctx, store_id, cfg, store_urls, log)
     else:
         log.append("WARNING: no store_id given. Fine for a single store; if you "
                    "deploy a second one, its per-store settings and usage will "

@@ -96,6 +96,17 @@ def handle_overview(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IP
         cloud_error = str(e)
         logger.warning(f"[store] overview without cloud placement: {e}")
 
+    # The local catalog: a record for every store we can see (seeded on first
+    # sight), carrying the definition -- name, platform, URLs, login profile.
+    catalog = {}
+    try:
+        from agent.ec_agents import store_catalog
+        store_catalog.seed(mainwin, cloud_rows)
+        catalog = {s['store_id']: s for s in mainwin.ec_db_mgr.store_service.list_stores(
+            include_archived=bool(params.get('include_archived')))}
+    except Exception as e:
+        logger.warning(f"[store] catalog unavailable: {e}")
+
     empty_local = {'agents': [], 'tasks': [], 'meters': []}
     stores = []
     seen = set()
@@ -107,12 +118,72 @@ def handle_overview(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IP
         stores.append({**row, 'local': local.get(sid, empty_local)})
     for sid, info in local.items():
         if sid not in seen:
+            seen.add(sid)
             stores.append({'storeId': sid, 'status': 'active', 'local': info, 'cloudKnown': False})
+    for sid, rec in catalog.items():
+        if sid not in seen:
+            stores.append({'storeId': sid, 'status': rec.get('status') or 'active',
+                           'local': empty_local, 'cloudKnown': False})
+    for s in stores:
+        rec = catalog.get(s['storeId'])
+        if rec:
+            s['definition'] = {k: rec.get(k) for k in
+                               ('name', 'platform', 'store_urls', 'browser_profile_id', 'source')}
+            s['label'] = rec.get('name') or s.get('label')
+            s['platform'] = s.get('platform') or rec.get('platform')
     return create_success_response(request, {
         'stores': stores,
         'this_vehicle_id': _this_vehicle_id(),
         'cloud_error': cloud_error,
     })
+
+
+def _mainwin():
+    from app_context import AppContext
+    mw = AppContext.get_main_window()
+    if mw is None:
+        raise RuntimeError("the app is not ready yet")
+    return mw
+
+
+def _catalog_call(request: IPCRequest, action: str, fn) -> IPCResponse:
+    try:
+        return create_success_response(request, fn())
+    except ValueError as e:
+        return create_error_response(request, 'INVALID_PARAMS', str(e))
+    except Exception as e:
+        logger.error(f"[store] {action} failed: {e}")
+        return create_error_response(request, 'STORE_ERROR', f"{action} failed: {e}")
+
+
+@IPCHandlerRegistry.handler('store.catalog')
+def handle_catalog(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """The local store definitions -- what Fast Deploy offers to deploy into."""
+    def run():
+        mw = _mainwin()
+        from agent.ec_agents import store_catalog
+        store_catalog.seed(mw)
+        return {'stores': mw.ec_db_mgr.store_service.list_stores(
+            include_archived=bool((params or {}).get('include_archived')))}
+    return _catalog_call(request, 'store_catalog', run)
+
+
+@IPCHandlerRegistry.background_handler('store.create')
+def handle_create(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Define a store: {store_id, name, platform, store_urls, browser_profile_id, assign: here|none}."""
+    def run():
+        from agent.ec_agents import store_catalog
+        return store_catalog.create_store(_mainwin(), params or {})
+    return _catalog_call(request, 'store_create', run)
+
+
+@IPCHandlerRegistry.handler('store.update')
+def handle_update(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Edit a store's definition: {store_id, name?, platform?, store_urls?, browser_profile_id?}."""
+    def run():
+        from agent.ec_agents import store_catalog
+        return store_catalog.update_store(_mainwin(), params or {})
+    return _catalog_call(request, 'store_update', run)
 
 
 @IPCHandlerRegistry.background_handler('store.assign')

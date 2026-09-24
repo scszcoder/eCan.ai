@@ -102,3 +102,58 @@ def test_replace_with_nothing_to_delete(monkeypatch):
     out = cmds._replace_cleanup(_Ctx(ts, ag), "alice", ("SK_FD", "SK_QA"), log)
     assert out == {"tasks": [], "agents": []}
     assert any("deleted 0 agent(s) and 0 task(s)" in line for line in log)
+
+
+def _store_task(tid, store):
+    return {"id": tid, "owner": "alice", "metadata": {"task_vars": {"store_id": store}}}
+
+
+def test_replace_touches_only_the_store_being_redeployed(monkeypatch):
+    # It used to delete every task on the 抖店客服 skills: replacing store B
+    # wiped store A's agents too.
+    rels = [{"task_id": t, "skill_id": "SK_QA"} for t in ("a1", "b1", "b2", "shared_b")]
+    tasks = [_store_task("a1", "A"), _store_task("b1", "B"), _store_task("b2", "B"),
+             _store_task("shared_b", "B")]
+    agents = [{"id": x, "owner": "alice"} for x in ("ag_a1", "ag_b1", "ag_b2", "ag_shared")]
+    assoc = [{"agent_id": "ag_a1", "task_id": "a1"}, {"agent_id": "ag_b1", "task_id": "b1"},
+             {"agent_id": "ag_b2", "task_id": "b2"},
+             # one agent serving a B task AND an A task: must not be deleted with B
+             {"agent_id": "ag_shared", "task_id": "shared_b"}, {"agent_id": "ag_shared", "task_id": "a1"}]
+    ts, ag = _TaskSvc(rels, tasks), _AgentSvc(agents, assoc)
+    monkeypatch.setattr("cli.base.sync.cloud_sync", lambda *a, **k: None)
+    log = []
+    out = cmds._replace_cleanup(_Ctx(ts, ag), "alice", ("SK_QA",), log, store_id="B")
+    assert sorted(out["tasks"]) == ["b1", "b2", "shared_b"]
+    assert sorted(out["agents"]) == ["ag_b1", "ag_b2"]
+    assert "a1" not in ts.deleted and "ag_a1" not in ag.deleted
+    assert any("kept agent ag_shared" in line for line in log)
+
+
+def test_replace_without_a_store_id_leaves_stores_alone(monkeypatch):
+    rels = [{"task_id": t, "skill_id": "SK_QA"} for t in ("legacy", "a1")]
+    tasks = [{"id": "legacy", "owner": "alice"}, _store_task("a1", "A")]
+    ts, ag = _TaskSvc(rels, tasks), _AgentSvc([], [])
+    monkeypatch.setattr("cli.base.sync.cloud_sync", lambda *a, **k: None)
+    out = cmds._replace_cleanup(_Ctx(ts, ag), "alice", ("SK_QA",), [])
+    assert out["tasks"] == ["legacy"]
+
+
+def test_a_deploy_registers_its_store_without_renaming_it():
+    class _StoreSvc:
+        def __init__(self, existing=None):
+            self.rows, self.calls = dict(existing or {}), []
+
+        def get_store(self, sid):
+            return self.rows.get(sid)
+
+        def upsert_store(self, fields):
+            self.calls.append(fields)
+
+    svc = _StoreSvc()
+    ctx = type("C", (), {})(); ctx.db = type("DB", (), {"store_service": svc})()
+    cmds._register_store(ctx, "shop1", {"store_name": "Shop One"}, ["https://x"], [])
+    assert svc.calls[-1]["name"] == "Shop One" and svc.calls[-1]["store_urls"] == ["https://x"]
+    svc2 = _StoreSvc({"shop1": {"name": "Renamed by owner"}})
+    ctx.db = type("DB", (), {"store_service": svc2})()
+    cmds._register_store(ctx, "shop1", {"store_name": "Shop One"}, ["https://y"], [])
+    assert "name" not in svc2.calls[-1], "an existing store is never renamed by a deploy"
