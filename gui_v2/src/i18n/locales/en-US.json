@@ -691,6 +691,7 @@
       "fast_deploy_store_name": "Store name",
       "fast_deploy_store_id_label": "ID",
       "fast_deploy_need_store": "Choose a store to deploy into, or create one",
+      "fast_deploy_store_taken": "That ID already belongs to a store; pick it from the list or change the ID",
       "fast_deploy_create": "Create",
       "fast_deploy_need_url": "Please add at least one store URL",
       "fast_deploy_saving": "Saving configuration to file…",

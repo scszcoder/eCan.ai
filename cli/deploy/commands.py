@@ -414,6 +414,25 @@ def _replace_cleanup(ctx, owner: str, skill_ids, log: list, store_id: str = "") 
     return {"tasks": task_ids, "agents": agent_ids}
 
 
+def _refuse_taken_store_id(ctx, cfg: dict) -> None:
+    """A "+ New store" deploy must not reuse an existing store's id.
+
+    ``store_name`` is only sent for "+ New store"; deploying INTO an existing
+    store is the picker's job. Reusing an id would silently merge two shops
+    into one. Runs before anything is changed -- in Replace mode the cleanup
+    would otherwise delete the existing store's agents first.
+    """
+    store_id = str(cfg.get("store_id") or "").strip()
+    if not store_id or not cfg.get("store_name"):
+        return
+    svc = getattr(ctx.db, "store_service", None)
+    existing = svc.get_store(store_id) if svc is not None else None
+    if existing:
+        raise RuntimeError(f"store id {store_id!r} already belongs to store "
+                           f"{existing.get('name') or store_id!r}; pick it from the list "
+                           f"or give the new store a different id")
+
+
 def _register_store(ctx, store_id: str, cfg: dict, store_urls: list, log: list) -> None:
     """Make sure the store exists in the local catalog; a deploy into a new id
     defines it. Never renames an existing store. Best-effort: the catalog is
@@ -441,6 +460,8 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     qa_n = int(cfg.get("qa_agents") or 8)  # matches the 抖店客服 panel default
     log = []
     created = {"skills": [], "tasks": [], "agents": []}
+
+    _refuse_taken_store_id(ctx, cfg)
 
     # ── 0) 'replace' mode: clear THIS STORE's previous 抖店客服 deployment first.
     if str(cfg.get("mode") or "add").strip().lower() == "replace":

@@ -140,6 +140,12 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
             message.warning(t('pages.agents.fast_deploy_need_store', 'Choose a store to deploy into, or create one'));
             return;
         }
+        // A NEW store must not reuse an existing id: it would silently merge two
+        // shops into one. (The CLI refuses it too, before touching anything.)
+        if (storeChoice === NEW_STORE && catalog.some((x) => x.store_id === (config.storeId || '').trim())) {
+            message.warning(t('pages.agents.fast_deploy_store_taken', 'That ID already belongs to a store; pick it from the list or change the ID'));
+            return;
+        }
         const payload = {
             scenario: selected.key,
             config: {
@@ -352,9 +358,11 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                                     placeholder={t('pages.agents.fast_deploy_store_name', 'Store name')}
                                                     onChange={(e) => {
                                                         const name = e.target.value;
+                                                        // The id is <platform>-<name> until the user edits it, so
+                                                        // same-named shops on two platforms stay distinct.
+                                                        const derive = (n: string) => (n.trim() ? `${selected.platform}-${n.trim()}` : '');
                                                         setConfig((c) => ({ ...c, storeName: name,
-                                                            // the id follows the name until the user edits it
-                                                            storeId: !c.storeId || c.storeId === (c.storeName || '').trim() ? name.trim() : c.storeId }));
+                                                            storeId: !c.storeId || c.storeId === derive(c.storeName || '') ? derive(name) : c.storeId }));
                                                     }}
                                                 />
                                                 <Input

@@ -723,6 +723,7 @@
       "fast_deploy_store_name": "店铺名称",
       "fast_deploy_store_id_label": "ID",
       "fast_deploy_need_store": "请选择要部署的店铺，或新建一个",
+      "fast_deploy_store_taken": "该 ID 已被某个店铺使用；请从列表中选择该店铺，或修改 ID",
       "fast_deploy_create": "生成",
       "fast_deploy_need_url": "请至少添加一个店铺链接",
       "fast_deploy_saving": "正在保存配置到文件…",

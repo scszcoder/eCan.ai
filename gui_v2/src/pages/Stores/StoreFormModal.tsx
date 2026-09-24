@@ -88,10 +88,13 @@ const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) =>
       destroyOnClose
     >
       <Form form={form} layout="vertical"
-        onValuesChange={(changed) => {
-          // The id follows the name until the user edits it.
-          if ('name' in changed && !idTouched && !editing) {
-            form.setFieldsValue({ store_id: String(changed.name || '').trim() });
+        onValuesChange={(changed, all) => {
+          // The id is <platform>-<name> until the user edits it, so same-named
+          // shops on two platforms get distinct ids. Fixed once created.
+          if (('name' in changed || 'platform' in changed) && !idTouched && !editing) {
+            const name = String(all.name || '').trim();
+            const platform = String(all.platform || '').trim();
+            form.setFieldsValue({ store_id: name ? (platform ? `${platform}-${name}` : name) : '' });
           }
           if ('store_id' in changed) setIdTouched(true);
         }}

@@ -157,3 +157,33 @@ def test_a_deploy_registers_its_store_without_renaming_it():
     ctx.db = type("DB", (), {"store_service": svc2})()
     cmds._register_store(ctx, "shop1", {"store_name": "Shop One"}, ["https://y"], [])
     assert "name" not in svc2.calls[-1], "an existing store is never renamed by a deploy"
+
+
+class _Stores:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def get_store(self, sid):
+        return self.rows.get(sid)
+
+
+def test_a_new_store_may_not_reuse_an_existing_id_and_nothing_is_touched(monkeypatch):
+    import pytest
+    ts, ag = _fixture()
+    ctx = _Ctx(ts, ag)
+    ctx.db.store_service = _Stores({"旗舰店": {"name": "旗舰店"}})
+    monkeypatch.setattr("cli.base.sync.cloud_sync", lambda *a, **k: None)
+    # "+ New store" sends store_name; Replace would otherwise delete first.
+    cfg = {"store_urls": ["https://x"], "store_id": "旗舰店", "store_name": "旗舰店", "mode": "replace"}
+    with pytest.raises(RuntimeError, match="already belongs to store"):
+        cmds._deploy_douyin_cs(cfg, ctx, "alice")
+    assert ts.deleted == [] and ag.deleted == []
+
+
+def test_deploying_into_an_existing_store_from_the_picker_is_allowed():
+    ts, ag = _fixture()
+    ctx = _Ctx(ts, ag)
+    ctx.db.store_service = _Stores({"旗舰店": {"name": "旗舰店"}})
+    # The picker sends no store_name: this is "deploy into", not "create".
+    cmds._refuse_taken_store_id(ctx, {"store_id": "旗舰店"})
+    cmds._refuse_taken_store_id(ctx, {"store_id": "new-one", "store_name": "New One"})
