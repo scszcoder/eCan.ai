@@ -240,6 +240,7 @@ def _import_subcommands():
     from cli.avatars.commands import avatar
     from cli.support.commands import support
     from cli.browser.commands import browser
+    from cli.stores.commands import stores
     from cli.drift.commands import drift
 
     return {
@@ -261,6 +262,7 @@ def _import_subcommands():
         'avatar': avatar,
         'support': support,
         'browser': browser,
+        'stores': stores,
         'drift': drift,
     }
 
