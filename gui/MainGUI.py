@@ -40,6 +40,9 @@ from utils.time_util import TimeUtil
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from utils.port_allocator import get_port_allocator
+from agent.ec_agents.vehicle_affinity import (
+    local_vehicle_report_fields as _local_vehicle_report_fields,
+)
 from config.envi import getECBotDataHome
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
@@ -5867,6 +5870,9 @@ class MainWindow:
                         "ip": self.ip,
                         "created_at": ""
                     }
+                    # One machine must present ONE id to the cloud: the
+                    # heartbeat row is what store_assign validates against.
+                    vinfo.update(_local_vehicle_report_fields(self))
                 report.append(vinfo)
             logger.debug("vnames:", [v["vname"] for v in report])
             if (self.machine_name+":"+self.os_short) not in [v["vname"] for v in report]:
@@ -5885,6 +5891,7 @@ class MainWindow:
                         "ip": self.ip,
                         "created_at": ""
                     }
+                    vinfo.update(_local_vehicle_report_fields(self))
 
                     report.append(vinfo)
                     logger.debug("report:", report)

@@ -303,6 +303,34 @@ def machine_capabilities() -> "list[str]":
     return caps
 
 
+def local_vehicle_report_fields(mainwin=None, username: str = "") -> dict:
+    """The fields THIS machine must add to its cloud heartbeat record.
+
+    One machine had three identities: the heartbeat used
+    ``machine_name:os_short``, the local row used
+    :func:`resolve_local_vehicle_id`, and a profile descriptor used
+    :func:`get_machine_id`. ``store_assign`` validates a store's machine
+    against the row the heartbeat registered, so the heartbeat and the store
+    report have to agree — otherwise every assignment 404s against a machine
+    that is plainly online.
+
+    The stable id wins over the hostname, for the same reason the A2A endpoint
+    could not stay an IP: a name that changes is not an identity.
+    """
+    fields: dict = {}
+    try:
+        vid = resolve_local_vehicle_id(mainwin, username)
+        if vid:
+            fields["machine_id"] = vid
+    except Exception as exc:
+        logger.warning(f"[VehicleAffinity] no stable id for the heartbeat: {exc}")
+    try:
+        fields["capabilities"] = machine_capabilities()
+    except Exception as exc:
+        logger.warning(f"[VehicleAffinity] no capability list for the heartbeat: {exc}")
+    return fields
+
+
 def register_local_vehicle(mainwin) -> None:
     """Upsert this host's DBAgentVehicle row (id = machine_id). Idempotent,
     once per process; every failure is non-fatal."""

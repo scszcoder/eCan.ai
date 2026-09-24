@@ -571,8 +571,15 @@ def gen_report_vehicles_string(vehicles):
         # Use vname as the vehicle ID (unique identifier)
         vname = v.get("vname", "")
         
+        # The cloud row id must be the STABLE machine id, not the display name.
+        # store_assign validates against this row, so a heartbeat that registers
+        # one id while store_report sends another makes every assignment 404.
+        # A hostname is not an identity either -- the DHCP incident is the
+        # standing reminder. ``name`` stays human-readable for the fleet screen.
+        vid_for_cloud = str(v.get("machine_id") or "").strip() or vname
+
         rec_string += "{ "
-        rec_string += f'id: "{vname}"'
+        rec_string += f'id: "{vid_for_cloud}"'
         rec_string += f', name: "{vname}"'
         rec_string += f', status: "{v.get("status", "")}"'
         rec_string += f', architecture: "{v.get("hardware", "")}"'
@@ -591,8 +598,15 @@ def gen_report_vehicles_string(vehicles):
         extra_json = json.dumps(extra_metadata, ensure_ascii=False).replace('"', '\\"')
         rec_string += f', extra_metadata: "{extra_json}"'
         
-        # Store functions/capabilities
-        if v.get("functions"):
+        # Capabilities: a JSON ARRAY of what this machine can host
+        # (["qa", "front_desk"]) -- the shape the server's placement check
+        # reads. The legacy {"functions": ...} object survives only for records
+        # that still supply one, i.e. remote Commander vehicles.
+        _caps = v.get("capabilities")
+        if isinstance(_caps, (list, tuple)):
+            caps_json = json.dumps(list(_caps), ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', capabilities: "{caps_json}"'
+        elif v.get("functions"):
             caps = {"functions": v.get("functions", "")}
             caps_json = json.dumps(caps, ensure_ascii=False).replace('"', '\\"')
             rec_string += f', capabilities: "{caps_json}"'
