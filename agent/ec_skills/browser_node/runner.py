@@ -3423,6 +3423,35 @@ def apply_hook_bundle_kwargs(
             logger.info(
                 f"[BrowserAutomation] Hook bundles configured: {len(parsed)} spec(s)"
             )
+            # Tell the runner-bridge registry which site this node belongs to,
+            # so bridge lookups during the run resolve to THIS platform's
+            # bundle rather than whichever one imported last. Harmless while a
+            # single bundle is loaded (the registry falls back to the sole
+            # bridge); load-bearing the moment a second one is.
+            #
+            # A bundle's name is the ``path`` of its spec, which is the same
+            # string the bundle publishes as ``site_plugin_name``.
+            try:
+                from agent.ec_skills.live_chat_dispatch import set_active_site
+                _site = ""
+                for _spec in parsed:
+                    if isinstance(_spec, dict):
+                        _p = str(_spec.get("path") or "").strip()
+                    else:
+                        _p = str(_spec or "").strip()
+                    if _p:
+                        # Basename: a spec may carry a relative or absolute path.
+                        _site = _p.replace("\\", "/").rstrip("/").split("/")[-1]
+                        break
+                if _site:
+                    set_active_site(_site)
+                    logger.info(f"[BrowserAutomation] Active site for this node: {_site}")
+            except Exception as _site_exc:
+                logger.warning(
+                    f"[BrowserAutomation] Could not set the active site for this "
+                    f"node ({_site_exc}); bridge lookups fall back to the sole "
+                    f"registered bundle"
+                )
     except Exception as exc:
         logger.warning(
             f"[BrowserAutomation] Failed to parse hookBundles; "
