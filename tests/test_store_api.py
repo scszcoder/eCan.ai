@@ -261,6 +261,17 @@ class HeartbeatIdentityTests(unittest.TestCase):
         query = gen_report_vehicles_string([{"vname": "d:win", "functions": "rpa"}])
         self.assertIn("functions", query)
 
+    def test_a_working_machine_reports_online(self):
+        # Seen live: status "running_idle" made store_assign warn that a
+        # heartbeating machine was "not online right now".
+        from agent.cloud_api.cloud_api import gen_report_vehicles_string
+        for working in ("running_idle", "running_working"):
+            query = gen_report_vehicles_string([{"vname": "d:win", "status": working}])
+            self.assertIn('status: "online"', query)
+            self.assertIn(working, query)   # still carried, in extra_metadata
+        query = gen_report_vehicles_string([{"vname": "d:win", "status": "offline"}])
+        self.assertIn('status: "offline"', query)
+
     def test_a_new_stable_id_is_registered_under_that_id(self):
         # Seen live: updateVehicles answered NOT_FOUND for the stable id, and
         # the add fallback matched on vname, so the row was never created.

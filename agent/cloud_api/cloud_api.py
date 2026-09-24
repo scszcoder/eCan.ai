@@ -566,6 +566,19 @@ def _cloud_vehicle_id(v):
     return str(v.get("machine_id") or "").strip() or v.get("vname", "")
 
 
+def _cloud_vehicle_status(v):
+    """The cloud's status vocabulary (online/offline) for one heartbeat record.
+
+    The desktop tracks a LAN working state -- running_idle / running_working /
+    offline -- while both backends store online/offline, and store_assign's
+    placement check reads exactly "online". Sending the working state marked a
+    heartbeating machine "not online". The working state itself still travels,
+    in extra_metadata.
+    """
+    status = str(v.get("status") or "").strip()
+    return "online" if status.startswith("running") else status
+
+
 def gen_report_vehicles_string(vehicles):
     """Generate GraphQL mutation string for reporting vehicles.
     
@@ -588,7 +601,7 @@ def gen_report_vehicles_string(vehicles):
         rec_string += "{ "
         rec_string += f'id: "{vid_for_cloud}"'
         rec_string += f', name: "{vname}"'
-        rec_string += f', status: "{v.get("status", "")}"'
+        rec_string += f', status: "{_cloud_vehicle_status(v)}"'
         rec_string += f', architecture: "{v.get("hardware", "")}"'
         rec_string += f', platform: "{v.get("software", "")}"'
         rec_string += f', ip_address: "{v.get("ip", "")}"'
@@ -597,6 +610,7 @@ def gen_report_vehicles_string(vehicles):
         extra_metadata = {
             "owner": v.get("owner", ""),
             "lastseen": v.get("lastseen", ""),
+            "working_state": v.get("status", ""),
             "functions": v.get("functions", ""),
             "agent_ids": v.get("agent_ids", ""),
             "vid": v.get("vid", 0),
@@ -1004,7 +1018,7 @@ def send_report_vehicles_to_cloud(session, token, vehicles, endpoint):
                     vehicles_to_add.append({
                         "id": _cloud_vehicle_id(v),
                         "name": vname,
-                        "status": v.get("status", ""),
+                        "status": _cloud_vehicle_status(v),
                         "ip_address": v.get("ip", ""),
                         "platform": v.get("software", ""),
                         "architecture": v.get("hardware", ""),
