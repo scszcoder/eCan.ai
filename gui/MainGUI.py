@@ -42,6 +42,7 @@ from utils.logger_helper import get_traceback
 from utils.port_allocator import get_port_allocator
 from agent.ec_agents.vehicle_affinity import (
     local_vehicle_report_fields as _local_vehicle_report_fields,
+    resolve_local_vehicle_id as _resolve_local_vehicle_id,
 )
 from agent.ec_agents.store_reporter import report_local_stores as _report_local_stores
 from agent.ec_agents.store_reconciler import reconcile as _reconcile_stores
@@ -498,7 +499,10 @@ class MainWindow:
 
         try:
             data_home = getattr(self, "my_ecb_data_homepath", None) or ""
-            machine_id = get_machine_id(data_home)
+            # ONE id per machine: the vehicle id the heartbeat, store placement
+            # and store_assign use. get_machine_id is per USER data home, so it
+            # gave this machine a second identity; it is only the fallback.
+            machine_id = _resolve_local_vehicle_id(self) or get_machine_id(data_home)
         except Exception as mid_err:
             logger.warning(f"[MainWindow] machine_id resolution failed: {mid_err}")
             return None
@@ -564,7 +568,8 @@ class MainWindow:
         # advertising and WAN cloud directory upsert.
         try:
             data_home = getattr(self, "my_ecb_data_homepath", None) or ""
-            machine_id = get_machine_id(data_home)
+            # Same id as discovery start (above) -- the machine's vehicle id.
+            machine_id = _resolve_local_vehicle_id(self) or get_machine_id(data_home)
         except Exception:
             machine_id = ""
 
