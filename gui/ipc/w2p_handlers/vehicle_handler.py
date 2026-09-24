@@ -8,7 +8,7 @@ from agent.vehicles.vehicles import VEHICLE
 
 from utils.logger_helper import logger_helper as logger
 
-@IPCHandlerRegistry.handler('get_vehicles')
+@IPCHandlerRegistry.background_handler('get_vehicles')
 def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Get all vehicles list
 
@@ -66,6 +66,18 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         except Exception as db_err:
             logger.warning(f"[get_vehicles] DB vehicle merge failed (non-fatal): {db_err}")
 
+        # Every other machine on this account, wherever it is. The lists above
+        # only know this machine and what LAN discovery happened to hear, so a
+        # machine in another office never appeared.
+        try:
+            seen_ids = {str(v.get('id')) for v in vehicle_dicts if isinstance(v, dict) and v.get('id')}
+            remote = _cloud_machines(seen_ids)
+            vehicle_dicts.extend(remote)
+            if remote:
+                logger.info(f"[get_vehicles] added {len(remote)} other machine(s) (cloud + LAN)")
+        except Exception as cloud_err:
+            logger.warning(f"[get_vehicles] cloud machine list unavailable (non-fatal): {cloud_err}")
+
         logger.info(f"get vehicles successful")
         resultJS = {
             'vehicles': vehicle_dicts,
@@ -81,6 +93,127 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             'GET_VEHICLES_ERROR',
             f"Error during get vehicles: {str(e)}"
         )
+
+
+# A desktop heartbeats every 60s; three missed beats = offline. Read from the
+# heartbeat stamp rather than `status`, which the server's reaper only flips on
+# its 5-minute timer.
+_MACHINE_ONLINE_WITHIN_S = 180
+# LAN discovery re-announces on its own cadence; a node not heard for this long
+# is shown offline rather than dropped.
+_LAN_ONLINE_WITHIN_S = 300
+
+
+def _heartbeat_age_s(stamp) -> Optional[float]:
+    """Seconds since an ISO heartbeat stamp (UTC), or None when absent/unparsable."""
+    if not stamp:
+        return None
+    try:
+        from datetime import datetime, timezone
+        s = str(stamp).replace('Z', '+00:00')
+        ts = datetime.fromisoformat(s)
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)   # the server stamps UTC
+        return (datetime.now(timezone.utc) - ts).total_seconds()
+    except Exception:
+        return None
+
+
+def _machine_entry(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """A cloud vehicle row as a Vehicles-page entry, or None when it is not a live machine.
+
+    Desktops: online from the heartbeat stamp, which the vehicles heartbeat
+    writes in UTC. Rows never stamped are skipped -- the pre-2026-09-24
+    duplicates keyed by hostname (e.g. ``SCHOME:win``) for the same machines.
+
+    Cloud pods: only running instances. Their stamp is written by the server in
+    PRC local time and would read 8h in the future, so ``status`` -- which the
+    reaper keeps for pods -- is the source. Offline pod tombstones and the
+    customer's pod definitions are left to the Pods panel.
+    """
+    rid = str(row.get('id') or '')
+    if not rid:
+        return None
+    is_pod = row.get('vehicle_type') == POD_VEHICLE_TYPE
+    if is_pod:
+        if _is_customer_pod(row) or row.get('status') != 'online':
+            return None
+        online = True
+    else:
+        if not row.get('last_heartbeat'):
+            return None
+        age = _heartbeat_age_s(row.get('last_heartbeat'))
+        online = row.get('status') == 'online' and age is not None and age < _MACHINE_ONLINE_WITHIN_S
+    return {
+        'id': rid,
+        'name': row.get('name') or row.get('hostname') or rid,
+        'type': 'cloud' if is_pod else 'desktop',
+        'status': 'active' if online else 'offline',
+        'ip': row.get('ip_address') or '',
+        'os': row.get('platform') or '',
+        'arch': row.get('architecture') or '',
+        'last_heartbeat': row.get('last_heartbeat'),
+        'capabilities': row.get('capabilities'),
+        'source': 'cloud',
+    }
+
+
+def _lan_entry(node) -> Optional[Dict[str, Any]]:
+    """A LAN-discovered eCan install (same account: discovery checks its auth fingerprint)."""
+    import time as _time
+    mid = str(getattr(node, 'machine_id', '') or '')
+    if not mid:
+        return None
+    seen = float(getattr(node, 'lan_last_seen', 0) or 0)
+    online = seen > 0 and (_time.time() - seen) < _LAN_ONLINE_WITHIN_S
+    return {
+        'id': mid,
+        'name': getattr(node, 'machine_name', '') or mid,
+        'type': 'desktop',
+        'status': 'active' if online else 'offline',
+        'ip': getattr(node, 'lan_host', '') or '',
+        'os': getattr(node, 'os', '') or '',
+        'arch': getattr(node, 'arch', '') or '',
+        'source': 'lan',
+    }
+
+
+def _lan_machines() -> list:
+    try:
+        from agent.a2a.discovery.directory import get_directory
+        return [e for e in (_lan_entry(n) for n in get_directory().list_nodes()) if e]
+    except Exception as e:
+        logger.debug(f"[get_vehicles] LAN discovery directory unavailable: {e}")
+        return []
+
+
+def _cloud_machines(exclude_ids) -> list:
+    """This account's other machines: cloud registry (desktops + running pods) and LAN.
+
+    One entry per machine id. Since 2026-09-24 a machine advertises its vehicle
+    id on the LAN too, so the same machine seen both ways merges into one entry
+    (``source: cloud+lan``); the LAN side contributes its address.
+    """
+    by_id: Dict[str, Dict[str, Any]] = {}
+    ctx = _cloud_ctx()
+    if ctx is not None:
+        try:
+            for row in _query_pod_rows(ctx):
+                entry = _machine_entry(row) if isinstance(row, dict) else None
+                if entry:
+                    by_id[entry['id']] = entry
+        except Exception as e:
+            logger.warning(f"[get_vehicles] cloud machine list unavailable: {e}")
+    for lan in _lan_machines():
+        cur = by_id.get(lan['id'])
+        if cur is None:
+            by_id[lan['id']] = lan
+        else:
+            cur['source'] = 'cloud+lan'
+            cur['ip'] = lan['ip'] or cur['ip']
+            if lan['status'] == 'active':
+                cur['status'] = 'active'
+    return [e for mid, e in by_id.items() if mid not in exclude_ids]
 
 
 def _vehicle_db_service(ctx):
