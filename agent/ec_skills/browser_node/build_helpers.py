@@ -505,6 +505,23 @@ def _agent_pin_suffix(state, node_name: str) -> str:
         return ""
 
 
+def browser_type_for_identity(browser_type, browser_profile_id, BrowserType):
+    """A task that names a registered browser profile runs IN that profile.
+
+    ``browser_profile_id`` is the store's login (one Chromium user-data-dir, its
+    proxy and fingerprint). A skill that attaches a plain Chrome (the 飞鸽
+    skills: CDP on 9228) would ignore it and put every store on the one
+    default browser, so a second store would answer through the first one's
+    login. When the task names a profile and the node would use a plain Chrome,
+    the run uses the fingerprint browser instead -- on an auto-assigned port,
+    since a profile's CDP port is ephemeral. Vendor browsers (AdsPower, Ziniao)
+    keep their own meaning of the id. Returns ``(browser_type, switched)``.
+    """
+    if browser_profile_id and browser_type == BrowserType.CHROME:
+        return BrowserType.FINGERPRINT, True
+    return browser_type, False
+
+
 def resolve_state_browser_identity(state) -> dict:
     """Per-run browser identity overrides carried in state.
 
@@ -879,6 +896,8 @@ async def get_or_create_browser_session(
         'fingerprint': BrowserType.FINGERPRINT,
     }
     browser_type = browser_type_map.get(ctx.browser_type_setting, BrowserType.CHROME)
+    browser_type, _identity_switched = browser_type_for_identity(
+        browser_type, _run_identity.get("browser_profile_id"), BrowserType)
 
     # Runtime browser-slot resolution: task state (assigned by scheduler,
     # auto-assigned by BrowserManager, or carried by the task's persisted
@@ -928,6 +947,12 @@ async def get_or_create_browser_session(
             cdp_port = 9228
     else:
         cdp_port = 9228
+    if _identity_switched:
+        cdp_port = 0
+        _cdp_source = "fingerprint profile"
+        logger.info(f"[BrowserAutomation] Task names browser profile "
+                    f"{_run_identity.get('browser_profile_id')!r}: running in the fingerprint "
+                    f"browser (node config said {ctx.browser_type_setting!r})")
     logger.info(
         f"[BrowserAutomation] Resolved cdp_port={'auto' if cdp_port == 0 else cdp_port} "
         f"(from={_cdp_source})"

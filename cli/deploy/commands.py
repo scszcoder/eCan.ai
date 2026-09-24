@@ -414,6 +414,25 @@ def _replace_cleanup(ctx, owner: str, skill_ids, log: list, store_id: str = "") 
     return {"tasks": task_ids, "agents": agent_ids}
 
 
+def _store_browser_identity(ctx, store_id: str, log: list) -> dict:
+    """``{"browser_profile_id": ...}`` from the store record, or {} when it has none."""
+    if not store_id:
+        return {}
+    try:
+        svc = getattr(ctx.db, "store_service", None)
+        rec = svc.get_store(store_id) if svc is not None else None
+        pid = str((rec or {}).get("browser_profile_id") or "").strip()
+    except Exception as e:
+        log.append(f"Store login profile not read (non-fatal): {e}")
+        return {}
+    if pid:
+        log.append(f"Browser: store {store_id!r} runs in its own login profile {pid!r}")
+        return {"browser_profile_id": pid}
+    log.append(f"Browser: store {store_id!r} has no login profile; it uses the default browser. "
+               f"Set one on the store before running a second store on this machine.")
+    return {}
+
+
 def _refuse_taken_store_id(ctx, cfg: dict) -> None:
     """A "+ New store" deploy must not reuse an existing store's id.
 
@@ -566,15 +585,23 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     # ── Sales organization.
     org_id = _ensure_sales_org(ctx, owner, log)
 
+    # The store's login: its tasks run in its own browser profile, so a second
+    # store never drives the first one's logged-in browser (build_helpers.
+    # browser_type_for_identity). Local only -- the profile never syncs.
+    identity = _store_browser_identity(ctx, store_id, log)
+
     def _add_task(name: str, skill_id: str, extra_vars: dict | None = None) -> str:
         tvars = dict(task_vars)
         if extra_vars:
             tvars.update(extra_vars)
+        settings = {"task_vars": tvars}
+        if identity:
+            settings["browser_identity"] = dict(identity)
         tr = ctx.db.task_service.add_task({
             "name": name, "owner": owner, "source": "fast_deploy",
             "description": "抖店客服 — Fast Deploy (shared skill)",
             "task_type": "browser_automation", "trigger": "auto", "status": "pending",
-            "settings": {"task_vars": tvars},
+            "settings": settings,
         })
         if not tr.get("success"):
             raise RuntimeError(f"add_task({name}) failed: {tr.get('error')}")
