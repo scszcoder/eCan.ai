@@ -21,6 +21,7 @@ import {
     ApartmentOutlined,
     ShopOutlined,
     ShoppingOutlined,
+    ShoppingCartOutlined,
     PrinterOutlined,
     DatabaseOutlined,
     AppstoreOutlined
@@ -189,6 +190,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         const isWeb = isWebPlatform();
 
         return [
+            { key: '/stores', icon: <ShoppingCartOutlined />, label: t('menu.stores') },
             { key: '/agents', icon: <TeamOutlined />, label: t('menu.agents') },
             { key: '/chat', icon: <MessageOutlined />, label: t('menu.chat') },
             { key: '/tasks', icon: <OrderedListOutlined />, label: t('menu.tasks') },

@@ -631,6 +631,8 @@ def list_available_bundles(
             # Phase 3: forward-compat fields that plugin_registry consumes.
             "kind": data.get("kind") or "hook_bundle",
             "gui": data.get("gui") if isinstance(data.get("gui"), dict) else None,
+            # Business outcomes this bundle emits (agent/ec_skills/meter_registry.py).
+            "meters": [m for m in (data.get("meters") or []) if isinstance(m, dict)],
         }
         out.append(entry)
     return out

@@ -2968,9 +2968,10 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'browser_profile.import_vendor' }, params);
     }
 
-    // Stores: desired (assigned) vs observed (reported) placement, per account.
-    public async listStores<T>(include_archived?: boolean): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'store.list' }, { include_archived: !!include_archived });
+    // Stores: placement (cloud) merged with who serves each store and what it
+    // produced (local) -- the Stores page's one data call.
+    public async getStoreOverview<T>(include_archived?: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.overview' }, { include_archived: !!include_archived });
     }
 
     /** `this_machine` assigns to this machine's heartbeat id; neither it nor `vehicle_id` unassigns. */
