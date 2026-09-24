@@ -2968,6 +2968,23 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'browser_profile.import_vendor' }, params);
     }
 
+    // Stores: desired (assigned) vs observed (reported) placement, per account.
+    public async listStores<T>(include_archived?: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.list' }, { include_archived: !!include_archived });
+    }
+
+    /** `this_machine` assigns to this machine's heartbeat id; neither it nor `vehicle_id` unassigns. */
+    public async assignStore<T>(
+        store_id: string, opts: { this_machine?: boolean; vehicle_id?: string | null },
+    ): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.assign' },
+            { store_id, this_machine: !!opts.this_machine, vehicle_id: opts.vehicle_id ?? null });
+    }
+
+    public async archiveStore<T>(store_id: string, restore?: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.archive' }, { store_id, restore: !!restore });
+    }
+
     // LLM Token Usage APIs
     public async getMonthlyTokenUsage<T>(month?: number, year?: number): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'llm.getMonthlyTokenUsage' }, { month, year });

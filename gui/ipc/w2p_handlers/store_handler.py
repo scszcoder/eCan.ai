@@ -1,0 +1,107 @@
+"""Store handlers — where each store should run, and where it actually runs.
+
+A thin window over ``agent.cloud_api.store_api``. The calls need the signed-in
+session, which only the app holds, so this is the one place the owner can say
+"store X runs on machine M" (``store_assign``) and see desired vs observed
+placement side by side (``store_list``).
+
+Registered as background handlers: each call is a network round trip of up to
+20s, and must not run on the event loop.
+
+A signed-out session or a cloud refusal is expected here, not a code bug, so it
+is logged at WARNING and returned as a typed error the page can show.
+"""
+
+from typing import Any, Dict, Optional
+
+from gui.ipc.registry import IPCHandlerRegistry
+from gui.ipc.types import (
+    IPCRequest,
+    IPCResponse,
+    create_error_response,
+    create_success_response,
+)
+from utils.logger_helper import logger_helper as logger
+
+
+def _this_vehicle_id() -> str:
+    """The id this machine's heartbeat registers — the one assign must use."""
+    try:
+        from app_context import AppContext
+        from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id
+        return resolve_local_vehicle_id(AppContext.get_main_window()) or ''
+    except Exception as e:
+        logger.warning(f"[store] could not resolve this machine's id: {e}")
+        return ''
+
+
+def _call(request: IPCRequest, action: str, fn) -> IPCResponse:
+    from agent.cloud_api.store_api import StoreApiError, StoreApiUnavailable
+    try:
+        return create_success_response(request, fn())
+    except ValueError as e:
+        return create_error_response(request, 'INVALID_PARAMS', str(e))
+    except StoreApiUnavailable as e:
+        logger.warning(f"[store] {action} unavailable: {e}")
+        return create_error_response(request, 'STORE_API_UNAVAILABLE', str(e))
+    except StoreApiError as e:
+        logger.warning(f"[store] {action} refused: {e}")
+        return create_error_response(request, 'STORE_API_ERROR', str(e))
+    except Exception as e:
+        logger.error(f"[store] {action} failed: {e}")
+        return create_error_response(request, 'STORE_ERROR', f"{action} failed: {e}")
+
+
+@IPCHandlerRegistry.background_handler('store.list')
+def handle_list(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Every store of this account, desired vs observed, plus this machine's id."""
+    params = params or {}
+
+    def run():
+        from agent.cloud_api.store_api import store_list
+        data = store_list(include_archived=bool(params.get('include_archived')))
+        return {
+            'stores': data.get('stores') or [],
+            'needs_login': data.get('needsLogin', 0),
+            'misplaced': data.get('misplaced', 0),
+            'this_vehicle_id': _this_vehicle_id(),
+        }
+    return _call(request, 'store_list', run)
+
+
+@IPCHandlerRegistry.background_handler('store.assign')
+def handle_assign(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Say where a store should run.
+
+    ``this_machine: true`` assigns it here, resolved on the backend so the page
+    never has to know the id; ``vehicle_id: null`` without it unassigns.
+    """
+    params = params or {}
+
+    def run():
+        from agent.cloud_api.store_api import store_assign
+        if params.get('this_machine'):
+            vehicle_id = _this_vehicle_id()
+            if not vehicle_id:
+                raise ValueError("this machine has no stable id yet; try again after it has signed in")
+        else:
+            vehicle_id = params.get('vehicle_id') or None
+        data = store_assign(
+            str(params.get('store_id') or ''), vehicle_id,
+            platform=str(params.get('platform') or ''),
+            label=str(params.get('label') or ''),
+        )
+        return {'store': data.get('store') or {}, 'warnings': data.get('warnings') or []}
+    return _call(request, 'store_assign', run)
+
+
+@IPCHandlerRegistry.background_handler('store.archive')
+def handle_archive(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Hide a store from listings, or bring it back with ``restore: true``."""
+    params = params or {}
+
+    def run():
+        from agent.cloud_api.store_api import store_archive
+        return store_archive(str(params.get('store_id') or ''),
+                             restore=bool(params.get('restore')))
+    return _call(request, 'store_archive', run)
