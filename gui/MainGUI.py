@@ -5821,6 +5821,26 @@ class MainWindow:
 
 
 
+    async def _cloud_heartbeat_and_placement(self, vehicle_report):
+        """Vehicles heartbeat, then store placement and the store report.
+
+        Store placement runs only after the heartbeat landed: store_report is
+        validated against the vehicle row it just wrote. Reconcile first, so a
+        store stopped here is released in this same report.
+        """
+        _token = self.get_auth_token()
+        _endpoint = self.getWanApiEndpoint()
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(
+                None, lambda: send_report_vehicles_to_cloud(self.session, _token, vehicle_report, _endpoint))
+            self._on_vehicle_report_success()
+        except Exception as report_err:
+            self._on_vehicle_report_failure(report_err)
+            return
+        await loop.run_in_executor(None, lambda: _reconcile_stores(self))
+        await loop.run_in_executor(None, lambda: _report_local_stores(self))
+
     # this is the interface to the chatting agents, taking message from the running agents and display them on GUI
     async def connectChat(self, chat_msg_queue):
         running = True
@@ -6052,30 +6072,16 @@ class MainWindow:
                         # NOTE: send_report_vehicles_to_cloud uses the synchronous requests library.
                         # Running it in an executor prevents it from blocking the asyncio event loop,
                         # which would otherwise starve WebSocket receive loops and cause PONG timeouts.
-                        vehicle_report = self.prepFullVehicleReportData()
-                        _token = self.get_auth_token()
-                        _endpoint = self.getWanApiEndpoint()
-                        try:
-                            resp = await asyncio.get_running_loop().run_in_executor(
-                                None,
-                                lambda: send_report_vehicles_to_cloud(
-                                    self.session, _token, vehicle_report, _endpoint
-                                ),
-                            )
-                            self._on_vehicle_report_success()
-                        except Exception as report_err:
-                            self._on_vehicle_report_failure(report_err)
-                        else:
-                            # Only after the heartbeat landed: store_report is
-                            # validated against the vehicle row it just wrote.
-                            # Reconcile first, so a store stopped here is
-                            # released in this same report.
-                            await asyncio.get_running_loop().run_in_executor(
-                                None, lambda: _reconcile_stores(self)
-                            )
-                            await asyncio.get_running_loop().run_in_executor(
-                                None, lambda: _report_local_stores(self)
-                            )
+                        await self._cloud_heartbeat_and_placement(self.prepFullVehicleReportData())
+                elif time.time() >= self._cloud_vehicle_report_backoff_until:
+                    # Not a Commander (e.g. a Platoon): no fleet broadcast, but
+                    # this machine still registers itself and runs store
+                    # placement -- otherwise a store assigned to it would never
+                    # start here, and the cloud would see it as offline.
+                    self_report = self.prepVehicleReportData(None)
+                    for _v in self_report:
+                        _v.update(_local_vehicle_report_fields(self))
+                    await self._cloud_heartbeat_and_placement(self_report)
 
             if not monitor_msg_queue.empty():
                 message = await monitor_msg_queue.get()
