@@ -140,6 +140,68 @@ def _agent_startup_hint(mainwin, agent_key: str = "") -> str:
         return ""
 
 
+def _chat_has_other_member(mainwin, chat_id, sender_id) -> bool:
+    """Whether the chat names a recipient besides the sender."""
+    try:
+        svc = mainwin.ec_db_mgr.get_chat_service()
+        chat = svc.get_chat_by_id(chat_id, deep=False) if svc else None
+        if chat and chat.get("success"):
+            return any(m.get("userId") and m.get("userId") != sender_id
+                       for m in chat["data"].get("members", []))
+    except Exception:
+        pass
+    return False
+
+
+def _runs_elsewhere(agent) -> str:
+    """Why this in-memory agent will NOT process a message queued here, or "".
+
+    Every agent of the account is in ``mainwin.agents``, including ones the
+    placement gates kept from starting on this machine. Queueing a chat into
+    such an agent's runner loses it silently -- its tasks never launched here.
+    An agent that is starting, or belongs here but has not launched yet, still
+    gets the message (the runner picks it up once its tasks start).
+    """
+    if getattr(agent, "_running", False) or getattr(agent, "_starting", False):
+        return ""
+    if (getattr(agent, "status", "active") or "active") == "disabled":
+        return "it is turned off"
+    store_bound = False
+    try:
+        # Read-only: placement_for_agent may CLAIM an unassigned store, and
+        # sending a chat must never change where a store runs.
+        from agent.ec_agents.store_placement import refresh, store_ids_of_agent
+        from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id
+        stores = store_ids_of_agent(agent)
+        store_bound = bool(stores)
+        if stores:
+            mainwin = getattr(agent, "mainwin", None)
+            me = resolve_local_vehicle_id(mainwin)
+            entries = (refresh(mainwin) or {}).get("stores") or {}
+            for sid in stores:
+                assigned = (entries.get(sid) or {}).get("assigned")
+                if assigned and me and assigned != me:
+                    return f"store {sid} is assigned to another machine"
+    except Exception:
+        pass
+    try:
+        from agent.ec_tasks.worker_placement import PLACE_DELEGATE, placement_for_agent as place
+        decision, key = place(agent)
+        if decision == PLACE_DELEGATE:
+            return f"it runs in its own store process ({key})"
+    except Exception:
+        pass
+    if not store_bound:   # a store agent is placed by its store, never by its pin
+        try:
+            from agent.ec_agents.vehicle_affinity import agent_launch_allowed
+            allowed, why = agent_launch_allowed(agent)
+            if not allowed:
+                return f"it runs on another machine ({why})"
+        except Exception:
+            pass
+    return ""
+
+
 def gui_a2a_send_chat(mainwin, req):
     """Route a human chat message directly to the recipient agent.
 
@@ -209,7 +271,22 @@ def gui_a2a_send_chat(mainwin, req):
                             recipient_id = mid
                             break
 
-    # 3. Last resort: first agent with a runner (skip twin if still around)
+    # A recipient was named (by the request or the chat's members) but is not
+    # in this app: say so. Handing the message to some OTHER agent -- the old
+    # last resort -- had the wrong agent answer the user.
+    named = bool(recipient_id) or _chat_has_other_member(mainwin, chat_id, sender_id)
+    if not recipient_agent and named:
+        logger.warning(f"[chat_utils] recipient {recipient_id or '(chat member)'} is not in this app; "
+                       f"not delivering chat {chat_id} to a stand-in agent")
+        _notify_chat_undeliverable(
+            chat_id,
+            "⚠️ 该助手不在本机，消息未送达。"
+            + "\n\nThis agent is not on this machine, so the message was not delivered."
+        )
+        return {"error": f"Recipient agent not on this machine: {recipient_id}"}
+
+    # 3. Last resort, only for a chat with no identifiable recipient at all:
+    # first agent with a runner (skip twin if still around)
     if not recipient_agent:
         recipient_agent = next(
             (ag for ag in agents
@@ -235,6 +312,17 @@ def gui_a2a_send_chat(mainwin, req):
             + (f"\nRunning agents: {', '.join(avail)}" if avail else "")
         )
         return {"error": f"Recipient agent not found: {recipient_id}"}
+
+    elsewhere = _runs_elsewhere(recipient_agent)
+    if elsewhere:
+        name = getattr(recipient_agent.card, "name", recipient_id)
+        logger.warning(f"[chat_utils] not queueing chat {chat_id} to '{name}': {elsewhere}")
+        _notify_chat_undeliverable(
+            chat_id,
+            f"⚠️ 「{name}」不在本机运行，消息未送达。"
+            + f"\n\n'{name}' is not running on this machine ({elsewhere}), so the message was not delivered."
+        )
+        return {"error": f"Recipient agent not running here: {elsewhere}"}
 
     logger.info(f"[chat_utils] Routing chat directly to recipient agent: "
                 f"{recipient_agent.card.name} (id={recipient_agent.card.id})")
