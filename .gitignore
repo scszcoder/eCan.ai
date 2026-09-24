@@ -138,8 +138,13 @@ WS*_SPEC.md
 # Ignored as belt-and-suspenders in case deploy is SIGKILLed.
 **/*.tcb-bak
 
-# Server-side API design notes (implementation lives in the private backend repo)
+# Design notes whose home is the PRIVATE backend repo (scszcoder/eCan_lambda).
+# This repo is public. These carry cost basis, margin, pricing internals, or
+# account-security detail (a browser profile is a live seller login), so a
+# stray local copy must never be committable here.
 docs/VERIFY_ACCOUNT_INFO_API.md
+docs/BILLING_METERING_SERVER_TODO.md
+docs/MULTI_STORE_MULTI_MACHINE_DESIGN.md
 
 # Fingerprint browser: everything about a local identity stays local.
 #
