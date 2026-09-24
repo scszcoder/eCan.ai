@@ -712,6 +712,25 @@ on the profile record. Both hardcode a policy, so decide deliberately.
 
 ## 🔵 Planned work
 
+### Decision point: several same-platform stores in ONE store process (Phase E) (2026-09-24)
+
+Today each store on a machine with 2+ stores of one platform gets its own store
+process (worker; ONE_APP_MANY_STORES.md). Sharing one process between stores of
+the same platform (e.g. two 抖店 stores) is mechanically trivial -- give both
+the same isolation key -- but NOT safe yet: the live-chat runner bridge is
+registered per platform (live_chat_dispatch._BRIDGES), the typing lock and tab
+pool are single, and per-customer state is keyed by display name (two stores
+can both have a customer "小王"). The failure mode is a wrong-store reply, not a
+crash. Already store-aware: placeholder timers (store_key), the 飞鸽 WS observer
+(chat_browser_cdp_url(store_key)).
+
+**Trigger:** W4's measurement of RSS per store process on a real multi-store
+machine. Only if a typical machine cannot host the store count customers run,
+do the Phase E store-scoping (bridge, typing lock, tab pool, per-customer keys).
+Middle option worth weighing then: per-store front desks (each bound to its
+store's browser) sharing ONE Q&A pool -- most of the memory, same
+store-scoping prerequisites on the Q&A side.
+
 ### ⚡ Store placement: the assignment decides where a store runs (2026-09-24)
 
 Design: `docs/STORE_PLACEMENT_DESIGN.md` (D1 auto-claim, D2 run when the cloud
