@@ -555,6 +555,17 @@ def gen_obtain_review_request_string(query):
 
 
 
+def _cloud_vehicle_id(v):
+    """The cloud row id for one heartbeat record: the STABLE machine id, not the display name.
+
+    store_assign validates against this row, so a heartbeat that registers one
+    id while store_report sends another makes every assignment 404. A hostname
+    is not an identity either -- the DHCP incident is the standing reminder.
+    Remote Commander vehicles have no stable id and fall back to ``vname``.
+    """
+    return str(v.get("machine_id") or "").strip() or v.get("vname", "")
+
+
 def gen_report_vehicles_string(vehicles):
     """Generate GraphQL mutation string for reporting vehicles.
     
@@ -570,13 +581,9 @@ def gen_report_vehicles_string(vehicles):
         v = vehicles[i]
         # Use vname as the vehicle ID (unique identifier)
         vname = v.get("vname", "")
-        
-        # The cloud row id must be the STABLE machine id, not the display name.
-        # store_assign validates against this row, so a heartbeat that registers
-        # one id while store_report sends another makes every assignment 404.
-        # A hostname is not an identity either -- the DHCP incident is the
-        # standing reminder. ``name`` stays human-readable for the fleet screen.
-        vid_for_cloud = str(v.get("machine_id") or "").strip() or vname
+
+        # ``name`` stays human-readable for the fleet screen.
+        vid_for_cloud = _cloud_vehicle_id(v)
 
         rec_string += "{ "
         rec_string += f'id: "{vid_for_cloud}"'
@@ -991,9 +998,11 @@ def send_report_vehicles_to_cloud(session, token, vehicles, endpoint):
             vehicles_to_add = []
             for v in vehicles:
                 vname = v.get("vname", "")
-                if vname in not_found_ids:
+                # Match on the id the update SENT, not the name -- otherwise a
+                # machine reporting a stable id is never registered at all.
+                if _cloud_vehicle_id(v) in not_found_ids:
                     vehicles_to_add.append({
-                        "id": vname,
+                        "id": _cloud_vehicle_id(v),
                         "name": vname,
                         "status": v.get("status", ""),
                         "ip_address": v.get("ip", ""),

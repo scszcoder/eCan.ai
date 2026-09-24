@@ -261,6 +261,29 @@ class HeartbeatIdentityTests(unittest.TestCase):
         query = gen_report_vehicles_string([{"vname": "d:win", "functions": "rpa"}])
         self.assertIn("functions", query)
 
+    def test_a_new_stable_id_is_registered_under_that_id(self):
+        # Seen live: updateVehicles answered NOT_FOUND for the stable id, and
+        # the add fallback matched on vname, so the row was never created.
+        from unittest import mock
+        from agent.cloud_api import cloud_api
+        sent = []
+
+        def fake_request(query, *_a, **_k):
+            sent.append(query)
+            if "addVehicles" in query:
+                return {"data": {"addVehicles": [{"id": "stable-uuid-1", "success": True}]}}
+            if len(sent) == 1:
+                return {"data": {"updateVehicles": [
+                    {"id": "stable-uuid-1", "success": False, "error": "NOT_FOUND: Not found"}]}}
+            return {"data": {"updateVehicles": [{"id": "stable-uuid-1", "success": True}]}}
+
+        with mock.patch.object(cloud_api, "appsync_http_request", side_effect=fake_request):
+            cloud_api.send_report_vehicles_to_cloud(
+                None, "tok", [{"vname": "DESKTOP-ABC:win", "machine_id": "stable-uuid-1"}], "ep")
+        adds = [q for q in sent if "addVehicles" in q]
+        self.assertEqual(len(adds), 1)
+        self.assertIn('"stable-uuid-1"', adds[0])
+
     def test_the_heartbeat_and_the_local_row_agree(self):
         # The fix: one machine, one identity. If these ever diverge again,
         # store_assign 404s against a machine that is plainly online.
