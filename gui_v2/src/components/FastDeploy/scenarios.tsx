@@ -79,6 +79,7 @@ export const PLATFORMS: { value: string; nameEn: string; nameZh: string }[] = [
     { value: 'tiktok', nameEn: 'TikTok Shop', nameZh: 'TikTok 店铺' },
     { value: 'pinduoduo', nameEn: 'Pinduoduo', nameZh: '拼多多' },
     { value: 'temu', nameEn: 'Temu', nameZh: 'Temu' },
+    { value: 'shein', nameEn: 'SHEIN', nameZh: '希音 (SHEIN)' },
     { value: 'walmart', nameEn: 'Walmart', nameZh: '沃尔玛' },
     { value: 'jd', nameEn: 'JD.com', nameZh: '京东' },
     { value: '1688', nameEn: '1688', nameZh: '1688' },
