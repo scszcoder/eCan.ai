@@ -27,8 +27,20 @@ from typing import Any, Dict, List, Optional
 from utils.logger_helper import logger_helper as logger
 
 
+def _store_process_keys() -> List[str]:
+    """Stores running in their own store process on this machine (keys = store ids)."""
+    try:
+        from agent.ec_tasks import worker_supervisor as ws
+        return [s["key"] for s in ws.supervisor().status() if s.get("running") and s.get("key")]
+    except Exception:
+        return []
+
+
 def local_store_ids(mainwin) -> List[str]:
-    """Explicit store ids served by agents RUNNING on this machine."""
+    """Explicit store ids served on this machine: by an agent RUNNING in this
+    process, or by a running store process (store_isolation.py). Without the
+    second half, a store moved into its own process would be released to the
+    cloud on every heartbeat."""
     from agent.ec_agents.store_placement import store_ids_of_agent
 
     seen: List[str] = []
@@ -38,6 +50,9 @@ def local_store_ids(mainwin) -> List[str]:
         for sid in store_ids_of_agent(agent):
             if sid not in seen:
                 seen.append(sid)
+    for sid in _store_process_keys():
+        if sid not in seen:
+            seen.append(sid)
     return seen
 
 

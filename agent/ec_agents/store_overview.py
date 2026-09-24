@@ -71,6 +71,12 @@ def local_store_overview(mainwin: Any) -> Dict[str, dict]:
         sid: {"agents": v["agents"], "tasks": v["tasks"], "meters": []}
         for sid, v in summarize_agents(getattr(mainwin, "agents", None) or []).items()
     }
+    # A store in its own store process: its agents run there, not in this one.
+    from agent.ec_agents.store_reporter import _store_process_keys
+    for sid in _store_process_keys():
+        for a in stores.get(sid, {}).get("agents", []):
+            a["running"] = True
+            a["where"] = "store_process"
     svc = getattr(getattr(mainwin, "ec_db_mgr", None), "usage_event_service", None)
     if svc is not None:
         # occurred_at is naive UTC (metering.emit), so the windows are too.

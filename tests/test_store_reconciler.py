@@ -26,12 +26,21 @@ class FakeAgent:
         self._stopped = True
 
 
-def _run(agents, verdicts, isolated=()):
+def _run(agents, verdicts, isolated=(), process_keys=None, calls=None):
+    """process_keys: agent name -> store-process key (its own process); default none."""
     mw = SimpleNamespace(agents=agents)
+    keys = process_keys or {}
+
+    def recon(ks):
+        if calls is not None:
+            calls.append(("reconcile", sorted(ks)))
+        return {"started": [], "stopped": []}
     with mock.patch("agent.ec_agents.store_placement.refresh"), \
          mock.patch("agent.ec_agents.store_placement.placement_for_agent",
                     side_effect=lambda a: (verdicts[a.card.name], "test")), \
-         mock.patch.object(rc, "_is_isolated", side_effect=lambda a: a.card.name in isolated):
+         mock.patch.object(rc, "_is_isolated", side_effect=lambda a: a.card.name in isolated), \
+         mock.patch.object(rc, "_store_process_key", side_effect=lambda a: keys.get(a.card.name, "")), \
+         mock.patch.object(rc, "_reconcile_store_processes", side_effect=recon):
         return rc.reconcile(mw)
 
 
@@ -40,11 +49,12 @@ class ReconcileTests(unittest.TestCase):
         away, here = FakeAgent("away", running=True), FakeAgent("here", running=False)
         done = _run([away, here], {"away": SKIP, "here": RUN})
         self.assertEqual((away.calls, here.calls), (["stop"], ["start"]))
-        self.assertEqual(done, {"started": ["here"], "stopped": ["away"]})
+        self.assertEqual((done["started"], done["stopped"]), (["here"], ["away"]))
 
     def test_a_settled_machine_does_nothing(self):
         a, b = FakeAgent("a", running=True), FakeAgent("b", running=False)
-        self.assertEqual(_run([a, b], {"a": RUN, "b": SKIP}), {"started": [], "stopped": []})
+        done = _run([a, b], {"a": RUN, "b": SKIP})
+        self.assertEqual((done["started"], done["stopped"]), ([], []))
         self.assertEqual((a.calls, b.calls), ([], []))
 
     def test_agents_without_a_store_are_not_touched(self):
@@ -79,6 +89,41 @@ class ReconcileTests(unittest.TestCase):
         fine = FakeAgent("fine")
         done = _run([broken, fine], {"broken": SKIP, "fine": RUN})
         self.assertEqual(done["started"], ["fine"])
+
+
+class StoreProcessTests(unittest.TestCase):
+    """The three phases: a store is never live in two places at once."""
+
+    def _ordered(self, agents):
+        calls = []
+        for a in agents:
+            a.start = (lambda a=a: (calls.append(("start", a.card.name)), setattr(a, "_running", True)))
+            a.stop = (lambda reason="", a=a: (calls.append(("stop", a.card.name)), setattr(a, "_running", False)))
+        return calls
+
+    def test_moving_into_its_own_process_stops_here_before_the_process_starts(self):
+        a = FakeAgent("shop_a", running=True)
+        calls = self._ordered([a])
+        _run([a], {"shop_a": RUN}, process_keys={"shop_a": "douyin-a"}, calls=calls)
+        self.assertEqual(calls, [("stop", "shop_a"), ("reconcile", ["douyin-a"])])
+
+    def test_moving_back_drains_the_process_before_starting_here(self):
+        a = FakeAgent("shop_a", running=False)
+        calls = self._ordered([a])
+        _run([a], {"shop_a": RUN}, process_keys={}, calls=calls)
+        self.assertEqual(calls, [("reconcile", []), ("start", "shop_a")])
+
+    def test_a_store_in_its_process_is_not_started_here(self):
+        a = FakeAgent("shop_a", running=False)
+        calls = self._ordered([a])
+        _run([a], {"shop_a": RUN}, process_keys={"shop_a": "douyin-a"}, calls=calls)
+        self.assertEqual(calls, [("reconcile", ["douyin-a"])])
+
+    def test_a_store_placed_elsewhere_gets_no_process(self):
+        a = FakeAgent("shop_a", running=False)
+        calls = self._ordered([a])
+        _run([a], {"shop_a": SKIP}, process_keys={"shop_a": "douyin-a"}, calls=calls)
+        self.assertEqual(calls, [("reconcile", [])])
 
 
 class WiringTests(unittest.TestCase):

@@ -3588,6 +3588,13 @@ class MainWindow:
             logger.info("[AGENT_INVENTORY] =============================================")
             
             # Step 4: Launch agents in background (non-blocking)
+            # The real store-process spawner, before any agent can be delegated
+            # to one (store_isolation.py: 2+ stores of one platform here).
+            try:
+                from agent.ec_tasks.worker_placement import install_default_supervisor
+                install_default_supervisor()
+            except Exception as _sup_err:
+                logger.warning(f"[MainWindow] store-process supervisor not installed: {_sup_err}")
             self._launch_agents_async(self.agents)
             
             total_time = time.time() - start_time
@@ -4663,6 +4670,14 @@ class MainWindow:
             )
         except Exception as e:
             logger.warning(f"[MainWindow] Error during MCP pre-cleanup: {e}")
+
+        # Drain the store processes (each stops its agents and browsers).
+        try:
+            from agent.ec_tasks import worker_supervisor as _ws
+            await asyncio.get_running_loop().run_in_executor(None, _ws.supervisor().stop_all)
+            logger.info("[MainWindow] store processes stopped")
+        except Exception as e:
+            logger.warning(f"[MainWindow] Error stopping store processes: {e}")
 
         # Stop communication channels
         try:

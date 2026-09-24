@@ -61,7 +61,10 @@ def agent_isolation_key(agent: Any) -> str:
     tasks = getattr(agent, "tasks", None) or []
     keys: List[str] = isolation_keys_for_tasks(tasks)
     if not keys:
-        return ""
+        # No explicit key: a store gets its own process when this machine
+        # serves 2+ stores of its platform (agent/ec_agents/store_isolation.py).
+        from agent.ec_agents.store_isolation import store_isolation_key
+        return store_isolation_key(agent)
     if len(keys) > 1:
         name = getattr(getattr(agent, "card", None), "name", "") or "?"
         logger.error(
