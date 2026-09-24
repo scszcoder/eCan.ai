@@ -81,5 +81,53 @@ class WorkerNeverGuessesItsBrowserTests(unittest.TestCase):
         probe.assert_called_once()
 
 
+
+class DeploySyncTests(unittest.TestCase):
+    """Staff up on one machine, run on another: the deploy must reach the cloud."""
+
+    def _ctx(self):
+        ts = SimpleNamespace(query_tasks=lambda id=None: {"data": [{"id": id, "metadata": {"task_vars": {"store_id": "s"}}}]})
+        ag = SimpleNamespace(query_agents=lambda id=None: {"data": [{"id": id, "name": "a"}]})
+        return SimpleNamespace(db=SimpleNamespace(task_service=ts, agent_service=ag))
+
+    def test_tasks_then_agents_then_links_are_pushed(self):
+        from agent.cloud_api.constants import DataType
+        pushed = []
+        mgr = SimpleNamespace(sync_to_cloud=lambda dt, data, op: (pushed.append((dt, data)), {"synced": True})[1])
+        log = []
+        with mock.patch("agent.cloud_api.offline_sync_manager.get_sync_manager", return_value=mgr):
+            cmds._sync_created_to_cloud(self._ctx(), {"tasks": ["t1"], "agents": ["a1"]},
+                                        {"agent_task": [("a1", "t1")], "task_skill": [("t1", "sk")]}, log)
+        self.assertEqual([d for d, _ in pushed],
+                         [DataType.TASK, DataType.AGENT, DataType.AGENT_TASK, DataType.TASK_SKILL])
+        self.assertEqual(pushed[0][1]["metadata"]["task_vars"]["store_id"], "s", "the full row, task_vars included")
+        self.assertEqual(pushed[2][1], {"agid": "a1", "task_id": "t1", "status": "assigned"})
+        self.assertIn("4 synced", log[-1])
+
+    def test_a_failing_sync_is_counted_not_raised(self):
+        mgr = SimpleNamespace(sync_to_cloud=mock.Mock(side_effect=RuntimeError("offline")))
+        log = []
+        with mock.patch("agent.cloud_api.offline_sync_manager.get_sync_manager", return_value=mgr):
+            cmds._sync_created_to_cloud(self._ctx(), {"tasks": ["t1"], "agents": []}, {"agent_task": [], "task_skill": []}, log)
+        self.assertIn("1 failed", log[-1])
+
+    def test_store_agents_are_not_pinned_to_the_deploying_machine(self):
+        from pathlib import Path
+        src = Path("cli/deploy/commands.py").read_text(encoding="utf-8")
+        self.assertIn("    if store_id and vehicle_id:\n", src)
+        self.assertLess(src.index("_sync_created_to_cloud(ctx, created, links, log)"),
+                        src.index("    return plan, log, created"))
+
+
+class CliTokenTests(unittest.TestCase):
+    def test_a_cli_subprocess_syncs_with_the_token_the_app_handed_it(self):
+        from agent.cloud_api.cloud_api_service import CloudAPIService
+        from agent.cloud_api.constants import DataType
+        svc = CloudAPIService(DataType.TASK)
+        with mock.patch("app_context.AppContext.get_main_window", return_value=None), \
+             mock.patch.dict(os.environ, {"ECAN_CLI_AUTH_TOKEN": "tok-from-app"}):
+            self.assertEqual(svc._get_auth_token(), "tok-from-app")
+
+
 if __name__ == "__main__":
     unittest.main()

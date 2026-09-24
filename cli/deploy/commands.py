@@ -433,6 +433,48 @@ def _store_browser_identity(ctx, store_id: str, log: list) -> dict:
     return {}
 
 
+def _sync_created_to_cloud(ctx, created: dict, links: dict, log: list) -> None:
+    """Push what the deploy created to the cloud: tasks, agents, then their links.
+
+    The deploy only ever synced its DELETES, so a store staffed up on one
+    machine never reached the cloud and another machine could never run it.
+    Order matters -- a link needs both ends. Best-effort: a failed sync is
+    counted and left to the offline queue; the local deployment stands.
+    """
+    try:
+        from agent.cloud_api.constants import DataType, Operation
+        from agent.cloud_api.offline_sync_manager import get_sync_manager
+        manager = get_sync_manager()
+    except Exception as e:
+        log.append(f"Cloud sync skipped: {e}")
+        return
+    counts = {"synced": 0, "queued": 0, "failed": 0}
+
+    def push(dtype, data):
+        try:
+            r = manager.sync_to_cloud(dtype, data, Operation.ADD) or {}
+        except Exception:
+            r = {}
+        counts["synced" if r.get("synced") else "queued" if r.get("cached") else "failed"] += 1
+
+    def row(service, rid):
+        data = (service.query_tasks(id=rid) if service is ctx.db.task_service
+                else service.query_agents(id=rid)) or {}
+        rows = data.get("data") or []
+        return rows[0] if rows else {"id": rid}
+
+    for tid in created.get("tasks", []):
+        push(DataType.TASK, row(ctx.db.task_service, tid))
+    for aid in created.get("agents", []):
+        push(DataType.AGENT, row(ctx.db.agent_service, aid))
+    for aid, tid in links.get("agent_task", []):
+        push(DataType.AGENT_TASK, {"agid": aid, "task_id": tid, "status": "assigned"})
+    for tid, sid in links.get("task_skill", []):
+        push(DataType.TASK_SKILL, {"task_id": tid, "skill_id": sid})
+    log.append(f"Cloud sync: {counts['synced']} synced, {counts['queued']} queued for retry, "
+               f"{counts['failed']} failed")
+
+
 def _refuse_taken_store_id(ctx, cfg: dict) -> None:
     """A "+ New store" deploy must not reuse an existing store's id.
 
@@ -581,6 +623,12 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
         log.append(f"WARNING: local vehicle id resolution failed ({e}).")
     if not vehicle_id:
         log.append("WARNING: no local vehicle id — agents created UNPINNED (they will run on any host).")
+    if store_id and vehicle_id:
+        # A store's agents run where the STORE is assigned (store placement);
+        # a pin to the machine that happened to deploy would keep them off the
+        # machine the store is actually assigned to.
+        vehicle_id = None
+        log.append(f"Placement: agents follow store {store_id!r}'s assignment, not this machine")
 
     # ── Sales organization.
     org_id = _ensure_sales_org(ctx, owner, log)
@@ -589,6 +637,7 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     # store never drives the first one's logged-in browser (build_helpers.
     # browser_type_for_identity). Local only -- the profile never syncs.
     identity = _store_browser_identity(ctx, store_id, log)
+    links = {"task_skill": [], "agent_task": []}
 
     def _add_task(name: str, skill_id: str, extra_vars: dict | None = None) -> str:
         tvars = dict(task_vars)
@@ -608,6 +657,7 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
         tid = tr.get("id")
         created["tasks"].append(tid)
         link = ctx.db.task_service.add_skill_to_task(tid, skill_id, role="primary")
+        links["task_skill"].append((tid, skill_id))
         if not (isinstance(link, dict) and link.get("success")):
             raise RuntimeError(
                 f"link task {name} → skill {skill_id} failed: {(link or {}).get('error')}")
@@ -632,6 +682,8 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
             raise RuntimeError(f"create agent {name} failed: {ar.get('error')}")
         aid = ar.get("id")
         created["agents"].append(aid)
+        if task_id:
+            links["agent_task"].append((aid, task_id))
         return aid
 
     # ── Feige runtime env flags → <appdata>/run.env (applied on next app start).
@@ -667,6 +719,7 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
         f"referencing shared skills {_DDCS_QA_SKILL_ID}/{_DDCS_FD_SKILL_ID}; "
         f"store_url + front_desk_agent_id propagated via task_vars"
     )
+    _sync_created_to_cloud(ctx, created, links, log)
     return plan, log, created
 
 
