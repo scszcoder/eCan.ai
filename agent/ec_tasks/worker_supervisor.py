@@ -71,15 +71,41 @@ def isolation_key_for_task(task: Any) -> str:
     the same path ``store_id`` and ``front_desk_agent_id`` already use.
     """
     try:
-        metadata = getattr(task, "metadata", None)
-        if not isinstance(metadata, dict):
-            return ""
-        task_vars = metadata.get("task_vars")
-        if not isinstance(task_vars, dict):
-            return ""
-        return str(task_vars.get(ISOLATION_KEY_VAR) or "").strip()
+        # Runtime tasks carry task_vars under ``metadata``; database rows carry
+        # them under ``settings``. Both shapes reach this, so accept either
+        # rather than making every caller normalize first.
+        for holder in ("metadata", "settings"):
+            container = getattr(task, holder, None)
+            if container is None and isinstance(task, dict):
+                container = task.get(holder)
+            if not isinstance(container, dict):
+                continue
+            task_vars = container.get("task_vars")
+            if not isinstance(task_vars, dict):
+                continue
+            key = str(task_vars.get(ISOLATION_KEY_VAR) or "").strip()
+            if key:
+                return key
+        return ""
     except Exception:
         return ""
+
+
+def isolation_keys_for_tasks(tasks: Any) -> List[str]:
+    """Distinct isolation keys across an iterable of tasks, order preserved.
+
+    Accepts runtime tasks (``metadata['task_vars']``) and raw database rows
+    (``settings['task_vars']``, or a plain dict), because the caller reconciling
+    may hold either.
+    """
+    out: List[str] = []
+    seen = set()
+    for task in (tasks or []):
+        key = isolation_key_for_task(task)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(key)
+    return out
 
 
 @dataclass
@@ -336,6 +362,40 @@ class WorkerSupervisor:
             if not worker.is_running():
                 worker.start()
             return worker.status()
+
+    def reconcile(self, desired_keys: Any,
+                  drain_timeout: float = DEFAULT_DRAIN_TIMEOUT_S) -> Dict[str, List[str]]:
+        """Make the running workers match ``desired_keys``: start what is
+        missing, drain what is no longer wanted.
+
+        The caller supplies the set rather than the supervisor deriving it.
+        Which tasks run on this machine already depends on task rows, agent
+        enablement and vehicle affinity, and that logic lives in the launch
+        path; computing it a second time here would give two answers that drift
+        apart — the same failure as a roster drifting from the routing table.
+
+        Returns ``{"started": [...], "stopped": [...]}``.
+        """
+        wanted = [k for k in (str(x or "").strip() for x in (desired_keys or [])) if k]
+        with self._lock:
+            current = set(self._workers)
+        started, stopped = [], []
+        for key in wanted:
+            if key not in current:
+                if self.ensure_worker(key) is not None:
+                    started.append(key)
+        for key in sorted(current - set(wanted)):
+            # A domain whose tasks are gone -- deleted, disabled, or moved to
+            # another machine. Left alone it would hold a browser, a seller
+            # session and ~1GB of RSS for work that no longer exists.
+            self.stop_worker(key, drain_timeout)
+            stopped.append(key)
+        if started or stopped:
+            logger.info(
+                f"[WorkerSupervisor] reconciled: started={started} stopped={stopped} "
+                f"(now {len(self.status())} worker(s))"
+            )
+        return {"started": started, "stopped": stopped}
 
     def worker_status(self, key: str) -> Optional[WorkerStatus]:
         with self._lock:

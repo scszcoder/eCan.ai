@@ -346,6 +346,80 @@ class RestartTests(unittest.TestCase):
         self.assertEqual(self.sup.worker_status("store_a").restarts, 0)
 
 
+class ReconcileTests(unittest.TestCase):
+    """How the supervisor learns how many domains exist: it is told.
+
+    Deriving the set here would mean re-implementing "which tasks run on this
+    machine" (task rows + agent enablement + vehicle affinity), which already
+    lives in the launch path. Two implementations of that would drift, and the
+    drift would show up as a store with no worker, silently.
+    """
+
+    def setUp(self):
+        self.sup = WorkerSupervisor(_spawner(_SLEEPER))
+
+    def tearDown(self):
+        self.sup.stop_all(drain_timeout=3.0)
+
+    def test_starts_what_is_missing(self):
+        out = self.sup.reconcile(["store_a", "store_b"])
+        self.assertEqual(sorted(out["started"]), ["store_a", "store_b"])
+        self.assertEqual(len(self.sup.status()), 2)
+
+    def test_stops_a_domain_that_went_away(self):
+        # Its tasks were deleted, disabled, or moved to another machine. Left
+        # running it holds a browser, a seller session and ~1GB of RSS for
+        # work that no longer exists.
+        self.sup.reconcile(["store_a", "store_b"])
+        out = self.sup.reconcile(["store_a"], drain_timeout=5.0)
+        self.assertEqual(out["stopped"], ["store_b"])
+        self.assertIsNone(self.sup.worker_status("store_b"))
+        self.assertIsNotNone(self.sup.worker_status("store_a"))
+
+    def test_is_idempotent(self):
+        first = self.sup.reconcile(["store_a"])
+        pid = self.sup.worker_status("store_a").pid
+        second = self.sup.reconcile(["store_a"])
+        self.assertEqual(second, {"started": [], "stopped": []})
+        self.assertEqual(self.sup.worker_status("store_a").pid, pid)
+        self.assertEqual(first["started"], ["store_a"])
+
+    def test_an_empty_desired_set_drains_everything(self):
+        self.sup.reconcile(["store_a", "store_b"])
+        out = self.sup.reconcile([], drain_timeout=5.0)
+        self.assertEqual(sorted(out["stopped"]), ["store_a", "store_b"])
+        self.assertEqual(self.sup.status(), [])
+
+    def test_blank_keys_are_ignored_not_spawned(self):
+        out = self.sup.reconcile(["", "   ", None, "store_a"])
+        self.assertEqual(out["started"], ["store_a"])
+        self.assertEqual(len(self.sup.status()), 1)
+
+
+class IsolationKeysForTasksTests(unittest.TestCase):
+    def test_collects_distinct_keys_in_order(self):
+        from agent.ec_tasks.worker_supervisor import isolation_keys_for_tasks
+        tasks = [
+            _Task({"task_vars": {ISOLATION_KEY_VAR: "b"}}),
+            _Task({"task_vars": {ISOLATION_KEY_VAR: "a"}}),
+            _Task({"task_vars": {ISOLATION_KEY_VAR: "b"}}),   # front desk + its Q&A
+            _Task({"task_vars": {}}),                          # not isolated
+        ]
+        self.assertEqual(isolation_keys_for_tasks(tasks), ["b", "a"])
+
+    def test_reads_a_database_row_shape_too(self):
+        # Runtime tasks carry task_vars under metadata; DB rows under settings.
+        from agent.ec_tasks.worker_supervisor import isolation_keys_for_tasks
+        rows = [{"settings": {"task_vars": {ISOLATION_KEY_VAR: "store_a"}}}]
+        self.assertEqual(isolation_keys_for_tasks(rows), ["store_a"])
+
+    def test_empty_and_malformed_input(self):
+        from agent.ec_tasks.worker_supervisor import isolation_keys_for_tasks
+        self.assertEqual(isolation_keys_for_tasks([]), [])
+        self.assertEqual(isolation_keys_for_tasks(None), [])
+        self.assertEqual(isolation_keys_for_tasks([None, object(), {}]), [])
+
+
 class StatusTests(unittest.TestCase):
     def test_status_is_serializable_for_the_ui(self):
         sup = WorkerSupervisor(_spawner(_SLEEPER))
