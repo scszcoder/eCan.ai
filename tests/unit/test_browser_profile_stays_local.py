@@ -136,6 +136,13 @@ def test_every_local_profile_artefact_is_gitignored():
         result = subprocess.run(
             ["git", "check-ignore", "-q", "--no-index", rel],
             cwd=REPO, capture_output=True,
+            # stdin must be explicit, not inherited: capture_output redirects
+            # stdout/stderr, which on Windows makes CreateProcess use
+            # STARTF_USESTDHANDLES, and then an inherited stdin that the test
+            # runner has already redirected fails the spawn with
+            # "[WinError 6] The handle is invalid". Without this the test flaked
+            # about one run in three -- on a guard protecting seller sessions.
+            stdin=subprocess.DEVNULL,
         )
         # 0 = ignored, 1 = not ignored, 128 = git unavailable/not a repo
         if result.returncode == 128:

@@ -12,7 +12,9 @@ import os
 import unittest
 from unittest.mock import patch
 
-from config.instance import instance_id, instance_suffix, instance_port, ENV_VAR
+from config.instance import (
+    instance_id, instance_suffix, instance_port, instance_log_filename, ENV_VAR,
+)
 
 
 def _env(value):
@@ -34,8 +36,37 @@ class _NoInstance:
         return False
 
 
+class LogFilenameTests(unittest.TestCase):
+    """One file per worker, in the folder the support zip already collects."""
+
+    def test_default_instance_keeps_the_plain_name(self):
+        with _NoInstance():
+            self.assertEqual(instance_log_filename("eCan.log"), "eCan.log")
+
+    def test_a_worker_gets_its_own_file_beside_it(self):
+        with _env("store_b"):
+            self.assertEqual(instance_log_filename("eCan.log"), "eCan-store_b.log")
+
+    def test_the_extension_is_preserved(self):
+        # It has to stay a .log, or the zip and every viewer stop recognising it.
+        with _env("w1"):
+            self.assertTrue(instance_log_filename("eCan.log").endswith(".log"))
+
+    def test_a_name_without_an_extension(self):
+        with _env("w1"):
+            self.assertEqual(instance_log_filename("eCan"), "eCan-w1")
+
+    def test_only_the_last_dot_is_treated_as_the_extension(self):
+        with _env("w1"):
+            self.assertEqual(instance_log_filename("a.b.log"), "a.b-w1.log")
+
+
 class DefaultInstanceIsUnchangedTests(unittest.TestCase):
     """Nothing may move for an install that never sets the variable."""
+
+    def test_the_log_filename_is_unchanged(self):
+        with _NoInstance():
+            self.assertEqual(instance_log_filename("eCan.log"), "eCan.log")
 
     def test_id_and_suffix_are_empty(self):
         with _NoInstance():
@@ -139,10 +170,20 @@ class WiringTests(unittest.TestCase):
         from pathlib import Path
         return Path(rel).read_text(encoding="utf-8")
 
-    def test_appdata_path_is_instance_scoped(self):
+    def test_the_data_home_is_NOT_instance_scoped(self):
+        # Workers are workers of one app. Scoping the data home would give each
+        # its own database, its own browser profiles and its own login, and
+        # hide all of it from the GUI. An earlier revision did scope it, which
+        # was right only while instances were independent apps.
         src = self._read("config/app_info.py")
-        self.assertIn("from config.instance import instance_id", src)
-        self.assertIn('f"instance-{_inst}"', src)
+        self.assertNotIn('f"instance-{_inst}"', src)
+        self.assertNotIn("instance appdata path", src)
+
+    def test_the_log_file_is_instance_scoped(self):
+        # The one thing that genuinely cannot be shared: concurrent writers
+        # from several processes corrupt each other's lines.
+        src = self._read("utils/logger_helper.py")
+        self.assertIn("instance_log_filename(APP_LOG_FILE)", src)
 
     def test_mutex_and_file_lock_are_instance_scoped(self):
         src = self._read("utils/single_instance.py")

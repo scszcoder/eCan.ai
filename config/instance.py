@@ -1,19 +1,24 @@
 """Instance identity — several eCan processes side by side on one machine.
 
-The multi-store unit model is one store per process: one browser profile (a
-store *is* a seller login, and Chromium refuses a second process on one
-``--user-data-dir``), one front desk, N Q&A agents, one platform. The app is
-otherwise single-instance by construction, so everything that must not be
-shared between instances derives its name from here:
+The unit model is one isolation domain per process — for e-commerce, one store:
+one browser profile (a store *is* a seller login, and Chromium refuses a second
+process on one ``--user-data-dir``), one front desk, N Q&A agents, one platform.
+These are workers of ONE app, launched by it rather than by the operator (see
+``agent/ec_tasks/worker_supervisor.py``). The app is otherwise single-instance
+by construction, so the few things that genuinely cannot be shared between
+those processes derive their names from here:
 
-    data home   config/app_info.py       -> ecan.db, runlogs, profiles, plugins
+    log file    utils/logger_helper.py   -> one file per worker, one folder
     IPC port    agent/mcp/config.py      -> LocalServer, MCP clients, avatar URLs
     mutex       utils/single_instance.py -> the gate that permits a 2nd process
 
-That ordering is deliberate. The mutex is listed last because it is the only
-one that *permits* a second process: it must not open until the data home and
-the port are already separate, or two instances will share one SQLite file and
-one log.
+The data home is deliberately NOT in that list. Workers are workers of one
+app, so the database, the browser profiles and the plugin config are shared;
+scoping them would give every worker its own login and hide them from the GUI.
+
+The mutex is listed last because it is the only one that *permits* a second
+process: it must not open until the log file and the port are already
+separate, or workers would truncate each other's log and fight over one port.
 
 ``ECAN_INSTANCE_ID`` unset is the default and reproduces the original
 behaviour exactly — no suffix, port 4668, the original mutex name. An existing
@@ -43,6 +48,24 @@ def instance_suffix(sep: str = ".") -> str:
     """``"<sep><id>"`` for names that need one, or ``""`` for the default."""
     ident = instance_id()
     return f"{sep}{ident}" if ident else ""
+
+
+def instance_log_filename(base_filename: str) -> str:
+    """The log file this instance writes, e.g. ``eCan.log`` -> ``eCan-w1.log``.
+
+    A separate FILE in the shared ``runlogs`` folder, not a separate folder:
+    the support flow zips that one folder, so a worker's log ends up in the
+    bundle the operator sends without anyone having to remember it exists.
+    Interleaving them into one file instead would be worse than useless —
+    concurrent writers from several processes corrupt each other's lines.
+    """
+    ident = instance_id()
+    if not ident:
+        return base_filename
+    stem, dot, ext = base_filename.rpartition(".")
+    if not dot:
+        return f"{base_filename}-{ident}"
+    return f"{stem}-{ident}.{ext}"
 
 
 def instance_port(base: int) -> int:
