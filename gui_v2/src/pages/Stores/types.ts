@@ -37,6 +37,15 @@ export interface StoreRow {
   local: StoreLocal;
 }
 
+/** A machine a store can be assigned to (store.machines). */
+export interface StoreMachine {
+  id: string;
+  name: string;
+  type: string;          // 'desktop' | 'cloud'
+  status: string;        // 'active' | 'offline'
+  this?: boolean;
+}
+
 export interface StoreOverview {
   stores: StoreRow[];
   this_vehicle_id: string;

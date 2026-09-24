@@ -138,6 +138,28 @@ def handle_overview(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IP
     })
 
 
+@IPCHandlerRegistry.background_handler('store.machines')
+def handle_machines(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Machines a store can be assigned to: this one plus the account's others.
+
+    Only machines the CLOUD knows (heartbeating desktops, running pods) --
+    store_assign validates against the cloud vehicle row, so a LAN-only or
+    legacy local entry would 404. Same source as the Vehicles page refresh.
+    """
+    try:
+        from gui.ipc.w2p_handlers.vehicle_handler import _cloud_machines
+        me = _this_vehicle_id()
+        machines = [m for m in _cloud_machines({me} if me else set()) if m.get('source') != 'lan']
+        if me:
+            import socket
+            machines.insert(0, {'id': me, 'name': socket.gethostname(), 'type': 'desktop',
+                                'status': 'active', 'this': True})
+        return create_success_response(request, {'machines': machines, 'this_vehicle_id': me})
+    except Exception as e:
+        logger.warning(f"[store] machine list unavailable: {e}")
+        return create_error_response(request, 'STORE_ERROR', f"machine list unavailable: {e}")
+
+
 def _mainwin():
     from app_context import AppContext
     mw = AppContext.get_main_window()

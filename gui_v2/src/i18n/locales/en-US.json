@@ -566,6 +566,7 @@
       }
     },
     "stores": {
+      "assign_to": "Assign to…",
       "platform_hint": "Not listed? Type its name and press Enter.",
       "new_store": "New store",
       "edit_store": "Edit store",

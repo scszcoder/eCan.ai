@@ -2,13 +2,13 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
-  App, Badge, Button, Card, Descriptions, Empty, Popconfirm, Space, Statistic, Table, Tag, Tooltip, Typography,
+  App, Badge, Button, Card, Descriptions, Empty, Popconfirm, Select, Space, Statistic, Table, Tag, Tooltip, Typography,
 } from 'antd';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useFastDeployStore } from '@/stores/fastDeployStore';
 import type { StoreDefinition } from './StoreFormModal';
 import { platformLabel } from '@/components/FastDeploy/scenarios';
-import type { StoreMeter, StoreRow } from './types';
+import type { StoreMachine, StoreMeter, StoreRow } from './types';
 
 const LOGIN_COLORS: Record<string, string> = { ok: 'green', needs_login: 'orange', unknown: 'default' };
 
@@ -17,9 +17,11 @@ interface Props {
   thisVehicleId: string;
   onChanged: () => void;
   onEdit: (def: StoreDefinition) => void;
+  /** Machines it can be assigned to (this one first), from the cloud registry. */
+  machines: StoreMachine[];
 }
 
-const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit }) => {
+const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit, machines }) => {
   const { t, i18n } = useTranslation();
   const { message } = App.useApp();
   const navigate = useNavigate();
@@ -54,7 +56,8 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit 
       <Tooltip title={id}>
         <Space size={4}>
           <Typography.Text strong={id === thisVehicleId}>
-            {id === thisVehicleId ? ts('this_machine', 'This machine') : ts('other_machine', 'Other machine')}
+            {id === thisVehicleId ? ts('this_machine', 'This machine')
+              : (machines.find((m) => m.id === id)?.name || ts('other_machine', 'Other machine'))}
           </Typography.Text>
           {online === false && <Tag>{ts('offline', 'offline')}</Tag>}
         </Space>
@@ -103,16 +106,23 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit 
         </Descriptions>
       </Card>
       <Card size="small" title={ts('placement', 'Where it runs')}
-        extra={cloud && (archived ? (
+        extra={archived ? (
           <Button size="small" loading={busy}
             onClick={() => act(() => api.archiveStore(store.storeId, true))}>{ts('restore', 'Restore')}</Button>
         ) : (
           <Space size={4}>
-            <Button size="small" type="primary" loading={busy}
-              disabled={!thisVehicleId || store.assignedVehicleId === thisVehicleId}
-              onClick={() => act(() => api.assignStore(store.storeId, { this_machine: true }), ts('assigned_ok', 'Assigned'))}>
-              {ts('assign_here', 'Assign here')}
-            </Button>
+            {/* Assign to any machine on the account -- this one or another. */}
+            <Select size="small" style={{ minWidth: 200 }} loading={busy}
+              placeholder={ts('assign_to', 'Assign to…')}
+              value={store.assignedVehicleId || undefined}
+              onChange={(id: string) => act(() => api.assignStore(store.storeId,
+                id === thisVehicleId ? { this_machine: true } : { vehicle_id: id }), ts('assigned_ok', 'Assigned'))}
+              options={machines.map((m) => ({
+                value: m.id,
+                label: `${m.id === thisVehicleId ? ts('this_machine', 'This machine') + ' · ' : ''}${m.name}`
+                  + `${m.type === 'cloud' ? ' (cloud)' : ''}${m.status !== 'active' ? ' · ' + ts('offline', 'offline') : ''}`,
+              }))}
+            />
             <Button size="small" loading={busy} disabled={!store.assignedVehicleId}
               onClick={() => act(() => api.assignStore(store.storeId, { vehicle_id: null }))}>
               {ts('unassign', 'Unassign')}
@@ -122,7 +132,7 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit 
               <Button size="small" danger loading={busy}>{ts('archive', 'Archive')}</Button>
             </Popconfirm>
           </Space>
-        ))}
+        )}
       >
         {cloud ? (
           <Descriptions size="small" column={1}>

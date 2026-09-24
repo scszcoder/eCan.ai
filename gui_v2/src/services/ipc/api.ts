@@ -2974,6 +2974,11 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'store.overview' }, { include_archived: !!include_archived });
     }
 
+    /** Machines a store can be assigned to (this one first), from the cloud registry. */
+    public async getStoreMachines<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.machines' });
+    }
+
     /** The local store definitions (name, platform, URLs, login profile). */
     public async getStoreCatalog<T>(include_archived?: boolean): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'store.catalog' }, { include_archived: !!include_archived });

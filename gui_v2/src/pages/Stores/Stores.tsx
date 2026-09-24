@@ -14,7 +14,7 @@ import { get_ipc_api } from '@/services/ipc_api';
 import StoreList from './StoreList';
 import StoreDetail from './StoreDetail';
 import StoreFormModal, { type StoreDefinition } from './StoreFormModal';
-import type { StoreOverview } from './types';
+import type { StoreMachine, StoreOverview } from './types';
 
 const Stores: React.FC = () => {
   const { t } = useTranslation();
@@ -25,6 +25,7 @@ const Stores: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // null = closed; 'new' = create; otherwise the definition being edited.
   const [form, setForm] = useState<'new' | StoreDefinition | null>(null);
+  const [machines, setMachines] = useState<StoreMachine[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,6 +44,12 @@ const Stores: React.FC = () => {
   }, [showArchived, message, t]);
 
   useEffect(() => { load(); }, [load]);
+  // The account's machines, for "Assign to" and for naming "Other machine".
+  useEffect(() => {
+    get_ipc_api().getStoreMachines<{ machines: StoreMachine[] }>().then((res) => {
+      if (res.success && res.data) setMachines(res.data.machines || []);
+    }).catch(() => { /* assigning then offers only what we know */ });
+  }, [data]);
 
   const stores = useMemo(() => data?.stores || [], [data]);
   useEffect(() => {
@@ -74,7 +81,7 @@ const Stores: React.FC = () => {
       detailsContent={
         <>
           <StoreDetail store={selected} thisVehicleId={data?.this_vehicle_id || ''} onChanged={load}
-            onEdit={(def) => setForm(def)} />
+            onEdit={(def) => setForm(def)} machines={machines} />
           <StoreFormModal
             open={form !== null}
             editing={form === 'new' ? null : form}
