@@ -43,6 +43,7 @@ from utils.port_allocator import get_port_allocator
 from agent.ec_agents.vehicle_affinity import (
     local_vehicle_report_fields as _local_vehicle_report_fields,
 )
+from agent.ec_agents.store_reporter import report_local_stores as _report_local_stores
 from config.envi import getECBotDataHome
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
@@ -6039,6 +6040,12 @@ class MainWindow:
                             self._on_vehicle_report_success()
                         except Exception as report_err:
                             self._on_vehicle_report_failure(report_err)
+                        else:
+                            # Only after the heartbeat landed: store_report is
+                            # validated against the vehicle row it just wrote.
+                            await asyncio.get_running_loop().run_in_executor(
+                                None, lambda: _report_local_stores(self)
+                            )
 
             if not monitor_msg_queue.empty():
                 message = await monitor_msg_queue.get()
