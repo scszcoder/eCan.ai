@@ -416,13 +416,33 @@ class EC_Agent(Agent):
 		# With one account on multiple hosts, cloud sync gives every host the
 		# same agents/tasks; only start this agent when it is assigned to this
 		# host's vehicle (or has no assignment — back-compat). Fails open.
+		# ── Store placement gate (docs/STORE_PLACEMENT_DESIGN.md) ──
+		# An agent serving a store (explicit task_vars.store_id) runs where the
+		# STORE is assigned, never by its vehicle pin: the pin gate below fails
+		# open, which started the same store on every machine of the account.
+		# A gate error falls back to the pin gate, i.e. today's behaviour.
+		_store_governed = False
+		try:
+			from agent.ec_agents.store_placement import (
+				placement_for_agent as _store_placement, SKIP as _STORE_SKIP,
+			)
+			_sp, _sp_why = _store_placement(self)
+			if _sp is not None:
+				_store_governed = True
+				if _sp == _STORE_SKIP:
+					logger.info(f"[AGENT_START] Skipping '{self.card.name}' on this host (store placement): {_sp_why}")
+					return
+				logger.info(f"[AGENT_START] '{self.card.name}' runs here (store placement): {_sp_why}")
+		except Exception as _sp_err:
+			logger.warning(f"[AGENT_START] Store placement gate error (falling back to vehicle pin): {_sp_err}")
+
 		try:
 			from agent.ec_agents.vehicle_affinity import (
 				agent_launch_allowed,
 				register_local_vehicle,
 			)
 			register_local_vehicle(self.mainwin)
-			allowed, reason = agent_launch_allowed(self)
+			allowed, reason = (True, "store-placement") if _store_governed else agent_launch_allowed(self)
 			if not allowed:
 				logger.info(
 					f"[AGENT_START] Skipping '{self.card.name}' on this host: {reason}"
@@ -532,7 +552,9 @@ class EC_Agent(Agent):
 		
 		# Start WAN subscription for receiving messages over the internet
 		self._start_wan_subscriptions()
-		
+
+		# What the store reporter and reconciler read: gated-out agents stay False.
+		self._running = True
 		logger.info("Ready to A2A chat....", self.card.name)
 
 	async def hone_skills(self):

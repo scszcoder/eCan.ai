@@ -5996,14 +5996,18 @@ class MainWindow:
         self._cloud_vehicle_report_failure_count = 0
         while running:
             ticks = ticks + 1
-            if ticks > 255:
+            # Wrap at a multiple of every period below (8s, 60s). Wrapping at
+            # 256 made tick 0 match too, firing the heartbeat twice per cycle.
+            if ticks >= 240:
                 ticks = 0
 
             #ping cloud every 8 second to see whether there is any monitor/control internet. use amazon's sqs
             if ticks % 8 == 0:
                 logger.debug(f"Access Internet Here with Websocket...")
 
-            if ticks % 180 == 0:
+            # 60s: store placement acts on each heartbeat, and a moved store is
+            # dark for about two of them (owner decision D3).
+            if ticks % 60 == 0:
                 self.showMsg(f"report vehicle status")
 
                 # update vehicles status to local disk, this is done either on platoon or commander

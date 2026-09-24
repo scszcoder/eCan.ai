@@ -12,27 +12,27 @@ def _task(**task_vars):
 
 
 def _agent(*tasks, here=True):
-    return SimpleNamespace(tasks=list(tasks), here=here)
+    # "here" = actually running on this machine (store placement let it start).
+    return SimpleNamespace(tasks=list(tasks), _running=here)
 
 
 def _mainwin(*agents):
     return SimpleNamespace(agents=list(agents))
 
 
-def _launch_allowed(agent):
-    return (agent.here, "test")
-
-
 class _Patched(unittest.TestCase):
     def setUp(self):
         patches = [
-            mock.patch("agent.ec_agents.vehicle_affinity.agent_launch_allowed", _launch_allowed),
+            # No cloud in unit tests: the release check sees an empty registry
+            # unless a test sets self.snapshot.
+            mock.patch("agent.ec_agents.store_placement.refresh", lambda mw, force=False: self.snapshot),
             mock.patch(
                 "agent.ec_skills.browser_use_extension.fingerprint.profile_registry.list_profiles",
                 lambda: self.profiles,
             ),
         ]
         self.profiles = []
+        self.snapshot = None
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -52,7 +52,7 @@ class LocalStoreIdsTests(_Patched):
         mw = _mainwin(_agent(_task(store_url="https://im.jinritemai.com/pc_seller_v2/main")))
         self.assertEqual(sr.local_store_ids(mw), [])
 
-    def test_agents_placed_elsewhere_are_not_reported(self):
+    def test_agents_not_running_here_are_not_reported(self):
         mw = _mainwin(_agent(_task(store_id="elsewhere"), here=False))
         self.assertEqual(sr.local_store_ids(mw), [])
 
@@ -97,6 +97,33 @@ class ReportTests(_Patched):
         vid, items = call.call_args.args
         self.assertEqual(vid, "stable-1")
         self.assertEqual(items[0]["store_id"], "shop-a")
+
+    def test_a_store_recorded_here_but_not_running_is_released(self):
+        # Moved away, or this process restarted without it: the machine taking
+        # it over waits for exactly this release.
+        self.snapshot = {"stores": {
+            "gone": {"reported": "stable-1"},
+            "shop-a": {"reported": "stable-1"},
+            "elsewhere": {"reported": "other-pc"},
+        }}
+        mw = _mainwin(_agent(_task(store_id="shop-a")))
+        with mock.patch("agent.ec_agents.vehicle_affinity.resolve_local_vehicle_id",
+                        return_value="stable-1"),              mock.patch("agent.cloud_api.store_api.store_report",
+                        return_value={"accepted": 2}) as call:
+            sr.report_local_stores(mw)
+        items = call.call_args.args[1]
+        self.assertIn({"store_id": "gone", "running": False}, items)
+        self.assertFalse(any(i.get("store_id") == "elsewhere" for i in items),
+                         "never release another machine's store")
+        self.assertTrue(any(i.get("store_id") == "shop-a" and i.get("running") is not False
+                            for i in items))
+
+    def test_nothing_running_and_nothing_to_release_makes_no_call(self):
+        self.snapshot = {"stores": {"x": {"reported": "other-pc"}}}
+        with mock.patch("agent.ec_agents.vehicle_affinity.resolve_local_vehicle_id",
+                        return_value="stable-1"),              mock.patch("agent.cloud_api.store_api.store_report") as call:
+            self.assertIsNone(sr.report_local_stores(_mainwin(_agent(_task(store_id="a"), here=False))))
+        call.assert_not_called()
 
     def test_a_signed_out_session_does_not_raise(self):
         from agent.cloud_api.store_api import StoreApiUnavailable
