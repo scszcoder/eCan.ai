@@ -44,6 +44,7 @@ from agent.ec_agents.vehicle_affinity import (
     local_vehicle_report_fields as _local_vehicle_report_fields,
 )
 from agent.ec_agents.store_reporter import report_local_stores as _report_local_stores
+from agent.ec_agents.store_reconciler import reconcile as _reconcile_stores
 from config.envi import getECBotDataHome
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
@@ -6047,6 +6048,11 @@ class MainWindow:
                         else:
                             # Only after the heartbeat landed: store_report is
                             # validated against the vehicle row it just wrote.
+                            # Reconcile first, so a store stopped here is
+                            # released in this same report.
+                            await asyncio.get_running_loop().run_in_executor(
+                                None, lambda: _reconcile_stores(self)
+                            )
                             await asyncio.get_running_loop().run_in_executor(
                                 None, lambda: _report_local_stores(self)
                             )

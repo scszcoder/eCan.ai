@@ -701,13 +701,30 @@ on the profile record. Both hardcode a policy, so decide deliberately.
 
 ### ⚡ Store placement: the assignment decides where a store runs (2026-09-24)
 
-Design: `docs/STORE_PLACEMENT_DESIGN.md` — awaiting owner decisions D1–D3.
-Blocks running one account's stores on more than one machine: today a second
-machine adopts the same agents (fail-open "no-affinity" / "stale-pin-adopt" in
-`vehicle_affinity.agent_launch_allowed`) → duplicate customer replies, and
-`store_assign` is display-only. Needs server work (`store_claim`, release,
-desktop liveness in the vehicle reaper) plus a client gate, reconciler and a
-new `EC_Agent.stop()`.
+Design: `docs/STORE_PLACEMENT_DESIGN.md` (D1 auto-claim, D2 run when the cloud
+is unknown, D3 60s heartbeat). Server half shipped 2026-09-24 (eCan_lambda
+`ff89a55`, `504435f`). Client half shipped: `store_placement` gate in
+`EC_Agent.start()`, claim, on-disk assignment cache, `store_reconciler` per
+heartbeat, `EC_Agent.stop()`, release in the store report. **Not yet verified
+on two real machines.** Deliberate limits, fix when they bite:
+
+- **A stopped agent does not restart in the same process.** `EC_Agent.stop()`
+  goes through `TaskRunner.stop()`, which cancels the ManagedTask objects and
+  queues `__shutdown__`; the agent keeps those objects. Moving a store back to a
+  machine that stopped it logs a WARNING asking for an app restart. Making it
+  restartable = clear each task's `cancellation_event`, drain the shutdown
+  sentinels, fresh TaskRunner.
+- **The in-flight turn is cut, not drained**, when a store moves away
+  (`ManagedTask.exit()` is a force stop). The customer's current message can
+  go unanswered; the next one is answered on the new machine.
+- **A stopped store's browser event monitors keep running** until app exit:
+  `TaskRunner.stop()`'s monitor cleanup is process-wide, so the per-agent stop
+  passes `cleanup_monitors=False` rather than blind the other stores. Needs a
+  per-agent monitor cleanup.
+- **Agents with an isolation key are not reconciled** — the worker supervisor
+  owns them; wiring its `reconcile()` to store placement is still open.
+- **Dead-machine takeover is slow**: 180s stale + up to one 5-min server timer.
+  Planned moves use release and are not affected.
 
 ### Store registry has no intl backend (2026-09-24)
 
