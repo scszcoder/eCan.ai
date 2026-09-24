@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Alert, Badge, Button, Checkbox, List, Space, Tag, Tooltip, Typography } from 'antd';
 import { PlusOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import type { StoreRow } from './types';
+import { platformLabel } from '@/components/FastDeploy/scenarios';
 
 interface StoreListProps {
   stores: StoreRow[];
@@ -28,7 +29,7 @@ export const placementBadge = (s: StoreRow, thisVehicleId: string) => {
 const StoreList: React.FC<StoreListProps> = ({
   stores, thisVehicleId, selectedId, onSelect, loading, onRefresh, showArchived, onShowArchived, cloudError, onAdd,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const ts = (k: string, d: string) => t(`pages.stores.${k}`, d) as string;
 
   return (
@@ -64,7 +65,7 @@ const StoreList: React.FC<StoreListProps> = ({
                   <Space size={6}>
                     <Badge status={placementBadge(s, thisVehicleId)} />
                     <Typography.Text strong>{s.label || s.storeId}</Typography.Text>
-                    {s.platform && <Tag>{s.platform}</Tag>}
+                    {s.platform && <Tag>{platformLabel(s.platform, i18n.language)}</Tag>}
                     {s.status === 'archived' && <Tag>{ts('archived', 'archived')}</Tag>}
                     {attention && (
                       <Tooltip title={s.misplaced ? ts('misplaced', 'Running somewhere other than assigned')

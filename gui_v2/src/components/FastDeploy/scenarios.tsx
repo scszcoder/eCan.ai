@@ -77,7 +77,37 @@ export const PLATFORMS: { value: string; nameEn: string; nameZh: string }[] = [
     { value: 'etsy', nameEn: 'Etsy', nameZh: 'Etsy' },
     { value: 'shopify', nameEn: 'Shopify', nameZh: 'Shopify' },
     { value: 'tiktok', nameEn: 'TikTok Shop', nameZh: 'TikTok 店铺' },
+    { value: 'pinduoduo', nameEn: 'Pinduoduo', nameZh: '拼多多' },
+    { value: 'temu', nameEn: 'Temu', nameZh: 'Temu' },
+    { value: 'walmart', nameEn: 'Walmart', nameZh: '沃尔玛' },
+    { value: 'jd', nameEn: 'JD.com', nameZh: '京东' },
+    { value: '1688', nameEn: '1688', nameZh: '1688' },
+    { value: 'alibaba', nameEn: 'Alibaba', nameZh: '阿里巴巴' },
+    { value: 'kuaishou', nameEn: 'Kuaishou', nameZh: '快手' },
+    { value: 'xiaohongshu', nameEn: 'Xiaohongshu (RED)', nameZh: '小红书' },
+    { value: 'xianyu', nameEn: 'Xianyu', nameZh: '闲鱼' },
+    { value: 'meituan', nameEn: 'Meituan', nameZh: '美团' },
+    { value: 'aliexpress', nameEn: 'AliExpress', nameZh: '速卖通' },
+    { value: 'lazada', nameEn: 'Lazada', nameZh: 'Lazada' },
+    { value: 'shopee', nameEn: 'Shopee', nameZh: 'Shopee' },
+    { value: 'mercadolibre', nameEn: 'Mercado Libre', nameZh: '美客多' },
+    { value: 'coupang', nameEn: 'Coupang', nameZh: 'Coupang' },
+    { value: 'facebook_marketplace', nameEn: 'Facebook Marketplace', nameZh: 'Facebook Marketplace' },
+    { value: 'craigslist', nameEn: 'Craigslist', nameZh: 'Craigslist' },
+    { value: 'nextdoor', nameEn: 'Nextdoor', nameZh: 'Nextdoor' },
+    { value: 'offerup', nameEn: 'OfferUp', nameZh: 'OfferUp' },
+    { value: 'flipkart', nameEn: 'Flipkart', nameZh: 'Flipkart' },
+    { value: 'rakuten', nameEn: 'Rakuten', nameZh: '乐天' },
+    { value: 'otto', nameEn: 'OTTO', nameZh: 'OTTO' },
 ];
+
+/** Display name for a platform value; a custom platform shows as typed. */
+export function platformLabel(value: string | undefined | null, lang: string): string {
+    if (!value) return '';
+    const p = PLATFORMS.find((x) => x.value === value);
+    if (!p) return value;
+    return lang && lang.toLowerCase().startsWith('zh') ? p.nameZh : p.nameEn;
+}
 
 export function getScenario(key: string | null): BusinessScenario | undefined {
     return key ? SCENARIOS.find((s) => s.key === key) : undefined;

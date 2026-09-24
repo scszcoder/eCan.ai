@@ -7,6 +7,7 @@ import {
 import { get_ipc_api } from '@/services/ipc_api';
 import { useFastDeployStore } from '@/stores/fastDeployStore';
 import type { StoreDefinition } from './StoreFormModal';
+import { platformLabel } from '@/components/FastDeploy/scenarios';
 import type { StoreMeter, StoreRow } from './types';
 
 const LOGIN_COLORS: Record<string, string> = { ok: 'green', needs_login: 'orange', unknown: 'default' };
@@ -92,7 +93,7 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit 
       >
         <Descriptions size="small" column={1}>
           <Descriptions.Item label={ts('name', 'Name')}>{def?.name || store.label || store.storeId}</Descriptions.Item>
-          <Descriptions.Item label={ts('platform', 'Platform')}>{def?.platform || store.platform || ts('none', '—')}</Descriptions.Item>
+          <Descriptions.Item label={ts('platform', 'Platform')}>{platformLabel(def?.platform || store.platform, i18n.language) || ts('none', '—')}</Descriptions.Item>
           <Descriptions.Item label={ts('urls_short', 'URLs')}>
             {def?.store_urls?.length
               ? <Space direction="vertical" size={0}>{def.store_urls.map((u) => <Typography.Text key={u} copyable>{u}</Typography.Text>)}</Space>
@@ -127,7 +128,7 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit 
           <Descriptions size="small" column={1}>
             <Descriptions.Item label={ts('store_id', 'Store ID')}>
               <Typography.Text copyable>{store.storeId}</Typography.Text>
-              {store.platform && <Tag style={{ marginLeft: 8 }}>{store.platform}</Tag>}
+              {store.platform && <Tag style={{ marginLeft: 8 }}>{platformLabel(store.platform, i18n.language)}</Tag>}
             </Descriptions.Item>
             <Descriptions.Item label={ts('assigned', 'Assigned to')}>
               {machine(store.assignedVehicleId, store.assignedVehicleOnline)}

@@ -31,6 +31,8 @@ const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) =>
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [profiles, setProfiles] = useState<{ id: string; label: string }[]>([]);
+  // Platforms typed in before (custom ones) show up in the list next time.
+  const [customPlatforms, setCustomPlatforms] = useState<string[]>([]);
   const [idTouched, setIdTouched] = useState(false);
   const ts = (k: string, d: string) => t(`pages.stores.${k}`, d) as string;
   const zh = (i18n.language || '').toLowerCase().startsWith('zh');
@@ -45,6 +47,11 @@ const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) =>
     get_ipc_api().listBrowserProfiles<{ profiles: { id: string; label: string }[] }>().then((res) => {
       if (res.success && res.data) setProfiles(res.data.profiles || []);
     }).catch(() => setProfiles([]));
+    get_ipc_api().getStoreCatalog<{ stores: { platform: string }[] }>(true).then((res) => {
+      const known = new Set(PLATFORMS.map((p) => p.value));
+      const used = (res.success && res.data ? res.data.stores : []).map((x) => x.platform).filter(Boolean);
+      setCustomPlatforms(Array.from(new Set(used.filter((v) => !known.has(v)))));
+    }).catch(() => setCustomPlatforms([]));
   }, [open, editing, form]);
 
   const submit = async () => {
@@ -98,8 +105,17 @@ const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) =>
             { validator: (_, v) => (/^https?:\/\//i.test(String(v || '')) ? Promise.reject(ts('id_is_url', 'Use a name, not a URL')) : Promise.resolve()) }]}>
           <Input disabled={!!editing} />
         </Form.Item>
-        <Form.Item name="platform" label={ts('platform', 'Platform')} rules={[{ required: true }]}>
-          <Select options={PLATFORMS.map((p) => ({ value: p.value, label: zh ? p.nameZh : p.nameEn }))} />
+        {/* Pick one, or type a platform that is not listed and press Enter. The
+            field holds a single string; tags mode is only how free text gets in. */}
+        <Form.Item name="platform" label={ts('platform', 'Platform')} rules={[{ required: true, whitespace: true }]}
+          extra={ts('platform_hint', 'Not listed? Type its name and press Enter.')}
+          getValueProps={(v) => ({ value: v ? [v] : [] })}
+          normalize={(v) => (Array.isArray(v) ? String(v[v.length - 1] || '').trim() : v)}>
+          <Select mode="tags" showSearch optionFilterProp="label"
+            options={[
+              ...PLATFORMS.map((p) => ({ value: p.value, label: zh ? p.nameZh : p.nameEn })),
+              ...customPlatforms.map((v) => ({ value: v, label: v })),
+            ]} />
         </Form.Item>
         <Form.Item name="urls" label={ts('urls', 'Store URLs (one per line)')}>
           <Input.TextArea rows={3} placeholder="https://…" />

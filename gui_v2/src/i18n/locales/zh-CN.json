@@ -598,6 +598,7 @@
       }
     },
     "stores": {
+      "platform_hint": "列表中没有？输入平台名称后按回车即可添加。",
       "new_store": "新建店铺",
       "edit_store": "编辑店铺",
       "save": "保存",
