@@ -43,8 +43,28 @@ def _from_bundles() -> Dict[MeterKey, dict]:
     return out
 
 
+def _from_tools() -> Dict[MeterKey, dict]:
+    from agent.mcp.tool_meters import declared_tool_meters
+    out: Dict[MeterKey, dict] = {}
+    for tool, m in declared_tool_meters().items():
+        key = (m["scenario_code"], m["meter_code"])
+        out[key] = {
+            "scenario_code": key[0], "meter_code": key[1],
+            "display_name_zh": m.get("display_name_zh", ""),
+            "display_name_en": m.get("display_name_en", ""),
+            "unit": m.get("unit", ""), "definition": m.get("definition", ""),
+            "source": f"tool:{tool}",
+        }
+    return out
+
+
 def declared_meters(refresh: bool = False) -> Dict[MeterKey, dict]:
-    """Every declared meter, keyed by ``(scenario_code, meter_code)``."""
+    """Every declared meter, keyed by ``(scenario_code, meter_code)``.
+
+    Sources: hook bundles' ``meters:`` blocks, and MCP tools' declarations
+    (agent/mcp/tool_meters.py). Tool meters are read on every call -- tools
+    register as their modules import, which can be after the first read.
+    """
     global _loaded
     with _lock:
         if refresh or not _loaded:
@@ -54,7 +74,12 @@ def declared_meters(refresh: bool = False) -> Dict[MeterKey, dict]:
             except Exception as e:
                 logger.warning(f"[MeterRegistry] could not read meter declarations: {e}")
             _loaded = True
-        return dict(_cache)
+        merged = dict(_cache)
+    try:
+        merged.update(_from_tools())
+    except Exception as e:
+        logger.warning(f"[MeterRegistry] could not read tool meters: {e}")
+    return merged
 
 
 def describe(scenario_code: str, meter_code: str) -> dict:

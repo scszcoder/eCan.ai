@@ -92,7 +92,7 @@ class MCPClientManager:
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise
 
-    async def call_tool(self, url, tool_name, arguments, timeout: float = 60.0):
+    async def call_tool(self, url, tool_name, arguments, timeout: float = 60.0, meta=None):
         """Calls a tool on an MCP server with robust session handling.
 
         Args:
@@ -101,6 +101,8 @@ class MCPClientManager:
             arguments: Tool arguments
             timeout: Timeout in seconds (default 60s). Caller can specify longer
                      timeout for slow operations like API queries.
+            meta: MCP request meta -- carries the caller's run scope
+                  (agent/mcp/tool_meters.py) so outcomes are attributed.
         """
         # 2026-05-21 mt019 — per-tool fast-fail caps for hot-path tools.
         # Q&A bots calling ``rag_query`` block the customer's reply on
@@ -180,7 +182,7 @@ class MCPClientManager:
                     logger.debug(f"[MCP] Got persistent session, calling tool '{tool_name}'...")
                     # Use full timeout for the actual tool call
                     result = await asyncio.wait_for(
-                        session.call_tool(tool_name, arguments),
+                        session.call_tool(tool_name, arguments, meta=meta),
                         timeout=timeout
                     )
                     logger.debug(f"Tool call via persistent session succeeded for '{tool_name}'")
@@ -220,7 +222,7 @@ class MCPClientManager:
                         await asyncio.wait_for(session.initialize(), timeout=timeout)
                         _t_init_done = _time.perf_counter()
                         result = await asyncio.wait_for(
-                            session.call_tool(tool_name, arguments),
+                            session.call_tool(tool_name, arguments, meta=meta),
                             timeout=timeout,
                         )
                         _t_call_done = _time.perf_counter()
@@ -372,7 +374,11 @@ async def mcp_call_tool(tool_name, args, timeout: float = 60.0):
     response = None
     try:
         url = mcp_http_base()
-        response = await mcp_client_manager.call_tool(url, tool_name, args, timeout=timeout)
+        # The caller's store/agent/task travel with the call, so an outcome the
+        # tool produces is attributed across the HTTP hop (tool_meters.py).
+        from agent.mcp.tool_meters import scope_meta
+        response = await mcp_client_manager.call_tool(url, tool_name, args, timeout=timeout,
+                                                      meta=scope_meta())
         logger.debug(f"Raw response type: {type(response)}")
         return response
     except BaseException as e:
