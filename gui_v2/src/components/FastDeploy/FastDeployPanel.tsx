@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Button, Input, InputNumber, Radio, Typography, message } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Button, Input, InputNumber, Radio, Select, Typography, message } from 'antd';
 import {
     CloseOutlined,
     PlusOutlined,
@@ -17,6 +17,12 @@ import {
     type BusinessScenario,
     type ScenarioConfig,
 } from './scenarios';
+import { useFastDeployStore } from '../../stores/fastDeployStore';
+
+/** A store from the local catalog (store.catalog). */
+interface CatalogStore { store_id: string; name: string; platform: string; store_urls: string[] }
+
+const NEW_STORE = '__new__';
 
 const { Text } = Typography;
 
@@ -60,9 +66,48 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
 
     const selected = getScenario(selectedKey);
 
+    // Store-first: deploy INTO a store from the catalog, or define one here.
+    const presetStoreId = useFastDeployStore((s) => s.storeId);
+    const [catalog, setCatalog] = useState<CatalogStore[]>([]);
+    const [storeChoice, setStoreChoice] = useState<string>('');
+    useEffect(() => {
+        if (!open) return;
+        get_ipc_api().getStoreCatalog<{ stores: CatalogStore[] }>().then((res) => {
+            if (res.success && res.data) setCatalog(res.data.stores || []);
+        }).catch(() => { /* the new-store fields still work */ });
+    }, [open]);
+
+    const pickStore = (sid: string, base?: ScenarioConfig) => {
+        setStoreChoice(sid);
+        if (sid === NEW_STORE) {
+            setConfig((c) => ({ ...(base || c), storeId: '', storeName: '' }));
+            return;
+        }
+        const st = catalog.find((x) => x.store_id === sid);
+        setConfig((c) => {
+            const cur = base || c;
+            const urls = st && st.store_urls && st.store_urls.length ? st.store_urls : cur.storeUrls;
+            return { ...cur, storeId: sid, storeName: undefined, storeUrls: urls };
+        });
+    };
+
+    // Opened from a store's page: go straight to that store's platform.
+    useEffect(() => {
+        if (!open || !presetStoreId || !catalog.length) return;
+        const st = catalog.find((x) => x.store_id === presetStoreId);
+        const sc = SCENARIOS.find((x) => x.schema.storeId && (!st || x.platform === st.platform))
+            || SCENARIOS.find((x) => x.schema.storeId);
+        if (!sc) return;
+        setSelectedKey(sc.key);
+        setCreating(false); setStatusLines([]); setResult(null); setStatusCollapsed(false);
+        pickStore(presetStoreId, defaultConfig(sc));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, presetStoreId, catalog]);
+
     const openConfig = (s: BusinessScenario) => {
         setSelectedKey(s.key);
         setConfig(defaultConfig(s));
+        setStoreChoice('');
         setCreating(false);
         setStatusLines([]);
         setResult(null);
@@ -91,11 +136,17 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
             message.warning(t('pages.agents.fast_deploy_need_url', 'Please add at least one store URL'));
             return;
         }
+        if (selected.schema.storeId && !(config.storeId || '').trim()) {
+            message.warning(t('pages.agents.fast_deploy_need_store', 'Choose a store to deploy into, or create one'));
+            return;
+        }
         const payload = {
             scenario: selected.key,
             config: {
                 store_urls: urls,
                 ...(selected.schema.storeId ? { store_id: (config.storeId || '').trim() } : {}),
+                ...(selected.schema.storeId && storeChoice === NEW_STORE && config.storeName
+                    ? { store_name: config.storeName.trim() } : {}),
                 ...(selected.schema.qaAgents ? { qa_agents: config.qaAgents } : {}),
                 ...(selected.schema.replaceMode ? { mode: config.mode || 'add' } : {}),
             },
@@ -272,20 +323,50 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                 </div>
                             )}
 
-                            {/* store id — the store URL does not identify the store */}
+                            {/* store: deploy into a store from the catalog, or define one here.
+                                The store URL does not identify the store (every 飞鸽 seller shares
+                                one workstation URL), so an explicit store is required. */}
                             {selected.schema.storeId && (
                                 <div style={{ marginTop: 16 }}>
                                     <Text style={{ color: '#94a3b8', fontSize: 13 }}>
-                                        {t('pages.agents.fast_deploy_store_id', 'Store name / ID')}
+                                        {t('pages.agents.fast_deploy_store', 'Store')}
                                     </Text>
                                     <div style={{ marginTop: 8 }}>
-                                        <Input
-                                            value={config.storeId || ''}
-                                            placeholder={t('pages.agents.fast_deploy_store_id_ph', 'e.g. lands_flying_fish')}
-                                            onChange={(e) => setConfig((c) => ({ ...c, storeId: e.target.value }))}
+                                        <Select
+                                            style={{ width: '100%' }}
+                                            value={storeChoice || undefined}
+                                            placeholder={t('pages.agents.fast_deploy_store_pick', 'Choose a store')}
+                                            onChange={(v) => pickStore(v)}
+                                            options={[
+                                                ...catalog
+                                                    .filter((x) => !x.platform || x.platform === selected.platform)
+                                                    .map((x) => ({ value: x.store_id,
+                                                        label: x.name && x.name !== x.store_id ? `${x.name} (${x.store_id})` : x.store_id })),
+                                                { value: NEW_STORE, label: t('pages.agents.fast_deploy_store_new', '+ New store') },
+                                            ]}
                                         />
+                                        {storeChoice === NEW_STORE && (
+                                            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                <Input
+                                                    value={config.storeName || ''}
+                                                    placeholder={t('pages.agents.fast_deploy_store_name', 'Store name')}
+                                                    onChange={(e) => {
+                                                        const name = e.target.value;
+                                                        setConfig((c) => ({ ...c, storeName: name,
+                                                            // the id follows the name until the user edits it
+                                                            storeId: !c.storeId || c.storeId === (c.storeName || '').trim() ? name.trim() : c.storeId }));
+                                                    }}
+                                                />
+                                                <Input
+                                                    value={config.storeId || ''}
+                                                    placeholder={t('pages.agents.fast_deploy_store_id_ph', 'e.g. lands_flying_fish')}
+                                                    addonBefore={t('pages.agents.fast_deploy_store_id_label', 'ID')}
+                                                    onChange={(e) => setConfig((c) => ({ ...c, storeId: e.target.value }))}
+                                                />
+                                            </div>
+                                        )}
                                         <Text style={{ color: '#64748b', fontSize: 12, display: 'block', marginTop: 6 }}>
-                                            {t('pages.agents.fast_deploy_store_id_hint', 'Required when running more than one store: every seller shares the same workstation URL, so this is what keeps each store’s settings and usage separate.')}
+                                            {t('pages.agents.fast_deploy_store_id_hint')}
                                         </Text>
                                     </div>
                                 </div>
@@ -331,7 +412,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                         />
                                         <div style={{ color: '#64748b', marginTop: 6, fontSize: 12 }}>
                                             {config.mode === 'replace'
-                                                ? t('pages.agents.fast_deploy_mode_replace_hint', 'Deletes your existing tasks on these skills and the agents assigned to them, then creates fresh ones.')
+                                                ? t('pages.agents.fast_deploy_mode_replace_hint')
                                                 : t('pages.agents.fast_deploy_mode_add_hint', 'Keeps existing tasks and agents; adds new ones.')}
                                         </div>
                                     </div>

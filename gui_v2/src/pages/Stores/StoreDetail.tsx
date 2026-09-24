@@ -5,6 +5,8 @@ import {
   App, Badge, Button, Card, Descriptions, Empty, Popconfirm, Space, Statistic, Table, Tag, Tooltip, Typography,
 } from 'antd';
 import { get_ipc_api } from '@/services/ipc_api';
+import { useFastDeployStore } from '@/stores/fastDeployStore';
+import type { StoreDefinition } from './StoreFormModal';
 import type { StoreMeter, StoreRow } from './types';
 
 const LOGIN_COLORS: Record<string, string> = { ok: 'green', needs_login: 'orange', unknown: 'default' };
@@ -13,12 +15,14 @@ interface Props {
   store: StoreRow | null;
   thisVehicleId: string;
   onChanged: () => void;
+  onEdit: (def: StoreDefinition) => void;
 }
 
-const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged }) => {
+const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit }) => {
   const { t, i18n } = useTranslation();
   const { message } = App.useApp();
   const navigate = useNavigate();
+  const openFastDeploy = useFastDeployStore((s) => s.openFor);
   const [busy, setBusy] = useState(false);
   const ts = (k: string, d: string, o?: Record<string, unknown>) =>
     t(`pages.stores.${k}`, { defaultValue: d, ...(o || {}) }) as string;
@@ -64,8 +68,39 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged }) => {
   const cloud = store.cloudKnown !== false;
   const archived = store.status === 'archived';
 
+  const def = store.definition;
+  const deploy = () => {
+    // Fast Deploy lives on the Agents page; it opens preset to this store.
+    openFastDeploy(store.storeId);
+    navigate('/agents');
+  };
+
   return (
     <Space direction="vertical" size={16} style={{ width: '100%', padding: 16 }}>
+      <Card size="small" title={ts('definition', 'Store')}
+        extra={
+          <Space size={4}>
+            {def && (
+              <Button size="small" onClick={() => onEdit({ store_id: store.storeId, name: def.name,
+                platform: def.platform, store_urls: def.store_urls || [], browser_profile_id: def.browser_profile_id })}>
+                {ts('edit', 'Edit')}
+              </Button>
+            )}
+            <Button size="small" type="primary" onClick={deploy}>{ts('deploy_agents', 'Deploy agents')}</Button>
+          </Space>
+        }
+      >
+        <Descriptions size="small" column={1}>
+          <Descriptions.Item label={ts('name', 'Name')}>{def?.name || store.label || store.storeId}</Descriptions.Item>
+          <Descriptions.Item label={ts('platform', 'Platform')}>{def?.platform || store.platform || ts('none', '—')}</Descriptions.Item>
+          <Descriptions.Item label={ts('urls_short', 'URLs')}>
+            {def?.store_urls?.length
+              ? <Space direction="vertical" size={0}>{def.store_urls.map((u) => <Typography.Text key={u} copyable>{u}</Typography.Text>)}</Space>
+              : ts('none', '—')}
+          </Descriptions.Item>
+          <Descriptions.Item label={ts('profile', 'Login profile')}>{def?.browser_profile_id || ts('none', '—')}</Descriptions.Item>
+        </Descriptions>
+      </Card>
       <Card size="small" title={ts('placement', 'Where it runs')}
         extra={cloud && (archived ? (
           <Button size="small" loading={busy}

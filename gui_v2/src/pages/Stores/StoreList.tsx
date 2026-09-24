@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Badge, Button, Checkbox, List, Space, Tag, Tooltip, Typography } from 'antd';
-import { ReloadOutlined, WarningOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import type { StoreRow } from './types';
 
 interface StoreListProps {
@@ -14,6 +14,7 @@ interface StoreListProps {
   showArchived: boolean;
   onShowArchived: (v: boolean) => void;
   cloudError: string;
+  onAdd: () => void;
 }
 
 /** Where a store runs, in one word: here / elsewhere / nowhere. */
@@ -25,7 +26,7 @@ export const placementBadge = (s: StoreRow, thisVehicleId: string) => {
 };
 
 const StoreList: React.FC<StoreListProps> = ({
-  stores, thisVehicleId, selectedId, onSelect, loading, onRefresh, showArchived, onShowArchived, cloudError,
+  stores, thisVehicleId, selectedId, onSelect, loading, onRefresh, showArchived, onShowArchived, cloudError, onAdd,
 }) => {
   const { t } = useTranslation();
   const ts = (k: string, d: string) => t(`pages.stores.${k}`, d) as string;
@@ -39,6 +40,7 @@ const StoreList: React.FC<StoreListProps> = ({
             {ts('show_archived', 'Show archived')}
           </Checkbox>
           <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={onRefresh} />
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={onAdd}>{ts('new_store', 'New store')}</Button>
         </Space>
       </div>
       {cloudError && (

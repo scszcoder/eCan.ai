@@ -13,6 +13,7 @@ import DetailLayout from '../../components/Layout/DetailLayout';
 import { get_ipc_api } from '@/services/ipc_api';
 import StoreList from './StoreList';
 import StoreDetail from './StoreDetail';
+import StoreFormModal, { type StoreDefinition } from './StoreFormModal';
 import type { StoreOverview } from './types';
 
 const Stores: React.FC = () => {
@@ -22,6 +23,8 @@ const Stores: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // null = closed; 'new' = create; otherwise the definition being edited.
+  const [form, setForm] = useState<'new' | StoreDefinition | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -65,10 +68,20 @@ const Stores: React.FC = () => {
           showArchived={showArchived}
           onShowArchived={setShowArchived}
           cloudError={data?.cloud_error || ''}
+          onAdd={() => setForm('new')}
         />
       }
       detailsContent={
-        <StoreDetail store={selected} thisVehicleId={data?.this_vehicle_id || ''} onChanged={load} />
+        <>
+          <StoreDetail store={selected} thisVehicleId={data?.this_vehicle_id || ''} onChanged={load}
+            onEdit={(def) => setForm(def)} />
+          <StoreFormModal
+            open={form !== null}
+            editing={form === 'new' ? null : form}
+            onClose={() => setForm(null)}
+            onSaved={(sid) => { setForm(null); setSelectedId(sid); load(); }}
+          />
+        </>
       }
       fillDetailsAvailableWidth
     />

@@ -30,6 +30,8 @@ export interface StoreRow {
   lastReportedAt?: string | null;
   /** Billed amounts, in fen: what the account was charged, not the vendor cost. */
   llm30d?: { calls: number; tokens: number; costFen: number };
+  /** The local catalog record: what the store IS (placement lives in the cloud). */
+  definition?: { name: string; platform: string; store_urls: string[]; browser_profile_id?: string | null; source: string };
   /** false when the store is only known locally (no cloud row yet). */
   cloudKnown?: boolean;
   local: StoreLocal;

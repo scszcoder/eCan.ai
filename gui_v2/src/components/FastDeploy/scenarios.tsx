@@ -18,8 +18,8 @@ export interface ScenarioSchema {
     qaAgents?: { default: number; min: number; max: number };
     /** Pre-filled first store URL (the platform's fixed workstation page). */
     defaultStoreUrl?: string;
-    /** Show the add/replace switch (replace = delete this owner's existing
-     *  tasks on the scenario's skills + the agents assigned to them, then add). */
+    /** Show the add/replace switch (replace = delete THIS STORE's existing
+     *  tasks on the scenario's skills + the agents serving only them, then add). */
     replaceMode?: boolean;
     /** Show the store-id field. Needed wherever the store URL does NOT identify
      *  the store: every 飞鸽 seller shares one workstation URL, so a URL-derived
@@ -34,6 +34,8 @@ export interface BusinessScenario {
     region: Region;
     icon: React.ReactNode;
     schema: ScenarioSchema;
+    /** The store platform this scenario deploys to (matches a store's `platform`). */
+    platform: string;
 }
 
 /** The runtime config values collected for a scenario. */
@@ -42,6 +44,8 @@ export interface ScenarioConfig {
     qaAgents?: number;
     mode?: 'add' | 'replace';
     storeId?: string;
+    /** Only for a store created from this panel: its display name. */
+    storeName?: string;
 }
 
 const CS_SCHEMA: ScenarioSchema = { storeUrls: true, qaAgents: { default: 6, min: 1, max: 16 } };
@@ -55,13 +59,24 @@ const DOUYIN_CS_SCHEMA: ScenarioSchema = {
 const OPS_SCHEMA: ScenarioSchema = { storeUrls: true };
 
 export const SCENARIOS: BusinessScenario[] = [
-    { key: 'douyin_cs', nameEn: 'Douyin Store Customer Service', nameZh: '抖店客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: DOUYIN_CS_SCHEMA },
-    { key: 'tmall_cs', nameEn: 'T-Mall Store Customer Service', nameZh: '天猫客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: CS_SCHEMA },
-    { key: 'amazon_ops', nameEn: 'Amazon Operation', nameZh: '亚马逊运营', region: 'intl', icon: <AmazonOutlined />, schema: OPS_SCHEMA },
-    { key: 'ebay_ops', nameEn: 'eBay Operation', nameZh: 'eBay运营', region: 'intl', icon: <ShopOutlined />, schema: OPS_SCHEMA },
-    { key: 'etsy_ops', nameEn: 'Etsy Operation', nameZh: 'Etsy运营', region: 'intl', icon: <ShoppingOutlined />, schema: OPS_SCHEMA },
-    { key: 'shopify_ops', nameEn: 'Shopify Operation', nameZh: 'Shopify运营', region: 'intl', icon: <ShoppingCartOutlined />, schema: OPS_SCHEMA },
-    { key: 'tiktok_ops', nameEn: 'TikTok Store Operation', nameZh: 'Tiktok店铺运营', region: 'intl', icon: <TikTokOutlined />, schema: OPS_SCHEMA },
+    { key: 'douyin_cs', nameEn: 'Douyin Store Customer Service', nameZh: '抖店客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: DOUYIN_CS_SCHEMA, platform: 'douyin' },
+    { key: 'tmall_cs', nameEn: 'T-Mall Store Customer Service', nameZh: '天猫客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: CS_SCHEMA, platform: 'tmall' },
+    { key: 'amazon_ops', nameEn: 'Amazon Operation', nameZh: '亚马逊运营', region: 'intl', icon: <AmazonOutlined />, schema: OPS_SCHEMA, platform: 'amazon' },
+    { key: 'ebay_ops', nameEn: 'eBay Operation', nameZh: 'eBay运营', region: 'intl', icon: <ShopOutlined />, schema: OPS_SCHEMA, platform: 'ebay' },
+    { key: 'etsy_ops', nameEn: 'Etsy Operation', nameZh: 'Etsy运营', region: 'intl', icon: <ShoppingOutlined />, schema: OPS_SCHEMA, platform: 'etsy' },
+    { key: 'shopify_ops', nameEn: 'Shopify Operation', nameZh: 'Shopify运营', region: 'intl', icon: <ShoppingCartOutlined />, schema: OPS_SCHEMA, platform: 'shopify' },
+    { key: 'tiktok_ops', nameEn: 'TikTok Store Operation', nameZh: 'Tiktok店铺运营', region: 'intl', icon: <TikTokOutlined />, schema: OPS_SCHEMA, platform: 'tiktok' },
+];
+
+/** Store platforms, one per scenario family, for the New Store form. */
+export const PLATFORMS: { value: string; nameEn: string; nameZh: string }[] = [
+    { value: 'douyin', nameEn: 'Douyin (抖店)', nameZh: '抖店' },
+    { value: 'tmall', nameEn: 'T-Mall', nameZh: '天猫' },
+    { value: 'amazon', nameEn: 'Amazon', nameZh: '亚马逊' },
+    { value: 'ebay', nameEn: 'eBay', nameZh: 'eBay' },
+    { value: 'etsy', nameEn: 'Etsy', nameZh: 'Etsy' },
+    { value: 'shopify', nameEn: 'Shopify', nameZh: 'Shopify' },
+    { value: 'tiktok', nameEn: 'TikTok Shop', nameZh: 'TikTok 店铺' },
 ];
 
 export function getScenario(key: string | null): BusinessScenario | undefined {

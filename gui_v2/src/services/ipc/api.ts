@@ -2974,6 +2974,26 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'store.overview' }, { include_archived: !!include_archived });
     }
 
+    /** The local store definitions (name, platform, URLs, login profile). */
+    public async getStoreCatalog<T>(include_archived?: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.catalog' }, { include_archived: !!include_archived });
+    }
+
+    /** Define a store before deploying into it. `assign`: 'here' | 'none'. */
+    public async createStore<T>(store: {
+        store_id: string; name: string; platform: string; store_urls: string[];
+        browser_profile_id?: string; assign: 'here' | 'none';
+    }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.create' }, store);
+    }
+
+    public async updateStore<T>(store: {
+        store_id: string; name?: string; platform?: string; store_urls?: string[];
+        browser_profile_id?: string;
+    }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.update' }, store);
+    }
+
     /** `this_machine` assigns to this machine's heartbeat id; neither it nor `vehicle_id` unassigns. */
     public async assignStore<T>(
         store_id: string, opts: { this_machine?: boolean; vehicle_id?: string | null },
