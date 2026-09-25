@@ -85,7 +85,7 @@ const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) =>
       onOk={submit}
       confirmLoading={saving}
       okText={ts('save', 'Save')}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form form={form} layout="vertical"
         onValuesChange={(changed, all) => {

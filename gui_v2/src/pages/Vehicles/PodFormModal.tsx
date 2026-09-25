@@ -132,7 +132,7 @@ const PodFormModal: React.FC<PodFormModalProps> = ({
       confirmLoading={submitting}
       okButtonProps={{ disabled: atLimit }}
       width={560}
-      destroyOnClose
+      destroyOnHidden
     >
       {atLimit && limits && (
         <Alert
