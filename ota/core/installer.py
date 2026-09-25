@@ -2055,6 +2055,18 @@ rm -f "$0"
         try:
             logger.info(f"Installing macOS PKG: {package_path}")
             
+            # FIX 2026-09-24: Set _ota_installing flag BEFORE terminating the app.
+            # This suppresses the "Are you sure you want to exit?" confirmation dialog
+            # in WebGUI.closeEvent(), allowing the app to exit naturally when the
+            # OTA installer launches. Previously this was missing from the macOS path
+            # (only Windows _install_exe / _install_msi had it), causing the closeEvent
+            # to pop an unwanted dialog and requiring the user to manually confirm exit.
+            # After the user confirms, the osascript subprocess was killed before it
+            # could show the admin password prompt, so PKG installation never started.
+            from ota.core.download_manager import download_manager
+            download_manager.set_installing(True)
+            logger.info("[OTA Installer] download_manager.set_installing(True) called for macOS PKG")
+            
             # For OTA updates, terminate the current version's process before installation
             # This ensures files are not locked during upgrade
             # Only kill the current version to avoid affecting other installed versions
@@ -2132,7 +2144,13 @@ rm -f "$0"
                         str(package_path),
                     ]
 
-                    # Launch installer in background
+                    # FIX 2026-09-24: Launch osascript in its own session so it survives
+                    # the Python parent exit. Previously, when the user confirmed the
+                    # closeEvent dialog (or when the app auto-closed post-download),
+                    # the Python process exited and killed the osascript subprocess via
+                    # SIGHUP, preventing the admin password prompt from ever appearing.
+                    # With start_new_session=True, osascript runs in a new process group
+                    # and is not affected by the Python parent's exit.
                     process = subprocess.Popen(
                         osa_cmd,
                         stdout=subprocess.PIPE,
@@ -2140,6 +2158,7 @@ rm -f "$0"
                         text=True,
                         bufsize=0,  # Unbuffered for real-time output
                         universal_newlines=True,
+                        start_new_session=True,
                     )
                     
                     logger.info(f"PKG installer launched (PID: {process.pid})")
@@ -2284,12 +2303,20 @@ rm -f "$0"
                         else:
                             logger.error(f"❌ PKG installation failed: {stderr}")
                             _cleanup_helper_script()
+                            try:
+                                download_manager.set_installing(False)
+                            except Exception:
+                                pass
                             return False
 
                     except subprocess.TimeoutExpired:
                         logger.error("Installation timeout (10 minutes)")
                         process.kill()
                         _cleanup_helper_script()
+                        try:
+                            download_manager.set_installing(False)
+                        except Exception:
+                            pass
                         return False
 
                 except Exception as e:
@@ -2301,6 +2328,10 @@ rm -f "$0"
                         script_path.unlink(missing_ok=True)
                     except Exception:
                         pass
+                    try:
+                        download_manager.set_installing(False)
+                    except Exception:
+                        pass
                     return False
             else:
                 # Non-silent mode - launch installer with full UI
@@ -2310,6 +2341,10 @@ rm -f "$0"
 
         except Exception as e:
             logger.error(f"PKG installation error: {e}")
+            try:
+                download_manager.set_installing(False)
+            except Exception:
+                pass
             return False
     
     def _install_dmg(self, package_path: Path, install_options: Dict[str, Any]) -> bool:
