@@ -107,6 +107,10 @@ const PromptsPageLayout: React.FC<PromptsPageLayoutProps> = ({
   const listDraggingRef = useRef(false);
   const listDragStartXRef = useRef(0);
   const listDragStartWRef = useRef(0);
+  // Mirror listWidth so the mouseup closure persists the post-drag value
+  // instead of the value at the moment the listener was bound.
+  const listWidthLiveRef = useRef(listWidth);
+  listWidthLiveRef.current = listWidth;
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!listDraggingRef.current) return;
@@ -121,18 +125,19 @@ const PromptsPageLayout: React.FC<PromptsPageLayoutProps> = ({
       if (!listDraggingRef.current) return;
       listDraggingRef.current = false;
       try {
-        localStorage.setItem(LS_LIST_WIDTH, String(listWidth));
+        localStorage.setItem(LS_LIST_WIDTH, String(listWidthLiveRef.current));
       } catch {}
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
+    // Bound once on mount — see DetailLayout for the same regression.
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [listWidth]);
+  }, []);
 
   // ─── Chat height drag-resize ──────────────────────────────────────
   const [chatHeight, setChatHeight] = useState<number>(() => {
@@ -147,6 +152,9 @@ const PromptsPageLayout: React.FC<PromptsPageLayoutProps> = ({
   const chatDraggingRef = useRef(false);
   const chatDragStartYRef = useRef(0);
   const chatDragStartHRef = useRef(0);
+  // Mirror chatHeight so the mouseup closure persists the post-drag value.
+  const chatHeightLiveRef = useRef(chatHeight);
+  chatHeightLiveRef.current = chatHeight;
   const detailsHostRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -163,18 +171,19 @@ const PromptsPageLayout: React.FC<PromptsPageLayoutProps> = ({
       if (!chatDraggingRef.current) return;
       chatDraggingRef.current = false;
       try {
-        localStorage.setItem(LS_CHAT_HEIGHT, String(chatHeight));
+        localStorage.setItem(LS_CHAT_HEIGHT, String(chatHeightLiveRef.current));
       } catch {}
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
+    // Bound once on mount — see DetailLayout for the same regression.
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [chatHeight]);
+  }, []);
 
   const startChatDrag = useCallback(
     (e: React.MouseEvent) => {

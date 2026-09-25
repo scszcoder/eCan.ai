@@ -462,4 +462,19 @@ const VehicleItem: React.FC<VehicleItemProps> = ({
   );
 };
 
-export default VehicleItem;
+// Custom comparator: re-render only when the bound vehicle object changes
+// (by id), the selection flips, or the viewMode changes. Without this, every
+// Zustand store tick re-renders every VehicleItem in the list, even though
+// only one row is likely to have actually changed.
+const areVehiclePropsEqual = (
+  prev: VehicleItemProps,
+  next: VehicleItemProps,
+): boolean => {
+  return (
+    prev.vehicle === next.vehicle &&
+    prev.selected === next.selected &&
+    prev.viewMode === next.viewMode
+  );
+};
+
+export default React.memo(VehicleItem, areVehiclePropsEqual);

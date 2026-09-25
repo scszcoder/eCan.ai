@@ -489,6 +489,12 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
       video.play().catch(e => console.warn('[AgentCard] play rejected:', e));
 
       let ended = false;
+      // Hold the fallback timer so the cleanup path can cancel it: if the
+      // component unmounts (KeepAlive eviction, route change) before the
+      // timer fires, restoreOriginal() would otherwise touch video.src on an
+      // unmounted <video>. The same handle also lets restoreOriginal cancel
+      // its own timer when 'ended' arrives first.
+      let restoreTimer: ReturnType<typeof setTimeout> | null = null;
       const restoreOriginal = () => {
         if (ended) return;
         ended = true;
@@ -506,12 +512,12 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
         console.log('[AgentCard] ended event fired');
         restoreOriginal();
       };
-      
+
       const onLoadedMetadata = () => {
         const duration = video.duration;
         console.log('[AgentCard] Scene duration:', duration);
         if (isFinite(duration) && duration > 0) {
-          setTimeout(() => {
+          restoreTimer = setTimeout(() => {
             console.log('[AgentCard] Timeout fallback triggered');
             restoreOriginal();
           }, (duration + 0.5) * 1000);
@@ -520,8 +526,9 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
 
       video.addEventListener('ended', onEnded);
       video.addEventListener('loadedmetadata', onLoadedMetadata);
-      
+
       return () => {
+        if (restoreTimer) clearTimeout(restoreTimer);
         video.removeEventListener('ended', onEnded);
         video.removeEventListener('loadedmetadata', onLoadedMetadata);
       };
