@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QProgressBar, QTextEdit, QMessageBox, QGroupBox, QFrame,
     QGridLayout, QCheckBox, QSpacerItem, QSizePolicy, QApplication
 )
-from PySide6.QtCore import Qt, QTimer, Signal, QThread
+from PySide6.QtCore import Qt, QTimer, Signal, QThread, QObject
 from PySide6.QtGui import QFont
 
 from utils.logger_helper import logger_helper as logger
@@ -29,48 +29,91 @@ from ota.config.loader import ota_config
 _tr = get_translator()
 
 
-class InstallWorker(QThread):
-    """Installation worker thread"""
-    
-    # Signals
+class InstallWorker(QObject):
+    """Installation worker - runs in a daemon-style QThread so it doesn't block app exit.
+
+    Uses the standard Qt "worker object moved to thread" pattern: the QThread
+    is a plain QThread (not a QThread subclass), the worker is a QObject with
+    signals, and signals are delivered through Qt's event loop (thread-safe).
+
+    Daemon semantics in Qt: QThread itself has no ``setDaemon`` (that is a
+    Python-threading concept; PySide6 6.x removed the PyQt5-era alias).
+    Instead we rely on two Qt-idiomatic guarantees:
+
+      1. The QThread is wired ``finished`` → ``deleteLater`` so it self-destructs
+         after ``_do_work`` returns, without the Python process waiting on it.
+      2. The osascript subprocess is launched with ``start_new_session=True``
+         in ``InstallationManager._install_pkg``, so it survives both this
+         Python process and the QThread. The Python interpreter never joins
+         Qt threads at shutdown (they live in C++ space), so no extra flag is
+         required to keep app-exit non-blocking.
+    """
+
+    # Signals (thread-safe, delivered through Qt event loop)
     status_updated = Signal(str)  # Status message
     install_completed = Signal(bool, str)  # Success, message
     installation_progress = Signal(int, str)  # Progress percentage, phase
-    
+
     def __init__(self, package_path: Path, install_options: Dict[str, Any]):
         super().__init__()
         self.package_path = package_path
         self.install_options = install_options
-    
-    def _on_progress(self, progress: int, phase: str):
-        """Progress callback from installer"""
-        self.installation_progress.emit(progress, phase)
-    
-    def run(self):
-        """Execute installation in background thread"""
+        self._thread = QThread()
+        self._thread.setObjectName("InstallWorkerThread")
+        # Daemon-style cleanup: when the thread finishes its event loop,
+        # schedule the QThread QObject for deletion. This is the Qt-idiomatic
+        # equivalent of Python's ``thread.setDaemon(True)`` — the Python
+        # process never blocks on this thread at shutdown.
+        self._thread.finished.connect(self._thread.deleteLater)
+        self.moveToThread(self._thread)
+        # When the thread starts, run our work method
+        self._thread.started.connect(self._do_work)
+
+    def start(self):
+        """Start the worker thread."""
+        self._thread.start()
+        logger.info(
+            f"[UpdateDialog] InstallWorker thread started: "
+            f"isRunning={self._thread.isRunning()}, "
+            f"objectName={self._thread.objectName()}"
+        )
+
+    def isRunning(self) -> bool:
+        """Check if the worker thread is still running."""
+        return self._thread.isRunning()
+
+    def _do_work(self):
+        """Execute installation (runs in the worker thread via Qt event loop)."""
         try:
             from ota.core.installer import InstallationManager
-            
+
             # Create installation manager with progress callback
             installer = InstallationManager(progress_callback=self._on_progress)
-            
+
             # Update status
             if self.install_options.get('create_backup', False):
                 self.status_updated.emit(_tr.tr("creating_backup"))
-            
+
             self.status_updated.emit(_tr.tr("installing_update"))
-            
+
             # Execute installation
             success = installer.install_package(self.package_path, self.install_options)
-            
+
             if success:
                 self.install_completed.emit(True, _tr.tr("installer_launched_status"))
             else:
                 self.install_completed.emit(False, _tr.tr("failed_to_launch_installer"))
-                
+
         except Exception as e:
             logger.error(f"Install worker error: {e}")
             self.install_completed.emit(False, f"{_tr.tr('installation_failed')}: {str(e)}")
+        finally:
+            # Clean up the thread after work is done
+            self._thread.quit()
+
+    def _on_progress(self, progress: int, phase: str):
+        """Progress callback from installer — Qt will marshal to main thread."""
+        self.installation_progress.emit(progress, phase)
 
 
 
