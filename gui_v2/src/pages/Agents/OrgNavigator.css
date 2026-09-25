@@ -63,7 +63,11 @@
   background: rgba(59, 130, 246, 0.5);
 }
 
-/* 使用伪元素添加光球效果 - 柔和版本 */
+/* 光球效果 — 静态版本
+ * 故意不使用 filter: blur(...)，原因与 .navigator-header / .empty-state 注释一致：
+ * backdrop-filter / blur 在多 video 同时硬解时会抢占 GPU，compositor 降级时整页颜色闪烁。
+ * 这里用更大的 radial-gradient 半径 + 弱 opacity 模拟柔和光晕，肉眼几乎看不出与 blur 的差异，
+ * 代价是页面切换/重绘时的颜色稳定。 */
 .org-navigator::before {
   content: '';
   position: absolute;
@@ -73,12 +77,11 @@
   height: 100%;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.3;
-  background: 
-    radial-gradient(circle 200px at 8% 12%, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 40%, transparent 70%),
-    radial-gradient(circle 175px at 92% 88%, rgba(139, 92, 246, 0.08) 0%, rgba(139, 92, 246, 0.04) 40%, transparent 70%),
-    radial-gradient(circle 225px at 50% 50%, rgba(99, 102, 241, 0.06) 0%, rgba(99, 102, 241, 0.03) 40%, transparent 70%);
-  filter: blur(40px);
+  opacity: 0.2;
+  background:
+    radial-gradient(circle 260px at 8% 12%, rgba(59, 130, 246, 0.12) 0%, rgba(59, 130, 246, 0.04) 45%, transparent 75%),
+    radial-gradient(circle 230px at 92% 88%, rgba(139, 92, 246, 0.10) 0%, rgba(139, 92, 246, 0.03) 45%, transparent 75%),
+    radial-gradient(circle 280px at 50% 50%, rgba(99, 102, 241, 0.08) 0%, rgba(99, 102, 241, 0.02) 45%, transparent 75%);
 }
 
 
