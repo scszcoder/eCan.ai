@@ -425,6 +425,17 @@ class CloudBaseAuthService:
 
         POST /auth/v1/token
         Body: {grant_type: "refresh_token", refresh_token: "..."}
+
+        Note: ``_post`` defaults to a 30s timeout, which is fine for the
+        signin path (user clicked a button, can wait) but NOT for the
+        startup-time restore in ``AuthManager.try_restore_cloudbase_session``.
+        That call runs synchronously on the Qt main thread inside
+        ``Login.__init__`` (main.py progress 60-70), so a slow refresh
+        freezes the splash on "preparing background preload" for the
+        entire wall-clock duration. Cap the wall-clock at 5s here -- a
+        restore that can't round-trip in 5s isn't going to land before
+        the user clicks login anyway, and the failure path drops us
+        back to the login screen instead of the user staring at splash.
         """
         if not refresh_token:
             return AuthResult.fail("refresh_token is required", "INVALID_INPUT")
@@ -432,7 +443,7 @@ class CloudBaseAuthService:
         result = self._post("/auth/v1/token", {
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
-        }, device_id=device_id)
+        }, timeout=5, device_id=device_id)
         if "error" in result:
             return AuthResult.fail(result["error"], result.get("error_code"))
 
