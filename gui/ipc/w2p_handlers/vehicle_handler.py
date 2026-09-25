@@ -1,3 +1,4 @@
+import re
 import traceback
 from typing import TYPE_CHECKING, Any, Optional, Dict
 from app_context import AppContext
@@ -173,6 +174,41 @@ def _reported_role(row: Dict[str, Any]) -> str:
     return str(meta.get('role') or '') if isinstance(meta, dict) else ''
 
 
+_LEGACY_NAME = re.compile(r'^(.+):(win|mac|linux|other)$', re.IGNORECASE)
+
+
+def _fold_legacy_names(entries: list, self_name: str = '') -> list:
+    """Drop ``<host>:<os>`` entries for a machine that is also listed under its real id.
+
+    Before machines reported a stable id, the heartbeat and the in-memory
+    vehicle list named a machine ``SCHOME:win``; now the same machine is
+    ``schome``. The old entry lingers offline -- and it may be the one that
+    carries the role, which is all a Platoon filters on. So the live entry for
+    the same host takes over the role and the legacy one goes. A legacy name
+    with no live twin stays: it is the only record of that machine.
+    """
+    def host(e):
+        return str(e.get('hostname') or e.get('name') or '').strip().lower()
+
+    live = {}
+    for e in entries:
+        if isinstance(e, dict) and e.get('type') != 'cloud' and not _LEGACY_NAME.match(str(e.get('name') or '')):
+            live.setdefault(host(e), e)
+    if self_name and self_name.strip().lower() not in live:
+        live[self_name.strip().lower()] = None     # this machine: added by the caller
+    out = []
+    for e in entries:
+        m = _LEGACY_NAME.match(str(e.get('name') or '')) if isinstance(e, dict) else None
+        key = m.group(1).strip().lower() if m else ''
+        if m and key in live:
+            twin = live[key]
+            if twin is not None and not twin.get('role') and e.get('role'):
+                twin['role'] = e['role']
+            continue
+        out.append(e)
+    return out
+
+
 def _mark_self_and_scope(entries: list) -> list:
     """Mark this machine (``is_self``, its role) and apply the role's view.
 
@@ -189,6 +225,7 @@ def _mark_self_and_scope(entries: list) -> list:
     except Exception:
         me = ''
     role = str(getattr(mainwin, 'host_role', '') or '')
+    entries = _fold_legacy_names(entries, getattr(mainwin, 'machine_name', '') or '')
     found = False
     for e in entries:
         if isinstance(e, dict) and me and str(e.get('id')) == me:
