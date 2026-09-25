@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styled from '@emotion/styled';
-import { keyframes } from '@emotion/react';
+import { css, keyframes } from '@emotion/react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAdStore } from '../../stores/adStore';
@@ -109,11 +109,6 @@ const SEVERITY_COLORS: Record<FundSeverity, { bg: string; border: string; text: 
     blocked: { bg: 'rgba(153, 27, 27, 0.35)', border: 'rgba(239, 68, 68, 1)', text: '#fff1f0' },
 };
 
-const flash = keyframes`
-    0%, 49%  { opacity: 1; }
-    50%, 99% { opacity: 0.25; }
-`;
-
 // Two identical copies slide by as one track, so as the first copy leaves on
 // the left the second is already entering on the right. The earlier version
 // scrolled a single copy behind `padding-left: 100%`, which left the bar
@@ -141,7 +136,7 @@ const FundAlertBar = styled.div<{ severity: FundSeverity }>`
     border-radius: 6px;
     background: ${props => SEVERITY_COLORS[props.severity].bg};
     border: 1px solid ${props => SEVERITY_COLORS[props.severity].border};
-    ${props => props.severity === 'low' ? '' : `animation: ${pulse} ${props.severity === 'blocked' ? '1s' : '2s'} ease-in-out infinite;`}
+    ${props => props.severity === 'low' ? '' : css`animation: ${pulse} ${props.severity === 'blocked' ? '1s' : '2s'} ease-in-out infinite;`}
 `;
 
 const FundAlertViewport = styled.div`
@@ -163,8 +158,7 @@ const FundAlertText = styled.span<{ severity: FundSeverity }>`
     font-weight: ${props => props.severity === 'blocked' ? 900 : 700};
     letter-spacing: 0.3px;
     ${props => props.severity === 'low' ? '' : `padding-right: ${MARQUEE_GAP_PX}px;`}
-    ${props => props.severity === 'blocked' ? `
-        animation: ${flash} 1s steps(1, end) infinite;
+    ${props => props.severity === 'blocked' ? css`
         text-shadow: 0 0 8px rgba(239, 68, 68, 0.9);
     ` : ''}
 `;
