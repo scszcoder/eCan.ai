@@ -447,7 +447,32 @@ def _start_placeholder_sweeper(browser_session) -> None:
         logger.debug(f"[placeholder_timer] sweeper start: import failed: {_imp_err}")
         return
 
-    _pool = _ph_tab_pool.get_pool()
+    # Several Feige shops in one process: one sweeper per shop (its pool), typing
+    # through that shop's browser and taking only that shop's turns -- by the
+    # task's store_id stamped at arm(), else by which shop knows the customer.
+    # With one shop both filters accept everything, exactly as before.
+    from .shop_scope import shop_key_of as _ph_shop_of
+    from . import ws_session as _ph_wss
+    _shop = _ph_wss.register_shop(_ph_shop_of(browser_session))
+    _pool = _ph_tab_pool.get_pool(_shop)
+    try:
+        from . import placeholder_config as _ph_cfg_store
+        _my_store = _ph_cfg_store.current_store_key()
+    except Exception:
+        _my_store = ""
+    _my_state = _ph_wss._k(_shop)
+
+    def _owns_customer(cust) -> bool:
+        if _ph_wss.shop_count() <= 1:
+            return True
+        return _ph_wss._shop_for_name(cust) == _my_state
+
+    def _accept(entry) -> bool:
+        if _ph_wss.shop_count() <= 1:
+            return True
+        if entry.store_key and _my_store:
+            return entry.store_key == _my_store
+        return _owns_customer(entry.customer_key)
     # 2026-05-24 mt038D: gate on task liveness, not a sticky boolean.
     #
     # Pre-mt038D the gate was ``_placeholder_sweeper_started`` — a flag
@@ -564,6 +589,8 @@ def _start_placeholder_sweeper(browser_session) -> None:
                 interval_s=_interval,
                 placeholder_submitter=_placeholder_submitter,
                 cap_per_window=_cap_per_window,
+                accept=_accept,
+                owns_customer=_owns_customer,
             )
         )
         setattr(_pool, "_placeholder_sweeper_task", _sweep_task)
@@ -685,7 +712,8 @@ def _maybe_kickoff_typing_pool_init(browser_session, feige_tid: str) -> None:
         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
             tab_pool as _tab_pool,
         )
-        _pool = _tab_pool.get_pool()
+        from .shop_scope import shop_key_of as _kick_shop_of
+        _pool = _tab_pool.get_pool(_kick_shop_of(browser_session))
         _pool.designate_monitor(feige_tid)
         if not _pool.try_dispatch_initial_population():
             return
@@ -872,7 +900,8 @@ async def resolve_feige_tab_target_id(
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                 tab_pool as _tab_pool,
             )
-            _typing_tid = _tab_pool.get_pool().get_typing_tab_for_customer(customer_key)
+            from .shop_scope import shop_key_of as _rt_shop_of
+            _typing_tid = _tab_pool.get_pool(_rt_shop_of(browser_session)).get_typing_tab_for_customer(customer_key)
             if _typing_tid:
                 return _typing_tid
         except Exception:
@@ -951,7 +980,8 @@ async def resolve_feige_tab_target_id(
         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
             tab_pool as _tp_for_excl,
         )
-        _detection_tid = _tp_for_excl.get_pool().get_detection_tab()
+        from .shop_scope import shop_key_of as _ex_shop_of
+        _detection_tid = _tp_for_excl.get_pool(_ex_shop_of(browser_session)).get_detection_tab()
     except Exception:
         _detection_tid = ""
 
@@ -2951,7 +2981,8 @@ async def _scrape_locked_body(
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                 ws_session as _ws184_wss,
             )
-            _ws184_wss.note_row_click(customer_name)
+            from .shop_scope import shop_key_of as _ws184_shop_of
+            _ws184_wss.note_row_click(customer_name, _ws184_shop_of(browser_session))
         except Exception:
             pass
         # Brief settle so the chat pane repaints after clicking a row.

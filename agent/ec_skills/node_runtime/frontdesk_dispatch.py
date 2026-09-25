@@ -140,6 +140,14 @@ def get_inflight_customers() -> set[str]:
 # own fresh state from the new browser_event's snapshot body.
 _OOB_DISPATCH_CACHE_LOCK = threading.Lock()
 _OOB_DISPATCH_CACHE: dict[str, Any] = {}
+# Several front desks in one process (one per store): each one's refs, by its
+# agent id, so an OOB dispatch runs in the front desk whose queue it drains.
+_OOB_DISPATCH_CACHE_BY_AGENT: dict[str, dict[str, Any]] = {}
+
+
+def _agent_id_of(ctx: Any, agent_obj: Any) -> str:
+    return str(getattr(ctx, "calling_agent_id", "") or
+               getattr(getattr(agent_obj, "card", None), "id", "") or "")
 
 
 def _cache_oob_dispatch_refs(
@@ -175,13 +183,20 @@ def _cache_oob_dispatch_refs(
         _OOB_DISPATCH_CACHE["agent_obj"] = agent_obj
         _OOB_DISPATCH_CACHE["loop"] = running_loop
         _OOB_DISPATCH_CACHE["cached_at"] = time.monotonic()
+        _aid = _agent_id_of(ctx, agent_obj)
+        if _aid:
+            _OOB_DISPATCH_CACHE_BY_AGENT[_aid] = dict(_OOB_DISPATCH_CACHE)
 
 
-def _get_cached_oob_refs() -> dict[str, Any] | None:
-    """Return the cached refs or None if not yet populated."""
+def _get_cached_oob_refs(agent_id: str = "") -> dict[str, Any] | None:
+    """Return the cached refs or None if not yet populated. With several front
+    desks cached, only *agent_id*'s -- never another front desk's."""
     with _OOB_DISPATCH_CACHE_LOCK:
         if "cfg" not in _OOB_DISPATCH_CACHE:
             return None
+        if len(_OOB_DISPATCH_CACHE_BY_AGENT) > 1:
+            refs = _OOB_DISPATCH_CACHE_BY_AGENT.get(str(agent_id or ""))
+            return dict(refs) if refs else None
         return dict(_OOB_DISPATCH_CACHE)
 
 
@@ -190,6 +205,7 @@ def clear_oob_dispatch_cache() -> None:
     call this (the cache is overwritten on each run())."""
     with _OOB_DISPATCH_CACHE_LOCK:
         _OOB_DISPATCH_CACHE.clear()
+        _OOB_DISPATCH_CACHE_BY_AGENT.clear()
     with _INFLIGHT_LOCK:
         _INFLIGHT_CUSTOMERS.clear()
 
@@ -232,8 +248,10 @@ def try_oob_dispatch(
     *,
     reason: str = "",
     browser_event_items: list[dict] | None = None,
+    agent_id: str = "",
 ) -> bool:
-    """Attempt an out-of-band parallel dispatch for ``customers``.
+    """Attempt an out-of-band parallel dispatch for ``customers`` (in front
+    desk *agent_id*'s context when several run).
 
     Returns True iff the OOB path acquired the customer set and spawned
     a dispatch task; False if the call was skipped (env disabled, no
@@ -248,7 +266,7 @@ def try_oob_dispatch(
     if not customers:
         return False
     enabled = is_oob_enabled()
-    refs = _get_cached_oob_refs()
+    refs = _get_cached_oob_refs(agent_id)
     inflight_now = get_inflight_customers()
     overlap = customers & inflight_now
     eligible = customers - overlap

@@ -4715,6 +4715,8 @@ class TaskRunner(Generic[Context]):
                 task_state=str(getattr(getattr(target_task, "status", None), "state", "")),
             )
 
+        _no_owner_warned: list = []
+
         def _find_cached_live_chat_browser_session() -> tuple[Any, str, str]:
             _cache_sources = []
             try:
@@ -4727,12 +4729,43 @@ class TaskRunner(Generic[Context]):
                 _cache_sources.append(("build_node", getattr(_build_node, "_cached_browser_sessions", {})))
             except Exception:
                 pass
+            # The reply goes to the browser of the front desk it answers. With
+            # several store logins cached (one per front desk), take the session
+            # that agent runs in; never type into another store's browser. With one
+            # browser this is the first cached session, as before.
+            _owner_ids = [x for x in (
+                str(getattr(target_task, "agent_id", "") or ""),
+                str(getattr(getattr(getattr(self, "agent", None), "card", None), "id", "") or ""),
+            ) if x]
+            try:
+                from agent.ec_skills.browser_node.build_helpers import session_owned_by as _owned_by
+            except Exception:
+                _owned_by = None
+            _first = None
+            _browsers = set()
             for _cache_name, _cache in _cache_sources:
                 if not isinstance(_cache, dict):
                     continue
                 for _key, _sess in list(_cache.items()):
-                    if _sess is not None:
+                    if _sess is None:
+                        continue
+                    if _first is None:
+                        _first = (_sess, _cache_name, str(_key))
+                    _bp = getattr(_sess, "browser_profile", None)
+                    _browsers.add(getattr(_sess, "cdp_url", None)
+                                  or getattr(_bp, "cdp_url", None) or id(_sess))
+                    if _owned_by is not None and any(_owned_by(_sess, _a) for _a in _owner_ids):
                         return _sess, _cache_name, str(_key)
+            if _first is None:
+                return None, "", ""
+            if len(_browsers) <= 1:
+                return _first
+            if not _no_owner_warned:
+                _no_owner_warned.append(True)
+                logger.warning(
+                    f"[DIRECT-DELIVERY] {len(_browsers)} browsers cached and none is "
+                    f"front desk {getattr(target_task, 'name', '')!r}'s -- not guessing; "
+                    f"the reply takes the task queue into its own browser")
             return None, "", ""
 
         def _schedule_frontdesk_retry_after_health(
@@ -5163,7 +5196,7 @@ class TaskRunner(Generic[Context]):
             _pool_tab_assigned = None
             try:
                 _direct_tab_pool = _live_chat_bridge().tab_pool
-                _pool_tab_assigned = _direct_tab_pool.get_pool().allocate_for_typing(
+                _pool_tab_assigned = _direct_tab_pool.get_pool(_session).allocate_for_typing(
                     _customer_name
                 )
             except Exception as _alloc_err:
@@ -5210,7 +5243,7 @@ class TaskRunner(Generic[Context]):
                     _ws_sess_chk = _live_chat_bridge().ws_session
                     _direct_ws_eligible = bool(
                         _ws_sess_chk.ws_enabled("send")
-                        and _ws_sess_chk.can_send(_customer_name)
+                        and _ws_sess_chk.can_send(_customer_name, shop=_session)
                     )
                 except Exception:
                     _direct_ws_eligible = False
@@ -5240,13 +5273,14 @@ class TaskRunner(Generic[Context]):
                     _typing_lock,
                     _customer_name,
                     "direct_live_chat_delivery",
+                    session_key=_session,   # only this store's page is typed into
                 )
                 if _customer_name and not _outcome.typing_acquired:
                     _outcome.ok = False
                     _outcome.reason = "typing_lock_busy"
                     _ledger(
                         "direct_typing_lock_failed",
-                        holder=str(_typing_lock.holder() or ""),
+                        holder=str(_typing_lock.holder(_session) or ""),
                     )
                     return _outcome
                 _ledger("direct_typing_lock_acquired")
@@ -5713,7 +5747,7 @@ class TaskRunner(Generic[Context]):
             finally:
                 if _outcome.typing_acquired and _customer_name:
                     try:
-                        _typing_lock.release(_customer_name)
+                        _typing_lock.release(_customer_name, _session)
                     except Exception:
                         pass
                 # Phase 3 multi-tab: release the typing tab back to the
@@ -5725,7 +5759,7 @@ class TaskRunner(Generic[Context]):
                 if _pool_tab_assigned is not None:
                     try:
                         _direct_tab_pool_release = _live_chat_bridge().tab_pool
-                        _direct_tab_pool_release.get_pool().release(
+                        _direct_tab_pool_release.get_pool(_session).release(
                             _pool_tab_assigned.target_id,
                             succeeded=bool(_outcome.ok),
                             customer_key=str(_customer_name or ""),
@@ -5892,7 +5926,7 @@ class TaskRunner(Generic[Context]):
                         _mt046a_if_keys = [_customer_name]
                         try:
                             _mt046a_t4n = _live_chat_bridge().ws_session.talk_for_name
-                            _mt046a_talk = str(_mt046a_t4n(_customer_name) or "").strip()
+                            _mt046a_talk = str(_mt046a_t4n(_customer_name, shop=_session) or "").strip()
                             if _mt046a_talk:
                                 _mt046a_if_keys += [f"card:{_mt046a_talk}", _mt046a_talk]
                         except Exception:
@@ -6467,7 +6501,7 @@ class TaskRunner(Generic[Context]):
                                 if _ws161_is_card:
                                     _ws161_snap = _ws161_bridge.ws_session.ws_thread_snapshot
                                     _ws161_lab = (
-                                        (_ws161_snap(_ws161_name) or {}).get("agent")
+                                        (_ws161_snap(_ws161_name, shop=_session) or {}).get("agent")
                                         or {}
                                     )
                                 else:
@@ -7697,6 +7731,7 @@ class TaskRunner(Generic[Context]):
                                             _custs,
                                             reason=f"task_busy_qd={_qd_for_oob}",
                                             browser_event_items=_items,
+                                            agent_id=str(getattr(getattr(self.agent, "card", None), "id", "") or ""),
                                         )
                                     except Exception as _oob_err:
                                         logger.debug(

@@ -54,6 +54,21 @@ _OUTGOING_TTL_S = 600.0
 
 _redispatch_fn = None  # set by start(); takes one positional `item` dict
 _loop_task = None
+# Several Feige shops in one process: each shop's monitor registers its own
+# re-dispatch (and the loop it runs on); an item goes back through the monitor of
+# the shop whose browser saw it (item["shop_key"], stamped by the observer).
+_redispatch_by_shop: dict = {}   # ws_session state key -> (loop, fn)
+
+
+def _redispatch_for(item: dict):
+    try:
+        from . import ws_session as _wss
+        k = _wss._k((item or {}).get("shop_key") or None)
+    except Exception:
+        k = ""
+    if not k:
+        return None, _redispatch_fn
+    return _redispatch_by_shop.get(k, (None, None))
 
 
 def enabled() -> bool:
@@ -134,11 +149,14 @@ async def _loop() -> None:
             if not enabled():
                 continue
             for item in _collect_due(time.time()):
-                fn = _redispatch_fn
+                fn_loop, fn = _redispatch_for(item)
                 if fn is None:
                     continue
                 try:
-                    fn(item)
+                    if fn_loop is not None and fn_loop is not asyncio.get_running_loop():
+                        fn_loop.call_soon_threadsafe(fn, item)   # that shop's own loop
+                    else:
+                        fn(item)
                 except Exception as _e:
                     logger.debug(f"[WS-WATCHDOG] redispatch error: {_e}")
         except asyncio.CancelledError:
@@ -147,13 +165,21 @@ async def _loop() -> None:
             logger.debug(f"[WS-WATCHDOG] loop error: {_e}")
 
 
-def start(loop, redispatch_fn) -> None:
-    """Register the re-dispatch callback and start the sweeper on *loop*.
-    No-op when disabled or already running."""
+def start(loop, redispatch_fn, shop=None) -> None:
+    """Register the re-dispatch callback (for *shop*: a key or its browser
+    session) and start the sweeper on *loop*. No-op when disabled."""
     global _redispatch_fn, _loop_task
     if not enabled():
         return
-    _redispatch_fn = redispatch_fn
+    try:
+        from . import ws_session as _wss
+        _k = _wss._k(shop)
+    except Exception:
+        _k = ""
+    if _k:
+        _redispatch_by_shop[_k] = (loop, redispatch_fn)
+    else:
+        _redispatch_fn = redispatch_fn
     if _loop_task is None or _loop_task.done():
         _loop_task = loop.create_task(_loop())
         logger.info(

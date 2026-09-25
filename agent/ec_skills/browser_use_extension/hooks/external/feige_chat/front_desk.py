@@ -82,6 +82,26 @@ __all__ = ["before_run_hook", "before_session_setup_hook", "register", "route_in
 # populates this on every before_run_hook; route_inbound_customer_ws reuses it with
 # a per-item state. One front-desk agent per process => single "slot".
 _FEIGE_FD_DISPATCH_REG: dict[str, Any] = {}
+# Several Feige shops in one process: a second live shop's front desk registers
+# here under its shop key; the first shop keeps the "slot" above. A WS item is
+# routed through the front desk of the shop whose browser saw it (item shop_key).
+_FEIGE_FD_DISPATCH_REG_BY_SHOP: dict[str, Any] = {}
+
+
+def _fd_slot(shop):
+    """The registered (cfg, ctx, agent) of *shop*'s front desk, or None."""
+    from .ws_session import _k
+    k = _k(shop)
+    return _FEIGE_FD_DISPATCH_REG_BY_SHOP.get(k) if k else _FEIGE_FD_DISPATCH_REG.get("slot")
+
+
+def _set_fd_slot(shop, reg) -> None:
+    from .ws_session import _k
+    k = _k(shop)
+    if k:
+        _FEIGE_FD_DISPATCH_REG_BY_SHOP[k] = reg
+    else:
+        _FEIGE_FD_DISPATCH_REG["slot"] = reg
 
 
 def _is_pre_dispatch_busy(res: Any) -> bool:
@@ -108,7 +128,7 @@ async def route_inbound_customer_ws(item: dict, fallback) -> None:
     dispatch) so a message is never lost. Gated by the caller on
     ECAN_FEIGE_WS_DIRECT_QA=1.
     """
-    reg = _FEIGE_FD_DISPATCH_REG.get("slot")
+    reg = _fd_slot(item.get("shop_key") if isinstance(item, dict) else "")
     if not reg or not isinstance(item, dict):
         fallback()
         return
@@ -331,7 +351,7 @@ _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){""" + _ROW_PREVIEW_FALLBACK_JS + r"
 })()"""
 
 
-async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
+async def coldstart_overdue_recovery_scan(legacy_dispatcher=None, browser_session=None) -> int:
     """ws103: scan the MAIN-tab sidebar for unanswered overdue rows and route each
     to QA, bypassing the (blind detection-tab + baseline-diff) detection path.
 
@@ -352,7 +372,11 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
     """
     if os.environ.get("ECAN_FEIGE_COLDSTART_RECOVERY_SCRAPE", "") != "1":
         return 0
-    _slot_missing = not _FEIGE_FD_DISPATCH_REG.get("slot")
+    # The monitor that calls this passes ITS browser: with several shops, each
+    # scans its own sidebar and routes through its own front desk.
+    from .shop_scope import shop_key_of as _cs_shop_of
+    _cs_shop = _cs_shop_of(browser_session) if browser_session is not None else ""
+    _slot_missing = not _fd_slot(_cs_shop)
     if _slot_missing and legacy_dispatcher is None:
         return 0  # front-desk dispatch context not registered yet (pre-ws166 behavior)
     if _slot_missing:
@@ -370,11 +394,11 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
         )
     except Exception:
         return 0
-    browser_session = None
-    for sess in list((cached_browser_sessions or {}).values()):
-        if sess is not None:
-            browser_session = sess
-            break
+    if browser_session is None:
+        for sess in list((cached_browser_sessions or {}).values()):
+            if sess is not None:
+                browser_session = sess
+                break
     if browser_session is None:
         return 0
     _tid = None
@@ -485,7 +509,7 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
         _bind_by_preview([
             (str((r or {}).get("name") or ""), str((r or {}).get("preview") or ""))
             for r in rows if isinstance(r, dict)
-        ])
+        ], shop=_cs_shop)
     except Exception as _bind_e:
         logger.debug(f"[BrowserAutomation] ws171 preview-bridge failed (non-fatal): {_bind_e}")
     # ws168 (1): customers whose enrich deferred on the typing lock. The event_monitor
@@ -648,7 +672,7 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
             _retried = False
             if _name in _deferred_names:
                 try:
-                    _lock_holder = str(_typing_lock.holder() or "")
+                    _lock_holder = str(_typing_lock.holder(_cs_shop) or "")
                 except Exception:
                     _lock_holder = ""
                 _last_retry = _BACKSTOP_DEFERRED_LAST_RETRY.get(_key, 0.0)
@@ -760,7 +784,9 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None) -> int:
             f"real message; mt030/dedup decide)"
         )
         try:
-            if _FEIGE_FD_DISPATCH_REG.get("slot"):
+            if _fd_slot(_cs_shop):
+                if _cs_shop:
+                    _item.setdefault("shop_key", _cs_shop)
                 await route_inbound_customer_ws(_item, lambda: None)
             elif legacy_dispatcher is not None:
                 # ws166: no slot yet — legacy browser_event dispatch. The runner
@@ -1814,6 +1840,16 @@ async def before_run_hook(
     if not _pd_config.enabled:
         return None
 
+    # Which shop this front desk serves: the browser it runs in.
+    _fd_sess = getattr(agent, "browser_session", None)
+    if _fd_sess is None:
+        try:
+            _fd_sess = (hook_ctx.cached_browser_sessions or {}).get(hook_ctx.resolve_scope_key(state))
+        except Exception:
+            _fd_sess = None
+    from .shop_scope import shop_key_of as _fd_shop_of
+    from .ws_session import register_shop as _fd_register
+    _fd_shop = _fd_register(_fd_shop_of(_fd_sess)) if _fd_sess is not None else ""
     # ── Build DispatchContext from hook_ctx ──
     _pd_ctx = DispatchContext(
         state=state,
@@ -1832,11 +1868,12 @@ async def before_run_hook(
         normalize_dispatch_identity_key=hook_ctx.normalize_dispatch_identity_key,
         normalize_reply_text=_ds.normalize_reply_text,
         safe_format_dict=hook_ctx.safe_format_dict,
-        typing_holder_getter=_typing_lock.holder,
+        typing_holder_getter=lambda: _typing_lock.holder(_fd_shop),
     )
     # ws023: register this context so the WS detector can route messages directly
     # through run() (bypassing the serial front-desk task) when ECAN_FEIGE_WS_DIRECT_QA=1.
-    _FEIGE_FD_DISPATCH_REG["slot"] = (_pd_config, _pd_ctx, agent)
+    # Keyed by this front desk's shop (its browser) when several shops run.
+    _set_fd_slot(_fd_shop, (_pd_config, _pd_ctx, agent))
     return await _run_frontdesk_dispatch(_pd_config, _pd_ctx, agent)
 
 

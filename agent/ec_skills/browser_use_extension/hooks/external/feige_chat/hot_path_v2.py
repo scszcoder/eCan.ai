@@ -582,13 +582,15 @@ class HotPathExecutorV2:
 
 
 async def _acquire_typing_lock(
-    typing_lock: TypingLock, customer_key: str, node_name: str,
+    typing_lock: TypingLock, customer_key: str, node_name: str, session_key=None,
 ) -> bool:
-    """Bounded-wait typing-lock acquire (identical to v1 timing)."""
+    """Bounded-wait typing-lock acquire (identical to v1 timing). *session_key*:
+    the shop (key or browser session) whose page is typed into."""
     if not customer_key:
         return False
+    _lock_args = (session_key,) if session_key is not None else ()
     for _ in range(TYPING_LOCK_WAIT_ATTEMPTS):
-        if typing_lock.try_acquire(customer_key):
+        if typing_lock.try_acquire(customer_key, *_lock_args):
             logger.info(
                 f"[hot_path_v2] acquired Feige typing lock "
                 f"cust={customer_key!r}, node={node_name}"
@@ -598,7 +600,7 @@ async def _acquire_typing_lock(
     logger.warning(
         f"[hot_path_v2] could not acquire typing lock cust={customer_key!r} "
         f"within {TYPING_LOCK_WAIT_ATTEMPTS * TYPING_LOCK_WAIT_INTERVAL_S:.1f}s "
-        f"(holder={typing_lock.holder()!r}); aborting guarded send, node={node_name}"
+        f"(holder={typing_lock.holder(*_lock_args)!r}); aborting guarded send, node={node_name}"
     )
     return False
 

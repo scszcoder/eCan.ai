@@ -134,8 +134,11 @@ async def resolve_and_flush(browser_session: Any) -> int:
     except Exception:
         return 0
     delivered = 0
+    _my_state = _wss._k(browser_session)   # this scan's shop
     for entry in candidates:
         talk = entry["talk"]
+        if not _wss._talk_in_shop(talk, _my_state):
+            continue  # another shop's conversation: its own scan flushes it
         try:
             name = str(_wss.name_for_talk(talk) or "").strip()
         except Exception:
@@ -146,7 +149,7 @@ async def resolve_and_flush(browser_session: Any) -> int:
         # retry that finally found the row). The WS agent-frame echo is the
         # authoritative off-DOM check — same lane ws169's card echo-confirm uses.
         try:
-            snap = _wss.ws_thread_snapshot(entry["customer_key"]) or {}
+            snap = _wss.ws_thread_snapshot(entry["customer_key"], shop=browser_session) or {}
             agent_txt = str((snap.get("agent") or {}).get("text") or "")
             if agent_txt and _echo_match(agent_txt, entry["text"]):
                 with _LOCK:

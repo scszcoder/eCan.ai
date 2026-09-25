@@ -131,9 +131,11 @@ async def pdd_send_message(params: PddSendMessageAction, browser_session: Browse
     if not uid or not text:
         return ActionResult(error="customer_name (uid) and text are required")
     lock = get_lock()
-    own_lock = lock.holder() != uid       # direct delivery already holds it for this customer
-    if own_lock and not await hot_path_v2._acquire_typing_lock(lock, uid, "pdd_send_message"):
-        return ActionResult(error=f"typing_lock_busy (holder={lock.holder()!r})")
+    # this store's reply box (its own browser); direct delivery may already hold it
+    own_lock = lock.holder(browser_session) != uid
+    if own_lock and not await hot_path_v2._acquire_typing_lock(
+            lock, uid, "pdd_send_message", session_key=browser_session):
+        return ActionResult(error=f"typing_lock_busy (holder={lock.holder(browser_session)!r})")
     try:
         ev = _evaluator(browser_session, "pdd_send_message", uid, read_only=False)
 
@@ -153,4 +155,4 @@ async def pdd_send_message(params: PddSendMessageAction, browser_session: Browse
         return ActionResult(error=f"pdd_send_message failed: {exc}")
     finally:
         if own_lock:
-            lock.release(uid)
+            lock.release(uid, browser_session)

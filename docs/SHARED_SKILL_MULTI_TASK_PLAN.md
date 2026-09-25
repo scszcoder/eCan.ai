@@ -283,15 +283,39 @@ session key):
   session is passed, bare customer key otherwise — so the same customer
   nickname in two shops can't cross-lock.
 
-**Phase 5b (per-session plumbing) — STILL DEFERRED.** Actually running N
-same-site browser sessions in one process additionally needs: hook/bundle
-call sites resolving a session key from their browser session and passing
-it through; per-session (or pooled) runner-bridge capabilities —
-direct-delivery worker, typing semaphores, dedicated CDP loop, WS reader —
-and per-shop WS socket registries. This is performance-sensitive territory
-(see FEIGE_COLDSTART_POSTMORTEM, PLATFORM_FEIGE_DECOUPLING_2026_08); do
-not start casually. Until then the supported pattern remains **one process
-(host) per shop** (Phase 1.5 makes this operational).
+**Phase 5b (per-session plumbing) — landed 2026-09-25 (v0.9.99a), NOT yet
+live-validated with two Feige shops.** A shop = its browser
+(`feige_chat/shop_scope.shop_key_of`: profile folder, else CDP endpoint). The
+first shop keeps the module-level state, so a one-shop process is unchanged;
+every other shop gets its own. A caller naming no shop resolves to the only
+known shop, and with several it gets an empty "unknown shop" view — the WS lane
+has no route and falls back, never guesses.
+
+Now per shop: WS routing (name→talk), send donor + read-ack template, observer
+handle, dispatch-live flag, row-click record (`ws_session`); the raw Frontier
+socket (`ws_raw_sender`: a private module copy per extra shop); detection-tab
+injector; tab pool and its placeholder sweeper (each claims only its own
+store's turns — `store_key` stamped at arm(), else by which shop knows the
+customer); front-desk dispatch slot (WS items carry `shop_key`); WS watchdog
+re-dispatch; cold-start backstop scan, undeliverable flush and bot tick (run on
+the calling monitor's browser); typing lock (a keyed caller blocks only its
+shop, an unkeyed caller still blocks every shop); OOB dispatch cache (per
+front-desk agent). Core: `node:*` browser-cache keys carry the run's browser
+identity (two tasks sharing one skill in two logins no longer share one cached
+session), and direct delivery types into the browser its front-desk agent runs
+in (`note_session_owner`), refusing to guess when several are cached.
+
+Still process-wide (by design or deferred): the direct-delivery worker loop and
+its ~3-send soft cap, the CDP-timeout/health circuit breakers (one shop's slow
+CDP delays the others), `feige_cdp_lane` (re-attaches per call across shops:
+correct, slower), page refresh (first browser only). Still keyed by NICKNAME
+only (a skipped/duplicated turn is possible when two shops have a customer with
+the same nickname active at the same moment — never a wrong-shop send, since
+WS routing refuses an ambiguous nickname and each send types into its own
+shop's page): `dispatch_state` ledgers, `build_node._dispatch_inflight`,
+`frontdesk_dispatch._INFLIGHT_CUSTOMERS`, `actionable_items`,
+`human_intervention`, `placeholder_timer` per-customer caps. Tests:
+`tests/unit/test_feige_multi_shop.py`.
 
 ### Follow-ups batch ✅ 2026-08-23
 

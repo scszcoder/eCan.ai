@@ -298,12 +298,13 @@ def clear_handover_ack(customer_key: str) -> None:
         _handover_ack_done.pop(customer_key, None)
 
 
-def _drain_handover_acks() -> list[str]:
+def _drain_handover_acks(owns=None) -> list[str]:
     """Return + clear the customers currently owing a handover emoji, stamping
-    each as done (for the re-dedup window)."""
+    each as done (for the re-dedup window). *owns(customer)* -- when several
+    shops run, each shop's sweeper drains only its own shop's customers."""
     now = time.time()
     with _handover_ack_lock:
-        custs = list(_handover_ack_pending.keys())
+        custs = [c for c in _handover_ack_pending if owns is None or owns(c)]
         for c in custs:
             _handover_ack_pending.pop(c, None)
             _handover_ack_done[c] = now
@@ -1083,6 +1084,7 @@ def claim_expired(
     max_placeholders: int,
     rearm_s: float,
     cap_per_window: int | None = None,
+    accept=None,
 ) -> list[ExpiredEntry]:
     """Atomically claim entries whose deadline has passed.
 
@@ -1100,6 +1102,10 @@ def claim_expired(
     turns saw no placeholder because the per-inflight cap (2) was
     reused as a per-customer-90s cap.  Pass 0 to disable the per-
     customer ceiling entirely.
+
+    ``accept(entry)`` (several shops in one process): claim only the turns
+    it accepts -- each shop's sweeper types through its own shop's browser,
+    so it takes only its own shop's turns. None claims every turn.
     """
     now = time.time()
     out: list[ExpiredEntry] = []
@@ -1109,6 +1115,8 @@ def claim_expired(
         for k, entry in list(_REGISTRY.items()):
             if entry.cancelled or entry.deadline_at > now:
                 continue
+            if accept is not None and not accept(entry):
+                continue   # another shop's turn: its own sweeper types it
             # 2026-05-21: skip if real reply is already in progress or
             # just delivered for THIS specific turn.  The runner's
             # direct_feige_send_start now stamps _REAL_REPLY_AT before
@@ -1247,6 +1255,8 @@ async def sweep_loop_async(
     interval_s: float,
     placeholder_submitter,
     cap_per_window: int | None = None,
+    accept=None,
+    owns_customer=None,
 ) -> None:
     """Background coroutine — periodically checks for expired timers
     and submits placeholder sends via ``placeholder_submitter``.
@@ -1258,6 +1268,9 @@ async def sweep_loop_async(
     runner.py imports (avoiding circular deps).
 
     Quietly exits if cancelled (e.g., on app shutdown).
+
+    ``accept`` / ``owns_customer``: this sweeper's shop filter for turns and
+    handover acks (see claim_expired) -- each shop's sweeper serves its own.
     """
     import asyncio as _asyncio
 
@@ -1278,7 +1291,7 @@ async def sweep_loop_async(
             # ws050: drain pending 转人工 handover acks — send the uniform ASCII
             # emoji once per handover via the SAME submitter (open + type) that
             # placeholders use, so it inherits browser_session/worker_loop/pool.
-            for _hk in _drain_handover_acks():
+            for _hk in _drain_handover_acks(owns_customer):
                 _ack_text = _handover_ack_text()
                 logger.info(
                     f"[placeholder_timer] ws050 handover-ack -> cust={_hk!r} "
@@ -1306,6 +1319,7 @@ async def sweep_loop_async(
                 max_placeholders=max_placeholders,
                 rearm_s=rearm_s,
                 cap_per_window=cap_per_window,
+                accept=accept,
             )
             for entry in expired:
                 # 2026-05-27 mt050G — re-check is_real_reply_recent

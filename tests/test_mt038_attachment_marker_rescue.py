@@ -5575,7 +5575,7 @@ class Mt052D_Day1SourceTests(unittest.TestCase):
             FD_SRC_052D,
         )
         self.assertIn(
-            "def _get_cached_oob_refs() -> dict[str, Any] | None:",
+            "def _get_cached_oob_refs(agent_id: str = \"\") -> dict[str, Any] | None:",
             FD_SRC_052D,
         )
 

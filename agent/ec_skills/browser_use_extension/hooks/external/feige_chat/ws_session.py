@@ -34,7 +34,7 @@ from . import ws_reader, ws_sender
 # the WS reader looked dead because none of its lines could land).
 from utils.logger_helper import logger_helper as logger
 
-_lock = threading.Lock()
+_lock = threading.RLock()   # re-entrant: shop resolution can run under it
 _templates: dict = {}    # talk_id -> latest SENT chat-frame bytes (template) [PER-CONVERSATION]
 _routing: dict = {}      # customer_name -> talk_id
 _talk_to_name: dict = {} # talk_id -> customer_name (reverse, for routing-integrity guard)
@@ -67,6 +67,138 @@ _our_cmids: set = set()  # client_message_ids WE generated (our WS sends) -> def
 _OUR_CMIDS_MAX = 512
 _PENDING_TTL = 90.0
 
+# ── Per-shop state (several Feige shops in one process) ─────────────────────
+# Talk ids are unique across shops, so talk-keyed state above stays shared. What
+# belongs to ONE shop's page/socket -- the send donor, the read-ack template, the
+# observer handle, the dispatch-live flag, the row-click record -- and the
+# name->talk routing (nicknames collide across shops) is per shop.
+#
+# Keys come from shop_scope.shop_key_of (a shop's browser). The FIRST shop seen
+# keeps the module globals, so a one-shop process is unchanged; every other shop
+# gets its own dict. A caller that names no shop resolves to the only known shop;
+# with several known it gets a throwaway empty state ("which shop?" is not
+# guessed: the WS lane simply has no route and the caller falls back).
+_first_shop = [""]             # shop key whose state is the module globals
+_shops: dict = {}              # every other shop key -> its own state
+_shop_by_talk: dict = {}       # talk_id -> shop key, recorded from that shop's frames
+_GLOBAL_OF = {
+    "routing": "_routing", "card_bridged": "_card_bridged_names",
+    "session_template": "_session_template", "read_template": "_read_template",
+    "observer_client": "_observer_client", "observer_sids": "_observer_sids",
+    "dispatch_live": "_dispatch_live", "row_click": "_row_click",
+    "last_other_click": "_last_other_click_ts",
+}
+_NOWHERE = "?"                 # state key of "a shop, but not known which"
+
+
+def _new_shop_state() -> dict:
+    return {"routing": {}, "card_bridged": set(), "session_template": None,
+            "read_template": None, "observer_client": None, "observer_sids": [],
+            "dispatch_live": False, "row_click": {"name": "", "ts": 0.0},
+            "last_other_click": {"ts": 0.0}}
+
+
+def _norm(shop) -> str:
+    if shop is None or shop == "":
+        return ""
+    if not isinstance(shop, str):
+        from .shop_scope import shop_key_of
+        return shop_key_of(shop)
+    return shop
+
+
+def register_shop(shop) -> str:
+    """Note that *shop* (a key or its browser session) runs in this process.
+    Idempotent. The first shop owns the module globals. Returns the key."""
+    k = _norm(shop)
+    if not k or k == _NOWHERE:
+        return ""
+    with _lock:
+        if not _first_shop[0]:
+            _first_shop[0] = k
+            return k
+        if k == _first_shop[0] or k in _shops:
+            return k
+        _shops[k] = _new_shop_state()
+        n = len(_shops) + 1
+    logger.info(f"[ws_session] Feige shop {k} runs alongside another -- it gets its own "
+                f"WS state ({n} shops in this process)")
+    return k
+
+
+def unregister_shop(shop) -> None:
+    """Kept for symmetry with register_shop: a shop's state outlives its observer
+    (its front desk and pending sends still resolve to it)."""
+    return None
+
+
+def shop_count() -> int:
+    return (1 if _first_shop[0] else 0) + len(_shops)
+
+
+def resolve_shop(shop=None) -> str:
+    """Canonical key for *shop*; with none given, the only known shop -- or
+    _NOWHERE when several run (never guess) -- or "" before any shop is known."""
+    k = _norm(shop)
+    if k:
+        register_shop(k)
+        return k
+    if _shops:
+        return _NOWHERE
+    return _first_shop[0]
+
+
+def _k(shop) -> str:
+    """State key: "" = the module globals (the first shop, or nothing known yet)."""
+    k = resolve_shop(shop)
+    return "" if k == _first_shop[0] else k
+
+
+def _st(k: str, field: str):
+    if not k:
+        return globals()[_GLOBAL_OF[field]]
+    st = _shops.get(k)
+    if st is None:                       # _NOWHERE: an empty, throwaway view
+        return _new_shop_state()[field]
+    return st[field]
+
+
+def _st_set(k: str, field: str, value) -> None:
+    if not k:
+        globals()[_GLOBAL_OF[field]] = value
+        return
+    st = _shops.get(k)
+    if st is not None:
+        st[field] = value
+
+
+def _shop_for_talk(talk) -> str:
+    owner = _shop_by_talk.get(str(talk or ""))
+    return _k(owner) if owner else _k(None)
+
+
+def _talk_in_shop(talk, k: str) -> bool:
+    """False only when *talk* is known to be ANOTHER shop's conversation."""
+    owner = _shop_by_talk.get(str(talk or ""))
+    return owner is None or _k(owner) == k
+
+
+def _shop_for_name(name, shop=None):
+    """State key for a customer name. *shop* when given; with one shop always it;
+    otherwise the only shop that routes the name -- or None when two shops both
+    know that nickname (caller must not guess: DOM fallback)."""
+    if shop:
+        return _k(shop)
+    if not _shops:
+        return ""
+    n = str(name or "")
+    if n.startswith("card:"):
+        return _shop_for_talk(n[5:].strip())
+    hits = [k for k in ("", *_shops) if n in _st(k, "routing")]
+    if len(hits) > 1:
+        return None
+    return hits[0] if hits else _NOWHERE
+
 
 def _note_our_cmid(cid: str) -> None:
     """Record a client_message_id we generated, so an echo carrying it is definitively
@@ -82,17 +214,17 @@ def _note_our_cmid(cid: str) -> None:
 _dispatch_live = False    # True ONLY while the WS observer is actively dispatching
 
 
-def set_dispatch_live(v: bool) -> None:
+def set_dispatch_live(v: bool, shop: str = "") -> None:
     """Observer signals whether it is actually carrying detection dispatch right now."""
-    global _dispatch_live
-    _dispatch_live = bool(v)
+    _st_set(_k(shop), "dispatch_live", bool(v))
 
 
-def is_dispatch_live() -> bool:
+def is_dispatch_live(shop: str = "") -> bool:
     """The DOM monitor suppresses its own dispatch ONLY when this is True — i.e. when
     the WS observer is confirmed live and dispatching. Prevents the deadlock where a
-    dispatch flag is set but the observer never started, so nothing delivers at all."""
-    return _dispatch_live
+    dispatch flag is set but the observer never started, so nothing delivers at all.
+    Per shop: one shop's live socket says nothing about another's."""
+    return bool(_st(_k(shop), "dispatch_live"))
 
 
 # ws011 (raw-send spike): the observer owns an isolated CDP client attached to the
@@ -105,17 +237,18 @@ _observer_client = None
 _observer_sids: list = []
 
 
-def set_observer_cdp(client, sids) -> None:
+def set_observer_cdp(client, sids, shop: str = "") -> None:
     """Observer parks its CDP client + attached session-ids for the raw sender's
     one-time connection-param capture. Best-effort; cleared on observer teardown."""
-    global _observer_client, _observer_sids
-    _observer_client = client
-    _observer_sids = list(sids or [])
+    k = _k(shop)
+    _st_set(k, "observer_client", client)
+    _st_set(k, "observer_sids", list(sids or []))
 
 
-def get_observer_cdp():
-    """(client, sids) the observer parked, or (None, []) when no observer is live."""
-    return _observer_client, list(_observer_sids)
+def get_observer_cdp(shop: str = ""):
+    """(client, sids) *shop*'s observer parked, or (None, []) when none is live."""
+    k = _k(shop)
+    return _st(k, "observer_client"), list(_st(k, "observer_sids") or [])
 
 
 def ws_enabled(kind: str) -> bool:
@@ -181,7 +314,7 @@ def name_for_talk_verified(talk_id: str) -> str:
     return nm
 
 
-def talk_for_name(customer_name: str) -> str:
+def talk_for_name(customer_name: str, shop: str = "") -> str:
     """ws046: forward lookup — the talk_id (conversation id) last seen for
     *customer_name*.  Inverse of :func:`name_for_talk`.  Used to bridge a
     product card (dispatched under the synthetic ``card:<talk_id>`` identity
@@ -192,7 +325,10 @@ def talk_for_name(customer_name: str) -> str:
     if not customer_name:
         return ""
     with _lock:
-        return str(_routing.get(str(customer_name)) or "")
+        k = _shop_for_name(customer_name, shop)
+        if k is None:
+            return ""
+        return str(_st(k, "routing").get(str(customer_name)) or "")
 
 
 def unnamed_card_talks(window_s: float = 120.0) -> list:
@@ -219,7 +355,7 @@ def unnamed_card_talks(window_s: float = 120.0) -> list:
     return out
 
 
-def bind_unnamed_conv_by_preview(rows, max_age_s: float = 180.0) -> int:
+def bind_unnamed_conv_by_preview(rows, max_age_s: float = 180.0, shop: str = "") -> int:
     """ws171: sidebar-preview correlation bridge — the missing talk->name join.
 
     A conversation whose frames NEVER carry a nickname (first message is a
@@ -244,10 +380,13 @@ def bind_unnamed_conv_by_preview(rows, max_age_s: float = 180.0) -> int:
     now_ms = time.time() * 1000.0
     bound = 0
     with _lock:
+        k = _k(shop)
         cands = []
         for talk, th in _thread.items():
             if _talk_to_name.get(talk):
                 continue  # already named
+            if _shop_for_talk(talk) != k:
+                continue  # another shop's conversation: its sidebar is not these rows
             cust = (th or {}).get("cust") or {}
             txt = str(cust.get("text") or "").strip()
             ts = int(cust.get("ts") or 0)
@@ -270,7 +409,7 @@ def bind_unnamed_conv_by_preview(rows, max_age_s: float = 180.0) -> int:
             if len(matches) != 1:
                 continue  # ambiguous across convs (or none)
             talk = matches[0]
-            _routing[n] = talk
+            _st(k, "routing")[n] = talk
             _talk_to_name[talk] = n
             bound += 1
             logger.info(
@@ -313,7 +452,8 @@ def is_conv_live(name_or_talk: str) -> bool:
     with _lock:
         if k in _talk_last_frame:
             return True
-        _talk = str(_routing.get(k) or "")
+        _sk = _shop_for_name(k)
+        _talk = str(_st(_sk, "routing").get(k) or "") if _sk is not None else ""
         return bool(_talk) and _talk in _talk_last_frame
 
 
@@ -337,7 +477,8 @@ def mark_conv_dormant(name_or_talk: str) -> None:
     with _lock:
         _talk_last_frame.pop(k, None)
         _templates.pop(k, None)
-        _talk = str(_routing.get(k) or "")
+        _sk = _shop_for_name(k)
+        _talk = str(_st(_sk, "routing").get(k) or "") if _sk is not None else ""
         if _talk:
             _talk_last_frame.pop(_talk, None)
             _templates.pop(_talk, None)
@@ -399,13 +540,16 @@ def _click_bind_window_s() -> float:
         return 3.0
 
 
-def note_row_click(name: str) -> None:
+def note_row_click(name: str, shop: str = "") -> None:
     """ws184: record that our automation just clicked/activated *name*'s sidebar row."""
     n = str(name or "")
     if not n or n.startswith("card:"):
         return
     now = time.time()
     with _lock:
+        _k_ = _k(shop)
+        _row_click = _st(_k_, "row_click")
+        _last_other_click_ts = _st(_k_, "last_other_click")
         if _row_click["name"] and _row_click["name"] != n:
             # ws185: remember when we last clicked a DIFFERENT row — a page ack can
             # arrive SECONDS after its causing click (they are lazy/batched), so any
@@ -420,7 +564,7 @@ def note_row_click(name: str) -> None:
         _row_click["ts"] = now
 
 
-def _maybe_click_bind(raw: bytes) -> None:
+def _maybe_click_bind(raw: bytes, shop: str = "") -> None:
     """ws184: bind the read-ack's talk to the row we just clicked (see _row_click).
     ws185 hardening (after the 2026-07-26 20:56 mis-bind): skip acks for convs we
     recently wire-sent into (our own delivery echo), require a quiet period since
@@ -433,8 +577,9 @@ def _maybe_click_bind(raw: bytes) -> None:
     try:
         now = time.time()
         with _lock:
-            nm, ts = _row_click["name"], _row_click["ts"]
-            other_ts = _last_other_click_ts["ts"]
+            _k_ = _k(shop)
+            nm, ts = _st(_k_, "row_click")["name"], _st(_k_, "row_click")["ts"]
+            other_ts = _st(_k_, "last_other_click")["ts"]
         if not nm or (now - ts) > _click_bind_window_s():
             return
         try:
@@ -455,7 +600,7 @@ def _maybe_click_bind(raw: bytes) -> None:
             return                           # our own injected ack, not the page's
         if _wire is not None and (now - _wire) < 15.0:
             return                           # page acking OUR wire-delivered message
-        if bind_talk_name(talk, nm, source="ws184_click_bind", set_routing=False):
+        if bind_talk_name(talk, nm, source="ws184_click_bind", set_routing=False, shop=shop):
             logger.info(
                 f"[ws184] click-bind: page read-ack for conv {talk} within "
                 f"{now - ts:.1f}s of clicking row {nm!r} — bound identity-only "
@@ -477,13 +622,13 @@ def restick_identity(talk_id: str, name: str) -> None:
             _talk_identity[t] = n
 
 
-def read_frame_for(talk_id: str, cursor: str = ""):
+def read_frame_for(talk_id: str, cursor: str = "", shop: str = ""):
     """tier0 已读: build a read-ack frame marking *talk_id* read up to *cursor* (a recv
     message's read_cursor). Falls back to the latest cached cursor for the conversation.
     Returns frame bytes or None (no template/cursor yet, or build failed)."""
     talk_id = str(talk_id or "")
     with _lock:
-        tmpl = _read_template
+        tmpl = _st(_k(shop) if shop else _shop_for_talk(talk_id), "read_template")
         cur = str(cursor or _read_cursor.get(talk_id) or "")
     if not tmpl or not talk_id or not cur:
         return None
@@ -500,23 +645,24 @@ def read_frame_for(talk_id: str, cursor: str = ""):
         return None
 
 
-def note_sent_frame(raw: bytes) -> None:
-    """Observer hook: every binary webSocketFrameSent. Cache reply templates per conv,
-    and keep the latest as the session-wide donor for S3 first-contact frames."""
-    global _session_template, _read_template
+def note_sent_frame(raw: bytes, shop: str = "") -> None:
+    """Observer hook: every binary webSocketFrameSent on *shop*'s page. Cache reply
+    templates per conv, and keep the latest as that shop's donor for S3 first-contact."""
     try:
         if ws_sender.is_read_ack(raw):               # tier0: cache a read-ack to clone
             with _lock:
-                _read_template = raw
-            _maybe_click_bind(raw)                   # ws184: page ack right after our row click
+                _st_set(_k(shop), "read_template", raw)
+            _maybe_click_bind(raw, shop)             # ws184: page ack right after our row click
             return
         if ws_sender.frame_text(raw) is None:        # only real chat-message sends
             return
         talk = ws_sender.sent_talk(raw)              # PER-CONVERSATION key (not pigeon_cid!)
         with _lock:
-            _session_template = raw                   # S3 donor (pigeon_sign + envelope)
+            _st_set(_k(shop), "session_template", raw)   # S3 donor (pigeon_sign + envelope)
             if talk:
                 _templates[str(talk)] = raw
+                if shop:
+                    _shop_by_talk[str(talk)] = resolve_shop(shop)
         # ws048: ANY outgoing chat frame (real reply OR placeholder) proves the
         # turn for this conversation is alive — tell the watchdog so it clears the
         # pending record and never re-dispatches a turn that already responded.
@@ -530,8 +676,9 @@ def note_sent_frame(raw: bytes) -> None:
         pass
 
 
-def note_recv_frame(raw: bytes) -> None:
-    """Observer hook: every binary webSocketFrameReceived. Update routing + confirmations."""
+def note_recv_frame(raw: bytes, shop: str = "") -> None:
+    """Observer hook: every binary webSocketFrameReceived on *shop*'s page. Update
+    routing + confirmations."""
     try:
         msgs = ws_reader.extract_messages(raw)
     except Exception:
@@ -561,14 +708,19 @@ def note_recv_frame(raw: bytes) -> None:
         # ws167: ANY frame on this conversation proves the socket currently delivers
         # for it — mark LIVE (per-conv dormant/live drives the DOM↔WS cold-start
         # handoff; see is_conv_live/mark_conv_dormant).
+        _sk = _k(shop)
+        _sroute = _st(_sk, "routing")
+        _scard = _st(_sk, "card_bridged")
         if talk:
             with _lock:
                 _stamp_conv_live(talk)
+                if shop:
+                    _shop_by_talk[talk] = resolve_shop(shop)
         if m.sender_role == "1" and m.customer_name and talk:
             with _lock:
-                _routing[m.customer_name] = talk                  # name -> conversation
+                _sroute[m.customer_name] = talk                   # name -> conversation
                 _talk_to_name[talk] = m.customer_name             # reverse, for integrity guard
-                _card_bridged_names.discard(m.customer_name)      # ws130: real named frame is authoritative
+                _scard.discard(m.customer_name)                   # ws130: real named frame is authoritative
                 if m.read_cursor:
                     _read_cursor[talk] = m.read_cursor            # tier0: "read up to" id
                 # ws127: a NAMED frame with a uid seeds the uid->name bridge so a later
@@ -595,10 +747,10 @@ def note_recv_frame(raw: bytes) -> None:
                         and os.environ.get("ECAN_FEIGE_UID_NAME_BRIDGE", "1") != "0"):
                     _bn = _name_by_uid.get(m.sender_uid, "")
                     if _bn and not _bn.startswith("card:") and (
-                            _bn not in _routing or _bn in _card_bridged_names):
-                        _routing[_bn] = talk
+                            _bn not in _sroute or _bn in _scard):
+                        _sroute[_bn] = talk
                         _talk_to_name.setdefault(talk, _bn)
-                        _card_bridged_names.add(_bn)
+                        _scard.add(_bn)
         # ws008: maintain the per-conversation thread snapshot from the stream so a WS
         # scrape tool can reproduce the DOM snapshot. Customer bubble (role 1) and agent
         # bubble (role 2) tracked separately; agent is_ours is definitive when the echo
@@ -668,7 +820,7 @@ def talk_for_cmid(cmid: str) -> str:
 
 
 def bind_talk_name(talk_id: str, name: str, source: str = "",
-                   set_routing: bool = True) -> bool:
+                   set_routing: bool = True, shop: str = "") -> bool:
     """ws177: safely bind an unnamed conversation to a real customer name.
     Refuses card:/empty names and never overwrites an existing binding.
 
@@ -686,7 +838,7 @@ def bind_talk_name(talk_id: str, name: str, source: str = "",
         if _talk_to_name.get(t):
             return False
         if set_routing:
-            _routing[n] = t
+            _st(_k(shop) if shop else _shop_for_talk(t), "routing")[n] = t
         _talk_to_name[t] = n
     logger.info(
         f"[ws177] bound conv {t} -> {n!r} (source={source or 'manual'}"
@@ -715,7 +867,7 @@ def can_send_warm_card(customer_name: str) -> bool:
         return talk in _templates
 
 
-def can_send(customer_name: str) -> bool:
+def can_send(customer_name: str, shop: str = "") -> bool:
     """True iff frame_for() could build a send frame — MUST mirror frame_for's routing,
     including ws060's card:<talk_id> extraction and the first-contact path.
 
@@ -744,13 +896,17 @@ def can_send(customer_name: str) -> bool:
         os.environ.get("ECAN_FEIGE_WS_CARD_FIRST_CONTACT", "") == "1"
         and str(customer_name or "").startswith("card:")
     )
+    with _lock:
+        _sk = _shop_for_name(customer_name, shop)
+    if _sk is None:
+        return False                                  # two shops know this nickname: DOM
     if os.environ.get("ECAN_FEIGE_WS_CAN_SEND_WIDE", "") != "1" and not _card_fc:
         with _lock:                                   # ws063 strict behavior (the swift baseline)
-            talk = _routing.get(customer_name)
-            return bool(talk and talk in _templates)
+            talk = _st(_sk, "routing").get(customer_name)
+            return bool(talk and talk in _templates and _talk_in_shop(talk, _sk))
     _synthetic_card = False
     with _lock:
-        talk = _routing.get(customer_name)
+        talk = _st(_sk, "routing").get(customer_name)
         if not talk and customer_name.startswith("card:"):
             _ct = customer_name[len("card:"):].strip()
             if _ct:
@@ -758,10 +914,12 @@ def can_send(customer_name: str) -> bool:
                 _synthetic_card = True
         if not talk:
             return False
+        if not _talk_in_shop(talk, _sk):
+            return False
         tmpl = _templates.get(talk)
         owner = _talk_to_name.get(talk)
         target_uid = _uid_by_talk.get(talk)
-        session_tmpl = _session_template
+        session_tmpl = _st(_sk, "session_template")
     # mirror frame_for's routing-integrity guard (skipped for the synthetic-card case)
     if not _synthetic_card and owner is not None and owner != customer_name:
         return False
@@ -773,12 +931,19 @@ def can_send(customer_name: str) -> bool:
     return False
 
 
-def frame_for(customer_name: str, text: str):
-    """Build a ready-to-inject send frame for *customer_name*. Returns (frame, cid) or None
-    when we can't build one yet (caller falls back to DOM)."""
+def frame_for(customer_name: str, text: str, shop: str = ""):
+    """Build a ready-to-inject send frame for *customer_name* (in *shop*, when several
+    shops run). Returns (frame, cid) or None when we can't build one yet (caller falls
+    back to DOM)."""
     _synthetic_card = False
     with _lock:
-        talk = _routing.get(customer_name)
+        _sk = _shop_for_name(customer_name, shop)
+    if _sk is None:
+        logger.info(f"[ws_session] {customer_name!r} is a customer of more than one shop "
+                    f"and no shop was named — DOM fallback")
+        return None
+    with _lock:
+        talk = _st(_sk, "routing").get(customer_name)
         # ws060 (Option A): a name-less product card is keyed on a synthetic 'card:<talk_id>'
         # identity that was never registered in _routing (only real nicknames are). The
         # talk_id is in the name — extract it so the WS send routes by CONVERSATION (talk_id)
@@ -788,8 +953,12 @@ def frame_for(customer_name: str, text: str):
             if _ct:
                 talk = _ct
                 _synthetic_card = True
+        if talk and not _talk_in_shop(talk, _sk):
+            logger.warning(f"[ws_session] conv {talk} belongs to another shop — refusing "
+                           f"WS send for {customer_name!r}, DOM fallback")
+            return None
         tmpl = _templates.get(talk) if talk else None
-        session_tmpl = _session_template
+        session_tmpl = _st(_sk, "session_template")
         owner = _talk_to_name.get(talk) if talk else None
         target_uid = _uid_by_talk.get(talk) if talk else None   # ws028: for first-contact retarget
     # Routing-integrity guard: the conversation we're about to target must currently be
@@ -927,7 +1096,7 @@ def pending_is_fc(cid: str) -> bool:
         return bool(p and p.get("fc"))
 
 
-def ws_text_scrape(customer_name: str):
+def ws_text_scrape(customer_name: str, shop: str = ""):
     """ws008 (the swappable WS 'scrape tool'): produce a DOM-scrape-compatible customer-
     bubble result for *customer_name* PURELY from the WS frame stream — but ONLY for
     plain TEXT messages. Returns a dict shaped like ScrapeResult
@@ -936,7 +1105,8 @@ def ws_text_scrape(customer_name: str):
     DOM scrape. msg_id is the client_message_id (== the DOM bubble's data-id) so all the
     downstream dedup/stale-guard keys stay consistent with the DOM path."""
     with _lock:
-        talk = _routing.get(customer_name)
+        _sk = _shop_for_name(customer_name, shop)
+        talk = _st(_sk, "routing").get(customer_name) if _sk is not None else None
         th = _thread.get(talk) if talk else None
         cust = dict(th.get("cust") or {}) if th else None
         agent = dict(th.get("agent") or {}) if th else None
@@ -981,13 +1151,14 @@ def ws_text_scrape(customer_name: str):
     return out
 
 
-def ws_thread_snapshot(customer_name: str):
+def ws_thread_snapshot(customer_name: str, shop: str = ""):
     """ws008: the fuller per-conversation snapshot for the echo / human-intervention
     consumers — latest customer bubble + latest agent bubble with a DEFINITIVE is_ours
     (True only when the agent echo carried a client_message_id we generated). Returns
     {"customer": {...}, "agent": {...}} or None when no data yet."""
     with _lock:
-        talk = _routing.get(customer_name)
+        _sk = _shop_for_name(customer_name, shop)
+        talk = _st(_sk, "routing").get(customer_name) if _sk is not None else None
         th = _thread.get(talk) if talk else None
         if not th:
             return None

@@ -78,14 +78,20 @@ class TestPhase5aSessionScoping:
 
         tl.reset()
         try:
-            assert tl.try_acquire('custA')                     # default session
-            assert not tl.try_acquire('custB')                 # blocked, same session
-            assert tl.try_acquire('custB', session_key='shop2')  # other shop unaffected
-            assert tl.holder() == 'custA'
+            assert tl.try_acquire('custA', session_key='shop1')
+            assert not tl.try_acquire('custB', session_key='shop1')  # blocked, same shop
+            assert tl.try_acquire('custB', session_key='shop2')      # other shop unaffected
+            assert tl.holder('shop1') == 'custA'
             assert tl.holder('shop2') == 'custB'
-            tl.release('custA')
-            assert tl.holder() == ''
-            assert tl.holder('shop2') == 'custB'               # untouched
+            # a caller that names no shop contends with every shop: it may cost
+            # parallelism, never let two sends race inside one shop's page
+            assert not tl.try_acquire('custC')
+            tl.release('custA', session_key='shop1')
+            assert tl.holder('shop1') == ''
+            assert tl.holder('shop2') == 'custB'                     # untouched
+            tl.release('custB', session_key='shop2')
+            assert tl.try_acquire('custC')                           # unkeyed, all free
+            assert not tl.try_acquire('custD', session_key='shop1')  # ...and it blocks shops
         finally:
             tl.reset()
 

@@ -84,12 +84,14 @@ def test_second_session_reuses_the_observer_and_handover_on_stop(observer):
         assert entry["dispatchers"] == [got1.append, got2.append]
 
         W._shared_dispatch(entry, {"msg_id": "m1"})
-        assert got1 == [{"msg_id": "m1"}] and got2 == []        # active subscriber only
+        # active subscriber only; items carry the shop (browser) that saw them
+        assert [i["msg_id"] for i in got1] == ["m1"] and got2 == []
+        assert got1[0]["shop_key"] == W.ws_session.resolve_shop(_session())
 
         await W.stop_ws_shadow_observer(h1)                       # first session torn down
         assert FakeCDPClient.instances[0].stopped is False        # client kept alive
         W._shared_dispatch(entry, {"msg_id": "m2"})
-        assert got2 == [{"msg_id": "m2"}]                         # handed over
+        assert [i["msg_id"] for i in got2] == ["m2"]              # handed over
 
         await W.stop_ws_shadow_observer(h2)                       # last subscriber
         assert FakeCDPClient.instances[0].stopped is True

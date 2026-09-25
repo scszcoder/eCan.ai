@@ -1869,6 +1869,20 @@ _COLDSTART_SCAN_LAST = [0.0]   # ws103: throttle the main-tab recovery scan
 _COLDSTART_SCAN_TASKS: set = set()   # ws103: strong refs (ws048: bare create_task GC'd)
 _LIVE_CHAT_BOT_TOGGLE_LAST = [0.0]   # throttle the site-own-bot suppression tick
 _LIVE_CHAT_BOT_TOGGLE_TASKS: set = set()   # strong refs so the tick task isn't GC'd
+# Several same-site shops in one process each run their own monitor on their own
+# browser: the two throttles above are kept per browser session so one shop's
+# tick never starves another's. With one shop they behave as the single slots.
+_COLDSTART_SCAN_LAST_BY_SESSION: dict = {}
+_LIVE_CHAT_BOT_TOGGLE_LAST_BY_SESSION: dict = {}
+
+
+def _call_for_session(fn, session, **kwargs):
+    """Call a bundle hook for THIS monitor's browser session; a bundle whose hook
+    predates the ``browser_session`` argument is called the old way."""
+    try:
+        return fn(browser_session=session, **kwargs)
+    except TypeError:
+        return fn(**kwargs)
 
 
 def _live_chat_lean_baseline() -> bool:
@@ -2357,7 +2371,7 @@ async def _start_dom_mutation_monitor(
                         _det_tid = await _open_detection_tab(session, _murl)
                     if _det_tid:
                         _tp_det = _live_chat_bridge().tab_pool
-                        _pool_det = _tp_det.get_pool()
+                        _pool_det = _tp_det.get_pool(session)
                         _pool_det.designate_detection_tab(_det_tid)
                         # bubble scrapes use the original tab; pin it as the monitor/scrape tab
                         _pool_det.designate_monitor(_resolved_tid)
@@ -2439,7 +2453,8 @@ async def _start_dom_mutation_monitor(
                         _bs_iv = 5.0
                     if _live_chat_lean_baseline():
                         _bs_iv = float("inf")   # ws125: lean ws095 path — no main-tab backstop
-                    if _now_cs - _COLDSTART_SCAN_LAST[0] >= _bs_iv:
+                    if _now_cs - _COLDSTART_SCAN_LAST_BY_SESSION.get(id(session), 0.0) >= _bs_iv:
+                        _COLDSTART_SCAN_LAST_BY_SESSION[id(session)] = _now_cs
                         _COLDSTART_SCAN_LAST[0] = _now_cs
                         _cs_recover = _live_chat_bridge().front_desk.coldstart_overdue_recovery_scan
                         # ws166: hand the scan the WS/legacy dispatcher so it can run
@@ -2454,7 +2469,7 @@ async def _start_dom_mutation_monitor(
                         except NameError:
                             _cs_dispatcher = None
                         _cs_task = asyncio.create_task(
-                            _cs_recover(legacy_dispatcher=_cs_dispatcher)
+                            _call_for_session(_cs_recover, session, legacy_dispatcher=_cs_dispatcher)
                         )
                         _COLDSTART_SCAN_TASKS.add(_cs_task)
                         _cs_task.add_done_callback(_COLDSTART_SCAN_TASKS.discard)
@@ -2473,10 +2488,11 @@ async def _start_dom_mutation_monitor(
                                 (_live_chat_env("ECAN_LIVE_CHAT_BOT_SUPPRESS_INTERVAL_S") or "120") or 120)
                         except (TypeError, ValueError):
                             _bot_iv = 120.0
-                        if time.monotonic() - _LIVE_CHAT_BOT_TOGGLE_LAST[0] >= _bot_iv:
+                        if time.monotonic() - _LIVE_CHAT_BOT_TOGGLE_LAST_BY_SESSION.get(id(session), 0.0) >= _bot_iv:
+                            _LIVE_CHAT_BOT_TOGGLE_LAST_BY_SESSION[id(session)] = time.monotonic()
                             _LIVE_CHAT_BOT_TOGGLE_LAST[0] = time.monotonic()
                             _suppress_bot = _live_chat_bridge().bot_control.suppress_bot_tick
-                            _bot_task = asyncio.create_task(_suppress_bot())
+                            _bot_task = asyncio.create_task(_call_for_session(_suppress_bot, session))
                             _LIVE_CHAT_BOT_TOGGLE_TASKS.add(_bot_task)
                             _bot_task.add_done_callback(_LIVE_CHAT_BOT_TOGGLE_TASKS.discard)
                 except Exception:
@@ -2503,7 +2519,7 @@ async def _start_dom_mutation_monitor(
                 try:
                     if (_live_chat_env("ECAN_LIVE_CHAT_WS_PAUSE_DOM_MONITOR") or "") != "0":
                         _ws_sess_pause = _live_chat_bridge().ws_session
-                        if _ws_sess_pause.is_dispatch_live():
+                        if _ws_sess_pause.is_dispatch_live(session):
                             # ws095: during the cold-start recovery window, KEEP scraping so
                             # pre-existing overdue rows (which WS can't carry) get recovered
                             # before the DOM monitor goes quiet under WS-owns-dispatch. The
@@ -2795,7 +2811,11 @@ async def _start_dom_mutation_monitor(
                 try:
                     import asyncio as _aio_wd
                     _ws_wd = _live_chat_bridge().ws_inbound_watchdog
-                    _ws_wd.start(_aio_wd.get_running_loop(), _ws_dispatch_fn)
+                    _call_for_session_wd = _ws_wd.start
+                    try:
+                        _call_for_session_wd(_aio_wd.get_running_loop(), _ws_dispatch_fn, session)
+                    except TypeError:
+                        _call_for_session_wd(_aio_wd.get_running_loop(), _ws_dispatch_fn)
                 except Exception as _wd_start_err:
                     logger.debug(f"[WS-WATCHDOG] start error (non-fatal): {_wd_start_err}")
                 # ws051: start the GIL canary (process-wide) + a loop heartbeat on
@@ -3942,7 +3962,7 @@ async def _check_for_customer_changes(mutation_state, cfg, bridge_callback, sess
             _ws_dispatch_live = False
             try:
                 _ws_sess_sup = _live_chat_bridge().ws_session
-                _ws_dispatch_live = _ws_sess_sup.is_dispatch_live()
+                _ws_dispatch_live = _ws_sess_sup.is_dispatch_live(session)
             except Exception:
                 _ws_dispatch_live = False
             # ws086 (Part 2): cold-start recovery bypass. DOM dispatch is normally suppressed

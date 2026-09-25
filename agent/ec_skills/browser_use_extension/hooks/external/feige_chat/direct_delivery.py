@@ -53,6 +53,11 @@ async def _placeholder_send_coroutine(
     the same code paths.
     """
     try:
+        from .shop_scope import shop_key_of as _ph_shop_of
+        _ph_shop = _ph_shop_of(browser_session)   # the placeholder goes to THIS shop's page
+    except Exception:
+        _ph_shop = ""
+    try:
         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
             tab_pool as _ph_pool,
             placeholder_timer as _ph_timer,
@@ -150,7 +155,7 @@ async def _placeholder_send_coroutine(
             )
         except Exception:
             _ph_wss = None
-        if _ph_wss is not None and _ph_wss.can_send(customer_key):
+        if _ph_wss is not None and _ph_wss.can_send(customer_key, shop=_ph_shop):
             # Pre-register the placeholder text so its own DOM echo (the server still
             # renders the bubble) isn't re-dispatched as a customer message — same
             # bookkeeping the DOM path does below.
@@ -174,7 +179,7 @@ async def _placeholder_send_coroutine(
             if (os.environ.get("ECAN_FEIGE_WS_PLACEHOLDER_RAW", "1") == "1"
                     and os.environ.get("ECAN_FEIGE_WS_SEND_RAW", "") == "1"):
                 try:
-                    _ph_built = _ph_wss.frame_for(customer_key, text)
+                    _ph_built = _ph_wss.frame_for(customer_key, text, shop=_ph_shop)
                     if _ph_built:
                         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                             ws_raw_sender as _ph_raw,
@@ -182,7 +187,7 @@ async def _placeholder_send_coroutine(
                         _ph_fr, _ph_cid = _ph_built
                         _ph_conf_to = float(
                             os.environ.get("ECAN_FEIGE_WS_PLACEHOLDER_CONFIRM_S", "3") or 3)
-                        if await _ph_raw.raw_send(_ph_fr):
+                        if await _ph_raw.raw_send(_ph_fr, shop=_ph_shop):
                             if await _ph_wss.wait_confirmed(_ph_cid, _ph_conf_to):
                                 try:
                                     _ph_timer.mark_placeholder_typed(customer_key, source_msg_id)
@@ -219,7 +224,7 @@ async def _placeholder_send_coroutine(
             # main-socket send + DOM path below.
             if os.environ.get("ECAN_FEIGE_WS_PLACEHOLDER_DET_TAB", "") == "1":
                 try:
-                    _ph_frame = _ph_wss.frame_for(customer_key, text)
+                    _ph_frame = _ph_wss.frame_for(customer_key, text, shop=_ph_shop)
                     if _ph_frame:
                         from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                             ws_observer as _ph_obs,
@@ -230,7 +235,7 @@ async def _placeholder_send_coroutine(
                         # logged "DELIVERED" yet never reached the customer (silent loss). Require
                         # the server echo before claiming delivery; on no-echo, fall through to the
                         # main-socket path (a rare double 过渡句 beats a silent miss).
-                        _ph_det = await _ph_obs.inject_frame_on_detection_tab(_ph_frame[0])
+                        _ph_det = await _ph_obs.inject_frame_on_detection_tab(_ph_frame[0], shop=_ph_shop)
                         if _ph_det in ("SENT", "UNKNOWN"):
                             _ph_conf_to2 = float(
                                 os.environ.get("ECAN_FEIGE_WS_PLACEHOLDER_CONFIRM_S", "3") or 3)
@@ -275,7 +280,7 @@ async def _placeholder_send_coroutine(
                     f"(fallback to DOM): {_ph_ws_err}"
                 )
 
-    pool = _ph_pool.get_pool()
+    pool = _ph_pool.get_pool(_ph_shop)
     tab = pool.allocate_for_typing(customer_key)
     # 2026-05-21: pool-exhaustion retry.  Under burst load (17+
     # placeholders firing simultaneously for 6 pool tabs) the

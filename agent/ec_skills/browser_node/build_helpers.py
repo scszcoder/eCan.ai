@@ -397,6 +397,40 @@ def resolve_browser_scope_key(
 ) -> str:
     """Resolve a stable browser scope key from workflow state.
 
+    A ``node:*`` scope is also qualified by the run's browser identity (see
+    :func:`_identity_scope_suffix`): two tasks that share one skill but run in
+    different browsers -- one store login each -- must never reuse each
+    other's cached session. Without an identity the key is unchanged.
+    """
+    key = _resolve_browser_scope_key_base(
+        state, node_name=node_name, pin_to_node=pin_to_node, skill_name=skill_name)
+    if key.startswith("node:"):
+        key += _identity_scope_suffix(state)
+    return key
+
+
+def _identity_scope_suffix(state) -> str:
+    """``@<identity>`` for a run that names its own browser, else ""."""
+    try:
+        ident = resolve_state_browser_identity(state)
+    except Exception:
+        return ""
+    for field in ("browser_profile_id", "user_data_dir", "browser_slot_id", "cdp_port"):
+        value = ident.get(field)
+        if value not in (None, ""):
+            return f"@{field}={value}"
+    return ""
+
+
+def _resolve_browser_scope_key_base(
+    state: dict | None = None,
+    *,
+    node_name: str,
+    pin_to_node: bool | None = None,
+    skill_name: str | None = None,
+) -> str:
+    """Resolve a stable browser scope key from workflow state (identity aside).
+
     Session-scoped chat tasks must not share browser cache/state with other
     customer sessions. Prefer chat/session identity when present.
 
@@ -786,6 +820,28 @@ def patch_browser_session_lifecycle_debug(session, source: str) -> None:
 
 # ─── Heavy lift: get_or_create_browser_session ───────────────────────
 
+def note_session_owner(session, agent_id) -> None:
+    """Record that *agent_id* runs in *session*, so a reply for that agent can be
+    delivered in ITS browser when several agents' browsers are cached."""
+    if session is None or not agent_id:
+        return
+    try:
+        owners = getattr(session, "_ecan_owner_agent_ids", None)
+        if owners is None:
+            owners = set()
+            setattr(session, "_ecan_owner_agent_ids", owners)
+        owners.add(str(agent_id))
+    except Exception:
+        pass
+
+
+def session_owned_by(session, agent_id) -> bool:
+    try:
+        return bool(agent_id) and str(agent_id) in (getattr(session, "_ecan_owner_agent_ids", None) or ())
+    except Exception:
+        return False
+
+
 async def get_or_create_browser_session(
     mainwin,
     state: dict | None = None,
@@ -829,6 +885,7 @@ async def get_or_create_browser_session(
         and is_session_alive(_cached_browser_session)
     ):
         logger.debug(f"[BrowserAutomation] Reusing cached browser session: {_cached_browser_session.id}")
+        note_session_owner(_cached_browser_session, calling_agent_id)
         return _cached_browser_session
 
     # Invalidate stale cache - but preserve the focus target
@@ -1173,6 +1230,7 @@ async def get_or_create_browser_session(
                 _cached_browser_sessions_insertion_order.append(browser_scope_key)
             
             cached_browser_sessions[browser_scope_key] = auto_browser.browser_session
+            note_session_owner(auto_browser.browser_session, calling_agent_id)
             return auto_browser.browser_session
 
         return auto_browser

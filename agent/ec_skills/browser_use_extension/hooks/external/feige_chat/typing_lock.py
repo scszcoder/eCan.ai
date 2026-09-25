@@ -28,6 +28,14 @@ Design notes
   fan-out passes an explicit key per shop so shop A's typing never
   blocks shop B's.
 
+* **Unkeyed = every shop** (2026-09-25, multi-shop in one process). A caller
+  that names its shop (``session_key`` = ``shop_scope.shop_key_of(session)``)
+  only contends with that shop. A caller that does not -- the default session
+  -- conflicts with a holder in ANY shop, and every keyed caller also yields to
+  a default-session holder. So an unconverted call site can cost parallelism
+  across shops but can never let two sends race inside one shop's page. With a
+  single shop this is exactly the historical one-holder behaviour.
+
 * **TTL self-heals.** If HOT-PATH-B crashes between
   ``try_acquire`` and ``release``, the next ``try_acquire`` after
   ``FEIGE_TYPING_LOCK_TTL_S`` seconds reclaims that session's lock.
@@ -70,6 +78,16 @@ _holders: dict[str, tuple[str, float]] = {}
 _mu = threading.Lock()
 
 
+def _norm(session_key) -> str:
+    """A shop key, or the shop's browser session (-> shop_scope.shop_key_of)."""
+    if session_key is None:
+        return DEFAULT_SESSION
+    if not isinstance(session_key, str):
+        from .shop_scope import shop_key_of
+        return shop_key_of(session_key)
+    return session_key
+
+
 def try_acquire(customer_key: str, session_key: str = DEFAULT_SESSION) -> bool:
     """Claim *session_key*'s Feige active-session for *customer_key*.
 
@@ -81,12 +99,16 @@ def try_acquire(customer_key: str, session_key: str = DEFAULT_SESSION) -> bool:
     """
     if not customer_key:
         return True  # un-keyed callers bypass the guard
+    session_key = _norm(session_key)
     with _mu:
         now = time.time()
-        cur, ts = _holders.get(session_key, ("", 0.0))
-        cur_age = (now - ts) if cur else 0.0
-        if cur and cur != customer_key and cur_age < FEIGE_TYPING_LOCK_TTL_S:
-            return False
+        # the slots this acquire contends with: its own shop plus the
+        # default (unkeyed) slot -- or, unkeyed, every shop's slot
+        slots = list(_holders) if session_key == DEFAULT_SESSION else [session_key, DEFAULT_SESSION]
+        for slot in slots:
+            cur, ts = _holders.get(slot, ("", 0.0))
+            if cur and cur != customer_key and (now - ts) < FEIGE_TYPING_LOCK_TTL_S:
+                return False
         # reclaim stale or unset
         _holders[session_key] = (customer_key, now)
         return True
@@ -96,6 +118,7 @@ def release(customer_key: str, session_key: str = DEFAULT_SESSION) -> None:
     """Release *session_key*'s typing lock if held by *customer_key*."""
     if not customer_key:
         return
+    session_key = _norm(session_key)
     with _mu:
         cur, _ts = _holders.get(session_key, ("", 0.0))
         if cur == customer_key:
@@ -103,14 +126,18 @@ def release(customer_key: str, session_key: str = DEFAULT_SESSION) -> None:
 
 
 def holder(session_key: str = DEFAULT_SESSION) -> str:
-    """Return *session_key*'s current holder ("" if none or expired)."""
+    """Return the holder blocking *session_key* ("" if none or expired): that
+    shop's own holder, else a default-session holder. Unkeyed: any shop's."""
+    session_key = _norm(session_key)
     with _mu:
-        cur, ts = _holders.get(session_key, ("", 0.0))
-        if not cur:
-            return ""
-        if time.time() - ts > FEIGE_TYPING_LOCK_TTL_S:
-            return ""  # stale — will be reclaimed on next try_acquire
-        return cur
+        now = time.time()
+        slots = ([DEFAULT_SESSION, *[k for k in _holders if k != DEFAULT_SESSION]]
+                 if session_key == DEFAULT_SESSION else [session_key, DEFAULT_SESSION])
+        for slot in slots:
+            cur, ts = _holders.get(slot, ("", 0.0))
+            if cur and now - ts <= FEIGE_TYPING_LOCK_TTL_S:
+                return cur
+        return ""  # none, or stale — will be reclaimed on next try_acquire
 
 
 def reset(session_key: str | None = None) -> None:

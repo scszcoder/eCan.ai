@@ -684,7 +684,8 @@ async def _scrape_and_override_last_message(
         try:
             from . import ws_session as _wss_scrape
             _ws_hit = _wss_scrape.ws_text_scrape(
-                str(item.get("customer_name") or customer_key or ""))
+                str(item.get("customer_name") or customer_key or ""),
+                shop=browser_session)   # this shop's routing for the name
         except Exception:
             _ws_hit = None
         if _ws_hit and _ws_hit.get("text"):

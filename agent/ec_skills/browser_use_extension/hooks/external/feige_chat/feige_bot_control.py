@@ -135,7 +135,7 @@ async def turn_off_feige_bot(browser_session, target_id) -> bool:
     return ok
 
 
-async def suppress_feige_bot_tick() -> None:
+async def suppress_feige_bot_tick(browser_session=None) -> None:
     """One suppression cycle: read the bot's state and, if it's ON, close it.
 
     ws121: now that ``intelligence_robot/status`` gives ``open_status`` we just
@@ -155,8 +155,9 @@ async def suppress_feige_bot_tick() -> None:
         )
     except Exception:
         return
-    browser_session = None
-    for sess in list((cached_browser_sessions or {}).values()):
+    # The calling monitor passes its own shop's browser; the first cached one
+    # is the one-shop fallback.
+    for sess in ([] if browser_session is not None else list((cached_browser_sessions or {}).values())):
         if sess is not None:
             browser_session = sess
             break

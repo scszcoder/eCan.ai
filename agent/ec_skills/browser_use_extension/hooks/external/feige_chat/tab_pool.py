@@ -384,9 +384,23 @@ _POOL_SINGLETON: Optional[FeigeTabPool] = None
 _POOL_INIT_LOCK = threading.Lock()
 
 
-def get_pool() -> FeigeTabPool:
-    """Return the process-wide ``FeigeTabPool`` singleton (creating it lazily)."""
+_SHOP_POOLS: dict = {}   # second+ live shop key -> its own pool
+
+
+def get_pool(shop="") -> FeigeTabPool:
+    """Return *shop*'s ``FeigeTabPool`` (creating it lazily). The first shop -- and
+    every caller that names none -- gets the process singleton; a second live shop
+    (several Feige shops in one process) has its own monitor/detection/typing tabs,
+    which live in its own Chrome."""
     global _POOL_SINGLETON
+    try:
+        from . import ws_session as _wss
+        _k = _wss._k(shop)
+    except Exception:
+        _k = ""
+    if _k:   # another shop's pool -- or, unnamed among several shops, an empty one
+        with _POOL_INIT_LOCK:
+            return _SHOP_POOLS.setdefault(_k, FeigeTabPool())
     if _POOL_SINGLETON is None:
         with _POOL_INIT_LOCK:
             if _POOL_SINGLETON is None:

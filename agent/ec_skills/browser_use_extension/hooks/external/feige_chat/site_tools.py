@@ -2000,7 +2000,10 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
     text = str(text or "")
     if not cust or not text:
         return False
-    built = _wss.frame_for(cust, text)
+    # The shop whose page this send is for: its routing, its donor, its socket.
+    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.shop_scope import shop_key_of
+    _shop = shop_key_of(browser_session)
+    built = _wss.frame_for(cust, text, shop=_shop)
     if not built:
         # ws064: split the conflated 'unconfirmed/unavailable' fallback into explicit reasons
         # so a 1-vs-N run shows WHY each WS send fell to DOM. NO-ROUTE = no send template /
@@ -2023,7 +2026,7 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                 ws_raw_sender as _wsr,
             )
-            _raw_sent = await _wsr.raw_send(frame)
+            _raw_sent = await _wsr.raw_send(frame, shop=_shop)
         except Exception as _re:
             logger.debug(f"[Feige] WS raw-send branch error (-> eval-inject): {_re}")
     _inject_via_page_socket = False
@@ -2041,7 +2044,7 @@ async def feige_ws_send_text(customer_name: str, text: str, browser_session: "Br
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                 ws_observer as _wsobs,
             )
-            _det = await _wsobs.inject_frame_on_detection_tab(frame)
+            _det = await _wsobs.inject_frame_on_detection_tab(frame, shop=_shop)
         except Exception:
             _det = ""
         if _det in ("SENT", "UNKNOWN"):
@@ -2315,6 +2318,13 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
     except Exception:
         _send_typing_lock = None
     _send_lock_key = str(getattr(params, "customer_name", "") or "").strip()
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.shop_scope import (
+            shop_key_of as _send_shop_of,
+        )
+        _send_shop = _send_shop_of(browser_session)   # this shop's page is what we type into
+    except Exception:
+        _send_shop = ""
     _send_acquired = False
     _send_has_lock = False
     _feige_ledger = None
@@ -2333,7 +2343,7 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
             from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import (
                 tab_pool as _send_tab_pool,
             )
-            if _send_tab_pool.get_pool().get_typing_tab_for_customer(_send_lock_key):
+            if _send_tab_pool.get_pool(_send_shop).get_typing_tab_for_customer(_send_lock_key):
                 _send_use_pool_route = True
         except Exception:
             pass
@@ -2345,13 +2355,13 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
     elif _send_typing_lock is not None and _send_lock_key:
         import asyncio as _send_asyncio
         try:
-            _already_holding = _send_typing_lock.holder() == _send_lock_key
+            _already_holding = _send_typing_lock.holder(_send_shop) == _send_lock_key
         except Exception:
             _already_holding = False
         # Poll up to 10s for the lock; the Feige typing-lock TTL self-heals
         # stale holders after the guarded send timeout window.
         for _send_attempt in range(100):
-            if _send_typing_lock.try_acquire(_send_lock_key):
+            if _send_typing_lock.try_acquire(_send_lock_key, _send_shop):
                 _send_has_lock = True
                 _send_acquired = not _already_holding
                 break
@@ -2359,7 +2369,7 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
         if not _send_has_lock:
             logger.warning(
                 f"[Feige] feige_send_message: typing-lock contention persisted "
-                f"10s for {_send_lock_key!r} (current holder={_send_typing_lock.holder()!r}); "
+                f"10s for {_send_lock_key!r} (current holder={_send_typing_lock.holder(_send_shop)!r}); "
                 f"proceeding without lock"
             )
     try:
@@ -3045,6 +3055,6 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
     finally:
         if _send_acquired and _send_typing_lock is not None:
             try:
-                _send_typing_lock.release(_send_lock_key)
+                _send_typing_lock.release(_send_lock_key, _send_shop)
             except Exception:
                 pass

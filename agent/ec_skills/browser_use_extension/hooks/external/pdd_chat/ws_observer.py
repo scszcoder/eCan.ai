@@ -171,7 +171,8 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
 
         client._event_registry.register("Network.webSocketFrameReceived", _on_frame)
         await client.send_raw("Network.enable", {}, session_id=sid)
-        ws_session.set_dispatch_live(True)
+        state.shop = session
+        ws_session.set_dispatch_live(True, session)
         logger.info(f"[PDD-WS] observer live on tab {target_id[-6:]} label={label!r}")
         await _cold_start(client, sid, state)
         return client
@@ -184,7 +185,7 @@ async def stop_ws_shadow_observer(client: Any) -> None:
     if client is None:
         return
     state = getattr(client, _HANDLE_ATTR, None)
-    ws_session.set_dispatch_live(False)
+    ws_session.set_dispatch_live(False, getattr(state, "shop", None))
     try:
         await client.stop()
     except Exception:

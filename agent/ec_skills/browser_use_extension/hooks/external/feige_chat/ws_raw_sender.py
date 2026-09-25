@@ -39,6 +39,79 @@ from . import ws_session
 # the WS reader looked dead because none of its lines could land).
 from utils.logger_helper import logger_helper as logger
 
+# Several Feige shops in one process: each shop's socket is opened with THAT shop's
+# page token and cookie. This module instance serves the first shop (_SHOP == "");
+# every other live shop gets a private copy of this module (own _conn, locks,
+# keepalive), loaded by _for_shop and addressed through the ``shop=`` argument of
+# the public functions below. In a copy _SHOP is that shop's key.
+_SHOP = ""
+_shop_copies: dict = {}
+
+
+class _NoShop:
+    """Several shops run and the caller named none: never send on a guess."""
+    @staticmethod
+    async def raw_send(frame_bytes):
+        logger.warning("[FEIGE-WS-RAW] send with no shop named while several shops "
+                       "run -- refused (the caller falls back)")
+        return False
+
+    @staticmethod
+    async def warmup():
+        return None
+
+    @staticmethod
+    async def diag_token_status():
+        return {}
+
+    @staticmethod
+    async def close():
+        return None
+
+    @staticmethod
+    def start_keepalive():
+        return None
+
+    @staticmethod
+    def invalidate():
+        return None
+
+    @staticmethod
+    def note_page_reconnect():
+        return None
+
+    @staticmethod
+    def token_age():
+        return -1.0
+
+
+def _for_shop(shop: str):
+    """The module instance serving *shop*: None = this one (first shop / one-shop
+    process / already inside a shop's copy)."""
+    if _SHOP:
+        return None
+    k = ws_session._k(shop)
+    if not k:
+        return None
+    if k == ws_session._NOWHERE:
+        return _NoShop
+    shop = k
+    mod = _shop_copies.get(shop)
+    if mod is None:
+        import importlib.util
+        import sys
+        name = f"{__name__}__shop_{len(_shop_copies) + 1}"
+        spec = importlib.util.spec_from_file_location(name, __file__)
+        mod = importlib.util.module_from_spec(spec)
+        mod.__package__ = __package__
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+        mod._SHOP = shop
+        _shop_copies[shop] = mod
+        logger.info(f"[FEIGE-WS-RAW] shop {shop} gets its own Frontier socket")
+    return mod
+
+
 _conn = None                 # live websockets client connection (cached)
 _conn_params: dict | None = None   # {url, origin, ua, cookie} captured off the page
 _conn_params_ts: float = 0.0       # ws066: when _conn_params was captured (token-age diagnostic)
@@ -117,9 +190,12 @@ _capture_inflight = [None]   # ws123: single-flight Future while a capture eval 
 _page_reconnected = [False]
 
 
-def note_page_reconnect() -> None:
+def note_page_reconnect(shop: str = "") -> None:
     """ws077: the observer saw the page Frontier socket (re)created — force the next raw send to
     re-capture a fresh token + reconnect. Cheap, idempotent; no-op if raw send is unused."""
+    m = _for_shop(shop)
+    if m is not None:
+        return m.note_page_reconnect()
     _page_reconnected[0] = True
 
 
@@ -158,7 +234,7 @@ async def _capture_conn_params() -> dict | None:
         _capture_inflight[0] = _loop.create_future()
     except Exception:
         _capture_inflight[0] = None
-    client, sids = ws_session.get_observer_cdp()
+    client, sids = ws_session.get_observer_cdp(_SHOP)
     if client is None or not sids:
         logger.warning("[FEIGE-WS-RAW] no observer CDP handle parked — cannot capture URL")
         _settle_capture_inflight(None)
@@ -206,7 +282,7 @@ def _settle_capture_inflight(result) -> None:
 async def _read_live_page_url() -> str:
     """ws066 diag: read the page's CURRENT __ecan_feige_ws.url via the observer CDP WITHOUT
     caching it. Lets us detect whether the page socket rotated its token since we captured ours."""
-    client, sids = ws_session.get_observer_cdp()
+    client, sids = ws_session.get_observer_cdp(_SHOP)
     if client is None or not sids:
         return ""
     for sid in sids:
@@ -226,17 +302,23 @@ async def _read_live_page_url() -> str:
     return ""
 
 
-def token_age() -> float:
+def token_age(shop: str = "") -> float:
     """ws080: CHEAP current token age in seconds (no CDP eval) — -1.0 if nothing captured.
     Lets the per-send confirm log run ALWAYS when raw is on, without the heavy live-url read."""
+    m = _for_shop(shop)
+    if m is not None:
+        return m.token_age()
     return round(time.time() - _conn_params_ts, 1) if _conn_params_ts else -1.0
 
 
-async def diag_token_status() -> dict:
+async def diag_token_status(shop: str = "") -> dict:
     """ws066: per-frame staleness diagnostic for the forced-reconnect raw-send experiment.
     Compares the raw socket's CACHED token to the page's CURRENT socket url, so we can correlate
     an UNCONFIRMED raw send with the page having rotated its token (= stale-token hypothesis).
     Gated by the caller on ECAN_FEIGE_WS_RAW_DIAG=1 (one extra read on the idle observer tab)."""
+    m = _for_shop(shop)
+    if m is not None:
+        return await m.diag_token_status()
     age = round(time.time() - _conn_params_ts, 1) if _conn_params_ts else -1.0
     cached = (_conn_params or {}).get("url", "") if _conn_params else ""
     live = await _read_live_page_url()
@@ -310,10 +392,13 @@ async def _get_conn():
         return None
 
 
-async def warmup() -> None:
+async def warmup(shop: str = "") -> None:
     """ws068: pre-connect the off-renderer raw socket at observer startup so the FIRST reply
     doesn't eat the cold-start connect latency/timeout (the 'no response from start'). No-op /
     safe if the page socket isn't capturable yet — falls back to lazy connect on first send."""
+    m = _for_shop(shop)
+    if m is not None:
+        return await m.warmup()
     _pin_owner_loop()   # ws082: warmup runs on the observer loop → that's the socket's owner
     try:
         if await _get_conn() is not None:
@@ -349,7 +434,7 @@ async def _keepalive_loop() -> None:
     while True:
         try:
             await asyncio.sleep(_KEEPALIVE_INTERVAL_S)
-            client, sids = ws_session.get_observer_cdp()
+            client, sids = ws_session.get_observer_cdp(_SHOP)
             if client is None or not sids:
                 continue   # observer not up yet — warmup / lazy connect will handle first use
             _age = token_age()
@@ -385,9 +470,12 @@ async def _keepalive_loop() -> None:
             logger.debug(f"[FEIGE-WS-RAW] keepalive tick failed: {_ke}")
 
 
-def start_keepalive() -> None:
+def start_keepalive(shop: str = "") -> None:
     """ws081: launch the background keepalive once (idempotent). Observer calls it when raw send
     is on. Default ON; ECAN_FEIGE_WS_RAW_KEEPALIVE=0 disables (falls back to ws077 lazy refresh)."""
+    m = _for_shop(shop)
+    if m is not None:
+        return m.start_keepalive()
     if os.environ.get("ECAN_FEIGE_WS_RAW_KEEPALIVE", "1") == "0":
         return
     if _keepalive_task[0] is not None and not _keepalive_task[0].done():
@@ -402,7 +490,7 @@ def start_keepalive() -> None:
         logger.debug(f"[FEIGE-WS-RAW] keepalive arm failed: {_se}")
 
 
-def invalidate() -> None:
+def invalidate(shop: str = "") -> None:
     """ws067 backstop: force the next raw_send to re-capture a fresh token + reconnect. Called
     when a raw send goes UNCONFIRMED (a possible stale-token signal the proactive live-url check
     missed). Cheap insurance — leaves _conn for _ensure_fresh_conn/_get_conn to tear down.
@@ -412,6 +500,9 @@ def invalidate() -> None:
     re-capturing per-send is the spiral amplifier. The keepalive (proactive at 0.6*max) and
     the age teardown (>= max) still refresh on schedule for genuinely old tokens."""
     global _conn_params, _conn_params_ts
+    m = _for_shop(shop)
+    if m is not None:
+        return m.invalidate()
     if os.environ.get("ECAN_FEIGE_WS_RAW_INVALIDATE_THROTTLE", "1") != "0":
         _age = (time.time() - _conn_params_ts) if _conn_params_ts else 1e9
         if _conn_params is not None and _age < _INVALIDATE_MIN_AGE_S:
@@ -467,7 +558,7 @@ async def _ensure_fresh_conn() -> None:
             _conn = None
 
 
-async def raw_send(frame_bytes: bytes) -> bool:
+async def raw_send(frame_bytes: bytes, shop: str = "") -> bool:
     """Send one protobuf frame on eCan's OWN Frontier socket. Returns True if the
     bytes hit the wire (delivery is confirmed downstream via the observer echo),
     False on any failure so the caller falls back to eval-inject.
@@ -477,9 +568,14 @@ async def raw_send(frame_bytes: bytes) -> bool:
     actual send onto the owner loop via run_coroutine_threadsafe — otherwise the worker-loop
     send can't touch the observer-loop socket and silently falls to eval (the ws080 100/0
     read-ack-vs-reply split). Gated ECAN_FEIGE_WS_RAW_CROSS_LOOP=1 (default ON); =0 reverts to
-    the inline call (with the diagnostic still logged) so we can A/B the fix against ws080."""
+    the inline call (with the diagnostic still logged) so we can A/B the fix against ws080.
+
+    *shop*: the shop whose customer this frame is for — sent on THAT shop's socket."""
     if not frame_bytes:
         return False
+    m = _for_shop(shop)
+    if m is not None:
+        return await m.raw_send(frame_bytes)
     owner = _owner_loop[0]
     try:
         cur = asyncio.get_running_loop()
@@ -559,9 +655,13 @@ async def _raw_send_impl(frame_bytes: bytes) -> bool:
             return False
 
 
-async def close() -> None:
+async def close(shop: str = "") -> None:
     """Best-effort teardown (called on observer stop / shutdown)."""
     global _conn, _conn_params
+    m = _for_shop(shop)
+    if m is not None:
+        _shop_copies.pop(ws_session._k(shop), None)
+        return await m.close()
     c, _conn = _conn, None
     _conn_params = None
     if c is not None:

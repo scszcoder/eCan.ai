@@ -27,6 +27,7 @@ import time
 from typing import Any
 
 from . import human_mode, ws_coverage, ws_reader, ws_session
+from .shop_scope import shop_key_of
 
 # CN builds name the app logger "eCan.cn" (propagate=False) — a bare
 # getLogger("eCan") record never reaches its handlers, silencing this
@@ -41,9 +42,18 @@ from utils.logger_helper import logger_helper as logger
 # read-ack does. Populated by the observer once attached; cleared is harmless
 # (the bridge fails closed -> caller falls back).
 _DET_TAB_INJECTOR: dict = {"fn": None, "loop": None}
+_DET_TAB_INJECTORS: dict = {}   # second+ live shop key -> its own {"fn","loop"}
 
 
-async def inject_frame_on_detection_tab(frame_bytes: bytes, timeout: float = 3.0) -> str:
+def _injector_for(shop: str) -> dict:
+    k = ws_session._k(shop)
+    if k:
+        return _DET_TAB_INJECTORS.setdefault(k, {"fn": None, "loop": None})
+    return _DET_TAB_INJECTOR
+
+
+async def inject_frame_on_detection_tab(frame_bytes: bytes, timeout: float = 3.0,
+                                        shop: str = "") -> str:
     """ws029/ws031: send *frame_bytes* on the detection tab's authed page socket
     (idle renderer), bridging from the caller's loop to the observer's loop.
 
@@ -55,7 +65,7 @@ async def inject_frame_on_detection_tab(frame_bytes: bytes, timeout: float = 3.0
       ''        — definitely not sent (no observer attached / no detection socket /
                   eval returned non-SENT); the caller may safely send on another tab.
     """
-    reg = _DET_TAB_INJECTOR
+    reg = _injector_for(shop)
     fn = reg.get("fn")
     loop = reg.get("loop")
     if fn is None or loop is None:
@@ -323,6 +333,8 @@ class _SharedObserverHandle:
 def _shared_dispatch(entry: dict, item: dict) -> None:
     """Route a detected message to the active (first) subscriber only."""
     fns = entry.get("dispatchers") or []
+    if isinstance(item, dict) and entry.get("shop"):
+        item.setdefault("shop_key", entry["shop"])   # which shop's browser saw it
     if fns:
         fns[0](item)
 
@@ -376,17 +388,20 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             return _h
         _SHARED_OBSERVERS.pop(_key, None)
 
+    # Several shops in one process: this Chrome is one shop; its frames, parked
+    # handle, send donor and dispatch-live flag are kept apart from other shops'.
+    _shop = ws_session.register_shop(shop_key_of(session) or shop_key_of(cdp_url))
     _entry: dict = {"client": None, "dispatchers": ([dispatch_fn] if dispatch_fn is not None else []),
                     "handles": set(), "alive": True,
                     # Identity for the one-chat-browser guard above. Recorded on
                     # the entry so the check needs no separate registry to keep
                     # in sync — teardown pops the entry and the claim with it.
-                    "store_key": _store_key, "cdp_url": cdp_url}
+                    "store_key": _store_key, "cdp_url": cdp_url, "shop": _shop}
 
     def _dispatch_current(item: dict) -> None:
         _shared_dispatch(_entry, item)
 
-    ws_session.set_dispatch_live(False)   # reset; only flips True once we confirm-start below
+    ws_session.set_dispatch_live(False, _shop)   # reset; only flips True once we confirm-start below
     _dump_feige_env()   # ws079: record the env config so the run log is self-describing
     do_dispatch = dispatch_fn is not None and ws_session.ws_enabled("dispatch")
     do_read_ack = ws_session.ws_enabled("read_ack")
@@ -510,8 +525,8 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             except Exception:
                 return False
         try:
-            _DET_TAB_INJECTOR["fn"] = _inject_on_detection_tab
-            _DET_TAB_INJECTOR["loop"] = asyncio.get_running_loop()
+            _injector_for(_shop)["fn"] = _inject_on_detection_tab
+            _injector_for(_shop)["loop"] = asyncio.get_running_loop()
         except Exception:
             pass
         _det_ack_logged = [False]  # ws019: log once when read-ack first goes via detection tab
@@ -532,7 +547,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     or os.environ.get("ECAN_FEIGE_WS_SEND_RAW", "") == "1"):
                 try:
                     from . import ws_raw_sender as _wsr
-                    if await _wsr.raw_send(frame_bytes):
+                    if await _wsr.raw_send(frame_bytes, shop=_shop):
                         return
                 except Exception as _rawerr:
                     logger.debug(f"[FEIGE-WS-READ] raw read-ack failed -> eval ({_rawerr})")
@@ -604,14 +619,14 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     _awaiting_frame_after_create[0] = False
                     if _cov_on:
                         ws_coverage.note("frames_after_create")
-                ws_session.note_recv_frame(raw)   # feed routing + send-confirmation
+                ws_session.note_recv_frame(raw, _shop)   # feed routing + send-confirmation
                 # ws059: first real frame -> NOW the WS path is actually delivering, so
                 # arm WS-owns-dispatch (which pauses the DOM monitor). Before this point
                 # the DOM monitor must keep scraping so a message arriving during the
                 # socket cold-start/reconnect window is not lost by both paths.
                 if do_dispatch and not _dispatch_armed[0]:
                     _dispatch_armed[0] = True
-                    ws_session.set_dispatch_live(True)
+                    ws_session.set_dispatch_live(True, _shop)
                     if _cov_on:
                         ws_coverage.note_coldstart_gap((time.time() - _obs_start_ts) * 1000.0)
                     logger.info(
@@ -839,7 +854,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     # bypasses the DOM open that used to mark-read as a side-effect.
                     if do_read_ack:
                         try:
-                            _rf = ws_session.read_frame_for(m.conversation_id, m.read_cursor)
+                            _rf = ws_session.read_frame_for(m.conversation_id, m.read_cursor, shop=_shop)
                             if _rf:
                                 asyncio.get_running_loop().create_task(_send_read_ack(_rf))
                                 logger.info(
@@ -993,7 +1008,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     return
                 payload = resp.get("payloadData", "") or ""
                 if payload:
-                    ws_session.note_sent_frame(base64.b64decode(payload, validate=False))
+                    ws_session.note_sent_frame(base64.b64decode(payload, validate=False), _shop)
             except Exception:
                 pass
 
@@ -1013,7 +1028,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     if os.environ.get("ECAN_FEIGE_WS_SEND_RAW", "") == "1":
                         try:
                             from . import ws_raw_sender as _wsr_rc
-                            _wsr_rc.note_page_reconnect()
+                            _wsr_rc.note_page_reconnect(_shop)
                         except Exception:
                             pass
                     # ws136: IMMEDIATELY re-enable Network + re-arm the socket hook on the
@@ -1077,7 +1092,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 sids.append(_sid)
                 _sid_by_tid[tid] = _sid
                 _attached_tids.add(tid)
-                ws_session.set_observer_cdp(client, sids)   # refresh parked sids (read-ack/inject)
+                ws_session.set_observer_cdp(client, sids, _shop)   # refresh parked sids (read-ack/inject)
                 logger.info(
                     f"[FEIGE-WS-RECONNECT] followed jinritemai tab ...{tid[-6:]} (now {len(sids)} attached)")
                 if _cov_on:
@@ -1103,7 +1118,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     _attached_tids.discard(_tid)
                     if _dead in sids:
                         sids.remove(_dead)
-                    ws_session.set_observer_cdp(client, sids)
+                    ws_session.set_observer_cdp(client, sids, _shop)
                     logger.info(
                         f"[FEIGE-WS-RECONNECT] dropped dead tab ...{_tid[-6:]} (now {len(sids)} attached)")
             except Exception:
@@ -1290,7 +1305,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         # ws011: park the CDP handle so the raw sender (ws_raw_sender) can do its
         # one-time off-renderer connection-param capture (url/origin/UA/cookie).
         try:
-            ws_session.set_observer_cdp(client, sids)
+            ws_session.set_observer_cdp(client, sids, _shop)
         except Exception:
             pass
         # ws075 reconnect-follow: discover + attach jinritemai tabs as they (re)appear, and run
@@ -1319,8 +1334,8 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         if os.environ.get("ECAN_FEIGE_WS_SEND_RAW", "") == "1":
             try:
                 from . import ws_raw_sender as _wsr_warm
-                asyncio.get_running_loop().create_task(_wsr_warm.warmup())
-                _wsr_warm.start_keepalive()   # ws081: keep the raw socket warm + token fresh proactively
+                asyncio.get_running_loop().create_task(_wsr_warm.warmup(_shop))
+                _wsr_warm.start_keepalive(_shop)   # ws081: keep the raw socket warm + token fresh proactively
             except Exception:
                 pass
         # ws069: drain the constructor/onclose reconnect tap every 20s (diag only). Logs, per
@@ -1384,10 +1399,12 @@ async def stop_ws_shadow_observer(client: Any) -> None:
     """Best-effort teardown. ws190: a _SharedObserverHandle only unsubscribes —
     the shared CDP client (and the WS-owns-dispatch flag) is torn down with the
     LAST subscriber, so one session's monitor stop can't blind the others."""
+    _shop = ""
     if isinstance(client, _SharedObserverHandle):
         _entry = _SHARED_OBSERVERS.get(client.key)
         if _entry is None:
             return
+        _shop = str(_entry.get("shop") or "")
         _entry["handles"].discard(client)
         if client.dispatch_fn is not None:
             try:
@@ -1407,11 +1424,25 @@ async def stop_ws_shadow_observer(client: Any) -> None:
             logger.info(ws_coverage.format_line())
         except Exception:
             pass
-    ws_session.set_dispatch_live(False)   # DOM must resume dispatching once WS is down
+    if not _shop:
+        for _e in list(_SHARED_OBSERVERS.values()):
+            if _e.get("client") is client:
+                _shop = str(_e.get("shop") or "")
+                break
+    ws_session.set_dispatch_live(False, _shop)   # DOM must resume dispatching once WS is down
     try:
-        ws_session.set_observer_cdp(None, [])   # ws011: drop the parked CDP handle
+        ws_session.set_observer_cdp(None, [], _shop)   # ws011: drop the parked CDP handle
     except Exception:
         pass
+    if _shop and ws_session._k(_shop):
+        # A second shop's own raw socket and injector go with its observer.
+        _DET_TAB_INJECTORS.pop(ws_session._k(_shop), None)
+        try:
+            from . import ws_raw_sender as _wsr_close
+            await _wsr_close.close(_shop)
+        except Exception:
+            pass
+    ws_session.unregister_shop(_shop)
     if client is None:
         return
     try:
