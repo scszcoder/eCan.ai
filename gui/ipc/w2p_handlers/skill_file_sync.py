@@ -480,6 +480,17 @@ _CN_MAX_PACKAGE_BYTES = 20 * 1024 * 1024
 # because save calls upload_skill_files_to_cloud directly (force=True).
 _CN_SYNCED_SKILL_DIRS: set = set()
 
+# Failure dedupe. TCB's requestSkillFileUploadUrl resolver occasionally
+# returns INTERNAL_SERVER_ERROR ("Unexpected error.") on cold starts and
+# gateway recycles -- without a cooldown the bulk loop re-zips every
+# skill on every auto-retry tick and emits one WARNING per skill per
+# cycle (4MB+ zip + WARN each time -- the 18:25-18:26 eCan.cn storm on
+# 2026-09-25). A short TTL means we still retry once per auto-retry
+# window. Manual save (`upload_skill_files_to_cloud` -> ``_do_cn``)
+# bypasses this gate by design so an explicit Save click always retries.
+_CN_FAILURE_COOLDOWN_S = 300
+_CN_RECENT_FAILURES: Dict[str, float] = {}
+
 
 def _cn_upload_skill_package(skill_dir: Path, ctx: Dict[str, Any], skill_id: str) -> bool:
     """Upload the skill directory as ONE zip via the presigned flow (CN)."""
@@ -868,9 +879,18 @@ def sync_all_skill_files_to_cloud(skills: List[Dict[str, Any]]) -> None:
                         continue
                     if not _is_valid_skill_dir(skill_dir, sk.get('name', '')):
                         continue
+                    # Short-TTL failure dedupe (see _CN_FAILURE_COOLDOWN_S):
+                    # a resolver that just returned "Unexpected error."
+                    # should not be re-probed every skill on every auto-retry.
+                    last_fail_ts = _CN_RECENT_FAILURES.get(str(skill_dir))
+                    if last_fail_ts is not None and (time.monotonic() - last_fail_ts) < _CN_FAILURE_COOLDOWN_S:
+                        continue
                     if _cn_upload_skill_package(skill_dir, ctx, str(sk.get('id') or '')):
                         _CN_SYNCED_SKILL_DIRS.add(str(skill_dir))
+                        _CN_RECENT_FAILURES.pop(str(skill_dir), None)
                         done += 1
+                    else:
+                        _CN_RECENT_FAILURES[str(skill_dir)] = time.monotonic()
                 if done:
                     logger.info(f"[skill_file_sync] CN bulk sync uploaded {done} skill dir(s)")
             except Exception as exc:

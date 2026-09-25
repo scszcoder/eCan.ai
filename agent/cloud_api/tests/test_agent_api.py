@@ -141,11 +141,42 @@ class TestAgentAPI:
         """Test CloudAPIService for agent sync operations"""
         from agent.cloud_api.cloud_api_service import CloudAPIService
         from agent.cloud_api.constants import DataType
-        
+
         service = CloudAPIService(DataType.AGENT)
-        
+
         assert service.data_type == DataType.AGENT
         assert service.schema is not None
+
+    @patch('agent.cloud_api.cloud_api.logger')
+    def test_safe_parse_response_validation_failed_is_tagged_and_warning(self, mock_logger):
+        """GRAPHQL_VALIDATION_FAILED on the cloud schema is a known backend
+        drift (backend SDL missing columns) -- per CLAUDE.md §6 it must be
+        classified as expected behavior, not a runtime bug. Verify the
+        exception is tagged and the log level is WARNING, not ERROR."""
+        from agent.cloud_api.cloud_api import safe_parse_response
+
+        jresp = {
+            "errors": [
+                {"message": 'Cannot query field "lifecycle" on type "Vehicle".',
+                 "extensions": {"code": "GRAPHQL_VALIDATION_FAILED"}},
+            ]
+        }
+
+        with pytest.raises(Exception) as exc_info:
+            safe_parse_response(jresp, "queryVehicles", "queryVehicles")
+
+        # Tagged for downstream classification
+        assert getattr(exc_info.value, "is_validation_failed_error", False) is True
+        assert getattr(exc_info.value, "is_token_expired_error", False) is False
+
+        # Logger sees a WARNING, not an ERROR
+        warn_calls = [c for c in mock_logger.warning.call_args_list]
+        err_calls = [c for c in mock_logger.error.call_args_list]
+        assert len(warn_calls) >= 1, f"expected a WARNING, got none: {mock_logger.mock_calls}"
+        assert any("schema drift" in str(c) for c in warn_calls), \
+            f"WARNING should mention schema drift: {warn_calls}"
+        assert all("Cannot query field" not in str(c) for c in err_calls), \
+            f"ERROR should NOT fire for known schema drift: {err_calls}"
 
 
 class TestAgentAPIIntegration:

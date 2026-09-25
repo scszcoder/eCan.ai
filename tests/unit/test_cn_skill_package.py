@@ -174,3 +174,136 @@ class TestZipOnlySave:
         req.assert_called_once()
         assert req.call_args.args[0] == "skill_x"
         put.assert_called_once()
+
+
+class TestCnBulkFailureDedupe:
+    """When the TCB resolver returns INTERNAL_SERVER_ERROR, the bulk loop
+    must not re-zip + re-call + re-WARN every skill on every auto-retry
+    within a short TTL. The fix is in ``sync_all_skill_files_to_cloud``;
+    this test pins the cooldown behaviour."""
+
+    @staticmethod
+    def _seed_one_skill(tmp_path):
+        skill_dir = tmp_path / "demo_skill"
+        skill_dir.mkdir()
+        (skill_dir / "diagram_dir").mkdir()
+        return skill_dir, {"id": "skill_x", "name": "demo", "owner": AUTHOR}
+
+    def _run_bulk(self, *, url_side_effect, monotonic_side_effect, cooldown=None):
+        """Drive one bulk sync deterministically.
+
+        ``url_side_effect`` controls _request_upload_url per call; ``monotonic_side_effect``
+        is the (start_time, deltas_in_seconds) clock — first call returns start, subsequent
+        add the next delta so we can stamp 'just failed' and 'cooldown elapsed' both.
+        """
+        sfs._CN_SYNCED_SKILL_DIRS.clear()
+        sfs._CN_RECENT_FAILURES.clear()
+        if cooldown is not None:
+            sfs._CN_FAILURE_COOLDOWN_S = cooldown
+
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            skill_dir, sk = self._seed_one_skill(tmp_path)
+            upload_calls = []
+            put_calls = []
+
+            def fake_url(*a, **kw):
+                upload_calls.append(a)
+                return url_side_effect()
+
+            with patch.object(sfs, "_is_intl_app", return_value=False), \
+                 patch.object(sfs, "_get_cloud_context", return_value=dict(CTX)), \
+                 patch.object(sfs, "_resolve_skill_dir", return_value=skill_dir), \
+                 patch.object(sfs, "_is_valid_skill_dir", return_value=True), \
+                 patch.object(sfs, "_request_upload_url", side_effect=fake_url), \
+                 patch.object(sfs, "_upload_to_s3",
+                              side_effect=lambda u, b: put_calls.append((u, b)) or True), \
+                 patch.object(sfs.threading, "Thread", _InlineThread), \
+                 patch.object(sfs.time, "monotonic", side_effect=monotonic_side_effect):
+                sfs.sync_all_skill_files_to_cloud([sk])
+            return upload_calls, put_calls, list(sfs._CN_RECENT_FAILURES)
+
+    def test_failed_upload_stamps_cooldown_and_skips_retry(self):
+        # First sync (no prior failure): clock only called for the stamp.
+        # Second sync (prior failure exists): monotonic() called for the
+        # cooldown check at t=200 → 200-100=100 < 300 → skipped (no
+        # monotonic() call for the stamp because we skipped).
+        # (1 + 1) = 2 clock reads total (only 1 fires on the skip path).
+        clock = iter([100.0, 200.0])
+        sfs._CN_SYNCED_SKILL_DIRS.clear()
+        sfs._CN_RECENT_FAILURES.clear()
+        sfs._CN_FAILURE_COOLDOWN_S = 300
+
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            skill_dir, sk = self._seed_one_skill(tmp_path)
+            upload_calls = []
+            put_calls = []
+
+            def fake_url(*a, **kw):
+                upload_calls.append(a)
+                return None  # failure
+
+            with patch.object(sfs, "_is_intl_app", return_value=False), \
+                 patch.object(sfs, "_get_cloud_context", return_value=dict(CTX)), \
+                 patch.object(sfs, "_resolve_skill_dir", return_value=skill_dir), \
+                 patch.object(sfs, "_is_valid_skill_dir", return_value=True), \
+                 patch.object(sfs, "_request_upload_url", side_effect=fake_url), \
+                 patch.object(sfs, "_upload_to_s3",
+                              side_effect=lambda u, b: put_calls.append((u, b)) or True), \
+                 patch.object(sfs.threading, "Thread", _InlineThread), \
+                 patch.object(sfs.time, "monotonic", side_effect=lambda: next(clock)):
+                sfs.sync_all_skill_files_to_cloud([sk])  # t=100 → stamps failure
+                sfs.sync_all_skill_files_to_cloud([sk])  # t=200 → cooldown active → skipped
+        assert len(upload_calls) == 1, (
+            f"second sync should be skipped, got {upload_calls}")
+        assert put_calls == []
+        assert sfs._CN_RECENT_FAILURES  # failure stamped for the path
+
+    def test_success_clears_recent_failure(self):
+        clock = iter([100.0, 200.0])
+        upload_calls, put_calls, recent = self._run_bulk(
+            url_side_effect=lambda: {"uploadUrl": "https://cos/put", "s3Key": "k"},
+            monotonic_side_effect=lambda: next(clock),
+            cooldown=300,
+        )
+        assert len(upload_calls) == 1
+        assert len(put_calls) == 1  # PUT succeeded
+        assert recent == [], "successful upload should clear the recent-failure stamp"
+
+    def test_cooldown_expiry_re_enables_retry(self):
+        # First sync (no prior failure): monotonic() only called once for
+        # the stamp. Failure stamp = 100.
+        # Second sync (prior failure exists): monotonic() called for the
+        # cooldown check AND the new stamp. clock=500 → 500-100 > 300 →
+        # re-attempt.
+        # (1 + 2) = 3 clock reads total.
+        clock = iter([100.0, 500.0, 500.0])
+        sfs._CN_SYNCED_SKILL_DIRS.clear()
+        sfs._CN_RECENT_FAILURES.clear()
+        sfs._CN_FAILURE_COOLDOWN_S = 300
+
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = Path(td)
+            skill_dir, sk = self._seed_one_skill(tmp_path)
+            upload_calls = []
+
+            def fake_url(*a, **kw):
+                upload_calls.append(a)
+                return None  # always fail; dedupe is what we're testing
+
+            with patch.object(sfs, "_is_intl_app", return_value=False), \
+                 patch.object(sfs, "_get_cloud_context", return_value=dict(CTX)), \
+                 patch.object(sfs, "_resolve_skill_dir", return_value=skill_dir), \
+                 patch.object(sfs, "_is_valid_skill_dir", return_value=True), \
+                 patch.object(sfs, "_request_upload_url", side_effect=fake_url), \
+                 patch.object(sfs, "_upload_to_s3", return_value=True), \
+                 patch.object(sfs.threading, "Thread", _InlineThread), \
+                 patch.object(sfs.time, "monotonic", side_effect=lambda: next(clock)):
+                sfs.sync_all_skill_files_to_cloud([sk])  # t=100 → stamps failure
+                sfs.sync_all_skill_files_to_cloud([sk])  # t=500 → cooldown expired → retries
+        assert len(upload_calls) == 2, (
+            f"cooldown-expired retry should re-attempt; got {upload_calls}")

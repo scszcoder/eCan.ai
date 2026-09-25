@@ -1885,6 +1885,25 @@ class ServerManager:
                                 or _is_safe_teardown(c, str(c))
                                 for c in exc.exceptions
                             )
+                        # anyio's CancelScope.__exit__ raises this specific
+                        # RuntimeError when an async generator's task group is
+                        # GC'd from a different task than the one that entered
+                        # it. We now hit this only during the closeEvent's
+                        # MCP session-manager reference reset (gui/WebGUI.py
+                        # _cleanup_mcp() sets MCPHandler._session_manager_context
+                        # = None without awaiting ctx.aclose()); the underlying
+                        # GeneratorExit path runs on a torn-down asyncio loop,
+                        # and os._exit(0) follows within milliseconds so the
+                        # leaked "Task exception was never retrieved" log is
+                        # purely cosmetic. (Pre-2026-09-25 the same error
+                        # tore down uvicorn's task tree during normal close;
+                        # the substring match the regression-comment above
+                        # warns against was too broad — this is narrow.)
+                        if (
+                            isinstance(exc, RuntimeError)
+                            and "cancel scope in a different task" in str(exc)
+                        ):
+                            return True
                         return False
 
                     def _shutdown_exception_handler(loop, context):
@@ -2040,7 +2059,7 @@ def stop_local_server():
         if result:
             port = int(server_manager_instance.main_win.get_local_server_port())
             logger.info(f"Waiting for port {port} to be released...")
-            wait_for_port_release("127.0.0.1", port, timeout=10.0)
+            wait_for_port_release("127.0.0.1", port, timeout=3.0)
 
         # Clear the global instance to allow clean restart
         server_manager_instance = None

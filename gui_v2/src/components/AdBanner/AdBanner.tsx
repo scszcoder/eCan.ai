@@ -234,18 +234,22 @@ const AdBanner: React.FC = () => {
 
     // Check for expired ads/banners periodically. Use a shorter 5s tick so
     // transient error banners (default ~60s) clear close to their expiry
-    // instead of lingering up to 30s after.
+    // instead of lingering up to 30s after. Only run while at least one of
+    // bannerAd/errorBanner/popupAd is present: when all three are null there
+    // is nothing for clearExpiredAds to act on, and a permanent 5s heartbeat
+    // was firing every AppHeader re-render.
     useEffect(() => {
+        if (!bannerAd && !errorBanner && !popupAd) return;
         intervalRef.current = setInterval(() => {
             clearExpiredAds();
         }, 5_000);
-
         return () => {
             if (intervalRef.current) {
                 clearInterval(intervalRef.current);
+                intervalRef.current = null;
             }
         };
-    }, [clearExpiredAds]);
+    }, [clearExpiredAds, bannerAd, errorBanner, popupAd]);
 
     // Update visibility based on banner/error presence
     useEffect(() => {

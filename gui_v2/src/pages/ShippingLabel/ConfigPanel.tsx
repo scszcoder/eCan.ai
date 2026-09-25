@@ -1,5 +1,5 @@
 import React from 'react';
-import { Form, InputNumber, Select, Input, Divider } from 'antd';
+import { Form, InputNumber, Select, Input, Divider, Space } from 'antd';
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 import { LabelConfig } from './types';
@@ -36,6 +36,30 @@ const StyledForm = styled(Form)`
   .ant-input {
     width: 100%;
   }
+`;
+
+// Local helper: replaces the deprecated InputNumber.addonAfter API.
+// antd v5.25+ recommends Space.Compact wrapping the input + a span.
+// Defined inline because the only call sites are inside this file — keeping
+// the helper scoped avoids exporting an internal wrapper for single-file use.
+type UnitInputNumberProps = React.ComponentProps<typeof InputNumber> & { unit: string };
+const UnitInputNumber: React.FC<UnitInputNumberProps> = ({ unit, ...inputProps }) => (
+  <Space.Compact style={{ width: inputProps.style?.width || '100%' }}>
+    <InputNumber {...inputProps} style={{ width: 'auto', ...inputProps.style }} />
+    <UnitAddon>{unit}</UnitAddon>
+  </Space.Compact>
+);
+const UnitAddon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  padding: 0 11px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12px;
+  white-space: nowrap;
 `;
 
 interface ConfigPanelProps {
@@ -103,24 +127,24 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
 
         <SectionTitle>{t('pages.shippingLabel.configPanel.sheetDimensions')}</SectionTitle>
         <Form.Item label={t('pages.shippingLabel.configPanel.sheetWidth')}>
-          <InputNumber
+          <UnitInputNumber
             value={config.sheet_width}
             onChange={(value) => handleChange('sheet_width', value)}
             min={0}
             step={0.1}
             precision={3}
-            addonAfter={config.unit}
+            unit={config.unit}
             {...inputProps}
           />
         </Form.Item>
         <Form.Item label={t('pages.shippingLabel.configPanel.sheetHeight')}>
-          <InputNumber
+          <UnitInputNumber
             value={config.sheet_height}
             onChange={(value) => handleChange('sheet_height', value)}
             min={0}
             step={0.1}
             precision={3}
-            addonAfter={config.unit}
+            unit={config.unit}
             {...inputProps}
           />
         </Form.Item>
@@ -129,24 +153,24 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
 
         <SectionTitle>{t('pages.shippingLabel.configPanel.labelDimensions')}</SectionTitle>
         <Form.Item label={t('pages.shippingLabel.configPanel.labelWidth')}>
-          <InputNumber
+          <UnitInputNumber
             value={config.label_width}
             onChange={(value) => handleChange('label_width', value)}
             min={0}
             step={0.1}
             precision={3}
-            addonAfter={config.unit}
+            unit={config.unit}
             {...inputProps}
           />
         </Form.Item>
         <Form.Item label={t('pages.shippingLabel.configPanel.labelHeight')}>
-          <InputNumber
+          <UnitInputNumber
             value={config.label_height}
             onChange={(value) => handleChange('label_height', value)}
             min={0}
             step={0.1}
             precision={3}
-            addonAfter={config.unit}
+            unit={config.unit}
             {...inputProps}
           />
         </Form.Item>
@@ -155,24 +179,24 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
 
         <SectionTitle>{t('pages.shippingLabel.configPanel.margins')}</SectionTitle>
         <Form.Item label={t('pages.shippingLabel.configPanel.topMargin')}>
-          <InputNumber
+          <UnitInputNumber
             value={config.top_margin}
             onChange={(value) => handleChange('top_margin', value)}
             min={0}
             step={0.1}
             precision={3}
-            addonAfter={config.unit}
+            unit={config.unit}
             {...inputProps}
           />
         </Form.Item>
         <Form.Item label={t('pages.shippingLabel.configPanel.leftMargin')}>
-          <InputNumber
+          <UnitInputNumber
             value={config.left_margin}
             onChange={(value) => handleChange('left_margin', value)}
             min={0}
             step={0.1}
             precision={3}
-            addonAfter={config.unit}
+            unit={config.unit}
             {...inputProps}
           />
         </Form.Item>
@@ -207,24 +231,24 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
 
         <SectionTitle>{t('pages.shippingLabel.configPanel.pitch')}</SectionTitle>
         <Form.Item label={t('pages.shippingLabel.configPanel.rowPitch')}>
-          <InputNumber
+          <UnitInputNumber
             value={config.row_pitch}
             onChange={(value) => handleChange('row_pitch', value)}
             min={0}
             step={0.1}
             precision={3}
-            addonAfter={config.unit}
+            unit={config.unit}
             {...inputProps}
           />
         </Form.Item>
         <Form.Item label={t('pages.shippingLabel.configPanel.columnPitch')}>
-          <InputNumber
+          <UnitInputNumber
             value={config.col_pitch}
             onChange={(value) => handleChange('col_pitch', value)}
             min={0}
             step={0.1}
             precision={3}
-            addonAfter={config.unit}
+            unit={config.unit}
             {...inputProps}
           />
         </Form.Item>

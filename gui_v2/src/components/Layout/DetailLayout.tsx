@@ -148,6 +148,11 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
     const draggingRef = useRef<boolean>(false);
     const dragStartXRef = useRef<number>(0);
     const dragStartWidthRef = useRef<number>(0);
+    // Tracks the latest listWidth so the mouseup handler can persist the
+    // post-drag value. Without it, the handler closure captures the value at
+    // effect-mount and saves a stale width to localStorage.
+    const listWidthRef = useRef<number>(listWidth);
+    listWidthRef.current = listWidth;
 
     useEffect(() => {
         if (!resizableList) return;
@@ -163,7 +168,7 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
             if (!draggingRef.current) return;
             draggingRef.current = false;
             try {
-                if (storageKey) localStorage.setItem(storageKey, String(listWidth));
+                if (storageKey) localStorage.setItem(storageKey, String(listWidthRef.current));
             } catch {
                 // ignore
             }
@@ -171,13 +176,17 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
             document.body.style.userSelect = '';
         };
 
+        // Listeners are bound once on mount, not on every listWidth change:
+        // the previous deps caused add/removeEventListener to fire ~60×/sec
+        // during a drag. The handleUp closure now reads the latest width via
+        // listWidthRef so the persisted value is correct.
         window.addEventListener('mousemove', handleMove);
         window.addEventListener('mouseup', handleUp);
         return () => {
             window.removeEventListener('mousemove', handleMove);
             window.removeEventListener('mouseup', handleUp);
         };
-    }, [listWidth, maxListWidth, minListWidth, resizableList, storageKey]);
+    }, [maxListWidth, minListWidth, resizableList, storageKey]);
     
     // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
     useEffectOnActive(

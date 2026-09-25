@@ -1127,12 +1127,12 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
               {/* Basic Info Row */}
               <Row gutter={[12, 0]}>
                 <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.taskId', '任务 ID')} name="id">
+                  <StyledFormItem label={t('pages.tasks.taskId', '任务 ID')} name="id" htmlFor="task-id">
                     <Input id="task-id" readOnly style={{ fontFamily: 'Monospace', fontSize: 12 }} />
                   </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.priorityLabel', '优先级')} name="priority">
+                  <StyledFormItem label={t('pages.tasks.priorityLabel', '优先级')} name="priority" htmlFor="task-priority">
                     <Select
                       id="task-priority"
                       options={PRIORITY_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.priority.${v}`, v) }))}
@@ -1143,7 +1143,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
 
               <Row gutter={[12, 0]}>
                 <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.triggerLabel', '触发器')} name="trigger">
+                  <StyledFormItem label={t('pages.tasks.triggerLabel', '触发器')} name="trigger" htmlFor="task-trigger">
                     <Select
                       id="task-trigger"
                       mode="multiple"
@@ -1154,7 +1154,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                   </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.taskTypeLabel', '任务类型')} name="task_type">
+                  <StyledFormItem label={t('pages.tasks.taskTypeLabel', '任务类型')} name="task_type" htmlFor="task-type">
                     <Select
                       id="task-type"
                       onChange={(value) => setCurrentTaskType(value)}
@@ -1187,7 +1187,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
               )}
 
               <Col span={24}>
-                <StyledFormItem label={t('common.description', '描述')} name="description">
+                <StyledFormItem label={t('common.description', '描述')} name="description" htmlFor="task-description">
                   <Input.TextArea
                     id="task-description"
                     rows={2}

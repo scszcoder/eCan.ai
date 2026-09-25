@@ -262,12 +262,15 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
     // Calculate selected menu key based on current pathname
     // Match the longest matching menu key to handle nested routes
-    const getSelectedMenuKey = () => {
+    //
+    // Memoized so the AppSider doesn't see a fresh string on every layout
+    // render — without this, every route-level state change forces a full
+    // re-render of the side menu tree.
+    const selectedMenuKey = React.useMemo(() => {
         const pathname = location.pathname;
-        // Find the longest matching menu key
         let selectedKey = '/agents'; // default
         let maxMatchLength = 0;
-        
+
         if (menuItems) {
             menuItems.forEach(item => {
                 if (item && item.key) {
@@ -281,9 +284,15 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 }
             });
         }
-        
+
         return selectedKey;
-    };
+    }, [location.pathname, menuItems]);
+
+    // Stable collapse handler — functional setState avoids the closed-over
+    // `collapsed` value drifting out of sync if the user spams the toggle.
+    const handleCollapse = React.useCallback(() => {
+        setCollapsed(prev => !prev);
+    }, []);
 
     return (
         <StyledLayout>
@@ -291,13 +300,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <AppSider
                 collapsed={collapsed}
                 menuItems={filteredMenuItems}
-                selectedKey={getSelectedMenuKey()}
+                selectedKey={selectedMenuKey}
                 onMenuClick={onMenuClick}
             />
             <StyledInnerLayout>
                 <AppHeader
                     collapsed={collapsed}
-                    onCollapse={() => setCollapsed(!collapsed)}
+                    onCollapse={handleCollapse}
                     userMenuItems={userMenuItems}
                     onLogout={handleLogout}
                 />
