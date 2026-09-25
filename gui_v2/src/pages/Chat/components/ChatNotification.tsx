@@ -8,8 +8,6 @@ import ProductSearchNotification from './ProductSearchNotification';
 import i18n from '../../../i18n';
 import { notificationManager } from '../managers/NotificationManager';
 
-const { Panel } = Collapse;
-
 // DateFormatFunction
 const formatDate = (timestamp: string | number) => {
   if (!timestamp) return '';
@@ -309,27 +307,23 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
           onChange={(keys) => setActiveKeys(keys as string[])}
           expandIcon={({ isActive }) => <DownOutlined rotate={isActive ? 180 : 0} />}
           ghost
-        >
-          {[...displayChatNotifications].reverse().map((n, i) => {
+          items={[...displayChatNotifications].reverse().map((n, i) => {
             const key = `${n.uid}_${i}`;
             const timestamp = n.timestamp ? formatDate(n.timestamp) : '';
-            return (
-              <Panel
-                header={
-                  <div>
-                    <div style={{ fontWeight: 500 }}>
-                      {t('pages.chat.chatNotification.notification')} #{i + 1}
-                    </div>
-                    <TimestampText>{timestamp}</TimestampText>
+            return {
+              key,
+              label: (
+                <div>
+                  <div style={{ fontWeight: 500 }}>
+                    {t('pages.chat.chatNotification.notification')} #{i + 1}
                   </div>
-                }
-                key={key}
-              >
-                <NotificationTemplateRenderer content={n.content} />
-              </Panel>
-            );
+                  <TimestampText>{timestamp}</TimestampText>
+                </div>
+              ),
+              children: <NotificationTemplateRenderer content={n.content} />,
+            };
           })}
-        </StyledCollapse>
+        />
         <div ref={bottomRef} style={{ height: 20 }} />
         {!hasMore && displayChatNotifications.length > 0 && (
           <div style={{ textAlign: 'center', color: 'rgba(255, 255, 255, 0.5)', marginTop: 16 }}>
