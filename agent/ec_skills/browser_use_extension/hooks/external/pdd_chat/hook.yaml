@@ -1,0 +1,69 @@
+# Pinduoduo (拼多多) merchant chat — hook bundle manifest.
+#
+# Named by a browser-automation node's "Hook Bundles (JSON)" field:
+#     [{"path": "pdd_chat", "config": {"send_action": "pdd_send_message"}}]
+# which also marks the node's live-chat site (live_chat_dispatch.set_active_site).
+# The bundle's runner bridge registers only when ECAN_LIVE_CHAT_SITE names
+# pdd_chat -- see README.md.
+
+meters:
+  - scenario_code: cs_chat
+    meter_code: message_replied
+    unit: "条"
+    display_name_zh: "客服回复"
+    display_name_en: "Customer-service reply"
+    billable_definition: >
+      One customer turn answered by one reply we successfully delivered.
+      Counted once per (store, conversation, source message) no matter how many
+      times delivery is attempted or observed.
+      NOT counted: retries and duplicate dispatch of the same turn, sends that
+      failed or were not confirmed in the thread, and turns a human answered.
+
+api_version: 1
+kind: hook_bundle
+bundle: pdd_chat
+version: 0.1.0
+author: "eCan.ai"
+description: >
+  Pinduoduo merchant customer chat: titan WebSocket intake, reply by driving
+  the chat page. Optional exact-match quick replies (off unless configured).
+
+config:
+  cooldown_ms: 1500
+  quick_replies: {}
+  send_action: "pdd_send_message"
+
+config_schema:
+  type: object
+  properties:
+    cooldown_ms:
+      type: integer
+      title: "Cooldown (ms)"
+      minimum: 0
+      default: 1500
+    quick_replies:
+      type: object
+      title: "Quick replies"
+      description: "Exact customer text → canned reply, sent without the LLM. Empty = off."
+      additionalProperties: {type: string}
+    send_action:
+      type: string
+      title: "Send action name"
+      default: "pdd_send_message"
+
+hooks:
+  - name: pdd_quick_reply
+    entrypoint: "pdd_hooks.py:PddQuickReplyHook"
+    stage: on_event_normalized
+    tier: 1
+    priority: 20
+    permissions:
+      tools:
+        - pdd_send_message
+      network: none
+    budget:
+      timeout_ms: 200
+    matches:
+      event_type: ["chat_message", "customer_message"]
+    state: memory
+    state_namespace: pdd_quickreply

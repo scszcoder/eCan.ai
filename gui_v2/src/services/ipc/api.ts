@@ -3042,6 +3042,15 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'site_probe.open_folder' });
     }
 
+    // Which live-chat platform this machine serves (saved to run.env; applies after restart).
+    public async getLiveChatSite<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'live_chat_site.get' });
+    }
+
+    public async setLiveChatSite<T>(site: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'live_chat_site.set' }, { site });
+    }
+
     public async getFleetTransfers<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'fleet.transfers' });
     }

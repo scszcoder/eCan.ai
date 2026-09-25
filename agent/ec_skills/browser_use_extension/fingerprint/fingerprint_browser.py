@@ -311,6 +311,35 @@ def _clear_port_file(user_data_dir: Path) -> None:
         pass
 
 
+_BROWSER_EXES = ("chrome.exe", "chromium.exe", "msedge.exe", "chrome", "chromium")
+
+
+def _as_browser_exe(value: str, source: str) -> str:
+    """A runnable browser file from a configured path, or "".
+
+    Launching a FOLDER fails on Windows with a bare "[WinError 5] Access is
+    denied" -- a customer set ECAN_CHROMIUM_PATH to Chrome's Application
+    folder. A folder resolves to the browser inside it; a value carrying
+    command-line flags (the port and data folder are ours to set) is ignored
+    with a warning instead of silently falling through.
+    """
+    if not value:
+        return ""
+    p = Path(value.strip('"'))
+    if p.is_file():
+        return str(p)
+    if p.is_dir():
+        for name in _BROWSER_EXES:
+            if (p / name).is_file():
+                return str(p / name)
+        logger.warning(f"[fp-browser] {source} is a folder with no browser in it: {p}")
+        return ""
+    if " --" in value:
+        logger.warning(f"[fp-browser] {source} must be only the browser's path, without flags "
+                       f"(eCan sets the port and data folder itself): {value!r}")
+    return ""
+
+
 def resolve_browser_path(profile: dict) -> str:
     """Which binary to run.
 
@@ -319,11 +348,12 @@ def resolve_browser_path(profile: dict) -> str:
     be from a newer version"). That recorded path wins; the fallbacks are for
     profiles created before we started recording it.
     """
-    recorded = ((profile.get("browser") or {}).get("path") or "").strip()
-    if recorded and Path(recorded).exists():
+    recorded = _as_browser_exe(((profile.get("browser") or {}).get("path") or "").strip(),
+                               "the profile's browser path")
+    if recorded:
         return recorded
-    env = (os.getenv("ECAN_CHROMIUM_PATH") or "").strip()
-    if env and Path(env).exists():
+    env = _as_browser_exe((os.getenv("ECAN_CHROMIUM_PATH") or "").strip(), "ECAN_CHROMIUM_PATH")
+    if env:
         return env
     # Playwright's bundled Chromium, newest install first.
     pw = Path.home() / "AppData/Local/ms-playwright"

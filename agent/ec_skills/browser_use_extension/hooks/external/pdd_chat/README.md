@@ -1,61 +1,63 @@
 # pdd_chat — Pinduoduo (拼多多) merchant customer chat
 
-**Phase 0: probing.** Nothing here answers customers yet. This bundle supplies
-the site preset (`site.py`) for the generic probe
-(`agent/ec_skills/browser_use_extension/site_probe.py`), which records what the
-chat page says over the wire so the protocol can be decoded offline — the path
-Feige took from capture to `ws_reader.py` / `ws_sender.py`.
+Site bundle for mms.pinduoduo.com/chat-merchant/, built the Feige way:
+customer messages are read off the page's WebSocket, replies go through the
+page. Wire notes: git-ignored `WS_PDD_PROTOCOL_SPEC.md` at the repo root.
 
-## Record a session
+## Switching it on
 
-1. Open the store's login (Settings → Browser Profiles → Launch — or any
-   Chrome started with `--remote-debugging-port=9222`) and log in to
-   商家后台 → 客服 (the chat workbench).
-2. Start the probe. In the app (what a customer uses): Settings → Browser
-   Profiles → on the open login, **Record traffic → pdd_chat**; stop with the
-   **Recording** button, which shows what was captured. From a dev checkout:
+Registers only when the process is told to serve Pinduoduo:
 
-   ```
-   ecan probe run --site pdd_chat --profile <login id>
-   ecan probe run --site pdd_chat --cdp-url http://127.0.0.1:9222
-   ```
+    ECAN_LIVE_CHAT_SITE=pdd_chat
 
-3. Use the chat for 10–20 minutes, covering as much as possible:
-   * receive a message in the OPEN conversation, and one in a conversation
-     that is NOT open (sidebar only);
-   * send a text reply, an emoji, an image, a product card / order link;
-   * a new customer arriving; switching conversations; marking read;
-   * a conversation transferred / closed / timing out (系统消息);
-   * the page reconnecting (toggle Wi-Fi briefly).
-4. Ctrl+C. The probe prints a summary; the capture is
-   `runlogs/probe/pdd_chat_<time>.jsonl` plus `..._dom1.html` snapshots.
-   `ecan probe summarize <file>` re-prints the summary.
+Unset (every existing install), the bundle does nothing and Feige behaves
+exactly as before. Why a switch: with two live-chat bridges registered, calls
+made outside a node run (direct reply delivery, chat tools) cannot tell which
+platform they belong to; `ECAN_LIVE_CHAT_SITE` names the one this process
+serves (`live_chat_dispatch.configured_sites()`). One live-chat platform per
+process for now; per-store processes are the path to both on one machine.
 
-On a customer's machine: run the probe there, then **Vehicles → Fetch logs**
-from the commander — `runlogs/probe/` travels with the logs.
+## Pieces
 
-## What is captured, what is not
+| file | role |
+|---|---|
+| `ws_protocol.py` | decode a titan frame (gzip JSON) into normalized chat events |
+| `ws_observer.py` | attach to the chat tab, dispatch each buyer message to the front desk; cold-start pass over conversations already waiting |
+| `dom.py` | list conversations, open one, read the thread, type + click Send; chat-tab resolver |
+| `site_tools.py` | `pdd_list_sessions`, `pdd_open_session`, `pdd_get_chat_thread`, `pdd_send_message` controller actions |
+| `runner_bridge.py` | what the platform reads (`live_chat_dispatch.runner_bridge()`) |
+| `typing_lock.py`, `hot_path_v2.py`, `ws_session.py`, `system_message_filter.py`, `site_adapter_preset.py` | the bridge's supporting parts |
+| `site.py` | preset for the traffic probe (Settings → 指纹浏览器配置 → Record traffic, or `pdd_probe.exe`) |
 
-* every WebSocket opened by the chat pages **and their workers**: URL (token-
-  like query values redacted), handshake headers (cookie/auth values
-  redacted), every frame both directions — text verbatim, binary as base64;
-* API calls (XHR/fetch) on pinduoduo/yangkeduo hosts: method, URL, request
-  body, status, response body (≤ 256 KB);
-* one DOM snapshot per chat tab when first attached.
+## Identity: the buyer uid
 
-Frames and API bodies are NOT redacted — they are what we are decoding — so a
-capture contains real customer conversations. It stays in `runlogs/probe/`.
+Nicknames are masked (`S*******n`, `X*K`) and collide, so every item and tool
+keys a conversation by the buyer **uid** (`customer_name` = uid). The masked
+name rides along as `customer_display_name`. Rows carry the uid in
+`data-random="<uid>-0-<group>"`; the socket carries it as `from.uid`.
 
-Narrow or widen what is watched without a release:
-`ECAN_PDD_PAGE_MARKERS` (page URL substrings, default `mms.pinduoduo.com`),
-`ECAN_PDD_API_MARKERS` (default `pinduoduo.com,yangkeduo.com`).
+## Sending
 
-## Next (after the first capture)
+The HTTP send needs `anti_content`, which only the page's own script can mint,
+so `pdd_send_message` opens the conversation, verifies the thread's
+`currentuid` is that buyer (it refuses to type otherwise), types into
+`#replyTextarea`, clicks `.send-btn`, and waits for the bubble. A send that
+clicked but was not seen is reported as `pdd_send_unverified:*` and never
+retried (it may have landed).
 
-1. Decode: which socket carries chat, framing (JSON / protobuf / custom),
-   message kinds (new message, read, typing, system), the ids that identify a
-   conversation and a customer, and whether sends go over the socket or an API.
-2. Then build it the Feige way, in this bundle: a read-only WS reader wired as
-   a shadow observer, DOM tools for the conversation list / thread / send, the
-   runner bridge, prompts and skills — platform code stays untouched
-   (keep-core-general rule).
+## Skill wiring (front desk)
+
+- `hookBundles: [{"path": "pdd_chat", ...}]` — sets the active site for the node.
+- Event monitor: DOM mutation on `page_url_patterns: ["mms.pinduoduo.com/chat-merchant"]`
+  (the platform starts `ws_observer` from it).
+- `preDispatch.site_plugin: "pdd_chat"`, `actionableField: "unread_badge"`,
+  `assignment_extra_fields: ["latest_message_msg_id", "last_message_attachments",
+  "customer_display_name", "product_context", "message_kind"]` — without the
+  list, pictures and product context never reach the Q&A agent.
+- Tools: `pdd_*`.
+
+## Not done yet
+
+Front-desk / Q&A skills + prompts for Pinduoduo, a Fast Deploy recipe, a GUI
+switch instead of the env var, PDD's own robot hosting (托管) detection,
+transfer / close notices, a live end-to-end run on a real store.

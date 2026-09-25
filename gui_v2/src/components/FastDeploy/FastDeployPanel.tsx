@@ -132,7 +132,11 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
     const handleCreate = async () => {
         if (!selected) return;
         const urls = config.storeUrls.map((u) => u.trim()).filter(Boolean);
-        if (urls.length === 0) {
+        if (selected.schema.stores && !(config.stores || []).length) {
+            message.warning(t('pages.agents.fast_deploy_need_stores', 'Pick at least one store'));
+            return;
+        }
+        if (selected.schema.storeUrls && urls.length === 0) {
             message.warning(t('pages.agents.fast_deploy_need_url', 'Please add at least one store URL'));
             return;
         }
@@ -148,7 +152,11 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
         }
         const payload = {
             scenario: selected.key,
-            config: {
+            config: selected.schema.stores ? {
+                stores: config.stores || [],
+                qa_agents: config.qaAgents,
+                mode: config.mode || 'add',
+            } : {
                 store_urls: urls,
                 ...(selected.schema.storeId ? { store_id: (config.storeId || '').trim() } : {}),
                 ...(selected.schema.storeId && storeChoice === NEW_STORE && config.storeName
@@ -375,6 +383,32 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                         )}
                                         <Text style={{ color: '#64748b', fontSize: 12, display: 'block', marginTop: 6 }}>
                                             {t('pages.agents.fast_deploy_store_id_hint')}
+                                        </Text>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* several stores: picked from the Stores page */}
+                            {selected.schema.stores && (
+                                <div style={{ marginTop: 14 }}>
+                                    <Text style={{ color: '#94a3b8', fontSize: 13 }}>
+                                        {t('pages.agents.fast_deploy_stores', 'Stores')}
+                                    </Text>
+                                    <div style={{ marginTop: 8 }}>
+                                        <Select
+                                            mode="multiple"
+                                            style={{ width: '100%' }}
+                                            value={config.stores || []}
+                                            placeholder={t('pages.agents.fast_deploy_stores_pick', 'Choose the stores to staff')}
+                                            onChange={(v: string[]) => setConfig((c) => ({ ...c, stores: v }))}
+                                            options={catalog
+                                                .filter((x) => x.platform === selected.platform)
+                                                .map((x) => ({ value: x.store_id,
+                                                    label: x.name && x.name !== x.store_id ? `${x.name} (${x.store_id})` : x.store_id }))}
+                                            notFoundContent={t('pages.agents.fast_deploy_stores_none', 'No stores of this platform yet — create them on the Stores page')}
+                                        />
+                                        <Text style={{ color: '#64748b', fontSize: 12, display: 'block', marginTop: 6 }}>
+                                            {t('pages.agents.fast_deploy_stores_hint', 'Each store gets its own browser login and front desk; the Q&A agents below are shared by all of them. A store without a login gets one — sign it in once under Settings → Browser Profiles.')}
                                         </Text>
                                     </div>
                                 </div>

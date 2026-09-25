@@ -164,6 +164,23 @@ def active_site() -> "str | None":
     return _ACTIVE_SITE.get()
 
 
+def configured_sites() -> "list[str]":
+    """Sites this process serves, from ``ECAN_LIVE_CHAT_SITE`` (comma-separated).
+
+    Empty = not configured: every bundle behaves as it always has. A site
+    bundle beyond the first loaded one registers only when named here, and
+    the first name is the default for calls made outside any node run.
+    """
+    import os
+    raw = os.environ.get("ECAN_LIVE_CHAT_SITE", "")
+    return [s.strip() for s in raw.split(",") if s.strip()]
+
+
+def site_enabled(site: str) -> bool:
+    """Whether *site* is named in ``ECAN_LIVE_CHAT_SITE``."""
+    return str(site or "").strip() in configured_sites()
+
+
 def bridge_sites() -> "list[str]":
     """Sites with a registered bridge — introspection for diagnostics."""
     return sorted(_BRIDGES)
@@ -218,6 +235,12 @@ def runner_bridge(site: "str | None" = None) -> Any:
 
     if len(_BRIDGES) == 1:
         return next(iter(_BRIDGES.values()))
+    # Outside a node run (direct delivery, chat tools, sweeper threads) there is
+    # no active site; a process configured for one site answers with it.
+    for default in configured_sites()[:1]:
+        found = _BRIDGES.get(default)
+        if found is not None:
+            return found
     logger.error(
         f"[live_chat] {len(_BRIDGES)} runner bridges loaded {sorted(_BRIDGES)} and no "
         f"active site — refusing to guess which platform this call belongs to. "

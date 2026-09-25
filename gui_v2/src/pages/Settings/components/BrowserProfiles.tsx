@@ -22,6 +22,7 @@ import {
   Button,
   Card,
   Col,
+  Dropdown,
   Empty,
   Form,
   Input,
@@ -435,10 +436,15 @@ const BrowserProfiles: React.FC = () => {
                       onClick={() => stopProbe(p)}>{tp('probe_recording', 'Recording')}</Button>
             </Tooltip>
           ) : (
-            <Select size="small" style={{ width: 150 }} value={null as any}
-              placeholder={<span><VideoCameraOutlined /> {tp('probe_record', 'Record traffic')}</span>}
-              options={probeSites.map((s) => ({ value: s, label: s }))}
-              onChange={(site: string) => startProbe(p, site)} />
+            // A labelled button, not a Select: antd hides a Select's placeholder
+            // when its value is null, which left an empty unlabelled box.
+            <Dropdown trigger={['click']} disabled={busyId === p.id}
+              menu={{ items: probeSites.map((s) => ({ key: s, label: s })),
+                      onClick: ({ key }) => startProbe(p, String(key)) }}>
+              <Button size="small" icon={<VideoCameraOutlined />} loading={busyId === p.id}>
+                {tp('probe_record', 'Record traffic')} ▾
+              </Button>
+            </Dropdown>
           ))}
           {p.status?.running ? (
             <Tooltip title={tp('stop_hint', 'Close it — this is what writes the session out')}>

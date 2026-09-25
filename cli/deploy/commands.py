@@ -64,6 +64,9 @@ def _recipe_operation(scenario: str, cfg: dict):
 
 _RECIPES = {
     "douyin_cs": _recipe_customer_service,
+    "douyin_cs_multi": _recipe_customer_service,
+    "pdd_cs": _recipe_customer_service,
+    "pdd_cs_multi": _recipe_customer_service,
     "tmall_cs": _recipe_customer_service,
     "amazon_ops": _recipe_operation,
     "ebay_ops": _recipe_operation,
@@ -494,7 +497,8 @@ def _refuse_taken_store_id(ctx, cfg: dict) -> None:
                            f"or give the new store a different id")
 
 
-def _register_store(ctx, store_id: str, cfg: dict, store_urls: list, log: list) -> None:
+def _register_store(ctx, store_id: str, cfg: dict, store_urls: list, log: list,
+                    platform: str = "douyin") -> None:
     """Make sure the store exists in the local catalog; a deploy into a new id
     defines it. Never renames an existing store. Best-effort: the catalog is
     bookkeeping, and a failure must not fail a deployment."""
@@ -502,7 +506,7 @@ def _register_store(ctx, store_id: str, cfg: dict, store_urls: list, log: list) 
         svc = getattr(ctx.db, "store_service", None)
         if svc is None:
             return
-        fields = {"store_id": store_id, "platform": "douyin", "store_urls": store_urls}
+        fields = {"store_id": store_id, "platform": platform, "store_urls": store_urls}
         if not svc.get_store(store_id):
             fields.update(name=str(cfg.get("store_name") or store_id), source="fast_deploy")
         svc.upsert_store(fields)
@@ -511,61 +515,141 @@ def _register_store(ctx, store_id: str, cfg: dict, store_urls: list, log: list) 
         log.append(f"Store catalog not updated (non-fatal): {e}")
 
 
-def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
-    """Create the real Douyin/抖店 CS deployment (shared-skill model).
-    Returns (plan, log, created). Raises on hard failure — the caller turns
-    that into the failure result the Fast Deploy panel pops."""
+# ── Live-chat customer-service platforms ────────────────────────────────────
+# One deployment shape (a front desk per store + Q&A agents on shared skills),
+# several platforms. A profile names what differs per platform.
+
+from typing import NamedTuple
+
+
+class _LiveChatProfile(NamedTuple):
+    scenario: str
+    label: str                    # shown in logs and task descriptions
+    platform: str                 # store catalog platform key
+    login_domain: str             # the site a store's login profile signs in to
+    qa_skill_id: str
+    qa_skill_name: str
+    fd_skill_id: str
+    fd_skill_name: str
+    prompts: tuple                # ((prompt_id, name, "qa" | "fd"), ...)
+    fd_task_prefix: str
+    qa_task_prefix: str
+    env_append: dict              # run.env keys added when missing (operator tuning survives)
+    env_set: dict                 # run.env keys that must hold exactly this value
+    find_skill_by_name: bool      # not yet published: local ids differ per machine
+
+
+_DDCS_PROFILE = _LiveChatProfile(
+    scenario="douyin_cs", label="抖店客服", platform="douyin", login_domain="im.jinritemai.com",
+    qa_skill_id=_DDCS_QA_SKILL_ID, qa_skill_name=_DDCS_QA_SKILL_NAME,
+    fd_skill_id=_DDCS_FD_SKILL_ID, fd_skill_name=_DDCS_FD_SKILL_NAME,
+    prompts=((_DDCS_QA_PROMPT_ID, "飞鸽客服应答0", "qa"),
+             (_DDCS_QA_SOCIAL_PROMPT_ID, "飞鸽社交应答0", "qa"),
+             (_DDCS_QA_RAG_PROMPT_ID, "飞鸽RAG路由分类0", "qa"),
+             (_DDCS_FD_PROMPT_ID, "飞鸽客服前台0", "fd")),
+    fd_task_prefix="飞鸽客服前台", qa_task_prefix="飞鸽客服应答",
+    env_append=_DDCS_FEIGE_ENV, env_set={}, find_skill_by_name=False,
+)
+
+# Pinduoduo (pdd_chat bundle). The bundle registers only when the process serves
+# it (ECAN_LIVE_CHAT_SITE), which this deploy writes to run.env.
+_PDD_PROFILE = _LiveChatProfile(
+    scenario="pdd_cs", label="拼多多客服", platform="pinduoduo", login_domain="mms.pinduoduo.com",
+    qa_skill_id="skill_5a5b45f75be39a5d", qa_skill_name="拼多多客服问答00",
+    fd_skill_id="skill_e055261cf068e9e2", fd_skill_name="拼多多客服前台00",
+    prompts=(("pr-177072", "拼多多客服应答0", "qa"),
+             ("pr-800621", "拼多多社交应答0", "qa"),
+             ("pr-56931", "RAG路由分类0", "qa"),
+             ("pr-920049", "拼多多客服前台0", "fd")),
+    fd_task_prefix="拼多多客服前台", qa_task_prefix="拼多多客服应答",
+    env_append={}, env_set={"ECAN_LIVE_CHAT_SITE": "pdd_chat"}, find_skill_by_name=True,
+)
+
+_LIVE_CHAT_PROFILES = {p.scenario: p for p in (_DDCS_PROFILE, _PDD_PROFILE)}
+# "<scenario>_multi": several stores of one platform on this machine, one shared Q&A pool.
+_MULTI_SUFFIX = "_multi"
+
+
+def _set_run_env(env_map: dict, log: list) -> None:
+    """Make each key in <appdata>/run.env hold exactly its value (replace or append).
+
+    For switches whose value matters (the live-chat site) -- unlike
+    ``_write_run_env``, which never overwrites an operator's tuning.
+    """
+    if not env_map:
+        return
+    import re as _re
+    try:
+        from config.envi import getECBotDataHome
+        path = os.path.join(getECBotDataHome(), "run.env")
+        lines = []
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        done = set()
+        for i, line in enumerate(lines):
+            m = _re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
+            if m and m.group(1) in env_map:
+                lines[i] = f"{m.group(1)}={env_map[m.group(1)]}"
+                done.add(m.group(1))
+        lines += [f"{k}={v}" for k, v in env_map.items() if k not in done]
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        for k, v in env_map.items():
+            os.environ[k] = v
+        log.append(f"Runtime env set: {', '.join(f'{k}={v}' for k, v in env_map.items())} "
+                   f"— restart the app to apply.")
+    except Exception as e:
+        log.append(f"WARNING: run.env update failed ({e}) — set {sorted(env_map)} manually.")
+
+
+def _find_skill(ctx, profile: _LiveChatProfile, role: str):
+    """The skill row for *role* ("qa" / "fd"): by id, then (unpublished skills) by exact name."""
+    sid = profile.qa_skill_id if role == "qa" else profile.fd_skill_id
+    name = profile.qa_skill_name if role == "qa" else profile.fd_skill_name
+    r = ctx.db.skill_service.get_skill_by_id(sid)
+    row = r.get("data") if isinstance(r, dict) and r.get("success") else None
+    if row or not profile.find_skill_by_name:
+        return row
+    try:
+        rows = (ctx.db.skill_service.query_skills(name=name) or {}).get("data") or []
+    except Exception:
+        rows = []
+    exact = [x for x in rows if str(x.get("name") or "").strip() == name]
+    return exact[0] if exact else None
+
+
+def _verify_live_chat_assets(ctx, profile: _LiveChatProfile, log: list) -> dict:
+    """{"qa": row, "fd": row} after checking both skills and every prompt are visible."""
     from utils.logger_helper import logger_helper as logger
-
-    store_urls = [u.strip() for u in (cfg.get("store_urls") or []) if u and str(u).strip()]
-    qa_n = int(cfg.get("qa_agents") or 8)  # matches the 抖店客服 panel default
-    log = []
-    created = {"skills": [], "tasks": [], "agents": []}
-
-    _refuse_taken_store_id(ctx, cfg)
-
-    # ── 0) 'replace' mode: clear THIS STORE's previous 抖店客服 deployment first.
-    if str(cfg.get("mode") or "add").strip().lower() == "replace":
-        _replace_cleanup(ctx, owner, (_DDCS_FD_SKILL_ID, _DDCS_QA_SKILL_ID), log,
-                         store_id=str(cfg.get("store_id") or "").strip())
-    else:
-        log.append("Add mode: existing tasks/agents kept")
-
-    # ── 1+2) Visibility checks: the two published skills, then their prompts
-    #    (prompt visibility rides the skills' author identity).
-    skill_rows = {}
-    for sid, sname in ((_DDCS_QA_SKILL_ID, _DDCS_QA_SKILL_NAME),
-                       (_DDCS_FD_SKILL_ID, _DDCS_FD_SKILL_NAME)):
-        r = ctx.db.skill_service.get_skill_by_id(sid)
-        row = r.get("data") if isinstance(r, dict) and r.get("success") else None
+    rows = {}
+    for role in ("qa", "fd"):
+        row = _find_skill(ctx, profile, role)
+        sname = profile.qa_skill_name if role == "qa" else profile.fd_skill_name
+        sid = profile.qa_skill_id if role == "qa" else profile.fd_skill_id
         if not row:
             msg = (f"Skill {sname} ({sid}) is not visible — subscribe to it in the "
                    f"skill store (public / rentable / ¥0) and retry.")
-            logger.error(f"[FastDeploy][douyin_cs] {msg}")
+            logger.error(f"[FastDeploy][{profile.scenario}] {msg}")
             raise RuntimeError(msg)
-        skill_rows[sid] = row
-    log.append(f"Skills verified: {_DDCS_QA_SKILL_NAME} ({_DDCS_QA_SKILL_ID}), "
-               f"{_DDCS_FD_SKILL_NAME} ({_DDCS_FD_SKILL_ID})")
-
-    for pid, pname, sid in ((_DDCS_QA_PROMPT_ID, "飞鸽客服应答0", _DDCS_QA_SKILL_ID),
-                            (_DDCS_QA_SOCIAL_PROMPT_ID, "飞鸽社交应答0", _DDCS_QA_SKILL_ID),
-                            (_DDCS_QA_RAG_PROMPT_ID, "飞鸽RAG路由分类0", _DDCS_QA_SKILL_ID),
-                            (_DDCS_FD_PROMPT_ID, "飞鸽客服前台0", _DDCS_FD_SKILL_ID)):
-        if not _prompt_visible(pid, _skill_author(skill_rows[sid]), log):
+        rows[role] = row
+    log.append(f"Skills verified: {profile.qa_skill_name} ({rows['qa'].get('id') or profile.qa_skill_id}), "
+               f"{profile.fd_skill_name} ({rows['fd'].get('id') or profile.fd_skill_id})")
+    for pid, pname, role in profile.prompts:
+        if not _prompt_visible(pid, _skill_author(rows[role]), log):
             msg = (f"Prompt {pname} ({pid}) is not visible — it should come with "
-                   f"the subscribed skill {skill_rows[sid].get('name')}; re-subscribe "
+                   f"the subscribed skill {rows[role].get('name')}; re-subscribe "
                    f"or sync prompts and retry.")
-            logger.error(f"[FastDeploy][douyin_cs] {msg}")
+            logger.error(f"[FastDeploy][{profile.scenario}] {msg}")
             raise RuntimeError(msg)
-    log.append(f"Prompts verified: 飞鸽客服应答0 ({_DDCS_QA_PROMPT_ID}), "
-               f"飞鸽社交应答0 ({_DDCS_QA_SOCIAL_PROMPT_ID}), "
-               f"飞鸽RAG路由分类0 ({_DDCS_QA_RAG_PROMPT_ID}), "
-               f"飞鸽客服前台0 ({_DDCS_FD_PROMPT_ID})")
+    log.append("Prompts verified: " + ", ".join(f"{n} ({p})" for p, n, _ in profile.prompts))
+    return rows
 
-    # ── Account API key: make sure the account has one (create when absent).
-    #    Same key the web app's Account page manages (myAPIKeygen store).
-    #    Best-effort: the douyin_cs runtime doesn't hard-require it yet, so
-    #    a failure here logs a warning instead of failing the deployment.
+
+def _ensure_account_api_key(log: list, scenario: str) -> None:
+    """Make sure the account has an API key (create when absent). Best-effort:
+    the runtime doesn't hard-require it yet, so a failure only warns."""
+    from utils.logger_helper import logger_helper as logger
     try:
         _cli_token = (os.environ.get("ECAN_CLI_AUTH_TOKEN") or "").strip()
         if _cli_token:
@@ -583,44 +667,122 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
         else:
             log.append("API key check skipped: no ECAN_CLI_AUTH_TOKEN in environment")
     except Exception as _key_err:
-        logger.warning(f"[FastDeploy][douyin_cs] API key ensure failed (non-fatal): {_key_err}")
+        logger.warning(f"[FastDeploy][{scenario}] API key ensure failed (non-fatal): {_key_err}")
         log.append(f"API key check failed (non-fatal): {_key_err}")
 
+
+def _local_vehicle(owner: str, log: list):
+    """This machine's verified vehicle id, or None (never an arbitrary DB row:
+    v0.9.95t pinned every agent to a stale vehicle and all were skipped)."""
+    try:
+        from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id
+        return resolve_local_vehicle_id(username=os.environ.get("ECAN_LOG_USER") or owner) or None
+    except Exception as e:
+        log.append(f"WARNING: local vehicle id resolution failed ({e}).")
+        return None
+
+
+class _Builder:
+    """Creates tasks and agents for one deployment and remembers what it made."""
+
+    def __init__(self, ctx, owner: str, org_id: str, label: str):
+        self.ctx, self.owner, self.org_id, self.label = ctx, owner, org_id, label
+        self.created = {"skills": [], "tasks": [], "agents": []}
+        self.links = {"task_skill": [], "agent_task": []}
+
+    def task(self, name: str, skill_id: str, task_vars: dict, identity: dict | None = None) -> str:
+        settings = {"task_vars": dict(task_vars)}
+        if identity:
+            settings["browser_identity"] = dict(identity)
+        tr = self.ctx.db.task_service.add_task({
+            "name": name, "owner": self.owner, "source": "fast_deploy",
+            "description": f"{self.label} — Fast Deploy (shared skill)",
+            "task_type": "browser_automation", "trigger": "auto", "status": "pending",
+            "settings": settings,
+        })
+        if not tr.get("success"):
+            raise RuntimeError(f"add_task({name}) failed: {tr.get('error')}")
+        tid = tr.get("id")
+        self.created["tasks"].append(tid)
+        link = self.ctx.db.task_service.add_skill_to_task(tid, skill_id, role="primary")
+        self.links["task_skill"].append((tid, skill_id))
+        if not (isinstance(link, dict) and link.get("success")):
+            raise RuntimeError(f"link task {name} → skill {skill_id} failed: {(link or {}).get('error')}")
+        return tid
+
+    def agent(self, name: str, skill_id: str, task_id: str, vehicle_id=None) -> str:
+        adata = {"name": name, "description": f"{self.label} — Fast Deploy (shared skill)",
+                 "skills": [skill_id], "org_id": self.org_id}
+        # Task links must not depend on vehicle resolution: without them the
+        # agents exist but never run their tasks.
+        if task_id:
+            adata["tasks"] = [task_id]
+        if vehicle_id:
+            adata["vehicle_id"] = vehicle_id
+        ar = self.ctx.db.agent_service.create_agent_from_data(adata, self.owner)
+        if not ar.get("success"):
+            raise RuntimeError(f"create agent {name} failed: {ar.get('error')}")
+        aid = ar.get("id")
+        self.created["agents"].append(aid)
+        if task_id:
+            self.links["agent_task"].append((aid, task_id))
+        return aid
+
+
+def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
+    """The 抖店客服 deployment (Feige). Kept by name for callers and tests."""
+    return _deploy_live_chat(cfg, ctx, owner, _DDCS_PROFILE)
+
+
+def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _DDCS_PROFILE):
+    """Create one store's live-chat CS deployment (shared-skill model).
+    Returns (plan, log, created). Raises on hard failure — the caller turns
+    that into the failure result the Fast Deploy panel pops."""
+    from utils.logger_helper import logger_helper as logger
+
+    store_urls = [u.strip() for u in (cfg.get("store_urls") or []) if u and str(u).strip()]
+    qa_n = int(cfg.get("qa_agents") or 8)  # matches the panel default
+    log = []
+
+    _refuse_taken_store_id(ctx, cfg)
+
+    # ── 0) 'replace' mode: clear THIS STORE's previous deployment first.
+    if str(cfg.get("mode") or "add").strip().lower() == "replace":
+        _replace_cleanup(ctx, owner, (profile.fd_skill_id, profile.qa_skill_id), log,
+                         store_id=str(cfg.get("store_id") or "").strip())
+    else:
+        log.append("Add mode: existing tasks/agents kept")
+
+    # ── 1+2) Visibility: both skills, then their prompts (prompt visibility
+    #    rides the skills' author identity).
+    rows = _verify_live_chat_assets(ctx, profile, log)
+    qa_skill_id = rows["qa"].get("id") or profile.qa_skill_id
+    fd_skill_id = rows["fd"].get("id") or profile.fd_skill_id
+
+    _ensure_account_api_key(log, profile.scenario)
+
     # ── Store URL propagation: per-task variables. apply_task_vars seeds
-    #    these into every run's prompt variables, so the skills' prompts can
-    #    reference {{store_url}} / {{store_urls}}.
+    #    these into every run's prompt variables ({{store_url}} / {{store_urls}}).
     task_vars = {"store_url": store_urls[0], "store_urls": ",".join(store_urls)}
     log.append(f"Task variables: store_url={store_urls[0]} (+{len(store_urls) - 1} more)"
                if len(store_urls) > 1 else f"Task variables: store_url={store_urls[0]}")
 
-    # ── Store identity. NOT derivable from the URL here: every 飞鸽 seller
-    #    shares https://im.jinritemai.com/pc_seller_v2/..., so resolve_store_id's
-    #    URL fallback returns the same constant for every store. Left unset, a
-    #    second store's per-store placeholder config and metering would silently
-    #    merge into the first one's bucket — populated-looking and wrong.
+    # ── Store identity. NOT derivable from the URL: every seller of a platform
+    #    shares one workstation URL, so resolve_store_id's URL fallback returns
+    #    the same constant for every store. Left unset, a second store's
+    #    per-store settings and metering would silently merge into the first.
     store_id = str(cfg.get("store_id") or "").strip()
     if store_id:
         task_vars["store_id"] = store_id
         log.append(f"Store id: {store_id}")
-        _register_store(ctx, store_id, cfg, store_urls, log)
+        _register_store(ctx, store_id, cfg, store_urls, log, platform=profile.platform)
     else:
         log.append("WARNING: no store_id given. Fine for a single store; if you "
                    "deploy a second one, its per-store settings and usage will "
                    "merge with this one's. Re-run with a store id to separate them.")
 
     # ── Vehicle: pin the new agents to THIS machine (affinity gate).
-    # ONLY the verified local machine id may be pinned. Never fall back to an
-    # arbitrary DB row: on the v0.9.95t customer machine the first row was a
-    # stale vehicle, every agent got pinned to it, and the affinity gate then
-    # skipped ALL of them at launch ("assigned to vehicle cccdef54.., local
-    # vehicle is 3bee2c61.."). Unpinned agents fail OPEN — they run anywhere.
-    vehicle_id = None
-    try:
-        from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id
-        vehicle_id = resolve_local_vehicle_id(
-            username=os.environ.get("ECAN_LOG_USER") or owner) or None
-    except Exception as e:
-        log.append(f"WARNING: local vehicle id resolution failed ({e}).")
+    vehicle_id = _local_vehicle(owner, log)
     if not vehicle_id:
         log.append("WARNING: no local vehicle id — agents created UNPINNED (they will run on any host).")
     if store_id and vehicle_id:
@@ -630,14 +792,13 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
         vehicle_id = None
         log.append(f"Placement: agents follow store {store_id!r}'s assignment, not this machine")
 
-    # ── Sales organization.
     org_id = _ensure_sales_org(ctx, owner, log)
 
     # The store's login: its tasks run in its own browser profile, so a second
     # store never drives the first one's logged-in browser (build_helpers.
     # browser_type_for_identity). Local only -- the profile never syncs.
     identity = _store_browser_identity(ctx, store_id, log)
-    links = {"task_skill": [], "agent_task": []}
+    b = _Builder(ctx, owner, org_id, profile.label)
 
     def _add_task(name: str, skill_id: str, extra_vars: dict | None = None) -> str:
         tvars = dict(task_vars)
@@ -646,81 +807,192 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
         settings = {"task_vars": tvars}
         if identity:
             settings["browser_identity"] = dict(identity)
-        tr = ctx.db.task_service.add_task({
-            "name": name, "owner": owner, "source": "fast_deploy",
-            "description": "抖店客服 — Fast Deploy (shared skill)",
-            "task_type": "browser_automation", "trigger": "auto", "status": "pending",
-            "settings": settings,
-        })
-        if not tr.get("success"):
-            raise RuntimeError(f"add_task({name}) failed: {tr.get('error')}")
-        tid = tr.get("id")
-        created["tasks"].append(tid)
-        link = ctx.db.task_service.add_skill_to_task(tid, skill_id, role="primary")
-        links["task_skill"].append((tid, skill_id))
-        if not (isinstance(link, dict) and link.get("success")):
-            raise RuntimeError(
-                f"link task {name} → skill {skill_id} failed: {(link or {}).get('error')}")
-        return tid
+        return b.task(name, skill_id, settings["task_vars"], settings.get("browser_identity"))
 
-    def _add_agent(name: str, skill_id: str, task_id: str) -> str:
-        adata = {
-            "name": name,
-            "description": "抖店客服 — Fast Deploy (shared skill)",
-            "skills": [skill_id],
-            "org_id": org_id,
-        }
-        # Task links must not depend on vehicle resolution: without them the
-        # agents exist but never run their tasks (deep-trace finding — a CLI
-        # subprocess can fail vehicle resolution where the GUI would not).
-        if task_id:
-            adata["tasks"] = [task_id]
-        if vehicle_id:
-            adata["vehicle_id"] = vehicle_id
-        ar = ctx.db.agent_service.create_agent_from_data(adata, owner)
-        if not ar.get("success"):
-            raise RuntimeError(f"create agent {name} failed: {ar.get('error')}")
-        aid = ar.get("id")
-        created["agents"].append(aid)
-        if task_id:
-            links["agent_task"].append((aid, task_id))
-        return aid
+    # ── Runtime env → <appdata>/run.env (applied on next app start).
+    if profile.env_append:
+        _write_run_env(profile.env_append, log)
+    _set_run_env(profile.env_set, log)
 
-    # ── Feige runtime env flags → <appdata>/run.env (applied on next app start).
-    _write_run_env(_DDCS_FEIGE_ENV, log)
-
-    # ── 3A/4A) Front-desk task + agent FIRST: the Q&A tasks must carry the
-    #    front-desk agent's id in task_vars, because the shared Q&A skill's
-    #    pend_event node filters on {{front_desk_agent_id}} — resolved from
-    #    task_vars at task-launch time (runner._extract_event_types_from_skill).
-    fd_task_id = _add_task("飞鸽客服前台001", _DDCS_FD_SKILL_ID)
-    fd_agent_id = _add_agent("前台小张", _DDCS_FD_SKILL_ID, fd_task_id)
-    log.append(f"Created task 飞鸽客服前台001 → {_DDCS_FD_SKILL_NAME}")
+    # ── Front-desk task + agent FIRST: the Q&A tasks carry the front-desk
+    #    agent's id in task_vars -- the shared Q&A skill's pend_event filters on
+    #    {{front_desk_agent_id}}, resolved from task_vars at task launch.
+    fd_name = f"{profile.fd_task_prefix}001"
+    fd_task_id = _add_task(fd_name, fd_skill_id)
+    fd_agent_id = b.agent("前台小张", fd_skill_id, fd_task_id, vehicle_id)
+    log.append(f"Created task {fd_name} → {profile.fd_skill_name}")
     log.append(f"Created front-desk agent 前台小张 ({fd_agent_id}, org=Sales)")
 
-    # ── 3B/4B) Q&A tasks (carrying front_desk_agent_id) + agents.
     qa_task_ids = []
     for i in range(1, qa_n + 1):
-        qa_task_ids.append(_add_task(f"飞鸽客服应答{i:03d}", _DDCS_QA_SKILL_ID,
+        qa_task_ids.append(_add_task(f"{profile.qa_task_prefix}{i:03d}", qa_skill_id,
                                      extra_vars={"front_desk_agent_id": fd_agent_id}))
     for name, tid in zip(_draw_qa_names(qa_n), qa_task_ids):
-        _add_agent(f"客服小{name}", _DDCS_QA_SKILL_ID, tid)
-    log.append(f"Created {qa_n} Q&A task(s) 飞鸽客服应答001..{qa_n:03d} → {_DDCS_QA_SKILL_NAME} "
-               f"(task_vars.front_desk_agent_id={fd_agent_id})")
+        b.agent(f"客服小{name}", qa_skill_id, tid, vehicle_id)
+    log.append(f"Created {qa_n} Q&A task(s) {profile.qa_task_prefix}001..{qa_n:03d} → "
+               f"{profile.qa_skill_name} (task_vars.front_desk_agent_id={fd_agent_id})")
     log.append(f"Created {qa_n} Q&A agent(s) 客服小X (org=Sales)")
 
-    plan = {
-        "agents": len(created["agents"]),
-        "skills": 0,  # shared skills referenced, none created
-        "tasks": len(created["tasks"]),
-    }
+    plan = {"agents": len(b.created["agents"]), "skills": 0, "tasks": len(b.created["tasks"])}
     logger.info(
-        f"[FastDeploy][douyin_cs] SUCCESS: {plan['agents']} agent(s), {plan['tasks']} task(s) "
-        f"referencing shared skills {_DDCS_QA_SKILL_ID}/{_DDCS_FD_SKILL_ID}; "
+        f"[FastDeploy][{profile.scenario}] SUCCESS: {plan['agents']} agent(s), {plan['tasks']} task(s) "
+        f"referencing shared skills {qa_skill_id}/{fd_skill_id}; "
         f"store_url + front_desk_agent_id propagated via task_vars"
     )
+    created, links = b.created, b.links
     _sync_created_to_cloud(ctx, created, links, log)
     return plan, log, created
+
+
+# ── Several stores on this machine, one shared Q&A pool ─────────────────────
+
+def _login_profile_id(store_id: str) -> str:
+    """A profile id for a store's login: the registry allows [A-Za-z0-9_-] only,
+    and store ids are often Chinese, so keep what fits plus a short hash."""
+    import hashlib
+    import re as _re
+    base = _re.sub(r"[^A-Za-z0-9_-]", "", store_id)[:40].strip("-_")
+    digest = hashlib.sha1(store_id.encode("utf-8")).hexdigest()[:8]
+    return f"{base}-{digest}-login" if base else f"store-{digest}-login"
+
+
+def _store_urls_of(rec: dict) -> list:
+    urls = rec.get("store_urls") or []
+    if isinstance(urls, str):
+        try:
+            urls = json.loads(urls)
+        except Exception:
+            urls = [u for u in urls.split(",") if u.strip()]
+    return [str(u).strip() for u in urls if str(u).strip()]
+
+
+def _profile_registry():
+    from agent.ec_skills.browser_use_extension.fingerprint import profile_registry
+    return profile_registry
+
+
+def _ensure_store_login(ctx, rec: dict, profile: _LiveChatProfile, log: list):
+    """(browser identity, needs_login) for one store -- creating its login profile if it has none.
+
+    A store with no profile of its own would run in the shared default browser,
+    and one browser keeps only ONE store's customer-service page online. The
+    profile starts empty: someone signs the store in once (Settings -> Browser
+    Profiles -> Launch). Profiles stay on this machine.
+    """
+    reg = _profile_registry()
+    store_id = rec["store_id"]
+    pid = str(rec.get("browser_profile_id") or "").strip()
+    if pid and reg.get_profile(pid):
+        state = (reg.login_state(pid) or {}).get("state")
+        return {"browser_profile_id": pid}, state != reg.LOGIN_OK
+    if not pid:
+        pid = _login_profile_id(store_id)
+    if not reg.get_profile(pid):
+        prof = reg.make_profile(pid, label=f"{rec.get('name') or store_id}",
+                                domain_name=profile.login_domain, locale="zh-CN", store_id=store_id)
+        reg.save_profile(prof)
+        log.append(f"Login profile {pid!r} created for store {store_id!r} (sign it in once)")
+    try:
+        ctx.db.store_service.upsert_store({"store_id": store_id, "browser_profile_id": pid})
+    except Exception as e:
+        log.append(f"Store {store_id!r}: login profile not recorded on the store ({e})")
+    return {"browser_profile_id": pid}, True
+
+
+def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfile):
+    """Several stores of one platform on this machine.
+
+    Per store: its own login profile (created when missing), a front desk task
+    carrying ``store_id`` + that browser identity, and a front-desk agent that
+    follows the store's placement. Shared: ONE pool of Q&A agents serving every
+    store's front desk -- each Q&A task accepts all of them
+    (``front_desk_agent_id`` = comma list, a membership filter at launch) and
+    answers whichever one asked (send_chat's recipient is back-filled from the
+    event sender). The pool is pinned to this machine.
+    """
+    from utils.logger_helper import logger_helper as logger
+
+    store_ids = []
+    for x in cfg.get("stores") or []:
+        sid = str((x.get("store_id") if isinstance(x, dict) else x) or "").strip()
+        if sid and sid not in store_ids:
+            store_ids.append(sid)
+    if not store_ids:
+        raise RuntimeError("pick at least one store")
+    qa_n = int(cfg.get("qa_agents") or 4)
+    if qa_n < 1:
+        raise RuntimeError("at least one Q&A agent is needed")
+    log = [f"Stores: {', '.join(store_ids)}; shared Q&A agents: {qa_n}"]
+
+    svc = getattr(ctx.db, "store_service", None)
+    if svc is None:
+        raise RuntimeError("store catalog unavailable")
+    recs = []
+    for sid in store_ids:
+        rec = svc.get_store(sid)
+        if not rec:
+            raise RuntimeError(f"store {sid!r} is not in the store list -- create it on the Stores page first")
+        plat = str(rec.get("platform") or "").strip()
+        if plat and plat != profile.platform:
+            raise RuntimeError(f"store {sid!r} is a {plat} store, not {profile.platform}")
+        recs.append(rec)
+
+    if str(cfg.get("mode") or "add").strip().lower() == "replace":
+        for sid in store_ids:
+            _replace_cleanup(ctx, owner, (profile.fd_skill_id, profile.qa_skill_id), log, store_id=sid)
+        # the previous shared pool (its tasks carry no store id)
+        _replace_cleanup(ctx, owner, (profile.qa_skill_id,), log, store_id="")
+    else:
+        log.append("Add mode: existing tasks/agents kept")
+
+    rows = _verify_live_chat_assets(ctx, profile, log)
+    qa_skill_id = rows["qa"].get("id") or profile.qa_skill_id
+    fd_skill_id = rows["fd"].get("id") or profile.fd_skill_id
+    _ensure_account_api_key(log, profile.scenario)
+
+    vehicle_id = _local_vehicle(owner, log)
+    if not vehicle_id:
+        log.append("WARNING: no local vehicle id — the shared Q&A pool is UNPINNED (it may start on other machines too).")
+    org_id = _ensure_sales_org(ctx, owner, log)
+    if profile.env_append:
+        _write_run_env(profile.env_append, log)
+    _set_run_env(profile.env_set, log)
+
+    b = _Builder(ctx, owner, org_id, profile.label)
+    fd_ids, needs_login = [], []
+    for rec in recs:
+        sid = rec["store_id"]
+        name = str(rec.get("name") or sid)
+        urls = _store_urls_of(rec)
+        identity, needs = _ensure_store_login(ctx, rec, profile, log)
+        if needs:
+            needs_login.append({"store_id": sid, "store_name": name,
+                                "profile_id": identity["browser_profile_id"]})
+        tvars = {"store_id": sid}
+        if urls:
+            tvars.update(store_url=urls[0], store_urls=",".join(urls))
+        tid = b.task(f"{profile.fd_task_prefix}-{name}", fd_skill_id, tvars, identity)
+        # No pin: a store's agents run where the store is assigned.
+        aid = b.agent(f"前台-{name}", fd_skill_id, tid, None)
+        fd_ids.append(aid)
+        log.append(f"Store {name!r}: front desk {aid} in login profile {identity['browser_profile_id']!r}")
+
+    senders = ",".join(fd_ids)
+    for i, qa_name in zip(range(1, qa_n + 1), _draw_qa_names(qa_n)):
+        tid = b.task(f"{profile.qa_task_prefix}共享{i:03d}", qa_skill_id,
+                     {"front_desk_agent_id": senders})
+        b.agent(f"客服小{qa_name}", qa_skill_id, tid, vehicle_id)
+    log.append(f"Created a shared pool of {qa_n} Q&A agent(s) serving {len(fd_ids)} front desk(s)")
+    if needs_login:
+        log.append("Sign these stores in once (Settings → Browser Profiles → Launch): "
+                   + ", ".join(f"{x['store_name']} ({x['profile_id']})" for x in needs_login))
+
+    plan = {"agents": len(b.created["agents"]), "skills": 0, "tasks": len(b.created["tasks"]),
+            "stores": len(recs), "needs_login": needs_login}
+    logger.info(f"[FastDeploy][{profile.scenario}_multi] SUCCESS: {len(recs)} store(s), "
+                f"{plan['agents']} agent(s), {plan['tasks']} task(s); {len(needs_login)} need a login")
+    _sync_created_to_cloud(ctx, b.created, b.links, log)
+    return plan, log, b.created
 
 
 @click.group()
@@ -783,7 +1055,11 @@ def scenario(config, output):
         }, ok=False)
         return
 
+    base_key = scenario_key[:-len("_multi")] if scenario_key.endswith("_multi") else scenario_key
+    is_multi = scenario_key.endswith("_multi")
     urls = cfg.get("store_urls") or []
+    if is_multi:
+        urls = urls or ["(from each store's record)"]   # multi-store reads URLs off the stores
     if not isinstance(urls, list):
         _emit({
             "status": "failure",
@@ -801,9 +1077,10 @@ def scenario(config, output):
         }, ok=False)
         return
 
-    # Real deployment for Douyin/抖店 CS (persists agents/skills/tasks);
-    # the other scenarios are still stubbed plans.
-    if scenario_key == "douyin_cs":
+    # Real deployments: live-chat customer service (抖店 / 拼多多), one store
+    # or several with a shared Q&A pool. The other scenarios are stubbed plans.
+    if base_key in _LIVE_CHAT_PROFILES:
+        profile = _LIVE_CHAT_PROFILES[base_key]
         from ..base.context import get_context
         ctx = get_context()
         owner = ctx.username or os.environ.get("ECAN_DEPLOY_OWNER") or "default"
@@ -825,7 +1102,10 @@ def scenario(config, output):
             }, ok=False)
             return
         try:
-            plan, log, created = _deploy_douyin_cs(cfg, ctx, owner)
+            if is_multi:
+                plan, log, created = _deploy_live_chat_multi(cfg, ctx, owner, profile)
+            else:
+                plan, log, created = _deploy_live_chat(cfg, ctx, owner, profile)
         except Exception as e:
             _emit({
                 "status": "failure",
@@ -843,9 +1123,11 @@ def scenario(config, output):
             "created": created,
             "log": ["Config validated.", *log, "Deployment complete."],
             "message": (
-                f"抖店客服 deployed: {plan['agents']} agent(s) and {plan['tasks']} task(s) "
-                f"referencing the shared Feige skills (no copies). "
-                f"Store URL propagated via task variables."
+                f"{profile.label} deployed: {plan['agents']} agent(s) and {plan['tasks']} task(s) "
+                + (f"for {plan.get('stores')} store(s) with a shared Q&A pool. "
+                   if is_multi else "referencing the shared skills (no copies). ")
+                + (f"{len(plan.get('needs_login') or [])} store(s) need a one-time login."
+                   if plan.get("needs_login") else "")
             ),
         }, ok=True)
         return

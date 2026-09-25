@@ -62,7 +62,8 @@ def handle_start(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         logger.info(f"[site-probe] recording {site} on login {pid!r} -> {runner.probe.path}")
         return create_success_response(request, {"file": runner.probe.path})
     except Exception as e:
-        logger.error(f"[site-probe] start failed: {e}")
+        import traceback
+        logger.error(f"[site-probe] start failed: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'PROBE_ERROR', str(e))
 
 

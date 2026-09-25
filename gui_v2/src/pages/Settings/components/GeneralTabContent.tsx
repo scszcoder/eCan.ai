@@ -5,6 +5,7 @@ import { ReloadOutlined, SaveOutlined } from '@ant-design/icons';
 import { FormInstance } from 'antd/es/form';
 import styled from '@emotion/styled';
 import { StyledFormItem } from '@/components/Common/StyledForm';
+import { LiveChatSiteSetting } from './LiveChatSiteSetting';
 
 const StyledRefreshButton = styled(Button)`
   &,
@@ -129,6 +130,11 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
                       </StyledFormItem>
                     </Col>
                   </Row>
+
+                  <Divider orientation="left" style={{ margin: '24px 0 16px 0', fontSize: '14px', fontWeight: 600 }}>
+                    {t('pages.settings.live_chat_settings', 'Customer chat')}
+                  </Divider>
+                  <LiveChatSiteSetting />
 
                   <Divider orientation="left" style={{ margin: '24px 0 16px 0', fontSize: '14px', fontWeight: 600 }}>
                     {t('pages.settings.hardware_settings')}
