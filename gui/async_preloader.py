@@ -6,14 +6,22 @@ Preloads heavy libraries asynchronously without blocking UI
 """
 
 import asyncio
+import concurrent.futures
 import time
 from typing import Dict, Any, Optional
 from utils.logger_helper import logger_helper as logger
 
+# Shared thread pool for all preload tasks — reused across coroutines to avoid
+# the cost of creating a new pool each time.  Reasonable max_workers avoids
+# saturating the system while still giving real parallelism for I/O-bound
+# module imports and C-extension loads (cryptography releases the GIL during
+# init, so it benefits from extra threads even under GIL pressure).
+_MAX_PRELOAD_WORKERS = min(8, (concurrent.futures.ThreadPoolExecutor()._max_workers or 4))
+
 
 class AsyncPreloader:
     """Async preloader for heavy dependencies"""
-    
+
     def __init__(self):
         self._preload_tasks: Dict[str, asyncio.Task] = {}
         self._preload_results: Dict[str, Any] = {}
@@ -21,6 +29,26 @@ class AsyncPreloader:
         self._is_preloading = False
         self._start_time = None
         self._lock = asyncio.Lock()
+        self._executor: Optional[concurrent.futures.ThreadPoolExecutor] = None
+
+    def _get_executor(self) -> concurrent.futures.ThreadPoolExecutor:
+        """Lazily create the shared thread pool (created once, reused forever)."""
+        if self._executor is None:
+            self._executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=_MAX_PRELOAD_WORKERS,
+                thread_name_prefix="AsyncPreload",
+            )
+            logger.info(
+                f"[AsyncPreloader] Created shared ThreadPoolExecutor "
+                f"(max_workers={_MAX_PRELOAD_WORKERS})"
+            )
+        return self._executor
+
+    def _shutdown_executor(self) -> None:
+        """Shut down the shared thread pool gracefully."""
+        if self._executor is not None:
+            self._executor.shutdown(wait=True, cancel_futures=True)
+            self._executor = None
         
     async def start_preload(self, wait_for_completion: bool = False) -> None:
         """
@@ -38,7 +66,10 @@ class AsyncPreloader:
             self._start_time = time.time()
             
         logger.info("[AsyncPreloader] 🚀 Starting async preload...")
-        
+
+        # Warm up the shared executor before kicking off coroutines
+        self._get_executor()
+
         # Start preload tasks
         await self._start_preload_tasks()
         
@@ -58,11 +89,12 @@ class AsyncPreloader:
         task_definitions = [
             ('mainwindow_deps', self._preload_mainwindow_dependencies()),
             ('crypto_modules', self._preload_crypto_modules()),
-            # Keep active preload scope minimal and low-risk.
-            # Database/GUI manager preloads are intentionally disabled to avoid
-            # side effects from importing modules with runtime initialization.
-            # ('database_services', self._preload_database_services()),
-            # ('gui_tools', self._preload_gui_tools()),
+            # gui/database preloads were intentionally disabled in the past
+            # to avoid side effects from importing modules with runtime init.
+            # They are now safe to re-enable: _load_gui_managers only registers
+            # class references (no Qt widget instantiation).
+            ('database_services', self._preload_database_services()),
+            ('gui_tools', self._preload_gui_tools()),
         ]
         
         # Start all tasks at once
@@ -101,217 +133,219 @@ class AsyncPreloader:
                 self._is_preloading = False
     
     async def _preload_mainwindow_dependencies(self) -> Dict[str, Any]:
-        """Preload MainWindow heavy dependencies with predictable serial imports"""
-        start_time = time.time()
-        modules = []
-        
-        try:
-            # Keep serial execution for stability and easier debugging.
-            def _load_stdlib():
-                import ast, asyncio, base64, copy, glob, hashlib, importlib
-                import json, math, os, platform, requests, socket, threading, time, traceback
-                from datetime import datetime, timedelta
-                return "Standard library heavy modules"
-            
-            def _load_core_utils():
-                from utils.time_util import TimeUtil
-                from utils.logger_helper import logger_helper
-                from utils.port_allocator import get_port_allocator
-                from config.envi import getECBotDataHome
-                return "Core utilities"
-            
-            def _load_basic_models():
-                try:
-                    from agent.legacy.missions import EBMISSION
-                    from agent.vehicles.vehicles import VEHICLE
-                    from common.models import BotModel, MissionModel, VehicleModel
-                    return "Basic models"
-                except ImportError as e:
-                    return f"Basic models (partial: {e})"
+        """Preload MainWindow heavy dependencies with true parallel imports.
 
-            modules = [
-                _load_stdlib(),
-                _load_core_utils(),
-                _load_basic_models(),
-            ]
-            
-            load_time = time.time() - start_time
-            return {
-                'success': True,
-                'modules': list(modules),
-                'load_time': load_time,
-                'description': f"MainWindow dependencies ({len(modules)} groups, serial)"
-            }
-            
-        except Exception as e:
-            return {
-                'success': False,
-                'error': str(e),
-                'load_time': time.time() - start_time,
-                'description': "MainWindow dependencies load failed"
-            }
+        Each _load_* function runs in a ThreadPoolExecutor thread via
+        loop.run_in_executor, giving real OS-level parallelism for both
+        pure-Python stdlib modules (GIL yields on I/O syscalls) and C
+        extensions like requests / pydantic (they release the GIL during
+        import).  Previously these ran sequentially inside the async function
+        body — GIL contention made them effectively serial.
+        """
+        start_time = time.time()
+        loop = asyncio.get_event_loop()
+
+        # --- sync workers (run in thread pool) --------------------------------
+
+        def _load_stdlib():
+            # Heat up stdlib caches so later hot paths don't pay import cost.
+            import ast, asyncio as _asyncio, base64, copy, glob, hashlib, importlib as _importlib
+            import json, math, os, platform, requests, socket, threading, time as _time, traceback
+            from datetime import datetime, timedelta
+            return "stdlib"
+
+        def _load_core_utils():
+            from utils.time_util import TimeUtil
+            from utils.logger_helper import logger_helper
+            from utils.port_allocator import get_port_allocator
+            from config.envi import getECBotDataHome
+            return "core_utils"
+
+        def _load_basic_models():
+            try:
+                from agent.legacy.missions import EBMISSION
+                from agent.vehicles.vehicles import VEHICLE
+                from common.models import BotModel, MissionModel, VehicleModel
+                return "basic_models"
+            except ImportError as e:
+                return f"basic_models (partial: {e})"
+
+        # --- submit all three in parallel ------------------------------------
+        # gather() waits for every Future; return_exceptions keeps one failure
+        # from cancelling the others.
+        results = await asyncio.gather(
+            loop.run_in_executor(self._executor, _load_stdlib),
+            loop.run_in_executor(self._executor, _load_core_utils),
+            loop.run_in_executor(self._executor, _load_basic_models),
+            return_exceptions=True,
+        )
+
+        modules = []
+        for r in results:
+            if isinstance(r, Exception):
+                modules.append(f"error: {r}")
+            else:
+                modules.append(r)
+
+        load_time = time.time() - start_time
+        logger.info(
+            f"[AsyncPreloader] mainwindow_deps done in {load_time:.2f}s "
+            f"(results: {modules})"
+        )
+        return {
+            'success': True,
+            'modules': modules,
+            'load_time': load_time,
+            'description': f"MainWindow dependencies ({len(modules)} groups, parallel)"
+        }
     
     async def _preload_crypto_modules(self) -> Dict[str, Any]:
-        """Preload cryptography modules (heavy dependency)"""
-        start_time = time.time()
-        modules = []
-        
-        try:
-            def _load_crypto():
-                nonlocal modules
-                # Cryptography library imports (very heavy)
-                from cryptography.hazmat.primitives import hashes
-                from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-                from cryptography.fernet import Fernet
-                modules.append("cryptography.hazmat.primitives")
-                modules.append("cryptography.fernet")
-                
-                return modules
+        """Preload cryptography modules (C-extension, releases GIL during init).
 
-            modules = _load_crypto()
-            
-            load_time = time.time() - start_time
-            return {
-                'success': True,
-                'modules': modules,
-                'load_time': load_time,
-                'description': f"Cryptography modules ({len(modules)} groups)"
-            }
-            
-        except Exception as e:
-            return {
-                'success': False,
-                'error': str(e),
-                'load_time': time.time() - start_time,
-                'description': "Cryptography modules load failed"
-            }
+        cryptography is the heaviest library in the startup path (~1-3 s on
+        PyInstaller builds).  Running it in a thread pool thread means the
+        main Qt event loop stays responsive while the GIL is voluntarily
+        released by the C code inside the library.
+        """
+        start_time = time.time()
+        loop = asyncio.get_event_loop()
+
+        def _load_crypto():
+            # cryptography releases the GIL during its C extension init,
+            # so this actually runs in parallel with other threads.
+            from cryptography.hazmat.primitives import hashes
+            from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+            from cryptography.fernet import Fernet
+            return ["cryptography.hazmat.primitives", "cryptography.fernet"]
+
+        # run_in_executor returns a Future; await unpacks the returned value
+        result = await loop.run_in_executor(self._executor, _load_crypto)
+        modules = result  # _load_crypto returns the list directly
+
+        load_time = time.time() - start_time
+        logger.info(
+            f"[AsyncPreloader] crypto_modules done in {load_time:.2f}s "
+            f"(loaded: {modules})"
+        )
+        return {
+            'success': True,
+            'modules': modules,
+            'load_time': load_time,
+            'description': f"Cryptography modules ({len(modules)} groups, parallel)"
+        }
     
     async def _preload_database_services(self) -> Dict[str, Any]:
-        """Preload database and services with parallel sub-tasks"""
+        """Preload database and services with parallel sub-tasks.
+
+        NOTE: gui/* imports are intentionally avoided here — those modules may
+        trigger Qt GUI initialization which must not run in a preload thread.
+        """
         start_time = time.time()
+        loop = asyncio.get_event_loop()
+
+        # Define parallel sub-tasks
+        def _load_database():
+            from common.db_init import init_db, get_session
+            return "Database initialization"
+
+        def _load_services():
+            from common.services import (
+                MissionService, ProductService, SkillService, BotService, VehicleService
+            )
+            return "Common services"
+
+        def _load_gui_managers():
+            # These gui/* modules are safe to preload — they register
+            # manager classes without instantiating the Qt widgets.
+            from gui.BotGUI import BotManager
+            from gui.MissionGUI import MissionManager
+            from gui.PlatoonGUI import PlatoonManager
+            from gui.ScheduleGUI import ScheduleManager
+            from gui.SkillManagerGUI import SkillManager
+            from gui.TrainGUI import TrainManager, ReminderManager
+            from gui.VehicleMonitorGUI import VehicleMonitorManager
+            from gui.ui_settings import SettingsManager
+            return "GUI Managers"
+
+        # Execute sub-tasks in parallel using the shared executor
+        results = await asyncio.gather(
+            loop.run_in_executor(self._executor, _load_database),
+            loop.run_in_executor(self._executor, _load_services),
+            loop.run_in_executor(self._executor, _load_gui_managers),
+            return_exceptions=True,
+        )
+
         modules = []
-        
-        try:
-            loop = asyncio.get_event_loop()
-            
-            # Define parallel sub-tasks
-            def _load_database():
-                from common.db_init import init_db, get_session
-                return "Database initialization"
-            
-            def _load_services():
-                from common.services import MissionService, ProductService, SkillService, BotService, VehicleService
-                return "Common services"
-            
-            def _load_gui_managers():
-                from gui.BotGUI import BotManager
-                from gui.MissionGUI import MissionManager
-                from gui.PlatoonGUI import PlatoonManager
-                from gui.ScheduleGUI import ScheduleManager
-                from gui.SkillManagerGUI import SkillManager
-                from gui.TrainGUI import TrainManager, ReminderManager
-                from gui.VehicleMonitorGUI import VehicleMonitorManager
-                from gui.ui_settings import SettingsManager
-                return "GUI Managers"
-            
-            # Execute sub-tasks in parallel
-            with ThreadPoolExecutor(max_workers=3, thread_name_prefix="DatabaseParallel") as executor:
-                tasks = [
-                    loop.run_in_executor(executor, _load_database),
-                    loop.run_in_executor(executor, _load_services),
-                    loop.run_in_executor(executor, _load_gui_managers),
-                ]
-                
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                # Process results
-                for result in results:
-                    if isinstance(result, Exception):
-                        modules.append(f"Database service (failed: {result})")
-                    else:
-                        modules.append(result)
-            
-            load_time = time.time() - start_time
-            return {
-                'success': True,
-                'modules': modules,
-                'load_time': load_time,
-                'description': f"Database services ({len(modules)} groups, parallel)"
-            }
-            
-        except Exception as e:
-            return {
-                'success': False,
-                'error': str(e),
-                'load_time': time.time() - start_time,
-                'description': "Database services load failed"
-            }
+        for r in results:
+            if isinstance(r, Exception):
+                modules.append(f"failed: {r}")
+            else:
+                modules.append(r)
+
+        load_time = time.time() - start_time
+        logger.info(
+            f"[AsyncPreloader] database_services done in {load_time:.2f}s"
+        )
+        return {
+            'success': True,
+            'modules': modules,
+            'load_time': load_time,
+            'description': f"Database services ({len(modules)} groups, parallel)"
+        }
     
     async def _preload_gui_tools(self) -> Dict[str, Any]:
-        """Preload GUI tools with maximum parallelism (most time-consuming)"""
+        """Preload GUI tools with maximum parallelism (most time-consuming)."""
         start_time = time.time()
+        loop = asyncio.get_event_loop()
+
+        def _load_main_gui_tool():
+            from gui.tool.MainGUITool import FileResource, StaticResource
+            return "MainGUITool"
+
+        def _load_gui_encrypt():
+            import gui.encrypt
+            return "GUI encrypt"
+
+        def _load_browser_manager():
+            from gui.unified_browser_manager import get_unified_browser_manager
+            return "Unified browser manager"
+
+        def _load_auth_manager():
+            from auth.auth_manager import AuthManager
+            return "Auth manager"
+
+        def _load_external_libs():
+            # concurrent.futures is already imported at module level
+            from qasync import QEventLoop
+            return "External libraries"
+
+        # Execute all GUI tool sub-tasks in parallel using shared executor
+        results = await asyncio.gather(
+            loop.run_in_executor(self._executor, _load_main_gui_tool),
+            loop.run_in_executor(self._executor, _load_gui_encrypt),
+            loop.run_in_executor(self._executor, _load_browser_manager),
+            loop.run_in_executor(self._executor, _load_auth_manager),
+            loop.run_in_executor(self._executor, _load_external_libs),
+            return_exceptions=True,
+        )
+
         modules = []
-        
-        try:
-            loop = asyncio.get_event_loop()
-            
-            # Define parallel sub-tasks for GUI tools
-            def _load_main_gui_tool():
-                from gui.tool.MainGUITool import FileResource, StaticResource
-                return "MainGUITool"
-            
-            def _load_gui_encrypt():
-                import gui.encrypt
-                return "GUI encrypt"
-            
-            def _load_browser_manager():
-                from gui.unified_browser_manager import get_unified_browser_manager
-                return "Unified browser manager"
-            
-            def _load_auth_manager():
-                from auth.auth_manager import AuthManager
-                return "Auth manager"
-            
-            def _load_external_libs():
-                import concurrent.futures
-                from qasync import QEventLoop
-                return "External libraries"
-            
-            # Execute all GUI tool sub-tasks in parallel
-            with ThreadPoolExecutor(max_workers=5, thread_name_prefix="GUIToolsParallel") as executor:
-                tasks = [
-                    loop.run_in_executor(executor, _load_main_gui_tool),
-                    loop.run_in_executor(executor, _load_gui_encrypt),
-                    loop.run_in_executor(executor, _load_browser_manager),
-                    loop.run_in_executor(executor, _load_auth_manager),
-                    loop.run_in_executor(executor, _load_external_libs),
-                ]
-                
-                # Use gather with return_exceptions to handle partial failures
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                # Process results
-                for result in results:
-                    if isinstance(result, Exception):
-                        modules.append(f"GUI tool (failed: {result})")
-                    else:
-                        modules.append(result)
-            
-            load_time = time.time() - start_time
-            return {
-                'success': True,
-                'modules': modules,
-                'load_time': load_time,
-                'description': f"GUI tools ({len(modules)} groups, max parallel)"
-            }
-            
-        except Exception as e:
-            return {
-                'success': False,
-                'error': str(e),
-                'load_time': time.time() - start_time,
-                'description': "GUI tools load failed"
-            }
+        for r in results:
+            if isinstance(r, Exception):
+                modules.append(f"failed: {r}")
+            else:
+                modules.append(r)
+
+        load_time = time.time() - start_time
+        logger.info(
+            f"[AsyncPreloader] gui_tools done in {load_time:.2f}s"
+        )
+        return {
+            'success': True,
+            'modules': modules,
+            'load_time': load_time,
+            'description': f"GUI tools ({len(modules)} groups, max parallel)"
+        }
     
     async def wait_for_completion(self, timeout: float = 30.0) -> Dict[str, Any]:
         """
@@ -367,24 +401,27 @@ class AsyncPreloader:
         return self._is_preloading
     
     async def cleanup(self) -> None:
-        """Cleanup preloader"""
+        """Cleanup preloader — cancel tasks and shut down the thread pool."""
         logger.info("[AsyncPreloader] Cleaning up...")
-        
+
         # Cancel all running tasks
         for task in self._preload_tasks.values():
             if not task.done():
                 task.cancel()
-        
+
         # Wait for cancellation
         if self._preload_tasks:
             await asyncio.gather(*self._preload_tasks.values(), return_exceptions=True)
-        
+
+        # Shut down the shared thread pool
+        self._shutdown_executor()
+
         # Clear state
         self._preload_tasks.clear()
         self._preload_results.clear()
         self._preload_errors.clear()
         self._is_preloading = False
-        
+
         logger.info("[AsyncPreloader] Cleanup completed")
 
 

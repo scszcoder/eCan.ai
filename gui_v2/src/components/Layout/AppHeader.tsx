@@ -334,7 +334,14 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
     }, [navigate, onLogout, userMenuItems, t, modal]);
 
     // 合并UserMenu和SettingsMenu
-    const combinedMenuItems: MenuProps['items'] = [
+    //
+    // Memoized so the array reference is stable across AppHeader re-renders
+    // that don't touch any of its inputs. Without this, antd's Dropdown sees
+    // a fresh array each render and rebuilds the entire submenu DOM — the
+    // user profile, theme, language, clear_cache, logout entries — even when
+    // nothing in the menu changed. The four onClick handlers are themselves
+    // useCallback-wrapped, so when the memo hits they stay stable too.
+    const combinedMenuItems: MenuProps['items'] = React.useMemo(() => [
         ...userMenuItems.map(item => ({
             ...item,
             onClick: () => handleMenuClick(item?.key as string),
@@ -398,7 +405,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
             label: t('common.logout'),
             onClick: () => handleMenuClick('logout'),
         },
-    ];
+    ], [userMenuItems, t, handleMenuClick, handleThemeChange, handleLanguageChange]);
     
     return (
         <StyledHeader>

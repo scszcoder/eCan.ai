@@ -266,12 +266,25 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
               }
               rules={[{ required: true, message: '请InputTimeoutTime' }]}
             >
-              <InputNumber
-                min={1}
-                style={{ width: '100%' }}
-                placeholder="TimeoutTime"
-                addonAfter="秒"
-              />
+              <Space.Compact style={{ width: '100%' }}>
+                <InputNumber
+                  min={1}
+                  style={{ width: '100%' }}
+                  placeholder="TimeoutTime"
+                />
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '0 11px',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  borderLeft: 0,
+                  borderRadius: '0 6px 6px 0',
+                  color: 'rgba(255,255,255,0.65)',
+                  fontSize: 12,
+                  whiteSpace: 'nowrap',
+                }}>秒</span>
+              </Space.Compact>
             </Form.Item>
           </Col>
         </Row>

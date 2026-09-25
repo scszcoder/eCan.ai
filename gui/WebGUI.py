@@ -963,56 +963,136 @@ class WebGUI(QMainWindow):
 
                 logger.info("🔔 [DEBUG] Start exit process")
 
+                # Parallelize the three independent cleanup steps.
+                #
+                # The original closeEvent ran four steps sequentially:
+                # live-chat drain (15s) + lightrag stop (5s) + MCP
+                # cleanup (3s) + port release (10s) = ~33s worst case.
+                # Phase 1 below runs the first three in parallel
+                # (worst case ~5s); phase 2 runs stop_local_server()
+                # sequentially (~3s). Total worst case ~8s.
+                #
+                # Ordering constraint: MCPHandler.cleanup() must finish
+                # BEFORE stop_local_server() (TaskGroup "exit cancel
+                # scope in different task" race, see original comment),
+                # so MCP stays in phase 1 and stop_local_server stays
+                # in phase 2.
+                import asyncio as _asyncio
+                import concurrent.futures
                 try:
+                    _exit_main_loop = _asyncio.get_running_loop()
+                except RuntimeError:
+                    _exit_main_loop = None
+
+                # Silence the harmless "Attempted to exit cancel scope in a
+                # different task" RuntimeError that anyio's TaskGroup inside
+                # MCP's run() async generator raises when it is GC'd during
+                # the brief window between our sync reset and os._exit(0).
+                # The qasync loop is being torn down at that point, so the
+                # cancel scope has no correct task to land in. We swap the
+                # loop's exception handler for a narrow filter so this one
+                # cosmetic error doesn't pollute the close log; everything
+                # else still flows through to the original handler.
+                try:
+                    _silence_loop = _asyncio.get_event_loop()
+                except RuntimeError:
+                    _silence_loop = None
+                if _silence_loop is not None and not _silence_loop.is_closed():
+                    _orig_exc_handler = _silence_loop.get_exception_handler()
+
+                    def _silence_cancel_scope_exc(loop, context):
+                        exc = context.get("exception")
+                        msg = context.get("message", "")
+                        if (
+                            "cancel scope in a different task" in msg
+                            or (
+                                isinstance(exc, RuntimeError)
+                                and "cancel scope in a different task" in str(exc)
+                            )
+                        ):
+                            return  # swallow; os._exit(0) follows immediately
+                        if _orig_exc_handler is not None:
+                            return _orig_exc_handler(loop, context)
+                        return loop.default_exception_handler(context)
+
+                    _silence_loop.set_exception_handler(_silence_cancel_scope_exc)
+
+                def _drain_live_chat():
                     logger.info("🔔 [DEBUG] Preparing live-chat shutdown drain")
                     from agent.ec_tasks.runner import TaskRunnerRegistry
-                    live_chat_drained = TaskRunnerRegistry.prepare_live_chat_shutdown(
-                        reason="user_exit"
+                    drained = TaskRunnerRegistry.prepare_live_chat_shutdown(
+                        reason="user_exit",
+                        # User-exit path: don't wait for slow in-flight
+                        # deliveries — worker_shutdown keeps the 15s
+                        # default (see agent/ec_tasks/worker_entry.py).
+                        timeout_s=5.0,
                     )
                     logger.info(
-                        f"🔔 [DEBUG] live-chat shutdown drain completed: {live_chat_drained}"
+                        f"🔔 [DEBUG] live-chat shutdown drain completed: {drained}"
                     )
-                except Exception as e:
-                    logger.warning(f"Error preparing live-chat shutdown drain: {e}")
 
-                # Stop LightragServer
-                try:
+                def _stop_lightrag():
                     logger.info("🔔 [DEBUG] Stopping LightragServer")
                     mainwin = AppContext.get_main_window()
-                    if mainwin and hasattr(mainwin, 'lightrag_server') and mainwin.lightrag_server:
+                    if mainwin and getattr(mainwin, 'lightrag_server', None):
                         logger.info("🔔 [DEBUG] Found LightragServer, stopping...")
                         mainwin.lightrag_server.stop()
                         logger.info("🔔 [DEBUG] LightragServer stopped")
                     else:
-                        logger.info("🔔 [DEBUG] LightragServer or MainWindow not found or not initialized")
-                except Exception as e:
-                    logger.warning(f"Error stopping LightragServer: {e}")
+                        logger.info(
+                            "🔔 [DEBUG] LightragServer or MainWindow not found "
+                            "or not initialized"
+                        )
 
-                # Clean up MCP session manager BEFORE stopping the server
-                # This prevents the TaskGroup "exit cancel scope in different task" error
-                try:
+                # Run MCPHandler.cleanup() in the main (qasync) loop via
+                # run_coroutine_threadsafe, since the cleanup awaits
+                # asyncio state owned by the main loop. We capture the
+                # loop in the main thread before submitting.
+                def _cleanup_mcp():
+                    logger.info("🔔 [DEBUG] Cleaning MCP session manager")
                     from gui.LocalServer import MCPHandler
-                    import asyncio
-                    try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            # Schedule cleanup as a coroutine in the running loop
-                            future = asyncio.run_coroutine_threadsafe(MCPHandler.cleanup(), loop)
-                            future.result(timeout=3)  # Wait up to 3s
-                        else:
-                            loop.run_until_complete(MCPHandler.cleanup())
-                    except Exception as e:
-                        # Fallback: just reset references synchronously
-                        MCPHandler._session_manager_context = None
-                        MCPHandler._session_manager_instance = None
-                        MCPHandler._session_manager_initialized = False
-                        logger.debug(f"MCP cleanup fallback: {e}")
-                    logger.info("🔔 [DEBUG] MCP session manager cleaned up")
-                except Exception as e:
-                    logger.warning(f"Error cleaning up MCP: {e}")
+                    # During closeEvent, qasync's asyncio loop is frozen and
+                    # cannot run a coroutine submitted via run_coroutine_threadsafe
+                    # — the moment the coro gets a chance to run, ctx.aclose()
+                    # triggers anyio TaskGroup cleanup that raises
+                    # "Attempted to exit cancel scope in a different task",
+                    # which leaks as "Task exception was never retrieved".
+                    # Since os._exit(0) follows immediately, the OS reclaims all
+                    # session manager resources. A synchronous reference reset
+                    # is sufficient and avoids the cancel-scope noise.
+                    MCPHandler._session_manager_context = None
+                    MCPHandler._session_manager_instance = None
+                    MCPHandler._session_manager_initialized = False
+                    logger.info(
+                        "🔔 [DEBUG] MCP session manager cleaned up (sync reset)"
+                    )
 
-                # Stop local Starlette server (uvicorn)
+                parallel_steps = (
+                    ("live_chat_drain", _drain_live_chat),
+                    ("lightrag_stop", _stop_lightrag),
+                    ("mcp_cleanup", _cleanup_mcp),
+                )
                 try:
+                    logger.info(
+                        "🔔 [DEBUG] Running parallel cleanup phase (3 workers)"
+                    )
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+                        futures = {ex.submit(fn): name for name, fn in parallel_steps}
+                        for fut, name in futures.items():
+                            try:
+                                fut.result()
+                            except Exception as e:
+                                logger.warning(
+                                    f"Cleanup step {name!r} failed: {e}"
+                                )
+                    logger.info("🔔 [DEBUG] Parallel cleanup phase done")
+                except Exception as e:
+                    logger.warning(f"Error during parallel cleanup: {e}")
+
+                # Phase 2: stop local Starlette server. Must run after
+                # MCPHandler.cleanup() (TaskGroup race otherwise).
+                try:
+                    logger.info("🔔 [DEBUG] Stopping local Starlette server")
                     from gui.LocalServer import stop_local_server
                     stop_local_server()
                     logger.info("🔔 [DEBUG] Local Starlette server stopped")

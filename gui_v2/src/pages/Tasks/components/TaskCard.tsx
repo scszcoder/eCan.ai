@@ -824,14 +824,31 @@ const DragHandle = styled.div`
   }
 `;
 
-export const TaskCard: React.FC<TaskCardProps> = ({
-  task,
-  isSelected,
-  onSelect,
-  onAction,
-  viewMode = 'list',
-  searchHighlight,
-}) => {
+// Custom comparator: re-render only when the bound task object changes (by
+// reference), selection flips, viewMode changes, or the search highlight
+// changes. Without this, every Zustand store tick re-renders every TaskCard
+// in the list — the dominant cost on the Tasks page during a long session.
+const areTaskPropsEqual = (
+  prev: TaskCardProps,
+  next: TaskCardProps,
+): boolean => {
+  return (
+    prev.task === next.task &&
+    prev.isSelected === next.isSelected &&
+    prev.viewMode === next.viewMode &&
+    prev.searchHighlight === next.searchHighlight
+  );
+};
+
+export const TaskCard: React.FC<TaskCardProps> = React.memo(
+  ({
+    task,
+    isSelected,
+    onSelect,
+    onAction,
+    viewMode = 'list',
+    searchHighlight,
+  }) => {
   const { t } = useTranslation();
 
   // Get status
@@ -1236,4 +1253,4 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       </TaskStats>
     </TaskItem>
   );
-};
+}, areTaskPropsEqual);

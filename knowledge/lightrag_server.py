@@ -1952,9 +1952,11 @@ class LightragServer:
         # Join self-health check thread to prevent leak on restart.
         # Without this, the old thread continues running because start()
         # immediately sets _monitor_running=True again, masking the False.
+        # The join is bounded so app exit is not blocked if the thread is
+        # slow to observe _monitor_running=False; os._exit(0) reaps it.
         if hasattr(self, '_self_health_check_thread') and self._self_health_check_thread:
             if self._self_health_check_thread.is_alive():
-                self._self_health_check_thread.join(timeout=3)
+                self._self_health_check_thread.join(timeout=1)
             self._self_health_check_thread = None
 
         if hasattr(self, '_script_path') and self._script_path and os.path.exists(self._script_path):

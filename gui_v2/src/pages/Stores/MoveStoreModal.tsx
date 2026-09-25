@@ -60,7 +60,7 @@ const MoveStoreModal: React.FC<Props> = ({ open, store, machines, thisVehicleId,
   return (
     <Modal open={open} title={tf('move_title', 'Move store with its login')} onCancel={onClose}
       onOk={submit} okText={tf('move_ok', 'Move')} confirmLoading={busy}
-      okButtonProps={{ disabled: !target || !agreed, danger: true }} destroyOnClose>
+      okButtonProps={{ disabled: !target || !agreed, danger: true }} destroyOnHidden>
       <Space direction="vertical" size={12} style={{ width: '100%' }}>
         <Select style={{ width: '100%' }} placeholder={tf('move_to', 'Move to…')}
           value={target} onChange={setTarget} options={options} />

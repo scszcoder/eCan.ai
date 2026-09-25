@@ -2930,10 +2930,23 @@ def safe_parse_response(jresp, operation_name, data_key):
             # logging at ERROR would only pollute log-monitoring dashboards
             # without helping anyone find a real problem.
             is_token_expired_error = _is_token_expired_error_message(error_message)
+            # GRAPHQL_VALIDATION_FAILED ("Cannot query field X on type Y") is a
+            # schema drift between this client and the cloud: the backend's SDL
+            # lacks a field the client selected. Per CLAUDE.md §6 it is a
+            # backend-side issue (private Tencent repo must add the column),
+            # NOT a client bug — and the callers (e.g. vehicle_handler's
+            # _query_pod_rows) already retry without the missing columns, so
+            # treating it like a runtime failure only floods the log.
+            is_validation_failed = ("Cannot query field" in error_message
+                                    or "GRAPHQL_VALIDATION_FAILED" in error_message)
             if is_schema_null_error:
                 logger.warning(f"GraphQL schema null error in '{operation_name}': {error_message} (known backend issue)")
             elif is_token_expired_error:
                 logger.warning(f"🔑 GraphQL token expired in '{operation_name}': {error_message}")
+                logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            elif is_validation_failed:
+                logger.warning(f"🧩 GraphQL schema drift in '{operation_name}': {error_message} "
+                               f"(backend missing fields — see CLAUDE.md §5/§6)")
                 logger.debug(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
             else:
                 logger.error(f"❌ GraphQL Error: {error_message}")
@@ -2944,6 +2957,8 @@ def safe_parse_response(jresp, operation_name, data_key):
             exc = Exception(f"{operation_name} failed: {error_message}")
             if is_token_expired_error:
                 exc.is_token_expired_error = True  # type: ignore[attr-defined]
+            if is_validation_failed:
+                exc.is_validation_failed_error = True  # type: ignore[attr-defined]
             raise exc
     else:
         if response_data is not None:
