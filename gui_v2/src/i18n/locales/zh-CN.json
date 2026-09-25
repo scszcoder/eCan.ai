@@ -1,5 +1,6 @@
 {
   "common": {
+    "wechat_user": "微信用户",
     "dismiss": "关闭",
     "logout": "退出",
     "logout_confirm_title": "确认退出",

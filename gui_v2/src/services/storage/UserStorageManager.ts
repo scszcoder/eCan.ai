@@ -15,10 +15,10 @@ export interface UserInfo {
   username: string;
   role: string;
   email?: string;
-  name?: string;           // Display name (from Google profile)
+  name?: string;           // Display name (Google profile name, WeChat nickname)
   given_name?: string;     // First name
   family_name?: string;    // Last name
-  picture?: string;        // Avatar URL (from Google)
+  picture?: string;        // Avatar URL (Google or WeChat)
   email_verified?: boolean;
   login_type?: 'password' | 'google' | 'wechat' | 'phone';  // Login method
 }

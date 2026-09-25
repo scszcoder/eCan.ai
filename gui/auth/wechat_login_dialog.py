@@ -41,7 +41,9 @@ _READ_STORAGE_JS = (
     "(function(){try{return JSON.stringify({"
     "token:localStorage.getItem('token')||'',"
     "username:localStorage.getItem('username')||'',"
-    "auth:localStorage.getItem('isAuthenticated')||''"
+    "auth:localStorage.getItem('isAuthenticated')||'',"
+    "nickname:localStorage.getItem('nickname')||localStorage.getItem('nickName')||'',"
+    "avatarUrl:localStorage.getItem('avatarUrl')||''"
     "});}catch(e){return '{}';}})()"
 )
 
@@ -138,7 +140,11 @@ class WechatLoginDialog(QDialog):
                 f"[WechatLogin] captured session token (len={len(token)}) "
                 f"for username={username!r}"
             )
-            self._resolve({"token": token, "username": username})
+            # The display name + avatar are only there once the login callback
+            # writes them; absent, they stay empty and nothing else changes.
+            self._resolve({"token": token, "username": username,
+                           "nickname": str(data.get("nickname") or "").strip(),
+                           "avatarUrl": str(data.get("avatarUrl") or "").strip()})
 
     def _on_timeout(self) -> None:
         logger.warning("[WechatLogin] login timed out; closing dialog")

@@ -10,18 +10,16 @@ _Last updated: 2026-09-21_
 
 ## 🔴 Bugs (unfixed)
 
-### A migration that adds a table stalls startup ~60s on "database is locked" (2026-09-24)
+### ✅ FIXED — a migration that adds a table froze startup on its own lock (2026-09-25)
 
-Seen on the 3.1.7 -> 3.1.8 upgrade (store table), and the same warning is in the
-2026-09-21 log from the previous new-table migration. Before running a
-migration, `MigrationManager` notices the table is missing and tries
-"Creating missing tables using ORM..."; that `CREATE TABLE` waits out SQLite's
-60s busy timeout (`[MigrationManager] Failed to create tables: (sqlite3.OperationalError)
-database is locked`), apparently blocked by the manager's own open migration
-session. The migration then creates the table normally. Once per new-table
-migration, first start only -- but it is a full minute of a frozen startup.
-Fix: skip the ORM pre-create for tables a pending migration creates, or run it
-on the same session/connection (agent/db/migrations/migration_manager.py).
+A 98w customer (DB at 3.1.6) could not get past the startup spinner: each
+migration step's "create missing tables" ran on a SECOND connection while the
+migration session already held SQLite's write lock (its migration-log row was
+flushed), so every step waited out the 60s busy timeout. 3.1.6 -> 3.1.8 = two
+steps = ~2 minutes frozen; the app was closed before the version was recorded,
+so every start repeated it. Reproduced at 130.9s; fixed (0.0s) by creating the
+missing tables on the migration session's own connection and committing
+(agent/db/migrations/migration_manager.py, tests/test_migration_no_self_lock.py).
 
 ### A saved task edit does not reach the agent holding the task until restart (2026-09-23)
 

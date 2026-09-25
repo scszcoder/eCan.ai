@@ -1507,8 +1507,8 @@ def handle_cloudbase_wechat_qr_login(request: IPCRequest,
             username=username,
             email=username if "@" in username else "",
             phone_number="",
-            nickname="",
-            avatar_url="",
+            nickname=(captured.get("nickname") or captured.get("nickName") or "").strip(),
+            avatar_url=(captured.get("avatarUrl") or "").strip(),
             login_type="wechat",
         )
         return _build_login_response(

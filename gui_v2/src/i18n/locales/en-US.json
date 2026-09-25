@@ -1,5 +1,6 @@
 {
   "common": {
+    "wechat_user": "WeChat user",
     "dismiss": "Dismiss",
     "logout": "Logout",
     "logout_confirm_title": "Confirm Logout",

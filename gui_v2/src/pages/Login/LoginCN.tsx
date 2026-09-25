@@ -1177,7 +1177,8 @@ const LoginCN: React.FC = () => {
             {
               username: ui.username || ui.email || '',
               email: ui.email || '',
-              name: ui.nickname || '',
+              name: ui.nickname || ui.nickName || ui.displayName || '',
+              picture: ui.avatarUrl || ui.avatar_url || '',
               login_type: 'wechat',
             },
             role,
