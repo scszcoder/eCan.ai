@@ -284,6 +284,51 @@ class TestResetPasswordFlow:
         assert not r.success
 
 
+class TestRefreshTokenTimeoutCap:
+    """refresh_token caps wall-clock at 5s, not _post's default of 30s.
+
+    Why: ``AuthManager.try_restore_cloudbase_session`` calls this method
+    synchronously on the Qt main thread during ``Login.__init__``
+    (main.py progress 60-70). A 30s timeout there freezes the splash on
+    "preparing background preload" for the entire wall-clock window,
+    because the next splash status text only fires AFTER Login() returns.
+    A startup-time restore that can't round-trip in 5s isn't going to
+    land before the user clicks login anyway -- better to drop to the
+    login screen than to lock the UI on splash for 30s.
+    """
+
+    def test_refresh_token_uses_5s_timeout(self, service, monkeypatch):
+        """refresh_token must pin timeout<=5 (cap, not _post's 30s default)."""
+        captured_kwargs = {}
+
+        class _FakeResp:
+            status_code = 200
+            text = '{"access_token": "abc", "refresh_token": "rt2"}'
+            def json(self):
+                return {"access_token": "abc", "refresh_token": "rt2"}
+
+        def fake_post(url, *args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return _FakeResp()
+
+        monkeypatch.setattr("requests.post", fake_post)
+        monkeypatch.setenv("ECAN_APP_ID", "cn")
+
+        result = service.refresh_token("rt1")
+        assert result.success
+        assert "timeout" in captured_kwargs, f"refresh_token must pass a timeout; got {captured_kwargs}"
+        assert captured_kwargs["timeout"] <= 5, (
+            f"refresh_token timeout cap regressed to {captured_kwargs['timeout']}; "
+            "this un-caps splash freeze on try_restore_cloudbase_session"
+        )
+
+    def test_refresh_token_short_circuits_on_empty_token(self, service):
+        """Empty refresh_token is rejected synchronously — no HTTP, no wall-clock."""
+        r = service.refresh_token("")
+        assert not r.success
+        assert r.error_code == "INVALID_INPUT"
+
+
 # ============================================================
 # Config Status Tests
 # ============================================================
