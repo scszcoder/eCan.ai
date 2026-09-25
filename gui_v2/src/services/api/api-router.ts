@@ -590,8 +590,17 @@ export class APIRouter {
     if (typeof window !== 'undefined' && window.location?.origin?.startsWith('http')) {
       return window.location.origin;
     }
-    // file:// 或 SSR: 退回 LocalServer 默认地址
-    const port = import.meta.env.VITE_LOCAL_SERVER_PORT || '4668';
+    // file:// 或 SSR: 退回 LocalServer 地址。
+    // 端口优先取 URL 上的 ?port=（由 web_engine_view.load_local_file 写入），
+    // 因为多实例（一店一进程）下每个实例监听不同端口，而
+    // VITE_LOCAL_SERVER_PORT 是构建期常量，第二个实例会连错进程。
+    let port = import.meta.env.VITE_LOCAL_SERVER_PORT || '4668';
+    try {
+      const fromUrl = new URLSearchParams(window.location.search).get('port');
+      if (fromUrl && /^\d+$/.test(fromUrl)) port = fromUrl;
+    } catch {
+      // 没有 window/search 时保持默认值
+    }
     return `http://localhost:${port}`;
   }
 

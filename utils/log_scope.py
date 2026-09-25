@@ -49,6 +49,11 @@ _ATTR_HEADER_MAP = (
     ("X-Ecan-Task-Id", "task_id"),
     ("X-Ecan-Skill-Id", "skill_id"),
     ("X-Ecan-Vehicle-Id", "vehicle_id"),
+    # One customer can run several stores on one account, so user identity
+    # alone cannot say which store a call belongs to. Without this the backend
+    # can bill the account but never a store, and per-store quota has nothing
+    # to key on.
+    ("X-Ecan-Store-Id", "store_id"),
 )
 
 

@@ -30,7 +30,8 @@ def get_server_base_url() -> str:
         logger.warning(f"Failed to get server URL from MainWindow: {e}, using default")
     
     # Last resort fallback (should rarely happen)
-    return "http://localhost:4668"
+    from agent.mcp.config import get_local_port
+    return f"http://localhost:{get_local_port()}"
 
 
 def file_path_to_http_url(file_path: Optional[str]) -> Optional[str]:

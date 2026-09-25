@@ -436,6 +436,37 @@ class EC_Agent(Agent):
 		except Exception as _va_err:
 			logger.warning(f"[AGENT_START] Vehicle affinity gate error (fail-open): {_va_err}")
 
+		# ── Worker placement gate ──
+		# The vehicle gate above answered "is this agent for this MACHINE?".
+		# This answers "is it for this PROCESS?". An agent whose tasks declare
+		# an isolation domain runs in that domain's worker, so the parent hands
+		# it over and does not start it here; a worker starts only its own
+		# domain and never the parent's unisolated share, or every domain would
+		# get a duplicate copy of the account's shared agents.
+		# Fails open: nothing declares a domain today, so every agent reads as
+		# unisolated and starts here exactly as before.
+		try:
+			from agent.ec_tasks.worker_placement import (
+				placement_for_agent, delegate_to_worker,
+				PLACE_DELEGATE, PLACE_SKIP,
+			)
+			_placement, _iso_key = placement_for_agent(self)
+			if _placement == PLACE_DELEGATE:
+				logger.info(
+					f"[AGENT_START] '{self.card.name}' belongs to isolation domain "
+					f"{_iso_key!r} - handing it to that worker instead of starting here"
+				)
+				delegate_to_worker(_iso_key)
+				return
+			if _placement == PLACE_SKIP:
+				logger.info(
+					f"[AGENT_START] Skipping '{self.card.name}' in this worker: "
+					f"its domain is {_iso_key or 'none'}, this worker serves another"
+				)
+				return
+		except Exception as _wp_err:
+			logger.warning(f"[AGENT_START] Worker placement gate error (fail-open): {_wp_err}")
+
 		# Start A2A server in daemon thread
 		self.start_a2a_server_in_thread(self.a2a_server)
 

@@ -212,6 +212,97 @@ def _dump_feige_env() -> None:
 # the next; the real CDP client is stopped only with the last subscriber.
 _SHARED_OBSERVERS: dict = {}
 
+_ONE_CHAT_BROWSER_ENV = "ECAN_FEIGE_ONE_CHAT_BROWSER"
+
+
+def _current_store_key() -> str:
+    """The store this session belongs to, or "" when it is not identified."""
+    try:
+        from .placeholder_config import current_store_key
+        return current_store_key()
+    except Exception:
+        return ""
+
+
+def _chat_browser_for_store(store_key: str, cdp_url: str) -> str:
+    """Another *browser* already running chat dispatch for this store, or "".
+
+    Derived from the live observer registry rather than a claim table, so it
+    cannot go stale: entries are popped at teardown, and a Chrome relaunch
+    (new ephemeral CDP port, new cdp_url) leaves nothing behind to block the
+    replacement browser.
+    """
+    for entry in list(_SHARED_OBSERVERS.values()):
+        if not entry.get("alive"):
+            continue
+        if entry.get("store_key") != store_key:
+            continue
+        other = entry.get("cdp_url") or ""
+        if other and other != cdp_url:
+            return other
+    return ""
+
+
+def _may_run_chat_dispatch(store_key: str, cdp_url: str, label: str) -> bool:
+    """One browser per store may observe chat. Phase B depends on this.
+
+    Phase B gives each store a SECOND browser for background work (listing,
+    orders, ads) so a 40-second upload cannot starve the chat renderer, CDP
+    loop or typing lock. Both browsers are logged into the same seller and
+    BOTH receive every customer message — verified on a customer machine
+    2026-09-22 — so an observer on the background browser dispatches the same
+    turn a second time. That is ws190 again, but across browsers instead of
+    across sessions, and ws190's ref-count cannot catch it because the key
+    includes the cdp_url, which differs.
+
+    Enforced only when the store is actually identified. With a blank store
+    key every store collapses to one key, and refusing would take a legitimate
+    second STORE's chat browser offline — a silent outage, which is worse than
+    the duplicate reply this guards against.
+    """
+    if os.environ.get(_ONE_CHAT_BROWSER_ENV, "1") == "0":
+        return True
+    if not store_key:
+        logger.debug(
+            "[FEIGE-WS-SHADOW] no store_id in scope — skipping the one-chat-browser "
+            "guard (set it via the task's store_id variable to enable it)")
+        return True
+    other = _chat_browser_for_store(store_key, cdp_url)
+    if not other:
+        return True
+    logger.error(
+        f"[FEIGE-WS-SHADOW] REFUSING to observe {cdp_url} for store {store_key!r} "
+        f"(label={label!r}): {other} is already running chat dispatch for it. "
+        f"Both browsers see every message, so a second observer would reply "
+        f"twice to every customer. Only the front-desk browser should run the "
+        f"chat skill; point background work at its own profile, or set "
+        f"{_ONE_CHAT_BROWSER_ENV}=0 to override.")
+    return False
+
+
+def chat_browser_cdp_url(store_key: str = "") -> str:
+    """The CDP endpoint currently running chat dispatch for ``store_key``, or "".
+
+    Public so the platform can answer "is this the chat browser?" before it
+    pre-navigates a session to the store URL. Phase B puts a second browser on
+    the same seller login for background work, and the store URL for this site
+    IS the chat workstation page — so a background task that inherits
+    ``store_url`` from the deploy would open the conversation list in the wrong
+    browser and let the platform mark conversations read, blinding the front
+    desk's unread detection. That failure is silent, which makes it worse than
+    the duplicate-reply one the observer guard catches.
+    """
+    key = store_key or _current_store_key()
+    for entry in list(_SHARED_OBSERVERS.values()):
+        if not entry.get("alive"):
+            continue
+        if entry.get("store_key") != key:
+            continue
+        url = entry.get("cdp_url") or ""
+        if url:
+            return url
+    return ""
+
 
 class _SharedObserverHandle:
     """What start_ws_shadow_observer returns: a per-subscriber token. Passing it
@@ -258,6 +349,11 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         logger.warning("[FEIGE-WS-SHADOW] no cdp_url on session — observer not started")
         return None
 
+    # Phase B: only the front-desk browser may observe chat for a store.
+    _store_key = _current_store_key()
+    if not _may_run_chat_dispatch(_store_key, cdp_url, label):
+        return None
+
     # ws190: reuse the observer already watching this Chrome (see registry note).
     _key = f"{cdp_url}|{label}"
     _existing = _SHARED_OBSERVERS.get(_key)
@@ -281,7 +377,11 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         _SHARED_OBSERVERS.pop(_key, None)
 
     _entry: dict = {"client": None, "dispatchers": ([dispatch_fn] if dispatch_fn is not None else []),
-                    "handles": set(), "alive": True}
+                    "handles": set(), "alive": True,
+                    # Identity for the one-chat-browser guard above. Recorded on
+                    # the entry so the check needs no separate registry to keep
+                    # in sync — teardown pops the entry and the claim with it.
+                    "store_key": _store_key, "cdp_url": cdp_url}
 
     def _dispatch_current(item: dict) -> None:
         _shared_dispatch(_entry, item)

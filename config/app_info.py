@@ -97,6 +97,15 @@ class AppInfo:
             root_dir = self._prod_appdata_path()
         else:
             root_dir = self._dev_appdata_path()
+
+        # NOT instance-scoped, deliberately. An earlier revision suffixed this
+        # path per instance, which was right when instances were independent
+        # apps and wrong now that they are workers of ONE app: the database,
+        # the browser profiles and the plugin config must be shared, or the GUI
+        # cannot see what its own workers are doing and each worker would need
+        # its own login. Only what genuinely cannot be shared is scoped — the
+        # log file (utils/logger_helper.py), the IPC port and the single-
+        # instance lock (agent/mcp/config.py, utils/single_instance.py).
         print(f"ecbot appdata home path:{root_dir}")
 
         return root_dir

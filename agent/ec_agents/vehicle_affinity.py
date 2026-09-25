@@ -263,6 +263,74 @@ def _local_legacy_vehicle_id(mainwin=None, username: str = "") -> str:
     return _legacy_vehicle_id
 
 
+# ── Machine capabilities ─────────────────────────────────────────────
+# What this host can be asked to run. A front desk owns a real browser --
+# the CDP connection, the typing lock, the tab pool -- so it needs a machine
+# with a desktop session. Q&A agents do LLM work over A2A and never touch the
+# DOM, so they run anywhere, which makes a display-less Linux box a perfectly
+# good Q&A host and a useless front-desk one.
+#
+# The *placement decision* belongs to the cloud (which store runs where); this
+# is the input it needs -- a machine reporting what it can host. Without it a
+# scheduler has to guess from ``platform``, which is wrong for exactly the
+# headless-Linux case that matters.
+
+CAP_FRONT_DESK = "front_desk"
+CAP_QA = "qa"
+
+
+def has_desktop_session() -> bool:
+    """Whether this machine can actually show a browser window.
+
+    Windows and macOS: the app is a desktop GUI, so reaching this code at all
+    means there is a session -- unless it was started deliberately headless.
+    Linux/BSD: a server has no display server, and that is the whole point of
+    the check, so require one of the display variables.
+    """
+    if os.environ.get("ECAN_HEADLESS", "") == "1":
+        return False
+    system = _platform.system().lower()
+    if system in ("windows", "darwin"):
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def machine_capabilities() -> "list[str]":
+    """What this host can be assigned. Every machine can run Q&A."""
+    caps = [CAP_QA]
+    if has_desktop_session():
+        caps.append(CAP_FRONT_DESK)
+    return caps
+
+
+def local_vehicle_report_fields(mainwin=None, username: str = "") -> dict:
+    """The fields THIS machine must add to its cloud heartbeat record.
+
+    One machine had three identities: the heartbeat used
+    ``machine_name:os_short``, the local row used
+    :func:`resolve_local_vehicle_id`, and a profile descriptor used
+    :func:`get_machine_id`. ``store_assign`` validates a store's machine
+    against the row the heartbeat registered, so the heartbeat and the store
+    report have to agree — otherwise every assignment 404s against a machine
+    that is plainly online.
+
+    The stable id wins over the hostname, for the same reason the A2A endpoint
+    could not stay an IP: a name that changes is not an identity.
+    """
+    fields: dict = {}
+    try:
+        vid = resolve_local_vehicle_id(mainwin, username)
+        if vid:
+            fields["machine_id"] = vid
+    except Exception as exc:
+        logger.warning(f"[VehicleAffinity] no stable id for the heartbeat: {exc}")
+    try:
+        fields["capabilities"] = machine_capabilities()
+    except Exception as exc:
+        logger.warning(f"[VehicleAffinity] no capability list for the heartbeat: {exc}")
+    return fields
+
+
 def register_local_vehicle(mainwin) -> None:
     """Upsert this host's DBAgentVehicle row (id = machine_id). Idempotent,
     once per process; every failure is non-fatal."""
@@ -297,8 +365,14 @@ def register_local_vehicle(mainwin) -> None:
         except Exception:
             existing = None
 
+        caps = machine_capabilities()
         if existing:
-            service.update_vehicle(vehicle_id, {"status": "online", "hostname": hostname})
+            # Capabilities are refreshed, not just set once: a machine can gain
+            # or lose a desktop session between runs (a Linux box started from
+            # a console rather than a session).
+            service.update_vehicle(vehicle_id, {
+                "status": "online", "hostname": hostname, "capabilities": caps,
+            })
         else:
             service.add_vehicle({
                 "id": vehicle_id,
@@ -308,10 +382,11 @@ def register_local_vehicle(mainwin) -> None:
                 "platform": _platform.system().lower(),
                 "hostname": hostname,
                 "status": "online",
+                "capabilities": caps,
             })
             logger.info(
                 f"[VehicleAffinity] registered local vehicle id={vehicle_id[:8]}.. "
-                f"hostname={hostname}"
+                f"hostname={hostname} capabilities={caps}"
             )
         _vehicle_registered = True
     except Exception as e:

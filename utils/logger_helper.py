@@ -233,7 +233,13 @@ class LoggerHelper:
             _log_level = TRACE_LEVEL_NUM
         else:
             _log_level = getattr(logging, _env_level, logging.INFO)
-        self.setup(APP_NAME, appdata_path + "/runlogs/" + APP_LOG_FILE, _log_level)
+        # A worker writes its own file in the SAME runlogs folder, so the
+        # support zip picks it up with everything else. Sharing one file across
+        # processes is not an option: concurrent writers corrupt each other.
+        from config.instance import instance_log_filename
+        self.setup(APP_NAME,
+                   appdata_path + "/runlogs/" + instance_log_filename(APP_LOG_FILE),
+                   _log_level)
 
         # 初始化崩溃日志功能
         self._setup_crash_logging()

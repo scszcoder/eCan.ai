@@ -10,6 +10,18 @@ _Last updated: 2026-09-21_
 
 ## 🔴 Bugs (unfixed)
 
+### A saved task edit does not reach the agent holding the task until restart (2026-09-23)
+
+`save_agent_task` writes the DB, syncs the cloud, and replaces the task in
+`mainwin.agent_tasks` (`_update_agent_task_in_memory` in
+`gui/ipc/w2p_handlers/task_handler.py`) — but each agent's `agent.tasks` keeps
+its own object. The runner reads `task2run.metadata` from there, so an edited
+`task_vars` value (e.g. `store_id`) is not used by the next run, and the store
+reporter (`agent/ec_agents/store_reporter.py`) does not see it, until the app
+restarts. Seen live tagging `task_570fda777488452e` with a test `store_id`: six
+heartbeats, no report; after restart it appeared. Fix: replace the object in
+the owning agent's `tasks` too (or have agents hold ids, not copies).
+
 ### ⚡ NEXT UP — Feige Q&A input-token cost (2026-09-15)
 
 **~11,000 input tokens per customer query, of which the customer's own message is
@@ -686,6 +698,25 @@ on the profile record. Both hardcode a policy, so decide deliberately.
   CN skill-editor chat fallback fixes.
 
 ## 🔵 Planned work
+
+### ⚡ Store placement: the assignment decides where a store runs (2026-09-24)
+
+Design: `docs/STORE_PLACEMENT_DESIGN.md` — awaiting owner decisions D1–D3.
+Blocks running one account's stores on more than one machine: today a second
+machine adopts the same agents (fail-open "no-affinity" / "stale-pin-adopt" in
+`vehicle_affinity.agent_launch_allowed`) → duplicate customer replies, and
+`store_assign` is display-only. Needs server work (`store_claim`, release,
+desktop liveness in the vehicle reaper) plus a client gate, reconciler and a
+new `EC_Agent.stop()`.
+
+### Store registry has no intl backend (2026-09-24)
+
+`store_report` / `store_list` / `store_assign` / `store_archive` exist only on
+the CN `ecbAccountManager`. On intl, `store_api._call` targets
+`<graphql host>/ecbAccountManager`, which has no intl counterpart (inferred
+from the code, not tried live), so the heartbeat's store report and
+Settings → Stores should come back as a typed WARNING, not a crash. Store placement depends on these actions, so intl
+multi-machine needs the AWS side first. Deliberately deferred.
 
 ### Open commercial decisions for business-metric billing (2026-09-21)
 

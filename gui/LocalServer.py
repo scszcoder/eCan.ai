@@ -1759,8 +1759,11 @@ class ServerManager:
         else:
             logger.warning("[ServerManager] ⚠️ Auto-restart timed out after 10s")
 
-    def _run_starlette(self, port=4668):
+    def _run_starlette(self, port=None):
         """Optimized Starlette server startup method"""
+        if port is None:
+            from agent.mcp.config import get_local_port
+            port = get_local_port()
         logger.info(f"🚀 Starting optimized Starlette server on port {port}")
         logger.info(f"Environment: {'PyInstaller' if mcp_server_config.is_frozen else 'Development'}")
         logger.info(f"MCP Support: {'Enabled' if mcp_server_config.has_mcp_support() else 'Disabled'}")
@@ -1995,12 +1998,15 @@ class _EarlyMainWin:
         return self._local_server_port
 
 
-def start_local_server_early(port: int = 4668):
+def start_local_server_early(port: int = None):
     """Start local server without relying on MainWindow.
 
     This is intended to be called from main.py before WebGUI is created.
     MainWindow can be injected later by calling start_local_server_in_thread(main_win).
     """
+    if port is None:
+        from agent.mcp.config import get_local_port
+        port = get_local_port()
     start_local_server_in_thread(_EarlyMainWin(int(port)))
 
 def is_port_available(host: str, port: int) -> bool:

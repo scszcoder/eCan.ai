@@ -751,6 +751,26 @@ async def before_prompt_build_hook_v2(
                     a for a in ctx.agent_registry.list_workers(exclude=_caller_id)
                     if a.get("status", "active") != "disabled"
                 ]
+                # Keep only THIS front desk's own Q&A agents. Without it the LLM
+                # is handed every agent in the process, and with a second store
+                # deployed it will dispatch to the other store's team — a
+                # wrong-store answer, delivered silently. The listener set is
+                # derived from the recipients' own pend_event senderId filter, so
+                # it can only ever be a subset of who would accept the message.
+                try:
+                    from agent.ec_skills.node_runtime.frontdesk_dispatch import (
+                        narrow_to_listeners as _narrow_listeners,
+                    )
+                    _narrowed = _narrow_listeners(
+                        _all_agents, _caller_id, log_tag="AUTO-DISPATCH"
+                    )
+                    # None means strict mode with nobody listening: dispatch nothing
+                    # rather than fall back to the whole process.
+                    _all_agents = _narrowed if _narrowed is not None else []
+                except Exception as _narrow_err:
+                    logger.warning(
+                        f"[AUTO-DISPATCH] listener narrowing skipped: {_narrow_err}"
+                    )
                 if _all_agents:
                     _agent_lines = []
                     for _ag in _all_agents:

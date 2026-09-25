@@ -704,7 +704,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
 
   const handleSave = async () => {
     try {
-      const values = await form.validateFields();
+      await form.validateFields();
+      // Tabs mount only their own fields, and validateFields() returns only
+      // mounted ones — saving from the Metadata tab sent no id, name, skills or
+      // schedule. The store still holds every tab's values.
+      const values = form.getFieldsValue(true);
       const skillIds = ((values as any).skills || []).map((s: string) => String(s || '').trim()).filter(Boolean);
 
       const payload: any = {

@@ -57,6 +57,15 @@ class TokenUsage(BaseModel):
     # Skill name for analytics grouping
     skill_name = Column(String, nullable=True, comment="Skill name for per-skill analytics")
 
+    # Store / run attribution. source_id holds whatever the call site happened
+    # to pass (a skill id here, a task id there) and user_email is one customer
+    # across all of their stores, so neither can answer "what did THIS store
+    # cost?". These mirror the same three columns on usage_event, so cost and
+    # outcome join on one dimension: cost per delivered reply, per store.
+    store_id = Column(String, nullable=True, comment="Store this usage belongs to (NULL = recorded before stores were distinguished)")
+    agent_id = Column(String, nullable=True, comment="Agent that made the call")
+    task_id = Column(String, nullable=True, comment="Task the call ran under")
+
     # Indexes for efficient querying
     __table_args__ = (
         Index('idx_token_usage_timestamp', 'usage_timestamp'),
@@ -65,6 +74,9 @@ class TokenUsage(BaseModel):
         Index('idx_token_usage_model', 'vendor', 'model'),
         Index('idx_token_usage_month', 'usage_timestamp'),  # For monthly aggregation
         Index('idx_token_usage_skill', 'skill_name'),
+        Index('idx_token_usage_store', 'store_id'),
+        Index('idx_token_usage_agent', 'agent_id'),
+        Index('idx_token_usage_task', 'task_id'),
     )
     
     def __repr__(self):

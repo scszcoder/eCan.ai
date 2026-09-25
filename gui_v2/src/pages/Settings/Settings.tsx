@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App, Input, Row, Col, Tooltip, Divider, Tabs, theme } from 'antd';
-import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined, SaveOutlined, CloudServerOutlined, ChromeOutlined, IdcardOutlined, MessageOutlined } from '@ant-design/icons';
+import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined, SaveOutlined, CloudServerOutlined, ChromeOutlined, IdcardOutlined, MessageOutlined, ShopOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { useLocation } from 'react-router-dom';
@@ -10,7 +10,7 @@ import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
 import type { Settings } from './types';
-import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement, BrowserUseSettings, BrowserProfiles, GeneralTabContent, ChannelSettings } from './components';
+import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement, BrowserUseSettings, BrowserProfiles, Stores, GeneralTabContent, ChannelSettings } from './components';
 
 // CN/Intl detection is now handled by backend at login time (see user_handler._apply_intl_endpoints)
 // CN uses TCB, Intl uses AppSync - frontend receives populated endpoints from backend
@@ -1055,6 +1055,16 @@ const Settings: React.FC = () => {
                 </span>
               ),
               children: <BrowserProfiles />,
+            },
+            {
+              key: 'stores',
+              label: (
+                <span>
+                  <ShopOutlined style={{ marginRight: 8 }} />
+                  {t('pages.settings.stores.tab_title')}
+                </span>
+              ),
+              children: <Stores />,
             },
             {
               key: 'channels',

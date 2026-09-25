@@ -135,5 +135,52 @@ class RunnerScopeStampTests(unittest.TestCase):
         self.assertNotIn('sc.get("agent_id")', consumer)
 
 
+class UrlDerivationCannotSeparateFeigeStoresTests(unittest.TestCase):
+    """The URL fallback is a trap on 飞鸽 and must stay visibly so.
+
+    Every seller works out of the same workstation page, so store identity
+    lives in the logged-in session, not the path. These tests pin that fact:
+    if someone later "fixes" store_id_from_url to look like it distinguishes
+    stores, or drops the explicit-var precedence, this fails loudly instead of
+    two stores quietly sharing one placeholder config and one metering bucket.
+    """
+
+    FEIGE = "https://im.jinritemai.com/pc_seller_v2/main/workspace"
+
+    def test_two_different_feige_stores_derive_the_same_id(self) -> None:
+        from agent.ec_skills.prompt_variable_providers import resolve_store_id
+        store_a = {"store_url": self.FEIGE, "store_urls": self.FEIGE}
+        store_b = {"store_url": self.FEIGE, "store_urls": self.FEIGE}
+        self.assertEqual(resolve_store_id(store_a), resolve_store_id(store_b))
+        self.assertTrue(resolve_store_id(store_a))  # non-empty, which is the trap
+
+    def test_an_explicit_store_id_separates_them(self) -> None:
+        from agent.ec_skills.prompt_variable_providers import resolve_store_id
+        store_a = {"store_url": self.FEIGE, "store_id": "lands_flying_fish"}
+        store_b = {"store_url": self.FEIGE, "store_id": "second_shop"}
+        self.assertEqual(resolve_store_id(store_a), "lands_flying_fish")
+        self.assertEqual(resolve_store_id(store_b), "second_shop")
+        self.assertNotEqual(resolve_store_id(store_a), resolve_store_id(store_b))
+
+    def test_fast_deploy_writes_an_explicit_store_id_into_task_vars(self) -> None:
+        from pathlib import Path
+        src = Path("cli/deploy/commands.py").read_text(encoding="utf-8")
+        self.assertIn('store_id = str(cfg.get("store_id") or "").strip()', src)
+        self.assertIn('task_vars["store_id"] = store_id', src)
+        # And warns when it is absent, rather than silently merging stores.
+        self.assertIn("WARNING: no store_id given", src)
+
+    def test_the_panel_collects_it(self) -> None:
+        from pathlib import Path
+        panel = Path(
+            "gui_v2/src/components/FastDeploy/FastDeployPanel.tsx"
+        ).read_text(encoding="utf-8")
+        self.assertIn("store_id: (config.storeId", panel)
+        schema = Path(
+            "gui_v2/src/components/FastDeploy/scenarios.tsx"
+        ).read_text(encoding="utf-8")
+        self.assertIn("storeId: true", schema)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -95,6 +95,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
             scenario: selected.key,
             config: {
                 store_urls: urls,
+                ...(selected.schema.storeId ? { store_id: (config.storeId || '').trim() } : {}),
                 ...(selected.schema.qaAgents ? { qa_agents: config.qaAgents } : {}),
                 ...(selected.schema.replaceMode ? { mode: config.mode || 'add' } : {}),
             },
@@ -267,6 +268,25 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                         <Button type="dashed" icon={<PlusOutlined />} onClick={addUrl}>
                                             {t('pages.agents.fast_deploy_add_url', 'Add URL')}
                                         </Button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* store id — the store URL does not identify the store */}
+                            {selected.schema.storeId && (
+                                <div style={{ marginTop: 16 }}>
+                                    <Text style={{ color: '#94a3b8', fontSize: 13 }}>
+                                        {t('pages.agents.fast_deploy_store_id', 'Store name / ID')}
+                                    </Text>
+                                    <div style={{ marginTop: 8 }}>
+                                        <Input
+                                            value={config.storeId || ''}
+                                            placeholder={t('pages.agents.fast_deploy_store_id_ph', 'e.g. lands_flying_fish')}
+                                            onChange={(e) => setConfig((c) => ({ ...c, storeId: e.target.value }))}
+                                        />
+                                        <Text style={{ color: '#64748b', fontSize: 12, display: 'block', marginTop: 6 }}>
+                                            {t('pages.agents.fast_deploy_store_id_hint', 'Required when running more than one store: every seller shares the same workstation URL, so this is what keeps each store’s settings and usage separate.')}
+                                        </Text>
                                     </div>
                                 </div>
                             )}

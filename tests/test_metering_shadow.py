@@ -204,8 +204,11 @@ class SchemaTests(unittest.TestCase):
         from agent.db.migrations.migration_config import (
             get_latest_version, VERSION_HISTORY, VERSION_DEPENDENCIES,
         )
-        self.assertEqual(get_latest_version(), "3.1.6")
+        # This migration must be REACHABLE, not necessarily the newest -- later
+        # phases add their own and would otherwise break a test that is really
+        # about usage_event's registration.
         self.assertIn("3.1.6", VERSION_HISTORY)
+        self.assertIn("3.1.6", VERSION_HISTORY[:VERSION_HISTORY.index(get_latest_version()) + 1])
         self.assertEqual(VERSION_DEPENDENCIES["3.1.6"], "3.1.5")
         manager = Path("agent/db/migrations/migration_manager.py").read_text(encoding="utf-8")
         self.assertIn('"3.1.6": "migration_315_to_316"', manager)

@@ -555,6 +555,30 @@ def gen_obtain_review_request_string(query):
 
 
 
+def _cloud_vehicle_id(v):
+    """The cloud row id for one heartbeat record: the STABLE machine id, not the display name.
+
+    store_assign validates against this row, so a heartbeat that registers one
+    id while store_report sends another makes every assignment 404. A hostname
+    is not an identity either -- the DHCP incident is the standing reminder.
+    Remote Commander vehicles have no stable id and fall back to ``vname``.
+    """
+    return str(v.get("machine_id") or "").strip() or v.get("vname", "")
+
+
+def _cloud_vehicle_status(v):
+    """The cloud's status vocabulary (online/offline) for one heartbeat record.
+
+    The desktop tracks a LAN working state -- running_idle / running_working /
+    offline -- while both backends store online/offline, and store_assign's
+    placement check reads exactly "online". Sending the working state marked a
+    heartbeating machine "not online". The working state itself still travels,
+    in extra_metadata.
+    """
+    status = str(v.get("status") or "").strip()
+    return "online" if status.startswith("running") else status
+
+
 def gen_report_vehicles_string(vehicles):
     """Generate GraphQL mutation string for reporting vehicles.
     
@@ -570,11 +594,14 @@ def gen_report_vehicles_string(vehicles):
         v = vehicles[i]
         # Use vname as the vehicle ID (unique identifier)
         vname = v.get("vname", "")
-        
+
+        # ``name`` stays human-readable for the fleet screen.
+        vid_for_cloud = _cloud_vehicle_id(v)
+
         rec_string += "{ "
-        rec_string += f'id: "{vname}"'
+        rec_string += f'id: "{vid_for_cloud}"'
         rec_string += f', name: "{vname}"'
-        rec_string += f', status: "{v.get("status", "")}"'
+        rec_string += f', status: "{_cloud_vehicle_status(v)}"'
         rec_string += f', architecture: "{v.get("hardware", "")}"'
         rec_string += f', platform: "{v.get("software", "")}"'
         rec_string += f', ip_address: "{v.get("ip", "")}"'
@@ -583,6 +610,7 @@ def gen_report_vehicles_string(vehicles):
         extra_metadata = {
             "owner": v.get("owner", ""),
             "lastseen": v.get("lastseen", ""),
+            "working_state": v.get("status", ""),
             "functions": v.get("functions", ""),
             "agent_ids": v.get("agent_ids", ""),
             "vid": v.get("vid", 0),
@@ -591,8 +619,15 @@ def gen_report_vehicles_string(vehicles):
         extra_json = json.dumps(extra_metadata, ensure_ascii=False).replace('"', '\\"')
         rec_string += f', extra_metadata: "{extra_json}"'
         
-        # Store functions/capabilities
-        if v.get("functions"):
+        # Capabilities: a JSON ARRAY of what this machine can host
+        # (["qa", "front_desk"]) -- the shape the server's placement check
+        # reads. The legacy {"functions": ...} object survives only for records
+        # that still supply one, i.e. remote Commander vehicles.
+        _caps = v.get("capabilities")
+        if isinstance(_caps, (list, tuple)):
+            caps_json = json.dumps(list(_caps), ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', capabilities: "{caps_json}"'
+        elif v.get("functions"):
             caps = {"functions": v.get("functions", "")}
             caps_json = json.dumps(caps, ensure_ascii=False).replace('"', '\\"')
             rec_string += f', capabilities: "{caps_json}"'
@@ -977,11 +1012,13 @@ def send_report_vehicles_to_cloud(session, token, vehicles, endpoint):
             vehicles_to_add = []
             for v in vehicles:
                 vname = v.get("vname", "")
-                if vname in not_found_ids:
+                # Match on the id the update SENT, not the name -- otherwise a
+                # machine reporting a stable id is never registered at all.
+                if _cloud_vehicle_id(v) in not_found_ids:
                     vehicles_to_add.append({
-                        "id": vname,
+                        "id": _cloud_vehicle_id(v),
                         "name": vname,
-                        "status": v.get("status", ""),
+                        "status": _cloud_vehicle_status(v),
                         "ip_address": v.get("ip", ""),
                         "platform": v.get("software", ""),
                         "architecture": v.get("hardware", ""),

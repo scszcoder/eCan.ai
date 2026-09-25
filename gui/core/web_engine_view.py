@@ -616,8 +616,22 @@ class WebEngineView(QWebEngineView):
                 raise FileNotFoundError(f"File not found: {file_path}")
 
             url = QUrl.fromLocalFile(str(file_path.absolute()))
+            # The page is served from file://, so it cannot infer the backend's
+            # port from its own origin and falls back to a BUILD-TIME constant
+            # (VITE_LOCAL_SERVER_PORT, default 4668). That is wrong the moment a
+            # second instance runs on a different port, so pass the live port in
+            # the query string — it survives the file:// load and is readable
+            # before the app boots, unlike an injected global.
+            try:
+                from agent.mcp.config import get_local_port
+                from PySide6.QtCore import QUrlQuery
+                q = QUrlQuery()
+                q.addQueryItem("port", str(get_local_port()))
+                url.setQuery(q)
+            except Exception as _port_err:
+                logger.warning(f"Could not stamp local port on UI URL: {_port_err}")
             self.load(url)
-            logger.info(f"Loading local file: {file_path}")
+            logger.info(f"Loading local file: {file_path} ({url.query() or 'no query'})")
         except Exception as e:
             error_msg = f"Failed to load local file: {str(e)}"
             logger.error(error_msg)

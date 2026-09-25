@@ -42,6 +42,7 @@ Design notes live in the eCan_lambda repo,
 import json
 import os
 import platform
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -230,6 +231,8 @@ def make_profile(
     fingerprint_profile: str = "",
     locale: str = "en-US",
     imported_from: Optional[dict] = None,
+    store_id: str = "",
+    machine_id: str = "",
 ) -> dict:
     """Build a record with the conventions applied (dir naming, salt)."""
     if not user_data_dir:
@@ -248,4 +251,122 @@ def make_profile(
         "fingerprint_profile": fingerprint_profile,
         "locale": locale,
         "imported_from": dict(imported_from or {}),
+        # Which shop this login belongs to, and which machine holds it. A
+        # profile IS a store's login, so without these an operator with eight
+        # stores on three machines cannot tell which profile is which.
+        "store_id": store_id,
+        "machine_id": machine_id,
+        # A brand new profile has never been signed in. Saying so explicitly
+        # is what lets provisioning finish and hand the operator a precise
+        # "log in to these two stores" list instead of a silent failure at the
+        # first customer message.
+        "login_state": LOGIN_NEEDED,
+        "login_checked_at": 0,
+        "login_detail": "",
     }
+
+
+
+# ── Login state ──────────────────────────────────────────────────────
+# A profile is a live seller login, and logins expire. For one store that is
+# a nuisance you notice; for eight stores across three machines it is the
+# difference between "store 6 has been silently offline since Tuesday" and a
+# list of what needs attention. The browser being UP (profile_status) says
+# nothing about whether the session inside it still works.
+
+LOGIN_UNKNOWN = "unknown"       # never checked
+LOGIN_OK = "ok"                 # a run confirmed the session works
+LOGIN_NEEDED = "needs_login"    # freshly provisioned, or the session is gone
+
+_LOGIN_STATES = (LOGIN_UNKNOWN, LOGIN_OK, LOGIN_NEEDED)
+
+
+def set_login_state(profile_id: str, state: str, detail: str = "") -> bool:
+    """Record whether this profile's seller session still works.
+
+    Reported by whatever actually found out — a run that reached the site, or
+    provisioning that just created the profile. Returns False for an unknown
+    profile or an unknown state rather than inventing a record.
+    """
+    if state not in _LOGIN_STATES:
+        logger.warning(f"[browser-registry] ignoring unknown login state {state!r}")
+        return False
+    prof = get_profile(profile_id)
+    if not prof:
+        logger.warning(f"[browser-registry] no profile '{profile_id}' to mark {state}")
+        return False
+    prof = dict(prof)
+    prof["login_state"] = state
+    prof["login_checked_at"] = int(time.time())
+    prof["login_detail"] = str(detail or "")[:500]
+    save_profile(prof)
+    logger.info(f"[browser-registry] profile '{profile_id}' login state -> {state}")
+    return True
+
+
+def login_state(profile_id: str) -> dict:
+    """``{state, checked_at, detail}``. Unknown profile reads as unknown."""
+    prof = get_profile(profile_id) or {}
+    state = str(prof.get("login_state") or "") or LOGIN_UNKNOWN
+    return {
+        "state": state if state in _LOGIN_STATES else LOGIN_UNKNOWN,
+        "checked_at": int(prof.get("login_checked_at") or 0),
+        "detail": str(prof.get("login_detail") or ""),
+    }
+
+
+def profiles_needing_login() -> list[dict]:
+    """Every profile whose session needs a human — the provisioning to-do list."""
+    return [
+        {"id": p.get("id", ""), "label": p.get("label", "") or p.get("id", ""),
+         "store_id": p.get("store_id", ""), "machine_id": p.get("machine_id", "")}
+        for p in list_profiles()
+        if str(p.get("login_state") or LOGIN_NEEDED) == LOGIN_NEEDED
+    ]
+
+
+# ── Syncable descriptor ──────────────────────────────────────────────
+# The split the design turns on: a DESCRIPTOR may leave the machine, the
+# profile itself must not. The descriptor is what lets the cloud know a
+# profile should exist on machine M and show the operator its state; the
+# contents -- cookies, localStorage, the session, the proxy password -- are
+# what make losing one mean "someone else can act as that seller".
+#
+# This is an allowlist, never a blocklist with deletions: a field added to a
+# profile record later must be opted IN here, so the default for anything new
+# is "stays local".
+
+_DESCRIPTOR_FIELDS = (
+    "id", "label", "store_id", "machine_id", "domain_name",
+    "fingerprint_profile", "locale",
+)
+
+
+def descriptor(profile: dict) -> dict:
+    """The part of a profile that is safe to leave this machine.
+
+    Deliberately excludes ``user_data_dir`` (where the session lives, and the
+    machine's directory layout), ``install_salt``, anything under ``proxy``
+    beyond "is there one", and ``imported_from``. Building it as an allowlist
+    means a future field is private until someone decides otherwise.
+
+    Note this function only SHAPES the data — it does not send it anywhere.
+    Nothing cloud-bound may reach into this module; see
+    tests/unit/test_browser_profile_stays_local.py.
+    """
+    prof = dict(profile or {})
+    out = {k: prof.get(k, "") for k in _DESCRIPTOR_FIELDS}
+    browser = prof.get("browser") or {}
+    # Which Chromium wrote the profile matters: a profile written by one build
+    # is not always safe to open with another.
+    out["browser"] = {
+        "version": str(browser.get("version") or ""),
+    }
+    proxy = prof.get("proxy") or {}
+    # Whether an egress proxy is configured, never which one or its credentials.
+    out["has_proxy"] = bool(proxy.get("host") or proxy.get("port"))
+    state = login_state(prof.get("id", ""))
+    out["login_state"] = state["state"]
+    out["login_checked_at"] = state["checked_at"]
+    return out
+
