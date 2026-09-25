@@ -490,6 +490,13 @@ class BrowserSessionManager:
 
         bt_name = self._BROWSER_TYPE_MAP_HINTS.get(self.cfg.browser_type, "CHROME")
         browser_type = getattr(BrowserType, bt_name, BrowserType.CHROME)
+        # Same rule as build_helpers: a task naming a profile runs in it.
+        from agent.ec_skills.browser_node.build_helpers import browser_type_for_identity
+        browser_type, switched = browser_type_for_identity(browser_type, state_profile_id, BrowserType)
+        if switched:
+            cdp_port = 0
+            logger.info(f"[BrowserSessionManager] Task names browser profile {state_profile_id!r}: "
+                        f"running in the fingerprint browser (node said {self.cfg.browser_type!r})")
 
         agent_id_base = (
             calling_agent_id

@@ -328,7 +328,16 @@ def local_vehicle_report_fields(mainwin=None, username: str = "") -> dict:
         fields["capabilities"] = machine_capabilities()
     except Exception as exc:
         logger.warning(f"[VehicleAffinity] no capability list for the heartbeat: {exc}")
+    role = str(getattr(mainwin, "host_role", "") or "")
+    if role:
+        # So every other machine's Vehicles page can say what this one is.
+        fields["role"] = role
     return fields
+
+
+def sees_whole_fleet(mainwin) -> bool:
+    """A Commander sees every machine and agent of the account; a Platoon only its own."""
+    return "Platoon" not in str(getattr(mainwin, "host_role", "") or "")
 
 
 def register_local_vehicle(mainwin) -> None:

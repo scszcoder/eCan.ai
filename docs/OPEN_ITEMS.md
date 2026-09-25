@@ -10,6 +10,17 @@ _Last updated: 2026-09-21_
 
 ## 🔴 Bugs (unfixed)
 
+### ✅ FIXED — a migration that adds a table froze startup on its own lock (2026-09-25)
+
+A 98w customer (DB at 3.1.6) could not get past the startup spinner: each
+migration step's "create missing tables" ran on a SECOND connection while the
+migration session already held SQLite's write lock (its migration-log row was
+flushed), so every step waited out the 60s busy timeout. 3.1.6 -> 3.1.8 = two
+steps = ~2 minutes frozen; the app was closed before the version was recorded,
+so every start repeated it. Reproduced at 130.9s; fixed (0.0s) by creating the
+missing tables on the migration session's own connection and committing
+(agent/db/migrations/migration_manager.py, tests/test_migration_no_self_lock.py).
+
 ### A saved task edit does not reach the agent holding the task until restart (2026-09-23)
 
 `save_agent_task` writes the DB, syncs the cloud, and replaces the task in
@@ -699,15 +710,70 @@ on the profile record. Both hardcode a policy, so decide deliberately.
 
 ## 🔵 Planned work
 
+### ⚡ Fleet transfer: fetch logs + move a store with its login (2026-09-24)
+
+Client built (`agent/fleet/`, `fleet_handler.py`, Vehicles → Fetch logs, Stores →
+Move with login…); design in `docs/FLEET_TRANSFER_DESIGN.md`. **Blocked on the
+server half** — `docs/FLEET_TRANSFER_SERVER_CONTRACT.md` (`transfer_*` actions on
+ecbAccountManager + a private `fleet-transfers/` prefix with presigned links).
+Until it is deployed, every heartbeat's `transfer_list` fails quietly (DEBUG).
+
+Open after v1:
+- **A dead source cannot hand over its login.** Failover from a machine that will
+  not boot needs periodic encrypted snapshots in the cloud, encrypted to a key the
+  account's machines share and the server does not hold. Decide key custody
+  (who creates it, how a new machine gets it) before building.
+- The server could substitute the receiver's public key (it is trusted for the
+  control plane, not the data). Per-machine signing keys would close it.
+- Not verified on real machines yet: cookie restore through `Storage.setCookies`
+  keeps a Douyin/飞鸽 session alive on the target; Windows firewall prompt on the
+  receiver's first listener.
+
+### Decision point: several same-platform stores in ONE store process (Phase E) (2026-09-24)
+
+Today each store on a machine with 2+ stores of one platform gets its own store
+process (worker; ONE_APP_MANY_STORES.md). Sharing one process between stores of
+the same platform (e.g. two 抖店 stores) is mechanically trivial -- give both
+the same isolation key -- but NOT safe yet: the live-chat runner bridge is
+registered per platform (live_chat_dispatch._BRIDGES), the typing lock and tab
+pool are single, and per-customer state is keyed by display name (two stores
+can both have a customer "小王"). The failure mode is a wrong-store reply, not a
+crash. Already store-aware: placeholder timers (store_key), the 飞鸽 WS observer
+(chat_browser_cdp_url(store_key)).
+
+**Trigger:** W4's measurement of RSS per store process on a real multi-store
+machine. Only if a typical machine cannot host the store count customers run,
+do the Phase E store-scoping (bridge, typing lock, tab pool, per-customer keys).
+Middle option worth weighing then: per-store front desks (each bound to its
+store's browser) sharing ONE Q&A pool -- most of the memory, same
+store-scoping prerequisites on the Q&A side.
+
 ### ⚡ Store placement: the assignment decides where a store runs (2026-09-24)
 
-Design: `docs/STORE_PLACEMENT_DESIGN.md` — awaiting owner decisions D1–D3.
-Blocks running one account's stores on more than one machine: today a second
-machine adopts the same agents (fail-open "no-affinity" / "stale-pin-adopt" in
-`vehicle_affinity.agent_launch_allowed`) → duplicate customer replies, and
-`store_assign` is display-only. Needs server work (`store_claim`, release,
-desktop liveness in the vehicle reaper) plus a client gate, reconciler and a
-new `EC_Agent.stop()`.
+Design: `docs/STORE_PLACEMENT_DESIGN.md` (D1 auto-claim, D2 run when the cloud
+is unknown, D3 60s heartbeat). Server half shipped 2026-09-24 (eCan_lambda
+`ff89a55`, `504435f`). Client half shipped: `store_placement` gate in
+`EC_Agent.start()`, claim, on-disk assignment cache, `store_reconciler` per
+heartbeat, `EC_Agent.stop()`, release in the store report. **Not yet verified
+on two real machines.** Deliberate limits, fix when they bite:
+
+- **A stopped agent does not restart in the same process.** `EC_Agent.stop()`
+  goes through `TaskRunner.stop()`, which cancels the ManagedTask objects and
+  queues `__shutdown__`; the agent keeps those objects. Moving a store back to a
+  machine that stopped it logs a WARNING asking for an app restart. Making it
+  restartable = clear each task's `cancellation_event`, drain the shutdown
+  sentinels, fresh TaskRunner.
+- **The in-flight turn is cut, not drained**, when a store moves away
+  (`ManagedTask.exit()` is a force stop). The customer's current message can
+  go unanswered; the next one is answered on the new machine.
+- **A stopped store's browser event monitors keep running** until app exit:
+  `TaskRunner.stop()`'s monitor cleanup is process-wide, so the per-agent stop
+  passes `cleanup_monitors=False` rather than blind the other stores. Needs a
+  per-agent monitor cleanup.
+- **Agents with an isolation key are not reconciled** — the worker supervisor
+  owns them; wiring its `reconcile()` to store placement is still open.
+- **Dead-machine takeover is slow**: 180s stale + up to one 5-min server timer.
+  Planned moves use release and are not affected.
 
 ### Store registry has no intl backend (2026-09-24)
 

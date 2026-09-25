@@ -21,6 +21,7 @@ import {
     ApartmentOutlined,
     ShopOutlined,
     ShoppingOutlined,
+    InboxOutlined,
     PrinterOutlined,
     DatabaseOutlined,
     AppstoreOutlined
@@ -35,6 +36,7 @@ import BackgroundInitIndicator from '../BackgroundInitIndicator';
 import PageBackBreadcrumb from './PageBackBreadcrumb';
 import QuickActionMenu from './QuickActionMenu';
 import FastDeployPanel from '../FastDeploy/FastDeployPanel';
+import { useFastDeployStore } from '../../stores/fastDeployStore';
 import A11yFocusGuard from '../Common/A11yFocusGuard';
 import { useAccountStore } from '../../stores/accountStore';
 import { eventBus } from '../../utils/eventBus';
@@ -57,7 +59,10 @@ const DEV_MENU_KEYS = new Set(['/tests', '/chat-test']);
 const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [collapsed, setCollapsed] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [fastDeployOpen, setFastDeployOpen] = useState(false);
+    // Shared so a store's page can open Fast Deploy preset to that store.
+    const fastDeployOpen = useFastDeployStore((s) => s.open);
+    const toggleFastDeploy = useFastDeployStore((s) => s.toggle);
+    const closeFastDeploy = useFastDeployStore((s) => s.close);
     const [showDevMenu, setShowDevMenu] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
@@ -189,6 +194,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         const isWeb = isWebPlatform();
 
         return [
+            { key: '/stores', icon: <ShopOutlined />, label: t('menu.stores') },
             { key: '/agents', icon: <TeamOutlined />, label: t('menu.agents') },
             { key: '/chat', icon: <MessageOutlined />, label: t('menu.chat') },
             { key: '/tasks', icon: <OrderedListOutlined />, label: t('menu.tasks') },
@@ -200,7 +206,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
             { key: '/prompts', icon: <ReadOutlined />, label: t('menu.prompts') },
             { key: '/avatars', icon: <UserOutlined />, label: t('menu.avatars') },
-            { key: '/warehouses', icon: <ShopOutlined />, label: t('menu.warehouses') },
+            { key: '/warehouses', icon: <InboxOutlined />, label: t('menu.warehouses') },
             { key: '/products', icon: <ShoppingOutlined />, label: t('menu.products') },
             ...(!isWeb ? [{ key: '/knowledge-ported', icon: <ReadOutlined />, label: t('menu.knowledge') }] : []),
             { key: '/shipping-label', icon: <PrinterOutlined />, label: t('menu.shipping_label') },
@@ -318,7 +324,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                             <Button
                                 type={fastDeployOpen ? 'primary' : 'default'}
                                 icon={<ThunderboltOutlined />}
-                                onClick={() => setFastDeployOpen((v) => !v)}
+                                onClick={toggleFastDeploy}
                                 style={{ margin: '0 12px' }}
                             >
                                 {t('pages.agents.fast_deploy', 'Fast Deploy')}
@@ -327,7 +333,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                         </div>
                     )}
                     {!isSkillEditor && isAgentsPage && (
-                        <FastDeployPanel open={fastDeployOpen} onClose={() => setFastDeployOpen(false)} />
+                        <FastDeployPanel open={fastDeployOpen} onClose={closeFastDeploy} />
                     )}
                     <AppContent>{children}</AppContent>
                 </div>

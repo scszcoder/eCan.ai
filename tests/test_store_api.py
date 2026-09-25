@@ -295,6 +295,17 @@ class HeartbeatIdentityTests(unittest.TestCase):
         self.assertEqual(len(adds), 1)
         self.assertIn('"stable-uuid-1"', adds[0])
 
+    def test_discovery_advertises_the_same_id_as_the_heartbeat(self):
+        # Seen live: LAN discovery said machine_id=4bfd7e1b.. (the per-USER
+        # data-home UUID) while the vehicle row was ab7e1120.. (the machine).
+        from pathlib import Path
+        src = Path("gui/MainGUI.py").read_text(encoding="utf-8")
+        self.assertEqual(src.count("machine_id = get_machine_id(data_home)"), 0,
+                         "discovery must not use the per-user id directly")
+        self.assertEqual(
+            src.count("machine_id = _resolve_local_vehicle_id(self) or get_machine_id(data_home)"), 2,
+            "both discovery start and directory re-advertise use the vehicle id")
+
     def test_the_heartbeat_and_the_local_row_agree(self):
         # The fix: one machine, one identity. If these ever diverge again,
         # store_assign 404s against a machine that is plainly online.

@@ -58,6 +58,10 @@ export interface Vehicle {
   port?: number;
   url?: string;
   
+  // Fleet role as the machine reports it (Commander / Platoon / ...)
+  role?: string;
+  is_self?: boolean;
+
   // Status
   status: VehicleStatus | string;
   health_score?: number; // 0.0 to 1.0

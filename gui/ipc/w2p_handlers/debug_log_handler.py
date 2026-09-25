@@ -424,8 +424,11 @@ MAX_RUNLOG_TOTAL_BYTES = 1024 * 1024 * 1024
 
 
 def _add_runlogs_dir(zf: "zipfile.ZipFile", runlogs_dir: Path,
-                     exclude: Optional[Path] = None) -> Dict[str, Any]:
+                     exclude: Optional[Path] = None,
+                     newer_than: float = 0.0) -> Dict[str, Any]:
     """Add every file under runlogs_dir to zf as runlogs/<relative path>.
+
+    ``newer_than`` (epoch seconds) keeps only files modified since then.
 
     Returns {"added": n, "bytes": total_uncompressed, "skipped": [(rel, reason), ...]}.
     """
@@ -445,6 +448,8 @@ def _add_runlogs_dir(zf: "zipfile.ZipFile", runlogs_dir: Path,
             entries.append((st.st_mtime, st.st_size, abs_path))
     entries.sort(key=lambda e: e[0], reverse=True)
     for _mtime, size, abs_path in entries:
+        if newer_than and _mtime < newer_than:
+            continue
         rel = abs_path.relative_to(runlogs_dir).as_posix()
         if exclude_resolved and abs_path.resolve() == exclude_resolved:
             continue

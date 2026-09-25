@@ -151,11 +151,17 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
     const storedUserInfo: UserInfo | null = userStorageManager.getUserInfo();
     const isPasswordLogin = storedUserInfo?.login_type === 'password';
     // 显示名称优先级：统一优先使用 name，如果没有则使用 username（邮箱用户名部分）
-    const displayName = storedUserInfo?.name 
-        || (storedUserInfo?.username ? storedUserInfo.username.split('@')[0] : undefined)
-        || (storedUserInfo?.email ? storedUserInfo.email.split('@')[0] : undefined)
-        || username 
-        || t('common.username');
+    // A WeChat login's username is its internal id (wechat_<openid>) -- never a
+    // name to show. Without a nickname (older sessions, or a login callback that
+    // does not pass one yet) it reads as a generic "WeChat user" instead.
+    const shown = (s?: string | null) => (s && !s.startsWith('wechat_') ? s : undefined);
+    const displayName = storedUserInfo?.name
+        || shown(storedUserInfo?.username ? storedUserInfo.username.split('@')[0] : undefined)
+        || shown(storedUserInfo?.email ? storedUserInfo.email.split('@')[0] : undefined)
+        || shown(username)
+        || (storedUserInfo?.login_type === 'wechat' || username?.startsWith('wechat_')
+            ? t('common.wechat_user', { defaultValue: '微信用户' })
+            : t('common.username'));
     const displayEmail = storedUserInfo?.email;
     const displayRole = storedUserInfo?.role;
     const displayPicture = isPasswordLogin ? undefined : storedUserInfo?.picture;

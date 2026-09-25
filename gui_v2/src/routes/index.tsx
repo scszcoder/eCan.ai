@@ -60,6 +60,7 @@ const OrgNavigator = lazyWithRetry(() => import('../pages/Agents/OrgNavigator'))
 const AgentDetails = lazyWithRetry(() => import('../pages/Agents/components/AgentDetails'));
 const Orgs = lazyWithRetry(() => import('../pages/Orgs/Orgs'));
 const Warehouses = lazyWithRetry(() => import('../pages/Warehouses/Warehouses'));
+const Stores = lazyWithRetry(() => import('../pages/Stores/Stores'));
 const Products = lazyWithRetry(() => import('../pages/Products/Products'));
 const Prompts = lazyWithRetry(() => import('../pages/Prompts/PromptsEnhanced'));
 const Avatars = lazyWithRetry(() => import('../pages/Avatars/Avatars'));
@@ -351,6 +352,11 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'skill_editor',
                 element: <LazyWrapper><SkillEditor /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'stores',
+                element: <LazyWrapper><Stores /></LazyWrapper>,
                 keepAlive: true,
             },
             {

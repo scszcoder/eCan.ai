@@ -527,8 +527,19 @@ async def unified_tool_handler(tool_name, args):
         # ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
         # [TextContent(type="text", text=f"all completed fine")]
 
-        toolResult = await tool_func(login.main_win, args)
-        logger.debug(f"[unified_tool_handler] {tool_name} completed successfully")
+        # The caller's run scope (store/agent/task) arrives as request meta:
+        # restore it so the tool's logs AND any outcome it produces are
+        # attributed to the right store (agent/mcp/tool_meters.py).
+        from agent.mcp.tool_meters import record_tool_outcome, scope_from_meta
+        try:
+            _scope_fields = scope_from_meta(meca_mcp_server.request_context.meta)
+        except LookupError:
+            _scope_fields = {}
+        from utils.log_scope import scope as _log_scope
+        with _log_scope(**_scope_fields):
+            toolResult = await tool_func(login.main_win, args)
+            logger.debug(f"[unified_tool_handler] {tool_name} completed successfully")
+            record_tool_outcome(tool_name, toolResult)
 
         return toolResult
     except Exception as e:

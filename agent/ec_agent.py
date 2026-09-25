@@ -85,6 +85,7 @@ class EC_Agent(Agent):
 		self.skill_llm = skill_llm
 		self.active_tasks: Dict[str, concurrent.futures.Future] = {}
 		self.task_lock = threading.Lock()
+		self._start_guard = threading.Lock()
 		self.skills = skills if skills is not None else []  # Use skills (unified naming)
 		self._stop_event = asyncio.Event()
 
@@ -383,7 +384,9 @@ class EC_Agent(Agent):
 					access_log=False,            # 关闭访问日志减少开销
 				)
 				server = uvicorn.Server(config)
-				
+				# Kept so stop() can ask it to exit (should_exit).
+				self._a2a_uvicorn = server
+
 				# Disable signal handlers for daemon threads
 				if hasattr(server, "install_signal_handlers"):
 					server.install_signal_handlers = lambda: None
@@ -402,6 +405,53 @@ class EC_Agent(Agent):
 		self.a2a_server_thread.daemon = True
 		self.a2a_server_thread.start()
 
+	def stop(self, reason: str = "") -> None:
+		"""Stop this agent's work here so another machine can take its store over.
+
+		Undoes what start() started: the task runners, the A2A server, WAN
+		subscriptions and the memory worker. What it deliberately does NOT do:
+
+		* clean up browser event monitors -- that cleanup is process-wide and
+		  would blind every other store's browser on this machine;
+		* drain the in-flight turn -- the runner's stop force-exits it;
+		* make this agent restartable in-process -- its tasks stay cancelled, so
+		  _stopped is set and a later start here needs an app restart
+		  (docs/OPEN_ITEMS.md).
+		"""
+		if not getattr(self, "_running", False):
+			return
+		name = getattr(self.card, "name", "?")
+		logger.info(f"[AGENT_STOP] Stopping '{name}': {reason}")
+		self._running = False
+		self._stopped = True
+		try:
+			self.runner.stop(cleanup_monitors=False)
+		except Exception as e:
+			logger.warning(f"[AGENT_STOP] '{name}' runner stop failed: {e}")
+		try:
+			from agent.ec_tasks.runner import TaskRunnerRegistry
+			TaskRunnerRegistry.unregister(self.runner)
+		except Exception as e:
+			logger.debug(f"[AGENT_STOP] '{name}' runner unregister failed: {e}")
+		with self.task_lock:
+			self.active_tasks.clear()
+		try:
+			if self.card and self.card.id:
+				self.unsubscribe_from_wan_channel(self.card.id)
+			for group_id in list(getattr(getattr(self, "unified_messenger", None), "groups", {}) or {}):
+				self.unsubscribe_from_wan_channel(group_id)
+		except Exception as e:
+			logger.warning(f"[AGENT_STOP] '{name}' WAN unsubscribe failed: {e}")
+		server = getattr(self, "_a2a_uvicorn", None)
+		if server is not None:
+			server.should_exit = True
+		self.exit_a2a_server_in_thread()
+		try:
+			self.mem_manager.stop()
+		except Exception as e:
+			logger.debug(f"[AGENT_STOP] '{name}' memory manager stop failed: {e}")
+		logger.info(f"[AGENT_STOP] '{name}' stopped")
+
 	def exit_a2a_server_in_thread(self):
 		if self.a2a_server_thread and self.a2a_server_thread.is_alive():
 			self.a2a_server_thread.join(timeout=5)
@@ -412,17 +462,50 @@ class EC_Agent(Agent):
 		return task_thread
 
 	def start(self):
+		# Two callers can reach this at once now: the launcher at boot and the
+		# store reconciler on a heartbeat. A second start would submit every
+		# task's runner twice.
+		with self._start_guard:
+			if getattr(self, "_starting", False) or getattr(self, "_running", False):
+				return
+			self._starting = True
+		try:
+			self._start_body()
+		finally:
+			self._starting = False
+
+	def _start_body(self):
 		# ── Vehicle affinity gate (SHARED_SKILL_MULTI_TASK_PLAN Phase 1.5) ──
 		# With one account on multiple hosts, cloud sync gives every host the
 		# same agents/tasks; only start this agent when it is assigned to this
 		# host's vehicle (or has no assignment — back-compat). Fails open.
+		# ── Store placement gate (docs/STORE_PLACEMENT_DESIGN.md) ──
+		# An agent serving a store (explicit task_vars.store_id) runs where the
+		# STORE is assigned, never by its vehicle pin: the pin gate below fails
+		# open, which started the same store on every machine of the account.
+		# A gate error falls back to the pin gate, i.e. today's behaviour.
+		_store_governed = False
+		try:
+			from agent.ec_agents.store_placement import (
+				placement_for_agent as _store_placement, SKIP as _STORE_SKIP,
+			)
+			_sp, _sp_why = _store_placement(self)
+			if _sp is not None:
+				_store_governed = True
+				if _sp == _STORE_SKIP:
+					logger.info(f"[AGENT_START] Skipping '{self.card.name}' on this host (store placement): {_sp_why}")
+					return
+				logger.info(f"[AGENT_START] '{self.card.name}' runs here (store placement): {_sp_why}")
+		except Exception as _sp_err:
+			logger.warning(f"[AGENT_START] Store placement gate error (falling back to vehicle pin): {_sp_err}")
+
 		try:
 			from agent.ec_agents.vehicle_affinity import (
 				agent_launch_allowed,
 				register_local_vehicle,
 			)
 			register_local_vehicle(self.mainwin)
-			allowed, reason = agent_launch_allowed(self)
+			allowed, reason = (True, "store-placement") if _store_governed else agent_launch_allowed(self)
 			if not allowed:
 				logger.info(
 					f"[AGENT_START] Skipping '{self.card.name}' on this host: {reason}"
@@ -532,7 +615,9 @@ class EC_Agent(Agent):
 		
 		# Start WAN subscription for receiving messages over the internet
 		self._start_wan_subscriptions()
-		
+
+		# What the store reporter and reconciler read: gated-out agents stay False.
+		self._running = True
 		logger.info("Ready to A2A chat....", self.card.name)
 
 	async def hone_skills(self):

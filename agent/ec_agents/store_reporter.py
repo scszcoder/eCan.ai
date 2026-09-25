@@ -3,10 +3,15 @@
 The observed half of the store registry: ``store_report`` from the machine,
 ``store_assign`` from the owner, and ``store_list`` shows where they disagree.
 
-A store here is an EXPLICIT ``task_vars.store_id`` on a task of an agent this
-machine launches. The URL fallback of ``resolve_store_id`` is deliberately not
+A store here is an EXPLICIT ``task_vars.store_id`` on a task of an agent that
+is RUNNING on this machine -- not one merely allowed to: store placement may
+have gated it out. The URL fallback of ``resolve_store_id`` is deliberately not
 used: on 飞鸽 it yields the same value for every seller, and the server refuses
 it anyway.
+
+A store the cloud records as running here that no longer is (moved away, or
+this process restarted without it) is reported as released, which is what the
+machine taking it over waits for.
 
 Login state comes from a browser profile tagged with that store, sent as the
 allowlisted ``descriptor()`` only -- never the profile. This module lives
@@ -22,35 +27,44 @@ from typing import Any, Dict, List, Optional
 from utils.logger_helper import logger_helper as logger
 
 
-def _explicit_store_id(task) -> str:
-    from agent.ec_skills.prompt_variable_providers import STORE_ID_VAR
-
-    md = getattr(task, "metadata", None)
-    if not isinstance(md, dict):
-        return ""
-    task_vars = md.get("task_vars")
-    if not isinstance(task_vars, dict):
-        return ""
-    return str(task_vars.get(STORE_ID_VAR) or "").strip()
+def _store_process_keys() -> List[str]:
+    """Stores running in their own store process on this machine (keys = store ids)."""
+    try:
+        from agent.ec_tasks import worker_supervisor as ws
+        return [s["key"] for s in ws.supervisor().status() if s.get("running") and s.get("key")]
+    except Exception:
+        return []
 
 
 def local_store_ids(mainwin) -> List[str]:
-    """Explicit store ids of every task on an agent this machine launches."""
-    from agent.ec_agents.vehicle_affinity import agent_launch_allowed
+    """Explicit store ids served on this machine: by an agent RUNNING in this
+    process, or by a running store process (store_isolation.py). Without the
+    second half, a store moved into its own process would be released to the
+    cloud on every heartbeat."""
+    from agent.ec_agents.store_placement import store_ids_of_agent
 
     seen: List[str] = []
     for agent in list(getattr(mainwin, "agents", None) or []):
-        try:
-            allowed, _ = agent_launch_allowed(agent)
-        except Exception:
-            allowed = False
-        if not allowed:
+        if not getattr(agent, "_running", False):
             continue
-        for task in list(getattr(agent, "tasks", None) or []):
-            sid = _explicit_store_id(task)
-            if sid and sid not in seen:
+        for sid in store_ids_of_agent(agent):
+            if sid not in seen:
                 seen.append(sid)
+    for sid in _store_process_keys():
+        if sid not in seen:
+            seen.append(sid)
     return seen
+
+
+def stores_to_release(mainwin, me: str, running: List[str]) -> List[str]:
+    """Stores the cloud records as running on ``me`` that are not running here."""
+    try:
+        from agent.ec_agents.store_placement import refresh
+        snapshot = refresh(mainwin) or {}
+    except Exception:
+        return []
+    return [sid for sid, e in (snapshot.get("stores") or {}).items()
+            if e.get("reported") == me and sid not in running]
 
 
 def _profiles_by_store() -> Dict[str, dict]:
@@ -105,12 +119,19 @@ def report_local_stores(mainwin) -> Optional[dict]:
     from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id
 
     try:
+        from agent.cloud_api.store_api import build_store_release_item
         items = build_local_store_report(mainwin)
-        if not items:
-            return None
         vid = resolve_local_vehicle_id(mainwin)
         if not vid:
-            logger.warning("[StoreReporter] no stable machine id; skipping store report")
+            if items:
+                logger.warning("[StoreReporter] no stable machine id; skipping store report")
+            return None
+        running = [i["store_id"] for i in items]
+        releases = stores_to_release(mainwin, vid, running)
+        for sid in releases:
+            logger.info(f"[StoreReporter] releasing store {sid!r}: no longer running here")
+        items += [build_store_release_item(sid) for sid in releases]
+        if not items:
             return None
         return store_report(vid, items)
     except StoreApiUnavailable as exc:

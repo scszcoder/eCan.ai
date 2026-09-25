@@ -352,10 +352,20 @@ def _load_system_skill(name: str):
     return None
 
 
-def _replace_cleanup(ctx, owner: str, skill_ids, log: list) -> dict:
+def _task_store_id(row: dict) -> str:
+    md = (row or {}).get("metadata")
+    tv = md.get("task_vars") if isinstance(md, dict) else None
+    return str((tv or {}).get("store_id") or "").strip() if isinstance(tv, dict) else ""
+
+
+def _replace_cleanup(ctx, owner: str, skill_ids, log: list, store_id: str = "") -> dict:
     """Fast Deploy 'replace' mode: delete this owner's existing tasks that use
-    the given (shared) skills, and every agent of this owner that has one of
-    those tasks assigned — then the caller proceeds with a normal 'add'.
+    the given (shared) skills FOR THIS STORE, and the agents serving only them
+    — then the caller proceeds with a normal 'add'.
+
+    Scoped by ``store_id`` (tasks with no store id when it is blank). It used
+    to delete every task on these skills, so replacing store B wiped store A's
+    agents too. An agent that still serves another store's task is kept.
     Other owners' rows are never touched. Returns {"tasks": [...], "agents": [...]}."""
     from ..base.sync import cloud_sync
     from agent.cloud_api.constants import DataType, Operation
@@ -368,7 +378,8 @@ def _replace_cleanup(ctx, owner: str, skill_ids, log: list) -> dict:
             if not tid or tid in task_ids:
                 continue
             rows = (ctx.db.task_service.query_tasks(id=tid) or {}).get("data") or []
-            if rows and str(rows[0].get("owner") or "") == str(owner):
+            if (rows and str(rows[0].get("owner") or "") == str(owner)
+                    and _task_store_id(rows[0]) == store_id):
                 task_ids.append(tid)
 
     agent_ids: list = []
@@ -379,7 +390,11 @@ def _replace_cleanup(ctx, owner: str, skill_ids, log: list) -> dict:
             if not aid:
                 continue
             assoc = (ctx.db.agent_service.get_agent_task_associations(aid) or {}).get("data") or []
-            if any(str((x or {}).get("task_id") or "") in task_ids for x in assoc):
+            linked = {str((x or {}).get("task_id") or "") for x in assoc} - {""}
+            if linked & set(task_ids):
+                if linked - set(task_ids):
+                    log.append(f"Replace mode: kept agent {aid} -- it also serves tasks of another store")
+                    continue
                 agent_ids.append(aid)
 
     # Agents first (their task links go with them), then the tasks.
@@ -395,8 +410,105 @@ def _replace_cleanup(ctx, owner: str, skill_ids, log: list) -> dict:
         cloud_sync(DataType.TASK, {"id": tid}, Operation.DELETE)
 
     log.append(f"Replace mode: deleted {len(agent_ids)} agent(s) and {len(task_ids)} task(s) "
-               f"using the 抖店客服 skills (owner={owner})")
+               f"using the 抖店客服 skills for store {store_id or '(none)'} (owner={owner})")
     return {"tasks": task_ids, "agents": agent_ids}
+
+
+def _store_browser_identity(ctx, store_id: str, log: list) -> dict:
+    """``{"browser_profile_id": ...}`` from the store record, or {} when it has none."""
+    if not store_id:
+        return {}
+    try:
+        svc = getattr(ctx.db, "store_service", None)
+        rec = svc.get_store(store_id) if svc is not None else None
+        pid = str((rec or {}).get("browser_profile_id") or "").strip()
+    except Exception as e:
+        log.append(f"Store login profile not read (non-fatal): {e}")
+        return {}
+    if pid:
+        log.append(f"Browser: store {store_id!r} runs in its own login profile {pid!r}")
+        return {"browser_profile_id": pid}
+    log.append(f"Browser: store {store_id!r} has no login profile; it uses the default browser. "
+               f"Set one on the store before running a second store on this machine.")
+    return {}
+
+
+def _sync_created_to_cloud(ctx, created: dict, links: dict, log: list) -> None:
+    """Push what the deploy created to the cloud: tasks, agents, then their links.
+
+    The deploy only ever synced its DELETES, so a store staffed up on one
+    machine never reached the cloud and another machine could never run it.
+    Order matters -- a link needs both ends. Best-effort: a failed sync is
+    counted and left to the offline queue; the local deployment stands.
+    """
+    try:
+        from agent.cloud_api.constants import DataType, Operation
+        from agent.cloud_api.offline_sync_manager import get_sync_manager
+        manager = get_sync_manager()
+    except Exception as e:
+        log.append(f"Cloud sync skipped: {e}")
+        return
+    counts = {"synced": 0, "queued": 0, "failed": 0}
+
+    def push(dtype, data):
+        try:
+            r = manager.sync_to_cloud(dtype, data, Operation.ADD) or {}
+        except Exception:
+            r = {}
+        counts["synced" if r.get("synced") else "queued" if r.get("cached") else "failed"] += 1
+
+    def row(service, rid):
+        data = (service.query_tasks(id=rid) if service is ctx.db.task_service
+                else service.query_agents(id=rid)) or {}
+        rows = data.get("data") or []
+        return rows[0] if rows else {"id": rid}
+
+    for tid in created.get("tasks", []):
+        push(DataType.TASK, row(ctx.db.task_service, tid))
+    for aid in created.get("agents", []):
+        push(DataType.AGENT, row(ctx.db.agent_service, aid))
+    for aid, tid in links.get("agent_task", []):
+        push(DataType.AGENT_TASK, {"agid": aid, "task_id": tid, "status": "assigned"})
+    for tid, sid in links.get("task_skill", []):
+        push(DataType.TASK_SKILL, {"task_id": tid, "skill_id": sid})
+    log.append(f"Cloud sync: {counts['synced']} synced, {counts['queued']} queued for retry, "
+               f"{counts['failed']} failed")
+
+
+def _refuse_taken_store_id(ctx, cfg: dict) -> None:
+    """A "+ New store" deploy must not reuse an existing store's id.
+
+    ``store_name`` is only sent for "+ New store"; deploying INTO an existing
+    store is the picker's job. Reusing an id would silently merge two shops
+    into one. Runs before anything is changed -- in Replace mode the cleanup
+    would otherwise delete the existing store's agents first.
+    """
+    store_id = str(cfg.get("store_id") or "").strip()
+    if not store_id or not cfg.get("store_name"):
+        return
+    svc = getattr(ctx.db, "store_service", None)
+    existing = svc.get_store(store_id) if svc is not None else None
+    if existing:
+        raise RuntimeError(f"store id {store_id!r} already belongs to store "
+                           f"{existing.get('name') or store_id!r}; pick it from the list "
+                           f"or give the new store a different id")
+
+
+def _register_store(ctx, store_id: str, cfg: dict, store_urls: list, log: list) -> None:
+    """Make sure the store exists in the local catalog; a deploy into a new id
+    defines it. Never renames an existing store. Best-effort: the catalog is
+    bookkeeping, and a failure must not fail a deployment."""
+    try:
+        svc = getattr(ctx.db, "store_service", None)
+        if svc is None:
+            return
+        fields = {"store_id": store_id, "platform": "douyin", "store_urls": store_urls}
+        if not svc.get_store(store_id):
+            fields.update(name=str(cfg.get("store_name") or store_id), source="fast_deploy")
+        svc.upsert_store(fields)
+        log.append(f"Store registered: {store_id}")
+    except Exception as e:
+        log.append(f"Store catalog not updated (non-fatal): {e}")
 
 
 def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
@@ -410,9 +522,12 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     log = []
     created = {"skills": [], "tasks": [], "agents": []}
 
-    # ── 0) 'replace' mode: clear this owner's previous 抖店客服 deployment first.
+    _refuse_taken_store_id(ctx, cfg)
+
+    # ── 0) 'replace' mode: clear THIS STORE's previous 抖店客服 deployment first.
     if str(cfg.get("mode") or "add").strip().lower() == "replace":
-        _replace_cleanup(ctx, owner, (_DDCS_FD_SKILL_ID, _DDCS_QA_SKILL_ID), log)
+        _replace_cleanup(ctx, owner, (_DDCS_FD_SKILL_ID, _DDCS_QA_SKILL_ID), log,
+                         store_id=str(cfg.get("store_id") or "").strip())
     else:
         log.append("Add mode: existing tasks/agents kept")
 
@@ -487,6 +602,7 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
     if store_id:
         task_vars["store_id"] = store_id
         log.append(f"Store id: {store_id}")
+        _register_store(ctx, store_id, cfg, store_urls, log)
     else:
         log.append("WARNING: no store_id given. Fine for a single store; if you "
                    "deploy a second one, its per-store settings and usage will "
@@ -507,25 +623,41 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
         log.append(f"WARNING: local vehicle id resolution failed ({e}).")
     if not vehicle_id:
         log.append("WARNING: no local vehicle id — agents created UNPINNED (they will run on any host).")
+    if store_id and vehicle_id:
+        # A store's agents run where the STORE is assigned (store placement);
+        # a pin to the machine that happened to deploy would keep them off the
+        # machine the store is actually assigned to.
+        vehicle_id = None
+        log.append(f"Placement: agents follow store {store_id!r}'s assignment, not this machine")
 
     # ── Sales organization.
     org_id = _ensure_sales_org(ctx, owner, log)
+
+    # The store's login: its tasks run in its own browser profile, so a second
+    # store never drives the first one's logged-in browser (build_helpers.
+    # browser_type_for_identity). Local only -- the profile never syncs.
+    identity = _store_browser_identity(ctx, store_id, log)
+    links = {"task_skill": [], "agent_task": []}
 
     def _add_task(name: str, skill_id: str, extra_vars: dict | None = None) -> str:
         tvars = dict(task_vars)
         if extra_vars:
             tvars.update(extra_vars)
+        settings = {"task_vars": tvars}
+        if identity:
+            settings["browser_identity"] = dict(identity)
         tr = ctx.db.task_service.add_task({
             "name": name, "owner": owner, "source": "fast_deploy",
             "description": "抖店客服 — Fast Deploy (shared skill)",
             "task_type": "browser_automation", "trigger": "auto", "status": "pending",
-            "settings": {"task_vars": tvars},
+            "settings": settings,
         })
         if not tr.get("success"):
             raise RuntimeError(f"add_task({name}) failed: {tr.get('error')}")
         tid = tr.get("id")
         created["tasks"].append(tid)
         link = ctx.db.task_service.add_skill_to_task(tid, skill_id, role="primary")
+        links["task_skill"].append((tid, skill_id))
         if not (isinstance(link, dict) and link.get("success")):
             raise RuntimeError(
                 f"link task {name} → skill {skill_id} failed: {(link or {}).get('error')}")
@@ -550,6 +682,8 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
             raise RuntimeError(f"create agent {name} failed: {ar.get('error')}")
         aid = ar.get("id")
         created["agents"].append(aid)
+        if task_id:
+            links["agent_task"].append((aid, task_id))
         return aid
 
     # ── Feige runtime env flags → <appdata>/run.env (applied on next app start).
@@ -585,6 +719,7 @@ def _deploy_douyin_cs(cfg: dict, ctx, owner: str):
         f"referencing shared skills {_DDCS_QA_SKILL_ID}/{_DDCS_FD_SKILL_ID}; "
         f"store_url + front_desk_agent_id propagated via task_vars"
     )
+    _sync_created_to_cloud(ctx, created, links, log)
     return plan, log, created
 
 

@@ -73,5 +73,20 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(call.call_args.kwargs, {"restore": True})
 
 
+
+class MachinesTests(unittest.TestCase):
+    def test_this_machine_first_and_only_cloud_known_machines(self):
+        others = [{"id": "far", "name": "Office-PC", "type": "desktop", "status": "active", "source": "cloud"},
+                  {"id": "near", "name": "LAN-only", "type": "desktop", "status": "active", "source": "lan"},
+                  {"id": "both", "name": "Next-desk", "type": "desktop", "status": "active", "source": "cloud+lan"}]
+        with mock.patch.object(h, "_this_vehicle_id", return_value="me"), \
+             mock.patch("gui.ipc.w2p_handlers.vehicle_handler._cloud_machines", return_value=others):
+            data = _ok(h.handle_machines(REQ, {}))
+        ids = [m["id"] for m in data["machines"]]
+        # store_assign validates against the cloud row: a LAN-only machine would 404.
+        self.assertEqual(ids, ["me", "far", "both"])
+        self.assertTrue(data["machines"][0]["this"])
+
+
 if __name__ == "__main__":
     unittest.main()

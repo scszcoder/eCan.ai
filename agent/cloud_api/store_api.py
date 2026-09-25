@@ -5,7 +5,7 @@ free-text value Fast Deploy writes into ``task_vars.store_id`` and the proxy
 receives as ``X-Ecan-Store-Id``. That is what joins a store to its LLM cost, so
 the three have to stay the same string.
 
-Four actions on ``ecbAccountManager``, the same route and bearer ``turn_queue``
+Five actions on ``ecbAccountManager``, the same route and bearer ``turn_queue``
 already uses — reused from there rather than re-derived, because two ways of
 picking the credential is how ``pod_list`` ended up 401-ing against a session
 that was making GraphQL calls perfectly well:
@@ -13,6 +13,7 @@ that was making GraphQL calls perfectly well:
     store_report   this machine says what it observes
     store_list     desired vs observed, plus 30-day cost
     store_assign   the owner says where a store should run
+    store_claim    a machine takes an UNASSIGNED store (atomic; one winner)
     store_archive  hide or restore
 
 Two things this deliberately does not do.
@@ -156,6 +157,18 @@ def build_store_report_item(store_id: str, *, platform: str = "",
     return item
 
 
+def build_store_release_item(store_id: str) -> Dict[str, Any]:
+    """A ``store_report`` entry saying this machine STOPPED running the store.
+
+    Clears the observation only if this machine holds it; the machine taking
+    over a moved store waits for exactly this before it starts.
+    """
+    sid = str(store_id or "").strip()
+    if not sid:
+        raise ValueError("store_id is required")
+    return {"store_id": sid, "running": False}
+
+
 def store_report(vehicle_id: str, stores: List[Dict[str, Any]],
                  timeout: float = DEFAULT_TIMEOUT_S) -> Dict[str, Any]:
     """Tell the cloud what this machine observes.
@@ -233,6 +246,21 @@ def store_assign(store_id: str, vehicle_id: Optional[str], *,
     for warning in (data.get("warnings") or []):
         logger.warning(f"[StoreApi] assign {sid!r}: {warning}")
     return data
+
+
+def store_claim(store_id: str, vehicle_id: str,
+                timeout: float = DEFAULT_TIMEOUT_S) -> Dict[str, Any]:
+    """Claim an UNASSIGNED store for this machine before running it.
+
+    Atomic on the server: of two machines racing for one store exactly one gets
+    ``won: True``, and the loser must not run it. Never overrides an owner's
+    assignment; idempotent for the machine that already holds it.
+    """
+    sid = str(store_id or "").strip()
+    vid = str(vehicle_id or "").strip()
+    if not sid or not vid:
+        raise ValueError("store_id and vehicle_id are required")
+    return _call("store_claim", {"store_id": sid, "vehicle_id": vid}, timeout)
 
 
 def store_archive(store_id: str, restore: bool = False,

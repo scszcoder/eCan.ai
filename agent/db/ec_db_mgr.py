@@ -29,6 +29,7 @@ from .services.db_task_service import DBTaskService
 from .services.db_avatar_service import DBAvatarService
 from .services.db_token_usage_service import DBTokenUsageService
 from .services.db_usage_event_service import DBUsageEventService
+from .services.db_store_service import DBStoreService
 from .services.db_vehicle_service import DBVehicleService
 from utils.logger_helper import logger_helper as logger
 
@@ -330,6 +331,7 @@ class ECDBMgr:
             self.task_service = DBTaskService(engine=self.engine)
             self.token_usage_service = DBTokenUsageService(engine=self.engine)
             self.usage_event_service = DBUsageEventService(engine=self.engine)
+            self.store_service = DBStoreService(engine=self.engine)
             self.vehicle_service = DBVehicleService(engine=self.engine)
 
             logger.info("[ECDBMgr] Initialized all database services as direct attributes")

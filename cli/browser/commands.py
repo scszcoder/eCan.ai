@@ -194,6 +194,55 @@ def import_profile(vendor, vendor_profile_id, new_id, label, fingerprint_profile
              f"browserProfileId = {record['id']}")
 
 
+@browser.command('create')
+@click.option('--id', 'profile_id', required=True, help='Profile id (becomes the session folder name)')
+@click.option('--label', default='', help='Display name')
+@click.option('--store', 'store_id', default='', help='Store this login belongs to')
+@click.option('--domain', 'domain_name', default='', help='Site, e.g. im.jinritemai.com')
+@click.option('--fingerprint', 'fingerprint_profile', default='', help='Fingerprint preset')
+@click.option('--locale', default='zh-CN', help='Browser locale (default zh-CN)')
+@click.option('--proxy', default='', help='host:port of an egress proxy (several profiles may share one)')
+@click.option('--proxy-scheme', default='socks5', type=click.Choice(['socks5', 'http', 'https']))
+@click.option('--proxy-user', default='', help='Proxy username')
+@click.option('--proxy-password', default='', help='Proxy password (stored in the OS keyring only)')
+def create_profile(profile_id, label, store_id, domain_name, fingerprint_profile, locale,
+                   proxy, proxy_scheme, proxy_user, proxy_password):
+    """Register a new browser profile (starts as needs_login). WRITE command.
+
+    Sign in once in its browser (Settings -> Browser Profiles -> Launch), then
+    mark it: ecan browser login-state <id> ok
+    """
+    import re
+    out = get_output()
+    reg = _registry()
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$", profile_id):
+        raise click.ClickException("profile id: letters, digits, '_' or '-', up to 64 characters")
+    if reg.get_profile(profile_id):
+        raise click.ClickException(f"a browser profile '{profile_id}' already exists")
+    proxy_cfg = None
+    if proxy:
+        host, _, port = proxy.rpartition(':')
+        if not host or not port.isdigit():
+            raise click.ClickException("--proxy must be host:port")
+        proxy_cfg = {"scheme": proxy_scheme, "host": host, "port": int(port), "username": proxy_user}
+    prof = reg.make_profile(profile_id, label=label or profile_id, domain_name=domain_name,
+                            fingerprint_profile=fingerprint_profile, locale=locale,
+                            proxy=proxy_cfg, store_id=store_id)
+    reg.save_profile(prof, proxy_password=proxy_password)
+    out.success(f"Created browser profile '{profile_id}' (needs_login) at {prof['user_data_dir']}")
+
+
+@browser.command('login-state')
+@click.argument('profile_id')
+@click.argument('state', type=click.Choice(['ok', 'needs_login', 'unknown']))
+def set_login_state(profile_id, state):
+    """Record whether this profile's seller session works. WRITE command."""
+    out = get_output()
+    if not _registry().set_login_state(profile_id, state):
+        raise click.ClickException(f"no browser profile '{profile_id}'")
+    out.success(f"'{profile_id}' login state -> {state}")
+
+
 @browser.command('remove')
 @click.argument('profile_id')
 @click.option('--delete-session', is_flag=True,

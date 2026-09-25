@@ -616,6 +616,8 @@ def gen_report_vehicles_string(vehicles):
             "vid": v.get("vid", 0),
             "created_at": v.get("created_at", "")
         }
+        if v.get("role"):
+            extra_metadata["role"] = v["role"]
         extra_json = json.dumps(extra_metadata, ensure_ascii=False).replace('"', '\\"')
         rec_string += f', extra_metadata: "{extra_json}"'
         

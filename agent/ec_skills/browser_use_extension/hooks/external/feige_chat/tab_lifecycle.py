@@ -218,7 +218,14 @@ async def _resolve_cdp_url(browser_session) -> str:
             return str(url)
     except Exception:
         pass
-    # Last-resort port probe
+    # Last-resort port probe -- never inside a per-store worker: 9228 may be
+    # ANOTHER store's Chrome, and attaching to it answers that store's
+    # customers through this store's agents.
+    import os as _os
+    if _os.environ.get("ECAN_WORKER_KEY"):
+        logger.warning("[tab_lifecycle] no CDP url on the browser session; not probing :9228 "
+                       "in a store worker (it could be another store's browser)")
+        return ""
     try:
         with urllib.request.urlopen(
             "http://127.0.0.1:9228/json/version", timeout=2.0

@@ -42,8 +42,11 @@ from utils.logger_helper import get_traceback
 from utils.port_allocator import get_port_allocator
 from agent.ec_agents.vehicle_affinity import (
     local_vehicle_report_fields as _local_vehicle_report_fields,
+    resolve_local_vehicle_id as _resolve_local_vehicle_id,
 )
 from agent.ec_agents.store_reporter import report_local_stores as _report_local_stores
+from agent.ec_agents.store_reconciler import reconcile as _reconcile_stores
+from agent.fleet.transfers import tick as _fleet_transfers_tick
 from config.envi import getECBotDataHome
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
@@ -497,7 +500,10 @@ class MainWindow:
 
         try:
             data_home = getattr(self, "my_ecb_data_homepath", None) or ""
-            machine_id = get_machine_id(data_home)
+            # ONE id per machine: the vehicle id the heartbeat, store placement
+            # and store_assign use. get_machine_id is per USER data home, so it
+            # gave this machine a second identity; it is only the fallback.
+            machine_id = _resolve_local_vehicle_id(self) or get_machine_id(data_home)
         except Exception as mid_err:
             logger.warning(f"[MainWindow] machine_id resolution failed: {mid_err}")
             return None
@@ -563,7 +569,8 @@ class MainWindow:
         # advertising and WAN cloud directory upsert.
         try:
             data_home = getattr(self, "my_ecb_data_homepath", None) or ""
-            machine_id = get_machine_id(data_home)
+            # Same id as discovery start (above) -- the machine's vehicle id.
+            machine_id = _resolve_local_vehicle_id(self) or get_machine_id(data_home)
         except Exception:
             machine_id = ""
 
@@ -3582,6 +3589,13 @@ class MainWindow:
             logger.info("[AGENT_INVENTORY] =============================================")
             
             # Step 4: Launch agents in background (non-blocking)
+            # The real store-process spawner, before any agent can be delegated
+            # to one (store_isolation.py: 2+ stores of one platform here).
+            try:
+                from agent.ec_tasks.worker_placement import install_default_supervisor
+                install_default_supervisor()
+            except Exception as _sup_err:
+                logger.warning(f"[MainWindow] store-process supervisor not installed: {_sup_err}")
             self._launch_agents_async(self.agents)
             
             total_time = time.time() - start_time
@@ -4657,6 +4671,14 @@ class MainWindow:
             )
         except Exception as e:
             logger.warning(f"[MainWindow] Error during MCP pre-cleanup: {e}")
+
+        # Drain the store processes (each stops its agents and browsers).
+        try:
+            from agent.ec_tasks import worker_supervisor as _ws
+            await asyncio.get_running_loop().run_in_executor(None, _ws.supervisor().stop_all)
+            logger.info("[MainWindow] store processes stopped")
+        except Exception as e:
+            logger.warning(f"[MainWindow] Error stopping store processes: {e}")
 
         # Stop communication channels
         try:
@@ -5800,6 +5822,29 @@ class MainWindow:
 
 
 
+    async def _cloud_heartbeat_and_placement(self, vehicle_report):
+        """Vehicles heartbeat, then store placement and the store report.
+
+        Store placement runs only after the heartbeat landed: store_report is
+        validated against the vehicle row it just wrote. Reconcile first, so a
+        store stopped here is released in this same report.
+        """
+        _token = self.get_auth_token()
+        _endpoint = self.getWanApiEndpoint()
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(
+                None, lambda: send_report_vehicles_to_cloud(self.session, _token, vehicle_report, _endpoint))
+            self._on_vehicle_report_success()
+        except Exception as report_err:
+            self._on_vehicle_report_failure(report_err)
+            return
+        # Transfers first: a store whose login is on its way here must be
+        # known as such before placement considers starting it.
+        await loop.run_in_executor(None, lambda: _fleet_transfers_tick(self))
+        await loop.run_in_executor(None, lambda: _reconcile_stores(self))
+        await loop.run_in_executor(None, lambda: _report_local_stores(self))
+
     # this is the interface to the chatting agents, taking message from the running agents and display them on GUI
     async def connectChat(self, chat_msg_queue):
         running = True
@@ -5996,14 +6041,18 @@ class MainWindow:
         self._cloud_vehicle_report_failure_count = 0
         while running:
             ticks = ticks + 1
-            if ticks > 255:
+            # Wrap at a multiple of every period below (8s, 60s). Wrapping at
+            # 256 made tick 0 match too, firing the heartbeat twice per cycle.
+            if ticks >= 240:
                 ticks = 0
 
             #ping cloud every 8 second to see whether there is any monitor/control internet. use amazon's sqs
             if ticks % 8 == 0:
                 logger.debug(f"Access Internet Here with Websocket...")
 
-            if ticks % 180 == 0:
+            # 60s: store placement acts on each heartbeat, and a moved store is
+            # dark for about two of them (owner decision D3).
+            if ticks % 60 == 0:
                 self.showMsg(f"report vehicle status")
 
                 # update vehicles status to local disk, this is done either on platoon or commander
@@ -6027,25 +6076,16 @@ class MainWindow:
                         # NOTE: send_report_vehicles_to_cloud uses the synchronous requests library.
                         # Running it in an executor prevents it from blocking the asyncio event loop,
                         # which would otherwise starve WebSocket receive loops and cause PONG timeouts.
-                        vehicle_report = self.prepFullVehicleReportData()
-                        _token = self.get_auth_token()
-                        _endpoint = self.getWanApiEndpoint()
-                        try:
-                            resp = await asyncio.get_running_loop().run_in_executor(
-                                None,
-                                lambda: send_report_vehicles_to_cloud(
-                                    self.session, _token, vehicle_report, _endpoint
-                                ),
-                            )
-                            self._on_vehicle_report_success()
-                        except Exception as report_err:
-                            self._on_vehicle_report_failure(report_err)
-                        else:
-                            # Only after the heartbeat landed: store_report is
-                            # validated against the vehicle row it just wrote.
-                            await asyncio.get_running_loop().run_in_executor(
-                                None, lambda: _report_local_stores(self)
-                            )
+                        await self._cloud_heartbeat_and_placement(self.prepFullVehicleReportData())
+                elif time.time() >= self._cloud_vehicle_report_backoff_until:
+                    # Not a Commander (e.g. a Platoon): no fleet broadcast, but
+                    # this machine still registers itself and runs store
+                    # placement -- otherwise a store assigned to it would never
+                    # start here, and the cloud would see it as offline.
+                    self_report = self.prepVehicleReportData(None)
+                    for _v in self_report:
+                        _v.update(_local_vehicle_report_fields(self))
+                    await self._cloud_heartbeat_and_placement(self_report)
 
             if not monitor_msg_queue.empty():
                 message = await monitor_msg_queue.get()

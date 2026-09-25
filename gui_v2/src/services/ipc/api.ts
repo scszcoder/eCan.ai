@@ -2968,9 +2968,35 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'browser_profile.import_vendor' }, params);
     }
 
-    // Stores: desired (assigned) vs observed (reported) placement, per account.
-    public async listStores<T>(include_archived?: boolean): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'store.list' }, { include_archived: !!include_archived });
+    // Stores: placement (cloud) merged with who serves each store and what it
+    // produced (local) -- the Stores page's one data call.
+    public async getStoreOverview<T>(include_archived?: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.overview' }, { include_archived: !!include_archived });
+    }
+
+    /** Machines a store can be assigned to (this one first), from the cloud registry. */
+    public async getStoreMachines<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.machines' });
+    }
+
+    /** The local store definitions (name, platform, URLs, login profile). */
+    public async getStoreCatalog<T>(include_archived?: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.catalog' }, { include_archived: !!include_archived });
+    }
+
+    /** Define a store before deploying into it. `assign`: 'here' | 'none'. */
+    public async createStore<T>(store: {
+        store_id: string; name: string; platform: string; store_urls: string[];
+        browser_profile_id?: string; assign: 'here' | 'none';
+    }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.create' }, store);
+    }
+
+    public async updateStore<T>(store: {
+        store_id: string; name?: string; platform?: string; store_urls?: string[];
+        browser_profile_id?: string;
+    }): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.update' }, store);
     }
 
     /** `this_machine` assigns to this machine's heartbeat id; neither it nor `vehicle_id` unassigns. */
@@ -2983,6 +3009,45 @@ export class IPCAPI {
 
     public async archiveStore<T>(store_id: string, restore?: boolean): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'store.archive' }, { store_id, restore: !!restore });
+    }
+
+    // Fleet transfers (docs/FLEET_TRANSFER_DESIGN.md): LAN when the machines share
+    // one, cloud otherwise; sealed end to end either way.
+    public async fetchMachineLogs<T>(vehicle_id: string, hours: number): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'fleet.fetch_logs' }, { vehicle_id, hours });
+    }
+
+    /** `confirmed` must be true: the operator was warned a live login is being copied. */
+    public async moveStoreWithLogin<T>(
+        store_id: string, vehicle_id: string, confirmed: boolean, profile_id?: string,
+    ): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'fleet.move_store' },
+            { store_id, vehicle_id, confirmed, profile_id: profile_id || '' });
+    }
+
+    // Site probe: record a live site's WebSocket/API traffic on an open login.
+    public async getProbeSites<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'site_probe.sites' });
+    }
+
+    public async startSiteProbe<T>(profile_id: string, site: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'site_probe.start' }, { profile_id, site });
+    }
+
+    public async stopSiteProbe<T>(profile_id: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'site_probe.stop' }, { profile_id });
+    }
+
+    public async openProbeFolder<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'site_probe.open_folder' });
+    }
+
+    public async getFleetTransfers<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'fleet.transfers' });
+    }
+
+    public async openFleetDownloads<T>(path?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'fleet.open_downloads' }, { path: path || '' });
     }
 
     // LLM Token Usage APIs

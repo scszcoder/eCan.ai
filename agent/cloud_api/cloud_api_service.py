@@ -77,7 +77,17 @@ class CloudAPIService:
                 token = main_window.get_auth_token()
                 if token:
                     return token
-            
+
+            # A CLI subprocess the app started (Fast Deploy, `ecan ...`) has no
+            # MainWindow; the app hands it the same get_auth_token() value in
+            # ECAN_CLI_AUTH_TOKEN. Without this every CLI write's cloud sync
+            # failed with "No auth token available" -- a deploy never reached
+            # the cloud, so another machine could never run it.
+            import os
+            env_token = (os.environ.get("ECAN_CLI_AUTH_TOKEN") or "").strip()
+            if env_token:
+                return env_token
+
             logger.warning("[CloudAPIService] No auth token available from MainWindow")
             return None
             

@@ -393,9 +393,23 @@ def launch_profile(
     profile = registry.get_profile(profile_id)
     if not profile:
         raise KeyError(f"no browser profile registered as '{profile_id}'")
+    if profile.get("moved_to"):
+        # Fail closed: the same session live on two machines is exactly what a
+        # platform flags. The copy stays only so nothing is destroyed.
+        raise RuntimeError(
+            f"login '{profile_id}' was moved to machine {profile['moved_to']} and "
+            f"runs there now; this copy is kept but must not be opened")
 
     user_data_dir = Path(profile["user_data_dir"])
     user_data_dir.mkdir(parents=True, exist_ok=True)
+    # A login that just arrived from another machine brings its cookies as
+    # data (the OS-bound cookie file cannot travel). They must be in place
+    # before the first page loads, or the site sees a logged-out new device.
+    from agent.fleet.cookies import PENDING_FILE, apply_pending
+    pending_cookies = (user_data_dir / PENDING_FILE).is_file()
+    first_url = start_url
+    if pending_cookies:
+        start_url = "about:blank"
 
     # Already ours?
     existing = _RUNNING.get(profile_id)
@@ -566,6 +580,14 @@ def launch_profile(
                                      "relay_port": relay_port,
                                      "started": int(time.time())})
     logger.info(f"[fp-browser] '{profile_id}' ready: {ver.get('Browser')} on {br.cdp_url}")
+    if pending_cookies and apply_pending(str(user_data_dir), br.cdp_url) and first_url not in ("", "about:blank"):
+        try:
+            import urllib.parse
+            req = urllib.request.Request(
+                f"{br.cdp_url}/json/new?{urllib.parse.quote(first_url, safe=':/?&=%#')}", method="PUT")
+            urllib.request.urlopen(req, timeout=5).read()
+        except Exception as exc:
+            logger.warning(f"[fp-browser] could not open {first_url} after restoring cookies: {exc}")
     return br
 
 

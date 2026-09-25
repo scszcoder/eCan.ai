@@ -270,6 +270,37 @@ def build_org_agent_tree(organizations, agents):
     return tree_root
 
 
+def _with_placement(memory_agents, username) -> list:
+    """Agent dicts marked with where each one runs (``runs_here``, ``runs_on``).
+
+    A Commander lists every agent of the account; a Platoon only the ones that
+    run on it.
+    """
+    from agent.ec_agents.store_placement import where_agent_runs
+    from agent.ec_agents.vehicle_affinity import sees_whole_fleet
+    mainwin = AppContext.get_main_window()
+    whole_fleet = mainwin is None or sees_whole_fleet(mainwin)
+    out = []
+    for agent in memory_agents:
+        try:
+            elsewhere = where_agent_runs(agent)
+        except Exception as e:
+            logger.debug(f"[agent_handler] placement unknown for an agent: {e}")
+            elsewhere = ""
+        if elsewhere and not whole_fleet:
+            continue
+        d = agent.to_dict(owner=username)
+        d['runs_here'] = not elsewhere
+        d['runs_on'] = elsewhere
+        out.append(d)
+    return out
+
+
+def _placed_agent_dicts(memory_agents, username) -> Dict[str, Any]:
+    """``{agent_id: dict}`` for :func:`_with_placement`'s agents."""
+    return {d['id']: d for d in _with_placement(memory_agents, username) if d.get('id')}
+
+
 @IPCHandlerRegistry.background_handler('get_agents')
 def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """Handle get agents request (runs in background thread to avoid blocking UI).
@@ -335,7 +366,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             logger.info(f"[agent_handler] Retrieved {len(agents_data)} agents from database with relations")
         else:
             # For listing all agents, use memory (faster, but without detailed relations)
-            agents_data = [agent.to_dict(owner=username) for agent in memory_agents]
+            agents_data = _with_placement(memory_agents, username)
             logger.info(f"[agent_handler] Retrieved {len(agents_data)} agents from memory")
         
         resultJS = {
@@ -897,11 +928,11 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
         #   • memory: EC_Agent objects (authoritative runtime state)
         #   • DB     : agent dicts (authoritative persisted config)
         #   • merge  : same ID → keep memory row; DB rows backfill only missing IDs
-        mem_agents_map: Dict[str, Any] = {}
-        for agent in ctx.get_agents():
-            aid = getattr(getattr(agent, 'card', None), 'id', None)
-            if aid:
-                mem_agents_map[aid] = agent.to_dict(owner=username)
+        mem_agents = ctx.get_agents()
+        mem_agents_map: Dict[str, Any] = _placed_agent_dicts(mem_agents, username)
+        # A Platoon does not list agents that run elsewhere -- nor backfill
+        # them from the DB below.
+        hidden_ids = {getattr(getattr(a, 'card', None), 'id', None) for a in mem_agents} - set(mem_agents_map)
 
         logger.info(f"[agent_handler] Memory agents: {len(mem_agents_map)}")
 
@@ -914,6 +945,8 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                     for ag_dict in db_result.get('data') or []:
                         aid = ag_dict.get('id')
                         if not aid:
+                            continue
+                        if aid in hidden_ids:
                             continue
                         if aid in mem_agents_map:
                             # Memory wins for RUNTIME state -- but org

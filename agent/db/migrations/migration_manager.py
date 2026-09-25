@@ -85,7 +85,8 @@ class MigrationManager:
             "3.1.4": "migration_313_to_314",
             "3.1.5": "migration_314_to_315",
             "3.1.6": "migration_315_to_316",
-            "3.1.7": "migration_316_to_317"
+            "3.1.7": "migration_316_to_317",
+            "3.1.8": "migration_317_to_318"
         }
         
         module_name = version_patterns.get(version)
@@ -449,10 +450,11 @@ class MigrationManager:
                     session.rollback()
                     return False
             
-            # After all migrations, ensure any missing tables are created
+            # After all migrations, ensure any missing tables are created -- on
+            # the session's connection, for the same lock reason as above.
             try:
-                from ..core import create_all_tables
-                create_all_tables(self.engine)
+                from ..models import Base as ModelsBase
+                ModelsBase.metadata.create_all(bind=session.connection(), checkfirst=True)
             except Exception as e:
                 logger.warning(f"Failed to create additional tables after migration: {e}")
                 # Don't fail the migration for this
@@ -698,12 +700,21 @@ class MigrationManager:
             logger.warning(f"[MigrationManager] Found {len(missing_tables)} missing table(s): {missing_tables}")
             logger.info("[MigrationManager] Creating missing tables using ORM...")
             
-            # Use create_all_tables which respects IF NOT EXISTS
+            # On the migration's OWN connection, then committed. The session
+            # already holds SQLite's single write lock (the migration-log row
+            # was flushed), so a CREATE on another connection waited out the
+            # whole 60s busy timeout and failed -- once per migration step. A
+            # customer upgrading 3.1.6 -> 3.1.8 sat frozen for two minutes,
+            # closed the app before the version was recorded, and hit the same
+            # on every start. Committing makes the tables visible to the
+            # migrations' own table_exists() checks, which use another connection.
             try:
-                from ..core import create_all_tables
-                create_all_tables(self.engine)
+                tables = [t for t in ModelsBase.metadata.sorted_tables if t.name in missing_tables]
+                ModelsBase.metadata.create_all(bind=session.connection(), tables=tables, checkfirst=True)
+                session.commit()
                 logger.info("[MigrationManager] Missing tables created successfully")
             except Exception as create_e:
+                session.rollback()
                 logger.warning(f"[MigrationManager] Failed to create tables: {create_e}")
             
             return True

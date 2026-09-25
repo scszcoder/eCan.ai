@@ -2373,8 +2373,13 @@ class TaskRunner(Generic[Context]):
     
     # ==================== Lifecycle Management ====================
     
-    def stop(self):
-        """Signal all loops to exit and notify running tasks to shut down."""
+    def stop(self, cleanup_monitors: bool = True):
+        """Signal all loops to exit and notify running tasks to shut down.
+
+        ``cleanup_monitors=False`` when ONE agent stops while others keep running
+        (a store moved to another machine): the browser event-monitor cleanup
+        below is process-wide and would blind every other store's browser.
+        """
         try:
             self._stop_event.set()
             
@@ -2396,24 +2401,25 @@ class TaskRunner(Generic[Context]):
             except Exception as executor_shutdown_err:
                 logger.debug(f"[TaskRunner] Error shutting down SkillExecutor: {executor_shutdown_err}")
             
-            # Cleanup browser event monitors
-            try:
-                import asyncio
-                from agent.ec_skills.browser_use_extension.event_monitor import cleanup_all_monitors
-                # Run async cleanup in a new event loop if needed
+            # Cleanup browser event monitors (process-wide; see docstring)
+            if cleanup_monitors:
                 try:
-                    loop = asyncio.get_running_loop()
-                    # If we're in an async context, create a task with tracking
-                    cleanup_task = asyncio.create_task(cleanup_all_monitors())
-                    _tracked_cleanup_tasks.add(cleanup_task)
-                    cleanup_task.add_done_callback(_tracked_cleanup_tasks.discard)
-                except RuntimeError:
-                    # No running loop, use run_until_complete
-                    loop = asyncio.new_event_loop()
-                    loop.run_until_complete(cleanup_all_monitors())
-                    loop.close()
-            except Exception as e:
-                logger.debug(f"[TaskRunner] Error cleaning up event monitors: {e}")
+                    import asyncio
+                    from agent.ec_skills.browser_use_extension.event_monitor import cleanup_all_monitors
+                    # Run async cleanup in a new event loop if needed
+                    try:
+                        loop = asyncio.get_running_loop()
+                        # If we're in an async context, create a task with tracking
+                        cleanup_task = asyncio.create_task(cleanup_all_monitors())
+                        _tracked_cleanup_tasks.add(cleanup_task)
+                        cleanup_task.add_done_callback(_tracked_cleanup_tasks.discard)
+                    except RuntimeError:
+                        # No running loop, use run_until_complete
+                        loop = asyncio.new_event_loop()
+                        loop.run_until_complete(cleanup_all_monitors())
+                        loop.close()
+                except Exception as e:
+                    logger.debug(f"[TaskRunner] Error cleaning up event monitors: {e}")
             
         except Exception as e:
             logger.debug(f"[TaskRunner] Error in stop method: {e}")

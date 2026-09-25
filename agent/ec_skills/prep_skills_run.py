@@ -630,7 +630,7 @@ def apply_task_vars(task, state) -> None:
         if not isinstance(metadata, dict):
             return
         task_vars = metadata.get("task_vars")
-        browser_identity = metadata.get("browser_identity")
+        browser_identity = _localize_browser_identity(task_vars, metadata.get("browser_identity"))
         has_vars = isinstance(task_vars, dict) and task_vars
         has_identity = isinstance(browser_identity, dict) and browser_identity
         if not has_vars and not has_identity:
@@ -669,6 +669,52 @@ def apply_task_vars(task, state) -> None:
                 )
     except Exception as e:
         logger.warning(f"[apply_task_vars] failed (non-fatal): {e}")
+
+
+def _local_store_profile(store_id: str) -> str:
+    """THIS machine's login profile for ``store_id`` (its store catalog record), or ""."""
+    try:
+        from app_context import AppContext
+        mw = AppContext.get_main_window()
+        svc = getattr(getattr(mw, "ec_db_mgr", None), "store_service", None)
+        rec = svc.get_store(store_id) if svc is not None else None
+        return str((rec or {}).get("browser_profile_id") or "").strip()
+    except Exception:
+        return ""
+
+
+def _profile_exists(profile_id: str) -> bool:
+    try:
+        from agent.ec_skills.browser_use_extension.fingerprint import profile_registry
+        return profile_registry.get_profile(profile_id) is not None
+    except Exception:
+        return True   # cannot check: leave the identity as the task has it
+
+
+def _localize_browser_identity(task_vars, browser_identity):
+    """The browser identity to run with ON THIS MACHINE.
+
+    A task deployed on one machine carries that machine's login profile id, and
+    profiles never leave the machine that holds them. On the machine that
+    actually runs the store, its own store record's profile wins.
+
+    A profile id this machine does not have is deliberately KEPT: the
+    fingerprint launch then fails closed with a clear message. Dropping it
+    would fall back to the default browser -- on a multi-store machine possibly
+    another store's logged-in Chrome, i.e. wrong-store replies.
+    """
+    identity = dict(browser_identity) if isinstance(browser_identity, dict) else {}
+    store_id = str((task_vars or {}).get("store_id") or "").strip() if isinstance(task_vars, dict) else ""
+    local = _local_store_profile(store_id) if store_id else ""
+    if local:
+        identity["browser_profile_id"] = local
+        return identity
+    pid = str(identity.get("browser_profile_id") or "").strip()
+    if pid and not _profile_exists(pid):
+        logger.warning(f"[apply_task_vars] browser profile {pid!r} is not on this machine "
+                       f"(the task was deployed elsewhere). Set this store's login profile on this "
+                       f"machine (Stores -> Edit); until then its browser will not start.")
+    return identity if identity else browser_identity
 
 
 # possible message types:

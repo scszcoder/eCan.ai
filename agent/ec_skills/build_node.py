@@ -745,7 +745,20 @@ def _resolve_cloud_tool_func(tool_name: str):
         return None
     module_path, func_name = entry
     mod = importlib.import_module(module_path)
-    return getattr(mod, func_name)
+    func = getattr(mod, func_name)
+
+    # A tool that declares a business outcome gets it recorded here too -- the
+    # in-process twin of the MCP server's handler (agent/mcp/tool_meters.py).
+    # The run scope is already present on this path, so no meta is needed.
+    from agent.mcp.tool_meters import declared_tool_meters, record_tool_outcome
+    if tool_name not in declared_tool_meters():
+        return func
+
+    async def _metered(main_win, args):
+        result = await func(main_win, args)
+        record_tool_outcome(tool_name, result)
+        return result
+    return _metered
 
 
 # ==================== Helper Functions ====================

@@ -245,7 +245,7 @@ class CloudBaseAuthService {
   /**
    * 邮箱密码登录
    */
-  async loginWithEmail(email: string, password: string): Promise<CloudBaseAuthResult> {
+  async loginWithEmail(email: string, password: string, role: string = 'Commander'): Promise<CloudBaseAuthResult> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
@@ -260,7 +260,7 @@ class CloudBaseAuthService {
       // space) and CloudBase rejected it as INVALID_CREDENTIALS.
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_login' },
-        { email: email.trim(), password: password.trim(), role: 'Commander' },
+        { email: email.trim(), password: password.trim(), role },
       );
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
@@ -296,7 +296,7 @@ class CloudBaseAuthService {
    * @param code 验证码
    * @param verificationId 验证码发送时返回的 verification_id（必须）
    */
-  async loginWithPhone(phone: string, code: string, verificationId?: string): Promise<CloudBaseAuthResult> {
+  async loginWithPhone(phone: string, code: string, verificationId?: string, role: string = 'Commander'): Promise<CloudBaseAuthResult> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
@@ -307,7 +307,7 @@ class CloudBaseAuthService {
       // easy to mistype with an accidental trailing space.
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_phone_login' },
-        { phone: phone.trim(), code: code.trim(), verification_id: verificationId, role: 'Commander' },
+        { phone: phone.trim(), code: code.trim(), verification_id: verificationId, role },
       );
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
@@ -480,6 +480,7 @@ class CloudBaseAuthService {
               email: data.user_info?.email || '',
               username: data.user_info?.username,
               nickname: data.user_info?.name,
+              avatarUrl: data.user_info?.picture || '',
               loginType: 'wechat',
             },
           },
@@ -533,7 +534,7 @@ class CloudBaseAuthService {
    * 邮箱注册（第二步：输入验证码完成注册）
    * @param verificationId signupWithEmail 返回的 verification_id
    */
-  async confirmSignupWithEmail(email: string, code: string, password: string, verificationId: string): Promise<CloudBaseAuthResult> {
+  async confirmSignupWithEmail(email: string, code: string, password: string, verificationId: string, role: string = 'Commander'): Promise<CloudBaseAuthResult> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
@@ -550,6 +551,7 @@ class CloudBaseAuthService {
           code: code.trim(),
           verification_id: verificationId,
           password: password.trim(),
+          role,
         },
       );
 
@@ -584,7 +586,7 @@ class CloudBaseAuthService {
    * 手机号注册
    * @param verificationId 验证码发送时返回的 verification_id（必须）
    */
-  async signupWithPhone(phone: string, code: string, password?: string, verificationId?: string): Promise<CloudBaseAuthResult> {
+  async signupWithPhone(phone: string, code: string, password?: string, verificationId?: string, role: string = 'Commander'): Promise<CloudBaseAuthResult> {
     if (!this.isInitialized()) {
       return { success: false, error: 'CloudBase not initialized' };
     }
@@ -592,7 +594,7 @@ class CloudBaseAuthService {
     try {
       const resp = await apiRouter.execute<any>(
         { method: 'cloudbase_phone_signup' },
-        { phone, code, password, verification_id: verificationId, role: 'Commander' },
+        { phone, code, password, verification_id: verificationId, role },
       );
 
       const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
@@ -789,6 +791,7 @@ class CloudBaseAuthService {
               email: data.user_info?.email || '',
               username: data.user_info?.username,
               nickname: data.user_info?.name,
+              avatarUrl: data.user_info?.picture || '',
               loginType: 'wechat',
             },
           },
