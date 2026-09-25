@@ -20,7 +20,7 @@ websockets>=13.0.0          # WebSocket client for E2E testing
 
 # Mocking & Stubbing
 responses>=0.24.0           # Mock HTTP responses (requests/httpx)
-aioresponses>=0.8.0        # Mock async HTTP calls
+aioresponses>=0.8.0; python_version < '3.12'  # Mock async HTTP calls (no 3.12-compatible release)
 faker>=22.0.0               # Fake data generation
 
 # UI / Browser Testing (optional, install separately)
