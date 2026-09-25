@@ -141,11 +141,39 @@ class TestAgentAPI:
         """Test CloudAPIService for agent sync operations"""
         from agent.cloud_api.cloud_api_service import CloudAPIService
         from agent.cloud_api.constants import DataType
-        
+
         service = CloudAPIService(DataType.AGENT)
-        
+
         assert service.data_type == DataType.AGENT
         assert service.schema is not None
+
+    def test_safe_parse_response_validation_failed_is_tagged_and_warning(self, caplog):
+        """GRAPHQL_VALIDATION_FAILED on the cloud schema is a known backend
+        drift (backend SDL missing columns) -- per CLAUDE.md §6 it must be
+        classified as expected behavior, not a runtime bug. Verify the
+        exception is tagged and the log level is WARNING, not ERROR."""
+        import logging
+        from agent.cloud_api.cloud_api import safe_parse_response
+
+        jresp = {
+            "errors": [
+                {"message": 'Cannot query field "lifecycle" on type "Vehicle".',
+                 "extensions": {"code": "GRAPHQL_VALIDATION_FAILED"}},
+            ]
+        }
+
+        with caplog.at_level(logging.DEBUG, logger="eCan"):
+            with pytest.raises(Exception) as exc_info:
+                safe_parse_response(jresp, "queryVehicles", "queryVehicles")
+
+        # Tagged for downstream classification
+        assert getattr(exc_info.value, "is_validation_failed_error", False) is True
+        assert getattr(exc_info.value, "is_token_expired_error", False) is False
+        # Logged at WARNING, not ERROR
+        assert any(r.levelno == logging.WARNING for r in caplog.records), \
+            f"expected WARNING, got {[r.levelno for r in caplog.records]}"
+        assert not any(r.levelno == logging.ERROR for r in caplog.records), \
+            f"should NOT log at ERROR for known schema drift: {caplog.records}"
 
 
 class TestAgentAPIIntegration:
