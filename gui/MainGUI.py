@@ -46,6 +46,7 @@ from agent.ec_agents.vehicle_affinity import (
 )
 from agent.ec_agents.store_reporter import report_local_stores as _report_local_stores
 from agent.ec_agents.store_reconciler import reconcile as _reconcile_stores
+from agent.fleet.transfers import tick as _fleet_transfers_tick
 from config.envi import getECBotDataHome
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
@@ -5838,6 +5839,9 @@ class MainWindow:
         except Exception as report_err:
             self._on_vehicle_report_failure(report_err)
             return
+        # Transfers first: a store whose login is on its way here must be
+        # known as such before placement considers starting it.
+        await loop.run_in_executor(None, lambda: _fleet_transfers_tick(self))
         await loop.run_in_executor(None, lambda: _reconcile_stores(self))
         await loop.run_in_executor(None, lambda: _report_local_stores(self))
 

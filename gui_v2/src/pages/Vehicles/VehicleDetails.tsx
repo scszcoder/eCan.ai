@@ -5,6 +5,7 @@ import { ClusterOutlined, CheckCircleOutlined, EnvironmentOutlined, ThunderboltO
 import type { Vehicle } from '@/types/domain/vehicle';
 import StatusTag from '../../components/Common/StatusTag';
 import DetailCard from '../../components/Common/DetailCard';
+import FetchLogsCard from './FetchLogsCard';
 import styled from '@emotion/styled';
 
 interface VehicleDetailsProps {
@@ -282,6 +283,8 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
     <div className="vehicle-details-compact" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <DetailContent ref={scrollContainerRef} style={{ flex: 1, minHeight: 0 }}>
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          {/* Another desktop running eCan: its logs can be fetched here. */}
+          {!vehicle.is_self && vehicle.type !== 'cloud' && <FetchLogsCard vehicle={vehicle} />}
           {/* Top row: Device identity + Status (single dense card) */}
           <CompactDetailCard
             title={t('pages.vehicles.vehicleInformation')}

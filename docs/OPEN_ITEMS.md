@@ -712,6 +712,25 @@ on the profile record. Both hardcode a policy, so decide deliberately.
 
 ## 🔵 Planned work
 
+### ⚡ Fleet transfer: fetch logs + move a store with its login (2026-09-24)
+
+Client built (`agent/fleet/`, `fleet_handler.py`, Vehicles → Fetch logs, Stores →
+Move with login…); design in `docs/FLEET_TRANSFER_DESIGN.md`. **Blocked on the
+server half** — `docs/FLEET_TRANSFER_SERVER_CONTRACT.md` (`transfer_*` actions on
+ecbAccountManager + a private `fleet-transfers/` prefix with presigned links).
+Until it is deployed, every heartbeat's `transfer_list` fails quietly (DEBUG).
+
+Open after v1:
+- **A dead source cannot hand over its login.** Failover from a machine that will
+  not boot needs periodic encrypted snapshots in the cloud, encrypted to a key the
+  account's machines share and the server does not hold. Decide key custody
+  (who creates it, how a new machine gets it) before building.
+- The server could substitute the receiver's public key (it is trusted for the
+  control plane, not the data). Per-machine signing keys would close it.
+- Not verified on real machines yet: cookie restore through `Storage.setCookies`
+  keeps a Douyin/飞鸽 session alive on the target; Windows firewall prompt on the
+  receiver's first listener.
+
 ### Decision point: several same-platform stores in ONE store process (Phase E) (2026-09-24)
 
 Today each store on a machine with 2+ stores of one platform gets its own store

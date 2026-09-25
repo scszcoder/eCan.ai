@@ -45,6 +45,8 @@ import {
   PlusOutlined,
   PoweroffOutlined,
   ReloadOutlined,
+  VideoCameraOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 import { get_ipc_api } from '@/services/ipc_api';
 import type {
@@ -117,10 +119,54 @@ const BrowserProfiles: React.FC = () => {
     }
   }, []);
 
+  // Site probe: record a live site's traffic on an open login (site_probe.*).
+  const [probeSites, setProbeSites] = useState<string[]>([]);
+  const [recording, setRecording] = useState<Record<string, string>>({});   // profile id -> site
+  const [probeResult, setProbeResult] = useState<any>(null);
+  const loadProbe = useCallback(async () => {
+    try {
+      const res: any = await get_ipc_api().getProbeSites();
+      if (res?.success) {
+        setProbeSites(res.data?.sites || []);
+        const running: Record<string, string> = {};
+        Object.entries(res.data?.running || {}).forEach(([pid, r]: [string, any]) => { running[pid] = r.site; });
+        setRecording(running);
+      }
+    } catch {
+      /* no probe support: the button stays hidden */
+    }
+  }, []);
+  const startProbe = async (profile: BrowserProfile, site: string) => {
+    setBusyId(profile.id);
+    try {
+      const res: any = await get_ipc_api().startSiteProbe(profile.id, site);
+      if (res?.success) {
+        message.success(tp('probe_started', 'Recording — use the chat normally, then stop'));
+        setRecording((r) => ({ ...r, [profile.id]: site }));
+      } else {
+        message.error(errText(res?.error, tp('probe_failed', 'Could not start recording')));
+      }
+    } finally {
+      setBusyId('');
+    }
+  };
+  const stopProbe = async (profile: BrowserProfile) => {
+    setBusyId(profile.id);
+    try {
+      const res: any = await get_ipc_api().stopSiteProbe(profile.id);
+      if (res?.success) setProbeResult(res.data);
+      else message.error(errText(res?.error, tp('probe_failed', 'Could not stop recording')));
+    } finally {
+      setBusyId('');
+      loadProbe();
+    }
+  };
+
   useEffect(() => {
     load();
     loadOptions();
-  }, [load, loadOptions]);
+    loadProbe();
+  }, [load, loadOptions, loadProbe]);
 
   // A browser can be opened or closed by a skill run, the CLI, or the user
   // closing the window — none of which come back through this page. Poll only
@@ -383,6 +429,17 @@ const BrowserProfiles: React.FC = () => {
       align: 'right' as const,
       render: (_: unknown, p: BrowserProfile) => (
         <Space>
+          {p.status?.running && probeSites.length > 0 && (recording[p.id] ? (
+            <Tooltip title={tp('probe_stop_hint', 'Stop recording and see what was captured')}>
+              <Button size="small" danger icon={<StopOutlined />} loading={busyId === p.id}
+                      onClick={() => stopProbe(p)}>{tp('probe_recording', 'Recording')}</Button>
+            </Tooltip>
+          ) : (
+            <Select size="small" style={{ width: 150 }} value={null as any}
+              placeholder={<span><VideoCameraOutlined /> {tp('probe_record', 'Record traffic')}</span>}
+              options={probeSites.map((s) => ({ value: s, label: s }))}
+              onChange={(site: string) => startProbe(p, site)} />
+          ))}
           {p.status?.running ? (
             <Tooltip title={tp('stop_hint', 'Close it — this is what writes the session out')}>
               <Button size="small" icon={<PoweroffOutlined />} loading={busyId === p.id}
@@ -417,6 +474,31 @@ const BrowserProfiles: React.FC = () => {
 
   return (
     <div>
+      <Modal open={!!probeResult} title={tp('probe_result', 'Recording saved')} footer={null}
+             onCancel={() => setProbeResult(null)} width={720}>
+        {probeResult && (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Space>
+              <Text code copyable>{probeResult.file}</Text>
+              <Button size="small" icon={<FolderOpenOutlined />}
+                      onClick={() => get_ipc_api().openProbeFolder()}>{tp('open_folder', 'Open folder')}</Button>
+            </Space>
+            <Text type="secondary">
+              {tp('probe_result_hint', 'Send this file (or Fetch logs from the commander). It contains real chat messages — keep it private.')}
+            </Text>
+            {(probeResult.sockets || []).length === 0 ? (
+              <Alert type="warning" showIcon
+                     message={tp('probe_no_socket', 'No WebSocket traffic was seen. Was the chat page open, and did messages arrive while recording?')} />
+            ) : (probeResult.sockets || []).map((sk: any) => (
+              <Card key={sk.url} size="small" title={<Text style={{ fontSize: 12 }} ellipsis>{sk.url}</Text>}
+                    extra={<Text type="secondary">↓{sk.recv} ↑{sk.sent}</Text>}>
+                {(sk.shapes || []).map((sh: string) => <div key={sh}><Text code style={{ fontSize: 11 }}>{sh}</Text></div>)}
+              </Card>
+            ))}
+            <Text type="secondary">{tp('probe_apis', 'API endpoints recorded')}: {probeResult.apis}</Text>
+          </Space>
+        )}
+      </Modal>
       <Card
         title={tp('title', 'Browser Profiles')}
         extra={

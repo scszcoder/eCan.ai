@@ -251,6 +251,30 @@ const GridCurrentTaskTag = styled(Tag)`
 `;
 
 // ================= Helpers =================
+// Fleet role -> i18n key under `roles` (shared with the login role picker).
+export const roleKey = (role?: string): string | null => {
+  const r = String(role || '');
+  if (r.includes('Commander')) return 'commander';
+  if (r.includes('Platoon')) return 'platoon';
+  if (r.includes('Staff')) return 'staff_office';
+  return null;
+};
+
+const ROLE_COLOR: Record<string, string> = {
+  commander: 'gold',
+  platoon: 'geekblue',
+  staff_office: 'purple',
+};
+
+const RoleTags: React.FC<{ vehicle: Vehicle; t: any }> = ({ vehicle, t }) => {
+  const key = roleKey(vehicle.role);
+  return (
+    <>
+      {key && <Tag color={ROLE_COLOR[key]} style={{ margin: 0 }}>{t(`roles.${key}`)}</Tag>}
+      {vehicle.is_self && <Tag color="green" style={{ margin: 0 }}>{t('pages.vehicles.thisMachine', 'This machine')}</Tag>}
+    </>
+  );
+};
 const STATUS_GRADIENT: Record<string, string> = {
   active: '#52c41a 0%, #389e0d 100%',
   idle: '#1890ff 0%, #096dd9 100%',
@@ -307,8 +331,9 @@ const VehicleItem: React.FC<VehicleItemProps> = ({
 
         {/* Body */}
         <GridCardBody>
-          {/* OS / Arch / Bot tags */}
+          {/* Role / OS / Arch / Bot tags */}
           <GridTagRow>
+            <RoleTags vehicle={vehicle} t={t} />
             {vehicle.os && (
               <GridTag $bg="rgba(82, 196, 26, 0.1)" $color="#52c41a">
                 <ToolOutlined />
@@ -398,6 +423,7 @@ const VehicleItem: React.FC<VehicleItemProps> = ({
       {/* 第二行：Status+Tag（自动换行） */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '10px 0 0 0', width: '100%', minWidth: 0 }}>
         <StatusTag status={vehicle.status as string} />
+        <RoleTags vehicle={vehicle} t={t} />
         {vehicle.arch && <Tag icon={<LaptopOutlined />} color="default">{vehicle.arch}</Tag>}
         {vehicle.os && <Tag icon={<ToolOutlined />} color="default">{vehicle.os}</Tag>}
         {vehicle.bot_ids && <Tag icon={<UsergroupAddOutlined />} color="purple">{t('pages.vehicles.botIds')}: {vehicle.bot_ids.length}</Tag>}

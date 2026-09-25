@@ -78,6 +78,8 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         except Exception as cloud_err:
             logger.warning(f"[get_vehicles] cloud machine list unavailable (non-fatal): {cloud_err}")
 
+        vehicle_dicts = _mark_self_and_scope(vehicle_dicts)
+
         logger.info(f"get vehicles successful")
         resultJS = {
             'vehicles': vehicle_dicts,
@@ -147,6 +149,7 @@ def _machine_entry(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {
         'id': rid,
         'name': row.get('name') or row.get('hostname') or rid,
+        'role': _reported_role(row),
         'type': 'cloud' if is_pod else 'desktop',
         'status': 'active' if online else 'offline',
         'ip': row.get('ip_address') or '',
@@ -156,6 +159,60 @@ def _machine_entry(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         'capabilities': row.get('capabilities'),
         'source': 'cloud',
     }
+
+
+def _reported_role(row: Dict[str, Any]) -> str:
+    """Commander / Platoon / ... as the machine's heartbeat reported it, or ""."""
+    meta = row.get('extra_metadata') or {}
+    if isinstance(meta, str):
+        try:
+            import json as _json
+            meta = _json.loads(meta)
+        except Exception:
+            return ''
+    return str(meta.get('role') or '') if isinstance(meta, dict) else ''
+
+
+def _mark_self_and_scope(entries: list) -> list:
+    """Mark this machine (``is_self``, its role) and apply the role's view.
+
+    A Commander sees the whole account. A Platoon sees itself and the
+    Commander(s) it answers to -- not pods, not the other Platoons. This machine
+    is always listed, even before its first heartbeat reaches the cloud.
+    """
+    mainwin = AppContext.get_main_window()
+    if mainwin is None:
+        return entries
+    from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id, sees_whole_fleet
+    try:
+        me = resolve_local_vehicle_id(mainwin) or ''
+    except Exception:
+        me = ''
+    role = str(getattr(mainwin, 'host_role', '') or '')
+    found = False
+    for e in entries:
+        if isinstance(e, dict) and me and str(e.get('id')) == me:
+            e['is_self'] = True
+            e['role'] = role
+            e['status'] = 'active'
+            found = True
+    if me and not found:
+        entries.append({
+            'id': me,
+            'name': getattr(mainwin, 'machine_name', '') or me,
+            'role': role,
+            'is_self': True,
+            'type': 'desktop',
+            'status': 'active',
+            'ip': getattr(mainwin, 'ip', '') or '',
+            'os': getattr(mainwin, 'platform', '') or '',
+            'arch': getattr(mainwin, 'processor', '') or '',
+            'source': 'local',
+        })
+    if sees_whole_fleet(mainwin):
+        return entries
+    return [e for e in entries if isinstance(e, dict)
+            and (e.get('is_self') or 'Commander' in str(e.get('role') or ''))]
 
 
 def _lan_entry(node) -> Optional[Dict[str, Any]]:
@@ -169,6 +226,7 @@ def _lan_entry(node) -> Optional[Dict[str, Any]]:
     return {
         'id': mid,
         'name': getattr(node, 'machine_name', '') or mid,
+        'role': getattr(node, 'role', '') or '',
         'type': 'desktop',
         'status': 'active' if online else 'offline',
         'ip': getattr(node, 'lan_host', '') or '',
@@ -211,6 +269,7 @@ def _cloud_machines(exclude_ids) -> list:
         else:
             cur['source'] = 'cloud+lan'
             cur['ip'] = lan['ip'] or cur['ip']
+            cur['role'] = cur.get('role') or lan['role']
             if lan['status'] == 'active':
                 cur['status'] = 'active'
     return [e for mid, e in by_id.items() if mid not in exclude_ids]

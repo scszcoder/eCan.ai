@@ -3011,6 +3011,45 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'store.archive' }, { store_id, restore: !!restore });
     }
 
+    // Fleet transfers (docs/FLEET_TRANSFER_DESIGN.md): LAN when the machines share
+    // one, cloud otherwise; sealed end to end either way.
+    public async fetchMachineLogs<T>(vehicle_id: string, hours: number): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'fleet.fetch_logs' }, { vehicle_id, hours });
+    }
+
+    /** `confirmed` must be true: the operator was warned a live login is being copied. */
+    public async moveStoreWithLogin<T>(
+        store_id: string, vehicle_id: string, confirmed: boolean, profile_id?: string,
+    ): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'fleet.move_store' },
+            { store_id, vehicle_id, confirmed, profile_id: profile_id || '' });
+    }
+
+    // Site probe: record a live site's WebSocket/API traffic on an open login.
+    public async getProbeSites<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'site_probe.sites' });
+    }
+
+    public async startSiteProbe<T>(profile_id: string, site: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'site_probe.start' }, { profile_id, site });
+    }
+
+    public async stopSiteProbe<T>(profile_id: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'site_probe.stop' }, { profile_id });
+    }
+
+    public async openProbeFolder<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'site_probe.open_folder' });
+    }
+
+    public async getFleetTransfers<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'fleet.transfers' });
+    }
+
+    public async openFleetDownloads<T>(path?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'fleet.open_downloads' }, { path: path || '' });
+    }
+
     // LLM Token Usage APIs
     public async getMonthlyTokenUsage<T>(month?: number, year?: number): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'llm.getMonthlyTokenUsage' }, { month, year });

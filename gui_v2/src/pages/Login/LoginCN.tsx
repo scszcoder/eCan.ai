@@ -46,6 +46,17 @@ export const normalizeSavedCnPhone = (identifier?: string): string => {
 };
 
 const WECHAT_DIAGNOSTIC_KEY = 'wechat_auth_diagnostic';
+// The role picked on the WeChat tab. The web flow leaves the page for WeChat
+// and comes back to a fresh form, so the pick is kept across the redirect.
+const WECHAT_ROLE_KEY = 'wechat_auth_role';
+
+function pendingWechatRole(): string {
+  try {
+    return sessionStorage.getItem(WECHAT_ROLE_KEY) || 'Commander';
+  } catch {
+    return 'Commander';
+  }
+}
 
 function summarizeWechatError(error: unknown): Record<string, string> {
   const source = error as { name?: unknown; code?: unknown; error?: unknown; message?: unknown };
@@ -309,7 +320,7 @@ const LoginCN: React.FC = () => {
               : undefined,
             userInfo: { ...userInfo, sub: ticketOpenid },
           });
-          saveLoginSession(webSession.sessionToken, userInfo, 'Commander', 'wechat');
+          saveLoginSession(webSession.sessionToken, userInfo, pendingWechatRole(), 'wechat');
           setLoginProgress('success');
           setLoginSuccessful(true);
           setLoginProgress('redirecting');
@@ -434,7 +445,7 @@ const LoginCN: React.FC = () => {
               expires_in: 7200,
               user_identifier: userIdentifier,
               user_info: userInfo,
-              role: 'Commander',
+              role: pendingWechatRole(),
               lang: i18n.language,
             });
 
@@ -490,7 +501,7 @@ const LoginCN: React.FC = () => {
               email_verified: backendUserInfo.email_verified ?? !!cbUserInfo.email,
               login_type: 'wechat',
             },
-            'Commander',
+            pendingWechatRole(),
             'wechat',
           );
 
@@ -830,7 +841,7 @@ const LoginCN: React.FC = () => {
   }, [countdown, ensureCloudbase, messageApi, t]);
 
   // 手机号登录
-  const handlePhoneLogin = useCallback(async (phone: string, code: string) => {
+  const handlePhoneLogin = useCallback(async (phone: string, code: string, role: string = 'Commander') => {
     if (!ensureCloudbase()) {
       setLoginProgress('idle');
       return false;
@@ -848,12 +859,12 @@ const LoginCN: React.FC = () => {
     }
 
     try {
-      const result = await cloudbaseAuth.loginWithPhone(phone, code, verificationId);
+      const result = await cloudbaseAuth.loginWithPhone(phone, code, verificationId, role);
 
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
         setLoginProgress('success');
-        saveLoginSession(token, userInfo, 'Commander', 'phone');
+        saveLoginSession(token, userInfo, role, 'phone');
         messageApi.success(t('login.success'));
         setLoginSuccessful(true);
         setLoginProgress('redirecting');
@@ -892,7 +903,7 @@ const LoginCN: React.FC = () => {
     setLoginProgress('authenticating');
 
     try {
-      const result = await cloudbaseAuth.loginWithEmail(email, password);
+      const result = await cloudbaseAuth.loginWithEmail(email, password, role);
 
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
@@ -1000,7 +1011,7 @@ const LoginCN: React.FC = () => {
   }, [ensureCloudbase, messageApi, t, form, verificationId]);
 
   // 手机号注册
-  const handlePhoneSignup = useCallback(async (phone: string, code: string) => {
+  const handlePhoneSignup = useCallback(async (phone: string, code: string, role: string = 'Commander') => {
     if (!ensureCloudbase()) {
       setLoginProgress('idle');
       return false;
@@ -1017,12 +1028,12 @@ const LoginCN: React.FC = () => {
     }
 
     try {
-      const result = await cloudbaseAuth.signupWithPhone(phone, code, undefined, verificationId);
+      const result = await cloudbaseAuth.signupWithPhone(phone, code, undefined, verificationId, role);
 
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
         setLoginProgress('success');
-        saveLoginSession(token, userInfo, 'Commander', 'password');
+        saveLoginSession(token, userInfo, role, 'password');
         messageApi.success(t('login.signupSuccess'));
         setLoginSuccessful(true);
         setLoginProgress('redirecting');
@@ -1111,17 +1122,19 @@ const LoginCN: React.FC = () => {
     setLoading(true);
     try {
       console.log('[LoginCN] handleSignupVerify: calling confirmSignupWithEmail');
+      const signupRole = form.getFieldValue('role') || 'Commander';
       const result = await cloudbaseAuth.confirmSignupWithEmail(
         pendingSignupCode.email,
         code,
         pendingSignupCode.password,
         pendingSignupCode.verificationId,
+        signupRole,
       );
       console.log('[LoginCN] handleSignupVerify: result', result);
 
       if (result.success && result.data) {
         const { token, userInfo } = result.data;
-        saveLoginSession(token, userInfo, 'Commander', 'password');
+        saveLoginSession(token, userInfo, signupRole, 'password');
         messageApi.success(t('login.signupSuccess'));
         setLoginSuccessful(true);
         setLoginProgress('redirecting');
@@ -1144,6 +1157,8 @@ const LoginCN: React.FC = () => {
 
     const traceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     sessionStorage.setItem('wechat_auth_trace_id', traceId);
+    const role = form.getFieldValue('role') || 'Commander';
+    sessionStorage.setItem(WECHAT_ROLE_KEY, role);
     recordWechatDiagnostic(traceId, 'redirecting-to-wechat');
 
     // 桌面 App：内嵌浏览器弹窗扫码，后端 finalize 后返回会话；
@@ -1152,7 +1167,7 @@ const LoginCN: React.FC = () => {
       try {
         setLoading(true);
         setLoginProgress('authenticating');
-        const resp = await cloudbaseAuth.loginWithWechatQR('Commander', i18n.language);
+        const resp = await cloudbaseAuth.loginWithWechatQR(role, i18n.language);
         if (resp.success && resp.data) {
           const { token } = resp.data;
           const ui: any = resp.data.userInfo || {};
@@ -1165,7 +1180,7 @@ const LoginCN: React.FC = () => {
               name: ui.nickname || '',
               login_type: 'wechat',
             },
-            'Commander',
+            role,
             'wechat',
           );
           messageApi.success(t('login.wechat_login_success') || '微信登录成功');
@@ -1248,10 +1263,10 @@ const LoginCN: React.FC = () => {
           await handleSignupVerify();
           break;
         case 'phone-login':
-          await handlePhoneLogin(values.phone!, values.code!);
+          await handlePhoneLogin(values.phone!, values.code!, values.role);
           break;
         case 'phone-signup':
-          await handlePhoneSignup(values.phone!, values.code!);
+          await handlePhoneSignup(values.phone!, values.code!, values.role);
           break;
         case 'forgot':
           if (values.newPassword !== values.confirmPassword) {
@@ -1615,6 +1630,13 @@ const LoginCN: React.FC = () => {
                     <WechatOutlined style={{ fontSize: 36, color: '#07c160' }} />
                   </div>
                   <p className="cn-wechat-hint">{t('login.wechatHint') || '使用微信扫码登录'}</p>
+                  <Form.Item name="role" rules={[{ required: true }]} style={{ width: '100%' }}>
+                    <Select size="large">
+                      <Select.Option value="Commander">{t('roles.commander')}</Select.Option>
+                      <Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
+                      <Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
+                    </Select>
+                  </Form.Item>
                   <button
                     type="button"
                     className="cn-wechat-btn"

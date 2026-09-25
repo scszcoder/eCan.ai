@@ -21,7 +21,7 @@ import {
     ApartmentOutlined,
     ShopOutlined,
     ShoppingOutlined,
-    ShoppingCartOutlined,
+    InboxOutlined,
     PrinterOutlined,
     DatabaseOutlined,
     AppstoreOutlined
@@ -194,7 +194,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         const isWeb = isWebPlatform();
 
         return [
-            { key: '/stores', icon: <ShoppingCartOutlined />, label: t('menu.stores') },
+            { key: '/stores', icon: <ShopOutlined />, label: t('menu.stores') },
             { key: '/agents', icon: <TeamOutlined />, label: t('menu.agents') },
             { key: '/chat', icon: <MessageOutlined />, label: t('menu.chat') },
             { key: '/tasks', icon: <OrderedListOutlined />, label: t('menu.tasks') },
@@ -206,7 +206,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
             { key: '/prompts', icon: <ReadOutlined />, label: t('menu.prompts') },
             { key: '/avatars', icon: <UserOutlined />, label: t('menu.avatars') },
-            { key: '/warehouses', icon: <ShopOutlined />, label: t('menu.warehouses') },
+            { key: '/warehouses', icon: <InboxOutlined />, label: t('menu.warehouses') },
             { key: '/products', icon: <ShoppingOutlined />, label: t('menu.products') },
             ...(!isWeb ? [{ key: '/knowledge-ported', icon: <ReadOutlined />, label: t('menu.knowledge') }] : []),
             { key: '/shipping-label', icon: <PrinterOutlined />, label: t('menu.shipping_label') },

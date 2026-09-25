@@ -133,6 +133,14 @@ def refresh(mainwin: Any, force: bool = False) -> Optional[Dict[str, Any]]:
             return None
 
 
+def cached(mainwin: Any) -> Optional[Dict[str, Any]]:
+    """The last assignments fetched (memory, else disk), without calling the cloud."""
+    with _lock:
+        if _mem:
+            return _mem
+    return _load_disk(mainwin)
+
+
 def note_claimed(store_id: str, vehicle_id: str) -> None:
     """Record a won claim locally so the rest of this burst sees it."""
     with _lock:
@@ -175,6 +183,32 @@ def decide_store(store_id: str, me: str, snapshot: Optional[Dict[str, Any]],
     return RUN, "assigned here"
 
 
+def where_agent_runs(agent: Any) -> str:
+    """The machine that runs *agent*: "" for this one, else that machine's id. Read-only.
+
+    For display. A store agent goes where its store is assigned; any other
+    agent where its vehicle pin lets it start. An unassigned store reads as
+    this machine -- this machine would claim it -- and nothing here claims.
+    Reads the assignments the heartbeat last fetched and never calls the
+    cloud: the Agents page lists on the UI thread.
+    """
+    from agent.ec_agents.vehicle_affinity import agent_launch_allowed, resolve_local_vehicle_id
+    mainwin = getattr(agent, "mainwin", None)
+    stores = store_ids_of_agent(agent)
+    if stores:
+        me = resolve_local_vehicle_id(mainwin)
+        entries = (cached(mainwin) or {}).get("stores") or {}
+        for sid in stores:
+            assigned = (entries.get(sid) or {}).get("assigned")
+            if assigned and me and assigned != me:
+                return assigned
+        return ""
+    allowed, _ = agent_launch_allowed(agent)
+    if allowed:
+        return ""
+    return str(getattr(agent, "vehicle_id", None) or getattr(agent, "vehicle", None) or "")
+
+
 def placement_for_agent(agent: Any) -> Tuple[Optional[str], str]:
     """``(None, "")`` for an agent this module does not govern, else ``(RUN|SKIP, reason)``."""
     stores = store_ids_of_agent(agent)
@@ -185,6 +219,16 @@ def placement_for_agent(agent: Any) -> Tuple[Optional[str], str]:
     me = resolve_local_vehicle_id(mainwin)
     if not me:
         return RUN, "unknown: this machine has no stable id yet"
+    try:
+        from agent.fleet.transfers import incoming_login_for
+        waiting = [sid for sid in stores if incoming_login_for(sid)]
+    except Exception:
+        waiting = []
+    if waiting:
+        # Started without it, the run fails closed anyway; started on a fresh
+        # login, the site sees a new device. Next heartbeat, once it is here.
+        return SKIP, "; ".join(f"{sid}: waiting for its login to arrive from another machine"
+                               for sid in waiting)
     snapshot = refresh(mainwin)
 
     def claim(store_id: str) -> bool:

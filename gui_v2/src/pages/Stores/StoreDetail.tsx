@@ -9,6 +9,8 @@ import { useFastDeployStore } from '@/stores/fastDeployStore';
 import type { StoreDefinition } from './StoreFormModal';
 import { platformLabel } from '@/components/FastDeploy/scenarios';
 import type { StoreMachine, StoreMeter, StoreRow } from './types';
+import MoveStoreModal from './MoveStoreModal';
+import { TransferList, useFleetTransfers } from '@/components/Fleet/FleetTransfers';
 
 const LOGIN_COLORS: Record<string, string> = { ok: 'green', needs_login: 'orange', unknown: 'default' };
 
@@ -27,6 +29,8 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
   const navigate = useNavigate();
   const openFastDeploy = useFastDeployStore((s) => s.openFor);
   const [busy, setBusy] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const { rows: transfers, refresh: refreshTransfers } = useFleetTransfers();
   const ts = (k: string, d: string, o?: Record<string, unknown>) =>
     t(`pages.stores.${k}`, { defaultValue: d, ...(o || {}) }) as string;
   const zh = (i18n.language || '').toLowerCase().startsWith('zh');
@@ -127,6 +131,11 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
               onClick={() => act(() => api.assignStore(store.storeId, { vehicle_id: null }))}>
               {ts('unassign', 'Unassign')}
             </Button>
+            {/* Reassigning alone leaves the login behind; this brings it along. */}
+            <Button size="small" disabled={!(store.assignedVehicleId || store.reportedVehicleId)}
+              onClick={() => setMoveOpen(true)}>
+              {t('fleet.move_button', { defaultValue: 'Move with login…' })}
+            </Button>
             <Popconfirm title={ts('archive_confirm', 'Archive this store?')}
               onConfirm={() => act(() => api.archiveStore(store.storeId))}>
               <Button size="small" danger loading={busy}>{ts('archive', 'Archive')}</Button>
@@ -161,7 +170,13 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
             {ts('local_only', 'Known on this machine only; it appears in the cloud once a machine running it reports.')}
           </Typography.Text>
         )}
+        <TransferList rows={transfers.filter((r) => r.kind === 'profile'
+          && r.params?.store_id === store.storeId).slice(0, 3)} />
       </Card>
+      {moveOpen && (
+        <MoveStoreModal open={moveOpen} store={store} machines={machines} thisVehicleId={thisVehicleId}
+          onClose={() => setMoveOpen(false)} onMoved={() => { refreshTransfers(); onChanged(); }} />
+      )}
 
       <Card size="small" title={ts('outcomes', 'Outcomes')}>
         <Space size={32} wrap style={{ marginBottom: store.local.meters.length ? 12 : 0 }}>

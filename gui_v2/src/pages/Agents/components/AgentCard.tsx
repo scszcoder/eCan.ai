@@ -605,6 +605,16 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     });
   };
   
+  // Where the agent runs: solid green = this machine, faint dotted orange =
+  // another machine. Unknown (e.g. a DB-only row) keeps the plain border.
+  const runsHere = (agent as any)?.runs_here;
+  const placementBorder = runsHere === true
+    ? '2px solid #52c41a'
+    : runsHere === false
+      ? '2px dotted rgba(250, 140, 22, 0.55)'
+      : null;
+  const restingBorderColor = placementBorder ? '' : 'rgba(255, 255, 255, 0.08)';
+
   // Menu items
   const menuItems: MenuProps['items'] = [
     { key: 'edit', label: t('common.edit') || 'Edit', onClick: handleEdit },
@@ -632,19 +642,22 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
         background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(147, 51, 234, 0.05) 100%)',
         borderRadius: '16px',
         padding: '20px 20px 12px 20px',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
+        border: placementBorder || '1px solid rgba(255, 255, 255, 0.1)',
         transition: 'all 0.3s ease',
         cursor: 'pointer',
       }}
+      title={runsHere === false
+        ? t('pages.agents.runsElsewhere', 'Runs on another machine')
+        : runsHere === true ? t('pages.agents.runsHere', 'Runs on this machine') : undefined}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = 'translateY(-2px)';
         e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.2)';
-        e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.2)';
+        if (!placementBorder) e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.2)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.transform = 'translateY(0)';
         e.currentTarget.style.boxShadow = 'none';
-        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+        if (restingBorderColor) e.currentTarget.style.borderColor = restingBorderColor;
       }}
     >
       {/* 媒体Content */}

@@ -241,6 +241,7 @@ def _import_subcommands():
     from cli.support.commands import support
     from cli.browser.commands import browser
     from cli.stores.commands import stores
+    from cli.probe.commands import probe
     from cli.drift.commands import drift
 
     return {
@@ -263,6 +264,7 @@ def _import_subcommands():
         'support': support,
         'browser': browser,
         'stores': stores,
+        'probe': probe,
         'drift': drift,
     }
 
