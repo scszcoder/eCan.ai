@@ -32,7 +32,9 @@ TS_LINKS = [{"task_id": "task_fd", "skill_id": "skill_fd"}]
 def _cloud(agents=CLOUD_AGENTS, tasks=CLOUD_TASKS, at=AT_LINKS, ts=TS_LINKS):
     return patch.multiple(ch, fetch_cloud_agents=lambda ctx: agents, fetch_cloud_tasks=lambda ctx: tasks,
                           fetch_cloud_agent_task_links=lambda ctx: at,
-                          fetch_cloud_task_skill_links=lambda ctx: ts)
+                          fetch_cloud_task_skill_links=lambda ctx: ts,
+                          hydrate_prompts=lambda: {"added": []},
+                          hydrate_skill_files=lambda ctx: {"downloaded": []})
 
 
 def test_an_empty_machine_gets_the_accounts_agents_tasks_and_links(mainwin):
@@ -82,7 +84,9 @@ def test_an_unreachable_cloud_leaves_the_local_database_as_it_is(mainwin):
 
 def test_startup_builds_the_hydrated_task_from_the_local_database(mainwin):
     from agent.ec_agents import create_agent_tasks as cat
-    with _cloud(), patch.object(cat, "_build_local_agent_tasks_async", new=lambda mw: _noop()):
+    with _cloud():
+        ch.hydrate_local_db_from_cloud(mainwin)          # what MainWindow does first
+    with patch.object(cat, "_build_local_agent_tasks_async", new=lambda mw: _noop()):
         tasks = asyncio.run(cat.build_agent_tasks(mainwin))
     assert "飞鸽客服前台-店A" in [t.name for t in tasks]
 
@@ -121,3 +125,37 @@ class TestRefreshWithoutRestart:
         out = asyncio.run(h._apply_in_app(mainwin, hydrated))
         assert out["agents_added"] == [] and launched == []
         assert any("agent_fd got task" in n for n in out["needs_restart"])
+
+
+class TestFilesAFreshMachineNeeds:
+    def test_only_prompts_missing_here_are_written(self):
+        written = []
+        with patch("gui.ipc.w2p_handlers.prompt_cloud_sync.fetch_cloud_prompts",
+                   return_value=[{"id": "pr-1", "title": "a"}, {"id": "pr-2", "title": "b"}]), \
+             patch("gui.ipc.w2p_handlers.prompt_handler._load_all_prompts", return_value=[{"id": "pr-1"}]), \
+             patch("gui.ipc.w2p_handlers.prompt_handler._write_prompt_to_file",
+                   side_effect=lambda p: written.append(p["id"]) or p):
+            out = ch.hydrate_prompts()
+        assert out == {"added": ["pr-2"]} and written == ["pr-2"]
+
+    def test_only_own_skills_without_a_folder_are_downloaded(self, tmp_path):
+        have = tmp_path / "有_skill"
+        have.mkdir()
+        rows = [{"id": "s1", "name": "有"}, {"id": "s2", "name": "缺"},
+                {"id": "s3", "name": "租", "source": "subscribed"},
+                {"id": "s4", "name": "外", "source": "external"}]
+        fetched = []
+
+        def resolve(sk):
+            p = tmp_path / f"{sk['name']}_skill"
+            return p if p.is_dir() else None
+
+        def download(sk, **kw):
+            fetched.append(sk["name"])
+            (tmp_path / f"{sk['name']}_skill").mkdir()
+
+        with patch("agent.cloud_api.cloud_api.send_get_agent_skills_request_to_cloud", return_value=rows), \
+             patch("gui.ipc.w2p_handlers.skill_file_sync._resolve_skill_dir", side_effect=resolve), \
+             patch("gui.ipc.w2p_handlers.skill_file_sync.download_skill_files_from_cloud", side_effect=download):
+            out = ch.hydrate_skill_files(("s", "t", "e"), wait_s=5)
+        assert fetched == ["缺"] and out == {"downloaded": ["缺"], "missing": []}

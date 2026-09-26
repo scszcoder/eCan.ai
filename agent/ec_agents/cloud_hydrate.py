@@ -202,6 +202,73 @@ def _persist_links(session, model, rows: List[dict], a: str, b: str, extra: dict
     return added
 
 
+# ── prompts and skill files (they live as files, not rows) ────────────────
+
+def hydrate_prompts() -> Dict[str, Any]:
+    """Write every cloud prompt this machine has no file for (a node reads its
+    prompt from the local file; without it the node runs on its inline stub)."""
+    try:
+        from gui.ipc.w2p_handlers.prompt_cloud_sync import fetch_cloud_prompts
+        from gui.ipc.w2p_handlers import prompt_handler
+    except Exception as e:
+        return {"skipped": f"prompt sync unavailable: {e}"}
+    try:
+        have = {p.get("id") for p in prompt_handler._load_all_prompts() if p.get("id")}
+        added = []
+        for cp in fetch_cloud_prompts() or []:
+            pid = cp.get("id")
+            if pid and pid not in have:
+                prompt_handler._write_prompt_to_file(cp)
+                have.add(pid)
+                added.append(pid)
+        return {"added": added}
+    except Exception as e:
+        logger.warning(f"[cloud_hydrate] cloud prompts unavailable ({e}) -- using the local copies")
+        return {"error": str(e)}
+
+
+def hydrate_skill_files(ctx, wait_s: float = 45.0) -> Dict[str, Any]:
+    """Download the files of this user's own cloud skills that have no folder here
+    (subscribed skills are refreshed by refresh_subscribed_skills_from_cloud).
+    A skill compiles from its folder -- workflow, data_mapping, bundle, code."""
+    import threading
+    import time as _time
+    try:
+        from agent.cloud_api.cloud_api import send_get_agent_skills_request_to_cloud
+        from gui.ipc.w2p_handlers.skill_file_sync import _resolve_skill_dir, download_skill_files_from_cloud
+    except Exception as e:
+        return {"skipped": f"skill file sync unavailable: {e}"}
+    rows = _as_rows(send_get_agent_skills_request_to_cloud(*ctx))
+    if rows is None:
+        logger.warning("[cloud_hydrate] cloud skill list unavailable -- using the local skill folders")
+        return {"error": "cloud skill list unavailable"}
+    missing = []
+    for sk in rows:
+        src = str(sk.get("source") or "").strip().lower()
+        if src in ("external", "subscribed") or not sk.get("name"):
+            continue
+        d = _resolve_skill_dir(sk)
+        if d is None or not d.is_dir():
+            missing.append(sk)
+    if not missing:
+        return {"downloaded": []}
+    deadline = _time.monotonic() + wait_s
+    threads = [threading.Thread(target=download_skill_files_from_cloud,
+                                args=(sk,), kwargs={"trace_id": "hydrate", "wait_s": wait_s},
+                                daemon=True) for sk in missing]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(max(0.0, deadline - _time.monotonic()))
+    got = [sk["name"] for sk in missing if (_resolve_skill_dir(sk) or None) is not None
+           and _resolve_skill_dir(sk).is_dir()]
+    late = [sk["name"] for sk in missing if sk["name"] not in got]
+    if late:
+        logger.warning(f"[cloud_hydrate] skill files still downloading / unavailable: {late} "
+                       f"-- they compile on the next start")
+    return {"downloaded": got, "missing": late}
+
+
 # ── the pass ─────────────────────────────────────────────────────────────
 
 def hydrate_local_db_from_cloud(mainwin) -> Dict[str, Any]:
@@ -227,6 +294,13 @@ def hydrate_local_db_from_cloud(mainwin) -> Dict[str, Any]:
         if rows is None:
             logger.warning(f"[cloud_hydrate] cloud {what} query failed -- using the local copy")
         return rows
+
+    # files first: prompts and skill folders (a task is useless without them)
+    out["prompts"] = hydrate_prompts()
+    try:
+        out["skill_files"] = hydrate_skill_files(ctx)
+    except Exception as e:
+        logger.warning(f"[cloud_hydrate] skill files unavailable ({e}) -- using the local folders")
 
     agents = _read("agents", fetch_cloud_agents)
     tasks = _read("tasks", fetch_cloud_tasks)

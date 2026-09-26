@@ -641,8 +641,7 @@ async def build_agent_tasks(main_win):
     """Build Agent Tasks - supports local database + cloud data + local code triple data sources
 
     Data flow:
-    1. Local database <- cloud copy (cloud_hydrate: insert what's missing, update
-       what the cloud holds a newer copy of, add missing agent/task/skill links)
+    1. (before this, at startup) local database <- cloud copy (cloud_hydrate)
     2. Load from the local database
     3. Add locally built agent tasks from code
     4. Update mainwindow.agent_tasks memory
@@ -652,22 +651,9 @@ async def build_agent_tasks(main_win):
     try:
         logger.info("[build_agent_tasks] Starting agent task building with DB+Cloud+Local integration...")
 
-        # Step 1: bring the local database up to date with the cloud copy -- the
-        # tasks, agents and their links another machine created -- so every
-        # machine then builds from its own database the same way. A slow or
-        # unreachable cloud leaves the local copy as it is.
-        logger.info("[build_agent_tasks] Step 1: local database <- cloud...")
-        try:
-            from agent.ec_agents.cloud_hydrate import hydrate_local_db_from_cloud
-            loop = asyncio.get_event_loop()
-            await asyncio.wait_for(
-                loop.run_in_executor(None, hydrate_local_db_from_cloud, main_win), timeout=15.0)
-        except asyncio.TimeoutError:
-            logger.warning("[build_agent_tasks] cloud copy is slow -- starting from the local database")
-        except Exception as e:
-            logger.warning(f"[build_agent_tasks] cloud copy unavailable ({e}) -- starting from the local database")
-
-        # Step 2-3: load from the (now current) local database
+        # Step 1-3: load from the local database. Startup brings it up to date
+        # from the cloud first (MainWindow -> cloud_hydrate), so tasks another
+        # machine created are already here.
         final_db_agent_tasks = []
         try:
             final_db_agent_tasks = await asyncio.wait_for(

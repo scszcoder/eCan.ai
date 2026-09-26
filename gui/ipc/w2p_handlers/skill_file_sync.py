@@ -611,6 +611,7 @@ def _download_skill_files_cn(
     skill_data: Dict[str, Any],
     file_owner: Optional[str] = None,
     trace_id: Optional[str] = None,
+    wait_s: float = 0.0,
 ) -> None:
     """CN skill-file download. Runs in a background thread; best-effort.
 
@@ -727,7 +728,10 @@ def _download_skill_files_cn(
         except Exception as e:
             logger.warning(f"[skill_file_sync] {trace_prefix}CN download error: {e}")
 
-    threading.Thread(target=_do, daemon=True, name="cn-skill-file-download").start()
+    t = threading.Thread(target=_do, daemon=True, name="cn-skill-file-download")
+    t.start()
+    if wait_s > 0:
+        t.join(wait_s)
 
 
 def download_skill_files_from_cloud(
@@ -735,15 +739,17 @@ def download_skill_files_from_cloud(
     target_dir: Optional[Path] = None,
     trace_id: Optional[str] = None,
     file_owner: Optional[str] = None,
+    wait_s: float = 0.0,
 ) -> None:
-    """Download a skill's files from cloud storage. Runs in background thread.
+    """Download a skill's files from cloud storage. Runs in background thread;
+    ``wait_s`` > 0 waits up to that long for it (a caller about to compile it).
 
     Intl: S3 presigned-zip flow. CN: per-file COS download via
     listSkillFiles/readSkillFile (``file_owner`` selects the namespace —
     pass the AUTHOR for subscribed skills).
     """
     if not _is_intl_app():
-        _download_skill_files_cn(skill_data, file_owner=file_owner, trace_id=trace_id)
+        _download_skill_files_cn(skill_data, file_owner=file_owner, trace_id=trace_id, wait_s=wait_s)
         return
 
     def _do():
@@ -806,6 +812,8 @@ def download_skill_files_from_cloud(
 
     t = threading.Thread(target=_do, daemon=True, name="skill-file-download")
     t.start()
+    if wait_s > 0:
+        t.join(wait_s)
 
 
 def delete_skill_files_from_cloud(skill_id: str) -> None:

@@ -3087,6 +3087,20 @@ class MainWindow:
                 # No need to copy example skills anymore
                 logger.info("[MainWindow] ðŸ“š Skills will be loaded directly from resource/my_skills")
 
+                # First bring this machine's own copy up to date from the cloud:
+                # what another machine (e.g. the Commander) created -- agents,
+                # tasks, their links, prompts, skill folders. A fresh machine
+                # otherwise builds from an empty database. Offline/slow cloud:
+                # build from the local copy (agent/ec_agents/cloud_hydrate.py).
+                try:
+                    from agent.ec_agents.cloud_hydrate import hydrate_local_db_from_cloud
+                    await asyncio.wait_for(
+                        asyncio.to_thread(hydrate_local_db_from_cloud, self), timeout=60.0)
+                except asyncio.TimeoutError:
+                    logger.warning("[MainWindow] Cloud copy is slow -- building from the local copy")
+                except Exception as _hyd_err:
+                    logger.warning(f"[MainWindow] Cloud copy unavailable ({_hyd_err}) -- building from the local copy")
+
                 # Build skills and tasks in TRUE PARALLEL
                 logger.info("[MainWindow] Building skills and tasks in parallel...")
                 skills_task = asyncio.create_task(self._build_agent_skills_async())
