@@ -50,7 +50,19 @@ const WECHAT_DIAGNOSTIC_KEY = 'wechat_auth_diagnostic';
 // and comes back to a fresh form, so the pick is kept across the redirect.
 const WECHAT_ROLE_KEY = 'wechat_auth_role';
 
+// Owner rule: on the web the role is always Staff Officer -- Commander and
+// Platoon are machine roles, which only the desktop app has. The server also
+// forces it for web WeChat logins (eCan_web 77db4e0).
+const WEB_ROLE = 'Staff Officer';
+
+/** The role a login uses: the picked one on the desktop, Staff Officer on the web. */
+function siteRole(picked?: string | null): string {
+  if (!isDesktopPlatform()) return WEB_ROLE;
+  return picked || 'Commander';
+}
+
 function pendingWechatRole(): string {
+  if (!isDesktopPlatform()) return WEB_ROLE;
   try {
     return sessionStorage.getItem(WECHAT_ROLE_KEY) || 'Commander';
   } catch {
@@ -605,7 +617,7 @@ const LoginCN: React.FC = () => {
             setMode('email-login'); // mode 维持默认,微信 tab 不依赖 mode
             form.resetFields(['username', 'password', 'confirmPassword', 'phone', 'code', 'newPassword']);
             form.setFieldsValue({
-              role: machine_role || 'Commander'
+              role: siteRole(machine_role)
             });
           } else if (login_type === 'phone') {
             // 手机登录:后端为了避免污染邮箱输入框，会将 username 清空，
@@ -617,7 +629,7 @@ const LoginCN: React.FC = () => {
             form.resetFields(['username', 'password', 'confirmPassword', 'code', 'newPassword']);
             form.setFieldsValue({
               phone: normalizeSavedCnPhone(last_identifier),
-              role: machine_role || 'Commander'
+              role: siteRole(machine_role)
             });
           } else {
             // 邮箱/密码登录（默认）
@@ -629,7 +641,7 @@ const LoginCN: React.FC = () => {
             form.setFieldsValue({
               username,
               password,
-              role: machine_role || 'Commander'
+              role: siteRole(machine_role)
             });
           }
 
@@ -1122,7 +1134,7 @@ const LoginCN: React.FC = () => {
     setLoading(true);
     try {
       console.log('[LoginCN] handleSignupVerify: calling confirmSignupWithEmail');
-      const signupRole = form.getFieldValue('role') || 'Commander';
+      const signupRole = siteRole(form.getFieldValue('role'));
       const result = await cloudbaseAuth.confirmSignupWithEmail(
         pendingSignupCode.email,
         code,
@@ -1157,7 +1169,7 @@ const LoginCN: React.FC = () => {
 
     const traceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     sessionStorage.setItem('wechat_auth_trace_id', traceId);
-    const role = form.getFieldValue('role') || 'Commander';
+    const role = siteRole(form.getFieldValue('role'));
     sessionStorage.setItem(WECHAT_ROLE_KEY, role);
     recordWechatDiagnostic(traceId, 'redirecting-to-wechat');
 
@@ -1250,7 +1262,7 @@ const LoginCN: React.FC = () => {
       switch (mode) {
         case 'email-login':
           loginAttempted = true;
-          await handleEmailLogin(values.username, values.password, values.role);
+          await handleEmailLogin(values.username, values.password, siteRole(values.role));
           return;
         case 'email-signup':
           if (values.password !== values.confirmPassword) {
@@ -1264,10 +1276,10 @@ const LoginCN: React.FC = () => {
           await handleSignupVerify();
           break;
         case 'phone-login':
-          await handlePhoneLogin(values.phone!, values.code!, values.role);
+          await handlePhoneLogin(values.phone!, values.code!, siteRole(values.role));
           break;
         case 'phone-signup':
-          await handlePhoneSignup(values.phone!, values.code!, values.role);
+          await handlePhoneSignup(values.phone!, values.code!, siteRole(values.role));
           break;
         case 'forgot':
           if (values.newPassword !== values.confirmPassword) {
@@ -1363,6 +1375,24 @@ const LoginCN: React.FC = () => {
     }
   };
 
+  // Role picker: desktop only. The web always logs in as Staff Officer, so the
+  // field stays in the form (hidden) and no other role can be picked there.
+  const roleField = (style?: React.CSSProperties) => (
+    isDesktopPlatform() ? (
+      <Form.Item name="role" rules={[{ required: true }]} style={style}>
+        <Select size="large">
+          <Select.Option value="Commander">{t('roles.commander')}</Select.Option>
+          <Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
+          <Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
+        </Select>
+      </Form.Item>
+    ) : (
+      <Form.Item name="role" hidden initialValue={WEB_ROLE}>
+        <Input />
+      </Form.Item>
+    )
+  );
+
   return (
     <div className="cn-login-container">
       <div className="cn-login-decoration" />
@@ -1442,7 +1472,7 @@ const LoginCN: React.FC = () => {
               onFinish={handleSubmit}
               layout="vertical"
               requiredMark={false}
-              initialValues={{ role: 'Commander' }}
+              initialValues={{ role: siteRole() }}
               className="cn-login-form"
             >
               {/* 邮箱登录/注册表单 */}
@@ -1563,15 +1593,7 @@ const LoginCN: React.FC = () => {
                     </>
                   )}
 
-                  {mode === 'email-login' && (
-                    <Form.Item name="role" rules={[{ required: true }]}>
-                      <Select size="large">
-                        <Select.Option value="Commander">{t('roles.commander')}</Select.Option>
-                        <Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
-                        <Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
-                      </Select>
-                    </Form.Item>
-                  )}
+                  {mode === 'email-login' && roleField()}
                 </>
               )}
 
@@ -1614,13 +1636,7 @@ const LoginCN: React.FC = () => {
                       }
                     />
                   </Form.Item>
-                  <Form.Item name="role" rules={[{ required: true }]}>
-                    <Select size="large">
-                      <Select.Option value="Commander">{t('roles.commander')}</Select.Option>
-                      <Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
-                      <Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
-                    </Select>
-                  </Form.Item>
+                  {roleField()}
                 </>
               )}
 
@@ -1631,13 +1647,7 @@ const LoginCN: React.FC = () => {
                     <WechatOutlined style={{ fontSize: 36, color: '#07c160' }} />
                   </div>
                   <p className="cn-wechat-hint">{t('login.wechatHint') || '使用微信扫码登录'}</p>
-                  <Form.Item name="role" rules={[{ required: true }]} style={{ width: '100%' }}>
-                    <Select size="large">
-                      <Select.Option value="Commander">{t('roles.commander')}</Select.Option>
-                      <Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
-                      <Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
-                    </Select>
-                  </Form.Item>
+                  {roleField({ width: '100%' })}
                   <button
                     type="button"
                     className="cn-wechat-btn"
