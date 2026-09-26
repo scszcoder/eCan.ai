@@ -88,6 +88,12 @@ def report(agent_id: Optional[str] = None, **fields: Any) -> Dict[str, Any]:
             sc = get_scope()
             payload = {"agent_id": key, "agent_name": sc.get("agent_name"), **snap}
             logger.info("[AGENT-STATUS] " + json.dumps(payload, ensure_ascii=False, default=str))
+            if changed:
+                try:   # a readiness change goes to the account's web view too
+                    from agent.fleet.activity_feed import get_feed
+                    get_feed().note("agent_status", **payload)
+                except Exception:
+                    pass
         return snap
     except Exception as e:  # observability must never break run logic
         try:

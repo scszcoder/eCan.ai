@@ -4,6 +4,7 @@ import type { MenuProps } from 'antd';
 import {
     DashboardOutlined,
     LaptopOutlined,
+    MonitorOutlined,
     CalendarOutlined,
     MessageOutlined,
     ThunderboltOutlined,
@@ -194,6 +195,8 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         const isWeb = isWebPlatform();
 
         return [
+            // Web (Staff Officer): watch the account's machines live -- desktops don't need it.
+            ...(isWeb ? [{ key: '/fleet', icon: <MonitorOutlined />, label: t('menu.fleet_monitor', 'Fleet monitor') }] : []),
             { key: '/stores', icon: <ShopOutlined />, label: t('menu.stores') },
             { key: '/agents', icon: <TeamOutlined />, label: t('menu.agents') },
             { key: '/chat', icon: <MessageOutlined />, label: t('menu.chat') },

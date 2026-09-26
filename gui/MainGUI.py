@@ -2406,6 +2406,14 @@ class MainWindow:
                     pass
             self.wan_chat_task = asyncio.create_task(subscribeToWanChat(self, token, self.chat_id))
 
+            # This machine's agent activity for the account's web view (fleet.feed),
+            # and its command channel (fleet.cmd). Commander and Platoon alike.
+            try:
+                from agent.fleet.activity_feed import get_feed
+                get_feed().start(self)
+            except Exception as _feed_err:
+                logger.warning(f"[MainWindow] fleet activity feed not started: {_feed_err}")
+
             # Wait up to 15 seconds for subscription to be acknowledged
             for _ in range(30):
                 if getattr(self, 'get_wan_msg_subscribed', None) and self.get_wan_msg_subscribed():

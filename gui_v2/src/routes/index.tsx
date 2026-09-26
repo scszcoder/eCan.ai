@@ -44,6 +44,7 @@ const LoginIntl = lazyWithRetry(() => import('../pages/Login/Login'));
 const AuthCallback = lazyWithRetry(() => import('../pages/AuthCallback'));
 const Dashboard = lazyWithRetry(() => import('../pages/Dashboard/Dashboard'));
 const Vehicles = lazyWithRetry(() => import('../pages/Vehicles/Vehicles'));
+const FleetMonitor = lazyWithRetry(() => import('../pages/Fleet/FleetMonitor'));
 const Schedule = lazyWithRetry(() => import('../pages/Schedule/Schedule'));
 const Chat = lazyWithRetry(() => import('../pages/Chat/index'));
 const Skills = lazyWithRetry(() => import('../pages/Skills/Skills'));
@@ -332,6 +333,11 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'vehicles',
                 element: <LazyWrapper><Vehicles /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'fleet',
+                element: <LazyWrapper><FleetMonitor /></LazyWrapper>,
                 keepAlive: true,
             },
             {

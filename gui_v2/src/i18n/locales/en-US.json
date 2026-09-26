@@ -177,6 +177,24 @@
     }
   },
   "pages": {
+    "fleet": {
+      "title": "Fleet monitor",
+      "refresh": "Refresh",
+      "live": "Live",
+      "connecting": "Connecting…",
+      "reconnecting": "Reconnecting…",
+      "error": "The cloud refused the connection",
+      "unconfigured": "Not available here",
+      "empty": "No machine has reported yet. Machines report once a minute while eCan runs on them.",
+      "lastSeen": "last seen",
+      "startLog": "Live log",
+      "stopLog": "Stop log",
+      "noAgents": "No agents reported yet",
+      "events": "Recent activity",
+      "log": "Live log",
+      "dropped": "lines skipped",
+      "task": "Task"
+    },
     "prompts": {
       "details": "Details",
       "importFromFile": "Import from file (.md / .json)",
@@ -3554,6 +3572,7 @@
     "chat_test": "Chat Test",
     "tools": "Tools",
     "vehicles": "Vehicles",
+    "fleet_monitor": "Fleet monitor",
     "stores": "Stores",
     "warehouses": "Warehouses",
     "prompts": "Prompts",

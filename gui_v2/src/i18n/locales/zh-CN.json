@@ -177,6 +177,24 @@
     }
   },
   "pages": {
+    "fleet": {
+      "title": "机群监控",
+      "refresh": "刷新",
+      "live": "实时",
+      "connecting": "连接中…",
+      "reconnecting": "重新连接中…",
+      "error": "云端拒绝了连接",
+      "unconfigured": "此处不可用",
+      "empty": "还没有机器上报。eCan 运行时每分钟上报一次。",
+      "lastSeen": "最近上报",
+      "startLog": "实时日志",
+      "stopLog": "停止日志",
+      "noAgents": "尚无智能体上报",
+      "events": "最近动态",
+      "log": "实时日志",
+      "dropped": "行已跳过",
+      "task": "任务"
+    },
     "prompts": {
       "details": "详情",
       "importFromFile": "从文件导入（.md / .json）",
@@ -3613,6 +3631,7 @@
     "chat_test": "聊天测试",
     "tools": "工具",
     "vehicles": "电脑",
+    "fleet_monitor": "机群监控",
     "stores": "店铺",
     "warehouses": "仓库",
     "prompts": "提示词",

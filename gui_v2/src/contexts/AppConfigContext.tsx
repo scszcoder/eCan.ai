@@ -28,6 +28,8 @@ export interface AuthConfig {
 
 export interface CloudConfig {
   graphql_endpoint: string;
+  /** Cloud WebSocket (subscriptions); the web's fleet monitor listens on it. */
+  ws_endpoint?: string;
 }
 
 export interface AppConfig {

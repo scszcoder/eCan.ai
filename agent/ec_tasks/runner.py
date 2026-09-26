@@ -8415,6 +8415,11 @@ class TaskRunner(Generic[Context]):
         task status changes such as 'running', 'completed', 'failed'.
         """
         try:
+            from agent.fleet.activity_feed import get_feed
+            get_feed().note_task(task, status)       # the account's web view
+        except Exception:
+            pass
+        try:
             from gui.ipc.api import IPCAPI
             ipc = IPCAPI.get_instance()
             ipc.update_run_stat(
