@@ -8366,6 +8366,21 @@ def send_remove_task_skill_relations_to_cloud(session, removes, token, endpoint,
     return safe_parse_response(jresp, "removeAgentTaskSkillRels", "removeAgentTaskSkillRels")
 
 
+def send_query_agent_task_rels_to_cloud(session, token, q_settings, endpoint):
+    """Query Agent-Task relations (which agent holds which task), same input shape as
+    the task-skill query: ``{"byowneruser": true}`` for all of the caller's rows.
+    (send_query_agent_task_relations_request_to_cloud builds a queryAgentTasks
+    string and cannot fetch these.)"""
+    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
+    queryInfo = f'''
+        query MyQuery {{
+            queryAgentTaskRels(input: "{qb}")
+        }}
+    '''
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "queryAgentTaskRels", "queryAgentTaskRels")
+
+
 @cloud_api(DataType.TASK_SKILL, Operation.QUERY)
 def send_query_task_skill_relations_to_cloud(session, token, q_settings, endpoint):
     """Query Task-Skill relations from cloud"""

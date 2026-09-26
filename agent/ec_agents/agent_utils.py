@@ -1098,58 +1098,6 @@ def save_agent_tasks_to_cloud(mainwin, tasks):
 
 
 
-def load_agent_tasks_from_cloud(mainwin):
-    """Load Tasks from cloud"""
-    cloud_agent_tasks = []
-    try:
-        from agent.cloud_api.cloud_api import send_get_agent_tasks_request_to_cloud
-        import requests
-        
-        auth_token = mainwin.get_auth_token()
-        if not auth_token:
-            logger.error("No valid authentication token available")
-            return cloud_agent_tasks
-            
-        session = requests.Session()
-        jresp = send_get_agent_tasks_request_to_cloud(session, auth_token, mainwin.getWanApiEndpoint())
-        
-        if isinstance(jresp, dict) and 'body' in jresp:
-            all_agent_tasks = json.loads(jresp['body'])
-        else:
-            logger.warning("No agent tasks data returned from cloud")
-            all_agent_tasks = []
-            
-        # Convert cloud format to local format using Schema
-        from agent.cloud_api.schema_registry import get_schema_registry
-        schema_registry = get_schema_registry()
-        schema = schema_registry.get_schema(DataType.TASK)
-        
-        for cloud_task in all_agent_tasks:
-            # Convert cloud format to local format
-            local_task = schema.from_cloud(cloud_task)
-            new_agent_task = gen_new_agent_tasks(mainwin, local_task)
-            if new_agent_task:
-                cloud_agent_tasks.append(new_agent_task)
-
-        if cloud_agent_tasks:
-            mainwin.agent_tasks = cloud_agent_tasks
-        
-        return cloud_agent_tasks
-
-    except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorLoadAgentTasksFromCloud:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorLoadAgentTasksFromCloud: traceback information not available:" + str(e)
-        logger.error(ex_stat)
-        return []
-
-    return cloud_agent_tasks
-
-
 def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
     try:
         llm = mainwin.llm
@@ -1186,53 +1134,6 @@ def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
         browser_use_llm = mainwin.browser_use_llm
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
-    except Exception as e:
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorNewAgentTasks:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorNewAgentTasks: traceback information not available:" + str(e)
-        # log3(ex_stat)
-        logger.error(ex_stat)
-        return None
-
-
-def gen_new_agent_tasks(mainwin, taskjs):
-    try:
-        llm = mainwin.llm
-        all_skills = mainwin.agent_skills
-        all_tasks = mainwin.agent_tasks
-        if taskjs['skills'].strip():
-            skids = [s.strip() for s in taskjs['skills'].split(",") if s.strip()]
-        else:
-            skids = []
-        agent_skills = [sk for sk in all_skills if str(sk.id) in skids]
-
-        if taskjs['tasks'].strip():
-            taskids = [s.strip() for s in taskjs['tasks'].split(",") if s.strip()]
-        else:
-            taskids = []
-        agent_tasks = [t for t in all_tasks if str(t.id) in taskids]
-
-        # a2a client+server
-        capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-
-        agent_card = AgentCard(
-            id = taskjs['id'],
-            name=taskjs['name'],
-            description=taskjs['description'],
-            url=get_a2a_server_url(mainwin) or "http://localhost:3600",
-            version="1.0.0",
-            defaultInputModes=SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=SUPPORTED_CONTENT_TYPES,
-            capabilities=capabilities,
-            skills=agent_skills,
-        )
-        logger.info("agent card created:", agent_card.name, agent_card.url)
-
-        new_agent_task = EC_Skill(mainwin=mainwin, llm=llm, card=agent_card, skills=agent_skills, tasks=agent_tasks)
-        return new_agent_task
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback

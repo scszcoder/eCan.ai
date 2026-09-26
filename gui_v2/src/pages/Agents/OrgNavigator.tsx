@@ -1,7 +1,7 @@
 import React, { useMemo, useCallback, useEffect, useState, useRef } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { Alert, Button, Checkbox, FloatButton, Modal, Spin, message } from 'antd';
-import { CheckSquareOutlined, DeleteOutlined, InboxOutlined, PlusOutlined } from '@ant-design/icons';
+import { CheckSquareOutlined, CloudSyncOutlined, DeleteOutlined, InboxOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useUserStore } from '../../stores/userStore';
@@ -617,6 +617,40 @@ const OrgNavigator: React.FC = () => {
     fetchOrgStructure();
   }, [fetchOrgStructure]);
 
+  // Pull what other machines (e.g. the Commander) created into this one, no restart.
+  const [cloudSyncing, setCloudSyncing] = useState(false);
+  const handleCloudRefresh = useCallback(async () => {
+    setCloudSyncing(true);
+    try {
+      const res = await get_ipc_api().refreshFromCloud<{
+        tasks_added: string[]; agents_added: string[]; needs_restart: string[];
+      }>();
+      if (!res?.success || !res.data) {
+        message.warning(res?.error?.message || t('pages.agents.syncFromCloudFailed', 'Could not reach the cloud copy'));
+        return;
+      }
+      const { tasks_added, agents_added, needs_restart } = res.data;
+      Modal.info({
+        title: t('pages.agents.syncFromCloudDone', 'Synced from the cloud'),
+        content: (
+          <div>
+            <p>{t('pages.agents.syncAgentsAdded', 'New agents')}: {agents_added.length ? agents_added.join(', ') : '—'}</p>
+            <p>{t('pages.agents.syncTasksAdded', 'New tasks')}: {tasks_added.length ? tasks_added.join(', ') : '—'}</p>
+            {needs_restart.length > 0 && (
+              <>
+                <p>{t('pages.agents.syncNeedsRestart', 'These apply after eCan restarts')}:</p>
+                <ul>{needs_restart.map((n) => <li key={n}>{n}</li>)}</ul>
+              </>
+            )}
+          </div>
+        ),
+      });
+      fetchOrgStructure();
+    } finally {
+      setCloudSyncing(false);
+    }
+  }, [t, fetchOrgStructure]);
+
   // ============================================================================
   // 🔧 Optimize：Remove重复Code，复用 fetchOrgStructure
   // ListenURLParameter变化，When有refreshParameter时重新GetData
@@ -693,6 +727,17 @@ const OrgNavigator: React.FC = () => {
           zIndex: 2,
         }}
       >
+        {!batchMode && (
+          <Button
+            size="small"
+            icon={<CloudSyncOutlined />}
+            loading={cloudSyncing}
+            onClick={handleCloudRefresh}
+            style={{ marginRight: 8 }}
+          >
+            {t('pages.agents.syncFromCloud', '从云端同步')}
+          </Button>
+        )}
         {!batchMode ? (
           <Button
             size="small"

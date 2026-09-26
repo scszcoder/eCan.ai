@@ -3051,6 +3051,11 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'live_chat_site.set' }, { site });
     }
 
+    // Pull agents/tasks other machines created into this one, without a restart.
+    public async refreshFromCloud<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'cloud.refresh' });
+    }
+
     public async getFleetTransfers<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'fleet.transfers' });
     }

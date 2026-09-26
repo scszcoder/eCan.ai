@@ -2,7 +2,6 @@ import traceback
 import typing
 import uuid
 import asyncio
-from agent.ec_agents.agent_utils import load_agent_tasks_from_cloud
 from a2a.types import TaskStatus, TaskState
 from agent.ec_tasks import ManagedTask, TaskSchedule, RepeatType
 
@@ -518,16 +517,18 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
             id=task_id,
             context_id=task_id,  # Required by a2a-sdk Task
             name=db_agent_task_dict.get('name', 'Unnamed Agent Task'),
-            description=db_agent_task_dict.get('description', ''),
-            source=db_agent_task_dict.get('source', 'ui'),  # Preserve source from database
-            owner=db_agent_task_dict.get('owner', ''),
+            # `or`, not a .get default: a NULL column (cloud rows carry nulls) is a
+            # present key whose value is None, which ManagedTask rejects.
+            description=db_agent_task_dict.get('description') or '',
+            source=db_agent_task_dict.get('source') or 'ui',  # Preserve source from database
+            owner=db_agent_task_dict.get('owner') or '',
             status=status,
             sessionId='',
             schedule=schedule,
             resume_from='',
             state={},
             metadata=metadata,
-            trigger=db_agent_task_dict.get('trigger', 'auto'),
+            trigger=db_agent_task_dict.get('trigger') or 'auto',
             priority=priority_value,
             skill=task_skill  # Attach resolved skill
         )
@@ -601,23 +602,6 @@ async def _load_agent_tasks_from_database_async(main_win):
         return []
 
 
-async def _load_agent_tasks_from_cloud_async(main_win):
-    """Async load agent tasks from cloud"""
-    try:
-        logger.info("[create_agent_tasks] Loading from cloud...")
-
-        # Run cloud loading in executor to avoid blocking
-        loop = asyncio.get_event_loop()
-        cloud_agent_tasks = await loop.run_in_executor(None, load_agent_tasks_from_cloud, main_win)
-
-        logger.info(f"[create_agent_tasks] Loaded {len(cloud_agent_tasks or [])} agent tasks")
-        return cloud_agent_tasks or []
-
-    except Exception as e:
-        logger.error(f"[create_agent_tasks] Error: {e}")
-        return []
-
-
 async def _build_local_agent_tasks_async(main_win):
     """Async build local code agent tasks (currently disabled)"""
     try:
@@ -653,26 +637,13 @@ async def _build_local_agent_tasks_async(main_win):
         return []
 
 
-async def _update_database_with_cloud_agent_tasks(cloud_agent_tasks, main_win):
-    """Async update database with cloud agent tasks (background task)"""
-    try:
-        logger.info(f"[create_agent_tasks] Updating {len(cloud_agent_tasks)} agent tasks...")
-
-        # TODO: Implement database update logic
-        # This should save cloud agent tasks to local database
-
-        logger.info("[create_agent_tasks] Update completed")
-
-    except Exception as e:
-        logger.error(f"[create_agent_tasks] Error: {e}")
-
-
 async def build_agent_tasks(main_win):
     """Build Agent Tasks - supports local database + cloud data + local code triple data sources
 
-    Data flow (similar to build_agent_skills):
-    1. Parallel loading: local database + cloud data
-    2. Wait for both to complete, cloud data takes priority and overwrites local database
+    Data flow:
+    1. Local database <- cloud copy (cloud_hydrate: insert what's missing, update
+       what the cloud holds a newer copy of, add missing agent/task/skill links)
+    2. Load from the local database
     3. Add locally built agent tasks from code
     4. Update mainwindow.agent_tasks memory
     5. TODO: After agents are built, merge agent.tasks into mainwin.agent_tasks
@@ -681,42 +652,31 @@ async def build_agent_tasks(main_win):
     try:
         logger.info("[build_agent_tasks] Starting agent task building with DB+Cloud+Local integration...")
 
-        # Step 1: Parallel loading from local database and cloud
-        logger.info("[build_agent_tasks] Step 1: Parallel loading DB and Cloud...")
-        db_task = asyncio.create_task(_load_agent_tasks_from_database_async(main_win))
-        cloud_task = asyncio.create_task(_load_agent_tasks_from_cloud_async(main_win))
-
-        # Step 2: Wait for both database and cloud to complete
-        logger.info("[build_agent_tasks] Step 2: Waiting for DB and Cloud...")
-        db_agent_tasks = []
-        cloud_agent_tasks = []
-
+        # Step 1: bring the local database up to date with the cloud copy -- the
+        # tasks, agents and their links another machine created -- so every
+        # machine then builds from its own database the same way. A slow or
+        # unreachable cloud leaves the local copy as it is.
+        logger.info("[build_agent_tasks] Step 1: local database <- cloud...")
         try:
-            db_agent_tasks = await asyncio.wait_for(db_task, timeout=5.0)
-            logger.info(f"[build_agent_tasks] ✅ Loaded {len(db_agent_tasks)} agent tasks from database")
+            from agent.ec_agents.cloud_hydrate import hydrate_local_db_from_cloud
+            loop = asyncio.get_event_loop()
+            await asyncio.wait_for(
+                loop.run_in_executor(None, hydrate_local_db_from_cloud, main_win), timeout=15.0)
+        except asyncio.TimeoutError:
+            logger.warning("[build_agent_tasks] cloud copy is slow -- starting from the local database")
+        except Exception as e:
+            logger.warning(f"[build_agent_tasks] cloud copy unavailable ({e}) -- starting from the local database")
+
+        # Step 2-3: load from the (now current) local database
+        final_db_agent_tasks = []
+        try:
+            final_db_agent_tasks = await asyncio.wait_for(
+                _load_agent_tasks_from_database_async(main_win), timeout=5.0)
+            logger.info(f"[build_agent_tasks] ✅ Loaded {len(final_db_agent_tasks)} agent tasks from database")
         except asyncio.TimeoutError:
             logger.warning("[build_agent_tasks] ⏰ Database timeout")
         except Exception as e:
             logger.error(f"[build_agent_tasks] ❌ Database failed: {e}")
-
-        try:
-            cloud_agent_tasks = await asyncio.wait_for(cloud_task, timeout=10.0)
-            logger.info(f"[build_agent_tasks] ✅ Loaded {len(cloud_agent_tasks or [])} agent tasks from cloud")
-        except asyncio.TimeoutError:
-            logger.warning("[build_agent_tasks] ⏰ Cloud timeout")
-        except Exception as e:
-            logger.error(f"[build_agent_tasks] ❌ Cloud failed: {e}")
-
-        # Step 3: Check cloud data, if available overwrite local database
-        final_db_agent_tasks = []
-        if cloud_agent_tasks and len(cloud_agent_tasks) > 0:
-            # Cloud data overwrites local database (background async execution, non-blocking)
-            asyncio.create_task(_update_database_with_cloud_agent_tasks(cloud_agent_tasks, main_win))
-            # Use cloud data as final database agent tasks
-            final_db_agent_tasks = cloud_agent_tasks
-        else:
-            # No cloud data, use local database data
-            final_db_agent_tasks = db_agent_tasks
 
         # Step 4: Build local code agent tasks
         local_agent_tasks = []
