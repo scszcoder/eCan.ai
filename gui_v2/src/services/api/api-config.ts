@@ -65,6 +65,18 @@ export const GRAPHQL_QUERIES = {
   // GRAPHQL_VALIDATION_FAILED. `podView` reads them out of `settings` instead,
   // column-first once they land. The desktop's Python handler probes for them;
   // the web does not need to, because the blob is always written too.
+  // The web's machine list (the desktop asks its local server instead). Same
+  // columns the desktop's cloud query reads: heartbeat for online/offline,
+  // extra_metadata.role for Commander/Platoon.
+  QUERY_VEHICLES_LIST: `
+    query QueryVehiclesList($input: VehicleQueryInput) {
+      queryVehicles(input: $input) {
+        id owner name vehicle_type status hostname ip_address platform architecture
+        capabilities settings extra_metadata last_heartbeat
+      }
+    }
+  `,
+
   QUERY_VEHICLES: `
     query QueryVehicles($input: VehicleQueryInput) {
       queryVehicles(input: $input) {

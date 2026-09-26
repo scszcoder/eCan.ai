@@ -29,6 +29,7 @@ import {
     getSkillPalette,
     formatNumber,
 } from './skillPalette';
+import { ownerKey } from '@/utils/ownerKey';
 
 const Row = styled.div<{ $selected?: boolean; $variant?: string }>`
     display: grid;
@@ -265,14 +266,14 @@ const SkillMarketplaceList: React.FC<SkillMarketplaceListProps> = ({
     const { t } = useTranslation();
     const [reportSkill, setReportSkill] = useState<Skill | null>(null);
 
-    const meLower = (username || '').toLowerCase();
+    const meLower = ownerKey(username);
     const favoriteIds = useSkillStore((s) => s.favoriteSkillIds);
     const favoriteSet = useMemo(() => new Set((favoriteIds || []).map(String)), [favoriteIds]);
     const subscribedSet = useMemo(() => new Set((subscribedSkillIds || []).map(String)), [subscribedSkillIds]);
 
     const isOwnedByMe = useCallback(
         (s: Skill) => {
-            const owner = String((s as any)?.owner || '').toLowerCase();
+            const owner = ownerKey((s as any)?.owner);
             const source = String((s as any)?.source || '').toLowerCase();
             if (source === 'code') return true;
             return owner === meLower;

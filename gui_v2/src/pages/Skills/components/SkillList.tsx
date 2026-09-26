@@ -32,6 +32,7 @@ import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import type { Skill } from '@/types/domain/skill';
 import { SkillFilters, SkillFilterOptions } from './SkillFilters';
+import { ownerKey } from '@/utils/ownerKey';
 
 const { Paragraph } = Typography;
 
@@ -924,10 +925,10 @@ const SkillList: React.FC<SkillListProps> = ({
 
         // Source filter: ui = my skills, code = code skills, subscribed = subscribed skills
         if (filters.source) {
-            const me = normalizeValue(username).toLowerCase();
+            const me = ownerKey(normalizeValue(username));
             result = result.filter(skill => {
                 const source = getSkillSource(skill);
-                const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+                const owner = ownerKey(normalizeValue((skill as any)?.owner));
 
                 if (filters.source === 'ui') {
                     // My Skills: owned by me OR code skills
@@ -1002,10 +1003,10 @@ const SkillList: React.FC<SkillListProps> = ({
     }, [filters, username, isSkillSubscribed]);
 
     const mySkills = useMemo(() => {
-        const me = normalizeValue(username).toLowerCase();
+        const me = ownerKey(normalizeValue(username));
         const ownedSkills = (skills || []).filter((skill) => {
             const source = getSkillSource(skill);
-            const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+            const owner = ownerKey(normalizeValue((skill as any)?.owner));
             // code skills always belong to "my skills"
             if (source === 'code') return true;
             // For all other skills, check ownership
@@ -1016,9 +1017,9 @@ const SkillList: React.FC<SkillListProps> = ({
     }, [skills, username]);
 
     const storeSkills = useMemo(() => {
-        const me = normalizeValue(username).toLowerCase();
+        const me = ownerKey(normalizeValue(username));
         return (publicSkills || []).filter((skill) => {
-            const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+            const owner = ownerKey(normalizeValue((skill as any)?.owner));
             // Don't show my own skills in the store
             if (owner === me) return false;
             // Only show public skills
@@ -1029,7 +1030,7 @@ const SkillList: React.FC<SkillListProps> = ({
 
     // Apply source filter and get filtered skill lists
     const filteredMySkills = useMemo(() => {
-        const me = normalizeValue(username).toLowerCase();
+        const me = ownerKey(normalizeValue(username));
         if (filters.source === 'subscribed') {
             // Subscribed tab: show subscribed skills from both sources
             return mySkills.filter(skill => isSkillSubscribed(skill));
@@ -1041,7 +1042,7 @@ const SkillList: React.FC<SkillListProps> = ({
             // UI source = my owned skills (not code skills)
             return mySkills.filter(skill => {
                 const source = getSkillSource(skill);
-                const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+                const owner = ownerKey(normalizeValue((skill as any)?.owner));
                 return source !== 'code' && owner === me;
             });
         }
@@ -1107,8 +1108,8 @@ const SkillList: React.FC<SkillListProps> = ({
         const execMode = getExecMode(skill);
         const isSubscribed = isSkillSubscribed(skill);
         const { icon: skillIcon, bg: skillBg } = getSkillIcon(skill);
-        const me = normalizeValue(username).toLowerCase();
-        const owner = normalizeValue((skill as any)?.owner).toLowerCase();
+        const me = ownerKey(normalizeValue(username));
+        const owner = ownerKey(normalizeValue((skill as any)?.owner));
         const isOwnedByMe = owner === me;
         const isSubscribedSkill = getSkillSource(skill) === 'subscribed' && !isOwnedByMe;
         const category = skill.category || inferCategory(skill);
@@ -1357,7 +1358,7 @@ const SkillList: React.FC<SkillListProps> = ({
         const category = skill.category || inferCategory(skill);
         const isOwned = (() => {
             const owner = getDisplayOwner(skill);
-            return !!owner && owner.toLowerCase() === normalizeValue(username).toLowerCase();
+            return !!owner && ownerKey(owner) === ownerKey(normalizeValue(username));
         })();
         const isSubscribed = isSkillSubscribed(skill);
         const isFree = !isPaidSkill(skill);

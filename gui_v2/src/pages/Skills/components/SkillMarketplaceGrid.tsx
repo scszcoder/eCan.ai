@@ -38,6 +38,7 @@ import {
     isPaidSkill,
     safeTags,
 } from './skillPalette';
+import { ownerKey } from '@/utils/ownerKey';
 
 // ============== Styled ==============
 const Grid = styled.div`
@@ -492,14 +493,14 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
     const { t } = useTranslation();
     const [reportSkill, setReportSkill] = useState<Skill | null>(null);
 
-    const meLower = (username || '').toLowerCase();
+    const meLower = ownerKey(username);
     const favoriteIds = useSkillStore((s) => s.favoriteSkillIds);
     const favoriteSet = useMemo(() => new Set((favoriteIds || []).map(String)), [favoriteIds]);
     const subscribedSet = useMemo(() => new Set((subscribedSkillIds || []).map(String)), [subscribedSkillIds]);
 
     const isOwnedByMe = useCallback(
         (s: Skill) => {
-            const owner = String((s as any)?.owner || '').toLowerCase();
+            const owner = ownerKey((s as any)?.owner);
             const source = String((s as any)?.source || '').toLowerCase();
             if (source === 'code') return true;
             return owner === meLower;

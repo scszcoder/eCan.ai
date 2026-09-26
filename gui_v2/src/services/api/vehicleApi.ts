@@ -9,6 +9,42 @@ import { ResourceAPI, APIResponse } from '../../stores/base/types';
 import { Vehicle, CreateVehicleInput, UpdateVehicleInput } from '../../types/domain/vehicle';
 import { logger } from '../../utils/logger';
 
+// A desktop heartbeats every 60 s; three missed = offline (same as the desktop's list).
+const ONLINE_WITHIN_MS = 180_000;
+const LEGACY_NAME = /:(win|mac|linux|other)$/i;
+
+function heartbeatAgeMs(stamp?: string | null): number | null {
+  if (!stamp) return null;
+  let s = String(stamp).trim();
+  if (!/[zZ]|[+-]\d\d:?\d\d$/.test(s)) s = `${s.replace(' ', 'T')}Z`;   // the server stamps UTC
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? null : Date.now() - t;
+}
+
+/** One cloud vehicle row as a Computers-page entry, or null when it isn't a live machine. */
+export function fromCloudVehicleRow(row: any): Vehicle | null {
+  if (!row?.id) return null;
+  let meta: any = row.extra_metadata;
+  if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch { meta = {}; } }
+  const isPod = row.vehicle_type === 'pod';
+  if (isPod && row.status !== 'online') return null;           // pod tombstones: Pods panel
+  if (!isPod && !row.last_heartbeat) return null;              // never-stamped legacy duplicates
+  const age = heartbeatAgeMs(row.last_heartbeat);
+  const online = isPod || (row.status === 'online' && age !== null && age < ONLINE_WITHIN_MS);
+  return {
+    id: String(row.id),
+    name: String(row.name || row.hostname || row.id).replace(LEGACY_NAME, ''),
+    role: String(meta?.role || ''),
+    type: isPod ? 'cloud' : 'desktop',
+    status: online ? 'active' : 'offline',
+    ip: row.ip_address || '',
+    os: row.platform || '',
+    arch: row.architecture || '',
+    last_heartbeat: row.last_heartbeat || undefined,
+    owner: row.owner,
+  } as Vehicle;
+}
+
 /**
  * Vehicle API Service类
  * Implementation ResourceAPI Interface，提供Standard化的 CRUD Operation
@@ -42,6 +78,12 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
           vehicles = (response.data as any).vehicles || [];
         }
         
+        // Web: raw cloud rows -> the page's machine entries (the desktop's
+        // local server already returns them in that shape).
+        if (vehicles.some(v => 'vehicle_type' in (v as any) && !('source' in (v as any)))) {
+          vehicles = vehicles.map(v => fromCloudVehicleRow(v as any)).filter(Boolean) as Vehicle[];
+        }
+
         // 确保每个 vehicle 都有 id Field
         vehicles = vehicles.map(v => ({
           ...v,

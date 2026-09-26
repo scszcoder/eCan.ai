@@ -28,6 +28,7 @@ import SkillDetails from './components/SkillDetails';
 import { SkillFilters, SkillFilterOptions } from './components/SkillFilters';
 import { SkillAnalyticsDashboard } from './components/SkillAnalyticsDashboard';
 import './Skills.css';
+import { ownerKey } from '@/utils/ownerKey';
 
 const PageContainer = styled.div`
     height: 100%;
@@ -227,10 +228,10 @@ const Skills: React.FC = () => {
     }, [username, fetchAll]);
 
     // ============ Derived skill lists ============
-    const meLower = (username || '').toLowerCase();
+    const meLower = ownerKey(username);
     const isOwnedByMe = useCallback(
         (s: Skill) => {
-            const owner = String((s as any)?.owner || '').toLowerCase();
+            const owner = ownerKey((s as any)?.owner);
             const source = String((s as any)?.source || '').toLowerCase();
             if (source === 'code') return true;
             return owner === meLower;
@@ -246,7 +247,7 @@ const Skills: React.FC = () => {
     const storeSkills = useMemo(() => {
         const ids = new Set((subscribedSkillIds || []).map(String));
         return (publicSkills || []).filter((s) => {
-            const owner = String((s as any)?.owner || '').toLowerCase();
+            const owner = ownerKey((s as any)?.owner);
             if (owner === meLower) return false;
             if ((s as any)?.public === false) return false;
             // Hide skills that the user already owns locally

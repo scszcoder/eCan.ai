@@ -8,6 +8,7 @@ import { BaseStoreState } from '../base/types';
 import { Knowledge, KnowledgeType, KnowledgeStatus } from '@/types/domain/knowledge';
 import { KnowledgeAPI } from '@/services/api/knowledgeApi';
 import { logger } from '@/utils/logger';
+import { ownerKey } from '@/utils/ownerKey';
 
 /**
  * Cache duration configuration
@@ -78,7 +79,7 @@ export const useKnowledgeStore = createExtendedResourceStore<Knowledge, Knowledg
     },
     
     getKnowledgesByOwner: (owner: string) => {
-      return get().items.filter(k => k.owner === owner);
+      return get().items.filter(k => ownerKey(k.owner) === ownerKey(owner));
     },
     
     searchKnowledges: (query: string) => {

@@ -864,7 +864,12 @@ export class IPCAPI {
     }
 
     public async getVehicles<T>(): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'get_vehicles' }, { });
+        // Desktop: the local server merges cloud + LAN + this machine. Web: the
+        // cloud list of the account's machines (mapped in vehicleApi.getAll).
+        return apiRouter.execute({
+            method: 'get_vehicles',
+            graphql: { query: GRAPHQL_QUERIES.QUERY_VEHICLES_LIST, resultPath: 'queryVehicles' },
+        }, { input: {} });
     }
 
     public async updateVehicleStatus<T>(vehicle_id: string | number, status: string): Promise<APIResponse<T>> {

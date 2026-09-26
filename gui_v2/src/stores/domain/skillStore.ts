@@ -9,6 +9,7 @@ import { createExtendedResourceStore } from '../base/createBaseStore';
 import { BaseStoreState, CACHE_DURATION } from '../base/types';
 import { Skill, SkillLevel, SkillStatus, SkillMarketplaceStats, UserSkillProficiency } from '../../types/domain/skill';
 import { skillApi } from '../../services/api/skillApi';
+import { ownerKey } from '@/utils/ownerKey';
 
 /**
  * Skill Store extended interface
@@ -90,7 +91,7 @@ export const useSkillStore = createExtendedResourceStore<Skill, SkillStoreState>
     // Extended query methods
     getSkillsByOwner: (owner: string) => {
       const items = get().items;
-      return (items as Skill[]).filter(skill => skill.owner === owner);
+      return (items as Skill[]).filter(skill => ownerKey(skill.owner) === ownerKey(owner));
     },
 
     getSkillsByLevel: (level: SkillLevel) => {
