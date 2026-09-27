@@ -8,6 +8,7 @@ import type { IPCAPI } from '../ipc/api';
 import { ResourceAPI, APIResponse } from '../../stores/base/types';
 import { Vehicle, CreateVehicleInput, UpdateVehicleInput } from '../../types/domain/vehicle';
 import { logger } from '../../utils/logger';
+import { isDesktopPlatform } from '../../config/platform';
 
 // A desktop heartbeats every 60 s; three missed = offline (same as the desktop's list).
 const ONLINE_WITHIN_MS = 180_000;
@@ -78,9 +79,11 @@ export class VehicleAPI implements ResourceAPI<Vehicle> {
           vehicles = (response.data as any).vehicles || [];
         }
         
-        // Web: raw cloud rows -> the page's machine entries (the desktop's
-        // local server already returns them in that shape).
-        if (vehicles.some(v => 'vehicle_type' in (v as any) && !('source' in (v as any)))) {
+        // Web only: raw cloud rows -> the page's machine entries. The desktop's
+        // local server already returns finished entries (merged, is_self, role,
+        // status) -- remapping those as raw rows dropped this machine and marked
+        // live machines offline (desktop regression, 2026-09-26).
+        if (!isDesktopPlatform()) {
           vehicles = vehicles.map(v => fromCloudVehicleRow(v as any)).filter(Boolean) as Vehicle[];
         }
 
