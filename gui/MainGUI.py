@@ -2127,6 +2127,11 @@ class MainWindow:
 
         # Initialize core monitoring and communication tasks
         self.monitor_task = asyncio.create_task(self.runAgentsMonitor(self.gui_monitor_msg_queue))
+        def _monitor_task_done(t):
+            # The loop guards each pass; if the task itself still dies, say so.
+            if not t.cancelled() and t.exception() is not None:
+                logger.error("[MainWindow] agents monitor task died", exc_info=t.exception())
+        self.monitor_task.add_done_callback(_monitor_task_done)
         self.chat_task = asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
 
         # Initialize core async tasks (non-blocking)
@@ -5953,7 +5958,7 @@ class MainWindow:
                         "status": self.working_state,
                         "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
                         "functions": self.functions,
-                        "bids": self.getBidsOnThisVehicle(),
+                        "agent_ids": self.getAgentIdsOnThisVehicle(),
                         "hardware": self.processor,
                         "software": self.platform,
                         "ip": self.ip,
@@ -6039,7 +6044,7 @@ class MainWindow:
                 "status": self.working_state,
                 "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
                 "functions": self.functions,
-                "bids": self.getBidsOnThisVehicle(),
+                "agent_ids": self.getAgentIdsOnThisVehicle(),
                 "hardware": self.processor,
                 "software": self.platform,
                 "ip": self.ip,
@@ -6068,54 +6073,65 @@ class MainWindow:
             if ticks >= 240:
                 ticks = 0
 
-            #ping cloud every 8 second to see whether there is any monitor/control internet. use amazon's sqs
-            if ticks % 8 == 0:
-                logger.debug(f"Access Internet Here with Websocket...")
+            # One bad pass (a cloud call raising, a missing attribute) must not end the
+            # loop: it is this machine's heartbeat, store placement and monitor queue.
+            # It used to die silently on its first pass on every Platoon (99b).
+            try:
+                #ping cloud every 8 second to see whether there is any monitor/control internet. use amazon's sqs
+                if ticks % 8 == 0:
+                    logger.debug(f"Access Internet Here with Websocket...")
 
-            # 60s: store placement acts on each heartbeat, and a moved store is
-            # dark for about two of them (owner decision D3).
-            if ticks % 60 == 0:
-                self.showMsg(f"report vehicle status")
+                # 60s: store placement acts on each heartbeat, and a moved store is
+                # dark for about two of them (owner decision D3).
+                if ticks % 60 == 0:
+                    self.showMsg(f"report vehicle status")
 
-                # update vehicles status to local disk, this is done either on platoon or commander
-                self.saveVehiclesJsonFile()
+                    # update vehicles status to local disk, this is done either on platoon or commander
+                    self.saveVehiclesJsonFile()
 
-                if "Commander" in self.host_role:
-                    # Skip cloud heartbeat if a recent failure put us in cooldown.
-                    if time.time() < self._cloud_vehicle_report_backoff_until:
-                        cooldown_left = int(self._cloud_vehicle_report_backoff_until - time.time())
-                        logger.debug(
-                            f"skipping vehicle heartbeat (cloud cooldown, {cooldown_left}s left, "
-                            f"{self._cloud_vehicle_report_failure_count} prior failures)"
-                        )
-                    else:
-                        self.showMsg(f"sending vehicle heartbeat to cloud....")
-                        hbInfo = self.stateCapture()
-                        # update vehicle info to the chat channel (don't we need to update this to cloud lambda too?)
-                        await self.wan_send_heartbeat(hbInfo)
+                    if "Commander" in self.host_role:
+                        # Skip cloud heartbeat if a recent failure put us in cooldown.
+                        if time.time() < self._cloud_vehicle_report_backoff_until:
+                            cooldown_left = int(self._cloud_vehicle_report_backoff_until - time.time())
+                            logger.debug(
+                                f"skipping vehicle heartbeat (cloud cooldown, {cooldown_left}s left, "
+                                f"{self._cloud_vehicle_report_failure_count} prior failures)"
+                            )
+                        else:
+                            self.showMsg(f"sending vehicle heartbeat to cloud....")
+                            hbInfo = self.stateCapture()
+                            # update vehicle info to the chat channel (don't we need to update this to cloud lambda too?)
+                            await self.wan_send_heartbeat(hbInfo)
 
-                        # send vehicle status to cloud DB
-                        # NOTE: send_report_vehicles_to_cloud uses the synchronous requests library.
-                        # Running it in an executor prevents it from blocking the asyncio event loop,
-                        # which would otherwise starve WebSocket receive loops and cause PONG timeouts.
-                        await self._cloud_heartbeat_and_placement(self.prepFullVehicleReportData())
-                elif time.time() >= self._cloud_vehicle_report_backoff_until:
-                    # Not a Commander (e.g. a Platoon): no fleet broadcast, but
-                    # this machine still registers itself and runs store
-                    # placement -- otherwise a store assigned to it would never
-                    # start here, and the cloud would see it as offline.
-                    self_report = self.prepVehicleReportData(None)
-                    for _v in self_report:
-                        _v.update(_local_vehicle_report_fields(self))
-                    await self._cloud_heartbeat_and_placement(self_report)
+                            # send vehicle status to cloud DB
+                            # NOTE: send_report_vehicles_to_cloud uses the synchronous requests library.
+                            # Running it in an executor prevents it from blocking the asyncio event loop,
+                            # which would otherwise starve WebSocket receive loops and cause PONG timeouts.
+                            await self._cloud_heartbeat_and_placement(self.prepFullVehicleReportData())
+                    elif time.time() >= self._cloud_vehicle_report_backoff_until:
+                        # Not a Commander (e.g. a Platoon): no fleet broadcast, but
+                        # this machine still registers itself and runs store
+                        # placement -- otherwise a store assigned to it would never
+                        # start here, and the cloud would see it as offline.
+                        self_report = self.prepVehicleReportData(None)
+                        for _v in self_report:
+                            _v.update(_local_vehicle_report_fields(self))
+                        await self._cloud_heartbeat_and_placement(self_report)
 
-            if not monitor_msg_queue.empty():
-                message = await monitor_msg_queue.get()
-                self.showMsg(f"RPA Monitor message: {message}")
-                if type(message) != str:
-                    logger.debug("GUI v")
+                if not monitor_msg_queue.empty():
+                    message = await monitor_msg_queue.get()
+                    self.showMsg(f"RPA Monitor message: {message}")
+                    if type(message) != str:
+                        logger.debug("GUI v")
 
-                monitor_msg_queue.task_done()
+                    monitor_msg_queue.task_done()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _monitor_errors = getattr(self, '_monitor_tick_errors', 0) + 1
+                self._monitor_tick_errors = _monitor_errors
+                if _monitor_errors <= 3 or _monitor_errors % 100 == 0:
+                    logger.exception(f"[MainWindow] monitor pass failed ({_monitor_errors}x) -- continuing")
 
             logger.trace("running monitoring Task....", ticks)
             await asyncio.sleep(1)
