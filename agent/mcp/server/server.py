@@ -145,6 +145,17 @@ from agent.mcp.server.integrations.amazon_listing_tools import (
     amazon_template_fill,
     amazon_parse_feedback,
 )
+from agent.mcp.server.integrations.ebay_listing_tools import (
+    ebay_api_status,
+    ebay_category_suggest,
+    ebay_category_aspects,
+    ebay_account_setup,
+    ebay_upload_media,
+    ebay_publish_listing,
+    ebay_csv_inspect,
+    ebay_csv_fill,
+    ebay_csv_parse_result,
+)
 from agent.mcp.server.integrations.customer_data_tools import (
     query_price,
     query_inventories,
@@ -4036,6 +4047,16 @@ tool_function_mapping = {
         "amazon_template_inspect": amazon_template_inspect,
         "amazon_template_fill": amazon_template_fill,
         "amazon_parse_feedback": amazon_parse_feedback,
+        # eBay listing (API + bulk CSV)
+        "ebay_api_status": ebay_api_status,
+        "ebay_category_suggest": ebay_category_suggest,
+        "ebay_category_aspects": ebay_category_aspects,
+        "ebay_account_setup": ebay_account_setup,
+        "ebay_upload_media": ebay_upload_media,
+        "ebay_publish_listing": ebay_publish_listing,
+        "ebay_csv_inspect": ebay_csv_inspect,
+        "ebay_csv_fill": ebay_csv_fill,
+        "ebay_csv_parse_result": ebay_csv_parse_result,
         # Self-introspection and agent management tools
         "describe_self": async_describe_self,
         "diagnose_llm": async_diagnose_llm,
