@@ -1,5 +1,5 @@
-"""Standalone site probe: attach to a Chrome that is already running with a
-debugging port and record the site's WebSocket + API traffic.
+"""Standalone site probe: attach to a Chrome (or a Chromium-based desktop app)
+with a debugging port and record the site's WebSocket + API traffic.
 
 No eCan install and no Python needed on the target machine when built as an
 exe (see the bottom of this file). Same capture format as the in-app recorder
@@ -9,6 +9,13 @@ decode tooling reads it.
     pdd_probe.exe                         # port 9228, Pinduoduo merchant pages
     pdd_probe.exe --port 9222 --minutes 20
     pdd_probe.exe --match mms.pinduoduo.com --api pinduoduo.com,yangkeduo.com
+
+    qianniu_probe.exe                     # 千牛 / 淘宝店铺: asks how to open it
+    qianniu_probe.exe --launch chrome     # own Chrome, opens 千牛网页版 -- just log in
+    qianniu_probe.exe --launch app        # restart the 千牛 desktop client with a debug port
+
+The site preset (``--site``) defaults from the exe's name (qianniu_probe.exe ->
+qianniu), so the customer only double-clicks.
 
 Chrome must have been started with a debugging port AND its own data folder
 (Chrome 136+ ignores the port on the default profile), e.g.
@@ -22,8 +29,10 @@ header values and token-like URL parameters are redacted.
 
 import argparse
 import base64
+import csv
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -34,8 +43,11 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import websocket  # websocket-client
 
 SECRET_HEADERS = {"cookie", "set-cookie", "authorization", "x-csrf-token", "anti-content",
-                  "accesstoken", "access-token", "x-auth-token"}
-SECRET_QUERY = ("token", "sign", "ticket", "auth", "session", "cookie", "secret", "key")
+                  "accesstoken", "access-token", "x-auth-token",
+                  # Taobao / mtop request signing
+                  "x-sign", "x-mini-wua", "x-sgext", "x-umt", "bx-ua", "bx-umidtoken", "x-xsrf-token"}
+SECRET_QUERY = ("token", "sign", "ticket", "auth", "session", "cookie", "secret", "key",
+                "_tk", "wua", "umt", "sgext", "umid")
 TEXTUAL = ("json", "text", "javascript", "xml", "protobuf", "octet-stream")
 STATIC = (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".woff", ".ico", ".mp4")
 BODY_LIMIT = 256 * 1024
@@ -56,18 +68,49 @@ def redact_body(body):
     return _ANTI_BODY.sub(lambda m: f"{m.group(1)}<redacted>{m.group(2)}", body)
 
 
-# Read-only look at what the page exposes: is there a page-level fetch wrapper
-# (window.__mms.fetch, as on the mms backend pages) that signs requests itself?
-# Only typeof / key names are read -- nothing is called.
-GLOBALS_JS = r"""(() => {
+SITES = {
+    "pdd": {
+        "match": "mms.pinduoduo.com",
+        "api": "pinduoduo.com,yangkeduo.com",
+        "globals": r"mms|anti|titan|pdd|captcha|webpack|chat|kefu|socket",
+        "start_url": "https://mms.pinduoduo.com/chat-merchant/index.html",
+        "app_exes": [],
+        "ignore_ws": [],
+    },
+    # 千牛 (Qianniu) and 淘宝/天猫 seller pages: the web workbench, 卖家中心 and the
+    # 旺旺 IM. Broad on purpose until a capture shows which hosts carry the chat;
+    # alicdn.com is here for the workers/iframes the IM runs in.
+    "qianniu": {
+        "match": "taobao.com,tmall.com,alicdn.com,alibaba.com,1688.com,dingtalk.com",
+        "api": "taobao.com,tmall.com,alibaba.com,alibaba-inc.com,dingtalk.com,alipay.com",
+        "globals": r"mtop|^lib$|wangwang|^ww|^im|imsdk|aliim|tbim|accs|^qn|qianniu|niuyou|wkt|socket|chat|kefu|aplus|goldlog|webpack|dingtalk|lwp",
+        "start_url": "https://myseller.taobao.com/home.htm",
+        # analytics beacons (aplus/goldlog): a frame every few seconds, device ids, no chat
+        "ignore_ws": ["mmstat.com"],
+        "app_exes": [r"C:\Program Files (x86)\AliWorkBench\AliWorkBench.exe",
+                     r"C:\Program Files\AliWorkBench\AliWorkBench.exe",
+                     r"D:\Program Files (x86)\AliWorkBench\AliWorkBench.exe",
+                     r"D:\AliWorkBench\AliWorkBench.exe"],
+        "app_names": ["aliworkbench", "qianniu", "千牛"],
+    },
+}
+
+
+# Read-only look at what the page exposes: page-level fetch/signing wrappers
+# (window.__mms.fetch on the PDD backend; window.lib.mtop on Taobao pages) and
+# globals whose names match the site's pattern. Only typeof / key names are
+# read -- nothing is called.
+GLOBALS_JS_TEMPLATE = r"""(() => {
   const w = window, out = {};
   try { out.mms_type = typeof w.__mms; } catch (e) { out.mms_type = 'err:' + e; }
   try { out.mms_keys = w.__mms ? Object.keys(w.__mms).slice(0, 60) : null; } catch (e) { out.mms_keys = 'err:' + e; }
   try { out.mms_fetch_type = typeof (w.__mms && w.__mms.fetch); } catch (e) { out.mms_fetch_type = 'err:' + e; }
   try { out.mms_fetch_src = (w.__mms && typeof w.__mms.fetch === 'function') ? String(w.__mms.fetch).slice(0, 400) : null; } catch (e) {}
+  try { out.mtop_type = typeof (w.lib && w.lib.mtop); } catch (e) {}
+  try { out.mtop_keys = (w.lib && w.lib.mtop) ? Object.keys(w.lib.mtop).slice(0, 40) : null; } catch (e) {}
   try {
     out.globals = Object.getOwnPropertyNames(w)
-      .filter(n => /mms|anti|titan|pdd|captcha|webpack|chat|kefu|socket/i.test(n))
+      .filter(n => /__GLOBALS_RE__/i.test(n))
       .slice(0, 120)
       .map(n => { let t; try { t = typeof w[n]; } catch (e) { t = 'err'; } return n + ':' + t; });
   } catch (e) { out.globals = 'err:' + e; }
@@ -75,6 +118,7 @@ GLOBALS_JS = r"""(() => {
   out.href = location.href.split('?')[0];
   return JSON.stringify(out);
 })()"""
+GLOBALS_JS = GLOBALS_JS_TEMPLATE.replace("__GLOBALS_RE__", SITES["pdd"]["globals"])
 
 
 def redact_url(url):
@@ -90,8 +134,10 @@ def redact_url(url):
 
 
 class Probe:
-    def __init__(self, port, match, api, out_dir):
+    def __init__(self, port, match, api, out_dir, globals_re=None, ignore_ws=()):
         self.port, self.match, self.api = port, match, api
+        self.ignore_ws = tuple(ignore_ws or ())
+        self.globals_js = GLOBALS_JS_TEMPLATE.replace("__GLOBALS_RE__", globals_re or SITES["pdd"]["globals"])
         os.makedirs(out_dir, exist_ok=True)
         self.base = os.path.join(out_dir, time.strftime("probe_%Y%m%d-%H%M%S"))
         self.path = self.base + ".jsonl"
@@ -185,6 +231,8 @@ class Probe:
 
     # ── targets ──
     def wanted(self, url):
+        if not self.match:  # desktop-app mode: the whole app is the site
+            return not (url or "").startswith(("devtools://", "chrome-extension://"))
         return any(m in (url or "") for m in self.match)
 
     def maybe_attach(self, info):
@@ -232,14 +280,14 @@ class Probe:
 
     def inspect_globals(self, sid, url, when):
         try:
-            r = self.send("Runtime.evaluate", {"expression": GLOBALS_JS, "returnByValue": True}, sid, timeout=15)
+            r = self.send("Runtime.evaluate", {"expression": self.globals_js, "returnByValue": True}, sid, timeout=15)
             found = json.loads((r.get("result") or {}).get("value") or "{}")
         except Exception as exc:
             self.write({"kind": "page_globals_failed", "url": redact_url(url), "when": when, "error": str(exc)})
             return
         self.write({"kind": "page_globals", "url": redact_url(url), "when": when, **found})
-        print(f"[probe] {when} {found.get('href', '')[:70]}: window.__mms={found.get('mms_type')} "
-              f"__mms.fetch={found.get('mms_fetch_type')} globals={len(found.get('globals') or [])}")
+        print(f"[probe] {when} {found.get('href', '')[:70]}: __mms={found.get('mms_type')} "
+              f"lib.mtop={found.get('mtop_type')} globals={len(found.get('globals') or [])}")
 
     def snapshot(self, sid, url):
         try:
@@ -284,6 +332,9 @@ class Probe:
         elif m in ("Network.webSocketFrameReceived", "Network.webSocketFrameSent"):
             d = "recv" if m.endswith("Received") else "sent"
             r, rid = p.get("response") or {}, p.get("requestId", "")
+            if self.ignore_ws and any(x in self.ws_url.get(rid, "") for x in self.ignore_ws):
+                self.stats["ws_ignored"] += 1
+                return
             self.stats[f"ws_{d}"] += 1
             self.write({"kind": "ws_frame", "dir": d, "rid": rid, "url": self.ws_url.get(rid, ""),
                         "opcode": r.get("opcode"), "mask": r.get("mask"),
@@ -371,37 +422,232 @@ def summarize(path):
             elif r.get("kind") == "api":
                 apis[f"{r.get('method')} {str(r.get('url', '')).split('?', 1)[0]}"] += 1
             elif r.get("kind") == "page_globals":
-                page_globals.append({k: r.get(k) for k in ("when", "href", "mms_type", "mms_fetch_type", "mms_keys")})
+                page_globals.append({k: r.get(k) for k in ("when", "href", "mms_type", "mms_fetch_type",
+                                                           "mms_keys", "mtop_type", "mtop_keys")})
     return {"file": path, "page_globals": page_globals,
             "sockets": {u: {"recv": s["recv"], "sent": s["sent"], "shapes": s["shapes"].most_common(20)}
                         for u, s in socks.items()},
             "apis": apis.most_common(60)}
 
 
+# ── getting a debuggable browser ──────────────────────────────────────────
+
+def cdp_up(port, timeout=1.5):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=timeout) as r:
+            return json.load(r)
+    except Exception:
+        return None
+
+
+def wait_cdp(port, seconds):
+    end = time.time() + seconds
+    while time.time() < end:
+        v = cdp_up(port)
+        if v:
+            return v
+        time.sleep(1)
+    return None
+
+
+def find_chrome():
+    cands = [os.path.expandvars(p) for p in (
+        r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+        r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+        r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
+        r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+        r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe")]
+    return next((c for c in cands if os.path.isfile(c)), None)
+
+
+def launch_chrome(port, profile_dir, url):
+    """A Chrome of our own: debug port + its own profile (Chrome 136+ needs both)."""
+    exe = find_chrome()
+    if not exe:
+        print("[probe] Chrome/Edge not found. Start Chrome yourself with "
+              f"--remote-debugging-port={port} --user-data-dir=<a folder>, then run the probe again.")
+        return False
+    os.makedirs(profile_dir, exist_ok=True)
+    subprocess.Popen([exe, f"--remote-debugging-port={port}", f"--user-data-dir={profile_dir}",
+                      "--no-first-run", "--no-default-browser-check", url])
+    print(f"[probe] started {os.path.basename(exe)} (own profile: {profile_dir})")
+    return bool(wait_cdp(port, 30))
+
+
+def _processes():
+    """[(name, pid, exe_path)] via PowerShell; [] if unavailable."""
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-Process | Select-Object Name,Id,Path | ConvertTo-Csv -NoTypeInformation"],
+            capture_output=True, text=True, timeout=30).stdout
+    except Exception:
+        return []
+    rows = list(csv.reader(out.splitlines()))
+    return [(r[0], int(r[1]), r[2]) for r in rows[1:] if len(r) >= 3 and r[1].isdigit()]
+
+
+def _listening_ports(pids):
+    try:
+        out = subprocess.run(["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True, timeout=30).stdout
+    except Exception:
+        return []
+    ports = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[3] == "LISTENING" and parts[4].isdigit() and int(parts[4]) in pids:
+            if parts[1].startswith(("127.0.0.1:", "0.0.0.0:", "[::1]:")):
+                ports.append(int(parts[1].rsplit(":", 1)[1]))
+    return sorted(set(ports))
+
+
+def _app_procs(site):
+    """The site's desktop-client processes -- never this probe (qianniu_probe.exe matches "qianniu")."""
+    names = [n.lower() for n in SITES[site].get("app_names", [])]
+    me = os.getpid()
+    return [p for p in _processes()
+            if any(n in p[0].lower() for n in names) and "probe" not in p[0].lower() and p[1] != me]
+
+
+def _open_devtools_port(procs):
+    for p in _listening_ports({pid for _, pid, _ in procs}):
+        v = cdp_up(p)
+        if v:
+            return p, v
+    return None, None
+
+
+def launch_app(site, port, app_exe, probe_log):
+    """Restart the site's desktop client with a debug port; returns the port that answers, or None.
+
+    First checks whether the running client ALREADY exposes a DevTools
+    endpoint. Writes a verdict record either way -- that alone tells us
+    whether the client can be probed.
+    """
+    procs = _app_procs(site)
+    exe = app_exe or next((p[2] for p in procs if p[2] and p[2].lower().endswith(".exe")), None) \
+        or next((c for c in SITES[site].get("app_exes", []) if os.path.isfile(c)), None)
+    verdict = {"kind": "app_probe", "site": site, "exe": exe,
+               "running": [[n, pid, path] for n, pid, path in procs]}
+    p, v = _open_devtools_port(procs)
+    if p:
+        verdict.update(verdict="OPEN_ALREADY", port=p, browser=v.get("Browser"))
+        probe_log(verdict)
+        print(f"[probe] the running app already exposes DevTools on port {p}")
+        return p
+    if not exe:
+        verdict.update(verdict="EXE_NOT_FOUND")
+        probe_log(verdict)
+        print("[probe] could not find the desktop client. Run again with --app-exe <path to its .exe>.")
+        return None
+    if procs:
+        ans = input(f"[probe] the app is running ({len(procs)} processes). Close it and restart it in "
+                    "probe mode? It reopens right away; you may need to log in again. [y/N] ").strip().lower()
+        if ans not in ("y", "yes"):
+            verdict.update(verdict="USER_DECLINED_RESTART")
+            probe_log(verdict)
+            return None
+        for _, pid, _ in procs:
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        time.sleep(3)
+    subprocess.Popen([exe, f"--remote-debugging-port={port}", "--remote-allow-origins=*"])
+    print(f"[probe] started {exe} with --remote-debugging-port={port}; waiting up to 60s (log in if asked) ...")
+    v = wait_cdp(port, 60)
+    if v:
+        verdict.update(verdict="OPEN", port=port, browser=v.get("Browser"))
+        probe_log(verdict)
+        return port
+    procs = _app_procs(site)
+    p, v = _open_devtools_port(procs)   # a child process may have taken another port
+    verdict["running_after"] = [[n, pid, path] for n, pid, path in procs]
+    if p:
+        verdict.update(verdict="OPEN_OTHER_PORT", port=p, browser=v.get("Browser"))
+        probe_log(verdict)
+        return p
+    verdict.update(verdict="DEAD", note="the flag was passed but no DevTools port opened "
+                                        "(hardened or non-Chromium client) -- use the web version")
+    probe_log(verdict)
+    print("[probe] VERDICT: the desktop client does not open a debug port. Use the web version: "
+          "run again and choose [1] (or --launch chrome).")
+    return None
+
+
+def _site_from_name():
+    name = os.path.basename(sys.executable if getattr(sys, "frozen", False) else sys.argv[0]).lower()
+    return next((k for k in SITES if k in name), "pdd")
+
+
+def _finish_prompt():
+    if getattr(sys, "frozen", False):
+        input("Press Enter to exit...")
+
+
 def main():
     here = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description="Record a site's WebSocket + API traffic from a running Chrome.")
+    ap.add_argument("--site", choices=sorted(SITES), default=_site_from_name(),
+                    help="preset for --match/--api (default: from the exe name)")
     ap.add_argument("--port", type=int, default=9228)
-    ap.add_argument("--match", default="mms.pinduoduo.com",
-                    help="comma-separated page URL substrings to attach to")
-    ap.add_argument("--api", default="pinduoduo.com,yangkeduo.com",
-                    help="comma-separated API URL substrings to record")
+    ap.add_argument("--match", default=None, help="comma-separated page URL substrings to attach to")
+    ap.add_argument("--api", default=None, help="comma-separated API URL substrings to record")
+    ap.add_argument("--launch", choices=("ask", "none", "chrome", "app"), default="ask",
+                    help="when nothing listens on --port: start our own Chrome, or restart the "
+                         "site's desktop client with a debug port (default: ask)")
+    ap.add_argument("--app-exe", default="", help="path of the desktop client's .exe (app mode)")
+    ap.add_argument("--start-url", default=None, help="page our Chrome opens (chrome mode)")
     ap.add_argument("--minutes", type=float, default=0, help="stop after this long (default: Ctrl+C)")
-    ap.add_argument("--out", default=os.path.join(here, "pdd_probe_out"))
+    ap.add_argument("--out", default=None)
     a = ap.parse_args()
+    site = SITES[a.site]
+    out = a.out or os.path.join(here, f"{a.site}_probe_out")
+    match = a.match if a.match is not None else site["match"]
+    api = a.api if a.api is not None else site["api"]
+    early = []  # records made before the capture file exists
 
-    probe = Probe(a.port, [x for x in a.match.split(",") if x], [x for x in a.api.split(",") if x], a.out)
+    port = a.port
+    if not cdp_up(port):
+        mode = a.launch
+        if mode == "ask":
+            opts = "[1] the web version, in a Chrome the probe opens"
+            if site.get("app_names"):
+                opts += "   [2] the desktop client (restarts it)"
+            ans = input(f"[probe] nothing is listening on port {port}. Record: {opts}   [q] quit: ").strip()
+            mode = {"1": "chrome", "2": "app" if site.get("app_names") else "none"}.get(ans, "none")
+        if mode == "chrome":
+            # the profile holds the seller's login -- keep it OUT of the folder that gets sent
+            profile = os.path.join(os.path.dirname(os.path.abspath(out)), f"{a.site}_probe_chrome_profile")
+            if not launch_chrome(port, profile, a.start_url or site["start_url"]):
+                print("[probe] Chrome did not open its debug port.")
+            else:
+                print("[probe] log in to the seller account in that Chrome window, then open the chat.")
+        elif mode == "app":
+            got = launch_app(a.site, port, a.app_exe, early.append)
+            if got:
+                port, match = got, ""   # the whole app is the site
+            else:
+                os.makedirs(out, exist_ok=True)
+                path = os.path.join(out, time.strftime("app_verdict_%Y%m%d-%H%M%S.json"))
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(early, f, ensure_ascii=False, indent=2)
+                print(f"\n[probe] verdict saved: {path}\nSend the whole folder: {out}")
+                _finish_prompt()
+                return 1
+
+    probe = Probe(port, [x for x in match.split(",") if x], [x for x in api.split(",") if x], out,
+                  globals_re=site["globals"], ignore_ws=site.get("ignore_ws"))
+    for rec in early:
+        probe.write(rec)
     try:
         browser = probe.start()
     except Exception as exc:
-        print(f"[probe] cannot reach Chrome on port {a.port}: {exc}\n"
-              f"        Start Chrome with --remote-debugging-port={a.port} --user-data-dir=<a folder>, then retry.")
-        input("Press Enter to exit...")
+        print(f"[probe] cannot reach Chrome on port {port}: {exc}\n"
+              f"        Start Chrome with --remote-debugging-port={port} --user-data-dir=<a folder>, then retry.")
+        _finish_prompt()
         return 1
-    print(f"[probe] attached to {browser} on port {a.port}; recording to {probe.path}")
+    print(f"[probe] site={a.site}; attached to {browser} on port {port}; recording to {probe.path}")
     if not probe.attached:
-        print(f"[probe] no page matching {a.match!r} is open yet -- open the chat page; it is picked up automatically.")
-    print("[probe] use the chat normally. Press Ctrl+C to stop.\n")
+        print(f"[probe] no page matching {match!r} is open yet -- open the chat page; it is picked up automatically.")
+    print("[probe] use the chat normally -- receive AND send a few messages. Press Ctrl+C to stop.\n")
     deadline = time.time() + a.minutes * 60 if a.minutes else None
     try:
         while not probe.stop.is_set() and (deadline is None or time.time() < deadline):
@@ -423,15 +669,15 @@ def main():
     print(f"  API endpoints: {len(summ['apis'])}")
     for g in summ["page_globals"]:
         print(f"  page {g.get('when')}: {str(g.get('href'))[:70]}  __mms={g.get('mms_type')} "
-              f"__mms.fetch={g.get('mms_fetch_type')}")
-    print(f"\nSend the whole folder: {a.out}")
-    if getattr(sys, "frozen", False):
-        input("Press Enter to exit...")
+              f"lib.mtop={g.get('mtop_type')}")
+    print(f"\nSend the whole folder: {out}  (it holds real chat messages -- share it privately)")
+    _finish_prompt()
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
 
-# Build (dev machine):
+# Build (dev machine) -- the exe's name picks the site preset:
 #   python -m PyInstaller --onefile --console --name pdd_probe scripts/site_probe_standalone.py
+#   python -m PyInstaller --onefile --console --name qianniu_probe scripts/site_probe_standalone.py
