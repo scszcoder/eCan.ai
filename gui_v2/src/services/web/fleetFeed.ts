@@ -12,6 +12,8 @@ import { useFleetFeedStore } from '@/stores/fleetFeedStore';
 import { getCachedAppConfig } from '@/contexts/AppConfigContext';
 import { userStorageManager } from '@/services/storage/UserStorageManager';
 import { appSyncRequest } from '@/services/web/appSyncClient';
+import { isDesktopPlatform } from '@/config/platform';
+import { get_ipc_api } from '@/services/ipc_api';
 
 export const FEED_CHANNEL = 'fleet.feed';
 export const CMD_CHANNEL = 'fleet.cmd';
@@ -108,14 +110,44 @@ function connect() {
   ws.onerror = () => { try { ws.close(); } catch { /* closing anyway */ } };
 }
 
+// Several views can watch at once (the Fleet page, a machine's drawer): the
+// connection opens with the first and closes with the last.
+let holders = 0;
+let desktopRenew: ReturnType<typeof setInterval> | null = null;
+
+async function desktopWatch(on: boolean) {
+  // The desktop GUI's requests go to its local server, so the backend subscribes
+  // and relays each message back as a 'fleet_feed' push (services/ipc/handlers.ts).
+  const res = await get_ipc_api().fleetFeedWatch(on);
+  if (!on) return;
+  useFleetFeedStore.getState().setConnection(res?.success ? 'live' : 'error',
+    res?.success ? '' : String(res?.error?.message || 'the app could not watch the fleet'));
+}
+
 export function startFleetFeed() {
-  if (!stopped) return;
+  holders += 1;
+  if (holders > 1) return;
+  if (isDesktopPlatform()) {
+    useFleetFeedStore.getState().setConnection('connecting');
+    void desktopWatch(true).then(() => sendFleetCommand('snapshot'));
+    desktopRenew = setInterval(() => void desktopWatch(true), 20 * 60_000);   // backend TTL is 30 min
+    return;
+  }
   stopped = false;
   retry = 0;
   connect();
 }
 
 export function stopFleetFeed() {
+  holders = Math.max(0, holders - 1);
+  if (holders > 0) return;
+  if (isDesktopPlatform()) {
+    if (desktopRenew) clearInterval(desktopRenew);
+    desktopRenew = null;
+    void desktopWatch(false);
+    useFleetFeedStore.getState().setConnection('idle');
+    return;
+  }
   stopped = true;
   if (retryTimer) clearTimeout(retryTimer);
   retryTimer = null;
@@ -130,6 +162,10 @@ export async function sendFleetCommand(
   machine: string = '*',
   extra: { ttl_s?: number; level?: string } = {},
 ): Promise<boolean> {
+  if (isDesktopPlatform()) {
+    const res = await get_ipc_api().fleetFeedCommand(cmd, machine, extra);
+    return Boolean(res?.success);
+  }
   try {
     await appSyncRequest(SEND, {
       input: {

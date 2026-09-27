@@ -178,6 +178,11 @@
   },
   "pages": {
     "fleet": {
+      "watch": "Live activity",
+      "liveActivity": "Live activity",
+      "offline": "This machine is offline",
+      "waiting": "Waiting for this machine to report…",
+      "follow": "Auto-scroll",
       "title": "Fleet monitor",
       "refresh": "Refresh",
       "live": "Live",

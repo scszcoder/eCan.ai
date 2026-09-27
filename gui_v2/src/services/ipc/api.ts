@@ -3056,6 +3056,15 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'live_chat_site.set' }, { site });
     }
 
+    // Desktop: watch the account's machines (fleet.feed relayed as 'fleet_feed' pushes).
+    public async fleetFeedWatch<T>(on: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'fleet_feed.watch' }, { on });
+    }
+
+    public async fleetFeedCommand<T>(cmd: string, machine: string, extra: { ttl_s?: number; level?: string } = {}): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'fleet_feed.command' }, { cmd, machine, ...extra });
+    }
+
     // Pull agents/tasks other machines created into this one, without a restart.
     public async refreshFromCloud<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'cloud.refresh' });

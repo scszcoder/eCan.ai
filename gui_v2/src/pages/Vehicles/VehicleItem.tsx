@@ -5,6 +5,7 @@ import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
 import type { Vehicle } from '@/types/domain/vehicle';
 import StatusTag from '../../components/Common/StatusTag';
+import WatchMachineButton from '../../components/Fleet/WatchMachineButton';
 
 // ================= Animations =================
 const slideInAnimation = keyframes`
@@ -299,6 +300,17 @@ interface VehicleItemProps {
   t: any;
 }
 
+// "Watch" -> this machine's live activity (fleet feed), keyed by its vehicle id,
+// which is the id the machine reports its feed under.
+const WatchButton: React.FC<{ vehicle: Vehicle }> = ({ vehicle }) => (
+  <WatchMachineButton
+    machineId={String(vehicle.id)}
+    name={vehicle.name}
+    role={vehicle.role}
+    online={String(vehicle.status || '').toLowerCase() === 'active'}
+  />
+);
+
 // ================= Component =================
 const VehicleItem: React.FC<VehicleItemProps> = ({
   vehicle,
@@ -327,6 +339,7 @@ const VehicleItem: React.FC<VehicleItemProps> = ({
             </GridSubtitle>
           </GridHeaderInfo>
           <StatusTag status={vehicle.status as string} />
+          <WatchButton vehicle={vehicle} />
         </GridCardHeader>
 
         {/* Body */}
@@ -418,6 +431,9 @@ const VehicleItem: React.FC<VehicleItemProps> = ({
           >
             {vehicle.name}
           </div>
+        </Col>
+        <Col flex="none">
+          <WatchButton vehicle={vehicle} />
         </Col>
       </Row>
       {/* 第二行：Status+Tag（自动换行） */}

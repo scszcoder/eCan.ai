@@ -75,6 +75,7 @@ export class IPCHandlers {
 
         // Ad banner push from backend
         this.registerHandler('push_ad', this.pushAd);
+        this.registerHandler('fleet_feed', this.fleetFeed);
 
         // Account info push from backend
         this.registerHandler('push_account_info', this.pushAccountInfo);
@@ -785,6 +786,15 @@ export class IPCHandlers {
     /**
      * Handle ad push from backend
      */
+    // One machine's fleet.feed message, relayed by the backend while a
+    // "live activity" drawer is open (the web gets these from the cloud directly).
+    async fleetFeed(request: IPCRequest): Promise<{ success: boolean }> {
+        const { useFleetFeedStore } = await import('@/stores/fleetFeedStore');
+        const body = (request.params as { body?: any })?.body;
+        if (body) useFleetFeedStore.getState().ingest(body);
+        return { success: true };
+    }
+
     async pushAd(request: IPCRequest): Promise<{ success: boolean }> {
         const params = request.params as {
             bannerText?: string;

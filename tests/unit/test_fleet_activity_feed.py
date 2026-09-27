@@ -113,3 +113,31 @@ def test_the_feed_can_be_turned_off(feed, monkeypatch):
     monkeypatch.setenv("ECAN_FLEET_FEED", "0")
     feed.note("task", task="t")
     assert not feed._events
+
+
+def test_the_desktop_drawer_gets_the_feed_relayed_and_can_send_commands(feed):
+    pushed, sent = [], []
+
+    async def fake_subscribe(channel, on_message, what):
+        assert channel == af.FEED_CHANNEL
+        on_message({"type": "fleet_feed", "contents": json.dumps({"machine": {"id": "veh-c"}, "events": []})})
+        on_message({"type": "chat", "contents": "not a feed message"})
+        await asyncio.sleep(3600)
+
+    async def fake_send(req, mainwin):
+        sent.append(req)
+        return {"data": {}}
+
+    async def run():
+        feed._loop = asyncio.get_running_loop()
+        with patch.object(feed, "_subscribe_loop", side_effect=fake_subscribe), \
+             patch("agent.chats.wan_chat.wanSendMessage8", side_effect=fake_send):
+            feed.watch(True, push=pushed.append)
+            feed.command("log_start", "veh-c", ttl_s=300, level="WARNING")
+            await asyncio.sleep(0.05)
+            feed.watch(False)
+            await asyncio.sleep(0.01)
+    asyncio.run(run())
+    assert pushed == [{"machine": {"id": "veh-c"}, "events": []}], "only feed messages reach the GUI"
+    assert sent and sent[0]["chatID"] == af.CMD_CHANNEL and sent[0]["type"] == "fleet_cmd"
+    assert json.loads(sent[0]["contents"]) == {"cmd": "log_start", "machine": "veh-c", "ttl_s": 300, "level": "WARNING"}

@@ -257,7 +257,11 @@ class FleetFeed:
             self._snapshot_due = True
 
     async def _cmd_loop(self) -> None:
-        """Listen on fleet.cmd (AppSync-compatible graphql-ws; CN TCB and intl)."""
+        """Listen on fleet.cmd for commands to this machine."""
+        await self._subscribe_loop(CMD_CHANNEL, self.handle_command, "command")
+
+    async def _subscribe_loop(self, channel: str, on_message, what: str) -> None:
+        """Stay subscribed to *channel* (AppSync-compatible graphql-ws; CN TCB and intl)."""
         import aiohttp
         import certifi
         import ssl
@@ -281,9 +285,9 @@ class FleetFeed:
                     async with session.ws_connect(url, protocols=["graphql-ws"], ssl=ssl_ctx,
                                                   heartbeat=25, autoping=True) as ws:
                         await ws.send_str(json.dumps({"type": "connection_init"}))
-                        sub = {"id": "fleet-cmd", "type": "start", "payload": {
+                        sub = {"id": f"sub-{channel}", "type": "start", "payload": {
                             "data": json.dumps({"query": gen_wan_subscription_connection_string(),
-                                                "variables": {"chatID": CMD_CHANNEL}}),
+                                                "variables": {"chatID": channel}}),
                             "extensions": {"authorization": {"host": cfg.host, "Authorization": auth}
                                            if auth else {"host": cfg.host, "x-api-key": cfg.api_key}}}}
                         started = False
@@ -297,20 +301,68 @@ class FleetFeed:
                                 started = True
                             elif t == "start_ack":
                                 backoff = 5.0
-                                logger.info(f"{_TAG} listening for commands on {CMD_CHANNEL}")
+                                logger.info(f"{_TAG} listening on {channel} ({what})")
                             elif t == "data":
                                 inner = ((f.get("payload") or {}).get("data") or {}).get("onMessageReceived")
                                 if inner:
-                                    self.handle_command(inner)
+                                    on_message(inner)
                             elif t in ("error", "connection_error"):
-                                logger.info(f"{_TAG} command channel refused: {str(f)[:200]}")
+                                logger.info(f"{_TAG} {what} channel refused: {str(f)[:200]}")
                                 break
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                logger.debug(f"{_TAG} command channel dropped: {e}")
+                logger.debug(f"{_TAG} {what} channel dropped: {e}")
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 300.0)
+
+
+    # ── watching (the desktop GUI's "live activity" drawer) ─────────────
+    # The web listens to fleet.feed itself; the desktop GUI goes through here:
+    # subscribe while a drawer is open and hand each machine's message to push().
+    WATCH_TTL_S = 1800.0
+
+    def watch(self, on: bool, push=None) -> None:
+        """Start (or renew) / stop relaying fleet.feed to the GUI. Any thread."""
+        if self._loop is None:
+            return
+        self._loop.call_soon_threadsafe(self._watch_on_loop, bool(on), push)
+
+    def _watch_on_loop(self, on: bool, push) -> None:
+        task = getattr(self, "_watch_task", None)
+        self._watch_until = time.monotonic() + self.WATCH_TTL_S
+        if on and (task is None or task.done()):
+            def relay(msg):
+                if (msg or {}).get("type") != "fleet_feed" or push is None:
+                    return
+                try:
+                    c = msg.get("contents")
+                    push(json.loads(c) if isinstance(c, str) else c)
+                except Exception as e:
+                    logger.debug(f"{_TAG} relay skipped a message: {e}")
+
+            async def run():
+                sub = asyncio.ensure_future(self._subscribe_loop(FEED_CHANNEL, relay, "watch"))
+                try:
+                    while time.monotonic() < self._watch_until:
+                        await asyncio.sleep(5)
+                finally:
+                    sub.cancel()
+            self._watch_task = self._loop.create_task(run())
+        elif not on and task is not None:
+            task.cancel()
+            self._watch_task = None
+
+    def command(self, cmd: str, machine: str = "*", **extra: Any) -> None:
+        """Send a command on fleet.cmd (the desktop GUI's drawer). Any thread."""
+        if self._loop is None:
+            return
+        from agent.chats.wan_chat import wanSendMessage8
+        req = {"chatID": CMD_CHANNEL, "sender": self._machine()["id"] or "desktop",
+               "receiver": machine, "type": "fleet_cmd",
+               "contents": json.dumps({"cmd": cmd, "machine": machine, **extra}),
+               "parameters": json.dumps({})}
+        asyncio.run_coroutine_threadsafe(wanSendMessage8(req, self._mainwin), self._loop)
 
 
 _FEED = FleetFeed()

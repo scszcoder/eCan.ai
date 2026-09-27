@@ -178,6 +178,11 @@
   },
   "pages": {
     "fleet": {
+      "watch": "实时动态",
+      "liveActivity": "实时动态",
+      "offline": "该机器离线",
+      "waiting": "等待该机器上报…",
+      "follow": "自动滚动",
       "title": "机群监控",
       "refresh": "刷新",
       "live": "实时",

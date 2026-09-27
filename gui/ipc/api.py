@@ -418,6 +418,11 @@ class IPCAPI:
         )
 
 
+    def push_fleet_feed(self, body: dict) -> None:
+        """Hand one machine's fleet.feed message to the GUI ("live activity" drawer).
+        Frontend: request method 'fleet_feed', params {'body': <feed message>}."""
+        self._send_request('fleet_feed', params={'body': body}, callback=lambda _r: None)
+
     def send_skill_editor_log(
             self,
             level: str,
