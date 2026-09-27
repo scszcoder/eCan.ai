@@ -1,0 +1,20 @@
+This directory contains code from vibe-seller
+(https://github.com/zpoint/vibe-seller, app/skills_v2/amazon-listing/scripts), commit
+efd95c784f7043d378336af3b18bf7427a6b042c, licensed under the Apache License 2.0
+(see LICENSE-vibe-seller).
+
+Files and modifications:
+- marketplace_ids.py: unmodified.
+- listing_schema.py: sibling import made package-relative.
+- listing_bulk.py: sibling imports made package-relative; the inspect, fill and
+  parse-feedback commands split into functions returning dicts
+  (inspect_template, fill_template, parse_feedback_report, build_verdict) with
+  the CLI commands printing from them as before.
+
+Also derived from vibe-seller's bh_download_template.py, bh_upload_flatfile.py
+and bh_fetch_report.py (same commit and license):
+agent/ec_skills/browser_use_extension/hooks/external/amazon_listing/site_tools.py
+and page_driver.py -- rewritten as browser-use controller actions over CDP.
+
+tests/unit/test_amazon_flatfile_engine.py is adapted from vibe-seller's
+tests/unit/test_amazon_listing_bulk_skill.py.

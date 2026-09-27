@@ -140,6 +140,11 @@ from agent.mcp.server.scrapers.gmail.gmail_read import (
 from agent.mcp.server.Privacy.privacy_reserve import privacy_reserve
 from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query, wait_for_rag_completion, ragify_async, rag_replace_document
 from agent.ec_skills.sql.local_sql_mcp import query_sales_db
+from agent.mcp.server.integrations.amazon_listing_tools import (
+    amazon_template_inspect,
+    amazon_template_fill,
+    amazon_parse_feedback,
+)
 from agent.mcp.server.integrations.customer_data_tools import (
     query_price,
     query_inventories,
@@ -4027,6 +4032,10 @@ tool_function_mapping = {
         "query_price": query_price,
         "query_inventories": query_inventories,
         "query_order": query_order,
+        # Amazon listing via the category flat file
+        "amazon_template_inspect": amazon_template_inspect,
+        "amazon_template_fill": amazon_template_fill,
+        "amazon_parse_feedback": amazon_parse_feedback,
         # Self-introspection and agent management tools
         "describe_self": async_describe_self,
         "diagnose_llm": async_diagnose_llm,

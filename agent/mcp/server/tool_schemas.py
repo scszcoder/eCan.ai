@@ -128,6 +128,7 @@ from agent.ec_skills.rag.local_rag_mcp import (
     add_rag_replace_document_tool_schema,
 )
 from agent.ec_skills.sql.local_sql_mcp import add_query_sales_db_tool_schema
+from agent.mcp.server.integrations.amazon_listing_tools import add_amazon_listing_tool_schemas
 from agent.mcp.server.integrations.customer_data_tools import (
     add_query_price_tool_schema,
     add_query_inventories_tool_schema,
@@ -2242,6 +2243,9 @@ def build_agent_mcp_tools_schemas():
     add_query_price_tool_schema(tool_schemas)
     add_query_inventories_tool_schema(tool_schemas)
     add_query_order_tool_schema(tool_schemas)
+
+    # Amazon listing via the category flat file (inspect / fill / parse report).
+    add_amazon_listing_tool_schemas(tool_schemas)
 
     # Self-introspection and agent management tools
     from agent.mcp.server.self_utils.self_tools import (
