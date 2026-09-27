@@ -3839,6 +3839,27 @@ def make_browser_done_callback(agent_ref: dict):
 
 
 def resolve_available_file_paths(state: dict | None) -> list[str]:
+    """Files the browser-use agent may upload: ``prompt_refs.upload_files`` + product images.
+
+    ``state.prompt_refs.upload_files`` is an explicit list a skill sets for the
+    step it is about to run (any file type -- a filled CSV, a video); each must
+    exist. Then the images under ``product_dir`` (see _product_dir_image_paths).
+    """
+    explicit: list[str] = []
+    pr = (state or {}).get("prompt_refs") if isinstance(state, dict) else None
+    files = pr.get("upload_files") if isinstance(pr, dict) else None
+    if isinstance(files, str):
+        files = [files]
+    for f in files or []:
+        if isinstance(f, str) and os.path.isfile(f):
+            explicit.append(os.path.abspath(f))
+        else:
+            logger.warning(f"[BrowserAutomation] upload_files entry is not a file, skipped: {f!r}")
+    images = _product_dir_image_paths(state)
+    return explicit + [p for p in images if p not in explicit]
+
+
+def _product_dir_image_paths(state: dict | None) -> list[str]:
     """Scan ``state`` for a ``product_dir`` and return image paths under it.
 
     Pulls ``product_dir`` from (in priority order):
