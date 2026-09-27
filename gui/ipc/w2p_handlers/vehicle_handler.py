@@ -177,35 +177,67 @@ def _reported_role(row: Dict[str, Any]) -> str:
 _LEGACY_NAME = re.compile(r'^(.+):(win|mac|linux|other)$', re.IGNORECASE)
 
 
-def _fold_legacy_names(entries: list, self_name: str = '') -> list:
-    """Drop ``<host>:<os>`` entries for a machine that is also listed under its real id.
+def _host_key(e: Dict[str, Any]) -> str:
+    """The machine a list entry is about, by host name (``:win``-style suffix ignored)."""
+    raw = str(e.get('hostname') or e.get('name') or '').strip()
+    m = _LEGACY_NAME.match(raw)
+    return (m.group(1) if m else raw).strip().lower()
 
-    Before machines reported a stable id, the heartbeat and the in-memory
-    vehicle list named a machine ``SCHOME:win``; now the same machine is
-    ``schome``. The old entry lingers offline -- and it may be the one that
-    carries the role, which is all a Platoon filters on. So the live entry for
-    the same host takes over the role and the legacy one goes. A legacy name
-    with no live twin stays: it is the only record of that machine.
+
+def _entry_rank(e: Dict[str, Any]) -> tuple:
+    """Which of several entries for one machine to keep: this machine's own, then a
+    cloud row (real id + heartbeat), then online, then the freshest heartbeat."""
+    age = _heartbeat_age_s(e.get('last_heartbeat'))
+    return (
+        bool(e.get('is_self')),
+        str(e.get('source') or '') in ('cloud', 'cloud+lan'),
+        str(e.get('status') or '') == 'active',
+        -(age if age is not None else 1e12),
+    )
+
+
+def _merge_same_machine(entries: list) -> list:
+    """One entry per machine.
+
+    The same machine reaches this list several ways: its cloud row (named
+    ``<host>:win`` -- the heartbeat still registers that name), LAN discovery
+    (``<host>``) and, for this machine, the legacy in-memory list. Keep the best
+    of them (``_entry_rank``) -- never drop a live cloud row for a stale twin --
+    and let it inherit the others' address and role; it is online if any of
+    them saw the machine online. Cloud pods are listed as they are. Names are
+    shown without the ``:win``-style suffix.
     """
-    def host(e):
-        return str(e.get('hostname') or e.get('name') or '').strip().lower()
-
-    live = {}
+    groups: Dict[str, list] = {}
+    order: list = []
     for e in entries:
-        if isinstance(e, dict) and e.get('type') != 'cloud' and not _LEGACY_NAME.match(str(e.get('name') or '')):
-            live.setdefault(host(e), e)
-    if self_name and self_name.strip().lower() not in live:
-        live[self_name.strip().lower()] = None     # this machine: added by the caller
-    out = []
-    for e in entries:
-        m = _LEGACY_NAME.match(str(e.get('name') or '')) if isinstance(e, dict) else None
-        key = m.group(1).strip().lower() if m else ''
-        if m and key in live:
-            twin = live[key]
-            if twin is not None and not twin.get('role') and e.get('role'):
-                twin['role'] = e['role']
+        if not isinstance(e, dict):
             continue
-        out.append(e)
+        key = '' if e.get('type') == 'cloud' else _host_key(e)
+        if not key:
+            order.append(e)
+            continue
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(e)
+    out = []
+    for item in order:
+        if isinstance(item, dict):
+            out.append(item)
+            continue
+        group = groups[item]
+        best = dict(max(group, key=_entry_rank))
+        for other in group:
+            if not best.get('ip') and other.get('ip'):
+                best['ip'] = other['ip']
+            if not best.get('role') and other.get('role'):
+                best['role'] = other['role']
+            if other.get('status') == 'active':
+                best['status'] = 'active'
+        m = _LEGACY_NAME.match(str(best.get('name') or ''))
+        if m:
+            best['name'] = m.group(1)
+        out.append(best)
     return out
 
 
@@ -225,7 +257,6 @@ def _mark_self_and_scope(entries: list) -> list:
     except Exception:
         me = ''
     role = str(getattr(mainwin, 'host_role', '') or '')
-    entries = _fold_legacy_names(entries, getattr(mainwin, 'machine_name', '') or '')
     found = False
     for e in entries:
         if isinstance(e, dict) and me and str(e.get('id')) == me:
@@ -246,6 +277,8 @@ def _mark_self_and_scope(entries: list) -> list:
             'arch': getattr(mainwin, 'processor', '') or '',
             'source': 'local',
         })
+    # After this machine is in the list, so it wins its own merge (is_self).
+    entries = _merge_same_machine(entries)
     if sees_whole_fleet(mainwin):
         return entries
     return [e for e in entries if isinstance(e, dict)

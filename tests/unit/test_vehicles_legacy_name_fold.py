@@ -1,29 +1,63 @@
-"""Computers page: a machine's old ``<host>:win`` entry folds into its live entry."""
+"""Computers page: one entry per machine, however many ways it reaches the list."""
 
-from gui.ipc.w2p_handlers.vehicle_handler import _fold_legacy_names
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import patch
 
-
-def test_platoon_sees_the_live_commander_not_the_residue():
-    residue = {'id': 'old-row', 'name': 'SCHOME:win', 'role': 'Commander', 'status': 'offline', 'type': 'desktop'}
-    live = {'id': 'fp-123', 'name': 'schome', 'hostname': 'SCHOME', 'role': '', 'status': 'active', 'type': 'desktop'}
-    me = {'id': 'fp-999', 'name': 'platoon1', 'status': 'active', 'type': 'desktop'}
-    out = _fold_legacy_names([residue, live, me], 'platoon1')
-    assert [e['id'] for e in out] == ['fp-123', 'fp-999']
-    assert live['role'] == 'Commander', "the live entry takes over the role the residue carried"
+from gui.ipc.w2p_handlers import vehicle_handler as vh
 
 
-def test_commander_own_legacy_entry_goes_even_before_self_is_listed():
-    legacy_self = {'vid': 0, 'name': 'SCHOME:win', 'status': 'running_idle', 'type': 'Computer'}
-    assert _fold_legacy_names([legacy_self], 'SCHOME') == []
+def _fresh():
+    return (datetime.now(timezone.utc) - timedelta(seconds=20)).isoformat()
 
 
-def test_a_legacy_name_with_no_live_twin_stays():
-    only = {'id': 'x', 'name': 'OFFICE2:win', 'status': 'offline'}
-    assert _fold_legacy_names([only], 'schome') == [only]
+PLATOON_CLOUD = {'id': '87d7c0de', 'name': 'DESKTOP-LNOV1-S:win', 'status': 'active', 'role': 'Platoon',
+                 'type': 'desktop', 'source': 'cloud', 'last_heartbeat': _fresh()}
+PLATOON_LAN = {'id': 'lan-87d7', 'name': 'DESKTOP-LNOV1-S', 'status': 'offline', 'type': 'desktop',
+               'source': 'lan', 'ip': '192.168.1.23'}
 
 
-def test_a_live_role_is_not_overwritten():
-    residue = {'name': 'HOST:win', 'role': 'Commander'}
-    live = {'name': 'host', 'role': 'Platoon'}
-    _fold_legacy_names([residue, live], '')
-    assert live['role'] == 'Platoon'
+def test_a_live_cloud_row_is_never_dropped_for_a_stale_twin():
+    out = vh._merge_same_machine([PLATOON_LAN, dict(PLATOON_CLOUD)])
+    assert len(out) == 1
+    only = out[0]
+    assert only['id'] == '87d7c0de' and only['status'] == 'active'
+    assert only['name'] == 'DESKTOP-LNOV1-S', "the :win suffix is dropped for display only"
+    assert only['ip'] == '192.168.1.23' and only['role'] == 'Platoon'
+
+
+def test_this_machine_always_appears_once_and_as_itself():
+    me = 'ab7e1120'
+    mainwin = SimpleNamespace(host_role='Commander', machine_name='SCHOME', ip='10.0.0.2',
+                              platform='Windows', processor='x86_64')
+    entries = [
+        {'vid': 0, 'name': 'SCHOME:win', 'status': 'running_idle', 'type': 'Computer'},   # legacy in-memory
+        {'id': me, 'name': 'SCHOME:win', 'status': 'active', 'type': 'desktop', 'source': 'cloud',
+         'last_heartbeat': _fresh(), 'role': 'Commander'},
+        dict(PLATOON_CLOUD),
+    ]
+    with patch.object(vh.AppContext, 'get_main_window', return_value=mainwin), \
+         patch('agent.ec_agents.vehicle_affinity.resolve_local_vehicle_id', return_value=me):
+        out = vh._mark_self_and_scope(entries)
+    mine = [e for e in out if e.get('is_self')]
+    assert len(mine) == 1 and mine[0]['id'] == me and mine[0]['name'] == 'SCHOME'
+    assert [e['name'] for e in out].count('SCHOME') == 1
+    assert any(e['name'] == 'DESKTOP-LNOV1-S' and e['status'] == 'active' for e in out)
+
+
+def test_a_platoon_sees_itself_and_its_live_commander():
+    me = '87d7c0de'
+    mainwin = SimpleNamespace(host_role='Platoon', machine_name='DESKTOP-LNOV1-S', ip='', platform='', processor='')
+    commander = {'id': 'ab7e1120', 'name': 'SCHOME:win', 'status': 'active', 'type': 'desktop',
+                 'source': 'cloud', 'last_heartbeat': _fresh(), 'role': 'Commander'}
+    with patch.object(vh.AppContext, 'get_main_window', return_value=mainwin), \
+         patch('agent.ec_agents.vehicle_affinity.resolve_local_vehicle_id', return_value=me):
+        out = vh._mark_self_and_scope([dict(PLATOON_CLOUD), PLATOON_LAN, commander])
+    names = sorted((e['name'], e['status']) for e in out)
+    assert names == [('DESKTOP-LNOV1-S', 'active'), ('SCHOME', 'active')]
+
+
+def test_cloud_pods_are_listed_as_they_are():
+    pods = [{'id': 'p1', 'name': 'pod-a', 'type': 'cloud', 'status': 'active'},
+            {'id': 'p2', 'name': 'pod-a', 'type': 'cloud', 'status': 'active'}]
+    assert len(vh._merge_same_machine(pods)) == 2
