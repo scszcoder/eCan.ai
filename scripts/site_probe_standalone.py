@@ -572,6 +572,170 @@ def launch_app(site, port, app_exe, probe_log):
     return None
 
 
+# ── desktop-client diagnosis: can we reach its pages over DevTools at all? ──
+
+# file name (lower) -> the web runtime it gives away
+RUNTIME_MARKERS = {
+    "libcef.dll": "cef", "cef.pak": "cef", "cef_100_percent.pak": "cef",
+    "app.asar": "electron", "electron.asar": "electron",
+    "webview2loader.dll": "webview2", "embeddedbrowserwebview.dll": "webview2",
+    "qt5webenginecore.dll": "qtwebengine", "qt6webenginecore.dll": "qtwebengine",
+    "qtwebengineprocess.exe": "qtwebengine",
+    "mb.dll": "miniblink", "miniblink.dll": "miniblink", "wke.dll": "miniblink", "node.dll": "miniblink?",
+    "nw.dll": "nwjs",
+    "chrome_elf.dll": "chromium", "v8_context_snapshot.bin": "chromium", "icudtl.dat": "chromium",
+}
+
+
+def _process_table():
+    """[{name, pid, ppid, path, cmd}] for every process (PowerShell CIM)."""
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-CimInstance Win32_Process | Select-Object Name,ProcessId,ParentProcessId,"
+             "ExecutablePath,CommandLine | ConvertTo-Json -Compress"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60).stdout
+        rows = json.loads(out or "[]")
+    except Exception:
+        return []
+    rows = rows if isinstance(rows, list) else [rows]
+    return [{"name": r.get("Name") or "", "pid": r.get("ProcessId"), "ppid": r.get("ParentProcessId"),
+             "path": r.get("ExecutablePath") or "", "cmd": (r.get("CommandLine") or "")[:600]}
+            for r in rows]
+
+
+def _app_tree(site, table=None):
+    """The client's processes and all their descendants (WebView2/CEF children included)."""
+    table = table if table is not None else _process_table()
+    names = [n.lower() for n in SITES[site].get("app_names", [])]
+    me = os.getpid()
+    roots = {r["pid"] for r in table
+             if any(n in r["name"].lower() for n in names) and "probe" not in r["name"].lower()
+             and r["pid"] != me}
+    tree, grew = set(roots), True
+    while grew:
+        grew = False
+        for r in table:
+            if r["ppid"] in tree and r["pid"] not in tree and r["pid"] != me:
+                tree.add(r["pid"])
+                grew = True
+    return [r for r in table if r["pid"] in tree]
+
+
+def _scan_install(exe):
+    found, root = {}, os.path.dirname(exe or "")
+    if not root or not os.path.isdir(root):
+        return {"root": root, "runtimes": [], "markers": {}}
+    base_depth = root.rstrip("\\/").count(os.sep)
+    for d, dirs, files in os.walk(root):
+        if d.count(os.sep) - base_depth >= 3:
+            dirs[:] = []
+        for f in files:
+            kind = RUNTIME_MARKERS.get(f.lower())
+            if kind:
+                found.setdefault(kind, []).append(os.path.relpath(os.path.join(d, f), root))
+    return {"root": root, "runtimes": sorted(found), "markers": {k: v[:5] for k, v in found.items()}}
+
+
+def _kill_tree(site):
+    for r in _app_tree(site):
+        subprocess.run(["taskkill", "/PID", str(r["pid"]), "/T", "/F"], capture_output=True)
+    time.sleep(3)
+
+
+def _find_devtools(site, port):
+    if cdp_up(port):
+        return port
+    for p in _listening_ports({r["pid"] for r in _app_tree(site)}):
+        if cdp_up(p):
+            return p
+    return None
+
+
+def diagnose_app(site, port, app_exe, wait_s=45):
+    """Try every known way to open the client's DevTools; returns (port or None, report)."""
+    table = _process_table()
+    tree = _app_tree(site, table)
+    exe = app_exe or next((r["path"] for r in tree if r["path"].lower().endswith(".exe")
+                           and "--type=" not in r["cmd"]), None) \
+        or next((c for c in SITES[site].get("app_exes", []) if os.path.isfile(c)), None)
+    report = {"kind": "app_diag", "site": site, "exe": exe,
+              "processes_before": tree, "install": _scan_install(exe), "attempts": []}
+    rt = report["install"]["runtimes"]
+    print(f"[diag] client exe: {exe}\n[diag] web runtime markers: {rt or 'none found'}")
+    if tree:
+        print(f"[diag] running now: {len(tree)} processes "
+              f"({', '.join(sorted({r['name'] for r in tree}))})")
+    p = _find_devtools(site, port)
+    if p:
+        report["verdict"] = f"OPEN_ALREADY:{p}"
+        return p, report
+    if not exe:
+        report["verdict"] = "EXE_NOT_FOUND"
+        print("[diag] could not find the client's exe -- run again with --app-exe <path>.")
+        return None, report
+
+    attempts = [("flag", [exe, f"--remote-debugging-port={port}", "--remote-allow-origins=*"], {})]
+    attempts.append(("webview2_env", [exe], {
+        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": f"--remote-debugging-port={port} --remote-allow-origins=*"}))
+    if "electron" in rt:
+        attempts.append(("electron_inspect", [exe, f"--remote-debugging-port={port}", f"--inspect={port + 1}"], {}))
+
+    tried_inner = False
+    i = 0
+    while i < len(attempts):
+        label, argv, env = attempts[i]
+        i += 1
+        _kill_tree(site)
+        print(f"[diag] attempt '{label}': starting the client, waiting up to {wait_s}s (log in if asked) ...")
+        try:
+            subprocess.Popen(argv, env={**os.environ, **env} if env else None)
+        except Exception as exc:
+            report["attempts"].append({"label": label, "argv": argv, "error": str(exc)})
+            continue
+        found, end = None, time.time() + wait_s
+        while time.time() < end and not found:
+            time.sleep(3)
+            found = _find_devtools(site, port) or (_find_devtools(site, port + 1) if label == "electron_inspect" else None)
+        after = _app_tree(site)
+        rec = {"label": label, "argv": argv, "env": env, "devtools_port": found,
+               "processes": after,
+               "flag_reached": [r["name"] for r in after if "remote-debugging-port" in r["cmd"]],
+               "listening": _listening_ports({r["pid"] for r in after})}
+        report["attempts"].append(rec)
+        print(f"[diag]   -> devtools={'port ' + str(found) if found else 'no'}; "
+              f"flag seen in: {rec['flag_reached'] or 'no process'}; ports={rec['listening'][:8]}")
+        if found:
+            report["verdict"] = f"OPEN:{label}:{found}"
+            return found, report
+        # a launcher shell hands off to another exe: retry the flag on the real one
+        inner = next((r["path"] for r in after if r["path"] and "--type=" not in r["cmd"]
+                      and os.path.normcase(r["path"]) != os.path.normcase(exe)
+                      and r["path"].lower().endswith(".exe")), None)
+        if inner and not tried_inner:
+            tried_inner = True
+            attempts.insert(i, ("inner_exe_flag",
+                                [inner, f"--remote-debugging-port={port}", "--remote-allow-origins=*"], {}))
+            print(f"[diag]   the client runs as another exe too: {inner} -- will try the flag on it")
+
+    hint = {"miniblink": "renders with miniblink, which has no DevTools protocol",
+            "miniblink?": "ships node.dll (maybe miniblink, which has no DevTools protocol)",
+            "cef": "CEF with debugging compiled out or disabled by the app",
+            "electron": "a hardened Electron build (debugging fuses off)",
+            "webview2": "WebView2 with extra browser arguments blocked"}
+    report["verdict"] = "DEAD"
+    report["why"] = [hint[k] for k in rt if k in hint] or ["no known web runtime found in the install folder"]
+    print(f"[diag] VERDICT: no DevTools endpoint could be opened. Likely: {'; '.join(report['why'])}.\n"
+          "[diag] Record the web version instead (option 1).")
+    _kill_tree(site)
+    exe_to_restart = exe
+    try:
+        subprocess.Popen([exe_to_restart])   # leave the client running normally again
+    except Exception:
+        pass
+    return None, report
+
+
 def _site_from_name():
     name = os.path.basename(sys.executable if getattr(sys, "frozen", False) else sys.argv[0]).lower()
     return next((k for k in SITES if k in name), "pdd")
@@ -590,7 +754,7 @@ def main():
     ap.add_argument("--port", type=int, default=9228)
     ap.add_argument("--match", default=None, help="comma-separated page URL substrings to attach to")
     ap.add_argument("--api", default=None, help="comma-separated API URL substrings to record")
-    ap.add_argument("--launch", choices=("ask", "none", "chrome", "app"), default="ask",
+    ap.add_argument("--launch", choices=("ask", "none", "chrome", "app", "diag"), default="ask",
                     help="when nothing listens on --port: start our own Chrome, or restart the "
                          "site's desktop client with a debug port (default: ask)")
     ap.add_argument("--app-exe", default="", help="path of the desktop client's .exe (app mode)")
@@ -610,9 +774,11 @@ def main():
         if mode == "ask":
             opts = "[1] the web version, in a Chrome the probe opens"
             if site.get("app_names"):
-                opts += "   [2] the desktop client (restarts it)"
-            ans = input(f"[probe] nothing is listening on port {port}. Record: {opts}   [q] quit: ").strip()
-            mode = {"1": "chrome", "2": "app" if site.get("app_names") else "none"}.get(ans, "none")
+                opts += ("\n        [2] the desktop client (restarts it once)"
+                         "\n        [3] diagnose the desktop client (tries every known way; restarts it a few times)")
+            ans = input(f"[probe] nothing is listening on port {port}. Record:\n        {opts}\n        [q] quit: ").strip()
+            has_app = bool(site.get("app_names"))
+            mode = {"1": "chrome", "2": "app" if has_app else "none", "3": "diag" if has_app else "none"}.get(ans, "none")
         if mode == "chrome":
             # the profile holds the seller's login -- keep it OUT of the folder that gets sent
             profile = os.path.join(os.path.dirname(os.path.abspath(out)), f"{a.site}_probe_chrome_profile")
@@ -620,6 +786,25 @@ def main():
                 print("[probe] Chrome did not open its debug port.")
             else:
                 print("[probe] log in to the seller account in that Chrome window, then open the chat.")
+        elif mode == "diag":
+            got = None
+            if not _app_tree(a.site) or input("[probe] the diagnosis closes and restarts the desktop client "
+                                              "up to 4 times (you may need to log in each time). Continue? "
+                                              "[y/N] ").strip().lower() in ("y", "yes"):
+                got, report = diagnose_app(a.site, port, a.app_exe)
+                early.append(report)
+            else:
+                early.append({"kind": "app_diag", "verdict": "USER_DECLINED_RESTART"})
+            if got:
+                port, match = got, ""
+            else:
+                os.makedirs(out, exist_ok=True)
+                path = os.path.join(out, time.strftime("app_diag_%Y%m%d-%H%M%S.json"))
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(early, f, ensure_ascii=False, indent=2)
+                print(f"\n[probe] diagnosis saved: {path}\nSend the whole folder: {out}")
+                _finish_prompt()
+                return 1
         elif mode == "app":
             got = launch_app(a.site, port, a.app_exe, early.append)
             if got:
