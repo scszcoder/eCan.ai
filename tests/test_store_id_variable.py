@@ -180,6 +180,9 @@ class UrlDerivationCannotSeparateFeigeStoresTests(unittest.TestCase):
             "gui_v2/src/components/FastDeploy/scenarios.tsx"
         ).read_text(encoding="utf-8")
         self.assertIn("storeId: true", schema)
+        # Stores (URLs included) come from the Stores page: no URL entry, no "+ New store".
+        self.assertNotIn("NEW_STORE", panel)
+        self.assertNotIn("store_name", panel)
 
 
 if __name__ == "__main__":

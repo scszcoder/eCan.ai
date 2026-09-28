@@ -54,7 +54,10 @@ def _make_ctx(*, missing_skill=None, org_rows=None):
         return {"success": True, "id": f"agent_{agent_counter['n']}"}
 
     ctx.db.agent_service.create_agent_from_data.side_effect = create_agent
-    ctx.db.store_service.get_store.return_value = None      # a store deployed for the first time
+    # The store as created on the Stores page (no login profile yet).
+    ctx.db.store_service.get_store.return_value = {
+        "store_id": "shopA", "name": "shopA", "platform": "douyin",
+        "store_urls": ["https://shopA.example.com"]}
     return ctx
 
 
@@ -91,7 +94,7 @@ def _patch_environment(tmp_path):
 
 
 class TestDeployDouyinCs:
-    CFG = {"store_urls": ["https://shopA.example.com"], "store_id": "shopA", "qa_agents": 3}
+    CFG = {"store_id": "shopA", "qa_agents": 3}
 
     def test_creates_tasks_agents_referencing_shared_skills(self):
         ctx = _make_ctx()
@@ -148,8 +151,30 @@ class TestDeployDouyinCs:
     def test_a_store_id_is_required(self):
         ctx = _make_ctx()
         with pytest.raises(RuntimeError, match="store_id is required"):
-            dc._deploy_douyin_cs({"store_urls": ["https://shopA.example.com"]}, ctx, "buyer@x")
+            dc._deploy_douyin_cs({"qa_agents": 3}, ctx, "buyer@x")
         ctx.db.task_service.add_task.assert_not_called()
+
+    def test_the_store_must_exist_on_the_stores_page(self):
+        ctx = _make_ctx()
+        ctx.db.store_service.get_store.return_value = None
+        with pytest.raises(RuntimeError, match="create it on the Stores page"):
+            dc._deploy_douyin_cs({**self.CFG, "mode": "replace"}, ctx, "buyer@x")
+        ctx.db.task_service.add_task.assert_not_called()
+        ctx.db.task_service.get_tasks_by_skill.assert_not_called()   # replace touched nothing
+
+    def test_a_store_of_another_platform_is_refused(self):
+        ctx = _make_ctx()
+        ctx.db.store_service.get_store.return_value = {"store_id": "shopA", "platform": "pinduoduo",
+                                                       "store_urls": ["https://x"]}
+        with pytest.raises(RuntimeError, match="is a pinduoduo store"):
+            dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+
+    def test_a_store_without_a_url_is_refused(self):
+        ctx = _make_ctx()
+        ctx.db.store_service.get_store.return_value = {"store_id": "shopA", "platform": "douyin",
+                                                       "store_urls": []}
+        with pytest.raises(RuntimeError, match="has no URL"):
+            dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
 
     def test_a_store_without_a_login_profile_gets_one(self):
         ctx = _make_ctx()
@@ -163,6 +188,8 @@ class TestDeployDouyinCs:
     def test_a_signed_in_store_keeps_its_profile(self):
         ctx = _make_ctx()
         ctx.db.store_service.get_store.return_value = {"store_id": "shopA", "name": "店A",
+                                                       "platform": "douyin",
+                                                       "store_urls": ["https://shopA.example.com"],
                                                        "browser_profile_id": "a-login"}
         reg = FakeProfiles({"a-login": {"id": "a-login", "login_state": "ok"}})
         with patch.object(dc, "_profile_registry", return_value=reg):
@@ -230,6 +257,25 @@ class TestPromptStoresScanned:
              patch("agent.ec_skills.prompt_loader.SAMPLE_PROMPTS_DIR", str(tmp_path / "none")):
             missing = real_missing(["pr-287230", "pr-999999"])
         assert missing == ["pr-999999"]
+
+
+class TestLogUserIsTheExactDir:
+    """The app hands its subprocess ECAN_LOG_USER = the user's dir name
+    ('wechat_x_local'). Mapping it again ('..._local_local') missed every
+    local prompt (2026-09-28: 拼多多 deploy refused pr-287230 though the file
+    was right there)."""
+
+    def test_prompts_in_the_log_users_dir_count(self, tmp_path, _patch_environment):
+        import json as _json
+        import os as _os
+        real_missing = _patch_environment
+        d = tmp_path / "wechat_abc_local" / "my_prompts"
+        d.mkdir(parents=True)
+        (d / "0_pr-287230.json").write_text(_json.dumps({"id": "pr-287230"}), encoding="utf-8")
+        with patch("config.app_info.app_info.appdata_path", str(tmp_path), create=True), \
+             patch.dict(_os.environ, {"ECAN_LOG_USER": "wechat_abc_local"}), \
+             patch("agent.ec_skills.prompt_loader.SAMPLE_PROMPTS_DIR", str(tmp_path / "none")):
+            assert real_missing(["pr-287230"]) == []
 
 
 class TestFeigeRunEnv:

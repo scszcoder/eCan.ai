@@ -151,52 +151,30 @@ def test_replace_leaves_another_platforms_tasks_on_the_shared_qa_skill(monkeypat
     assert out["tasks"] == ["pdd"]
 
 
-def test_a_deploy_registers_its_store_without_renaming_it():
-    class _StoreSvc:
-        def __init__(self, existing=None):
-            self.rows, self.calls = dict(existing or {}), []
-
-        def get_store(self, sid):
-            return self.rows.get(sid)
-
-        def upsert_store(self, fields):
-            self.calls.append(fields)
-
-    svc = _StoreSvc()
-    ctx = type("C", (), {})(); ctx.db = type("DB", (), {"store_service": svc})()
-    cmds._register_store(ctx, "shop1", {"store_name": "Shop One"}, ["https://x"], [])
-    assert svc.calls[-1]["name"] == "Shop One" and svc.calls[-1]["store_urls"] == ["https://x"]
-    svc2 = _StoreSvc({"shop1": {"name": "Renamed by owner"}})
-    ctx.db = type("DB", (), {"store_service": svc2})()
-    cmds._register_store(ctx, "shop1", {"store_name": "Shop One"}, ["https://y"], [])
-    assert "name" not in svc2.calls[-1], "an existing store is never renamed by a deploy"
+def _run_scenario(tmp_path, monkeypatch, payload, stores):
+    import json
+    from types import SimpleNamespace
+    from click.testing import CliRunner
+    import cli.base.output as cli_output
+    ctx = SimpleNamespace(db=SimpleNamespace(store_service=SimpleNamespace(get_store=stores.get)))
+    monkeypatch.setattr("cli.base.context.get_context", lambda: ctx)
+    cfg = tmp_path / "cfg.json"
+    out = tmp_path / "out.json"
+    cfg.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    cli_output._global_output = None
+    CliRunner().invoke(cmds.scenario, ["-c", str(cfg), "-o", str(out)])
+    return json.loads(out.read_text(encoding="utf-8"))
 
 
-class _Stores:
-    def __init__(self, rows):
-        self.rows = rows
-
-    def get_store(self, sid):
-        return self.rows.get(sid)
-
-
-def test_a_new_store_may_not_reuse_an_existing_id_and_nothing_is_touched(monkeypatch):
-    import pytest
-    ts, ag = _fixture()
-    ctx = _Ctx(ts, ag)
-    ctx.db.store_service = _Stores({"旗舰店": {"name": "旗舰店"}})
-    monkeypatch.setattr("cli.base.sync.cloud_sync", lambda *a, **k: None)
-    # "+ New store" sends store_name; Replace would otherwise delete first.
-    cfg = {"store_urls": ["https://x"], "store_id": "旗舰店", "store_name": "旗舰店", "mode": "replace"}
-    with pytest.raises(RuntimeError, match="already belongs to store"):
-        cmds._deploy_douyin_cs(cfg, ctx, "alice")
-    assert ts.deleted == [] and ag.deleted == []
+def test_a_planned_scenario_takes_the_picked_stores_urls(tmp_path, monkeypatch):
+    stores = {"amz-1": {"store_id": "amz-1", "platform": "amazon",
+                        "store_urls": ["https://sellercentral.amazon.com"]}}
+    res = _run_scenario(tmp_path, monkeypatch, {"scenario": "amazon_ops", "config": {"store_id": "amz-1"}}, stores)
+    assert res["status"] == "success"
+    assert "Store URLs: 1" in res["log"]
 
 
-def test_deploying_into_an_existing_store_from_the_picker_is_allowed():
-    ts, ag = _fixture()
-    ctx = _Ctx(ts, ag)
-    ctx.db.store_service = _Stores({"旗舰店": {"name": "旗舰店"}})
-    # The picker sends no store_name: this is "deploy into", not "create".
-    cmds._refuse_taken_store_id(ctx, {"store_id": "旗舰店"})
-    cmds._refuse_taken_store_id(ctx, {"store_id": "new-one", "store_name": "New One"})
+def test_a_planned_scenario_refuses_another_platforms_store(tmp_path, monkeypatch):
+    stores = {"tm-1": {"store_id": "tm-1", "platform": "tmall", "store_urls": ["https://x"]}}
+    res = _run_scenario(tmp_path, monkeypatch, {"scenario": "amazon_ops", "config": {"store_id": "tm-1"}}, stores)
+    assert res["status"] == "failure" and "is a tmall store" in res["message"]

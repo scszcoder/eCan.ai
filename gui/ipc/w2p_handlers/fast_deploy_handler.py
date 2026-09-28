@@ -78,10 +78,12 @@ def handle_fast_deploy_generate(request: IPCRequest,
         config = params.get("config") or {}
         if not scenario:
             return create_error_response(request, "INVALID_PARAMS", "scenario is required")
-        # One store names its URLs; a multi-store deploy names stores (their URLs
-        # are on the store records).
-        if not isinstance(config, dict) or not (config.get("store_urls") or config.get("stores")):
-            return create_error_response(request, "INVALID_PARAMS", "config.store_urls or config.stores is required")
+        # A store deploy names its store(s) -- their URLs are on the store records;
+        # the other scenarios name URLs.
+        if not isinstance(config, dict) or not (config.get("store_urls") or config.get("stores")
+                                                or config.get("store_id")):
+            return create_error_response(request, "INVALID_PARAMS",
+                                         "config.store_id, config.stores or config.store_urls is required")
 
         out_dir = _fast_deploy_dir()
         ts = time.strftime("%Y%m%d-%H%M%S")

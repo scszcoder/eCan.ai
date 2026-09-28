@@ -13,21 +13,18 @@ export type Region = 'cn' | 'intl';
 
 /** Which config fields a scenario exposes in the config panel. */
 export interface ScenarioSchema {
-    /** Show the add/modify/delete store-URL list. */
-    storeUrls: boolean;
     /** Show the "# of Q&A agents" control (customer-service scenarios). */
     qaAgents?: { default: number; min: number; max: number };
-    /** Pre-filled first store URL (the platform's fixed workstation page). */
-    defaultStoreUrl?: string;
     /** Show the add/replace switch (replace = delete THIS STORE's existing
      *  tasks on the scenario's skills + the agents serving only them, then add). */
     replaceMode?: boolean;
-    /** Show the store-id field. Needed wherever the store URL does NOT identify
-     *  the store: every 飞鸽 seller shares one workstation URL, so a URL-derived
-     *  id would silently merge two stores' per-store config and metering. */
+    /** Show the store picker (stores come from the Stores page, URLs included).
+     *  Needed wherever the store URL does NOT identify the store: every 飞鸽
+     *  seller shares one workstation URL, so a URL-derived id would silently
+     *  merge two stores' per-store config and metering. */
     storeId?: boolean;
     /** Several stores at once (picked from the Stores page), one shared Q&A
-     *  pool: replaces the single store picker and the URL list. */
+     *  pool: replaces the single store picker. */
     stores?: boolean;
 }
 
@@ -44,40 +41,32 @@ export interface BusinessScenario {
 
 /** The runtime config values collected for a scenario. */
 export interface ScenarioConfig {
-    storeUrls: string[];
     qaAgents?: number;
     mode?: 'add' | 'replace';
     storeId?: string;
-    /** Only for a store created from this panel: its display name. */
-    storeName?: string;
     /** Multi-store scenarios: the chosen store ids. */
     stores?: string[];
 }
 
-const CS_SCHEMA: ScenarioSchema = { storeUrls: true, qaAgents: { default: 6, min: 1, max: 16 } };
+const CS_SCHEMA: ScenarioSchema = { storeId: true, qaAgents: { default: 6, min: 1, max: 16 } };
 const DOUYIN_CS_SCHEMA: ScenarioSchema = {
-    storeUrls: true,
     qaAgents: { default: 8, min: 1, max: 16 },
-    defaultStoreUrl: 'https://im.jinritemai.com/pc_seller_v2/main/workspace',
     replaceMode: true,
     storeId: true,
 };
 const PDD_CS_SCHEMA: ScenarioSchema = {
-    storeUrls: true,
     qaAgents: { default: 4, min: 1, max: 16 },
-    defaultStoreUrl: 'https://mms.pinduoduo.com/chat-merchant/index.html',
     replaceMode: true,
     storeId: true,
 };
 // Several stores on this machine: each gets its own login profile + front desk;
 // the Q&A agents are one pool shared by all of them.
 const MULTI_CS_SCHEMA: ScenarioSchema = {
-    storeUrls: false,
     stores: true,
     qaAgents: { default: 4, min: 1, max: 24 },
     replaceMode: true,
 };
-const OPS_SCHEMA: ScenarioSchema = { storeUrls: true };
+const OPS_SCHEMA: ScenarioSchema = { storeId: true };
 
 export const SCENARIOS: BusinessScenario[] = [
     { key: 'douyin_cs', nameEn: 'Douyin Store Customer Service', nameZh: '抖店客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: DOUYIN_CS_SCHEMA, platform: 'douyin' },
@@ -144,7 +133,6 @@ export function scenarioName(s: BusinessScenario, lang: string): string {
 
 export function defaultConfig(s: BusinessScenario): ScenarioConfig {
     return {
-        storeUrls: [s.schema.defaultStoreUrl ?? ''],
         ...(s.schema.qaAgents ? { qaAgents: s.schema.qaAgents.default } : {}),
         ...(s.schema.replaceMode ? { mode: 'add' as const } : {}),
         ...(s.schema.storeId ? { storeId: '' } : {}),

@@ -10,7 +10,7 @@ The config file is produced by the app's Fast Deploy panel and looks like:
 
     {
       "scenario": "douyin_cs",
-      "config": { "store_urls": ["https://…"], "store_id": "shop-a", "qa_agents": 6 }
+      "config": { "store_id": "shop-a", "qa_agents": 6 }
     }
 
 STATUS: `douyin_cs` performs REAL generation (shared-skill model — see
@@ -61,6 +61,13 @@ def _recipe_operation(scenario: str, cfg: dict):
     plan = {"agents": n, "skills": 1, "tasks": n}
     return plan, log
 
+
+# The store platform each planned (not yet generating) scenario deploys to --
+# a picked store must be of this platform.
+_PLANNED_PLATFORMS = {
+    "tmall_cs": "tmall", "amazon_ops": "amazon", "ebay_ops": "ebay",
+    "etsy_ops": "etsy", "shopify_ops": "shopify", "tiktok_ops": "tiktok",
+}
 
 _RECIPES = {
     "douyin_cs": _recipe_customer_service,
@@ -319,12 +326,16 @@ def _missing_system_prompts(prompt_ids) -> list:
     sample_prompts. Scoped by ECAN_LOG_USER when this CLI runs as an app
     subprocess."""
     from pathlib import Path
-    from utils.user_path_helper import get_user_data_dir
+    from utils.user_path_helper import get_log_user_data_dir, get_user_data_dir
     from agent.ec_skills.prompt_loader import SAMPLE_PROMPTS_DIR
 
     log_user = os.environ.get("ECAN_LOG_USER") or None
-    user_dir = Path(get_user_data_dir(log_user, subdir="my_prompts"))
-    subscribed_dir = Path(get_user_data_dir(log_user, subdir="subscribed_prompts"))
+
+    def _dir(sub):
+        # ECAN_LOG_USER is the exact dir name; only a username gets mapped.
+        return Path(get_log_user_data_dir(log_user, sub) if log_user else get_user_data_dir(None, subdir=sub))
+    user_dir = _dir("my_prompts")
+    subscribed_dir = _dir("subscribed_prompts")
     have = set()
     for directory in (user_dir, subscribed_dir, Path(SAMPLE_PROMPTS_DIR)):
         if not directory.exists():
@@ -465,41 +476,20 @@ def _sync_created_to_cloud(ctx, created: dict, links: dict, log: list) -> None:
                f"{counts['failed']} failed")
 
 
-def _refuse_taken_store_id(ctx, cfg: dict) -> None:
-    """A "+ New store" deploy must not reuse an existing store's id.
-
-    ``store_name`` is only sent for "+ New store"; deploying INTO an existing
-    store is the picker's job. Reusing an id would silently merge two shops
-    into one. Runs before anything is changed -- in Replace mode the cleanup
-    would otherwise delete the existing store's agents first.
-    """
-    store_id = str(cfg.get("store_id") or "").strip()
-    if not store_id or not cfg.get("store_name"):
-        return
+def _store_record(ctx, store_id: str, platform: str) -> dict:
+    """The store's catalog record. Stores are created on the Stores page (name,
+    platform, URLs); a deploy only staffs one, so an unknown store or one of
+    another platform is refused before anything is changed."""
     svc = getattr(ctx.db, "store_service", None)
-    existing = svc.get_store(store_id) if svc is not None else None
-    if existing:
-        raise RuntimeError(f"store id {store_id!r} already belongs to store "
-                           f"{existing.get('name') or store_id!r}; pick it from the list "
-                           f"or give the new store a different id")
-
-
-def _register_store(ctx, store_id: str, cfg: dict, store_urls: list, log: list,
-                    platform: str = "douyin") -> None:
-    """Make sure the store exists in the local catalog; a deploy into a new id
-    defines it. Never renames an existing store. Best-effort: the catalog is
-    bookkeeping, and a failure must not fail a deployment."""
-    try:
-        svc = getattr(ctx.db, "store_service", None)
-        if svc is None:
-            return
-        fields = {"store_id": store_id, "platform": platform, "store_urls": store_urls}
-        if not svc.get_store(store_id):
-            fields.update(name=str(cfg.get("store_name") or store_id), source="fast_deploy")
-        svc.upsert_store(fields)
-        log.append(f"Store registered: {store_id}")
-    except Exception as e:
-        log.append(f"Store catalog not updated (non-fatal): {e}")
+    if svc is None:
+        raise RuntimeError("store catalog unavailable")
+    rec = svc.get_store(store_id)
+    if not rec:
+        raise RuntimeError(f"store {store_id!r} is not in the store list -- create it on the Stores page first")
+    plat = str(rec.get("platform") or "").strip()
+    if plat and plat != platform:
+        raise RuntimeError(f"store {store_id!r} is a {plat} store, not {platform}")
+    return rec
 
 
 # ── Live-chat customer-service platforms ────────────────────────────────────
@@ -729,7 +719,6 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     that into the failure result the Fast Deploy panel pops."""
     from utils.logger_helper import logger_helper as logger
 
-    store_urls = [u.strip() for u in (cfg.get("store_urls") or []) if u and str(u).strip()]
     qa_n = int(cfg.get("qa_agents") or 8)  # matches the panel default
     log = []
 
@@ -739,8 +728,11 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     #    per-store settings and metering would silently merge into the first.
     store_id = str(cfg.get("store_id") or "").strip()
     if not store_id:
-        raise RuntimeError("store_id is required -- pick the store to deploy into, or create one")
-    _refuse_taken_store_id(ctx, cfg)
+        raise RuntimeError("store_id is required -- pick a store (create it on the Stores page first)")
+    rec = _store_record(ctx, store_id, profile.platform)
+    store_urls = _store_urls_of(rec)
+    if not store_urls:
+        raise RuntimeError(f"store {store_id!r} has no URL -- add it on the Stores page")
 
     # ── 0) 'replace' mode: clear THIS STORE's previous deployment first.
     if str(cfg.get("mode") or "add").strip().lower() == "replace":
@@ -766,7 +758,6 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
 
     task_vars["store_id"] = store_id
     log.append(f"Store id: {store_id}")
-    _register_store(ctx, store_id, cfg, store_urls, log, platform=profile.platform)
 
     # ── Placement: a store's agents run where the STORE is assigned; a pin to
     #    the machine that happened to deploy would keep them off the machine
@@ -780,9 +771,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     # when it has none), so a second store never drives the first one's
     # logged-in browser (build_helpers.browser_type_for_identity). Local only
     # -- the profile never syncs.
-    svc = getattr(ctx.db, "store_service", None)
-    rec = (svc.get_store(store_id) if svc is not None else None) or {}
-    rec = {**rec, "store_id": store_id, "name": rec.get("name") or cfg.get("store_name") or store_id}
+    rec = {**rec, "store_id": store_id, "name": rec.get("name") or store_id}
     identity, needs = _ensure_store_login(ctx, rec, profile, log)
     log.append(f"Browser: store {store_id!r} runs in its own login profile "
                f"{identity['browser_profile_id']!r}")
@@ -918,18 +907,7 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
         raise RuntimeError("at least one Q&A agent is needed")
     log = [f"Stores: {', '.join(store_ids)}; shared Q&A agents: {qa_n}"]
 
-    svc = getattr(ctx.db, "store_service", None)
-    if svc is None:
-        raise RuntimeError("store catalog unavailable")
-    recs = []
-    for sid in store_ids:
-        rec = svc.get_store(sid)
-        if not rec:
-            raise RuntimeError(f"store {sid!r} is not in the store list -- create it on the Stores page first")
-        plat = str(rec.get("platform") or "").strip()
-        if plat and plat != profile.platform:
-            raise RuntimeError(f"store {sid!r} is a {plat} store, not {profile.platform}")
-        recs.append(rec)
+    recs = [_store_record(ctx, sid, profile.platform) for sid in store_ids]
 
     if str(cfg.get("mode") or "add").strip().lower() == "replace":
         prefixes = (profile.fd_task_prefix, profile.qa_task_prefix)
@@ -1054,8 +1032,19 @@ def scenario(config, output):
     base_key = scenario_key[:-len("_multi")] if scenario_key.endswith("_multi") else scenario_key
     is_multi = scenario_key.endswith("_multi")
     urls = cfg.get("store_urls") or []
-    if is_multi:
-        urls = urls or ["(from each store's record)"]   # multi-store reads URLs off the stores
+    if is_multi or base_key in _LIVE_CHAT_PROFILES:
+        urls = urls or ["(from each store's record)"]   # live-chat deploys read URLs off the stores
+    elif not urls and str(cfg.get("store_id") or "").strip():
+        # A store picked in the panel: its URLs are on its record (Stores page).
+        try:
+            from ..base.context import get_context
+            rec = _store_record(get_context(), str(cfg["store_id"]).strip(),
+                                _PLANNED_PLATFORMS.get(scenario_key, ""))
+        except Exception as e:
+            _emit({"status": "failure", "scenario": scenario_key,
+                   "message": str(e), "log": [f"Validation failed: {e}"]}, ok=False)
+            return
+        urls = cfg["store_urls"] = _store_urls_of(rec)
     if not isinstance(urls, list):
         _emit({
             "status": "failure",

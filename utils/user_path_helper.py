@@ -100,6 +100,16 @@ def get_user_data_dir(user_email: Optional[str] = None, subdir: Optional[str] = 
     return user_data_dir
 
 
+def get_log_user_data_dir(log_user: str, subdir: Optional[str] = None) -> str:
+    """Data dir for an already-sanitized ``log_user`` (the exact dir name, e.g.
+    ``ECAN_LOG_USER`` from an app-spawned subprocess). Passing that name to
+    ``get_user_data_dir`` would map it again ('wechat_x_local' has no '@', so
+    it became 'wechat_x_local_local') and miss the user's real dir."""
+    from config.app_info import app_info as app_info_instance
+    path = os.path.join(app_info_instance.appdata_path, log_user)
+    return os.path.join(path, subdir) if subdir else path
+
+
 def ensure_user_data_dir(user_email: Optional[str] = None, subdir: Optional[str] = None) -> str:
     """
     Get user-specific data directory path and ensure it exists.

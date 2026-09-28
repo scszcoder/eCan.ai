@@ -30,9 +30,11 @@ def _agents(ctx):
 class TestPinduoduoSingleStore:
     def test_uses_the_pdd_skills_and_switches_the_site_on(self, _env):
         ctx = _make_ctx()
-        plan, log, created = dc._deploy_live_chat(
-            {"store_urls": ["https://mms.pinduoduo.com/chat-merchant/index.html"], "qa_agents": 2,
-             "store_id": "pdd-shop1"}, ctx, "me", dc._PDD_PROFILE)
+        ctx.db.store_service.get_store.return_value = {
+            "store_id": "pdd-shop1", "name": "拼多多一店", "platform": "pinduoduo",
+            "store_urls": ["https://mms.pinduoduo.com/chat-merchant/index.html"]}
+        plan, log, created = dc._deploy_live_chat({"qa_agents": 2, "store_id": "pdd-shop1"},
+                                                  ctx, "me", dc._PDD_PROFILE)
         assert {k: plan[k] for k in ("agents", "skills", "tasks")} == {"agents": 3, "skills": 0, "tasks": 3}
         names = [t["name"] for t in _tasks(ctx)]
         assert names == ["拼多多客服前台001", "拼多多客服应答001", "拼多多客服应答002"]
