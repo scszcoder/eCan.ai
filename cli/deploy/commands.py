@@ -10,7 +10,7 @@ The config file is produced by the app's Fast Deploy panel and looks like:
 
     {
       "scenario": "douyin_cs",
-      "config": { "store_urls": ["https://…"], "qa_agents": 6 }
+      "config": { "store_urls": ["https://…"], "store_id": "shop-a", "qa_agents": 6 }
     }
 
 STATUS: `douyin_cs` performs REAL generation (shared-skill model — see
@@ -361,7 +361,8 @@ def _task_store_id(row: dict) -> str:
     return str((tv or {}).get("store_id") or "").strip() if isinstance(tv, dict) else ""
 
 
-def _replace_cleanup(ctx, owner: str, skill_ids, log: list, store_id: str = "") -> dict:
+def _replace_cleanup(ctx, owner: str, skill_ids, log: list, store_id: str = "",
+                     name_prefixes=()) -> dict:
     """Fast Deploy 'replace' mode: delete this owner's existing tasks that use
     the given (shared) skills FOR THIS STORE, and the agents serving only them
     — then the caller proceeds with a normal 'add'.
@@ -369,7 +370,10 @@ def _replace_cleanup(ctx, owner: str, skill_ids, log: list, store_id: str = "") 
     Scoped by ``store_id`` (tasks with no store id when it is blank). It used
     to delete every task on these skills, so replacing store B wiped store A's
     agents too. An agent that still serves another store's task is kept.
-    Other owners' rows are never touched. Returns {"tasks": [...], "agents": [...]}."""
+    ``name_prefixes`` (when given) further limits it to tasks this platform's
+    deploy named: platforms share the Q&A skill, so a Pinduoduo replace must
+    not delete the Feige Q&A tasks. Other owners' rows are never touched.
+    Returns {"tasks": [...], "agents": [...]}."""
     from ..base.sync import cloud_sync
     from agent.cloud_api.constants import DataType, Operation
 
@@ -382,7 +386,9 @@ def _replace_cleanup(ctx, owner: str, skill_ids, log: list, store_id: str = "") 
                 continue
             rows = (ctx.db.task_service.query_tasks(id=tid) or {}).get("data") or []
             if (rows and str(rows[0].get("owner") or "") == str(owner)
-                    and _task_store_id(rows[0]) == store_id):
+                    and _task_store_id(rows[0]) == store_id
+                    and (not name_prefixes
+                         or str(rows[0].get("name") or "").startswith(tuple(name_prefixes)))):
                 task_ids.append(tid)
 
     agent_ids: list = []
@@ -413,27 +419,8 @@ def _replace_cleanup(ctx, owner: str, skill_ids, log: list, store_id: str = "") 
         cloud_sync(DataType.TASK, {"id": tid}, Operation.DELETE)
 
     log.append(f"Replace mode: deleted {len(agent_ids)} agent(s) and {len(task_ids)} task(s) "
-               f"using the 抖店客服 skills for store {store_id or '(none)'} (owner={owner})")
+               f"using the customer-service skills for store {store_id or '(none)'} (owner={owner})")
     return {"tasks": task_ids, "agents": agent_ids}
-
-
-def _store_browser_identity(ctx, store_id: str, log: list) -> dict:
-    """``{"browser_profile_id": ...}`` from the store record, or {} when it has none."""
-    if not store_id:
-        return {}
-    try:
-        svc = getattr(ctx.db, "store_service", None)
-        rec = svc.get_store(store_id) if svc is not None else None
-        pid = str((rec or {}).get("browser_profile_id") or "").strip()
-    except Exception as e:
-        log.append(f"Store login profile not read (non-fatal): {e}")
-        return {}
-    if pid:
-        log.append(f"Browser: store {store_id!r} runs in its own login profile {pid!r}")
-        return {"browser_profile_id": pid}
-    log.append(f"Browser: store {store_id!r} has no login profile; it uses the default browser. "
-               f"Set one on the store before running a second store on this machine.")
-    return {}
 
 
 def _sync_created_to_cloud(ctx, created: dict, links: dict, log: list) -> None:
@@ -553,13 +540,15 @@ _DDCS_PROFILE = _LiveChatProfile(
 
 # Pinduoduo (pdd_chat bundle). The bundle registers only when the process serves
 # it (ECAN_LIVE_CHAT_SITE), which this deploy writes to run.env.
+# The Q&A side is the Feige one (skill + prompts are platform-agnostic); only
+# the front desk is Pinduoduo's own.
 _PDD_PROFILE = _LiveChatProfile(
     scenario="pdd_cs", label="拼多多客服", platform="pinduoduo", login_domain="mms.pinduoduo.com",
-    qa_skill_id="skill_5a5b45f75be39a5d", qa_skill_name="拼多多客服问答00",
-    fd_skill_id="skill_e055261cf068e9e2", fd_skill_name="拼多多客服前台00",
-    prompts=(("pr-177072", "拼多多客服应答0", "qa"),
-             ("pr-800621", "拼多多社交应答0", "qa"),
-             ("pr-56931", "RAG路由分类0", "qa"),
+    qa_skill_id=_DDCS_QA_SKILL_ID, qa_skill_name=_DDCS_QA_SKILL_NAME,
+    fd_skill_id="skill_75261dd56d62457d", fd_skill_name="拼多多客服前台01",
+    prompts=((_DDCS_QA_PROMPT_ID, "飞鸽客服应答0", "qa"),
+             (_DDCS_QA_SOCIAL_PROMPT_ID, "飞鸽社交应答0", "qa"),
+             (_DDCS_QA_RAG_PROMPT_ID, "飞鸽RAG路由分类0", "qa"),
              ("pr-920049", "拼多多客服前台0", "fd")),
     fd_task_prefix="拼多多客服前台", qa_task_prefix="拼多多客服应答",
     env_append={}, env_set={"ECAN_LIVE_CHAT_SITE": "pdd_chat"}, find_skill_by_name=True,
@@ -744,12 +733,20 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     qa_n = int(cfg.get("qa_agents") or 8)  # matches the panel default
     log = []
 
+    # ── Store identity. NOT derivable from the URL: every seller of a platform
+    #    shares one workstation URL, so resolve_store_id's URL fallback returns
+    #    the same constant for every store. Without an id a second store's
+    #    per-store settings and metering would silently merge into the first.
+    store_id = str(cfg.get("store_id") or "").strip()
+    if not store_id:
+        raise RuntimeError("store_id is required -- pick the store to deploy into, or create one")
     _refuse_taken_store_id(ctx, cfg)
 
     # ── 0) 'replace' mode: clear THIS STORE's previous deployment first.
     if str(cfg.get("mode") or "add").strip().lower() == "replace":
         _replace_cleanup(ctx, owner, (profile.fd_skill_id, profile.qa_skill_id), log,
-                         store_id=str(cfg.get("store_id") or "").strip())
+                         store_id=store_id,
+                         name_prefixes=(profile.fd_task_prefix, profile.qa_task_prefix))
     else:
         log.append("Add mode: existing tasks/agents kept")
 
@@ -767,37 +764,33 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     log.append(f"Task variables: store_url={store_urls[0]} (+{len(store_urls) - 1} more)"
                if len(store_urls) > 1 else f"Task variables: store_url={store_urls[0]}")
 
-    # ── Store identity. NOT derivable from the URL: every seller of a platform
-    #    shares one workstation URL, so resolve_store_id's URL fallback returns
-    #    the same constant for every store. Left unset, a second store's
-    #    per-store settings and metering would silently merge into the first.
-    store_id = str(cfg.get("store_id") or "").strip()
-    if store_id:
-        task_vars["store_id"] = store_id
-        log.append(f"Store id: {store_id}")
-        _register_store(ctx, store_id, cfg, store_urls, log, platform=profile.platform)
-    else:
-        log.append("WARNING: no store_id given. Fine for a single store; if you "
-                   "deploy a second one, its per-store settings and usage will "
-                   "merge with this one's. Re-run with a store id to separate them.")
+    task_vars["store_id"] = store_id
+    log.append(f"Store id: {store_id}")
+    _register_store(ctx, store_id, cfg, store_urls, log, platform=profile.platform)
 
-    # ── Vehicle: pin the new agents to THIS machine (affinity gate).
-    vehicle_id = _local_vehicle(owner, log)
-    if not vehicle_id:
-        log.append("WARNING: no local vehicle id — agents created UNPINNED (they will run on any host).")
-    if store_id and vehicle_id:
-        # A store's agents run where the STORE is assigned (store placement);
-        # a pin to the machine that happened to deploy would keep them off the
-        # machine the store is actually assigned to.
-        vehicle_id = None
-        log.append(f"Placement: agents follow store {store_id!r}'s assignment, not this machine")
+    # ── Placement: a store's agents run where the STORE is assigned; a pin to
+    #    the machine that happened to deploy would keep them off the machine
+    #    the store is actually assigned to.
+    vehicle_id = None
+    log.append(f"Placement: agents follow store {store_id!r}'s assignment, not this machine")
 
     org_id = _ensure_sales_org(ctx, owner, log)
 
-    # The store's login: its tasks run in its own browser profile, so a second
-    # store never drives the first one's logged-in browser (build_helpers.
-    # browser_type_for_identity). Local only -- the profile never syncs.
-    identity = _store_browser_identity(ctx, store_id, log)
+    # The store's login: its tasks run in its own browser profile (created
+    # when it has none), so a second store never drives the first one's
+    # logged-in browser (build_helpers.browser_type_for_identity). Local only
+    # -- the profile never syncs.
+    svc = getattr(ctx.db, "store_service", None)
+    rec = (svc.get_store(store_id) if svc is not None else None) or {}
+    rec = {**rec, "store_id": store_id, "name": rec.get("name") or cfg.get("store_name") or store_id}
+    identity, needs = _ensure_store_login(ctx, rec, profile, log)
+    log.append(f"Browser: store {store_id!r} runs in its own login profile "
+               f"{identity['browser_profile_id']!r}")
+    needs_login = ([{"store_id": store_id, "store_name": rec["name"],
+                     "profile_id": identity["browser_profile_id"]}] if needs else [])
+    if needs_login:
+        log.append(f"Sign store {rec['name']!r} in once (Settings → Browser Profiles → Launch): "
+                   f"{identity['browser_profile_id']}")
     b = _Builder(ctx, owner, org_id, profile.label)
 
     def _add_task(name: str, skill_id: str, extra_vars: dict | None = None) -> str:
@@ -833,7 +826,8 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
                f"{profile.qa_skill_name} (task_vars.front_desk_agent_id={fd_agent_id})")
     log.append(f"Created {qa_n} Q&A agent(s) 客服小X (org=Sales)")
 
-    plan = {"agents": len(b.created["agents"]), "skills": 0, "tasks": len(b.created["tasks"])}
+    plan = {"agents": len(b.created["agents"]), "skills": 0, "tasks": len(b.created["tasks"]),
+            "needs_login": needs_login}
     logger.info(
         f"[FastDeploy][{profile.scenario}] SUCCESS: {plan['agents']} agent(s), {plan['tasks']} task(s) "
         f"referencing shared skills {qa_skill_id}/{fd_skill_id}; "
@@ -938,10 +932,12 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
         recs.append(rec)
 
     if str(cfg.get("mode") or "add").strip().lower() == "replace":
+        prefixes = (profile.fd_task_prefix, profile.qa_task_prefix)
         for sid in store_ids:
-            _replace_cleanup(ctx, owner, (profile.fd_skill_id, profile.qa_skill_id), log, store_id=sid)
+            _replace_cleanup(ctx, owner, (profile.fd_skill_id, profile.qa_skill_id), log, store_id=sid,
+                             name_prefixes=prefixes)
         # the previous shared pool (its tasks carry no store id)
-        _replace_cleanup(ctx, owner, (profile.qa_skill_id,), log, store_id="")
+        _replace_cleanup(ctx, owner, (profile.qa_skill_id,), log, store_id="", name_prefixes=prefixes)
     else:
         log.append("Add mode: existing tasks/agents kept")
 

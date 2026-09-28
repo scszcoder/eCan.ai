@@ -167,8 +167,8 @@ class UrlDerivationCannotSeparateFeigeStoresTests(unittest.TestCase):
         src = Path("cli/deploy/commands.py").read_text(encoding="utf-8")
         self.assertIn('store_id = str(cfg.get("store_id") or "").strip()', src)
         self.assertIn('task_vars["store_id"] = store_id', src)
-        # And warns when it is absent, rather than silently merging stores.
-        self.assertIn("WARNING: no store_id given", src)
+        # And refuses when it is absent, rather than silently merging stores.
+        self.assertIn("store_id is required", src)
 
     def test_the_panel_collects_it(self) -> None:
         from pathlib import Path

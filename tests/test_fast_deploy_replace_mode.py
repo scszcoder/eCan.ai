@@ -138,6 +138,19 @@ def test_replace_without_a_store_id_leaves_stores_alone(monkeypatch):
     assert out["tasks"] == ["legacy"]
 
 
+def test_replace_leaves_another_platforms_tasks_on_the_shared_qa_skill(monkeypatch):
+    # Pinduoduo and Feige share the Q&A skill: a Pinduoduo replace must not
+    # delete the Feige shared pool (neither carries a store id).
+    rels = [{"task_id": t, "skill_id": "SK_QA"} for t in ("pdd", "feige")]
+    tasks = [{"id": "pdd", "owner": "alice", "name": "拼多多客服应答共享001"},
+             {"id": "feige", "owner": "alice", "name": "飞鸽客服应答共享001"}]
+    ts, ag = _TaskSvc(rels, tasks), _AgentSvc([], [])
+    monkeypatch.setattr("cli.base.sync.cloud_sync", lambda *a, **k: None)
+    out = cmds._replace_cleanup(_Ctx(ts, ag), "alice", ("SK_QA",), [],
+                                name_prefixes=("拼多多客服前台", "拼多多客服应答"))
+    assert out["tasks"] == ["pdd"]
+
+
 def test_a_deploy_registers_its_store_without_renaming_it():
     class _StoreSvc:
         def __init__(self, existing=None):

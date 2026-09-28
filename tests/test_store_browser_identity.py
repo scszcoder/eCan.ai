@@ -39,20 +39,6 @@ class BrowserTypeRuleTests(unittest.TestCase):
 
 
 class DeployIdentityTests(unittest.TestCase):
-    def _ctx(self, rec):
-        ctx = SimpleNamespace(db=SimpleNamespace(store_service=SimpleNamespace(get_store=lambda sid: rec)))
-        return ctx
-
-    def test_the_stores_profile_becomes_the_tasks_identity(self):
-        log = []
-        out = cmds._store_browser_identity(self._ctx({"browser_profile_id": "p1"}), "shop-a", log)
-        self.assertEqual(out, {"browser_profile_id": "p1"})
-
-    def test_a_store_without_a_profile_says_so(self):
-        log = []
-        self.assertEqual(cmds._store_browser_identity(self._ctx({"browser_profile_id": None}), "s", log), {})
-        self.assertTrue(any("no login profile" in line for line in log))
-
     def test_the_deploy_writes_it_onto_every_task(self):
         from pathlib import Path
         src = Path("cli/deploy/commands.py").read_text(encoding="utf-8")
@@ -114,7 +100,8 @@ class DeploySyncTests(unittest.TestCase):
     def test_store_agents_are_not_pinned_to_the_deploying_machine(self):
         from pathlib import Path
         src = Path("cli/deploy/commands.py").read_text(encoding="utf-8")
-        self.assertIn("    if store_id and vehicle_id:\n", src)
+        i = src.index("def _deploy_live_chat(")
+        self.assertIn("    vehicle_id = None\n", src[i:i + 4000])
         self.assertLess(src.index("_sync_created_to_cloud(ctx, created, links, log)"),
                         src.index("    return plan, log, created"))
 

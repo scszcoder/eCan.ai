@@ -921,10 +921,23 @@ invalidate the approach.
 
 ## 🔵 Tmall / Qianniu (Phase 2+) — see docs/TMALL_QIANNIU_CHAT_DESIGN.md
 
-- **All Qianniu selectors are SPECULATIVE** — calibrate against the live 千牛 Web
-  workbench (bundle README playbook) before real use.
-- **Qianniu WS wire protocol uncaptured** — reverse-engineer from
-  `ECAN_TMALL_WS_CAPTURE=1` logs to build the `ws_reader`/`ws_sender` equivalents.
+- **BLOCKER (2026-09-27): there is no 千牛 Web chat to calibrate against.**
+  qianniu_probe runs: the web workbench (qn.taobao.com) only has 接待 *settings*
+  (接待工具 cards); the 接待中心 itself says "需下载千牛客户端使用". The desktop
+  client (AliWorkbench.exe, CEF 9.95/9.97) never opens DevTools (option-3 diag
+  verdict DEAD: flag / inner-exe / WebView2-env all failed). So all Qianniu
+  selectors are SPECULATIVE with no DOM to calibrate them on.
+- **Official routes (researched, none fit eCan as-is):**
+  (a) 客服机器人 ISV solution — buyer messages arrive via 奇门
+  `qimen.taobao.message.chatrobot.sync`, but the service must run in Alibaba's
+  **AIPaaS 封闭环境** (VPC with no public internet, own-Aliyun resources banned)
+  → cannot call eCan agents or external LLMs; needs the 【AIPaaS封闭环境】 perm package.
+  (b) 客服面板插件 (PC mini-program in the client's 接待中心 sidebar; category
+  电商管理→客服工具→客服面板插件, needs 客户服务平台插件权限) — assist mode only:
+  JS SDK can `insertText2Inputbox` (human still presses send); no documented
+  message-read or direct-send API.
+- **Qianniu WS wire protocol uncaptured** — neither route above exposes it;
+  `ECAN_TMALL_WS_CAPTURE=1` has nothing to attach to.
 - **`im.jinritemai.com` hostname literals** still hard-coded in `event_monitor.py` /
   `browser_node/runner.py` — move behind `bridge.url_detector` before the Tmall WS
   detection lane goes live.

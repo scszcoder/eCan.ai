@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cli.deploy import commands as dc
-from tests.unit.test_deploy_douyin_cs import _make_ctx
+from tests.unit.test_deploy_douyin_cs import FakeProfiles, _make_ctx
 
 
 @pytest.fixture(autouse=True)
@@ -14,6 +14,7 @@ def _env(tmp_path):
     with patch.object(dc, "_missing_system_prompts", return_value=[]), \
          patch("agent.ec_agents.vehicle_affinity.resolve_local_vehicle_id", return_value="veh-local"), \
          patch("config.envi.getECBotDataHome", return_value=str(tmp_path)), \
+         patch.object(dc, "_profile_registry", return_value=FakeProfiles()), \
          patch.dict(os.environ, {}, clear=False):
         yield tmp_path
 
@@ -32,7 +33,7 @@ class TestPinduoduoSingleStore:
         plan, log, created = dc._deploy_live_chat(
             {"store_urls": ["https://mms.pinduoduo.com/chat-merchant/index.html"], "qa_agents": 2,
              "store_id": "pdd-shop1"}, ctx, "me", dc._PDD_PROFILE)
-        assert plan == {"agents": 3, "skills": 0, "tasks": 3}
+        assert {k: plan[k] for k in ("agents", "skills", "tasks")} == {"agents": 3, "skills": 0, "tasks": 3}
         names = [t["name"] for t in _tasks(ctx)]
         assert names == ["拼多多客服前台001", "拼多多客服应答001", "拼多多客服应答002"]
         linked = {c.args[1] for c in ctx.db.task_service.add_skill_to_task.call_args_list}
@@ -48,12 +49,18 @@ class TestPinduoduoSingleStore:
         assert "ECAN_LIVE_CHAT_SITE=pdd_chat" in text and "feige_chat" not in text and "OTHER=1" in text
 
     def test_an_unpublished_skill_is_found_by_its_exact_name(self):
-        ctx = _make_ctx(missing_skill=dc._PDD_PROFILE.qa_skill_id)
+        ctx = _make_ctx(missing_skill=dc._PDD_PROFILE.fd_skill_id)
         ctx.db.skill_service.query_skills.return_value = {"success": True, "data": [
-            {"id": "skill_local_copy", "name": "拼多多客服问答00", "config": {}},
-            {"id": "skill_other", "name": "拼多多客服问答00-旧", "config": {}}]}
-        row = dc._find_skill(ctx, dc._PDD_PROFILE, "qa")
+            {"id": "skill_local_copy", "name": "拼多多客服前台01", "config": {}},
+            {"id": "skill_other", "name": "拼多多客服前台01-旧", "config": {}}]}
+        row = dc._find_skill(ctx, dc._PDD_PROFILE, "fd")
         assert row["id"] == "skill_local_copy"
+
+    def test_the_qa_side_is_the_feige_one(self):
+        p, f = dc._PDD_PROFILE, dc._DDCS_PROFILE
+        assert (p.qa_skill_id, p.qa_skill_name) == (f.qa_skill_id, f.qa_skill_name)
+        assert [x for x in p.prompts if x[2] == "qa"] == [x for x in f.prompts if x[2] == "qa"]
+        assert p.fd_skill_name == "拼多多客服前台01"
 
 
 def _store_ctx(stores):

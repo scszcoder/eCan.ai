@@ -54,7 +54,28 @@ def _make_ctx(*, missing_skill=None, org_rows=None):
         return {"success": True, "id": f"agent_{agent_counter['n']}"}
 
     ctx.db.agent_service.create_agent_from_data.side_effect = create_agent
+    ctx.db.store_service.get_store.return_value = None      # a store deployed for the first time
     return ctx
+
+
+class FakeProfiles:
+    """Stands in for the fingerprint profile registry (no files touched)."""
+    LOGIN_OK = "ok"
+
+    def __init__(self, existing=None):
+        self.profiles = dict(existing or {})
+
+    def get_profile(self, pid):
+        return self.profiles.get(pid)
+
+    def login_state(self, pid):
+        return {"state": (self.profiles.get(pid) or {}).get("login_state", "needs_login")}
+
+    def make_profile(self, pid, **kw):
+        return {"id": pid, **kw}
+
+    def save_profile(self, prof, proxy_password=""):
+        self.profiles[prof["id"]] = prof
 
 
 @pytest.fixture(autouse=True)
@@ -64,19 +85,20 @@ def _patch_environment(tmp_path):
     with patch.object(dc, "_missing_system_prompts", return_value=[]), \
          patch("agent.ec_agents.vehicle_affinity.resolve_local_vehicle_id",
                return_value="veh-local"), \
-         patch("config.envi.getECBotDataHome", return_value=str(tmp_path)):
+         patch("config.envi.getECBotDataHome", return_value=str(tmp_path)), \
+         patch.object(dc, "_profile_registry", return_value=FakeProfiles()):
         yield real_missing
 
 
 class TestDeployDouyinCs:
-    CFG = {"store_urls": ["https://shopA.example.com"], "qa_agents": 3}
+    CFG = {"store_urls": ["https://shopA.example.com"], "store_id": "shopA", "qa_agents": 3}
 
     def test_creates_tasks_agents_referencing_shared_skills(self):
         ctx = _make_ctx()
         plan, log, created = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
 
         # 3 QA tasks + 1 FD task; NO skills created
-        assert plan == {"agents": 4, "skills": 0, "tasks": 4}
+        assert {k: plan[k] for k in ("agents", "skills", "tasks")} == {"agents": 4, "skills": 0, "tasks": 4}
         assert created["skills"] == []
 
         # Front-desk task is created FIRST — the Q&A tasks carry its agent id.
@@ -118,10 +140,36 @@ class TestDeployDouyinCs:
         assert len({a["name"] for a in qa_agents}) == len(qa_agents)  # unique names
         for a in agent_payloads:
             assert a["org_id"] == "org_sales"
-            assert a["vehicle_id"] == "veh-local"
+            assert "vehicle_id" not in a      # a store's agents follow the store's placement
             assert len(a["tasks"]) == 1
         assert {a["skills"][0] for a in qa_agents} == {QA_SKILL}
         assert fd_agent["skills"] == [FD_SKILL]
+
+    def test_a_store_id_is_required(self):
+        ctx = _make_ctx()
+        with pytest.raises(RuntimeError, match="store_id is required"):
+            dc._deploy_douyin_cs({"store_urls": ["https://shopA.example.com"]}, ctx, "buyer@x")
+        ctx.db.task_service.add_task.assert_not_called()
+
+    def test_a_store_without_a_login_profile_gets_one(self):
+        ctx = _make_ctx()
+        plan, log, _ = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+        pid = dc._login_profile_id("shopA")
+        for c in ctx.db.task_service.add_task.call_args_list:
+            assert c.args[0]["settings"]["browser_identity"] == {"browser_profile_id": pid}
+        ctx.db.store_service.upsert_store.assert_any_call({"store_id": "shopA", "browser_profile_id": pid})
+        assert plan["needs_login"] == [{"store_id": "shopA", "store_name": "shopA", "profile_id": pid}]
+
+    def test_a_signed_in_store_keeps_its_profile(self):
+        ctx = _make_ctx()
+        ctx.db.store_service.get_store.return_value = {"store_id": "shopA", "name": "店A",
+                                                       "browser_profile_id": "a-login"}
+        reg = FakeProfiles({"a-login": {"id": "a-login", "login_state": "ok"}})
+        with patch.object(dc, "_profile_registry", return_value=reg):
+            plan, _, _ = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+        first = ctx.db.task_service.add_task.call_args_list[0].args[0]
+        assert first["settings"]["browser_identity"] == {"browser_profile_id": "a-login"}
+        assert plan["needs_login"] == []
 
     def test_missing_skill_aborts_with_subscribe_hint(self):
         ctx = _make_ctx(missing_skill=QA_SKILL)
