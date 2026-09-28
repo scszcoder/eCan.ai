@@ -650,6 +650,9 @@ class LightRAGRerankProxy:
                 try:
                     from utils.log_scope import attribution_headers
                     headers.update(attribution_headers())
+                    # Called by the LightRAG server (no run scope here): bill it
+                    # on the knowledge-base line, like LightRAG's own calls.
+                    headers.setdefault('X-Ecan-Source', 'lightrag')
                 except Exception:
                     pass
 
@@ -797,6 +800,9 @@ class LightRAGRerankProxy:
                 try:
                     from utils.log_scope import attribution_headers
                     headers.update(attribution_headers())
+                    # Called by the LightRAG server (no run scope here): bill it
+                    # on the knowledge-base line, like LightRAG's own calls.
+                    headers.setdefault('X-Ecan-Source', 'lightrag')
                 except Exception:
                     pass
 

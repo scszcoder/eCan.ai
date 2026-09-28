@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAdStore } from '../../stores/adStore';
 import { useAccountStore } from '../../stores/accountStore';
+import { useUserStore } from '../../stores/userStore';
 
 const scrollAnimation = keyframes`
     0% {
@@ -90,14 +91,13 @@ const ErrorText = styled.span`
 // miss entirely, and it offered no way to act. It is now a persistent bar with
 // a top-up button, in three tiers:
 //
-//   low       ≤36 and > 10  static red, dismissible — a heads-up
-//   critical  ≤10           red, text scrolling without pause, not dismissible
-//   blocked   cloud refused  darkest red, scrolling — work has already stopped
+//   low       ≤ low level and > critical  static red, dismissible — a heads-up
+//   critical  ≤ critical level          red, text scrolling without pause, not dismissible
+//   blocked   cloud refused             darkest red, scrolling — work has already stopped
 //
-// Motion is what the eye catches, so the two tiers that matter keep scrolling
-// rather than showing once and going quiet.
-const LOW_FUND_THRESHOLD = 36;
-const CRITICAL_FUND_THRESHOLD = 10;
+// The two levels are the user's (Account page → settings.json; defaults
+// ¥10 / ¥5, see accountStore). Motion is what the eye catches, so the two
+// tiers that matter keep scrolling rather than showing once and going quiet.
 const MARQUEE_SECONDS = 9;
 const MARQUEE_GAP_PX = 48;
 
@@ -213,6 +213,9 @@ const AdBanner: React.FC = () => {
     const { t } = useTranslation();
     const fund = useAccountStore((state) => state.getFund());
     const billingBlocked = useAccountStore((state) => state.billingBlocked);
+    const { low: lowLevel, critical: criticalLevel } = useAccountStore((state) => state.fundThresholds);
+    const loadFundThresholds = useAccountStore((state) => state.loadFundThresholds);
+    const username = useUserStore((state) => state.username);
     const [lowDismissed, setLowDismissed] = useState(false);
     const navigate = useNavigate();
 
@@ -220,11 +223,16 @@ const AdBanner: React.FC = () => {
         ? 'blocked'
         : fund === null
             ? null
-            : fund <= CRITICAL_FUND_THRESHOLD
+            : fund <= criticalLevel
                 ? 'critical'
-                : fund <= LOW_FUND_THRESHOLD
+                : fund <= lowLevel
                     ? 'low'
                     : null;
+
+    // The signed-in user's own alarm levels.
+    useEffect(() => {
+        if (username) loadFundThresholds(username);
+    }, [username, loadFundThresholds]);
 
     // A dismissal only covers the tier it was made in: if the balance keeps
     // falling, or the cloud starts refusing calls, the bar comes back.

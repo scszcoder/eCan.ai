@@ -632,6 +632,9 @@ def patch_openai_client_for_lambda_proxy():
             extra = {
                 'X-User-Id': user_id,
                 'X-Provider': llm_provider or 'openai',
+                # Knowledge-base spend (ingestion + per-query embeddings) is its
+                # own billing line: LightRAG's calls never carry a skill id.
+                'X-Ecan-Source': 'lightrag',
             }
             existing = kwargs.get('default_headers') or {}
             if isinstance(existing, dict):

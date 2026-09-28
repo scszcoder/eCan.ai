@@ -4445,6 +4445,28 @@ class TaskRunner(Generic[Context]):
         except Exception as e:
             logger.error(get_traceback(e, "ErrorWaitInLine"))
     
+    def _delivery_attribution(self, target_task: "ManagedTask") -> dict:
+        """Who a delivered reply belongs to: this (front-desk) agent, its task,
+        the task's skill and the task's store. The billing server charges per
+        reply only when skill_id is the account's own copy of a certified
+        front-desk shape, so it must be the front desk's skill -- the Q&A run
+        that produced the text is billed through its tokens instead."""
+        card = getattr(self.agent, 'card', None)
+        skill = getattr(target_task, 'skill', None)
+        store_id = ''
+        try:
+            from agent.ec_skills.prompt_variable_providers import resolve_store_id
+            store_id = resolve_store_id((getattr(target_task, 'metadata', None) or {}).get('task_vars'))
+        except Exception:
+            store_id = ''
+        return {
+            "agent_id": getattr(card, 'id', None) or (card.get('id') if isinstance(card, dict) else None),
+            "task_id": getattr(target_task, 'id', None),
+            "skill_id": (getattr(skill, 'id', None)
+                         or (skill.get('id') if isinstance(skill, dict) else None)),
+            "store_id": store_id,
+        }
+
     def _try_direct_live_chat_delivery(self, target_task: "ManagedTask", request: Any) -> bool:
         """
         Attempt to deliver a chat_message response directly via the live-chat tools,
@@ -5709,6 +5731,9 @@ class TaskRunner(Generic[Context]):
                                 "customer": _customer_name,
                                 "source_msg_id": _source_msg_id,
                             },
+                            # The reply is billed to the front desk that
+                            # delivered it, not to whatever run is emitting.
+                            attribution=self._delivery_attribution(target_task),
                         )
                 except Exception as _meter_err:
                     # Metering must never break the path it measures.

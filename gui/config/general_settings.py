@@ -814,9 +814,13 @@ class GeneralSettings:
         # Filter out fields that should not be saved to settings.json
         # These fields are handled separately by their respective managers
         filtered_data = {
-            k: v for k, v in data.items() 
+            k: v for k, v in data.items()
             if k not in ['settings', 'llm_providers', 'embedding_providers', 'rerank_providers', 'username', 'token']
         }
+        # The balance-alarm levels are the user's own choice: log every change.
+        for key in ('low_fund_threshold', 'critical_fund_threshold'):
+            if key in filtered_data and filtered_data[key] != self._data.get(key):
+                logger.info(f"[FundAlert] {key}: {self._data.get(key)} -> {filtered_data[key]}")
         self._data.update(filtered_data)
 
     # ==================== Mode Check Methods ====================

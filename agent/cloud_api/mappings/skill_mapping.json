@@ -17,7 +17,9 @@
     "status",
     "run_mode",
     "mapping_rules",
-    "ui_info"
+    "ui_info",
+    "need_inputs",
+    "objectives"
   ],
   
   "operation_specific_exclusions": {

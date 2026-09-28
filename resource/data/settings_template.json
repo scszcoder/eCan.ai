@@ -66,6 +66,10 @@
             "browser_slots",
             "browser_max_agents_per_instance"
         ],
+        "billing": [
+            "low_fund_threshold",
+            "critical_fund_threshold"
+        ],
         "internal": [
             "last_bots_file",
             "last_bots_file_time",
@@ -118,6 +122,8 @@
     "skill_use_git": false,
     "browser_slots": [],
     "browser_max_agents_per_instance": 0,
+    "low_fund_threshold": 10,
+    "critical_fund_threshold": 5,
     "last_bots_file": "",
     "last_bots_file_time": 0,
     "last_order_file": "",

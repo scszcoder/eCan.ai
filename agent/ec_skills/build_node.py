@@ -3727,6 +3727,22 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             if async_client and "http_async_client" not in kwargs:
                 kwargs["http_async_client"] = async_client
 
+        # The eCan llm-proxy bills per skill from the X-Ecan-* headers; this
+        # direct (useProxy=false) client sent none. Hook them in per request.
+        if "llm-proxy" in str(value_map.get("base_url") or ""):
+            from utils.log_scope import apply_attribution_to_request, attribution_http_clients
+            _sc, _ac = attribution_http_clients()
+            if "http_client" in kwargs:
+                kwargs["http_client"].event_hooks.setdefault("request", []).append(apply_attribution_to_request)
+            elif _sc is not None:
+                kwargs["http_client"] = _sc
+            if "http_async_client" in kwargs:
+                async def _ahook(request):
+                    apply_attribution_to_request(request)
+                kwargs["http_async_client"].event_hooks.setdefault("request", []).append(_ahook)
+            elif _ac is not None:
+                kwargs["http_async_client"] = _ac
+
         return kwargs
 
     def _get_runtime_provider_env_vars(provider_name: str) -> list[str]:
@@ -4849,8 +4865,12 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                                     pass
 
                         start_time = time.time()
+                        # wrap_context: a bare Thread starts with an EMPTY
+                        # context (3.14 default), so the run scope -- and the
+                        # X-Ecan-Skill-Id the llm-proxy bills by -- was lost.
+                        from utils.log_scope import wrap_context as _wrap_ctx
                         thread = threading.Thread(
-                            target=_worker,
+                            target=_wrap_ctx(_worker),
                             name=f"llm-async-timeout-{node_name}-att{attempt_idx}",
                             daemon=True,
                         )
@@ -4952,8 +4972,12 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                                     pass
 
                         def _spawn(attempt_idx: int) -> threading.Thread:
+                            # One context copy per thread (a Context cannot be
+                            # entered by two threads at once); carries the run
+                            # scope / X-Ecan-* attribution into the attempt.
+                            from utils.log_scope import wrap_context as _wrap_ctx
                             t = threading.Thread(
-                                target=_hedged_worker,
+                                target=_wrap_ctx(_hedged_worker),
                                 args=(attempt_idx,),
                                 name=f"llm-async-hedge-{node_name}-att{attempt_idx}",
                                 daemon=True,
@@ -12699,8 +12723,9 @@ def _get_chat_llm(model_name: str, temperature: float = 0.0):
     applies, so the tool picker's spend is TRACKED (produces a llm_usage_logs row)
     and carries the same X-Ecan-* attribution as every other node. Previously it
     called OpenAI directly with the user's own secure-store key — invisible to
-    billing and the admin token-usage view. The direct OpenAI client remains the
-    fallback when the proxy isn't configured / is explicitly opted out.
+    billing and the admin token-usage view. When the proxy isn't configured /
+    is opted out, it uses the ecanai provider -- also the llm-proxy -- never a
+    vendor directly.
     """
     # Proxy path (tracked + attributed via the ws197 request hook at send time).
     try:
@@ -12722,23 +12747,13 @@ def _get_chat_llm(model_name: str, temperature: float = 0.0):
                     temperature=temperature,
                 )
             except Exception as e:
-                logger.warning(f"[_get_chat_llm] proxy build failed, falling back to direct OpenAI: {e}")
+                logger.warning(f"[_get_chat_llm] proxy build failed, falling back to the ecanai provider: {e}")
 
-    # Direct fallback: OpenAI with the secure-store key (untracked — only when
-    # the proxy is unavailable).
+    # Fallback: the ecanai provider (also the llm-proxy). Model calls never go
+    # to a vendor directly -- that spend would be invisible to billing.
     try:
-        username = get_current_username()
-        api_key = secure_store.get("OPENAI_API_KEY", username=username) or ""
-
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in secure store")
-
-        llm = ChatOpenAI(
-            model=model_name,
-            api_key=api_key,
-            temperature=temperature
-        )
-        return llm
+        from agent.ec_skills.llm_utils.llm_utils import create_ecanai_chat_llm
+        return create_ecanai_chat_llm(model_name, temperature=temperature)
     except Exception as e:
         err_msg = get_traceback(e, "ErrorCreatingLLM")
         logger.error(f"Failed to create LLM for tool picker: {err_msg}")

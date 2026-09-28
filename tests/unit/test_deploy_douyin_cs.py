@@ -326,3 +326,24 @@ class TestPromptAuthorResolution:
     def test_author_prefers_config_skill_owner(self):
         assert dc._skill_author({"owner": "buyer@x", "config": {"skill_owner": "author@x"}}) == "author@x"
         assert dc._skill_author({"owner": "buyer@x", "config": {}}) == "buyer@x"
+
+
+class TestErrorsInTheAppsLanguage:
+    """The Fast Deploy panel shows these messages to the customer: Chinese on
+    the CN build, English elsewhere."""
+
+    def test_cn_build_gets_chinese(self):
+        import os as _os
+        ctx = _make_ctx()
+        ctx.db.store_service.get_store.return_value = None
+        with patch.dict(_os.environ, {"ECAN_APP_ID": "cn"}):
+            with pytest.raises(RuntimeError, match="请先在店铺页面创建"):
+                dc._deploy_douyin_cs(TestDeployDouyinCs.CFG, ctx, "buyer@x")
+
+    def test_intl_build_gets_english(self):
+        import os as _os
+        ctx = _make_ctx()
+        ctx.db.store_service.get_store.return_value = None
+        with patch.dict(_os.environ, {"ECAN_APP_ID": "intl"}):
+            with pytest.raises(RuntimeError, match="create it on the Stores page"):
+                dc._deploy_douyin_cs(TestDeployDouyinCs.CFG, ctx, "buyer@x")

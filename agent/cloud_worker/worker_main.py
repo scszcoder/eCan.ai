@@ -2010,12 +2010,13 @@ def main() -> None:
     timeout_info = f"timeout={args.timeout}s" if args.timeout > 0 else "timeout=disabled"
     logger.info(f"[cloud_worker] starting rev={WORKER_REVISION} mode={args.mode} {timeout_info} bucket={args.bucket} region={args.region}")
     try:
-        openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
-        if openai_key:
-            masked = f"{openai_key[:8]}......{openai_key[-8:]}" if len(openai_key) > 16 else "[masked]"
-            logger.info(f"[cloud_worker] OPENAI_API_KEY detected: {masked}")
+        # Model calls go through the llm-proxy; never log any part of a key.
+        if (os.getenv("ECAN_LLM_PROXY_ENDPOINT") or "").strip():
+            logger.info("[cloud_worker] llm-proxy endpoint configured")
         else:
-            logger.warning("[cloud_worker] OPENAI_API_KEY not set in environment")
+            logger.warning("[cloud_worker] ECAN_LLM_PROXY_ENDPOINT not set -- LLM calls cannot be routed/billed")
+        if (os.getenv("OPENAI_API_KEY") or "").strip():
+            logger.warning("[cloud_worker] OPENAI_API_KEY is set in the worker environment (should not be)")
     except Exception:
         pass
 

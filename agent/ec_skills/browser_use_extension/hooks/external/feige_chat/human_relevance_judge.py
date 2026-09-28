@@ -21,12 +21,14 @@ where the human just said hi).
 
 Tunables (env)
 --------------
-``ECAN_HUMAN_JUDGE_ENABLED`` — ``true``/``1``/``yes``/``on`` (default ``true``).
-    Set to anything else to disable the judge entirely.  When disabled,
-    the caller falls back to the pre-mt048B unconditional drop.
+``ECAN_HUMAN_JUDGE_ENABLED`` — ``true``/``1``/``yes``/``on`` (default ``false``
+    since 2026-09-28: the judge had never actually run -- ``judge_async``
+    called two undefined helpers -- so it stays off until it is validated).
+    When disabled, the caller falls back to the pre-mt048B unconditional drop.
 
-``ECAN_HUMAN_JUDGE_MODEL`` — model name, default ``gpt-5-mini``.
-    A fast cheap judge model is plenty for binary classification.
+``ECAN_HUMAN_JUDGE_MODEL`` — model name, default ``qwen-plus``.
+    Served by the eCan llm-proxy (provider ``ecanai``), like every other
+    model call: billed per skill, and no vendor key needed on the machine.
 
 ``ECAN_HUMAN_JUDGE_TIMEOUT_S`` — float, default ``3.0``.
     Hard wall-clock cap on the judge call.  On timeout, judge returns
@@ -76,6 +78,7 @@ class JudgeVerdict:
 _JUDGE_LLM_CACHE: Optional[object] = None  # ChatOpenAI instance
 _JUDGE_LLM_LOCK = threading.Lock()
 _JUDGE_LLM_MODEL_KEY: str = ""  # which model the cached instance was built for
+_DEFAULT_MODEL = "qwen-plus"
 
 
 _SYSTEM_PROMPT = (
@@ -118,7 +121,15 @@ def _env_str(name: str, default: str) -> str:
 
 
 def is_enabled() -> bool:
-    return _env_bool("ECAN_HUMAN_JUDGE_ENABLED", True)
+    return _env_bool("ECAN_HUMAN_JUDGE_ENABLED", False)
+
+
+def _judge_model() -> str:
+    return _env_str("ECAN_HUMAN_JUDGE_MODEL", _DEFAULT_MODEL)
+
+
+def _judge_timeout_s() -> float:
+    return _env_float("ECAN_HUMAN_JUDGE_TIMEOUT_S", 3.0)
 
 
 def get_min_confidence() -> float:
@@ -131,9 +142,11 @@ def get_min_confidence() -> float:
 
 
 def _get_llm(model_name: str):
-    """Return a cached ChatOpenAI bound to the API key in the secure store.
+    """Return a cached ChatOpenAI on the eCan llm-proxy (provider ``ecanai``).
 
-    Cached per model name; rebuilds when the tunable changes between calls.
+    Model calls go through the proxy only -- it bills per skill from the
+    X-Ecan-* headers (stamped per request from the run scope) and needs no
+    vendor key here. Cached per model name.
     """
     global _JUDGE_LLM_CACHE, _JUDGE_LLM_MODEL_KEY
     if _JUDGE_LLM_CACHE is not None and _JUDGE_LLM_MODEL_KEY == model_name:
@@ -141,28 +154,8 @@ def _get_llm(model_name: str):
     with _JUDGE_LLM_LOCK:
         if _JUDGE_LLM_CACHE is not None and _JUDGE_LLM_MODEL_KEY == model_name:
             return _JUDGE_LLM_CACHE
-        from langchain_openai import ChatOpenAI
-        # 2026-05-27 mt050C — corrected import paths.  mt048B shipped
-        # with ``from utils.secure_store`` + ``from utils.user_context``
-        # which both ImportError at runtime (the actual module is
-        # ``utils.env.secure_store`` and ``get_current_username`` lives
-        # there too — see build_node.py:26).  This broke the judge
-        # entirely: every invocation returned
-        # ``JudgeVerdict(error="llm_init_failed", answered=False)``,
-        # which the runner interpreted as "human did NOT answer →
-        # allow bot reply through".  Live customer trace 2026-05-27
-        # 12:26:11 hit this: human typed "亲亲帮您查询了这个是有的哈"
-        # but bot's reply followed 28 s later asking for a product link.
-        from utils.env.secure_store import secure_store, get_current_username
-        username = get_current_username()
-        api_key = secure_store.get("OPENAI_API_KEY", username=username) or ""
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY not found in secure store")
-        _JUDGE_LLM_CACHE = ChatOpenAI(
-            model=model_name,
-            api_key=api_key,
-            temperature=0.0,  # deterministic classification
-        )
+        from agent.ec_skills.llm_utils.llm_utils import create_ecanai_chat_llm
+        _JUDGE_LLM_CACHE = create_ecanai_chat_llm(model_name, temperature=0.0)  # deterministic classification
         _JUDGE_LLM_MODEL_KEY = model_name
         return _JUDGE_LLM_CACHE
 
@@ -263,7 +256,7 @@ def judge(customer_question: str, human_text: str) -> JudgeVerdict:
     the timeout-then-drop cascade observed when the LLM was slow.
     """
     t0 = time.monotonic()
-    model = _env_str("ECAN_HUMAN_JUDGE_MODEL", "gpt-5-mini")
+    model = _judge_model()
 
     if not is_enabled():
         return JudgeVerdict(
@@ -297,7 +290,7 @@ def judge(customer_question: str, human_text: str) -> JudgeVerdict:
             error="",  # NOT an error — clean classification
         )
 
-    timeout_s = _env_float("ECAN_HUMAN_JUDGE_TIMEOUT_S", 3.0)
+    timeout_s = _judge_timeout_s()
     user_prompt = (
         f"客户的问题：{q}\n"
         f"人工客服刚才输入：{h}\n\n"

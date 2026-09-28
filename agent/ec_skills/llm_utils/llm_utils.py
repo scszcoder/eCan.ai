@@ -1284,6 +1284,37 @@ def extract_provider_config(provider, config_manager=None, node_model_name=None)
     }
 
 
+def create_ecanai_chat_llm(model_name: str, temperature: float = 0.0):
+    """A ChatOpenAI on the eCan llm-proxy (provider ``ecanai``) for internal
+    helper calls (tool picker, relevance judge, ...).
+
+    Every model call goes through the proxy: it bills per skill from the
+    X-Ecan-* headers (stamped per request from the run scope) and needs no
+    vendor key on the machine. Raises when ecanai isn't configured -- never
+    falls back to a vendor host.
+    """
+    from langchain_openai import ChatOpenAI
+    from app_context import AppContext
+    from utils.log_scope import attribution_http_clients
+    mainwin = AppContext.get_main_window()
+    cm = getattr(mainwin, "config_manager", None)
+    provider = cm.llm_manager.get_provider("ecanai") if cm else None
+    if not provider:
+        raise RuntimeError("ecanai provider not configured")
+    cfg = extract_provider_config(provider, config_manager=cm, node_model_name=model_name)
+    if not cfg.get("api_key") or not cfg.get("base_url"):
+        # Never fall through to ChatOpenAI's default host (a vendor).
+        raise RuntimeError("ecanai API key / llm-proxy URL not configured")
+    sync_client, async_client = attribution_http_clients()
+    kwargs = dict(model=model_name, api_key=cfg["api_key"], base_url=cfg["base_url"],
+                  temperature=temperature)
+    if sync_client is not None:
+        kwargs["http_client"] = sync_client
+    if async_client is not None:
+        kwargs["http_async_client"] = async_client
+    return ChatOpenAI(**kwargs)
+
+
 def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
     """
     Create LLM instance based on provider configuration.
@@ -2408,18 +2439,23 @@ def create_browser_use_llm_by_provider_type(
         # Domestic APIs (DashScope, DeepSeek, Baidu Qianfan, Bytedance) may have proxy restrictions
         # Optimization: Only creates no-proxy clients if proxy is actually configured
         domestic_apis_need_direct = ['dashscope', 'qwen', 'qwq', 'deepseek', 'baidu_qianfan', 'bytedance', 'moonshot']
-        
+
+        # ecanai routes to the eCan llm-proxy, which bills per skill from the
+        # X-Ecan-* headers: every request must carry them. (The attach used to
+        # sit inside the domestic branch below, which ecanai never enters, so
+        # browser-automation calls went out unattributed.)
+        if provider_type_id == 'ecanai':
+            _attributed = _attach_ecanai_attribution(None)
+            if _attributed is not None:
+                bu_config['http_client'] = _attributed
+            return _create_and_validate_browser_use_llm(bu_config)
+
         if provider_type_id in domestic_apis_need_direct:
             # Create no-proxy httpx clients (sync + async, thread-safe, doesn't modify global env vars)
             # Optimization: Only creates if proxy is configured
             # Note: browser-use requires AsyncClient for http_client parameter (despite the name)
             # This is because browser-use operates in async context
             sync_client, async_client = _create_no_proxy_http_client()
-            # ws197: ecanai routes to the eCan llm-proxy — ensure X-Ecan-*
-            # attribution rides each request (it used the bare API-key bearer
-            # before, so its usage rows had all attribution NULL).
-            if provider_type_id == 'ecanai':
-                async_client = _attach_ecanai_attribution(async_client)
 
             if async_client:
                 # Proxy is configured - use no-proxy ASYNC client (bypass proxy for domestic APIs)
@@ -3867,7 +3903,10 @@ def _run_async_in_worker_thread_once(awaitable_or_factory):
                 pass
             loop.close()
 
-    t = Thread(target=_worker, name="playwright-worker", daemon=True)
+    # wrap_context: a bare Thread starts with an empty context, which dropped
+    # the run scope and with it the X-Ecan-* attribution the llm-proxy bills by.
+    from utils.log_scope import wrap_context
+    t = Thread(target=wrap_context(_worker), name="playwright-worker", daemon=True)
     t.start()
     t.join()
     if "error" in error_holder:

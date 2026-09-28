@@ -27,6 +27,16 @@ import click
 from ..base.output import get_output
 
 
+def _tr(en: str, zh: str) -> str:
+    """User-facing error/warning text in the app's language (Chinese on the CN
+    build). The Fast Deploy panel shows these lines to the customer as-is."""
+    try:
+        from utils.app_env import is_cn
+        return zh if is_cn() else en
+    except Exception:
+        return en
+
+
 # ── Per-scenario recipes ─────────────────────────────────────────────────────
 # Each recipe returns (plan: dict, log: list[str]) given the scenario config.
 # `covered` marks recipes that are wired to real generation (none yet — all
@@ -227,7 +237,8 @@ def _write_run_env(env_map: dict, log: list) -> None:
             f"({len(env_map) - len(added)} already present) — restart the app to apply."
         )
     except Exception as e:
-        log.append(f"WARNING: run.env write failed ({e}) — set the Feige env flags manually.")
+        log.append(_tr(f"WARNING: run.env write failed ({e}) — set the Feige env flags manually.",
+                       f"警告：写入 run.env 失败（{e}），请手动设置飞鸽运行参数。"))
 
 
 _DDCS_QA_NAME_POOL = [
@@ -311,7 +322,8 @@ def _ensure_sales_org(ctx, owner: str, log: list) -> str:
         "owner": owner,
     })
     if not created.get("success"):
-        raise RuntimeError(f"Could not find or create Sales organization: {created.get('error')}")
+        raise RuntimeError(_tr(f"Could not find or create Sales organization: {created.get('error')}",
+                                f"无法找到或创建销售部门（Sales）：{created.get('error')}"))
     org_id = created.get("id")
     log.append(f"Sales organization created: {org_id}")
     return org_id
@@ -421,12 +433,14 @@ def _replace_cleanup(ctx, owner: str, skill_ids, log: list, store_id: str = "",
     for aid in agent_ids:
         r = ctx.db.agent_service.delete_agent(aid)
         if not (isinstance(r, dict) and r.get("success")):
-            raise RuntimeError(f"replace: delete agent {aid} failed: {(r or {}).get('error')}")
+            raise RuntimeError(_tr(f"replace: delete agent {aid} failed: {(r or {}).get('error')}",
+                                    f"替换模式：删除智能体 {aid} 失败：{(r or {}).get('error')}"))
         cloud_sync(DataType.AGENT, {"id": aid}, Operation.DELETE)
     for tid in task_ids:
         r = ctx.db.task_service.delete_task(tid)
         if not (isinstance(r, dict) and r.get("success")):
-            raise RuntimeError(f"replace: delete task {tid} failed: {(r or {}).get('error')}")
+            raise RuntimeError(_tr(f"replace: delete task {tid} failed: {(r or {}).get('error')}",
+                                    f"替换模式：删除任务 {tid} 失败：{(r or {}).get('error')}"))
         cloud_sync(DataType.TASK, {"id": tid}, Operation.DELETE)
 
     log.append(f"Replace mode: deleted {len(agent_ids)} agent(s) and {len(task_ids)} task(s) "
@@ -482,13 +496,15 @@ def _store_record(ctx, store_id: str, platform: str) -> dict:
     another platform is refused before anything is changed."""
     svc = getattr(ctx.db, "store_service", None)
     if svc is None:
-        raise RuntimeError("store catalog unavailable")
+        raise RuntimeError(_tr("store catalog unavailable", "无法读取店铺列表"))
     rec = svc.get_store(store_id)
     if not rec:
-        raise RuntimeError(f"store {store_id!r} is not in the store list -- create it on the Stores page first")
+        raise RuntimeError(_tr(f"store {store_id!r} is not in the store list -- create it on the Stores page first",
+                                f"店铺 {store_id} 不在店铺列表中，请先在店铺页面创建"))
     plat = str(rec.get("platform") or "").strip()
     if plat and plat != platform:
-        raise RuntimeError(f"store {store_id!r} is a {plat} store, not {platform}")
+        raise RuntimeError(_tr(f"store {store_id!r} is a {plat} store, not {platform}",
+                                f"店铺 {store_id} 属于 {plat} 平台，不是 {platform}"))
     return rec
 
 
@@ -579,7 +595,8 @@ def _set_run_env(env_map: dict, log: list) -> None:
         log.append(f"Runtime env set: {', '.join(f'{k}={v}' for k, v in env_map.items())} "
                    f"— restart the app to apply.")
     except Exception as e:
-        log.append(f"WARNING: run.env update failed ({e}) — set {sorted(env_map)} manually.")
+        log.append(_tr(f"WARNING: run.env update failed ({e}) — set {sorted(env_map)} manually.",
+                       f"警告：更新 run.env 失败（{e}），请手动设置 {sorted(env_map)}。"))
 
 
 def _find_skill(ctx, profile: _LiveChatProfile, role: str):
@@ -607,8 +624,9 @@ def _verify_live_chat_assets(ctx, profile: _LiveChatProfile, log: list) -> dict:
         sname = profile.qa_skill_name if role == "qa" else profile.fd_skill_name
         sid = profile.qa_skill_id if role == "qa" else profile.fd_skill_id
         if not row:
-            msg = (f"Skill {sname} ({sid}) is not visible — subscribe to it in the "
-                   f"skill store (public / rentable / ¥0) and retry.")
+            msg = _tr(f"Skill {sname} ({sid}) is not visible — subscribe to it in the "
+                      f"skill store (public / rentable / ¥0) and retry.",
+                      f"看不到技能 {sname}（{sid}）：请在技能商店订阅该技能后重试。")
             logger.error(f"[FastDeploy][{profile.scenario}] {msg}")
             raise RuntimeError(msg)
         rows[role] = row
@@ -616,9 +634,11 @@ def _verify_live_chat_assets(ctx, profile: _LiveChatProfile, log: list) -> dict:
                f"{profile.fd_skill_name} ({rows['fd'].get('id') or profile.fd_skill_id})")
     for pid, pname, role in profile.prompts:
         if not _prompt_visible(pid, _skill_author(rows[role]), log):
-            msg = (f"Prompt {pname} ({pid}) is not visible — it should come with "
-                   f"the subscribed skill {rows[role].get('name')}; re-subscribe "
-                   f"or sync prompts and retry.")
+            msg = _tr(f"Prompt {pname} ({pid}) is not visible — it should come with "
+                      f"the subscribed skill {rows[role].get('name')}; re-subscribe "
+                      f"or sync prompts and retry.",
+                      f"看不到提示词 {pname}（{pid}）：它应随已订阅的技能 "
+                      f"{rows[role].get('name')} 一起下载，请重新订阅或同步提示词后重试。")
             logger.error(f"[FastDeploy][{profile.scenario}] {msg}")
             raise RuntimeError(msg)
     log.append("Prompts verified: " + ", ".join(f"{n} ({p})" for p, n, _ in profile.prompts))
@@ -657,7 +677,8 @@ def _local_vehicle(owner: str, log: list):
         from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id
         return resolve_local_vehicle_id(username=os.environ.get("ECAN_LOG_USER") or owner) or None
     except Exception as e:
-        log.append(f"WARNING: local vehicle id resolution failed ({e}).")
+        log.append(_tr(f"WARNING: local vehicle id resolution failed ({e}).",
+                       f"警告：无法识别本机设备编号（{e}）。"))
         return None
 
 
@@ -680,13 +701,15 @@ class _Builder:
             "settings": settings,
         })
         if not tr.get("success"):
-            raise RuntimeError(f"add_task({name}) failed: {tr.get('error')}")
+            raise RuntimeError(_tr(f"add_task({name}) failed: {tr.get('error')}",
+                                    f"创建任务 {name} 失败：{tr.get('error')}"))
         tid = tr.get("id")
         self.created["tasks"].append(tid)
         link = self.ctx.db.task_service.add_skill_to_task(tid, skill_id, role="primary")
         self.links["task_skill"].append((tid, skill_id))
         if not (isinstance(link, dict) and link.get("success")):
-            raise RuntimeError(f"link task {name} → skill {skill_id} failed: {(link or {}).get('error')}")
+            raise RuntimeError(_tr(f"link task {name} → skill {skill_id} failed: {(link or {}).get('error')}",
+                                    f"将任务 {name} 关联到技能 {skill_id} 失败：{(link or {}).get('error')}"))
         return tid
 
     def agent(self, name: str, skill_id: str, task_id: str, vehicle_id=None) -> str:
@@ -700,7 +723,8 @@ class _Builder:
             adata["vehicle_id"] = vehicle_id
         ar = self.ctx.db.agent_service.create_agent_from_data(adata, self.owner)
         if not ar.get("success"):
-            raise RuntimeError(f"create agent {name} failed: {ar.get('error')}")
+            raise RuntimeError(_tr(f"create agent {name} failed: {ar.get('error')}",
+                                    f"创建智能体 {name} 失败：{ar.get('error')}"))
         aid = ar.get("id")
         self.created["agents"].append(aid)
         if task_id:
@@ -728,11 +752,13 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     #    per-store settings and metering would silently merge into the first.
     store_id = str(cfg.get("store_id") or "").strip()
     if not store_id:
-        raise RuntimeError("store_id is required -- pick a store (create it on the Stores page first)")
+        raise RuntimeError(_tr("store_id is required -- pick a store (create it on the Stores page first)",
+                                "请选择店铺（请先在店铺页面创建）"))
     rec = _store_record(ctx, store_id, profile.platform)
     store_urls = _store_urls_of(rec)
     if not store_urls:
-        raise RuntimeError(f"store {store_id!r} has no URL -- add it on the Stores page")
+        raise RuntimeError(_tr(f"store {store_id!r} has no URL -- add it on the Stores page",
+                                f"店铺 {store_id} 没有设置链接，请在店铺页面添加"))
 
     # ── 0) 'replace' mode: clear THIS STORE's previous deployment first.
     if str(cfg.get("mode") or "add").strip().lower() == "replace":
@@ -901,10 +927,10 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
         if sid and sid not in store_ids:
             store_ids.append(sid)
     if not store_ids:
-        raise RuntimeError("pick at least one store")
+        raise RuntimeError(_tr("pick at least one store", "请至少选择一个店铺"))
     qa_n = int(cfg.get("qa_agents") or 4)
     if qa_n < 1:
-        raise RuntimeError("at least one Q&A agent is needed")
+        raise RuntimeError(_tr("at least one Q&A agent is needed", "至少需要一个问答客服"))
     log = [f"Stores: {', '.join(store_ids)}; shared Q&A agents: {qa_n}"]
 
     recs = [_store_record(ctx, sid, profile.platform) for sid in store_ids]
@@ -926,7 +952,8 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
 
     vehicle_id = _local_vehicle(owner, log)
     if not vehicle_id:
-        log.append("WARNING: no local vehicle id — the shared Q&A pool is UNPINNED (it may start on other machines too).")
+        log.append(_tr("WARNING: no local vehicle id — the shared Q&A pool is UNPINNED (it may start on other machines too).",
+                        "警告：无法识别本机设备编号，共享问答客服未绑定到本机（可能也会在其他电脑上启动）。"))
     org_id = _ensure_sales_org(ctx, owner, log)
     if profile.env_append:
         _write_run_env(profile.env_append, log)
@@ -1013,7 +1040,7 @@ def scenario(config, output):
         with open(config, 'r', encoding='utf-8') as f:
             payload = json.load(f)
     except Exception as e:
-        _emit({"status": "failure", "message": f"Invalid config file: {e}", "log": []}, ok=False)
+        _emit({"status": "failure", "message": _tr(f"Invalid config file: {e}", f"配置文件无效：{e}"), "log": []}, ok=False)
         return
 
     scenario_key = str(payload.get("scenario") or "").strip()
@@ -1024,7 +1051,7 @@ def scenario(config, output):
         _emit({
             "status": "failure",
             "scenario": scenario_key,
-            "message": f"Unknown scenario: {scenario_key!r}",
+            "message": _tr(f"Unknown scenario: {scenario_key!r}", f"未知的场景：{scenario_key}"),
             "log": [f"No recipe registered for {scenario_key!r}"],
         }, ok=False)
         return
@@ -1042,14 +1069,14 @@ def scenario(config, output):
                                 _PLANNED_PLATFORMS.get(scenario_key, ""))
         except Exception as e:
             _emit({"status": "failure", "scenario": scenario_key,
-                   "message": str(e), "log": [f"Validation failed: {e}"]}, ok=False)
+                   "message": str(e), "log": [_tr(f"Validation failed: {e}", f"校验失败：{e}")]}, ok=False)
             return
         urls = cfg["store_urls"] = _store_urls_of(rec)
     if not isinstance(urls, list):
         _emit({
             "status": "failure",
             "scenario": scenario_key,
-            "message": "store_urls must be a list of URLs.",
+            "message": _tr("store_urls must be a list of URLs.", "店铺链接格式不正确"),
             "log": ["Validation failed: store_urls is not a list"],
         }, ok=False)
         return
@@ -1057,7 +1084,7 @@ def scenario(config, output):
         _emit({
             "status": "failure",
             "scenario": scenario_key,
-            "message": "At least one store URL is required.",
+            "message": _tr("At least one store URL is required.", "请至少提供一个店铺链接（在店铺页面设置）"),
             "log": ["Validation failed: store_urls is empty"],
         }, ok=False)
         return
@@ -1095,8 +1122,8 @@ def scenario(config, output):
             _emit({
                 "status": "failure",
                 "scenario": scenario_key,
-                "message": f"Deployment failed: {e}",
-                "log": [*pre_log, f"Error: {e}"],
+                "message": _tr(f"Deployment failed: {e}", f"部署失败：{e}"),
+                "log": [*pre_log, _tr(f"Error: {e}", f"错误：{e}")],
             }, ok=False)
             return
         log = [*pre_log, *log]
@@ -1123,8 +1150,8 @@ def scenario(config, output):
         _emit({
             "status": "failure",
             "scenario": scenario_key,
-            "message": f"Recipe failed: {e}",
-            "log": [f"Recipe error: {e}"],
+            "message": _tr(f"Recipe failed: {e}", f"生成失败：{e}"),
+            "log": [_tr(f"Recipe error: {e}", f"生成出错：{e}")],
         }, ok=False)
         return
 

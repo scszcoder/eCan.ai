@@ -2582,6 +2582,15 @@ export class IPCAPI {
     );
     }
 
+    /** Save the user's balance-alarm levels (settings.json low/critical_fund_threshold). */
+    public async saveFundThresholds(low: number, critical: number): Promise<APIResponse<void>> {
+        const response = await this.saveSettings({ low_fund_threshold: low, critical_fund_threshold: critical });
+        // Other save paths send the cached settings back whole: drop the copy
+        // that still holds the old levels.
+        if (response.success) this._settingsData = null;
+        return response;
+    }
+
     public async newKnowledges<T>(values: T[]): Promise<APIResponse<void>> {
         return apiRouter.execute({ method: 'new_knowledges' }, values);
     }

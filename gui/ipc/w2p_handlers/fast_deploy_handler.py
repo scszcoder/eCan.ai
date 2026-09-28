@@ -68,6 +68,15 @@ def _fast_deploy_dir() -> Path:
         return d
 
 
+def _tr(en: str, zh: str) -> str:
+    """Panel-facing error text in the app's language (Chinese on the CN build)."""
+    try:
+        from utils.app_env import is_cn
+        return zh if is_cn() else en
+    except Exception:
+        return en
+
+
 @IPCHandlerRegistry.handler("fast_deploy.generate")
 def handle_fast_deploy_generate(request: IPCRequest,
                                 params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -77,13 +86,14 @@ def handle_fast_deploy_generate(request: IPCRequest,
         scenario = str(params.get("scenario") or "").strip()
         config = params.get("config") or {}
         if not scenario:
-            return create_error_response(request, "INVALID_PARAMS", "scenario is required")
+            return create_error_response(request, "INVALID_PARAMS", _tr("scenario is required", "缺少场景"))
         # A store deploy names its store(s) -- their URLs are on the store records;
         # the other scenarios name URLs.
         if not isinstance(config, dict) or not (config.get("store_urls") or config.get("stores")
                                                 or config.get("store_id")):
             return create_error_response(request, "INVALID_PARAMS",
-                                         "config.store_id, config.stores or config.store_urls is required")
+                                         _tr("config.store_id, config.stores or config.store_urls is required",
+                                             "请选择店铺"))
 
         out_dir = _fast_deploy_dir()
         ts = time.strftime("%Y%m%d-%H%M%S")
@@ -175,7 +185,8 @@ def handle_fast_deploy_generate(request: IPCRequest,
         if not log and proc.stderr.strip():
             log = [proc.stderr.strip()]
         if not result and not log:
-            log = ["Resource generation did not produce a result — see eCan.log for the CLI error."]
+            log = [_tr("Resource generation did not produce a result — see eCan.log for the CLI error.",
+                       "生成未产生结果，请查看 eCan.log 中的错误信息。")]
 
         return create_success_response(request, {
             "status": status,
@@ -187,7 +198,7 @@ def handle_fast_deploy_generate(request: IPCRequest,
         })
     except subprocess.TimeoutExpired:
         logger.error("[FastDeploy] CLI timed out")
-        return create_error_response(request, "TIMEOUT", "Resource generation timed out")
+        return create_error_response(request, "TIMEOUT", _tr("Resource generation timed out", "生成超时"))
     except Exception as e:
         logger.error(f"[FastDeploy] error: {e}")
         return create_error_response(request, "FAST_DEPLOY_ERROR", str(e))

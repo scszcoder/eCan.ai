@@ -133,6 +133,15 @@ def _resolve_llm(provider_id_hint: str = "", model_name_hint: str = "") -> tuple
         kwargs["api_key"] = api_key
     if api_base:
         kwargs["base_url"] = api_base
+    if canonical == "ecanai" or "llm-proxy" in api_base:
+        # The llm-proxy bills from the X-Ecan-* headers; without the hook this
+        # chat's spend landed unattributed.
+        from utils.log_scope import attribution_http_clients
+        sync_client, async_client = attribution_http_clients()
+        if sync_client is not None:
+            kwargs["http_client"] = sync_client
+        if async_client is not None:
+            kwargs["http_async_client"] = async_client
     return ChatOpenAI(**kwargs), provider_id, model_name
 
 
@@ -389,7 +398,9 @@ def handle_prompt_agent_chat(request: IPCRequest, params: Optional[dict]) -> IPC
             "prompt_id": prompt_id,
             "user_email": user_email,
         }
-        result = graph.invoke(initial)
+        from utils.log_scope import scope as _log_scope
+        with _log_scope(source="prompt_agent"):   # its own line on the bill
+            result = graph.invoke(initial)
 
         if result.get("error"):
             return create_error_response(request, 'AGENT_ERROR', result["error"])

@@ -11,6 +11,7 @@ import { eventBus } from '../../utils/eventBus';
 import TokenUsageSection from './TokenUsageSection';
 import BillingDrilldown from './BillingDrilldown';
 import ContactVerification from './ContactVerification';
+import FundAlertThresholds from './FundAlertThresholds';
 
 const { Title, Text } = Typography;
 
@@ -551,6 +552,9 @@ const Account: React.FC = () => {
 
             {/* Billing drill-down: daily → hourly → per-model, with top-ups merged */}
             <BillingDrilldown />
+
+            {/* The user's own balance-alarm levels for the top bar */}
+            <FundAlertThresholds />
         </div>
     );
 };

@@ -410,3 +410,49 @@ class PluginGuiCspOriginTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReplyBilledToFrontDeskTests(unittest.TestCase):
+    """Per-skill billing (2026-09-28): the server charges a reply only when its
+    skill_id is the account's copy of a certified FRONT-DESK shape. The reply is
+    delivered on the Q&A agent's call, so the run scope alone names the wrong
+    skill (or none) -- the delivery point must pass the front desk's."""
+
+    def test_attribution_overrides_the_run_scope(self) -> None:
+        from agent.ec_skills import metering
+        from utils.log_scope import scope
+        svc = mock.Mock()
+        svc.record_event.return_value = True
+        with mock.patch.object(metering, "_service", return_value=svc), \
+             scope(skill_id="SK_QA", task_id="T_QA", agent_id="A_QA", store_id=""):
+            metering.emit("cs_chat", "message_replied", idempotency_key="k1",
+                          attribution={"skill_id": "SK_FD", "task_id": "T_FD",
+                                       "agent_id": "A_FD", "store_id": "shop-a"})
+        row = svc.record_event.call_args.args[0]
+        self.assertEqual((row["skill_id"], row["task_id"], row["agent_id"], row["store_id"]),
+                         ("SK_FD", "T_FD", "A_FD", "shop-a"))
+
+    def test_empty_override_keeps_the_scope(self) -> None:
+        from agent.ec_skills import metering
+        from utils.log_scope import scope
+        svc = mock.Mock()
+        with mock.patch.object(metering, "_service", return_value=svc), \
+             scope(skill_id="SK_RUN"):
+            metering.emit("cs_chat", "message_replied", idempotency_key="k2",
+                          attribution={"skill_id": None})
+        self.assertEqual(svc.record_event.call_args.args[0]["skill_id"], "SK_RUN")
+
+    def test_the_delivery_point_passes_the_front_desk(self) -> None:
+        idx = RUNNER_SRC.find('_outcome.reason = "all_ok"')
+        block = RUNNER_SRC[idx:idx + 2200]
+        self.assertIn("attribution=self._delivery_attribution(target_task)", block)
+
+    def test_delivery_attribution_is_the_target_tasks(self) -> None:
+        from types import SimpleNamespace
+        from agent.ec_tasks.runner import TaskRunner
+        runner = TaskRunner.__new__(TaskRunner)
+        runner.agent = SimpleNamespace(card=SimpleNamespace(id="A_FD"))
+        task = SimpleNamespace(id="T_FD", skill=SimpleNamespace(id="SK_FD"),
+                               metadata={"task_vars": {"store_id": "shop-a"}})
+        self.assertEqual(runner._delivery_attribution(task),
+                         {"agent_id": "A_FD", "task_id": "T_FD", "skill_id": "SK_FD", "store_id": "shop-a"})

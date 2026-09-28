@@ -87,6 +87,18 @@ export interface AccountData {
     api_key: APIKeyInfo;
 }
 
+/** Balance-alarm defaults (currency units: ¥ on CN, $ on intl); the user can
+ *  change them on the Account page (settings.json). */
+export const DEFAULT_LOW_FUND_THRESHOLD = 10;
+export const DEFAULT_CRITICAL_FUND_THRESHOLD = 5;
+
+export interface FundThresholds {
+    /** "running low" banner at or below this balance */
+    low: number;
+    /** scrolling, non-dismissible banner at or below this balance */
+    critical: number;
+}
+
 interface AccountState {
     accountData: AccountData | null;
     isLoading: boolean;
@@ -114,6 +126,13 @@ interface AccountState {
      *  account, so the warning cannot scroll past unnoticed. */
     billingBlocked: boolean;
     setBillingBlocked: (blocked: boolean) => void;
+
+    /** The balance-alarm levels the banner uses. */
+    fundThresholds: FundThresholds;
+    /** Read them from settings.json (defaults when unset or unreadable). */
+    loadFundThresholds: (username: string) => Promise<void>;
+    /** Apply and persist them; false when the save failed (nothing changed). */
+    saveFundThresholds: (thresholds: FundThresholds) => Promise<boolean>;
 }
 
 export const useAccountStore = create<AccountState>((set, get) => ({
@@ -124,7 +143,35 @@ export const useAccountStore = create<AccountState>((set, get) => ({
     billingBlocked: false,
 
     setBillingBlocked: (blocked) => set({ billingBlocked: blocked }),
-    
+
+    fundThresholds: { low: DEFAULT_LOW_FUND_THRESHOLD, critical: DEFAULT_CRITICAL_FUND_THRESHOLD },
+
+    loadFundThresholds: async (username) => {
+        try {
+            const { ipcApi } = await import('../services/ipc/api');
+            const response = await ipcApi.getSettings<any>(username);
+            const s = (response?.data as any)?.settings ?? response?.data ?? {};
+            const num = (v: unknown, d: number) => (typeof v === 'number' && v >= 0 ? v : d);
+            const low = num(s.low_fund_threshold, DEFAULT_LOW_FUND_THRESHOLD);
+            const critical = Math.min(num(s.critical_fund_threshold, DEFAULT_CRITICAL_FUND_THRESHOLD), low);
+            set({ fundThresholds: { low, critical } });
+        } catch {
+            /* keep the defaults */
+        }
+    },
+
+    saveFundThresholds: async ({ low, critical }) => {
+        try {
+            const { ipcApi } = await import('../services/ipc/api');
+            const response = await ipcApi.saveFundThresholds(low, critical);
+            if (!response?.success) return false;
+            set({ fundThresholds: { low, critical } });
+            return true;
+        } catch {
+            return false;
+        }
+    },
+
     setAccountData: (data) => set({ 
         accountData: data, 
         lastUpdated: Date.now(),

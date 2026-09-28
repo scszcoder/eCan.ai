@@ -4099,6 +4099,14 @@
     "billingBlocked": "此账户暂无法使用云端 AI 服务，请前往账户页面查看。"
   },
   "account": {
+    "fundAlertTitle": "余额提醒",
+    "fundAlertDesc": "设置顶部栏在余额多少时提醒您。",
+    "fundAlertLow": "余额偏低",
+    "fundAlertLowHint": "余额等于或低于此值时，显示可关闭的红色提示栏。",
+    "fundAlertCritical": "余额严重不足",
+    "fundAlertCriticalHint": "余额等于或低于此值时，显示无法关闭的滚动提示栏。",
+    "fundAlertSaved": "余额提醒已保存",
+    "fundAlertSaveFailed": "余额提醒保存失败",
     "planBasic": "基础版",
     "planPro": "专业版",
     "planCustom": "定制版",

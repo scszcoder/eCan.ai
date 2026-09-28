@@ -4040,6 +4040,14 @@
     "billingBlocked": "Cloud AI service unavailable for this account — check the Account page."
   },
   "account": {
+    "fundAlertTitle": "Balance alerts",
+    "fundAlertDesc": "Choose when the top bar warns you about your balance.",
+    "fundAlertLow": "Running low",
+    "fundAlertLowHint": "A red bar you can dismiss appears at or below this balance.",
+    "fundAlertCritical": "Critically low",
+    "fundAlertCriticalHint": "A scrolling bar that cannot be dismissed appears at or below this balance.",
+    "fundAlertSaved": "Balance alerts saved",
+    "fundAlertSaveFailed": "Could not save the balance alerts",
     "planBasic": "Basic",
     "planPro": "Pro",
     "planCustom": "Custom",

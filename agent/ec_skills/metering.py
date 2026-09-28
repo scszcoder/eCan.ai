@@ -104,6 +104,7 @@ def emit(
     cost_basis: Optional[Mapping[str, Any]] = None,
     occurred_at: Optional[datetime] = None,
     owner: Optional[str] = None,
+    attribution: Optional[Mapping[str, Any]] = None,
 ) -> bool:
     """Record one billable business outcome. Returns True if a NEW row landed.
 
@@ -113,7 +114,11 @@ def emit(
     should branch on it.
 
     Attribution (store / agent / task / skill / vehicle) is read from the run
-    scope, so callers pass only what identifies the OUTCOME.
+    scope, so callers pass only what identifies the OUTCOME. ``attribution``
+    overrides scope keys when the outcome belongs to a different run than the
+    one emitting it -- a live-chat reply is delivered on the Q&A agent's call
+    but billed to the front-desk skill that delivered it (the server charges
+    per reply only for that skill).
     """
     if not scenario_code or not meter_code or not idempotency_key:
         logger.warning(
@@ -124,6 +129,7 @@ def emit(
 
     try:
         sc = _scope()
+        sc.update({k: v for k, v in (attribution or {}).items() if v})
         store_id = str(sc.get("store_id") or "")
         row = {
             "id": f"ue_{uuid.uuid4().hex[:16]}",
