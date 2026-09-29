@@ -38,6 +38,7 @@ import { useTranslation } from 'react-i18next';
 import type { Skill, SkillRunMode, SkillNeedInput } from '@/types/domain/skill';
 
 import { useNavigate } from 'react-router-dom';
+import { isSameOwner } from '@/utils/ownerIdentity';
 import { useSkillStore } from '@/stores/domain/skillStore';
 import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
@@ -378,7 +379,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const skillSource = String(((skill as any)?.source ?? '')).trim().toLowerCase();
     const skillPathValue = String(((skill as any)?.path ?? '')).trim();
     const isUiSkill = skillSource === 'ui';
-    const isOwnedByOwner = !!ownerValue && !!usernameValue && ownerValue.toLowerCase() === usernameValue.toLowerCase();
+    // WeChat logins: local `wechat_<openid>` vs cloud bare openid (see ownerIdentity).
+    const isOwnedByOwner = isSameOwner(ownerValue, usernameValue);
     const isOwnedByPath = isResourceMySkillsPath(skillPathValue);
     const isOwnedByUser = !!skill && !isNew && (isOwnedByOwner || isOwnedByPath || (isUiSkill && isOwnedByPath));
     // Skill owned by another user — editor cannot open (no writable local files)
@@ -1295,7 +1297,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     padding: 10px 0 0 !important;
                 }
             `}</style>
-            <div data-skills-details>
+            {/* flex column bounded by the panel: without it this wrapper grew to
+                the content's height, the form never scrolled, and the action bar
+                (编辑 / 保存) was pushed below the drawer -- the page looked locked. */}
+            <div data-skills-details style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <FormContainer ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 12px' }}>
                 <Space direction="vertical" style={{ width: '100%' }} size={12}>
                 {/* Hero Header */}

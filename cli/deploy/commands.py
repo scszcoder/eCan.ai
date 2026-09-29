@@ -58,26 +58,9 @@ def _recipe_customer_service(scenario: str, cfg: dict):
     return plan, log
 
 
-def _recipe_operation(scenario: str, cfg: dict):
-    urls = cfg.get("store_urls") or []
-    n = max(1, len(urls))
-    log = [
-        f"Scenario: {scenario}",
-        f"Store URLs: {len(urls)}",
-        f"[plan] {n} operation agent(s) (one per store)",
-        f"[plan] 1 skill (store operation)",
-        f"[plan] {n} task(s)",
-    ]
-    plan = {"agents": n, "skills": 1, "tasks": n}
-    return plan, log
-
-
 # The store platform each planned (not yet generating) scenario deploys to --
 # a picked store must be of this platform.
-_PLANNED_PLATFORMS = {
-    "tmall_cs": "tmall", "amazon_ops": "amazon", "ebay_ops": "ebay",
-    "etsy_ops": "etsy", "shopify_ops": "shopify", "tiktok_ops": "tiktok",
-}
+_PLANNED_PLATFORMS = {"tmall_cs": "tmall"}
 
 _RECIPES = {
     "douyin_cs": _recipe_customer_service,
@@ -85,11 +68,6 @@ _RECIPES = {
     "pdd_cs": _recipe_customer_service,
     "pdd_cs_multi": _recipe_customer_service,
     "tmall_cs": _recipe_customer_service,
-    "amazon_ops": _recipe_operation,
-    "ebay_ops": _recipe_operation,
-    "etsy_ops": _recipe_operation,
-    "shopify_ops": _recipe_operation,
-    "tiktok_ops": _recipe_operation,
 }
 
 
@@ -306,26 +284,26 @@ def _prompt_visible(prompt_id: str, skill_owner: str, log: list) -> bool:
     return False
 
 
-def _ensure_sales_org(ctx, owner: str, log: list) -> str:
-    """Return the Sales organization id, creating the org if absent."""
-    result = ctx.db.org_service.search_orgs(name=_DDCS_SALES_ORG_NAME)
+def _ensure_sales_org(ctx, owner: str, log: list, name: str = _DDCS_SALES_ORG_NAME) -> str:
+    """Return the id of organization *name* (Sales by default), creating it if absent."""
+    result = ctx.db.org_service.search_orgs(name=name)
     rows = result.get("data") or [] if isinstance(result, dict) else []
     exact = [r for r in rows
-             if str(r.get("name", "")).strip().lower() == _DDCS_SALES_ORG_NAME.lower()]
+             if str(r.get("name", "")).strip().lower() == name.lower()]
     if exact:
         org_id = exact[0].get("id")
-        log.append(f"Sales organization found: {org_id}")
+        log.append(f"{name} organization found: {org_id}")
         return org_id
     created = ctx.db.org_service.add_org({
-        "name": _DDCS_SALES_ORG_NAME,
-        "description": "Sales organization (created by Fast Deploy)",
+        "name": name,
+        "description": f"{name} organization (created by Fast Deploy)",
         "owner": owner,
     })
     if not created.get("success"):
-        raise RuntimeError(_tr(f"Could not find or create Sales organization: {created.get('error')}",
-                                f"无法找到或创建销售部门（Sales）：{created.get('error')}"))
+        raise RuntimeError(_tr(f"Could not find or create {name} organization: {created.get('error')}",
+                                f"无法找到或创建部门（{name}）：{created.get('error')}"))
     org_id = created.get("id")
-    log.append(f"Sales organization created: {org_id}")
+    log.append(f"{name} organization created: {org_id}")
     return org_id
 
 
@@ -690,16 +668,20 @@ class _Builder:
         self.created = {"skills": [], "tasks": [], "agents": []}
         self.links = {"task_skill": [], "agent_task": []}
 
-    def task(self, name: str, skill_id: str, task_vars: dict, identity: dict | None = None) -> str:
+    def task(self, name: str, skill_id: str, task_vars: dict, identity: dict | None = None,
+             trigger: str = "auto", schedule: dict | None = None) -> str:
         settings = {"task_vars": dict(task_vars)}
         if identity:
             settings["browser_identity"] = dict(identity)
-        tr = self.ctx.db.task_service.add_task({
+        row = {
             "name": name, "owner": self.owner, "source": "fast_deploy",
             "description": f"{self.label} — Fast Deploy (shared skill)",
-            "task_type": "browser_automation", "trigger": "auto", "status": "pending",
+            "task_type": "browser_automation", "trigger": trigger, "status": "pending",
             "settings": settings,
-        })
+        }
+        if schedule:
+            row["schedule"] = dict(schedule)
+        tr = self.ctx.db.task_service.add_task(row)
         if not tr.get("success"):
             raise RuntimeError(_tr(f"add_task({name}) failed: {tr.get('error')}",
                                     f"创建任务 {name} 失败：{tr.get('error')}"))
@@ -798,7 +780,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     # logged-in browser (build_helpers.browser_type_for_identity). Local only
     # -- the profile never syncs.
     rec = {**rec, "store_id": store_id, "name": rec.get("name") or store_id}
-    identity, needs = _ensure_store_login(ctx, rec, profile, log)
+    identity, needs = _ensure_store_login(ctx, rec, profile.login_domain, log)
     log.append(f"Browser: store {store_id!r} runs in its own login profile "
                f"{identity['browser_profile_id']!r}")
     needs_login = ([{"store_id": store_id, "store_name": rec["name"],
@@ -880,7 +862,7 @@ def _profile_registry():
     return profile_registry
 
 
-def _ensure_store_login(ctx, rec: dict, profile: _LiveChatProfile, log: list):
+def _ensure_store_login(ctx, rec: dict, login_domain: str, log: list):
     """(browser identity, needs_login) for one store -- creating its login profile if it has none.
 
     A store with no profile of its own would run in the shared default browser,
@@ -898,7 +880,7 @@ def _ensure_store_login(ctx, rec: dict, profile: _LiveChatProfile, log: list):
         pid = _login_profile_id(store_id)
     if not reg.get_profile(pid):
         prof = reg.make_profile(pid, label=f"{rec.get('name') or store_id}",
-                                domain_name=profile.login_domain, locale="zh-CN", store_id=store_id)
+                                domain_name=login_domain, locale="zh-CN", store_id=store_id)
         reg.save_profile(prof)
         log.append(f"Login profile {pid!r} created for store {store_id!r} (sign it in once)")
     try:
@@ -965,7 +947,7 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
         sid = rec["store_id"]
         name = str(rec.get("name") or sid)
         urls = _store_urls_of(rec)
-        identity, needs = _ensure_store_login(ctx, rec, profile, log)
+        identity, needs = _ensure_store_login(ctx, rec, profile.login_domain, log)
         if needs:
             needs_login.append({"store_id": sid, "store_name": name,
                                 "profile_id": identity["browser_profile_id"]})
@@ -992,6 +974,137 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
             "stores": len(recs), "needs_login": needs_login}
     logger.info(f"[FastDeploy][{profile.scenario}_multi] SUCCESS: {len(recs)} store(s), "
                 f"{plan['agents']} agent(s), {plan['tasks']} task(s); {len(needs_login)} need a login")
+    _sync_created_to_cloud(ctx, b.created, b.links, log)
+    return plan, log, b.created
+
+
+# ── Store operations (运营): one agent per role, on the platform's role skills ──
+# Each role runs the skill named exactly <platform>_<role>_0. After-sales runs
+# on the schedule chosen in the panel (processing orders and messages); the
+# other roles start on a chat message, so the manager (or the owner, in chat)
+# decides when they work.
+
+_OPS_PLATFORMS = {
+    "amazon_ops": ("amazon", "亚马逊", "Amazon"),
+    "ebay_ops": ("ebay", "eBay", "eBay"),
+    "etsy_ops": ("etsy", "Etsy", "Etsy"),
+    "shopify_ops": ("shopify", "Shopify", "Shopify"),
+    "tiktok_ops": ("tiktok", "TikTok", "TikTok"),
+}
+
+# (role, 中文, English); manage last -- its task carries the others' agent ids.
+_OPS_ROLES = (
+    ("after_sales", "售后", "After-sales"),
+    ("pre_sales", "售前", "Pre-sales"),
+    ("sales", "销售", "Sales"),
+    ("marketing", "营销", "Marketing"),
+    ("procurement", "采购", "Procurement"),
+    ("research", "调研", "Research"),
+    ("manage", "经理", "Manager"),
+)
+_OPS_ORG_NAME = "Operations"
+_OPS_SCHEDULE_UNITS = ("minutes", "hours", "days")
+
+
+def _find_skill_by_exact_name(ctx, name: str):
+    try:
+        rows = (ctx.db.skill_service.query_skills(name=name) or {}).get("data") or []
+    except Exception:
+        rows = []
+    exact = [x for x in rows if str(x.get("name") or "").strip() == name]
+    return exact[0] if exact else None
+
+
+def _ops_schedule(cfg: dict) -> dict:
+    """The after-sales task's schedule (same shape the Tasks page saves)."""
+    sch = cfg.get("schedule") if isinstance(cfg.get("schedule"), dict) else {}
+    start = str(sch.get("start") or "").strip()
+    unit = str(sch.get("unit") or "").strip().lower()
+    try:
+        every = int(sch.get("every") or 0)
+    except (TypeError, ValueError):
+        every = 0
+    if not start or every < 1 or unit not in _OPS_SCHEDULE_UNITS:
+        raise RuntimeError(_tr("the after-sales schedule needs a start time and a repeat interval",
+                               "请设置售后任务的开始时间和执行间隔"))
+    return {
+        "repeat_type": f"by {unit}", "repeat_number": every, "repeat_unit": f"by {unit}",
+        "start_date_time": start, "end_date_time": None, "time_out": 3600,
+    }
+
+
+def _deploy_operations(cfg: dict, ctx, owner: str, scenario_key: str):
+    """One store's operations team: a task + agent per role skill. Returns (plan, log, created)."""
+    from urllib.parse import urlparse
+    from utils.logger_helper import logger_helper as logger
+
+    platform, plat_zh, plat_en = _OPS_PLATFORMS[scenario_key]
+    label = _tr(f"{plat_en} operations", f"{plat_zh}运营")
+    log = []
+
+    store_id = str(cfg.get("store_id") or "").strip()
+    if not store_id:
+        raise RuntimeError(_tr("store_id is required -- pick a store (create it on the Stores page first)",
+                                "请选择店铺（请先在店铺页面创建）"))
+    rec = _store_record(ctx, store_id, platform)
+    store_urls = _store_urls_of(rec)
+    if not store_urls:
+        raise RuntimeError(_tr(f"store {store_id!r} has no URL -- add it on the Stores page",
+                                f"店铺 {store_id} 没有设置链接，请在店铺页面添加"))
+    store_name = str(rec.get("name") or store_id)
+    schedule = _ops_schedule(cfg)
+
+    # Every role skill must exist BEFORE anything is created.
+    skills, missing = {}, []
+    for role, _zh, _en in _OPS_ROLES:
+        name = f"{platform}_{role}_0"
+        row = _find_skill_by_exact_name(ctx, name)
+        if row:
+            skills[role] = row
+        else:
+            missing.append(name)
+    if missing:
+        raise RuntimeError(_tr(
+            f"missing skills: {', '.join(missing)} -- subscribe to or create them, then retry",
+            f"缺少技能：{', '.join(missing)}，请先订阅或创建这些技能后重试"))
+    log.append("Skills verified: " + ", ".join(f"{r['name']} ({r.get('id')})" for r in skills.values()))
+
+    _ensure_account_api_key(log, scenario_key)
+    org_id = _ensure_sales_org(ctx, owner, log, name=_OPS_ORG_NAME)
+    rec = {**rec, "store_id": store_id, "name": store_name}
+    identity, needs = _ensure_store_login(ctx, rec, urlparse(store_urls[0]).hostname or "", log)
+    needs_login = ([{"store_id": store_id, "store_name": store_name,
+                     "profile_id": identity["browser_profile_id"]}] if needs else [])
+    log.append(f"Placement: agents follow store {store_id!r}'s assignment, not this machine")
+
+    base_vars = {"store_id": store_id, "store_url": store_urls[0], "store_urls": ",".join(store_urls)}
+    b = _Builder(ctx, owner, org_id, label)
+    agent_ids = {}
+    for role, zh, en in _OPS_ROLES:
+        skill_id = skills[role].get("id")
+        tvars = dict(base_vars)
+        if role == "manage":
+            # The manager messages the others: give its prompt their agent ids.
+            tvars.update({f"{r}_agent_id": aid for r, aid in agent_ids.items()})
+        role_name = _tr(en, zh)
+        if role == "after_sales":
+            tid = b.task(f"{plat_zh}{zh}-{store_name}", skill_id, tvars, identity,
+                         trigger="schedule", schedule=schedule)
+        else:
+            tid = b.task(f"{plat_zh}{zh}-{store_name}", skill_id, tvars, identity, trigger="message")
+        agent_ids[role] = b.agent(f"{store_name}-{role_name}", skill_id, tid, None)
+        log.append(f"Created {role_name}: task {tid} → {skills[role].get('name')}, agent {agent_ids[role]}"
+                   + (f" (every {schedule['repeat_number']} {schedule['repeat_type'][3:]} "
+                      f"from {schedule['start_date_time']})" if role == "after_sales" else " (starts on a chat message)"))
+    if needs_login:
+        log.append(_tr(f"Sign store {store_name!r} in once (Settings → Browser Profiles → Launch): "
+                       f"{identity['browser_profile_id']}",
+                       f"请先登录店铺 {store_name}（设置 → 浏览器配置 → 启动）：{identity['browser_profile_id']}"))
+
+    plan = {"agents": len(b.created["agents"]), "skills": 0, "tasks": len(b.created["tasks"]),
+            "needs_login": needs_login}
+    logger.info(f"[FastDeploy][{scenario_key}] SUCCESS: {plan['agents']} agent(s), "
+                f"{plan['tasks']} task(s) for store {store_id!r}")
     _sync_created_to_cloud(ctx, b.created, b.links, log)
     return plan, log, b.created
 
@@ -1047,7 +1160,7 @@ def scenario(config, output):
     cfg = payload.get("config") or {}
     recipe = _RECIPES.get(scenario_key)
 
-    if not recipe:
+    if not recipe and scenario_key not in _OPS_PLATFORMS:
         _emit({
             "status": "failure",
             "scenario": scenario_key,
@@ -1059,8 +1172,8 @@ def scenario(config, output):
     base_key = scenario_key[:-len("_multi")] if scenario_key.endswith("_multi") else scenario_key
     is_multi = scenario_key.endswith("_multi")
     urls = cfg.get("store_urls") or []
-    if is_multi or base_key in _LIVE_CHAT_PROFILES:
-        urls = urls or ["(from each store's record)"]   # live-chat deploys read URLs off the stores
+    if is_multi or base_key in _LIVE_CHAT_PROFILES or base_key in _OPS_PLATFORMS:
+        urls = urls or ["(from each store's record)"]   # these deploys read URLs off the stores
     elif not urls and str(cfg.get("store_id") or "").strip():
         # A store picked in the panel: its URLs are on its record (Stores page).
         try:
@@ -1139,6 +1252,36 @@ def scenario(config, output):
                 + (f"for {plan.get('stores')} store(s) with a shared Q&A pool. "
                    if is_multi else "referencing the shared skills (no copies). ")
                 + (f"{len(plan.get('needs_login') or [])} store(s) need a one-time login."
+                   if plan.get("needs_login") else "")
+            ),
+        }, ok=True)
+        return
+
+    if scenario_key in _OPS_PLATFORMS:
+        from ..base.context import get_context
+        ctx = get_context()
+        owner = ctx.username or os.environ.get("ECAN_DEPLOY_OWNER") or "default"
+        try:
+            plan, log, created = _deploy_operations(cfg, ctx, owner, scenario_key)
+        except Exception as e:
+            _emit({
+                "status": "failure",
+                "scenario": scenario_key,
+                "message": _tr(f"Deployment failed: {e}", f"部署失败：{e}"),
+                "log": [_tr(f"Error: {e}", f"错误：{e}")],
+            }, ok=False)
+            return
+        _emit({
+            "status": "success",
+            "scenario": scenario_key,
+            "stub": False,
+            "plan": plan,
+            "created": created,
+            "log": ["Config validated.", *log, "Deployment complete."],
+            "message": (
+                _tr(f"Deployed {plan['agents']} agent(s) and {plan['tasks']} task(s).",
+                    f"已部署 {plan['agents']} 个智能体和 {plan['tasks']} 个任务。")
+                + (_tr(" The store needs a one-time login.", "店铺需要登录一次。")
                    if plan.get("needs_login") else "")
             ),
         }, ok=True)

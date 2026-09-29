@@ -3,6 +3,7 @@ import os
 from langgraph.graph import StateGraph, START, END
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.ec_skills.build_node import *
+from agent.ec_skills.media.media_gen_node import build_media_gen_node
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from agent.ec_skill import NodeState
@@ -47,6 +48,8 @@ function_registry = {
     # New organizational nodes
     "task": build_task_node,
     "tool-picker": build_tool_picker_node,
+    # Image / video / speech generation via the llm-proxy
+    "media-gen": build_media_gen_node,
     # Dummy node is removed during preprocessing, no runtime builder needed
     "dummy": lambda data, node_id, skill_name, owner, bp_mgr: (lambda state, **kwargs: state),
     # Local default to avoid import-time NameError and double wrapping issues

@@ -26,6 +26,9 @@ export interface ScenarioSchema {
     /** Several stores at once (picked from the Stores page), one shared Q&A
      *  pool: replaces the single store picker. */
     stores?: boolean;
+    /** Store operations: when the after-sales task first runs and how often it
+     *  processes orders and messages (the other roles start on a chat message). */
+    schedule?: boolean;
 }
 
 export interface BusinessScenario {
@@ -46,6 +49,10 @@ export interface ScenarioConfig {
     storeId?: string;
     /** Multi-store scenarios: the chosen store ids. */
     stores?: string[];
+    /** Operations: after-sales first run (ISO) and repeat interval. */
+    scheduleStart?: string;
+    scheduleEvery?: number;
+    scheduleUnit?: 'minutes' | 'hours' | 'days';
 }
 
 const CS_SCHEMA: ScenarioSchema = { storeId: true, qaAgents: { default: 6, min: 1, max: 16 } };
@@ -66,7 +73,7 @@ const MULTI_CS_SCHEMA: ScenarioSchema = {
     qaAgents: { default: 4, min: 1, max: 24 },
     replaceMode: true,
 };
-const OPS_SCHEMA: ScenarioSchema = { storeId: true };
+const OPS_SCHEMA: ScenarioSchema = { storeId: true, schedule: true };
 
 export const SCENARIOS: BusinessScenario[] = [
     { key: 'douyin_cs', nameEn: 'Douyin Store Customer Service', nameZh: '抖店客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: DOUYIN_CS_SCHEMA, platform: 'douyin' },
@@ -137,5 +144,11 @@ export function defaultConfig(s: BusinessScenario): ScenarioConfig {
         ...(s.schema.replaceMode ? { mode: 'add' as const } : {}),
         ...(s.schema.storeId ? { storeId: '' } : {}),
         ...(s.schema.stores ? { stores: [] } : {}),
+        // First after-sales run: the next full hour; then every 30 minutes.
+        ...(s.schema.schedule ? {
+            scheduleStart: (() => { const d = new Date(); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1); return d.toISOString(); })(),
+            scheduleEvery: 30,
+            scheduleUnit: 'minutes' as const,
+        } : {}),
     };
 }

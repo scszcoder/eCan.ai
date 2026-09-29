@@ -9,6 +9,7 @@ import { StarFilled, StarOutlined, DeleteOutlined, EditOutlined, UserOutlined } 
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { logger } from '@/utils/logger';
+import { isSameOwner } from '@/utils/ownerIdentity';
 import styled from '@emotion/styled';
 
 const { Text } = Typography;
@@ -190,7 +191,7 @@ export const SkillReviewPanel: React.FC<SkillReviewPanelProps> = ({
     const [reviewText, setReviewText] = useState('');
     const [showForm, setShowForm] = useState(false);
 
-    const isOwnSkill = owner && owner.toLowerCase() === username.toLowerCase();
+    const isOwnSkill = isSameOwner(owner, username);
 
     const fetchReviews = useCallback(async () => {
         if (!skillId) return;

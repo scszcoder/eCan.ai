@@ -167,14 +167,14 @@ def _run_scenario(tmp_path, monkeypatch, payload, stores):
 
 
 def test_a_planned_scenario_takes_the_picked_stores_urls(tmp_path, monkeypatch):
-    stores = {"amz-1": {"store_id": "amz-1", "platform": "amazon",
-                        "store_urls": ["https://sellercentral.amazon.com"]}}
-    res = _run_scenario(tmp_path, monkeypatch, {"scenario": "amazon_ops", "config": {"store_id": "amz-1"}}, stores)
+    stores = {"tm-1": {"store_id": "tm-1", "platform": "tmall",
+                       "store_urls": ["https://myseller.taobao.com"]}}
+    res = _run_scenario(tmp_path, monkeypatch, {"scenario": "tmall_cs", "config": {"store_id": "tm-1"}}, stores)
     assert res["status"] == "success"
     assert "Store URLs: 1" in res["log"]
 
 
 def test_a_planned_scenario_refuses_another_platforms_store(tmp_path, monkeypatch):
-    stores = {"tm-1": {"store_id": "tm-1", "platform": "tmall", "store_urls": ["https://x"]}}
-    res = _run_scenario(tmp_path, monkeypatch, {"scenario": "amazon_ops", "config": {"store_id": "tm-1"}}, stores)
-    assert res["status"] == "failure" and "is a tmall store" in res["message"]
+    stores = {"amz-1": {"store_id": "amz-1", "platform": "amazon", "store_urls": ["https://x"]}}
+    res = _run_scenario(tmp_path, monkeypatch, {"scenario": "tmall_cs", "config": {"store_id": "amz-1"}}, stores)
+    assert res["status"] == "failure" and "is a amazon store" in res["message"]

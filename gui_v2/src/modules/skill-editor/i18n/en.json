@@ -623,6 +623,39 @@
       "name": "Tool Picker",
       "description": "A tool picker node for selecting and invoking tools"
     },
+    "mediaGen": {
+      "name": "Media Generation",
+      "description": "Generate an image, video or speech audio via the eCan cloud proxy",
+      "mediaType": "Media type",
+      "mediaTypeImage": "Image",
+      "mediaTypeVideo": "Video",
+      "mediaTypeSpeech": "Speech",
+      "modelName": "Model",
+      "prompt": "Prompt",
+      "speechText": "Text to read",
+      "negativePrompt": "Negative prompt",
+      "referenceImages": "Reference images",
+      "referenceImagesHelp": "Image paths/URLs, one per line; {{variables}} allowed",
+      "firstFrame": "First frame",
+      "firstFrameHelp": "First-frame image path/URL; {{variables}} allowed",
+      "lastFrame": "Last frame",
+      "lastFrameHelp": "Last-frame image path/URL; {{variables}} allowed",
+      "size": "Size",
+      "aspectRatio": "Aspect ratio",
+      "n": "Count",
+      "durationSeconds": "Duration (s)",
+      "resolution": "Resolution",
+      "generateAudio": "Generate audio",
+      "generateAudioDesc": "Also generate voice-over / sound for the video",
+      "voice": "Voice",
+      "audioFormat": "Audio format",
+      "speed": "Speed",
+      "timeoutSeconds": "Timeout (s)",
+      "outputSubdir": "Output subfolder",
+      "optional": "Optional",
+      "default": "Default",
+      "resultHint": "Results are saved to generated_medias and available to later nodes as result.media (a list of {path, url, mime_type, ...})"
+    },
     "dummy": {
       "name": "Dummy",
       "description": "A dummy node for testing and placeholder purposes"
@@ -834,7 +867,9 @@
       "seed": "Seed",
       "responseFormat": "Response Format",
       "tools": "Tools",
-      "toolChoice": "Tool Choice"
+      "toolChoice": "Tool Choice",
+      "mediaInputs": "Media inputs",
+      "mediaInputsHelp": "Image, video or audio file paths/URLs, one per line; {{variables}} allowed. If the model doesn't support video/audio, frames are extracted / audio is transcribed automatically"
     }
   },
   "formComponents": {

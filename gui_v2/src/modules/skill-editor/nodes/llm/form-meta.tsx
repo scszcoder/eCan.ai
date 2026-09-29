@@ -6,11 +6,13 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
-import { Divider, Select, Button, Space, Tag, Tooltip, Checkbox } from '@douyinfe/semi-ui';
+import { Divider, Select, Button, Space, Tag, Tooltip, Checkbox, Typography } from '@douyinfe/semi-ui';
 import { IconPaperclip, IconEdit } from '@douyinfe/semi-icons';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
 import { PromptInputWithSelector } from '../../form-components/PromptInputWithSelector';
+import { CollapsiblePromptEditor } from '../../form-components/CollapsiblePromptEditor';
+import { useNodeRenderContext } from '../../hooks';
 import { DisplayOutputs, createInferInputsPlugin } from '@flowgram.ai/form-materials';
 import { get_ipc_api } from '../../../../services/ipc_api';
 import { usePromptStore } from '../../../../stores/promptStore';
@@ -169,6 +171,7 @@ const PromptSelectionDropdown = ({
 export const FormRender = (_props: FormRenderProps<any>) => {
   const { t } = useTranslation('skillEditor');
   const navigate = useNavigate();
+  const { readonly } = useNodeRenderContext();
   const username = useUserStore((s) => s.username || 'user');
   const { prompts, fetch, loading: promptStoreLoading } = usePromptStore();
   const [providers, setProviders] = useState<LLMProvider[]>([]);
@@ -633,6 +636,31 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           )}
         </Field>
 
+        {/* Media inputs: image/video/audio paths or URLs, one per line, {{variables}} allowed */}
+        <FormItem name="mediaInputs" label={t('nodes.llm.mediaInputs')} type="string" vertical>
+          <Field<any> name="inputsValues.mediaInputs">
+            {({ field, fieldState }) => (
+              <div style={{ width: '100%' }}>
+                <CollapsiblePromptEditor
+                  value={
+                    field.value && typeof field.value === 'object' && 'content' in field.value
+                      ? { ...field.value, content: typeof field.value.content === 'string' ? field.value.content : '' }
+                      : { type: 'template', content: '' }
+                  }
+                  onChange={field.onChange}
+                  readonly={readonly}
+                  hasError={Object.keys(fieldState?.errors || {}).length > 0}
+                  defaultCollapsed={true}
+                  collapsedLines={3}
+                />
+                <Typography.Text type="tertiary" size="small">
+                  {t('nodes.llm.mediaInputsHelp', { skipInterpolation: true })}
+                </Typography.Text>
+              </div>
+            )}
+          </Field>
+        </FormItem>
+
         {/* System Prompt with Selector */}
         <Divider />
         <PromptInputWithSelector
@@ -657,6 +685,8 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           {({ field: promptSelectorField }) => (
             <FormInputs
               extraFilter={(key) => {
+                // Rendered explicitly above (the save-time inferred schema drops skipDefault)
+                if (key === 'mediaInputs') return false;
                 if ((key === 'systemPrompt' || key === 'prompt') && promptSelectorField.value && promptSelectorField.value !== 'inline') {
                   return false;
                 }

@@ -3407,6 +3407,9 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     # skill author left the field blank.
     inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content") or STANDARD_SYS_PROMPT)
     inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or "{{input}}")
+    # Video / audio / image files for the model to look at or listen to
+    # (newline/comma-separated paths / URLs; may use {{var}}).
+    media_inputs_template = str((inputs.get("mediaInputs") or {}).get("content") or "")
 
     logger.debug("[LLMNode]inline_system_prompt:", inline_system_prompt)
     logger.debug("[LLMNode]inline_user_prompt:", inline_user_prompt)
@@ -3951,6 +3954,19 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         _LLM_INSTANCE_CACHE[_raw_key] = (_now, llm)
         return llm
 
+    def _model_media_caps() -> dict:
+        """Video/audio input capability of this node's model: the ecanai proxy's
+        live GET /models capabilities when available, else llm_providers.json flags."""
+        if llm_provider == "ecanai":
+            from agent.ec_skills.media.proxy_media_client import ecanai_media_input_caps
+            live = ecanai_media_input_caps(model_name)
+            if live is not None:
+                return live
+        for m in (_get_runtime_provider_info(llm_provider) or {}).get("supported_models") or []:
+            if isinstance(m, dict) and model_name in (m.get("model_id"), m.get("name"), m.get("display_name")):
+                return {"video": bool(m.get("supports_video")), "audio": bool(m.get("supports_audio"))}
+        return {"video": False, "audio": False}
+
     # This is the actual function that will be executed as the node in the graph
     def llm_node_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
         """
@@ -4209,11 +4225,25 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         prep_multi_modal_content,
                         _strip_data_uri_noise,
                     )
+                    _media_inputs = media_inputs_template
+                    _mi_vars = re.findall(r'\{\{(\w+)\}\}', _media_inputs)
+                    if _mi_vars:
+                        _mi_ctx = resolve_prompt_variables(
+                            variable_names=_mi_vars,
+                            state=state,
+                            mainwin=_mainwin,
+                            prompt_variables=prompt_level_variables,
+                            skill_prompt_variables=skill_prompt_variables,
+                        )
+                        for var, val in _mi_ctx.items():
+                            _media_inputs = _media_inputs.replace(f'{{{{{var}}}}}', str(val))
                     _mm_content = prep_multi_modal_content(
                         state,
                         runtime,
                         llm=None,  # vision-capability check deferred to build_llm
                         base_text=messages[-1].content,
+                        media_inputs=_media_inputs,
+                        media_caps=_model_media_caps,
                     )
                     if _mm_content:
                         _img_n = sum(

@@ -26,5 +26,6 @@ export enum WorkflowNodeType {
   PendEvent = 'pend_event_node',
   Event = 'event',
   BrowserAutomation = 'browser-automation',
+  MediaGen = 'media-gen',
   Group = 'group',
 }

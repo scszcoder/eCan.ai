@@ -10,7 +10,7 @@ import uuid
 import threading
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from threading import Thread
-from typing import Any, Dict, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Dict, Tuple, TYPE_CHECKING
 
 # Third-party library imports
 import requests
@@ -349,6 +349,8 @@ def prep_multi_modal_content(
     *,
     llm=None,
     base_text: str | None = None,
+    media_inputs: str | None = None,
+    media_caps: dict | Callable[[], dict] | None = None,
 ):
     """Build a multimodal HumanMessage ``content`` list from ``state``.
 
@@ -379,6 +381,16 @@ def prep_multi_modal_content(
                    it before use (saves 2-3 KB tokens per image and avoids
                    confusing the model with raw base64).  When omitted, the
                    raw ``state["input"]`` is used (legacy behaviour).
+        media_inputs: Newline/comma-separated local paths / URLs (the LLM
+                   node's rendered ``mediaInputs``). Together with
+                   ``latest_message_attachments`` of kind video/audio and
+                   legacy video/audio ``state["attachments"]`` these become
+                   video/audio parts (see ``agent.ec_skills.media.media_inputs``).
+        media_caps: ``{"video": bool, "audio": bool}`` for the chat model (or a
+                   callable returning it, called only when there is video/audio);
+                   defaults to ``llm.supports_video`` / ``llm.supports_audio``.
+                   Without the capability, video falls back to sampled frames
+                   + a transcript and audio to a transcript.
 
     Returns:
         ``list[dict]`` ready for ``HumanMessage(content=...)`` when at
@@ -388,18 +400,66 @@ def prep_multi_modal_content(
         HumanMessage".
     """
     try:
+        from agent.ec_skills.media.media_inputs import (
+            build_media_parts,
+            classify_media,
+            split_media_list,
+        )
+
+        # ── Video / audio / extra-image references ─────────────────────
+        media_refs: list[dict] = []
+        for src in split_media_list(media_inputs):
+            kind = classify_media(src)
+            if kind:
+                media_refs.append({"kind": kind, "source": src})
+            else:
+                logger.warning(f"[multimodal] mediaInputs entry {src!r}: unknown media type, skipped")
+        raw_input = state.get("input") if isinstance(state, dict) else None
+        payload = None
+        if isinstance(raw_input, str) and raw_input.strip():
+            try:
+                payload = json.loads(raw_input)
+            except (json.JSONDecodeError, ValueError):
+                payload = None
+        if isinstance(payload, dict) and isinstance(payload.get("latest_message_attachments"), list):
+            for entry in payload["latest_message_attachments"]:
+                if isinstance(entry, dict) and entry.get("kind") in ("video", "audio"):
+                    src = entry.get("path") or entry.get("local_path") or entry.get("url")
+                    if src:
+                        media_refs.append({"kind": entry["kind"], "source": str(src)})
+        legacy = state.get("attachments", []) if isinstance(state, dict) else []
+        for att in legacy if isinstance(legacy, list) else []:
+            if not isinstance(att, dict) or not att.get("file_data"):
+                continue
+            mime_type = (att.get("mime_type") or "").lower()
+            kind = classify_media("", mime_type)
+            if kind in ("video", "audio"):
+                data = att["file_data"]
+                media_refs.append({
+                    "kind": kind,
+                    "source": att.get("filename") or kind,
+                    "data": base64.b64decode(data.split(",", 1)[-1]) if isinstance(data, str) else data,
+                })
+
         # ── Vision capability gate ─────────────────────────────────────
+        vision_ok = True
         if llm is not None:
             try:
-                if getattr(llm, "supports_vision", True) is False:
-                    logger.info(
-                        "[multimodal] prep: skipping — LLM does not support "
-                        "vision (set supports_vision=True on the model "
-                        "config to enable)"
-                    )
-                    return None
+                vision_ok = getattr(llm, "supports_vision", True) is not False
             except Exception:
                 pass  # be permissive — let the call through
+        if not vision_ok and not media_refs:
+            logger.info(
+                "[multimodal] prep: skipping — LLM does not support "
+                "vision (set supports_vision=True on the model "
+                "config to enable)"
+            )
+            return None
+        # A callable is only asked when there is video/audio to place (it may hit the network).
+        caps = media_caps() if callable(media_caps) and media_refs else media_caps
+        caps = caps if isinstance(caps, dict) else {}
+        supports_video = bool(caps.get("video", getattr(llm, "supports_video", False)))
+        supports_audio = bool(caps.get("audio", getattr(llm, "supports_audio", False)))
 
         # ── Resolve the leading text part ──────────────────────────────
         # Prefer the caller-supplied base_text (already-rendered prompt);
@@ -420,12 +480,7 @@ def prep_multi_modal_content(
         # ── Source 1: latest_message_attachments parsed from state["input"] ──
         text_size_before = len(base_text)
         text_size_after = text_size_before
-        raw_input = state.get("input") if isinstance(state, dict) else None
-        if isinstance(raw_input, str) and raw_input.strip():
-            try:
-                payload = json.loads(raw_input)
-            except (json.JSONDecodeError, ValueError):
-                payload = None
+        if vision_ok:
             if isinstance(payload, dict):
                 lma = payload.get("latest_message_attachments")
                 if isinstance(lma, list) and lma:
@@ -489,7 +544,11 @@ def prep_multi_modal_content(
                         logger.debug(f"[multimodal] prep: skipping empty file: {fname}")
                         continue
                     data = att["file_data"]
+                    if mime_type.startswith(("video/", "audio/")):
+                        continue  # handled as a media reference above
                     if mime_type.startswith("image/"):
+                        if not vision_ok:
+                            continue
                         file_data = (
                             data if isinstance(data, str)
                             else base64.b64encode(data).decode("utf-8")
@@ -506,24 +565,30 @@ def prep_multi_modal_content(
                             "type": "text",
                             "text": f"[PDF file: {fname} - PDF content cannot be processed directly]",
                         })
-                    elif mime_type.startswith("audio/"):
-                        user_content.append({
-                            "type": "text",
-                            "text": f"[Audio file: {fname} - Audio content cannot be processed directly]",
-                        })
                     else:
                         logger.warning(
                             f"[multimodal] prep: unsupported file type "
                             f"{fname} ({mime_type})"
                         )
 
-        if image_part_count == 0:
+        media_parts = build_media_parts(
+            media_refs,
+            supports_vision=vision_ok,
+            supports_video=supports_video,
+            supports_audio=supports_audio,
+        ) if media_refs else []
+
+        if image_part_count == 0 and not media_parts:
             # No images materialised — caller should skip the upgrade and
             # keep the existing text-only HumanMessage as-is.
             return None
+        if not user_content:
+            user_content.append({"type": "text", "text": base_text})
+        user_content.extend(media_parts)
 
         logger.info(
             f"[multimodal] prep: built {image_part_count} image part(s) "
+            f"+ {len(media_parts)} media-input part(s) "
             f"(text size {text_size_before}->{text_size_after} chars)"
         )
         if lma_count:
@@ -1128,15 +1193,17 @@ def extract_provider_config(provider, config_manager=None, node_model_name=None)
         
         # Get supports_vision from selected model config
         supports_vision = True  # Default to True
+        caps_model = selected_model_config
         if selected_model_config:
             supports_vision = getattr(selected_model_config, 'supports_vision', True)
         elif provider.supported_models:
             # Find current model in supported_models
             for model in provider.supported_models:
-                if (model.model_id == model_name or 
+                if (model.model_id == model_name or
                     model.name == model_name or
                     model.display_name == model_name):
                     supports_vision = getattr(model, 'supports_vision', True)
+                    caps_model = model
                     break
         
         return {
@@ -1152,7 +1219,9 @@ def extract_provider_config(provider, config_manager=None, node_model_name=None)
             'is_openai_compatible': provider.is_openai_compatible(),
             'is_browser_use_compatible': provider.is_browser_use_compatible(),
             'temperature': provider.temperature,
-            'supports_vision': supports_vision
+            'supports_vision': supports_vision,
+            'supports_video': bool(getattr(caps_model, 'supports_video', False)),
+            'supports_audio': bool(getattr(caps_model, 'supports_audio', False)),
         }
     
     # Legacy dict-based provider (backward compatibility)
@@ -1193,6 +1262,7 @@ def extract_provider_config(provider, config_manager=None, node_model_name=None)
     )
     
     # Get supports_vision from the selected/current model config
+    caps_model = selected_model_config or {}
     if selected_model_config:
         supports_vision = selected_model_config.get('supports_vision', True)
     elif supported_models:
@@ -1201,10 +1271,11 @@ def extract_provider_config(provider, config_manager=None, node_model_name=None)
             model_id = model.get('model_id', '')
             model_name_key = model.get('name', '')
             display_name = model.get('display_name', '')
-            if (model_name == model_id or 
+            if (model_name == model_id or
                 model_name == model_name_key or
                 model_name == display_name):
                 supports_vision = model.get('supports_vision', True)
+                caps_model = model
                 break
     
     # Get API key from secure store (with user isolation, same as LLMProvider.get_api_key())
@@ -1280,7 +1351,9 @@ def extract_provider_config(provider, config_manager=None, node_model_name=None)
         'provider_display': provider.get('display_name', provider.get('name', provider_name)),
         'api_key_env_vars': api_key_env_vars,
         'temperature': provider.get('temperature', 0.7),
-        'supports_vision': supports_vision
+        'supports_vision': supports_vision,
+        'supports_video': bool(caps_model.get('supports_video', False)),
+        'supports_audio': bool(caps_model.get('supports_audio', False)),
     }
 
 
@@ -2679,6 +2752,8 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 # Note: context_length is already set by _create_and_validate_browser_use_llm()
                 if llm_instance is not None:
                     llm_instance.supports_vision = supports_vision
+                    llm_instance.supports_video = config.get('supports_video', False)
+                    llm_instance.supports_audio = config.get('supports_audio', False)
                     log_msg = f"🤖 [create_browser_use_llm] Model {model_name} supports_vision: {supports_vision}"
                     logger.debug(log_msg)
                     send_skill_editor_log("log", log_msg)

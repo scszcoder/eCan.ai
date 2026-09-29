@@ -43,6 +43,10 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
             type: 'constant',
             content: [],
           },
+          mediaInputs: {
+            type: 'template',
+            content: '',
+          },
           apiKey: {
             type: 'constant',
             content: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
@@ -95,6 +99,10 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
             attachments: {
               type: 'array',
               extra: { formComponent: 'custom-attachments', skipDefault: true },
+            },
+            mediaInputs: {
+              type: 'string',
+              extra: { formComponent: 'prompt-editor', skipDefault: true },
             },
             apiKey: {
               type: 'string',

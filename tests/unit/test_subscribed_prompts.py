@@ -38,7 +38,7 @@ class TestExtractSkillPromptIds:
 
 
 class TestDownloadSkillPrompts:
-    def _run(self, tmp_path, *, skill, local_prompts, responses):
+    def _run(self, tmp_path, *, skill, local_prompts, responses, extra_prompt_ids=()):
         prompt_handler = MagicMock()
         prompt_handler._load_all_prompts.return_value = local_prompts
         prompt_handler._get_subscribed_prompts_dir.return_value = Path(tmp_path)
@@ -56,7 +56,7 @@ class TestDownloadSkillPrompts:
                    return_value={"owner": "customer@x"}), \
              patch("gui.ipc.w2p_handlers.prompt_cloud_sync._appsync_request",
                    side_effect=fake_request):
-            sh._download_skill_prompts(skill)
+            sh._download_skill_prompts(skill, extra_prompt_ids=extra_prompt_ids)
 
     def test_downloads_missing_prompts_under_author(self, tmp_path):
         skill = {
@@ -90,6 +90,34 @@ class TestDownloadSkillPrompts:
                  "diagram": {"x": "pr-886478"}}
         self._run(tmp_path, skill=skill, local_prompts=[], responses={})
         assert list(Path(tmp_path).glob("*.json")) == []
+
+
+    def test_prompts_named_only_in_the_files_are_downloaded(self, tmp_path):
+        """2026-09-28 customer: the cloud RECORD of 拼多多客服前台01 was stale
+        (it named the 飞鸽 prompt pr-330448, already local) while the skill
+        FILES named pr-920049 -- which was never fetched, so Fast Deploy
+        refused. Ids from the downloaded files count too."""
+        skill = {"owner": AUTHOR, "config": {}, "diagram": {"x": "pr-330448"}}
+        responses = {"pr-920049": {"data": {"queryPrompts": [
+            {"id": "pr-920049", "owner": AUTHOR, "prompt": json.dumps({"title": "拼多多客服前台0"}),
+             "version": "1"}]}}}
+        self._run(tmp_path, skill=skill, local_prompts=[{"id": "pr-330448"}],
+                  responses=responses, extra_prompt_ids=["pr-920049"])
+        assert (Path(tmp_path) / "0_pr-920049.json").exists()
+
+
+class TestSkillFilePromptIds:
+    def test_reads_ids_from_the_unpacked_skill_files(self, tmp_path):
+        d = Path(tmp_path) / "拼多多客服前台01_skill" / "diagram_dir"
+        d.mkdir(parents=True)
+        (d / "拼多多客服前台01_skill.json").write_text('{"promptId": "pr-920049"}', encoding="utf-8")
+        (d / "拼多多客服前台01_skill_bundle.json").write_text('{"x": "pr-920049", "y": "pr-1"}', encoding="utf-8")
+        with patch("gui.ipc.w2p_handlers.skill_file_sync._get_my_skills_dir", return_value=Path(tmp_path)):
+            assert sh._skill_file_prompt_ids({"name": "拼多多客服前台01"}) == ["pr-1", "pr-920049"]
+
+    def test_no_files_no_ids(self, tmp_path):
+        with patch("gui.ipc.w2p_handlers.skill_file_sync._get_my_skills_dir", return_value=Path(tmp_path)):
+            assert sh._skill_file_prompt_ids({"name": "nothing_here"}) == []
 
 
 class TestBulkPushExcludesSubscribed:

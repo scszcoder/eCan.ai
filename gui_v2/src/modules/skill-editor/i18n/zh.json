@@ -458,7 +458,9 @@
       "seed": "随机种子",
       "responseFormat": "响应格式",
       "tools": "工具",
-      "toolChoice": "工具选择"
+      "toolChoice": "工具选择",
+      "mediaInputs": "媒体输入",
+      "mediaInputsHelp": "图片、视频或音频文件路径/链接，每行一个，可用 {{变量}}；模型不支持视频/音频时会自动抽帧/转写"
     },
     "common": {
       "titleRequired": "标题为必填项",
@@ -649,6 +651,39 @@
     "toolPicker": {
       "name": "工具选择器",
       "description": "用于选择和调用工具的工具选择器节点"
+    },
+    "mediaGen": {
+      "name": "媒体生成",
+      "description": "通过 eCan 云端代理生成图片、视频或语音",
+      "mediaType": "媒体类型",
+      "mediaTypeImage": "图片",
+      "mediaTypeVideo": "视频",
+      "mediaTypeSpeech": "语音",
+      "modelName": "模型",
+      "prompt": "提示词",
+      "speechText": "朗读文本",
+      "negativePrompt": "反向提示词",
+      "referenceImages": "参考图",
+      "referenceImagesHelp": "图片路径/链接，每行一个，可用 {{变量}}",
+      "firstFrame": "首帧图片",
+      "firstFrameHelp": "首帧图片路径/链接，可用 {{变量}}",
+      "lastFrame": "尾帧图片",
+      "lastFrameHelp": "尾帧图片路径/链接，可用 {{变量}}",
+      "size": "尺寸",
+      "aspectRatio": "宽高比",
+      "n": "数量",
+      "durationSeconds": "时长（秒）",
+      "resolution": "分辨率",
+      "generateAudio": "生成音频",
+      "generateAudioDesc": "同时生成视频配音/音效",
+      "voice": "音色",
+      "audioFormat": "音频格式",
+      "speed": "语速",
+      "timeoutSeconds": "超时（秒）",
+      "outputSubdir": "输出子目录",
+      "optional": "可选",
+      "default": "默认",
+      "resultHint": "结果保存在 generated_medias 目录，后续节点可通过 result.media 使用（列表，每项含 path、url、mime_type 等）"
     },
     "dummy": {
       "name": "占位符",

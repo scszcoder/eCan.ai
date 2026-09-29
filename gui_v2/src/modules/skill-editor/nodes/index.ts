@@ -27,6 +27,7 @@ import { PendInputNodeRegistry } from './pend-input';
 import { PendEventNodeRegistry } from './pend-event';
 import { EventNodeRegistry } from './event';
 import { BrowserAutomationNodeRegistry } from './browser-automation';
+import { MediaGenNodeRegistry } from './media-gen';
 import { SheetCallNodeRegistry } from './sheet-call';
 import { SheetInputsNodeRegistry } from './sheet-inputs';
 import { SheetOutputsNodeRegistry } from './sheet-outputs';
@@ -57,6 +58,7 @@ export const nodeRegistries: FlowNodeRegistry[] = [
   PendInputNodeRegistry,
   EventNodeRegistry,
   BrowserAutomationNodeRegistry,
+  MediaGenNodeRegistry,
   SheetCallNodeRegistry,
   SheetInputsNodeRegistry,
   SheetOutputsNodeRegistry,

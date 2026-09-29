@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Button, InputNumber, Radio, Select, Typography, message } from 'antd';
+import { Button, DatePicker, InputNumber, Radio, Select, Typography, message } from 'antd';
+import dayjs from 'dayjs';
 import {
     CloseOutlined,
     RightOutlined,
@@ -115,6 +116,10 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
             message.warning(t('pages.agents.fast_deploy_need_stores', 'Pick at least one store'));
             return;
         }
+        if (selected.schema.schedule && !(config.scheduleStart && (config.scheduleEvery || 0) >= 1 && config.scheduleUnit)) {
+            message.warning(t('pages.agents.fast_deploy_need_schedule', 'Set when after-sales first runs and how often'));
+            return;
+        }
         if (selected.schema.storeId && !(config.storeId || '').trim()) {
             message.warning(t('pages.agents.fast_deploy_need_store', 'Choose a store to deploy into (create it on the Stores page first)'));
             return;
@@ -127,6 +132,9 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                 mode: config.mode || 'add',
             } : {
                 ...(selected.schema.storeId ? { store_id: (config.storeId || '').trim() } : {}),
+                ...(selected.schema.schedule ? { schedule: {
+                    start: config.scheduleStart, every: config.scheduleEvery, unit: config.scheduleUnit,
+                } } : {}),
                 ...(selected.schema.qaAgents ? { qa_agents: config.qaAgents } : {}),
                 ...(selected.schema.replaceMode ? { mode: config.mode || 'add' } : {}),
             },
@@ -326,6 +334,44 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                             {t('pages.agents.fast_deploy_stores_hint', 'Each store gets its own browser login and front desk; the Q&A agents below are shared by all of them. A store without a login gets one — sign it in once under Settings → Browser Profiles.')}
                                         </Text>
                                     </div>
+                                </div>
+                            )}
+
+                            {/* operations: the after-sales schedule (orders + messages) */}
+                            {selected.schema.schedule && (
+                                <div style={{ marginTop: 16 }}>
+                                    <Text style={{ color: '#94a3b8', fontSize: 13 }}>
+                                        {t('pages.agents.fast_deploy_schedule', 'After-sales: process orders and messages')}
+                                    </Text>
+                                    <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                        <DatePicker
+                                            showTime={{ format: 'HH:mm' }}
+                                            format="YYYY-MM-DD HH:mm"
+                                            value={config.scheduleStart ? dayjs(config.scheduleStart) : null}
+                                            onChange={(v) => setConfig((c) => ({ ...c, scheduleStart: v ? v.toISOString() : undefined }))}
+                                            placeholder={t('pages.agents.fast_deploy_schedule_start', 'First run')}
+                                        />
+                                        <Text style={{ color: '#94a3b8' }}>{t('pages.agents.fast_deploy_schedule_every', 'then every')}</Text>
+                                        <InputNumber
+                                            min={1}
+                                            value={config.scheduleEvery}
+                                            onChange={(v) => setConfig((c) => ({ ...c, scheduleEvery: typeof v === 'number' ? v : undefined }))}
+                                            style={{ width: 90 }}
+                                        />
+                                        <Select
+                                            value={config.scheduleUnit}
+                                            onChange={(v) => setConfig((c) => ({ ...c, scheduleUnit: v }))}
+                                            style={{ width: 100 }}
+                                            options={[
+                                                { value: 'minutes', label: t('pages.agents.fast_deploy_unit_minutes', 'minutes') },
+                                                { value: 'hours', label: t('pages.agents.fast_deploy_unit_hours', 'hours') },
+                                                { value: 'days', label: t('pages.agents.fast_deploy_unit_days', 'days') },
+                                            ]}
+                                        />
+                                    </div>
+                                    <Text style={{ color: '#64748b', fontSize: 12, display: 'block', marginTop: 6 }}>
+                                        {t('pages.agents.fast_deploy_schedule_hint', 'Deploys one agent per role (after-sales, pre-sales, sales, marketing, procurement, research, manager). After-sales runs on this schedule; the others start when the manager (or you) sends them a message.')}
+                                    </Text>
                                 </div>
                             )}
 

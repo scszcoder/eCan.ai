@@ -58,6 +58,8 @@ class LLMModel:
     supports_streaming: bool = True
     supports_function_calling: bool = False
     supports_vision: bool = False
+    supports_video: bool = False
+    supports_audio: bool = False
     cost_per_1k_tokens: Optional[float] = None
     description: str = ""
     
@@ -74,6 +76,8 @@ class LLMModel:
             supports_streaming=data.get('supports_streaming', True),
             supports_function_calling=data.get('supports_function_calling', False),
             supports_vision=data.get('supports_vision', False),
+            supports_video=data.get('supports_video', False),
+            supports_audio=data.get('supports_audio', False),
             cost_per_1k_tokens=data.get('cost_per_1k_tokens'),
             description=data.get('description', '')
         )

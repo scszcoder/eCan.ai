@@ -1417,7 +1417,40 @@ def _extract_skill_prompt_ids(cloud_skill: Dict[str, Any]) -> list:
     return sorted(set(re.findall(r'pr-\d+', blob)))
 
 
-def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=None) -> None:
+def _skill_file_prompt_ids(skill_data: Dict[str, Any]) -> list:
+    """pr-NNN ids referenced by the skill's downloaded FILES (diagram + editor
+    bundle). The cloud record can lag the files -- a save whose record update
+    failed still uploaded its files (2026-09-28: a customer's 拼多多 front desk
+    referenced pr-920049 in its files but only the stale pr-330448 in the
+    record, so the prompt the deploy needs was never downloaded)."""
+    import re
+    from pathlib import Path
+    skill_dir = None
+    try:
+        from gui.ipc.w2p_handlers.skill_file_sync import _get_my_skills_dir, _resolve_skill_dir
+        # Where the download unpacks: <my_skills>/<name>_skill
+        name = str(skill_data.get("name") or "").strip()
+        if name:
+            folder = name if name.endswith("_skill") else f"{name}_skill"
+            candidate = Path(_get_my_skills_dir()) / folder
+            if candidate.is_dir():
+                skill_dir = candidate
+        if skill_dir is None:
+            skill_dir = _resolve_skill_dir(skill_data)
+    except Exception:
+        skill_dir = None
+    ids = set()
+    if skill_dir and skill_dir.exists():
+        for fp in skill_dir.rglob("*.json"):
+            try:
+                ids.update(re.findall(r'pr-\d+', fp.read_text(encoding='utf-8', errors='ignore')))
+            except Exception:
+                continue
+    return sorted(ids)
+
+
+def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=None,
+                            extra_prompt_ids=()) -> None:
     """Download a subscribed skill's referenced prompts into the local
     subscribed_prompts store (SHARED_SKILL prompts leg, 2026-08-25).
 
@@ -1440,7 +1473,7 @@ def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=No
             except Exception:
                 config = {}
         author = str((config or {}).get('skill_owner') or cloud_skill.get('owner') or '').strip()
-        prompt_ids = _extract_skill_prompt_ids(cloud_skill)
+        prompt_ids = sorted(set(_extract_skill_prompt_ids(cloud_skill)) | set(extra_prompt_ids or ()))
         if not author or not prompt_ids:
             return
 
@@ -1491,6 +1524,11 @@ def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=No
                            f"(author={author}): {reason}")
     except Exception as e:
         logger.warning(f"[subscribe_to_skill] prompt download step failed (non-fatal): {e}")
+
+
+# How long subscribing waits for the skill's files (a package is typically
+# ~20 KB and lands in 1-2 s); past this, the download finishes in background.
+_SUBSCRIBE_FILES_WAIT_S = 20.0
 
 
 def _account_fund(request=None, params=None):
@@ -1633,13 +1671,14 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
                 skill_data['source'] = 'subscribed'
                 update_result = skill_service.update_skill(skill_data['id'], skill_data)
                 logger.info(f"[skill_handler] Updated existing subscribed skill {skill_id} with latest cloud data")
-                _download_skill_prompts(target, request, params)
                 try:
                     download_skill_files_from_cloud(
                         skill_data, trace_id=f"resubscribe-{str(skill_data.get('id',''))[:8]}",
-                        file_owner=str(target.get('owner') or ''))
+                        file_owner=str(target.get('owner') or ''), wait_s=_SUBSCRIBE_FILES_WAIT_S)
                 except Exception as dl_err:
                     logger.warning(f"[subscribe_to_skill] file re-download failed (non-fatal): {dl_err}")
+                _download_skill_prompts(target, request, params,
+                                        extra_prompt_ids=_skill_file_prompt_ids(skill_data))
 
             # Sync to cloud even for re-subscribe (idempotent — recreates agent_skill_rels if missing)
             try:
@@ -1676,19 +1715,22 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
 
         if result.get('success'):
             actual_skill_id = result.get('id', skill_id)
-            # Update in-memory skills list
-            _update_skill_in_memory(actual_skill_id, skill_data, request, params)
-            # Bring the skill's prompts along (subscribed_prompts store)
-            _download_skill_prompts(target, request, params)
-            # And its FILES (code_dir / data_mapping / assets) from the
-            # AUTHOR's cloud storage — without them the skill runs only from
-            # the DB diagram and code-file references break (2026-08-25).
+            # Its FILES (code_dir / data_mapping / assets) from the AUTHOR's
+            # cloud storage FIRST — without them the skill runs only from the
+            # DB diagram and code-file references break (2026-08-25); compiled
+            # before they land, it came from the (possibly stale) cloud record.
             try:
                 download_skill_files_from_cloud(
                     skill_data, trace_id=f"subscribe-{actual_skill_id[:8]}",
-                    file_owner=str(target.get('owner') or ''))
+                    file_owner=str(target.get('owner') or ''), wait_s=_SUBSCRIBE_FILES_WAIT_S)
             except Exception as dl_err:
                 logger.warning(f"[subscribe_to_skill] file download failed (non-fatal): {dl_err}")
+            # Update in-memory skills list
+            _update_skill_in_memory(actual_skill_id, skill_data, request, params)
+            # Bring the skill's prompts along (subscribed_prompts store) --
+            # those the record references AND those its files reference.
+            _download_skill_prompts(target, request, params,
+                                    extra_prompt_ids=_skill_file_prompt_ids(skill_data))
             try:
                 ctx = get_handler_context(request, params)
                 current = next((s for s in (ctx.get_agent_skills() or []) if str(getattr(s, 'id', '')) == str(actual_skill_id)), None) if ctx else None

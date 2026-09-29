@@ -476,7 +476,7 @@ COMPILER_ACCEPTED_TYPES = {
     "llm", "basic", "code", "http", "loop", "condition", "mcp", "tool",
     "event", "comment", "variable", "sheet-call", "pend_event_node",
     "chat_node", "rag_node", "rag", "browser-automation", "task",
-    "tool-picker", "dummy",
+    "tool-picker", "dummy", "media-gen",
     # structural, handled by preprocessing
     "start", "end", "block-start", "block-end", "group",
 }
