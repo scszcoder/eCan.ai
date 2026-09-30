@@ -6309,6 +6309,31 @@ def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[
     return ws, t
 
 
+def _push_balance_changed(payload: dict, message: str) -> None:
+    """Hand a ``balance_changed`` notice to the frontend: the new balance in fen
+    (the value after settlement -- no refetch needed), the change, the reasons
+    and the server's ready-made sentence (e.g. "扣费 ¥0.25，余额 ¥9.75")."""
+    try:
+        fund_fen = int(payload.get("fund_fen"))
+    except (TypeError, ValueError):
+        logger.warning(f"[AccountNotification] balance_changed without fund_fen: {payload!r}")
+        return
+    try:
+        delta_fen = int(payload.get("delta_fen") or 0)
+    except (TypeError, ValueError):
+        delta_fen = 0
+    params = {"fund_fen": fund_fen, "delta_fen": delta_fen,
+              "reasons": list(payload.get("reasons") or []), "message": message or ""}
+    logger.info(f"[AccountNotification] balance_changed fund_fen={fund_fen} delta_fen={delta_fen} "
+                f"reasons={params['reasons']}")
+    try:
+        from gui.ipc.api import IPCAPI
+        IPCAPI.get_instance()._send_request("push_balance_changed", params=params,
+                                            callback=lambda response: None)
+    except Exception as e:
+        logger.warning(f"[AccountNotification] balance push to frontend failed: {e}")
+
+
 def handle_account_notification(notification: dict):
     """
     Default handler for account notifications.
@@ -6334,7 +6359,13 @@ def handle_account_notification(notification: dict):
                 payload = {}
         
         logger.info(f"[AccountNotification] Handling notification: type={notification_type}, title={title}")
-        
+
+        # Server push after every settlement / credit (CN, 2026-09-29): update
+        # the balance in place -- not an announcement, so no banner / popup.
+        if notification_type == "balance_changed":
+            _push_balance_changed(payload if isinstance(payload, dict) else {}, message)
+            return
+
         # Build banner text
         banner_text = f"📢 {title}" if title else f"📢 {message[:50]}..."
         

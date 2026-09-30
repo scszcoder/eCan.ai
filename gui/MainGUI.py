@@ -141,6 +141,17 @@ in_data_string = ""
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
 
+def _jwt_sub(token: str) -> str:
+    """The `sub` claim of a JWT (payload read, not verified -- it's our own
+    session token, used only to name the subscription owner)."""
+    try:
+        part = str(token or "").split(".")[1]
+        part += "=" * (-len(part) % 4)
+        return str(json.loads(base64.urlsafe_b64decode(part)).get("sub") or "").strip()
+    except Exception:
+        return ""
+
+
 # class MainWindow(QWidget):
 class MainWindow:
     def __init__(self, auth_manager: AuthManager, mainloop, ip,
@@ -2561,6 +2572,19 @@ class MainWindow:
             except Exception as e:
                 logger.warning(f"[MainWindow] Could not get owner email: {e}")
             
+            # CN gateway: the owner must be the session token's `sub` (the
+            # account's subid / bare WeChat openid) -- it refuses any other
+            # value, so the email / wechat_<openid>@local names above never
+            # received a notice.
+            try:
+                from utils.app_env import is_cn
+                if is_cn():
+                    sub = _jwt_sub(token)
+                    if sub:
+                        owner = sub
+            except Exception:
+                pass
+
             if not owner:
                 logger.warning("[MainWindow] No owner email available, skipping account notification subscription")
                 return

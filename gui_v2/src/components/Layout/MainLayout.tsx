@@ -130,7 +130,8 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     useEffect(() => {
         const { fetchAccountInfo } = useAccountStore.getState();
         const initial = setTimeout(() => { void fetchAccountInfo(); }, 15_000);
-        const interval = setInterval(() => { void fetchAccountInfo(); }, 20 * 60_000);
+        // Fallback only: the server pushes balance changes (balance_changed).
+        const interval = setInterval(() => { void fetchAccountInfo(); }, 5 * 60_000);
         return () => { clearTimeout(initial); clearInterval(interval); };
     }, []);
 

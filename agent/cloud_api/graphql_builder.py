@@ -253,8 +253,7 @@ class GraphQLBuilder:
 
         # Add settings if provided
         if settings:
-            settings_str = json.dumps(settings).replace('"', '\\"')
-            mutation_str += f', settings: "{settings_str}"'
+            mutation_str += f', settings: {json.dumps(json.dumps(settings))}'
 
         # Close mutation with return field selection if needed.
         # Strip backend-incompatible fields at call time: CN (TCB) does
@@ -380,12 +379,15 @@ class GraphQLBuilder:
             # AWSDate/AWSDateTime: format as ISO string
             return f'"{self._format_aws_datetime(value)}"'
         elif isinstance(value, str):
-            # Escape quotes and backslashes
-            escaped = value.replace('\\', '\\\\').replace('"', '\\"')
-            return f'"{escaped}"'
+            # json.dumps is a valid GraphQL string literal: it escapes quotes,
+            # backslashes AND newlines/control chars (a raw newline in a
+            # description used to end the literal -> GRAPHQL_PARSE_FAILED).
+            return json.dumps(value, ensure_ascii=False)
         else:
-            # For other types, convert to string
-            return f'"{str(value)}"'
+            # Lists/dicts go as a JSON string. str() gave a Python repr with
+            # unescaped inner quotes, which broke every task carrying its
+            # skills list (2026-09-30: all task.add syncs failed to parse).
+            return json.dumps(json.dumps(value, ensure_ascii=False, default=str), ensure_ascii=False)
     
     def _format_aws_datetime(self, dt_value: Any) -> str:
         """

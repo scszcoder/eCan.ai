@@ -784,6 +784,39 @@ from the code, not tried live), so the heartbeat's store report and
 Settings → Stores should come back as a typed WARNING, not a crash. Store placement depends on these actions, so intl
 multi-machine needs the AWS side first. Deliberately deferred.
 
+### Ideas from researching two other e-commerce automation OSS projects (2026-09-21)
+
+Bounced ideas while researching `cs-lazy-tools/ChatGPT-On-CS`
+(github.com/cs-lazy-tools/ChatGPT-On-CS) and `zpoint/vibe-seller`
+(github.com/zpoint/vibe-seller) for comparison against eCan.ai. Full
+write-up: `~/jsPrj/research-chatgpt-on-cs-vs-vibe-seller.md` (not in this
+repo). Not a decided plan — two ideas worth a look, not yet scoped:
+
+1. **Declare-scope-before-acting, grade-against-declaration governance
+   pattern**, from vibe-seller's `app/ai/ad_declaration.py`. Before
+   touching a browser, an ad task must declare its kind + scope; the
+   declaration is append-only with a narrow "ratchet" (can only shrink
+   scope, or safely upgrade within the same turn) so an agent cannot
+   re-declare its way around a completeness gate. Built after a real
+   incident: a 2-campaign audit satisfied a 5-marketplace completeness
+   check by transcribing an old report. eCan runs unattended
+   one-time/recurring scheduled tasks with nobody watching in real
+   time — the same failure shape (a task quietly under-delivering while
+   its own report reads as complete) is available to us today with no
+   analogous guardrail. Worth scoping for skills/tasks whose output is a
+   report or a set of decisions, not for every task.
+2. **Per-store markdown knowledge base as a memory type distinct from
+   RAG**, from vibe-seller's `~/.vibe-seller/stores/<slug>/` — the agent
+   writes its own notes as it explores an unsupported platform (which
+   button, which path, which trap) and reuses them next run; only
+   Amazon/Noon ship hand-authored Skills, everything else is
+   self-learned this way. This is *procedural* / learned-by-doing memory
+   ("how does THIS store's checkout flow actually behave"), not the
+   product/policy document retrieval our RAG feature covers. Worth
+   checking whether `agent/memory` already has an equivalent, or whether
+   that kind of learned-by-doing knowledge currently has nowhere
+   durable, diffable, and human-readable to live.
+
 ### Open commercial decisions for business-metric billing (2026-09-21)
 
 Design + backend brief: `cn/tencent/BILLING_METERING_SERVER_TODO.md` in the

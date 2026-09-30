@@ -351,7 +351,7 @@ _CLOUD_REPAIRABLE_SKILL_FIELDS = ('owner', 'public', 'rentable', 'price', 'price
 
 
 def _repair_local_skill_from_cloud(local_sk: Dict[str, Any], cloud_sk: Dict[str, Any],
-                                   request=None, params=None) -> bool:
+                                   request=None, params=None, local_owner: str = '') -> bool:
     """Backfill missing identity/store fields on a local skill row from its
     cloud twin (same id, owner verified as the current user by the caller).
 
@@ -389,10 +389,17 @@ def _repair_local_skill_from_cloud(local_sk: Dict[str, Any], cloud_sk: Dict[str,
     except Exception as vcmp_err:
         logger.debug(f"[skill_version] compare skipped: {vcmp_err}")
 
+    from agent.cloud_api.cloud_api import normalize_cloud_owner
     fields: Dict[str, Any] = {}
     for key in _CLOUD_REPAIRABLE_SKILL_FIELDS:
         local_val = local_sk.get(key)
         cloud_val = cloud_sk.get(key)
+        if key in _PUBLISH_FIELDS and cloud_val is not None:
+            # Store listing is cloud-authoritative for the owner's own skill:
+            # it is what subscribers see, and local saves used to reset it.
+            if cloud_val != local_val:
+                fields[key] = cloud_val
+            continue
         local_empty = (local_val is None) or (isinstance(local_val, str) and not local_val.strip()) \
             or (key in ('public', 'rentable') and not local_val) or (key == 'price' and not local_val)
         cloud_has = (cloud_val is not None) and (not isinstance(cloud_val, str) or cloud_val.strip()) \
@@ -400,13 +407,17 @@ def _repair_local_skill_from_cloud(local_sk: Dict[str, Any], cloud_sk: Dict[str,
         if local_empty and cloud_has:
             fields[key] = cloud_val
         elif key == 'owner' and cloud_has and not local_empty \
-                and str(local_val).strip().lower() != str(cloud_val).strip().lower():
+                and normalize_cloud_owner(str(local_val).strip()).lower() \
+                != normalize_cloud_owner(str(cloud_val).strip()).lower():
+            # Store the LOCAL form of the identity (My Skills filters on it);
+            # the cloud row carries the bare cloud form.
+            new_owner = local_owner or cloud_val
             logger.info(
                 f"[skill_handler] Stale owner on local skill "
                 f"'{local_sk.get('name')}' ({local_sk.get('id')}): "
-                f"{local_val!r} → {cloud_val!r} (current user's cloud row is authoritative)"
+                f"{local_val!r} → {new_owner!r} (current user's cloud row is authoritative)"
             )
-            fields[key] = cloud_val
+            fields[key] = new_owner
     if not fields:
         return False
 
@@ -609,8 +620,12 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
         for cloud_sk in cloud_skills_dicts:
             cid = str(cloud_sk['id']) if cloud_sk.get('id') else None
             c_askid = str(cloud_sk['askid']) if cloud_sk.get('askid') else None
-            cowner = str(cloud_sk.get('owner') or '').strip().lower()
-            current_user = str(username or '').strip().lower()
+            # Compare cloud identities: a WeChat login is 'wechat_<openid>@local'
+            # locally but the bare openid in the cloud, so a raw compare skipped
+            # every own skill (and with it the cloud->local repair below).
+            from agent.cloud_api.cloud_api import normalize_cloud_owner
+            cowner = normalize_cloud_owner(str(cloud_sk.get('owner') or '').strip()).lower()
+            current_user = normalize_cloud_owner(str(username or '').strip()).lower()
 
             # Standard list semantics:
             # - local memory/DB already contains my local skills and subscribed skills
@@ -631,7 +646,8 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                 try:
                     local_sk = local_by_id.get(cid) if cid else None
                     if local_sk is not None:
-                        _repair_local_skill_from_cloud(local_sk, cloud_sk, request, params)
+                        _repair_local_skill_from_cloud(local_sk, cloud_sk, request, params,
+                                                       local_owner=str(username or '').strip())
                 except Exception as repair_err:
                     logger.warning(f"[skill_handler] cloud→local field repair failed for {cid}: {repair_err}")
                 continue
@@ -1449,6 +1465,31 @@ def _skill_file_prompt_ids(skill_data: Dict[str, Any]) -> list:
     return sorted(ids)
 
 
+def _upload_skill_prompts(skill_data: Dict[str, Any]) -> None:
+    """Push the author's own prompts a saved skill references, so subscribers
+    can download them. Saving a skill used to upload the record and files but
+    never its prompts (2026-09-30: pr-920049 existed only on the author's disk,
+    every 拼多多 subscriber got "not found"). The bulk push already skips
+    sample / subscribed / read-only prompts. Best-effort, never blocks the save."""
+    try:
+        from gui.ipc.w2p_handlers import prompt_handler
+        from gui.ipc.w2p_handlers.prompt_cloud_sync import sync_all_prompts_to_cloud
+        ids = set(_extract_skill_prompt_ids(skill_data)) | set(_skill_file_prompt_ids(skill_data))
+        if not ids:
+            return
+        prompts = [p for p in prompt_handler._load_all_prompts() if p.get('id') in ids]
+        missing = sorted(ids - {p.get('id') for p in prompts})
+        if missing:
+            logger.warning(f"[skill_handler] '{skill_data.get('name')}' references prompt(s) "
+                           f"not in the local store: {missing}")
+        if prompts:
+            logger.info(f"[skill_handler] pushing {len(prompts)} referenced prompt(s) for "
+                        f"'{skill_data.get('name')}': {sorted(p.get('id') for p in prompts)}")
+            sync_all_prompts_to_cloud(prompts)
+    except Exception as e:
+        logger.warning(f"[skill_handler] referenced-prompt upload skipped (non-fatal): {e}")
+
+
 def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=None,
                             extra_prompt_ids=()) -> None:
     """Download a subscribed skill's referenced prompts into the local
@@ -2205,8 +2246,9 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             cloud_op = Operation.ADD if result.get('updated') is False else Operation.UPDATE
             logger.info(f"[skill_handler] Cloud sync op for '{skill_data['name']}': {cloud_op} (updated_flag={result.get('updated')})")
 
-            # Sync Skill entity
-            _trigger_cloud_sync(skill_data_with_id, cloud_op, request, params)
+            # Sync Skill entity (publish flags only when this save sets them)
+            _trigger_cloud_sync(skill_data_with_id, cloud_op, request, params,
+                                update_publish_flags=bool(_PUBLISH_FIELDS & set(skill_info)))
             
             # Sync Skill-Tool relationships (use skill_info, not skill_data which doesn't have these keys).
             # Always use ADD — cloud resolver handles upsert. UPDATE requires the cloud-side
@@ -2226,6 +2268,9 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
                     upload_skill_files_to_cloud(skill_data_with_id)
                 except Exception as fs_exc:
                     logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
+
+            # Step 5b: Push the prompts the skill references (async, fire and forget)
+            _upload_skill_prompts(skill_data_with_id)
 
             # Step 6: Save skill version history snapshot
             try:
@@ -3129,7 +3174,12 @@ def _update_skill_askid_in_memory_and_db(local_id: str, cloud_askid: Any) -> Non
         logger.warning(f"[skill_handler] Failed to update askid in DB: {e}")
 
 
-def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation', request=None, params=None) -> None:
+# Store-listing fields, set from the Skills page (sparse save), not the editor.
+_PUBLISH_FIELDS = frozenset({'public', 'rentable', 'price', 'price_model'})
+
+
+def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation', request=None, params=None,
+                        update_publish_flags: bool = True) -> None:
     """Trigger cloud synchronization (async, non-blocking)
     
     Async background execution, doesn't block UI operations, ensures eventual consistency.
@@ -3168,6 +3218,13 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation', requ
         'skill_id', 'cloud_id',
     })
     cloud_data = {k: v for k, v in skill_data.items() if k not in _NON_CLOUD_FIELDS}
+    # UPDATEs leave the cloud's publish state alone unless this save set it:
+    # the local row can be stale (2026-09-29: an editor save pushed
+    # public=False from the local DB and pulled a public skill off the store).
+    # The server's update is partial, so omitted fields keep their values.
+    # ADD keeps them -- a new cloud row would otherwise default to public.
+    update_data = cloud_data if update_publish_flags else {
+        k: v for k, v in cloud_data.items() if k not in _PUBLISH_FIELDS}
 
     def _op_name(value: Any) -> str:
         try:
@@ -3221,7 +3278,7 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation', requ
                     # (e.g. public/rentable/publish state) is actually propagated.
                     logger.info(f"[skill_handler] 🔄 Cloud returned ID_TAKEN for ADD, retrying with UPDATE: {skill_data.get('name')}")
                     manager = get_sync_manager()
-                    manager.sync_to_cloud_async(DataType.SKILL, cloud_data, Op.UPDATE, callback=_log_result_final)
+                    manager.sync_to_cloud_async(DataType.SKILL, update_data, Op.UPDATE, callback=_log_result_final)
                     return
         
         error_msg = result.get('error')
@@ -3297,6 +3354,7 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation', requ
                             f"id={skill_id}, existing_id={existing_id}, switching ADD -> UPDATE"
                         )
                         cloud_data['askid'] = existing_id
+                        update_data['askid'] = existing_id
                         effective_operation = Op.UPDATE
                     else:
                         logger.debug(f"[skill_handler] No duplicate cloud skill found for id '{skill_id}'")
@@ -3307,7 +3365,8 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation', requ
     # Note: Use SKILL for Skill entity data (name, description, etc.)
     #       Use AGENT_SKILL for Agent-Skill relationship data (agid, skid, owner)
     manager = get_sync_manager()
-    manager.sync_to_cloud_async(DataType.SKILL, cloud_data, effective_operation, callback=_log_result)
+    payload = update_data if _op_name(effective_operation) == 'UPDATE' else cloud_data
+    manager.sync_to_cloud_async(DataType.SKILL, payload, effective_operation, callback=_log_result)
 
 
 def _sync_skill_delete_to_cloud(skill_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -3567,6 +3626,12 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
             logger.info(f"[skill_handler] Updating existing skill: {skill_name} (ID: {skill_id})")
             
             prepared_data = _prepare_skill_data(skill_info, username, skill_id)
+            # The skill file carries no store listing: keep the row's publish
+            # flags instead of _prepare_skill_data's defaults (every editor
+            # save reset public/rentable to False, locally AND in the cloud).
+            for _k in _PUBLISH_FIELDS - set(skill_info):
+                if _k in existing_skill['data']:
+                    prepared_data[_k] = existing_skill['data'][_k]
             logger.debug(f"[skill_handler] Prepared data for update: path={prepared_data.get('path')}")
             result = skill_service.update_skill(skill_id, prepared_data)
             
@@ -3578,7 +3643,8 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
                 skill_data_with_id = prepared_data.copy()
                 skill_data_with_id['id'] = skill_id
                 if not skip_cloud_sync:
-                    _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE, request, params)
+                    _trigger_cloud_sync(skill_data_with_id, Operation.UPDATE, request, params,
+                                        update_publish_flags=bool(_PUBLISH_FIELDS & set(skill_info)))
 
                 try:
                     if file_skill_id != str(skill_id):

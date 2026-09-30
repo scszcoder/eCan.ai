@@ -660,6 +660,27 @@ def _local_vehicle(owner: str, log: list):
         return None
 
 
+def _store_vehicle(store_id: str, owner: str, log: list):
+    """The machine a store's agents are assigned to: the store's cloud
+    assignment (live, else the app's last cached copy), else this machine."""
+    try:
+        from types import SimpleNamespace
+        from config.envi import getECBotDataHome
+        from agent.ec_agents import store_placement
+        log_user = os.environ.get("ECAN_LOG_USER") or ""
+        home = os.path.join(getECBotDataHome(), log_user) if log_user else ""
+        snap = store_placement.refresh(SimpleNamespace(my_ecb_data_homepath=home)) or {}
+        assigned = ((snap.get("stores") or {}).get(store_id) or {}).get("assigned")
+        if assigned:
+            log.append(f"Placement: store {store_id!r} is assigned to vehicle {assigned}; its agents follow it")
+            return assigned
+    except Exception as e:
+        log.append(f"Placement: store {store_id!r} assignment unreadable ({e}); using this machine")
+    vid = _local_vehicle(owner, log)
+    log.append(f"Placement: store {store_id!r} unassigned; its agents go to this machine ({vid or 'unknown'})")
+    return vid
+
+
 class _Builder:
     """Creates tasks and agents for one deployment and remembers what it made."""
 
@@ -767,11 +788,9 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     task_vars["store_id"] = store_id
     log.append(f"Store id: {store_id}")
 
-    # ── Placement: a store's agents run where the STORE is assigned; a pin to
-    #    the machine that happened to deploy would keep them off the machine
-    #    the store is actually assigned to.
-    vehicle_id = None
-    log.append(f"Placement: agents follow store {store_id!r}'s assignment, not this machine")
+    # ── Placement: a store's agents go to the vehicle the STORE is assigned
+    #    to (by default this machine), never to whichever machine deployed.
+    vehicle_id = _store_vehicle(store_id, owner, log)
 
     org_id = _ensure_sales_org(ctx, owner, log)
 
@@ -955,8 +974,8 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
         if urls:
             tvars.update(store_url=urls[0], store_urls=",".join(urls))
         tid = b.task(f"{profile.fd_task_prefix}-{name}", fd_skill_id, tvars, identity)
-        # No pin: a store's agents run where the store is assigned.
-        aid = b.agent(f"前台-{name}", fd_skill_id, tid, None)
+        # A store's agent goes to the vehicle the store is assigned to.
+        aid = b.agent(f"前台-{name}", fd_skill_id, tid, _store_vehicle(sid, owner, log))
         fd_ids.append(aid)
         log.append(f"Store {name!r}: front desk {aid} in login profile {identity['browser_profile_id']!r}")
 
@@ -1075,7 +1094,7 @@ def _deploy_operations(cfg: dict, ctx, owner: str, scenario_key: str):
     identity, needs = _ensure_store_login(ctx, rec, urlparse(store_urls[0]).hostname or "", log)
     needs_login = ([{"store_id": store_id, "store_name": store_name,
                      "profile_id": identity["browser_profile_id"]}] if needs else [])
-    log.append(f"Placement: agents follow store {store_id!r}'s assignment, not this machine")
+    store_vehicle = _store_vehicle(store_id, owner, log)
 
     base_vars = {"store_id": store_id, "store_url": store_urls[0], "store_urls": ",".join(store_urls)}
     b = _Builder(ctx, owner, org_id, label)
@@ -1092,7 +1111,7 @@ def _deploy_operations(cfg: dict, ctx, owner: str, scenario_key: str):
                          trigger="schedule", schedule=schedule)
         else:
             tid = b.task(f"{plat_zh}{zh}-{store_name}", skill_id, tvars, identity, trigger="message")
-        agent_ids[role] = b.agent(f"{store_name}-{role_name}", skill_id, tid, None)
+        agent_ids[role] = b.agent(f"{store_name}-{role_name}", skill_id, tid, store_vehicle)
         log.append(f"Created {role_name}: task {tid} → {skills[role].get('name')}, agent {agent_ids[role]}"
                    + (f" (every {schedule['repeat_number']} {schedule['repeat_type'][3:]} "
                       f"from {schedule['start_date_time']})" if role == "after_sales" else " (starts on a chat message)"))

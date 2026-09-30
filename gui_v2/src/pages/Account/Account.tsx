@@ -8,7 +8,6 @@ import { ipcApi } from '../../services/ipc/api';
 import { getCachedAppConfig, useIsCN } from '../../contexts/AppConfigContext';
 import { isWebPlatform } from '../../config/platform';
 import { eventBus } from '../../utils/eventBus';
-import TokenUsageSection from './TokenUsageSection';
 import BillingDrilldown from './BillingDrilldown';
 import ContactVerification from './ContactVerification';
 import FundAlertThresholds from './FundAlertThresholds';
@@ -330,6 +329,8 @@ const Account: React.FC = () => {
 
     useEffect(() => {
         void loadApiKey();
+        // Current balance on open (later changes arrive as server pushes).
+        void useAccountStore.getState().fetchAccountInfo();
 
         // Refresh account data when billing status changes
         const handleBillingBlocked = () => {
@@ -547,10 +548,7 @@ const Account: React.FC = () => {
                 </Col>
             </Row>
 
-            {/* Token Usage Analytics - expandable section at the bottom */}
-            <TokenUsageSection />
-
-            {/* Billing drill-down: daily → hourly → per-model, with top-ups merged */}
+            {/* The server's statement: actual charges and credits */}
             <BillingDrilldown />
 
             {/* The user's own balance-alarm levels for the top bar */}

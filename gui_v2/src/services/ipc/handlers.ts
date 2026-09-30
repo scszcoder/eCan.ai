@@ -79,6 +79,8 @@ export class IPCHandlers {
 
         // Account info push from backend
         this.registerHandler('push_account_info', this.pushAccountInfo);
+        // Balance changed (server push after each settlement / credit)
+        this.registerHandler('push_balance_changed', this.pushBalanceChanged);
         
         // Skill editor events from backend (canvas commands, etc.)
         this.registerHandler('skill_editor.event', this.handleSkillEditorEvent.bind(this));
@@ -844,6 +846,28 @@ export class IPCHandlers {
         store.setAccountData(params.accountInfo);
         
         logger.info('[IPC] Account info pushed from backend');
+        return { success: true };
+    }
+
+    /**
+     * Balance changed on the server (charges settle every ~5 min; credits land
+     * at once): show the new balance without a refetch. Credits get a short
+     * toast with the server's sentence; charges update silently.
+     */
+    async pushBalanceChanged(request: IPCRequest): Promise<{ success: boolean }> {
+        const params = request.params as {
+            fund_fen?: number; delta_fen?: number; reasons?: string[]; message?: string;
+        };
+        if (typeof params?.fund_fen !== 'number') {
+            logger.warn('[IPC] push_balance_changed without fund_fen');
+            return { success: false };
+        }
+        useAccountStore.getState().applyBalanceChange(params.fund_fen);
+        if ((params.delta_fen || 0) > 0 && params.message) {
+            const { message } = await import('antd');
+            message.success(params.message);
+        }
+        logger.info('[IPC] Balance changed', { fund_fen: params.fund_fen, delta_fen: params.delta_fen, reasons: params.reasons });
         return { success: true };
     }
 

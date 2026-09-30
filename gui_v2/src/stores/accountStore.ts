@@ -133,6 +133,10 @@ interface AccountState {
     loadFundThresholds: (username: string) => Promise<void>;
     /** Apply and persist them; false when the save failed (nothing changed). */
     saveFundThresholds: (thresholds: FundThresholds) => Promise<boolean>;
+
+    /** Server push (balance_changed): the new balance in fen, after settlement.
+     *  Updates the shown balance in place; fetches when nothing is loaded yet. */
+    applyBalanceChange: (fundFen: number) => void;
 }
 
 export const useAccountStore = create<AccountState>((set, get) => ({
@@ -158,6 +162,20 @@ export const useAccountStore = create<AccountState>((set, get) => ({
         } catch {
             /* keep the defaults */
         }
+    },
+
+    applyBalanceChange: (fundFen) => {
+        const { accountData } = get();
+        if (!accountData?.acctInfo) {
+            void get().fetchAccountInfo();
+            return;
+        }
+        // acctInfo.fund is fen on CN (same unit as get_account_info); getFund() converts.
+        set({
+            accountData: { ...accountData, acctInfo: { ...accountData.acctInfo, fund: fundFen } },
+            lastUpdated: Date.now(),
+        });
+        if (fundFen > 0) set({ billingBlocked: false });
     },
 
     saveFundThresholds: async ({ low, critical }) => {

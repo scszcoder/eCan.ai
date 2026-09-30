@@ -421,15 +421,26 @@ def sync_all_prompts_to_cloud(prompts: List[Dict[str, Any]]) -> None:
 
             logger.info(f"[prompt_sync] Syncing {len(to_sync)} local prompts to cloud...")
 
-            # Batch in groups of 25 to avoid oversized requests
-            BATCH_SIZE = 25
+            # Batch by encoded size: the CN gateway answers 413 (a non-GraphQL
+            # body) past a few hundred KB, and 25 CJK prompts escaped as \uXXXX
+            # exceed that -- every bulk push since 2026-09 silently sent nothing.
+            MAX_BATCH_BYTES = 64 * 1024
+            batches, current, current_bytes = [], [], 0
+            for p in to_sync:
+                gql_input = _prompt_to_graphql_input(p, owner)
+                size = len(json.dumps(gql_input))
+                if current and current_bytes + size > MAX_BATCH_BYTES:
+                    batches.append(current)
+                    current, current_bytes = [], 0
+                current.append(gql_input)
+                current_bytes += size
+            if current:
+                batches.append(current)
+
             total_ok = 0
             total_err = 0
 
-            for i in range(0, len(to_sync), BATCH_SIZE):
-                batch = to_sync[i:i + BATCH_SIZE]
-                gql_inputs = [_prompt_to_graphql_input(p, owner) for p in batch]
-
+            for gql_inputs in batches:
                 mutation = """
                     mutation AddPrompts($input: [PromptInput!]!) {
                         addPrompts(input: $input) { id success error }
@@ -439,9 +450,10 @@ def sync_all_prompts_to_cloud(prompts: List[Dict[str, Any]]) -> None:
                 resp = _appsync_request(mutation, ctx, variables={"input": gql_inputs})
 
                 errors = resp.get("errors")
-                if errors:
-                    logger.warning(f"[prompt_sync] Batch sync error: {errors}")
-                    total_err += len(batch)
+                if errors or "data" not in resp:
+                    logger.warning(f"[prompt_sync] Batch sync error "
+                                   f"({[g.get('id') for g in gql_inputs]}): {errors or resp}")
+                    total_err += len(gql_inputs)
                 else:
                     results = resp.get("data", {}).get("addPrompts", [])
                     for r in results:

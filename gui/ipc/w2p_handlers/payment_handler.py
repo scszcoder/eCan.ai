@@ -292,3 +292,69 @@ def handle_validate_coupon(request: IPCRequest,
     except Exception as e:
         logger.error(f"[Coupon] validate error: {e}")
         return create_error_response(request, "COUPON_ERROR", str(e))
+
+
+@IPCHandlerRegistry.handler("billing.getHistory")
+def handle_billing_history(request: IPCRequest,
+                           params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """CN billing history — the SERVER's actual charges and credits.
+
+    Forwards ``billing_history`` to ecbAccountManager. Returns its payload as
+    the IPC data: ``{currency, balance, start_date, end_date, entries[]}`` with
+    each entry ``{entry_id, ts, type, amount, currency, status, description,
+    category?}`` — ``type`` topup | coupon_credit | adjustment | refund |
+    charge, ``amount`` signed fen; usage charges carry ``category``
+    llm_usage | knowledge_base | media_generation, per-reply charges none.
+    """
+    try:
+        if not is_cn():
+            return create_error_response(request, "CN_ONLY", "Billing history is CN-only")
+        params = params or {}
+        from gui.ipc.w2p_handlers.account_verify_handler import _account_manager_url
+        url = _account_manager_url()
+        if not url:
+            return create_error_response(request, "NOT_CONFIGURED", "No GraphQL endpoint configured")
+        token = _coupon_bearer_token()
+        if not token:
+            return create_error_response(request, "NO_TOKEN", "Not signed in — no bearer token available")
+
+        body = {"action": "billing_history"}
+        for k in ("start_date", "end_date"):
+            v = str(params.get(k) or "").strip()
+            if v:
+                body[k] = v
+        req = urllib.request.Request(
+            url, data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+            method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                raw = resp.read(4 * 1024 * 1024).decode("utf-8", "replace")
+                status = resp.status
+        except urllib.error.HTTPError as he:
+            raw = he.read(4096).decode("utf-8", "replace")
+            status = he.code
+        except Exception as exc:
+            logger.warning(f"[Billing] history transport error: {exc}")
+            return create_error_response(request, "NETWORK_ERROR", str(exc))
+
+        try:
+            payload = json.loads(raw) if raw.strip() else {}
+        except Exception:
+            payload = {"raw": raw[:500]}
+        if not isinstance(payload, dict):
+            payload = {"result": payload}
+
+        ok = status < 400 and bool(payload.get("success", True))
+        logger.info(f"[Billing] history {body.get('start_date')}..{body.get('end_date')} status={status} "
+                    f"entries={len(payload.get('entries') or [])}")
+        if ok:
+            return create_success_response(request, payload)
+        if status == 401:
+            logger.warning("[Billing] history: session expired (401)")
+        return create_error_response(
+            request, str(payload.get("error") or payload.get("code") or f"HTTP_{status}"),
+            str(payload.get("message") or "billing history failed"), details=payload)
+    except Exception as e:
+        logger.error(f"[Billing] history error: {e}")
+        return create_error_response(request, "BILLING_ERROR", str(e))

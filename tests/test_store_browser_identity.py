@@ -97,11 +97,11 @@ class DeploySyncTests(unittest.TestCase):
             cmds._sync_created_to_cloud(self._ctx(), {"tasks": ["t1"], "agents": []}, {"agent_task": [], "task_skill": []}, log)
         self.assertIn("1 failed", log[-1])
 
-    def test_store_agents_are_not_pinned_to_the_deploying_machine(self):
+    def test_store_agents_go_to_the_stores_vehicle(self):
         from pathlib import Path
         src = Path("cli/deploy/commands.py").read_text(encoding="utf-8")
         i = src.index("def _deploy_live_chat(")
-        self.assertIn("    vehicle_id = None\n", src[i:i + 4000])
+        self.assertIn("    vehicle_id = _store_vehicle(store_id, owner, log)\n", src[i:i + 4000])
         self.assertLess(src.index("_sync_created_to_cloud(ctx, created, links, log)"),
                         src.index("    return plan, log, created"))
 

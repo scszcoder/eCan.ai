@@ -122,10 +122,12 @@ def _session_bearer_token() -> str:
         from app_context import AppContext
 
         mainwin = AppContext.get_main_window()
-        if mainwin is None:
-            return ""
-
         from agent.cloud_api.cloud_api import _http_auth_header
+
+        if mainwin is None:
+            # CLI subprocess (Fast Deploy): the app hands its auth token over.
+            bearer = _http_auth_header((os.environ.get("ECAN_CLI_AUTH_TOKEN") or "").strip())
+            return bearer[7:] if bearer.lower().startswith("bearer ") else bearer
 
         bearer = _http_auth_header(mainwin.get_auth_token() or "")
         token = bearer[7:] if bearer.lower().startswith("bearer ") else bearer

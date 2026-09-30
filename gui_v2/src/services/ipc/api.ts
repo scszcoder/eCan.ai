@@ -3087,42 +3087,7 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'fleet.open_downloads' }, { path: path || '' });
     }
 
-    // LLM Token Usage APIs
-    public async getMonthlyTokenUsage<T>(month?: number, year?: number): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'llm.getMonthlyTokenUsage' }, { month, year });
-    }
-
-    public async getTokenUsageTimeSeries<T>(period?: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'llm.getTokenUsageTimeSeries' }, { period: period || '1m' });
-    }
-
-    public async getTokenUsageBreakdown<T>(start?: string, end?: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'llm.getTokenUsageBreakdown' }, { start, end });
-    }
-
-    public async getTokenUsageAlarms<T>(): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'llm.getTokenUsageAlarms' });
-    }
-
-    // Billing drill-down (local usage DB). tz_offset_minutes = -getTimezoneOffset()
-    // so day/hour buckets render in the viewer's local time.
-    public async getBillingDaily<T>(year: number, month: number): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'llm.getBillingDaily' },
-            { year, month, tz_offset_minutes: -new Date().getTimezoneOffset() });
-    }
-
-    public async getBillingHourly<T>(date: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'llm.getBillingHourly' },
-            { date, tz_offset_minutes: -new Date().getTimezoneOffset() });
-    }
-
-    public async getBillingHourModels<T>(date: string, hour: number): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'llm.getBillingHourModels' },
-            { date, hour, tz_offset_minutes: -new Date().getTimezoneOffset() });
-    }
-
-    // Cloud billing history (top-ups/charges). Server-authoritative; may be
-    // absent until the backend ships getBillingHistory — callers degrade.
+    // Cloud billing history: the server's actual charges and credits.
     public async getBillingHistory<T>(startDate: string, endDate: string): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'billing.getHistory' }, { start_date: startDate, end_date: endDate });
     }
@@ -3130,10 +3095,6 @@ export class IPCAPI {
     // Coupon preview for top-up. Advisory; the server re-validates at order time.
     public async validateCoupon<T>(code: string, amount: number, currency: string, purpose = 'topup'): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'billing.validateCoupon' }, { code, amount, currency, purpose });
-    }
-
-    public async setTokenAlarmLevels<T>(daily_token_limit: number, monthly_token_limit: number): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'llm.setTokenAlarmLevels' }, { daily_token_limit, monthly_token_limit });
     }
 
     // Agent Runtime Status APIs

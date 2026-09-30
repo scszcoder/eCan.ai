@@ -267,7 +267,7 @@ class DBAgentService(BaseService):
         Note:
             - Frontend 'description' (text) maps to DBAgent.description (Text field)
             - Frontend 'extra_data' (text) is stored in DBAgent.extra_data.notes (JSON field)
-            - vehicle_id is used in task associations (DBAgentTaskRel.vehicle_id)
+            - vehicle_id is stored on the agent only; task links carry no vehicle
             - DBAgent.extra_data (JSON) stores structured data like notes, preferences, etc.
         """
         try:
@@ -353,14 +353,17 @@ class DBAgentService(BaseService):
                         )
                         session.add(skill_rel)
 
-                # Create task relationships (with vehicle)
+                # Create task relationships
                 # Frontend sends: ['task_id1', 'task_id2', ...]
+                # The link has nothing to do with a vehicle (the agent's own
+                # vehicle_id says where it runs). Requiring one dropped every
+                # link of an unpinned agent, which then loaded with 0 tasks and
+                # never ran (2026-09-30).
                 for task_id in task_ids:
-                    if task_id and vehicle_id:
+                    if task_id:
                         task_rel = DBAgentTaskRel(
                             agent_id=created_agent_id,
                             task_id=task_id,
-                            vehicle_id=vehicle_id,
                             status='pending',
                             priority='medium'
                         )
@@ -1431,7 +1434,6 @@ class DBAgentService(BaseService):
                 skills_data = data.get('skills')
                 tasks_data = data.get('tasks')
                 org_id = data.get('org_id')
-                vehicle_id = data.get('vehicle_id')  # Used for task relationships
                 
                 # Fields that should not be set on DBAgent model (handled separately)
                 # These are relationship table fields, not direct DBAgent fields
@@ -1516,18 +1518,15 @@ class DBAgentService(BaseService):
                     # Delete existing agent-task relationships
                     session.query(DBAgentTaskRel).filter(DBAgentTaskRel.agent_id == agent_id).delete()
                     
-                    # Get agent's vehicle_id (optional, can be None)
-                    agent_vehicle_id = vehicle_id
-                    
-                    # Add new relationships (only valid tasks)
+                    # Add new relationships (only valid tasks). No vehicle on
+                    # the link: the agent's own vehicle_id says where it runs.
                     for task_id in valid_tasks:
                         rel = DBAgentTaskRel(
-                            agent_id=agent_id, 
+                            agent_id=agent_id,
                             task_id=task_id,
-                            vehicle_id=agent_vehicle_id
                         )
                         session.add(rel)
-                        logger.debug(f"[DBAgentService] Added agent-task relationship: {agent_id} -> {task_id} (vehicle: {agent_vehicle_id or 'unassigned'})")
+                        logger.debug(f"[DBAgentService] Added agent-task relationship: {agent_id} -> {task_id}")
                 
                 # Update agent-org relationship if org_id provided
                 if org_id is not None:

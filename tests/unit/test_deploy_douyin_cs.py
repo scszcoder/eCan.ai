@@ -143,10 +143,18 @@ class TestDeployDouyinCs:
         assert len({a["name"] for a in qa_agents}) == len(qa_agents)  # unique names
         for a in agent_payloads:
             assert a["org_id"] == "org_sales"
-            assert "vehicle_id" not in a      # a store's agents follow the store's placement
+            assert a["vehicle_id"] == "veh-local"  # unassigned store -> this machine
             assert len(a["tasks"]) == 1
         assert {a["skills"][0] for a in qa_agents} == {QA_SKILL}
         assert fd_agent["skills"] == [FD_SKILL]
+
+    def test_agents_follow_the_stores_assigned_vehicle(self):
+        ctx = _make_ctx()
+        snap = {"stores": {"shopA": {"assigned": "veh-store"}}}
+        with patch("agent.ec_agents.store_placement.refresh", return_value=snap):
+            dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+        payloads = [c.args[0] for c in ctx.db.agent_service.create_agent_from_data.call_args_list]
+        assert payloads and all(a["vehicle_id"] == "veh-store" for a in payloads)
 
     def test_a_store_id_is_required(self):
         ctx = _make_ctx()

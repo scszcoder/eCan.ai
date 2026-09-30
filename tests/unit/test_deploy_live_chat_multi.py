@@ -125,8 +125,8 @@ class TestSeveralStoresOneMachine:
         senders = pool[0]["settings"]["task_vars"]["front_desk_agent_id"].split(",")
         assert len(senders) == 2
         assert "store_id" not in pool[0]["settings"]["task_vars"]
-        # front desks follow store placement; the pool is pinned here
-        assert all("vehicle_id" not in a for a in fd_agents)
+        # front desks go to their store's vehicle (unassigned -> this machine)
+        assert all(a["vehicle_id"] == "veh-local" for a in fd_agents)
         qa_agents = [a for a in _agents(ctx) if a["name"].startswith("客服小")]
         assert len(qa_agents) == 3 and all(a["vehicle_id"] == "veh-local" for a in qa_agents)
         assert plan["stores"] == 2
