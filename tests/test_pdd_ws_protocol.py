@@ -137,6 +137,30 @@ class ObserverBurstTests(unittest.TestCase):
         self.assertEqual(len(got), 1)
         self.assertEqual(st.stats["messages"], 3)
 
+    def test_an_unreadable_frame_triggers_a_list_rescan(self):
+        import asyncio
+        from agent.ec_skills.browser_use_extension.hooks.external.pdd_chat import ws_observer
+        st, got = self._state()
+        calls = []
+
+        async def rescan():
+            calls.append(1)
+        st.rescan = rescan
+        raw = base64.b64decode(chat(self._text("m1", "x")))
+        i = raw.find(b"\x1f\x8b")
+        broken = base64.b64encode(raw[:i + 12] + b"\x00" * 20).decode()
+
+        async def main():
+            old, ws_observer.RESCAN_DELAY_S = ws_observer.RESCAN_DELAY_S, 0.01
+            try:
+                st.on_frame(broken)
+                st.on_frame(broken)          # one rescan in flight at a time
+                await asyncio.sleep(0.1)
+            finally:
+                ws_observer.RESCAN_DELAY_S = old
+        asyncio.run(main())
+        self.assertEqual(calls, [1])
+
     def test_an_unreadable_gzip_frame_is_counted_not_lost_silently(self):
         st, got = self._state()
         raw = base64.b64decode(chat(self._text("m1", "x")))

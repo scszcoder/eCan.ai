@@ -15,6 +15,8 @@ monitor dispatches alone.
 """
 from __future__ import annotations
 
+import asyncio
+import base64
 import json
 import os
 import time
@@ -29,6 +31,8 @@ CHAT_URL = "https://mms.pinduoduo.com/chat-merchant/index.html"
 _SEEN_MAX = 2000
 _HANDLE_ATTR = "_ecan_pdd_ws_state"
 
+
+RESCAN_DELAY_S = 1.5   # let the page render a push before reading its list
 
 def dispatch_enabled() -> bool:
     return os.environ.get("ECAN_PDD_WS_DISPATCH", "1") != "0"
@@ -56,6 +60,9 @@ class _State:
         self.product: Dict[str, Dict[str, Any]] = {}     # uid -> last goods the buyer came from
         self.stats = {"frames": 0, "pushes": 0, "undecodable": 0, "messages": 0, "dispatched": 0}
         self._stats_at = time.time()
+        self.last_text: Dict[str, str] = {}              # uid -> last text dispatched for it
+        self.rescan: Optional[Callable[[], Any]] = None   # DOM re-scan, set once attached
+        self._rescan_task: Optional[asyncio.Task] = None
 
     def first_time(self, key: str) -> bool:
         if not key or key in self.seen:
@@ -112,6 +119,7 @@ class _State:
         try:
             self.dispatch_fn(item)
             self.stats["dispatched"] += 1
+            self.last_text[uid] = item["last_message"]
             logger.info(f"[PDD-WS] dispatched {ev.get('kind')} uid={uid} msg={ev.get('msg_id')} "
                         f"text={item['last_message'][:40]!r}")
         except Exception as exc:
@@ -125,7 +133,9 @@ class _State:
             if ws_protocol.GZIP_MAGIC in raw:
                 # A compressed push we could not read may hold customer messages.
                 self.stats["undecodable"] += 1
-                logger.warning(f"[PDD-WS] undecodable gzip frame len={len(raw)} head={raw[:24].hex()}")
+                logger.warning(f"[PDD-WS] undecodable gzip frame len={len(raw)} "
+                               f"b64={base64.b64encode(raw[:2048]).decode()}")
+                self.request_rescan()
             self._log_stats()
             return
         for push in pushes:
@@ -138,13 +148,28 @@ class _State:
                 self.on_event(ev)
         self._log_stats()
 
+    def request_rescan(self) -> None:
+        """A push we could not read may be a customer message (2026-10-01 14:54:25:
+        "具体打几折？" arrived in an undecodable frame and was never answered). Read the
+        conversation list instead, once the page has rendered the push."""
+        if self.rescan is None or (self._rescan_task and not self._rescan_task.done()):
+            return
+        try:
+            self._rescan_task = asyncio.get_running_loop().create_task(self._rescan_soon())
+        except RuntimeError:
+            pass
+
+    async def _rescan_soon(self) -> None:
+        await asyncio.sleep(RESCAN_DELAY_S)
+        await self.rescan()
+
     def _log_stats(self) -> None:
         if time.time() - self._stats_at >= 60:
             self._stats_at = time.time()
             logger.info(f"[PDD-WS] stats {self.stats}")
 
 
-async def _cold_start(client, sid: str, state: _State) -> None:
+async def _cold_start(client, sid: str, state: _State, reason: str = "cold start") -> None:
     """Conversations already waiting when we attached: dispatch each once.
 
     The socket only reports what happens after we attach, and a live observer
@@ -158,7 +183,8 @@ async def _cold_start(client, sid: str, state: _State) -> None:
     except Exception as exc:
         logger.warning(f"[PDD-WS] cold-start scan failed: {exc}")
         return
-    waiting = [row for row in rows if row.get("waiting") or row.get("group") == "unTimeout"]
+    waiting = [row for row in rows if (row.get("waiting") or row.get("group") == "unTimeout")
+               and state.last_text.get(row["uid"]) != (row.get("last_message") or "")]
     for row in waiting:
         state.on_event({
             "conversation_id": row["uid"], "customer_name": row.get("name") or "",
@@ -167,7 +193,7 @@ async def _cold_start(client, sid: str, state: _State) -> None:
             "needs_reply": True,
         })
     if waiting:
-        logger.info(f"[PDD-WS] cold start: {len(waiting)} conversation(s) already waiting")
+        logger.info(f"[PDD-WS] {reason}: {len(waiting)} conversation(s) waiting")
 
 
 async def start_ws_shadow_observer(session: Any, target_id: str, label: str = "",
@@ -205,6 +231,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         state.shop = session
         ws_session.set_dispatch_live(True, session)
         logger.info(f"[PDD-WS] observer live on tab {target_id[-6:]} label={label!r}")
+        state.rescan = lambda: _cold_start(client, sid, state, reason="rescan after undecodable push")
         await _cold_start(client, sid, state)
         return client
     except Exception as exc:

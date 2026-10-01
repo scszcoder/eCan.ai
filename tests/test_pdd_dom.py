@@ -252,3 +252,29 @@ class NoMouseTests(TrustedInputTests):
         self.assertFalse(out["ok"])
         self.assertIn("landed at", out["error"])
 
+# PDD layers over the list and the send button (layer-box, el-dialog__wrapper).
+OVERLAID_PAGE = TRUSTED_ONLY_PAGE.replace(
+    "</script></body></html>",
+    "</script><div class=\"layer-box\" style=\"position:fixed;inset:0;background:transparent\"></div></body></html>")
+
+
+class OverlayTests(TrustedInputTests):
+    def test_trusted_send_switches_types_and_sends(self):
+        pass
+
+    def test_trusted_send_clears_leftover_text(self):
+        pass
+
+    def test_synthetic_send_is_ignored_like_the_real_page(self):
+        pass
+
+    def test_clicks_pass_through_a_covering_layer(self):
+        async def go(page, evaluate, cdp, settle):
+            out = await dom.send_text(evaluate, "U2", "有活动", settle=settle, cdp=cdp)
+            thread = json.loads(await evaluate(dom.THREAD_JS))
+            return out, thread
+        out, thread = self._run(go, OVERLAID_PAGE)
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(thread["uid"], "U2")
+        self.assertEqual(thread["messages"][-1]["text"], "有活动")
+        self.assertIn("click-through: DIV.layer-box", out["diag"])
