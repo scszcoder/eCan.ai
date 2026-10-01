@@ -33,6 +33,10 @@ _HANDLE_ATTR = "_ecan_pdd_ws_state"
 
 
 RESCAN_DELAY_S = 1.5   # let the page render a push before reading its list
+LIST_CHECK_S = 10.0    # safety-net read of the conversation list
+RECLAIM_COOLDOWN_S = 120.0  # at most one reload to win the session back per this long
+RECLAIM_WAIT_S = 20.0      # how long a reload may take before the list is read again
+RECENT_DISPATCH_S = 60.0   # the list check leaves a conversation alone this long after a dispatch
 
 def dispatch_enabled() -> bool:
     return os.environ.get("ECAN_PDD_WS_DISPATCH", "1") != "0"
@@ -61,8 +65,13 @@ class _State:
         self.stats = {"frames": 0, "pushes": 0, "undecodable": 0, "messages": 0, "dispatched": 0}
         self._stats_at = time.time()
         self.last_text: Dict[str, str] = {}              # uid -> last text dispatched for it
+        self.last_dispatch_at: Dict[str, float] = {}     # uid -> when it was last dispatched
         self.rescan: Optional[Callable[[], Any]] = None   # DOM re-scan, set once attached
         self._rescan_task: Optional[asyncio.Task] = None
+        self.last_frame_at = 0.0
+        self.watch_task: Optional[asyncio.Task] = None
+        self.kicked_since = 0.0
+        self.last_reclaim_at = 0.0
 
     def first_time(self, key: str) -> bool:
         if not key or key in self.seen:
@@ -120,6 +129,7 @@ class _State:
             self.dispatch_fn(item)
             self.stats["dispatched"] += 1
             self.last_text[uid] = item["last_message"]
+            self.last_dispatch_at[uid] = time.time()
             logger.info(f"[PDD-WS] dispatched {ev.get('kind')} uid={uid} msg={ev.get('msg_id')} "
                         f"text={item['last_message'][:40]!r}")
         except Exception as exc:
@@ -127,6 +137,7 @@ class _State:
 
     def on_frame(self, payload: Any) -> None:
         self.stats["frames"] += 1
+        self.last_frame_at = time.time()
         pushes = ws_protocol.decode_frames(payload)
         if not pushes:
             raw = ws_protocol._as_bytes(payload)
@@ -169,7 +180,7 @@ class _State:
             logger.info(f"[PDD-WS] stats {self.stats}")
 
 
-async def _cold_start(client, sid: str, state: _State, reason: str = "cold start") -> None:
+async def _cold_start(client, sid: str, state: _State, reason: str = "cold start") -> bool:
     """Conversations already waiting when we attached: dispatch each once.
 
     The socket only reports what happens after we attach, and a live observer
@@ -181,10 +192,14 @@ async def _cold_start(client, sid: str, state: _State, reason: str = "cold start
                                                        "returnByValue": True}, session_id=sid)
         rows = json.loads((r.get("result") or {}).get("value") or "[]")
     except Exception as exc:
-        logger.warning(f"[PDD-WS] cold-start scan failed: {exc}")
-        return
+        logger.warning(f"[PDD-WS] {reason} scan failed: {exc}")
+        return False
+    # A conversation dispatched moments ago is being answered: its sidebar preview
+    # can differ from the text the socket gave (a goods card), so skip it by time.
+    recent = time.time() - RECENT_DISPATCH_S
     waiting = [row for row in rows if (row.get("waiting") or row.get("group") == "unTimeout")
-               and state.last_text.get(row["uid"]) != (row.get("last_message") or "")]
+               and state.last_text.get(row["uid"]) != (row.get("last_message") or "")
+               and state.last_dispatch_at.get(row["uid"], 0) < recent]
     for row in waiting:
         state.on_event({
             "conversation_id": row["uid"], "customer_name": row.get("name") or "",
@@ -194,6 +209,101 @@ async def _cold_start(client, sid: str, state: _State, reason: str = "cold start
         })
     if waiting:
         logger.info(f"[PDD-WS] {reason}: {len(waiting)} conversation(s) waiting")
+    return True
+
+
+async def _eval(client, sid: str, js: str) -> Any:
+    r = await client.send_raw("Runtime.evaluate", {"expression": js, "returnByValue": True}, session_id=sid)
+    return (r.get("result") or {}).get("value")
+
+
+async def _ensure_single_session(client, sid: str, target_id: str, state: _State) -> None:
+    """Exactly one PDD chat page, ours, holding the session.
+
+    Every other chat tab in this browser is closed (a second tab logs the account
+    in again and kicks ours out); if ours shows "账户在别处登录" it is reloaded, which
+    takes the session back -- at most once per RECLAIM_COOLDOWN_S so two owners
+    cannot reload each other forever.
+    """
+    try:
+        infos = (await client.send_raw("Target.getTargets", {})).get("targetInfos") or []
+    except Exception as exc:
+        logger.debug(f"[PDD-WS] tab survey failed: {exc}")
+        infos = []
+    for info in infos:
+        tid = str(info.get("targetId") or "")
+        if info.get("type") == "page" and tid != target_id and dom.is_chat_url(info.get("url") or ""):
+            try:
+                await client.send_raw("Target.closeTarget", {"targetId": tid})
+                logger.warning(f"[PDD-WS] closed extra PDD chat tab ...{tid[-6:]} "
+                               f"(one chat session per account; ours is ...{target_id[-6:]})")
+            except Exception as exc:
+                logger.warning(f"[PDD-WS] could not close extra chat tab ...{tid[-6:]}: {exc}")
+    try:
+        kicked = dom.is_kicked(await _eval(client, sid, dom.KICKED_JS))
+    except Exception:
+        return
+    if not kicked:
+        if state.kicked_since:
+            logger.info("[PDD-WS] chat session is ours again")
+            _report_status(chat_session="ok")
+        state.kicked_since = 0.0
+        return
+    if not state.kicked_since:
+        state.kicked_since = time.time()
+        logger.error("[PDD-WS] chat page logged in elsewhere (账户在别处登录): no messages reach "
+                     "this store until the session is taken back")
+        _report_status(chat_session="logged_in_elsewhere")
+    if time.time() - state.last_reclaim_at < RECLAIM_COOLDOWN_S:
+        return
+    state.last_reclaim_at = time.time()
+    logger.warning("[PDD-WS] reloading the chat page to take the session back")
+    try:
+        await client.send_raw("Page.reload", {"ignoreCache": False}, session_id=sid)
+    except Exception as exc:
+        logger.warning(f"[PDD-WS] reload failed: {exc}")
+        return
+    deadline = time.time() + RECLAIM_WAIT_S
+    while time.time() < deadline:
+        await asyncio.sleep(1.0)
+        try:
+            rows = json.loads(await _eval(client, sid, dom.LIST_SESSIONS_JS) or "[]")
+        except Exception:
+            continue
+        if rows:
+            break
+
+
+def _report_status(**fields: Any) -> None:
+    try:
+        from utils import agent_status
+        agent_status.report(None, **fields)
+    except Exception:
+        pass
+
+
+async def _watch_list(client, sid: str, state: _State, session: Any, target_id: str = "") -> None:
+    """Read the conversation list every LIST_CHECK_S, whatever the socket does.
+
+    While the observer is live the page's DOM monitor stands down, so a socket that
+    stops carrying pushes left the store blind (2026-10-02 run: attached while the
+    page was still loading, never got a frame; a goods card and a follow-up went
+    unanswered). A waiting conversation is dispatched from here instead; if the list
+    cannot be read, the observer stops claiming dispatch and the DOM monitor resumes.
+    """
+    last_stats = time.time()
+    while True:
+        await asyncio.sleep(LIST_CHECK_S)
+        if target_id:
+            await _ensure_single_session(client, sid, target_id, state)
+        if not await _cold_start(client, sid, state, reason="list check"):
+            ws_session.set_dispatch_live(False, session)
+            logger.warning("[PDD-WS] list check failed; page monitor takes over detection")
+            return
+        if time.time() - last_stats >= 60:
+            last_stats = time.time()
+            idle = f"{time.time() - state.last_frame_at:.0f}s" if state.last_frame_at else "never"
+            logger.info(f"[PDD-WS] stats {state.stats} last frame {idle} ago")
 
 
 async def start_ws_shadow_observer(session: Any, target_id: str, label: str = "",
@@ -227,12 +337,23 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 logger.warning(f"[PDD-WS] frame skipped: {exc}")
 
         client._event_registry.register("Network.webSocketFrameReceived", _on_frame)
+
+        def _on_socket(event: str):
+            def handler(params, session_id=None):
+                if session_id == sid:
+                    logger.info(f"[PDD-WS] socket {event}: {str(params.get('url') or params.get('requestId'))[:120]}")
+            return handler
+        client._event_registry.register("Network.webSocketCreated", _on_socket("opened"))
+        client._event_registry.register("Network.webSocketClosed", _on_socket("closed"))
         await client.send_raw("Network.enable", {}, session_id=sid)
         state.shop = session
         ws_session.set_dispatch_live(True, session)
         logger.info(f"[PDD-WS] observer live on tab {target_id[-6:]} label={label!r}")
         state.rescan = lambda: _cold_start(client, sid, state, reason="rescan after undecodable push")
+        await _ensure_single_session(client, sid, target_id, state)
         await _cold_start(client, sid, state)
+        state.watch_task = asyncio.get_running_loop().create_task(
+            _watch_list(client, sid, state, session, target_id))
         return client
     except Exception as exc:
         logger.warning(f"[PDD-WS] observer failed to start: {exc}")
@@ -244,6 +365,8 @@ async def stop_ws_shadow_observer(client: Any) -> None:
         return
     state = getattr(client, _HANDLE_ATTR, None)
     ws_session.set_dispatch_live(False, getattr(state, "shop", None))
+    if state is not None and state.watch_task:
+        state.watch_task.cancel()
     try:
         await client.stop()
     except Exception:

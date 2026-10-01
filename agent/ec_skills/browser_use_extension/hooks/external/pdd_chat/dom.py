@@ -24,6 +24,17 @@ def is_chat_url(url: str) -> bool:
     return CHAT_URL_MARKER in (url or "")
 
 
+# PDD keeps ONE live chat session per account: a newer login anywhere (another tab,
+# browser, the Win client) freezes this page under a "账户在别处登录" dialog and cuts
+# its socket. Nothing on such a page works until it is reloaded.
+KICKED_TEXT = "账户在别处登录"
+KICKED_JS = r"""(() => JSON.stringify({kicked: !!document.body && document.body.innerText.includes(%s)}))()""" % json.dumps(KICKED_TEXT, ensure_ascii=False)
+
+
+def is_kicked(value: Any) -> bool:
+    return bool((_parse(value) or {}).get("kicked"))
+
+
 LIST_SESSIONS_JS = r"""(() => {
   const seen = new Map();
   document.querySelectorAll('.chat-item-box[data-random]').forEach(box => {
@@ -244,6 +255,8 @@ async def open_conversation(evaluate: Evaluate, uid: str, cdp: Cdp, settle=None)
 
 
 async def _send_text_trusted(evaluate: Evaluate, cdp: Cdp, uid: str, text: str, settle=None) -> Dict[str, Any]:
+    if is_kicked(await evaluate(KICKED_JS)):
+        return {"ok": False, "error": "chat page was logged in elsewhere (账户在别处登录); not sending into a dead page"}
     opened = await open_conversation(evaluate, uid, cdp, settle=settle)
     if not opened.get("ok"):
         return opened
