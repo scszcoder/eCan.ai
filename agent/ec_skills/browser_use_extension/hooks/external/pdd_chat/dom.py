@@ -107,7 +107,9 @@ def row_point_js(uid: str) -> str:
   box.scrollIntoView({block: 'center'});
   const r = box.getBoundingClientRect();
   if (!r.width || !r.height) return JSON.stringify({ok: false, error: 'conversation row for ' + uid + ' is not visible'});
-  return JSON.stringify({ok: true, x: r.left + Math.min(r.width * 0.35, 120), y: r.top + r.height / 2});
+  const x = r.left + Math.min(r.width * 0.35, 120), y = r.top + r.height / 2;
+  const at = document.elementFromPoint(x, y);
+  return JSON.stringify({ok: true, x, y, visibility: document.visibilityState, hit: !!at && box.contains(at)});
 })(%s)""" % json.dumps(uid)
 
 
@@ -157,6 +159,10 @@ async def open_conversation(evaluate: Evaluate, uid: str, cdp: Cdp, settle=None)
     thread = await get_thread(evaluate)
     if thread.get("uid") == uid:
         return {"ok": True}
+    # A hidden page (background tab, minimized window) drops real mouse input
+    # while text insertion still works (2026-10-01 run: no click switched the
+    # conversation or pressed send). Show the tab first.
+    await cdp("Page.bringToFront", {})
     point = _parse(await evaluate(row_point_js(uid))) or {}
     if not point.get("ok"):
         return {"ok": False, "error": point.get("error") or "conversation row not found"}
@@ -167,7 +173,8 @@ async def open_conversation(evaluate: Evaluate, uid: str, cdp: Cdp, settle=None)
         thread = await get_thread(evaluate)
         if thread.get("uid") == uid:
             return {"ok": True}
-    return {"ok": False, "error": f"conversation {uid} did not open (showing {thread.get('uid')!r})"}
+    return {"ok": False, "error": f"conversation {uid} did not open (showing {thread.get('uid')!r}, "
+                                  f"page {point.get('visibility')}, click hit row: {point.get('hit')})"}
 
 
 async def _send_text_trusted(evaluate: Evaluate, cdp: Cdp, uid: str, text: str, settle=None) -> Dict[str, Any]:

@@ -1385,8 +1385,18 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
                         if _dispatch_node.endswith("_result"):
                             _dispatch_node = _dispatch_node[:-7]
                     
-                    # Store to state.result (accessible by all downstream nodes via {{result}})
-                    _write(state_patch, "result", a2a_result, on_conflict="merge_deep")
+                    # Store to state.result (accessible by all downstream nodes via {{result}}).
+                    # state.result must stay a dict: a text part (a reply JSON string on the
+                    # failed-delivery fallback) written over it crashed the next loop node
+                    # (2026-10-01 拼多多 front desk: "'str' object does not support item assignment").
+                    _result_obj = a2a_result
+                    if isinstance(_result_obj, str):
+                        try:
+                            _result_obj = json.loads(_result_obj)
+                        except (TypeError, ValueError):
+                            _result_obj = None
+                    if isinstance(_result_obj, dict):
+                        _write(state_patch, "result", _result_obj, on_conflict="merge_deep")
                     _write(state_patch, "tool_result.a2a_task_result", a2a_result, on_conflict="overwrite")
                     
                     # Also store to inferred dispatch node location

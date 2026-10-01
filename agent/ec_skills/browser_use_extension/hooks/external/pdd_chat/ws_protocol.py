@@ -43,16 +43,7 @@ def _as_bytes(frame: Union[bytes, str]) -> bytes:
         return b""
 
 
-def decode_frame(frame: Union[bytes, str]) -> Optional[Dict[str, Any]]:
-    """The JSON object inside one titan frame, or None (heartbeat, ack, protobuf-only)."""
-    raw = _as_bytes(frame)
-    i = raw.find(GZIP_MAGIC)
-    if i < 0:
-        return None
-    try:
-        body = zlib.decompressobj(31).decompress(raw[i:])
-    except Exception:
-        return None
+def _json_in(body: bytes) -> Optional[Dict[str, Any]]:
     start, end = body.find(b"{"), body.rfind(b"}")
     if start < 0 or end <= start:
         return None                 # e.g. the client_ip_info push: protobuf, no JSON
@@ -61,6 +52,32 @@ def decode_frame(frame: Union[bytes, str]) -> Optional[Dict[str, Any]]:
     except Exception:
         return None
     return obj if isinstance(obj, dict) else None
+
+
+def decode_frames(frame: Union[bytes, str]) -> List[Dict[str, Any]]:
+    """Every JSON object in one titan frame -- one per gzip block. A frame can
+    batch several pushes (two buyer messages sent in the same second)."""
+    raw, out, i = _as_bytes(frame), [], 0
+    while True:
+        i = raw.find(GZIP_MAGIC, i)
+        if i < 0:
+            return out
+        d = zlib.decompressobj(31)
+        try:
+            body = d.decompress(raw[i:])
+        except Exception:
+            i += 2                  # magic bytes inside a header, not a gzip block
+            continue
+        obj = _json_in(body)
+        if obj is not None:
+            out.append(obj)
+        i = len(raw) - len(d.unused_data) if d.eof else len(raw)
+
+
+def decode_frame(frame: Union[bytes, str]) -> Optional[Dict[str, Any]]:
+    """The first JSON object in one titan frame, or None (heartbeat, ack, protobuf-only)."""
+    pushes = decode_frames(frame)
+    return pushes[0] if pushes else None
 
 
 def _kind(msg: Dict[str, Any]) -> str:
@@ -162,4 +179,4 @@ def system_event(push: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 def decode_events(frame: Union[bytes, str]) -> List[Dict[str, Any]]:
     """Every chat event in one frame (empty for system pushes and control frames)."""
-    return list(chat_events(decode_frame(frame)))
+    return [ev for push in decode_frames(frame) for ev in chat_events(push)]

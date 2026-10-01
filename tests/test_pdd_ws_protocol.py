@@ -121,6 +121,14 @@ class ObserverBurstTests(unittest.TestCase):
         st.on_frame(chat(self._text("m2", "有蓝色xl款吗")))
         self.assertEqual([i["latest_message"] for i in got], ["有人吗？", "有蓝色xl款吗"])
 
+    def test_two_pushes_batched_in_one_frame_both_dispatch(self):
+        # 2026-10-01 12:59:16: 国庆有折扣吗？ + 过节有活动吗？ sent together; only the first arrived.
+        st, got = self._state()
+        a = base64.b64decode(chat(self._text("m1", "国庆有折扣吗？")))
+        b = base64.b64decode(chat(self._text("m2", "过节有活动吗？")))
+        st.on_frame(base64.b64encode(a + b).decode())
+        self.assertEqual([i["latest_message"] for i in got], ["国庆有折扣吗？", "过节有活动吗？"])
+
     def test_repeats_and_our_own_replies_are_not_dispatched(self):
         st, got = self._state()
         st.on_frame(chat(self._text("m1", "有人吗？")))

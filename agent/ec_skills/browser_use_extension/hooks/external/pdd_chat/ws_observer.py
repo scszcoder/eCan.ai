@@ -119,8 +119,8 @@ class _State:
 
     def on_frame(self, payload: Any) -> None:
         self.stats["frames"] += 1
-        push = ws_protocol.decode_frame(payload)
-        if not push:
+        pushes = ws_protocol.decode_frames(payload)
+        if not pushes:
             raw = ws_protocol._as_bytes(payload)
             if ws_protocol.GZIP_MAGIC in raw:
                 # A compressed push we could not read may hold customer messages.
@@ -128,13 +128,14 @@ class _State:
                 logger.warning(f"[PDD-WS] undecodable gzip frame len={len(raw)} head={raw[:24].hex()}")
             self._log_stats()
             return
-        self.stats["pushes"] += 1
-        events = list(ws_protocol.chat_events(push))
-        if not events:
-            logger.info(f"[PDD-WS] push without chat items: push_type={push.get('push_type')} "
-                        f"response={push.get('response')} keys={sorted(push)[:8]}")
-        for ev in events:
-            self.on_event(ev)
+        for push in pushes:
+            self.stats["pushes"] += 1
+            events = list(ws_protocol.chat_events(push))
+            if not events:
+                logger.info(f"[PDD-WS] push without chat items: push_type={push.get('push_type')} "
+                            f"response={push.get('response')} keys={sorted(push)[:8]}")
+            for ev in events:
+                self.on_event(ev)
         self._log_stats()
 
     def _log_stats(self) -> None:
@@ -197,7 +198,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             try:
                 state.on_frame((params.get("response") or {}).get("payloadData", ""))
             except Exception as exc:
-                logger.debug(f"[PDD-WS] frame skipped: {exc}")
+                logger.warning(f"[PDD-WS] frame skipped: {exc}")
 
         client._event_registry.register("Network.webSocketFrameReceived", _on_frame)
         await client.send_raw("Network.enable", {}, session_id=sid)
