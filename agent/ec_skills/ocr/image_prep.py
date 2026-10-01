@@ -87,6 +87,9 @@ def get_top_visible_window(win_title_keyword: str):
                     "钉钉": ["dingtalk", "钉钉"],
                     "feishu": ["feishu", "飞书", "lark"],
                     "飞书": ["feishu", "飞书", "lark"],
+                    "千牛": ["千牛", "aliworkbench", "阿里旺旺"],
+                    "aliworkbench": ["千牛", "aliworkbench", "阿里旺旺"],
+                    "阿里旺旺": ["千牛", "aliworkbench", "阿里旺旺"],
                 }
                 search_terms = _WIN_ALIASES.get(low, [low])
 
