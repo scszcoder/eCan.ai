@@ -6043,7 +6043,7 @@ class BrowserRunSession:
         _patch_dispatch_shutdown(agent)
 
         # Auto-start event monitors on the agent's browser session.
-        await _start_monitors(
+        active_monitors = await _start_monitors(
             agent,
             event_monitor_configs=self.ctx.event_monitor_configs,
             calling_agent_id=self.calling_agent_id,
@@ -6051,7 +6051,85 @@ class BrowserRunSession:
             browser_scope_key=browser_scope_key,
         )
 
+        # A monitored run waits on its monitors; if the store's Chrome dies
+        # in that wait nothing re-enters this node, so a watchdog rebuilds it.
+        if keep_browser_alive and active_monitors and getattr(agent, "browser_session", None):
+            try:
+                from agent.ec_skills.browser_node import browser_watchdog as _watchdog
+                _rebuild_args = dict(ctx=self.ctx, task=self.task, mainwin=self.mainwin,
+                                     state=dict(self.state or {}),
+                                     calling_agent_id=self.calling_agent_id)
+
+                async def _rebuild() -> bool:
+                    return await BrowserRunSession(**_rebuild_args).rebuild_monitored_browser()
+
+                _watchdog.arm(
+                    scope_key=browser_scope_key,
+                    session=agent.browser_session,
+                    monitor_set_id=getattr(active_monitors, "monitor_set_id", ""),
+                    agent_id=str(self.calling_agent_id or ""),
+                    mainwin=self.mainwin,
+                    rebuild=_rebuild,
+                )
+            except Exception as exc:
+                logger.warning(f"[BrowserAutomation] browser watchdog not armed: {exc}")
+
         return browser_scope_key, last_known_focus_target_id
+
+    async def rebuild_monitored_browser(self) -> bool:
+        """Re-establish a monitored run's browser after it died.
+
+        Runs the setup half of :meth:`run` -- session (same profile), stealth,
+        focus preflight, pre-run navigation to the store URL, agent re-bind,
+        cache, keep-alive patch, monitors -- and stops before dispatch: no LLM
+        call, no event consumed. Returns True when the rebuilt session is up
+        with its monitors running. Used by ``browser_watchdog``.
+        """
+        from agent.ec_skills.browser_node.runner import (
+            prepare_task_with_runtime_context as _prepare_task,
+        )
+        task, _ = _prepare_task(
+            self.task,
+            state=self.state,
+            mainwin=self.mainwin,
+            node_name=self.ctx.node_name,
+            skill_name=self.ctx.skill_name,
+            resolve_mustache_template=_resolve_mustache_template,
+            extract_runtime_invocation_input=_bh.extract_runtime_invocation_input,
+        )
+        early, task, asg_ctx = await self._extract_assignment_and_scope(
+            task=task, runtime_input=_bh.extract_runtime_invocation_input(self.state),
+        )
+        if early is not None:
+            return False
+        AgentClass = self._resolve_agent_class()
+        llm, controller, agent_kwargs = self._build_local_llm_and_kwargs(
+            browser_scope_key=asg_ctx.browser_scope_key,
+        )
+        fp_profile, agent_ref, keep_browser_alive = self._build_browser_profile_and_callbacks(
+            agent_kwargs=agent_kwargs, task=task,
+        )
+        self._apply_post_kwargs_extensions(
+            agent_kwargs=agent_kwargs, use_privacy_agent=AgentClass.__name__ != 'Agent',
+        )
+        agent, focus_id = await self._acquire_browser_and_agent(
+            AgentClass=AgentClass, task=task, llm=llm, controller=controller,
+            agent_kwargs=agent_kwargs, fp_profile=fp_profile, agent_ref=agent_ref,
+            keep_browser_alive=keep_browser_alive,
+            last_known_focus_target_id=asg_ctx.last_known_focus_target_id, asg_ctx=asg_ctx,
+        )
+        await self._finalize_agent_setup(
+            agent=agent, keep_browser_alive=keep_browser_alive, last_known_focus_target_id=focus_id,
+        )
+        session = getattr(agent, "browser_session", None)
+        if session is None or not _bh.is_session_alive(session):
+            return False
+        from agent.ec_skills.browser_use_extension.event_monitor_capability import (
+            get_event_monitor_capability,
+        )
+        cap = get_event_monitor_capability(session, create=False)
+        active = cap.get_active_monitor_set() if cap else None
+        return bool(active and getattr(active, "monitors", None))
 
     async def _run_cloud_branch(self, task: str) -> dict:
         """Delegate to ``browser_node.runner.run_cloud_agent`` for cloud modes.

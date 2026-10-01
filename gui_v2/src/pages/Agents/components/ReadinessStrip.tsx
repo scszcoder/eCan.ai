@@ -33,7 +33,9 @@ function chromeLevel(r: Readiness): Level {
     case 'attached_existing': return 'ok';
     case 'auto_started':
     case 'auto_starting': return 'warn';   // eCan's own blank Chrome — site login may be missing
-    case 'unreachable': return 'bad';
+    case 'recovering': return 'warn';      // the store's Chrome died; the watchdog is relaunching it
+    case 'unreachable':
+    case 'dead': return 'bad';             // watchdog gave up — restart the agent
     default: return 'unknown';
   }
 }
