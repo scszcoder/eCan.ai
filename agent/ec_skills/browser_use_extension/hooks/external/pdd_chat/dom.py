@@ -146,6 +146,34 @@ CLEAR_REPLY_JS = r"""(() => {
 })()"""
 
 
+# Where the last real mousedown landed (the customer's store Chrome ignores our
+# clicks while text insertion works -- 2026-10-01 runs; this says why).
+CLICK_PROBE_JS = r"""(() => {
+  if (!window.__ecanDown) {
+    window.__ecanDown = {n: 0};
+    document.addEventListener('mousedown', e => {
+      const t = e.target, d = window.__ecanDown;
+      d.n += 1; d.x = Math.round(e.clientX); d.y = Math.round(e.clientY); d.trusted = e.isTrusted;
+      d.target = t ? (t.tagName + (t.id ? '#' + t.id : '') + '.' + String(t.className || '').split(' ')[0]) : '';
+    }, true);
+  }
+  return JSON.stringify(window.__ecanDown);
+})()"""
+
+FOCUS_STATE_JS = r"""(() => {
+  const a = document.activeElement;
+  return JSON.stringify({active: a ? (a.id || a.tagName) : '', visibility: document.visibilityState,
+                         focus: document.hasFocus(), dpr: window.devicePixelRatio});
+})()"""
+
+FOCUS_REPLY_JS = r"""(() => {
+  const ta = document.querySelector('#replyTextarea');
+  if (!ta) return JSON.stringify({ok: false});
+  ta.focus();
+  return JSON.stringify({ok: document.activeElement === ta});
+})()"""
+
+
 async def trusted_click(cdp: Cdp, x: float, y: float) -> None:
     for kind in ("mouseMoved", "mousePressed", "mouseReleased"):
         params: Dict[str, Any] = {"type": kind, "x": x, "y": y}
@@ -154,27 +182,43 @@ async def trusted_click(cdp: Cdp, x: float, y: float) -> None:
         await cdp("Input.dispatchMouseEvent", params)
 
 
+async def press_enter(cdp: Cdp) -> None:
+    # No ``text``: the key event alone, so a box that does not send on Enter gets no newline.
+    for kind in ("keyDown", "keyUp"):
+        await cdp("Input.dispatchKeyEvent", {"type": kind, "key": "Enter", "code": "Enter",
+                                             "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13})
+
+
+async def _click_probe(evaluate: Evaluate, cdp: Cdp, x: float, y: float) -> str:
+    """Click at (x, y); describe where the page saw the mousedown, if at all."""
+    before = (_parse(await evaluate(CLICK_PROBE_JS)) or {}).get("n", 0)
+    await trusted_click(cdp, x, y)
+    after = _parse(await evaluate(CLICK_PROBE_JS)) or {}
+    if after.get("n", 0) == before:
+        return f"click at ({x:.0f},{y:.0f}) never reached the page"
+    return (f"click at ({x:.0f},{y:.0f}) landed at ({after.get('x')},{after.get('y')}) "
+            f"on {after.get('target')} trusted={after.get('trusted')}")
+
+
 async def open_conversation(evaluate: Evaluate, uid: str, cdp: Cdp, settle=None) -> Dict[str, Any]:
     """Switch the page to *uid*'s conversation with a real click; wait until it shows."""
     thread = await get_thread(evaluate)
     if thread.get("uid") == uid:
         return {"ok": True}
-    # A hidden page (background tab, minimized window) drops real mouse input
-    # while text insertion still works (2026-10-01 run: no click switched the
-    # conversation or pressed send). Show the tab first.
     await cdp("Page.bringToFront", {})
     point = _parse(await evaluate(row_point_js(uid))) or {}
     if not point.get("ok"):
         return {"ok": False, "error": point.get("error") or "conversation row not found"}
-    await trusted_click(cdp, point["x"], point["y"])
+    probe = await _click_probe(evaluate, cdp, point["x"], point["y"])
     for _ in range(15):
         if settle:
             await settle()
         thread = await get_thread(evaluate)
         if thread.get("uid") == uid:
             return {"ok": True}
-    return {"ok": False, "error": f"conversation {uid} did not open (showing {thread.get('uid')!r}, "
-                                  f"page {point.get('visibility')}, click hit row: {point.get('hit')})"}
+    state = _parse(await evaluate(FOCUS_STATE_JS)) or {}
+    return {"ok": False, "error": f"conversation {uid} did not open (showing {thread.get('uid')!r}; "
+                                  f"{probe}; page {state})"}
 
 
 async def _send_text_trusted(evaluate: Evaluate, cdp: Cdp, uid: str, text: str, settle=None) -> Dict[str, Any]:
@@ -184,22 +228,38 @@ async def _send_text_trusted(evaluate: Evaluate, cdp: Cdp, uid: str, text: str, 
     box = _parse(await evaluate(point_js(REPLY_BOX))) or {}
     if not box.get("ok"):
         return {"ok": False, "error": box.get("error") or "reply box not found"}
-    await trusted_click(cdp, box["x"], box["y"])
+    diag = [await _click_probe(evaluate, cdp, box["x"], box["y"])]
+    if (_parse(await evaluate(FOCUS_STATE_JS)) or {}).get("active") != "replyTextarea":
+        # The click did not focus the box; focus is not gated on trusted input.
+        diag.append("focused by script" if (_parse(await evaluate(FOCUS_REPLY_JS)) or {}).get("ok")
+                    else "could not focus the box")
     cleared = _parse(await evaluate(CLEAR_REPLY_JS)) or {}
     if not cleared.get("ok"):
         return {"ok": False, "error": cleared.get("error") or "could not clear the reply box"}
     await cdp("Input.insertText", {"text": text})
     typed = _parse(await evaluate(READ_REPLY_JS)) or {}
     if typed.get("value") != text:
-        return {"ok": False, "error": f"reply box holds {str(typed.get('value'))[:40]!r}, not the reply"}
-    button = _parse(await evaluate(point_js(SEND_BUTTON))) or {}
-    if not button.get("ok"):
-        return {"ok": False, "error": button.get("error") or "send button not found"}
-    await trusted_click(cdp, button["x"], button["y"])
+        diag.append("typed by setter")
+        await evaluate(type_reply_js(text))
+        typed = _parse(await evaluate(READ_REPLY_JS)) or {}
+    if typed.get("value") != text:
+        state = _parse(await evaluate(FOCUS_STATE_JS)) or {}
+        return {"ok": False, "error": f"reply box holds {str(typed.get('value'))[:40]!r}, not the reply "
+                                      f"({'; '.join(diag)}; page {state})"}
+    await press_enter(cdp)
     if settle:
         await settle()
     after = _parse(await evaluate(READ_REPLY_JS)) or {}
-    return {"ok": True, "uid": uid, "cleared": after.get("value") == ""}
+    if after.get("value") != "":
+        diag.append("Enter did not send")
+        button = _parse(await evaluate(point_js(SEND_BUTTON))) or {}
+        if not button.get("ok"):
+            return {"ok": False, "error": button.get("error") or "send button not found"}
+        diag.append("send " + await _click_probe(evaluate, cdp, button["x"], button["y"]))
+        if settle:
+            await settle()
+        after = _parse(await evaluate(READ_REPLY_JS)) or {}
+    return {"ok": True, "uid": uid, "cleared": after.get("value") == "", "diag": "; ".join(diag)}
 
 
 CLICK_SEND_JS = r"""(() => {

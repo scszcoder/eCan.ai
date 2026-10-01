@@ -153,10 +153,17 @@ TRUSTED_ONLY_PAGE = """<html><body style="margin:0">
 </script></body></html>"""
 
 
+# The customer's store Chrome: our mouse events never count, keys and text do.
+NO_MOUSE_PAGE = TRUSTED_ONLY_PAGE.replace(
+    "document.querySelector('.send-btn').addEventListener('click', e => {",
+    "document.querySelector('#replyTextarea').addEventListener('keydown', e => {\n   if (e.key !== 'Enter') return;"
+).replace("box.addEventListener('mouseup'", "box.addEventListener('ecan-never'")
+
+
 class TrustedInputTests(unittest.TestCase):
     """Real Chromium: the CDP send path works where synthetic events do not."""
 
-    def _run(self, coro_fn):
+    def _run(self, coro_fn, page_html=None):
         async def main():
             try:
                 from playwright.async_api import async_playwright
@@ -168,7 +175,7 @@ class TrustedInputTests(unittest.TestCase):
                 except Exception as exc:
                     raise unittest.SkipTest(f"no Chromium: {exc}")
                 page = await browser.new_page()
-                await page.set_content(TRUSTED_ONLY_PAGE)
+                await page.set_content(page_html or TRUSTED_ONLY_PAGE)
                 session = await page.context.new_cdp_session(page)
 
                 async def evaluate(js):
@@ -213,3 +220,35 @@ class TrustedInputTests(unittest.TestCase):
         out, thread = self._run(go)
         self.assertTrue(out["ok"], out)
         self.assertEqual(thread["messages"][-1]["text"], "新回复")
+
+class NoMouseTests(TrustedInputTests):
+    """Clicks do nothing: the box is focused by script and Enter sends."""
+
+    def test_trusted_send_switches_types_and_sends(self):
+        pass
+
+    def test_trusted_send_clears_leftover_text(self):
+        pass
+
+    def test_synthetic_send_is_ignored_like_the_real_page(self):
+        pass
+
+    def test_enter_sends_when_clicks_are_ignored(self):
+        async def go(page, evaluate, cdp, settle):
+            await evaluate("document.activeElement && document.activeElement.blur()")
+            out = await dom.send_text(evaluate, "U1", "国庆有活动哦", settle=settle, cdp=cdp)
+            thread = json.loads(await evaluate(dom.THREAD_JS))
+            return out, thread
+        out, thread = self._run(go, NO_MOUSE_PAGE)
+        self.assertTrue(out["ok"], out)
+        self.assertTrue(out["cleared"], out)
+        self.assertEqual(thread["messages"][-1]["text"], "国庆有活动哦")
+        self.assertNotIn("Enter did not send", out["diag"])
+
+    def test_unopenable_conversation_reports_where_the_click_went(self):
+        async def go(page, evaluate, cdp, settle):
+            return await dom.send_text(evaluate, "U2", "x", settle=settle, cdp=cdp)
+        out = self._run(go, NO_MOUSE_PAGE)
+        self.assertFalse(out["ok"])
+        self.assertIn("landed at", out["error"])
+

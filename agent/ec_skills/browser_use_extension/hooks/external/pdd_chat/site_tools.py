@@ -183,7 +183,7 @@ async def pdd_send_message(params: PddSendMessageAction, browser_session: Browse
             logger.warning(f"[PDD] no CDP sender for the chat tab; synthetic send to {uid} (known to be ignored)")
         out = await dom.send_text(ev, uid, text, settle=settle, cdp=cdp)
         logger.info(f"[PDD] send to {uid}: typed={out.get('ok')} cleared={out.get('cleared')} "
-                    f"error={out.get('error')!r} len={len(text)}")
+                    f"error={out.get('error')!r} len={len(text)} diag={out.get('diag')!r}")
         if not out.get("ok"):
             return ActionResult(error=f"pdd_send_not_typed: {out.get('error')}")
         if not await _confirm_sent(ev, uid, text):
