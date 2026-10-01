@@ -122,6 +122,8 @@ def normalize_message(msg: Dict[str, Any]) -> Dict[str, Any]:
         "msg_id": str(msg.get("msg_id") or ""),
         "pre_msg_id": str(msg.get("pre_msg_id") or ""),
         "ts": int(msg.get("ts") or 0) if str(msg.get("ts") or "").isdigit() else 0,
+        "msg_type": msg.get("type"),                  # raw, for the inbound log
+        "template": msg.get("template_name") or "",
         "needs_reply": from_buyer and kind in (KIND_TEXT, KIND_IMAGE, KIND_GOODS_CARD, KIND_REMIND)
                        and not msg.get("no_unreply_hint"),
     }

@@ -110,3 +110,106 @@ class SendGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# A page that, like the real one, ignores synthetic events: rows switch the
+# conversation and 发送 sends ONLY for trusted input (first live run 2026-10-01:
+# row .click() never switched, .send-btn .click() never sent).
+TRUSTED_ONLY_PAGE = """<html><body style="margin:0">
+<ul class="chat-list" style="height:120px;overflow:auto">
+ <li class="chat-item"><div data-random="U1-0-unTimeout" class="chat-item-box" style="height:60px">U1</div></li>
+ <li class="chat-item"><div data-random="U2-0-unTimeout" class="chat-item-box" style="height:60px">U2</div></li>
+ <li class="chat-item"><div data-random="U3-0-unTimeout" class="chat-item-box" style="height:60px">U3</div></li>
+</ul>
+<div id="msgListContainer"><ul class="msg-list"></ul></div>
+<div class="reply-box"><textarea id="replyTextarea"></textarea><div class="send-btn" style="width:80px;height:30px">发送</div></div>
+<script>
+ let current = 'U1', n = 0;
+ function render() {
+   document.querySelectorAll('#msgListContainer li').forEach(li => li.remove());
+   const li = document.createElement('li');
+   li.className = 'onemsg'; li.id = 'middlePanel_list_0';
+   li.innerHTML = '<div class="buyer-item"><div currentuid="' + current + '"><p class="msg-content-box">hello</p></div></div>';
+   document.querySelector('#msgListContainer ul').appendChild(li);
+ }
+ render();
+ document.querySelectorAll('.chat-item-box').forEach(box => {
+   let down = false;
+   box.addEventListener('mousedown', e => { down = e.isTrusted; });
+   box.addEventListener('mouseup', e => {
+     if (down && e.isTrusted) { current = box.getAttribute('data-random').split('-')[0]; render(); }
+     down = false;
+   });
+ });
+ document.querySelector('.send-btn').addEventListener('click', e => {
+   if (!e.isTrusted) return;
+   const ta = document.querySelector('#replyTextarea');
+   const li = document.createElement('li');
+   li.className = 'onemsg'; li.id = 'middlePanel_list_' + (++n);
+   li.innerHTML = '<div class="cs-item"><div currentuid="' + current + '"><p class="msg-content-box">' + ta.value + '</p></div></div>';
+   document.querySelector('#msgListContainer ul').appendChild(li);
+   ta.value = '';
+ });
+</script></body></html>"""
+
+
+class TrustedInputTests(unittest.TestCase):
+    """Real Chromium: the CDP send path works where synthetic events do not."""
+
+    def _run(self, coro_fn):
+        async def main():
+            try:
+                from playwright.async_api import async_playwright
+            except Exception as exc:
+                raise unittest.SkipTest(f"no playwright: {exc}")
+            async with async_playwright() as pw:
+                try:
+                    browser = await pw.chromium.launch()
+                except Exception as exc:
+                    raise unittest.SkipTest(f"no Chromium: {exc}")
+                page = await browser.new_page()
+                await page.set_content(TRUSTED_ONLY_PAGE)
+                session = await page.context.new_cdp_session(page)
+
+                async def evaluate(js):
+                    return await page.evaluate(js)
+
+                async def cdp(method, params):
+                    return await session.send(method, params)
+
+                async def settle():
+                    await asyncio.sleep(0.05)
+                try:
+                    return await coro_fn(page, evaluate, cdp, settle)
+                finally:
+                    await browser.close()
+        return asyncio.run(main())
+
+    def test_synthetic_send_is_ignored_like_the_real_page(self):
+        async def go(page, evaluate, cdp, settle):
+            return await dom.send_text(evaluate, "U2", "你好", settle=settle)       # no cdp
+        out = self._run(go)
+        self.assertFalse(out["ok"])
+        self.assertIn("did not open", out["error"])
+
+    def test_trusted_send_switches_types_and_sends(self):
+        async def go(page, evaluate, cdp, settle):
+            out = await dom.send_text(evaluate, "U3", '亲，在的哈 "quoted"', settle=settle, cdp=cdp)
+            thread = json.loads(await evaluate(dom.THREAD_JS))
+            return out, thread
+        out, thread = self._run(go)
+        self.assertTrue(out["ok"], out)
+        self.assertTrue(out["cleared"])
+        self.assertEqual(thread["uid"], "U3")
+        self.assertEqual(thread["messages"][-1]["who"], "agent")
+        self.assertEqual(thread["messages"][-1]["text"], '亲，在的哈 "quoted"')
+
+    def test_trusted_send_clears_leftover_text(self):
+        async def go(page, evaluate, cdp, settle):
+            await page.fill("#replyTextarea", "old draft ")
+            out = await dom.send_text(evaluate, "U1", "新回复", settle=settle, cdp=cdp)
+            thread = json.loads(await evaluate(dom.THREAD_JS))
+            return out, thread
+        out, thread = self._run(go)
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(thread["messages"][-1]["text"], "新回复")

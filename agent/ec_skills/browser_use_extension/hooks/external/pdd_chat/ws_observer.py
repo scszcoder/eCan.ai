@@ -54,7 +54,8 @@ class _State:
         self.label = label
         self.seen: "OrderedDict[str, float]" = OrderedDict()
         self.product: Dict[str, Dict[str, Any]] = {}     # uid -> last goods the buyer came from
-        self.stats = {"frames": 0, "messages": 0, "dispatched": 0}
+        self.stats = {"frames": 0, "pushes": 0, "undecodable": 0, "messages": 0, "dispatched": 0}
+        self._stats_at = time.time()
 
     def first_time(self, key: str) -> bool:
         if not key or key in self.seen:
@@ -87,13 +88,25 @@ class _State:
         return item
 
     def on_event(self, ev: Dict[str, Any]) -> None:
+        """Every chat message is logged with what became of it, so a customer
+        message that gets no reply can be traced to the step that dropped it."""
         self.stats["messages"] += 1
         uid = ev.get("conversation_id") or ""
         if ev.get("goods") and ev.get("from_customer"):
             self.product[uid] = ev["goods"]          # context for the next question
-        if not ev.get("needs_reply") or not uid:
+        seen = (f"[PDD-WS] msg uid={uid} msg={ev.get('msg_id')} role={ev.get('sender_role') or '-'} "
+                f"type={ev.get('msg_type')} tpl={ev.get('template') or '-'} kind={ev.get('kind')} "
+                f"text={(_render_text(ev) or '')[:40]!r}")
+        if not uid:
+            logger.info(f"{seen} -> skip: no conversation id")
+            return
+        if not ev.get("needs_reply"):
+            reason = ("not from the customer" if not ev.get("from_customer")
+                      else f"kind {ev.get('kind')} needs no reply")
+            logger.info(f"{seen} -> skip: {reason}")
             return
         if not self.first_time(f"{uid}|{ev.get('msg_id')}"):
+            logger.info(f"{seen} -> skip: already dispatched")
             return
         item = self.item_for(ev)
         try:
@@ -108,9 +121,26 @@ class _State:
         self.stats["frames"] += 1
         push = ws_protocol.decode_frame(payload)
         if not push:
+            raw = ws_protocol._as_bytes(payload)
+            if ws_protocol.GZIP_MAGIC in raw:
+                # A compressed push we could not read may hold customer messages.
+                self.stats["undecodable"] += 1
+                logger.warning(f"[PDD-WS] undecodable gzip frame len={len(raw)} head={raw[:24].hex()}")
+            self._log_stats()
             return
-        for ev in ws_protocol.chat_events(push):
+        self.stats["pushes"] += 1
+        events = list(ws_protocol.chat_events(push))
+        if not events:
+            logger.info(f"[PDD-WS] push without chat items: push_type={push.get('push_type')} "
+                        f"response={push.get('response')} keys={sorted(push)[:8]}")
+        for ev in events:
             self.on_event(ev)
+        self._log_stats()
+
+    def _log_stats(self) -> None:
+        if time.time() - self._stats_at >= 60:
+            self._stats_at = time.time()
+            logger.info(f"[PDD-WS] stats {self.stats}")
 
 
 async def _cold_start(client, sid: str, state: _State) -> None:

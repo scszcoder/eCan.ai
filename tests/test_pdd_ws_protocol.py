@@ -91,3 +91,48 @@ class DecodeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ObserverBurstTests(unittest.TestCase):
+    """Customers send in bursts (2026-10-01: 有人吗？ + 有蓝色xl款吗 within a minute;
+    发货 question + card + follow-up). Every customer message must reach dispatch."""
+
+    def _state(self):
+        from agent.ec_skills.browser_use_extension.hooks.external.pdd_chat import ws_observer
+        got = []
+        return ws_observer._State(got.append, "新消息"), got
+
+    def _text(self, msg_id, content):
+        return {"from": BUYER, "to": SHOP, "content": content, "type": 0, "msg_id": msg_id}
+
+    def test_one_push_carrying_a_burst_dispatches_every_message(self):
+        st, got = self._state()
+        card = {"from": BUYER, "to": SHOP, "type": 0, "template_name": "user_goods_card", "msg_id": "m2",
+                "content": "https://mobile.yangkeduo.com/goods.html?goods_id=537703588094",
+                "info": {"goodsID": 537703588094, "goodsName": "冬季男士睡衣", "goodsPrice": "60.6"}}
+        st.on_frame(chat(self._text("m1", "你好，今天还能发货吗"), card, self._text("m3", "这件拍了能不能发")))
+        self.assertEqual([i["latest_message"] for i in got],
+                         ["你好，今天还能发货吗", "[商品卡片] 冬季男士睡衣 ¥60.6 (商品ID 537703588094)", "这件拍了能不能发"])
+        self.assertEqual(got[2]["product_context"]["goods_id"], "537703588094", "the follow-up keeps the card")
+
+    def test_separate_frames_close_together_both_dispatch(self):
+        st, got = self._state()
+        st.on_frame(chat(self._text("m1", "有人吗？")))
+        st.on_frame(chat(self._text("m2", "有蓝色xl款吗")))
+        self.assertEqual([i["latest_message"] for i in got], ["有人吗？", "有蓝色xl款吗"])
+
+    def test_repeats_and_our_own_replies_are_not_dispatched(self):
+        st, got = self._state()
+        st.on_frame(chat(self._text("m1", "有人吗？")))
+        st.on_frame(chat(self._text("m1", "有人吗？")))                         # the same message again
+        st.on_frame(chat({"from": SHOP, "to": BUYER, "content": "在的", "type": 0, "msg_id": "m9"}))
+        self.assertEqual(len(got), 1)
+        self.assertEqual(st.stats["messages"], 3)
+
+    def test_an_unreadable_gzip_frame_is_counted_not_lost_silently(self):
+        st, got = self._state()
+        raw = base64.b64decode(chat(self._text("m1", "x")))
+        i = raw.find(b"\x1f\x8b")
+        broken = base64.b64encode(raw[:i + 12] + b"\x00" * 20).decode()     # gzip header, garbage body
+        st.on_frame(broken)
+        self.assertEqual((st.stats["undecodable"], got), (1, []))

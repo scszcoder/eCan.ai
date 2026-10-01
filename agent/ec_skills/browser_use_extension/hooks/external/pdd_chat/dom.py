@@ -17,6 +17,7 @@ from typing import Any, Awaitable, Callable, Dict, List
 CHAT_URL_MARKER = "mms.pinduoduo.com/chat-merchant"
 
 Evaluate = Callable[[str], Awaitable[Any]]    # runs JS in the chat page, returns its value
+Cdp = Callable[[str, Dict[str, Any]], Awaitable[Any]]   # sends one CDP command to the chat tab
 
 
 def is_chat_url(url: str) -> bool:
@@ -88,6 +89,112 @@ def type_reply_js(text: str) -> str:
 })(%s)""" % json.dumps(text)
 
 
+# ── trusted input ────────────────────────────────────────────────────
+# The page ignores synthetic events: a row ``.click()`` never switched the
+# conversation and a ``.send-btn`` ``.click()`` never sent (first live run,
+# 2026-10-01: 13 replies, 0 delivered). The rows are draggable
+# (``data-move-dom``) and react to a real press/release. So the send path uses
+# CDP Input -- real mouse events and real text insertion -- like a person.
+
+def row_point_js(uid: str) -> str:
+    """Scroll *uid*'s conversation row into view; its click point (left part,
+    nickname area -- clear of the row's 转移会话 button)."""
+    return r"""((uid) => {
+  const rows = [...document.querySelectorAll('.chat-item-box[data-random]')]
+    .filter(b => (b.getAttribute('data-random') || '').split('-')[0] === uid);
+  const box = rows.find(b => b.offsetParent !== null) || rows[0];
+  if (!box) return JSON.stringify({ok: false, error: 'no conversation row for ' + uid});
+  box.scrollIntoView({block: 'center'});
+  const r = box.getBoundingClientRect();
+  if (!r.width || !r.height) return JSON.stringify({ok: false, error: 'conversation row for ' + uid + ' is not visible'});
+  return JSON.stringify({ok: true, x: r.left + Math.min(r.width * 0.35, 120), y: r.top + r.height / 2});
+})(%s)""" % json.dumps(uid)
+
+
+def point_js(selector: str) -> str:
+    """Scroll the first visible match of *selector* into view; its centre."""
+    return r"""((sel) => {
+  const all = [...document.querySelectorAll(sel)];
+  const el = all.find(e => e.offsetParent !== null) || all[0];
+  if (!el) return JSON.stringify({ok: false, error: 'not found: ' + sel});
+  el.scrollIntoView({block: 'nearest'});
+  const r = el.getBoundingClientRect();
+  if (!r.width || !r.height) return JSON.stringify({ok: false, error: 'not visible: ' + sel});
+  return JSON.stringify({ok: true, x: r.left + r.width / 2, y: r.top + r.height / 2});
+})(%s)""" % json.dumps(selector)
+
+
+REPLY_BOX = "#replyTextarea"
+SEND_BUTTON = ".reply-box .send-btn, .send-btn"
+
+READ_REPLY_JS = r"""(() => {
+  const ta = document.querySelector('#replyTextarea');
+  return JSON.stringify({ok: !!ta, value: ta ? ta.value : ''});
+})()"""
+
+# Empty the box first (left-over text would be sent with the reply); the model
+# follows the input event.
+CLEAR_REPLY_JS = r"""(() => {
+  const ta = document.querySelector('#replyTextarea');
+  if (!ta) return JSON.stringify({ok: false, error: 'reply box not found'});
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+  setter.call(ta, '');
+  ta.dispatchEvent(new Event('input', {bubbles: true}));
+  return JSON.stringify({ok: true});
+})()"""
+
+
+async def trusted_click(cdp: Cdp, x: float, y: float) -> None:
+    for kind in ("mouseMoved", "mousePressed", "mouseReleased"):
+        params: Dict[str, Any] = {"type": kind, "x": x, "y": y}
+        if kind != "mouseMoved":
+            params.update(button="left", clickCount=1)
+        await cdp("Input.dispatchMouseEvent", params)
+
+
+async def open_conversation(evaluate: Evaluate, uid: str, cdp: Cdp, settle=None) -> Dict[str, Any]:
+    """Switch the page to *uid*'s conversation with a real click; wait until it shows."""
+    thread = await get_thread(evaluate)
+    if thread.get("uid") == uid:
+        return {"ok": True}
+    point = _parse(await evaluate(row_point_js(uid))) or {}
+    if not point.get("ok"):
+        return {"ok": False, "error": point.get("error") or "conversation row not found"}
+    await trusted_click(cdp, point["x"], point["y"])
+    for _ in range(15):
+        if settle:
+            await settle()
+        thread = await get_thread(evaluate)
+        if thread.get("uid") == uid:
+            return {"ok": True}
+    return {"ok": False, "error": f"conversation {uid} did not open (showing {thread.get('uid')!r})"}
+
+
+async def _send_text_trusted(evaluate: Evaluate, cdp: Cdp, uid: str, text: str, settle=None) -> Dict[str, Any]:
+    opened = await open_conversation(evaluate, uid, cdp, settle=settle)
+    if not opened.get("ok"):
+        return opened
+    box = _parse(await evaluate(point_js(REPLY_BOX))) or {}
+    if not box.get("ok"):
+        return {"ok": False, "error": box.get("error") or "reply box not found"}
+    await trusted_click(cdp, box["x"], box["y"])
+    cleared = _parse(await evaluate(CLEAR_REPLY_JS)) or {}
+    if not cleared.get("ok"):
+        return {"ok": False, "error": cleared.get("error") or "could not clear the reply box"}
+    await cdp("Input.insertText", {"text": text})
+    typed = _parse(await evaluate(READ_REPLY_JS)) or {}
+    if typed.get("value") != text:
+        return {"ok": False, "error": f"reply box holds {str(typed.get('value'))[:40]!r}, not the reply"}
+    button = _parse(await evaluate(point_js(SEND_BUTTON))) or {}
+    if not button.get("ok"):
+        return {"ok": False, "error": button.get("error") or "send button not found"}
+    await trusted_click(cdp, button["x"], button["y"])
+    if settle:
+        await settle()
+    after = _parse(await evaluate(READ_REPLY_JS)) or {}
+    return {"ok": True, "uid": uid, "cleared": after.get("value") == ""}
+
+
 CLICK_SEND_JS = r"""(() => {
   const btn = document.querySelector('.reply-box .send-btn, .send-btn');
   if (!btn) return JSON.stringify({ok: false, error: 'send button not found'});
@@ -118,13 +225,17 @@ async def get_thread(evaluate: Evaluate) -> Dict[str, Any]:
     return _parse(await evaluate(THREAD_JS)) or {}
 
 
-async def send_text(evaluate: Evaluate, uid: str, text: str, settle=None) -> Dict[str, Any]:
+async def send_text(evaluate: Evaluate, uid: str, text: str, settle=None, cdp: "Cdp | None" = None) -> Dict[str, Any]:
     """Open *uid*'s conversation if needed, type *text*, click Send.
 
     Refuses to type into the wrong conversation: after opening, the thread's
     ``currentuid`` must be *uid*. ``settle`` is an awaitable factory used to
-    wait between steps (the page re-renders on open).
+    wait between steps (the page re-renders on open). With *cdp* (the normal
+    case) every step is real input; without it, the synthetic-event path the
+    page is known to ignore -- kept only as a last resort.
     """
+    if cdp is not None:
+        return await _send_text_trusted(evaluate, cdp, uid, text, settle=settle)
     thread = await get_thread(evaluate)
     if thread.get("uid") != uid:
         opened = await open_session(evaluate, uid)

@@ -57,6 +57,47 @@ def _evaluator(browser_session: BrowserSession, label: str, customer_key: str = 
     return evaluate
 
 
+async def _cdp_sender(browser_session: BrowserSession):
+    """Send CDP commands (real input) to the chat tab, on the CDP client's own
+    loop (direct delivery calls in from another loop). None: no chat tab."""
+    from agent.ec_skills.browser_use_extension.extension_tools_service import _safe_handler_loop
+    tid = await dom.resolve_tab_target_id(browser_session)
+    if not tid or not hasattr(browser_session, "get_or_create_cdp_session"):
+        return None
+    cdp_session = await browser_session.get_or_create_cdp_session(target_id=tid, focus=False)
+    client, sid = cdp_session.cdp_client, cdp_session.session_id
+
+    async def send(method: str, params: dict):
+        domain, name = method.split(".", 1)
+        fn = getattr(getattr(client.send, domain), name)
+        owner = _safe_handler_loop(client)
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if owner is not None and running is not owner:
+            return await asyncio.wrap_future(
+                asyncio.run_coroutine_threadsafe(fn(params=params, session_id=sid), owner))
+        return await fn(params=params, session_id=sid)
+    return send
+
+
+async def _open(browser_session: BrowserSession, ev, uid: str) -> dict:
+    """Open *uid*'s conversation with a real click (synthetic as a last resort)."""
+    cdp = await _cdp_sender(browser_session)
+    if cdp is not None:
+        return await dom.open_conversation(ev, uid, cdp, settle=lambda: asyncio.sleep(0.3))
+    logger.warning("[PDD] no CDP sender for the chat tab; trying a synthetic click")
+    opened = await dom.open_session(ev, uid)
+    if not opened.get("ok"):
+        return opened
+    for _ in range(10):
+        await asyncio.sleep(0.3)
+        if (await dom.get_thread(ev)).get("uid") == uid:
+            return {"ok": True}
+    return {"ok": False, "error": f"conversation {uid} did not open"}
+
+
 def _ok(data: dict) -> ActionResult:
     return ActionResult(extracted_content=json.dumps(data, ensure_ascii=False), include_in_memory=True)
 
@@ -78,14 +119,10 @@ async def pdd_list_sessions(params: PddListSessionsAction, browser_session: Brow
 async def pdd_open_session(params: PddOpenSessionAction, browser_session: BrowserSession) -> ActionResult:
     try:
         ev = _evaluator(browser_session, "pdd_open_session", params.customer_name, read_only=False)
-        opened = await dom.open_session(ev, params.customer_name)
+        opened = await _open(browser_session, ev, params.customer_name)
         if not opened.get("ok"):
             return ActionResult(error=opened.get("error") or "could not open the conversation")
-        for _ in range(10):
-            await asyncio.sleep(0.3)
-            if (await dom.get_thread(ev)).get("uid") == params.customer_name:
-                return _ok({"opened": params.customer_name})
-        return ActionResult(error=f"conversation {params.customer_name} did not open")
+        return _ok({"opened": params.customer_name})
     except Exception as exc:
         return ActionResult(error=f"pdd_open_session failed: {exc}")
 
@@ -97,10 +134,9 @@ async def pdd_get_chat_thread(params: PddGetChatThreadAction, browser_session: B
         ev = _evaluator(browser_session, "pdd_get_chat_thread", params.customer_name,
                         read_only=not params.customer_name)
         if params.customer_name and (await dom.get_thread(ev)).get("uid") != params.customer_name:
-            opened = await dom.open_session(ev, params.customer_name)
+            opened = await _open(browser_session, ev, params.customer_name)
             if not opened.get("ok"):
                 return ActionResult(error=opened.get("error") or "could not open the conversation")
-            await asyncio.sleep(0.6)
         thread = await dom.get_thread(ev)
         thread["messages"] = (thread.get("messages") or [])[-params.max_messages:]
         return _ok(thread)
@@ -142,7 +178,12 @@ async def pdd_send_message(params: PddSendMessageAction, browser_session: Browse
         async def settle():
             await asyncio.sleep(0.3)
 
-        out = await dom.send_text(ev, uid, text, settle=settle)
+        cdp = await _cdp_sender(browser_session)
+        if cdp is None:
+            logger.warning(f"[PDD] no CDP sender for the chat tab; synthetic send to {uid} (known to be ignored)")
+        out = await dom.send_text(ev, uid, text, settle=settle, cdp=cdp)
+        logger.info(f"[PDD] send to {uid}: typed={out.get('ok')} cleared={out.get('cleared')} "
+                    f"error={out.get('error')!r} len={len(text)}")
         if not out.get("ok"):
             return ActionResult(error=f"pdd_send_not_typed: {out.get('error')}")
         if not await _confirm_sent(ev, uid, text):
