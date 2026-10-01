@@ -301,10 +301,32 @@ class ProxyMediaClient:
         """Poll ``GET /videos/{id}`` (5 s, backing off to 30 s) until a terminal
         status; returns that job. Raises ``MediaProxyError(code="client_timeout")``
         when ``timeout_s`` runs out first (the job is left as is)."""
+        return self._wait_job(self.get_video, "video", video_id, timeout_s, on_progress)
+
+    def submit_music(self, model: str, prompt: str, **params: Any) -> Dict[str, Any]:
+        """``POST /music``: queue a music generation job (202), same lifecycle as
+        ``/videos``. ``prompt`` = style / description; params: ``lyrics``,
+        ``title``, ``instrumental``, ``duration_seconds``, ``format``."""
+        body = {"model": model, "prompt": prompt}
+        body.update({k: v for k, v in params.items() if v not in (None, "", [])})
+        return self._request("POST", "/music", paid=True, json_body=body).json()
+
+    def get_music(self, music_id: str) -> Dict[str, Any]:
+        return self._request("GET", f"/music/{music_id}").json()
+
+    def cancel_music(self, music_id: str) -> Dict[str, Any]:
+        return self._request("DELETE", f"/music/{music_id}").json()
+
+    def wait_music(self, music_id: str, timeout_s: float = 600.0,
+                   on_progress: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
+        return self._wait_job(self.get_music, "music", music_id, timeout_s, on_progress)
+
+    def _wait_job(self, get_job: Callable[[str], Dict[str, Any]], kind: str, job_id: str,
+                  timeout_s: float, on_progress: Optional[Callable[[Dict[str, Any]], None]]) -> Dict[str, Any]:
         deadline = time.monotonic() + float(timeout_s)
         interval = self.poll_initial_s
         while True:
-            job = self.get_video(video_id)
+            job = get_job(job_id)
             if on_progress:
                 try:
                     on_progress(job)
@@ -315,7 +337,7 @@ class ProxyMediaClient:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise MediaProxyError(408, "client_timeout",
-                                      f"video {video_id} still {job.get('status')} after {timeout_s}s")
+                                      f"{kind} {job_id} still {job.get('status')} after {timeout_s}s")
             self._sleep(min(interval, remaining))
             interval = min(interval * 2, self.poll_max_s)
 

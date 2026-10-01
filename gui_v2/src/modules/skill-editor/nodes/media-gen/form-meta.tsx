@@ -3,7 +3,7 @@
  * Only the fields relevant to the selected mediaType are shown; the model list
  * and per-model options come from the proxy's GET /models capabilities.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { AutoComplete, Checkbox, Divider, Input, InputNumber, Select, Typography } from '@douyinfe/semi-ui';
@@ -11,10 +11,11 @@ import { DisplayOutputs, createInferInputsPlugin } from '@flowgram.ai/form-mater
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem } from '../../form-components';
 import { CollapsiblePromptEditor } from '../../form-components/CollapsiblePromptEditor';
+import { PromptSelector, IN_LINE_PROMPT_ID } from '../../form-components/PromptSelector';
 import { useNodeRenderContext } from '../../hooks';
 import { get_ipc_api } from '../../../../services/ipc_api';
 
-type MediaType = 'image' | 'video' | 'speech';
+type MediaType = 'image' | 'video' | 'speech' | 'music';
 type Capabilities = Record<string, any>;
 interface MediaModel {
   id: string;
@@ -22,16 +23,18 @@ interface MediaModel {
 }
 
 // GET /models `capabilities.endpoints` value per media type.
-const ENDPOINTS: Record<MediaType, string> = { image: 'images', video: 'videos', speech: 'speech' };
+const ENDPOINTS: Record<MediaType, string> = { image: 'images', video: 'videos', speech: 'speech', music: 'music' };
 
 // Models the CN proxy offers; used only when the live list is unavailable.
 const MODEL_SUGGESTIONS: Record<MediaType, string[]> = {
   image: ['wan2.2-t2i-plus', 'qwen-image', 'wan2.5-i2i-preview'],
   video: ['wan2.2-t2v-plus', 'wan2.2-i2v-plus', 'wan2.5-t2v-preview', 'wan2.5-i2v-preview'],
   speech: ['cosyvoice-v2', 'qwen3-tts-flash'],
+  // The proxy's music aliases (llm_proxy media-vendors.js placeholders()).
+  music: ['suno-v5.5', 'udio', 'lyria-3-pro', 'elevenlabs-music', 'stable-audio-2.5', 'aiva', 'minimax-music'],
 };
 
-const TIMEOUT_PLACEHOLDER: Record<MediaType, number> = { image: 120, video: 900, speech: 60 };
+const TIMEOUT_PLACEHOLDER: Record<MediaType, number> = { image: 120, video: 900, speech: 60, music: 600 };
 
 const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'];
 const RESOLUTIONS = ['480p', '720p', '1080p'];
@@ -176,28 +179,78 @@ export const FormRender = (_props: FormRenderProps<any>) => {
     </FormItem>
   );
 
+  const templateEditor = (key: string, help?: string) => (
+    <Field<any> name={`inputsValues.${key}`}>
+      {({ field, fieldState }) => (
+        <div style={{ width: '100%' }}>
+          <CollapsiblePromptEditor
+            value={toTemplate(field.value)}
+            onChange={field.onChange}
+            readonly={readonly}
+            hasError={Object.keys(fieldState?.errors || {}).length > 0}
+            defaultCollapsed={true}
+            collapsedLines={3}
+          />
+          {help && (
+            <Typography.Text type="tertiary" size="small">
+              {help}
+            </Typography.Text>
+          )}
+        </div>
+      )}
+    </Field>
+  );
+
   const templateField = (key: string, label: string, help?: string) => (
     <FormItem name={key} label={label} type="string" vertical>
-      <Field<any> name={`inputsValues.${key}`}>
-        {({ field, fieldState }) => (
-          <div style={{ width: '100%' }}>
-            <CollapsiblePromptEditor
-              value={toTemplate(field.value)}
-              onChange={field.onChange}
-              readonly={readonly}
-              hasError={Object.keys(fieldState?.errors || {}).length > 0}
-              defaultCollapsed={true}
-              collapsedLines={3}
-            />
-            {help && (
-              <Typography.Text type="tertiary" size="small">
-                {help}
-              </Typography.Text>
-            )}
-          </div>
-        )}
-      </Field>
+      {templateEditor(key, help)}
     </FormItem>
+  );
+
+  // Saved prompt from the Prompts page, or "In-line Prompt" to type it here
+  // (the same pulldown as the LLM / browser-automation nodes).
+  const promptPicker = (selectionKey: string, label: string, inlineInput: ReactNode, help?: string) => (
+    <Field<string> name={`inputsValues.${selectionKey}.content`}>
+      {({ field }) => {
+        const selected = (field.value as string) || IN_LINE_PROMPT_ID;
+        const isInline = selected === IN_LINE_PROMPT_ID || selected === 'inline';
+        return (
+          <FormItem name={selectionKey} label={label} type="string" vertical>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+              <PromptSelector
+                value={selected}
+                onChange={(val) => field.onChange(val)}
+                size="small"
+                disabled={readonly}
+              />
+              {isInline ? inlineInput : (
+                <Typography.Text type="tertiary" size="small">
+                  {t('nodes.mediaGen.savedPromptHint')}
+                </Typography.Text>
+              )}
+              {help && (
+                <Typography.Text type="tertiary" size="small" style={{ whiteSpace: 'pre-wrap' }}>
+                  {help}
+                </Typography.Text>
+              )}
+            </div>
+          </FormItem>
+        );
+      }}
+    </Field>
+  );
+
+  const negativeInput = (
+    <Field<string> name="inputsValues.negativePrompt.content">
+      {({ field }) => (
+        <Input
+          size="small"
+          value={(field.value as string) ?? ''}
+          onChange={(val) => field.onChange(val)}
+          disabled={readonly}
+        />
+      )}
+    </Field>
   );
 
   return (
@@ -224,12 +277,13 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                           { label: t('nodes.mediaGen.mediaTypeImage'), value: 'image' },
                           { label: t('nodes.mediaGen.mediaTypeVideo'), value: 'video' },
                           { label: t('nodes.mediaGen.mediaTypeSpeech'), value: 'speech' },
+                          { label: t('nodes.mediaGen.mediaTypeMusic'), value: 'music' },
                         ]}
                         onChange={(val) => {
                           const next = val as MediaType;
                           mediaTypeField.onChange(next);
                           // Switch the model to the new type's default unless the user typed a custom one
-                          const known = (['image', 'video', 'speech'] as MediaType[]).some(
+                          const known = (['image', 'video', 'speech', 'music'] as MediaType[]).some(
                             (type) => MODEL_SUGGESTIONS[type].includes(modelName) || modelsFor(mediaModels, type).includes(modelName),
                           );
                           const nextModels = modelsFor(mediaModels, next);
@@ -254,13 +308,17 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                       />
                     </FormItem>
 
-                    {templateField(
-                      'prompt',
-                      mediaType === 'speech' ? t('nodes.mediaGen.speechText') : t('nodes.mediaGen.prompt'),
+                    {promptPicker(
+                      'promptSelection',
+                      mediaType === 'speech' ? t('nodes.mediaGen.speechText')
+                        : mediaType === 'music' ? t('nodes.mediaGen.musicPrompt') : t('nodes.mediaGen.prompt'),
+                      templateEditor('prompt'),
+                      t('nodes.mediaGen.paramBlockHint', { skipInterpolation: true }),
                     )}
 
-                    {mediaType !== 'speech' && stringField('negativePrompt')}
-                    {mediaType !== 'speech' && showRefs &&
+                    {(mediaType === 'image' || mediaType === 'video') &&
+                      promptPicker('negativePromptSelection', t('nodes.mediaGen.negativePrompt'), negativeInput)}
+                    {(mediaType === 'image' || mediaType === 'video') && showRefs &&
                       templateField('referenceImages', t('nodes.mediaGen.referenceImages'), t('nodes.mediaGen.referenceImagesHelp', { skipInterpolation: true }))}
 
                     {mediaType === 'image' && (
@@ -308,6 +366,43 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                       </>
                     )}
 
+                    {mediaType === 'music' && (
+                      <>
+                        {caps?.lyrics !== false &&
+                          templateField('lyrics', t('nodes.mediaGen.lyrics'), t('nodes.mediaGen.lyricsHelp', { skipInterpolation: true }))}
+                        {stringField('title', t('nodes.mediaGen.optional'))}
+                        <FormItem name="instrumental" label={t('nodes.mediaGen.instrumental')} type="boolean" vertical>
+                          <Field<boolean> name="inputsValues.instrumental.content">
+                            {({ field }) => (
+                              <Checkbox
+                                checked={!!field.value}
+                                onChange={(e: any) => field.onChange(e.target?.checked ?? e)}
+                                disabled={readonly}
+                              >
+                                {t('nodes.mediaGen.instrumentalDesc')}
+                              </Checkbox>
+                            )}
+                          </Field>
+                        </FormItem>
+                        {listOf(caps?.durations)
+                          ? selectField('durationSeconds', withDefault(caps!.durations))
+                          : numberField('durationSeconds', { min: 5, step: 1 })}
+                        {selectField('audioFormat', withDefault(listOf(caps?.formats) || ['mp3', 'wav']))}
+                      </>
+                    )}
+
+                    {(mediaType === 'video' || mediaType === 'music') && (
+                      <>
+                        {selectField('runMode', [
+                          { label: t('nodes.mediaGen.runModeSync'), value: 'sync' },
+                          { label: t('nodes.mediaGen.runModeAsync'), value: 'async' },
+                        ])}
+                        <Typography.Text type="tertiary" size="small">
+                          {t('nodes.mediaGen.runModeHelp')}
+                        </Typography.Text>
+                      </>
+                    )}
+
                     {numberField('timeoutSeconds', { min: 1, step: 1, placeholder: String(TIMEOUT_PLACEHOLDER[mediaType]) })}
                     {stringField('outputSubdir', t('nodes.mediaGen.optional'))}
                   </>
@@ -317,7 +412,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           )}
         </Field>
         <Typography.Text type="tertiary" size="small">
-          {t('nodes.mediaGen.resultHint')}
+          {t('nodes.mediaGen.resultHint', { skipInterpolation: true })}
         </Typography.Text>
         <Divider />
         <DisplayOutputs displayFromScope />

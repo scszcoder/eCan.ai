@@ -6130,6 +6130,13 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
                     logger.debug(f"Received long LLM Task subscription result:{json.dumps(result_obj, indent=2, ensure_ascii=False)}")
                     if try_resolve_long_llm_task_waiter(result_obj):
                         return
+                    # An async media-gen job finished: its watcher wakes the parked task.
+                    try:
+                        from agent.ec_skills.media.media_job_watcher import on_push as _media_job_push
+                        if _media_job_push(result_obj):
+                            return
+                    except Exception as _mj_err:
+                        logger.warning(f"[CloudLLMTask] media job push not handled: {_mj_err}")
                     agent_id = result_obj["agentID"]
                     work_type = result_obj["workType"]
                     handler_agent = get_agent_by_id(agent_id)

@@ -4122,6 +4122,42 @@ class TaskRunner(Generic[Context]):
     
     # ==================== Queue Management ====================
     
+    def _find_task(self, task_id: str) -> Optional["ManagedTask"]:
+        return next((t for t in (self.agent.tasks or []) if t and str(t.id) == str(task_id)), None)
+
+    def deliver_to_task(self, task_id: str, event_type: str, request: Any) -> bool:
+        """Queue *request* for one known task, bypassing event routing -- for a
+        result a node is parked waiting for (an async media job). The parked
+        task resumes as it does for any queued message."""
+        task = self._find_task(task_id)
+        if task is None or getattr(task, "queue", None) is None:
+            logger.warning(f"[QUEUE] deliver_to_task: task {task_id} not on agent {self.agent.card.name}")
+            return False
+        _tag_queue_event_type(request, event_type)
+        task.queue.put_nowait(request)
+        logger.info(f"[QUEUE] Delivered {event_type} directly to task={task.name}")
+        self._ensure_task_execution_alive(task, event_type)
+        return True
+
+    def hold_pending_timeout(self, task_id: str, seconds: float) -> Optional[float]:
+        """Let *task_id* stay parked for at least *seconds* (the runner fails a
+        parked task after DEFAULT_RUNTIME_EVENT_TIMEOUT_SEC). Returns the prior
+        override for :meth:`restore_pending_timeout`."""
+        state = self._task_states.setdefault(task_id, {})
+        prev = state.get("_runtime_event_timeout")
+        if float(seconds) > float(prev if prev is not None else DEFAULT_RUNTIME_EVENT_TIMEOUT_SEC):
+            state["_runtime_event_timeout"] = float(seconds)
+        return prev
+
+    def restore_pending_timeout(self, task_id: str, prev: Optional[float]) -> None:
+        state = self._task_states.get(task_id)
+        if state is None:
+            return
+        if prev is None:
+            state.pop("_runtime_event_timeout", None)
+        else:
+            state["_runtime_event_timeout"] = prev
+
     def sync_task_wait_in_line(self, event_type: str, request: Any, source: str = "", async_response: bool = None):
         """
         Queue a task/message for processing.

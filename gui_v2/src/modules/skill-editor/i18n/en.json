@@ -634,6 +634,19 @@
       "prompt": "Prompt",
       "speechText": "Text to read",
       "negativePrompt": "Negative prompt",
+      "runMode": "Run mode",
+      "runModeSync": "Sync (wait in this node)",
+      "runModeAsync": "Async (park the task, resume when done)",
+      "runModeHelp": "Async frees the worker while the video/music renders; the task resumes when the job finishes or times out. Later nodes wait either way.",
+      "mediaTypeMusic": "Music",
+      "musicPrompt": "Style / description",
+      "lyrics": "Lyrics",
+      "lyricsHelp": "Optional. Leave empty to let the model write them. Section tags such as [Verse] / [Chorus] are passed through.",
+      "title": "Title",
+      "instrumental": "Instrumental",
+      "instrumentalDesc": "No vocals",
+      "savedPromptHint": "Using a prompt from the Prompts page (edit it there).",
+      "paramBlockHint": "Tip: a block at the very top of the prompt overrides this node's settings for the run, e.g.\n---\nduration: 10\nresolution: 1080p\nratio: 9:16\n---",
       "referenceImages": "Reference images",
       "referenceImagesHelp": "Image paths/URLs, one per line; {{variables}} allowed",
       "firstFrame": "First frame",
@@ -654,7 +667,7 @@
       "outputSubdir": "Output subfolder",
       "optional": "Optional",
       "default": "Default",
-      "resultHint": "Results are saved to generated_medias and available to later nodes as result.media (a list of {path, url, mime_type, ...})"
+      "resultHint": "Results are saved to generated_medias. Later nodes get them as {{media_paths}} (one path per line; e.g. an LLM node's media input) or {{tool_result.<this node>.media}} (list of {path, url, mime_type, ...})."
     },
     "dummy": {
       "name": "Dummy",

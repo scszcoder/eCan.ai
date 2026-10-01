@@ -663,6 +663,19 @@
       "prompt": "提示词",
       "speechText": "朗读文本",
       "negativePrompt": "反向提示词",
+      "runMode": "运行模式",
+      "runModeSync": "同步（在本节点内等待）",
+      "runModeAsync": "异步（挂起任务，完成后恢复）",
+      "runModeHelp": "异步模式在视频/音乐生成期间释放执行线程；任务在作业完成或超时后自动恢复。两种模式下后续节点都会等待结果。",
+      "mediaTypeMusic": "音乐",
+      "musicPrompt": "风格 / 描述",
+      "lyrics": "歌词",
+      "lyricsHelp": "可选。留空则由模型自动作词。可使用 [主歌] / [副歌] 等段落标记。",
+      "title": "歌名",
+      "instrumental": "纯音乐",
+      "instrumentalDesc": "无人声",
+      "savedPromptHint": "使用“提示词”页面中的提示词（请在该页面编辑）。",
+      "paramBlockHint": "提示：在提示词最开头写一个参数块，可覆盖本节点的设置，例如：\n---\n时长: 10\n分辨率: 1080p\n比例: 9:16\n---",
       "referenceImages": "参考图",
       "referenceImagesHelp": "图片路径/链接，每行一个，可用 {{变量}}",
       "firstFrame": "首帧图片",
@@ -683,7 +696,7 @@
       "outputSubdir": "输出子目录",
       "optional": "可选",
       "default": "默认",
-      "resultHint": "结果保存在 generated_medias 目录，后续节点可通过 result.media 使用（列表，每项含 path、url、mime_type 等）"
+      "resultHint": "结果保存在 generated_medias 目录。后续节点可用 {{media_paths}}（每行一个文件路径，可直接填入 LLM 节点的媒体输入）或 {{tool_result.<本节点名>.media}}（列表，每项含 path、url、mime_type 等）。"
     },
     "dummy": {
       "name": "占位符",
