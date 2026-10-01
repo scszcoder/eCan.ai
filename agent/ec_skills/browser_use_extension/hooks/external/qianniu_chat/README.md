@@ -17,18 +17,33 @@ Unset (every existing install), the bundle does nothing.
 
 ## Build status
 
-**Phase 0 (current) — de-risk primitives only.**
+**Phase 1 (current) — co-pilot: agent reads + drafts, human-supervised send.**
 
 | file | role | phase |
 |---|---|---|
 | `mem_locator.py` | 千牛 sender-anchored scan + noise filter + seller/buyer attribution (over the platform scanner `utils/win_process_memory.py`) | 0 |
 | `_phase0_spike.py` | standalone READ-ONLY runner: proves memory receive+attribution and OCR header-verify on a live client | 0 |
 | `../../../../../mcp/server/qianniu/qianniu_ocr.py` | capture+OCR the 千牛 window; `verify_header_name` select-verify guard | 0 |
-| `__init__.py` | gated `register()` — a no-op until Phase 1 | 0 |
-| `runner_bridge.py` | advertises `qianniu_*` tool names; no browser capabilities | 1 (TODO) |
-| `observer.py` | memory reader → pdd-shape `item` dict → platform dispatch door | 1 (TODO) |
-| `qianniu_tools.py` (in `mcp/server/qianniu/`) | `qianniu_list/open/get/send` MCP tools | 1 (TODO) |
-| `hook.yaml` | manifest + `cs_chat/message_replied` meter | 1 (TODO) |
+| `observer.py` | background memory reader → pdd-shape `item` dict → platform dispatch door (`_dispatch_to_runners`, `session=None`) | 1 |
+| `runner_bridge.py` | site registration + typing lock; **no** browser capabilities (missing attrs → generic fallback) | 1 |
+| `typing_lock.py` | single-slot desktop send lock | 1 |
+| `../../../../../mcp/server/qianniu/qianniu_tools.py` | `qianniu_send` (header-verified) + `qianniu_receive` MCP tools; registered in `server.py` + `tool_schemas.py` | 1 |
+| `hook.yaml` | manifest + `cs_chat/message_replied` meter | 1 |
+| `__init__.py` | gated `register()` → bridge + observer | 1 |
+| OCR conversation auto-select (click sidebar / search-by-name) | hands-off recipient switching | 2 (TODO) |
+| reliability gate (≥100 msgs, humanized pacing, recovery) | before unattended use | 3 (TODO) |
+
+## Wiring (co-pilot)
+
+- `ECAN_LIVE_CHAT_SITE=qianniu_chat` — activates the bundle (bridge + observer).
+- Observer gate `ECAN_QIANNIU_OBSERVER` (default on), poll `ECAN_QIANNIU_POLL_S`
+  (default 3s).
+- Skill graph: `pend_event` (waits for the injected `chat_message`/`browser_event`)
+  → `llm`/`chat` (drafts the reply) → `mcp` calling `qianniu_send` with the
+  buyer display name + draft. Modeled on `ecbot_rpa_chatter_skill.py`.
+- `qianniu_send` refuses unless the open conversation's OCR'd header matches the
+  named buyer — in co-pilot, a human keeps the right chat open; Phase 2 adds the
+  automatic open+verify.
 
 ## Running the Phase-0 spike
 

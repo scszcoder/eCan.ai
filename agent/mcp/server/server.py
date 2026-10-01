@@ -234,6 +234,10 @@ from agent.mcp.server.wechat.wechat_tools import (
     wechat_send,
     wechat_receive,
 )
+from agent.mcp.server.qianniu.qianniu_tools import (
+    qianniu_send,
+    qianniu_receive,
+)
 # Helper -> cloud Skill Editor proxies. Wrapped in try/except so a stripped
 # cloud-worker build (missing the GUI relay module that the proxy bodies
 # import lazily) doesn't kill the whole server import — the tools just
@@ -4115,6 +4119,9 @@ tool_function_mapping = {
         # WeChat automation tools
         "wechat_send": wechat_send,
         "wechat_receive": wechat_receive,
+        # 千牛 (Taobao/Tmall AliWorkbench) automation tools
+        "qianniu_send": qianniu_send,
+        "qianniu_receive": qianniu_receive,
         # Helper -> cloud Skill Editor proxies. The values may be None
         # if the proxy module failed to import (see the try/except at
         # the top of this file); guard at registration time so we don't

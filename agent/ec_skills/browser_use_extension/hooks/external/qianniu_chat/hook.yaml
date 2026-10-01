@@ -1,0 +1,41 @@
+# 千牛 (Taobao/Tmall AliWorkbench) native-desktop chat — hook bundle manifest.
+#
+# Native Win32 client, NOT a browser site: inbound comes from a read-only
+# process-memory scan (observer.py), outbound from the qianniu_* MCP tools +
+# OCR header-verify. The bundle registers only when ECAN_LIVE_CHAT_SITE names
+# qianniu_chat -- see README.md. No browser-automation node required; the skill
+# graph is pend_event -> llm/chat -> mcp(qianniu_send).
+
+meters:
+  - scenario_code: cs_chat
+    meter_code: message_replied
+    unit: "条"
+    display_name_zh: "客服回复"
+    display_name_en: "Customer-service reply"
+    billable_definition: >
+      One buyer turn answered by one reply we successfully delivered. Counted
+      once per (store, conversation, source message) no matter how many times
+      delivery is attempted or observed. NOT counted: retries and duplicate
+      dispatch of the same turn, sends that failed or were not confirmed, and
+      turns a human answered.
+
+api_version: 1
+kind: hook_bundle
+bundle: qianniu_chat
+version: 0.1.0
+author: "eCan.ai"
+description: >
+  千牛 (Taobao/Tmall) seller customer chat: read-only process-memory intake with
+  sender-id attribution, OCR header-verified clipboard/Enter reply delivery.
+
+config:
+  cooldown_ms: 1500
+
+config_schema:
+  type: object
+  properties:
+    cooldown_ms:
+      type: integer
+      title: "Cooldown (ms)"
+      minimum: 0
+      default: 1500

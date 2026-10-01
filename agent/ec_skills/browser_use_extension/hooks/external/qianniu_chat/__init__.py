@@ -6,8 +6,9 @@ select-verify + send come from OCR + desktop input (agent/mcp/server/qianniu).
 See docs/QIANNIU_PLUGIN_PLAN.md.
 
 Enabled only when ``ECAN_LIVE_CHAT_SITE`` names ``qianniu_chat`` — same gate as
-pdd_chat, so unset installs are unaffected. Phase 0 ships the de-risk
-primitives only; ``register()`` wires the runner bridge + observer in Phase 1.
+pdd_chat, so unset installs are unaffected. Registers the runner bridge and
+starts the read-only memory observer. The qianniu_* MCP tools register with the
+MCP server independently (agent/mcp/server/server.py), not here.
 """
 
 _REGISTERED = False
@@ -22,11 +23,29 @@ def _enabled() -> bool:
 
 
 def register() -> bool:
-    """Phase 1 will register the qianniu_* tools + runner bridge here, mirroring
-    pdd_chat. Phase 0 is a no-op so the half-built bundle never self-activates."""
+    """Register the runner bridge and start the memory observer. Idempotent;
+    False when not enabled."""
     global _REGISTERED
     if _REGISTERED or not _enabled():
         return False
-    # TODO(phase1): from . import site_tools; from . import runner_bridge;
-    #               runner_bridge.register(); start the memory observer.
-    return False
+    from . import runner_bridge, observer
+    runner_bridge.register()
+    if observer.observer_enabled():
+        observer.get_observer().start()
+    _REGISTERED = True
+    try:
+        from utils.logger_helper import logger_helper as logger
+        logger.info("[qianniu_chat] 千牛 live-chat bundle registered")
+    except Exception:
+        pass
+    return True
+
+
+try:
+    register()
+except Exception as _exc:  # a broken optional bundle must never stop the app
+    try:
+        from utils.logger_helper import logger_helper as logger
+        logger.warning(f"[qianniu_chat] not registered: {_exc}")
+    except Exception:
+        pass
