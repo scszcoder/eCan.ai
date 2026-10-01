@@ -117,34 +117,45 @@ table).
 
 ---
 
-## 5. Phased build (goal-driven, each phase independently verifiable)
+## 5. Phased build — ALL BUILT (0–3)
 
-**Phase 0 — spike the primitives (de-risk first).** Add the window alias; clone
-`_do_ocr_local` for 千牛; stand up the read-only memory scanner + sender-anchored
-locator as a standalone script; prove on a live client: capture an attributed
-incoming message, and OCR-verify the header name. *Verify:* one real buyer
-message read from memory with correct sender-id; header OCR matches display name.
+Code-complete and headless-tested. The three live-client calibration/measurement
+items are listed under §6; everything else is implemented and committed.
 
-**Phase 1 — co-pilot (productionize proven pieces, doc Phase 1).** `qianniu_tools`
-send primitive + `observer.py` injecting via the dispatch door + wire to the
-LLM draft. Human approves/sends. *Verify:* agent drafts a reply for a real
-incoming message; operator sends; meter increments once.
+**Phase 0 — primitives (DONE).** Window alias; cloned `_do_ocr_local`; read-only
+memory scanner (`utils/win_process_memory.py`) + sender-anchored locator
+(`mem_locator.py`); `verify_header_name`; `_phase0_spike.py`. Tested: carving,
+two-buyer attribution, noise filter.
 
-**Phase 2 — OCR conversation selection (hands-off, doc Phase 2).** `open_session`
-clicks top-unread / search-by-name, `select_verify` OCR-gates it, then
-paste+Enter. Serialize desktop actions with the typing lock. *Verify:* end-to-end
-auto-reply to the correct buyer across 2 buyers, zero mis-delivery.
+**Phase 1 — co-pilot (DONE).** `qianniu_send`/`qianniu_receive` MCP tools;
+`observer.py` injecting the pdd-shape item via `_dispatch_to_runners`
+(`session=None`); `runner_bridge.py`; `hook.yaml`; gated `register()`. Tested:
+fail-closed send guard, item shape, dedup, bridge registration, gated-off
+inertness.
 
-**Phase 3 — reliability gate (doc Phase 3).** ≥100 controlled messages, zero
-wrong-recipient sends, humanized pacing, restart/reconnect recovery. *Verify:*
-gate metrics green.
+**Phase 2 — hands-off selection (DONE).** `qianniu_open_session` + `qianniu_send`
+auto-open (search-by-name → OCR header verify, fail-closed); `name_map.py`
+persistent learned map; observer content-join learning. Tested: auto-open send,
+open-fail fail-closed, learning pass, name-map roundtrip, search-box OCR anchor.
+
+**Phase 3 — hardening + gate (DONE).** Humanized pacing (`_humanize`), layout-drift
+guard (`_looks_like_qianniu`), typing-lock serialization across open+send,
+re-verify before each send; `_phase3_gate.py` reliability harness. Tested: gate
+recorder (wrong-recipient + duplicate detection). *Running the gate on ≥100 live
+messages is the operator's step.*
 
 ---
 
-## 6. Open items to confirm during Phase 0
+## 6. Live-client calibration / measurement (the only remaining work)
 
-- Exact 千牛 message-object field names (content field is client-hashed, doc §4.2)
-  — reconstruct from a live capture, keep in `mem_locator.py`.
-- Whether `ECAN_LIVE_CHAT_SITE=qianniu_chat` + a non-browser node needs any
-  `set_active_site` call the browser node currently makes at entry.
-- Desktop observer lifecycle (start/stop) owner once the generic trigger lands.
+- **Memory field name** — content field is client-hashed (§4.2). `mem_locator.
+  _best_text_field` takes the longest chat-like string; pin the real field from
+  a `_phase0_spike.py` capture.
+- **OCR geometry / window title** — `qianniu_ocr._HEADER_BAND_FRAC` (0.12),
+  `qianniu_tools._SEARCH_ANCHORS`, and the window-title string (`千牛` vs
+  `千牛工作台`/`AliWorkbench`).
+- **Reliability gate** — run `_phase3_gate.py` over ≥100 controlled messages;
+  require zero wrong-recipient sends before any unattended use.
+- **Observer lifecycle** — currently started from `register()` on a background
+  thread; revisit if/when a second desktop site ships (the generic desktop
+  observer trigger in §2).

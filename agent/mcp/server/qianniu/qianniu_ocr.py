@@ -67,7 +67,44 @@ class HeaderVerifyResult:
     candidates: list        # all texts seen in the header band (for diagnostics)
 
 
-def verify_header_name(expected_display_name: str) -> HeaderVerifyResult:
+def header_band_texts(ocr_data: list) -> list:
+    """The non-empty text lines in the top ``_HEADER_BAND_FRAC`` of the window
+    (absolute coords), where the open conversation's buyer name sits."""
+    locs = [it for it in ocr_data if it.get("loc")]
+    if not locs:
+        return []
+    top = min(min(it["loc"][0], it["loc"][2]) for it in locs)
+    bottom = max(max(it["loc"][0], it["loc"][2]) for it in locs)
+    band_cut = top + (bottom - top) * _HEADER_BAND_FRAC
+    texts = [str(it.get("text") or "").strip() for it in locs
+             if min(it["loc"][0], it["loc"][2]) <= band_cut]
+    return [t for t in texts if t]
+
+
+def read_header_name(ocr_data: Optional[list] = None) -> str:
+    """Best-guess buyer display name from the chat-header band ("" if none).
+
+    The longest header-band line that is not an obvious UI control — used by
+    the observer's learning pass to join a memory sender id to a screen name.
+    """
+    data = ocr_data if ocr_data is not None else ocr_qianniu_window()
+    texts = header_band_texts(data)
+    texts = [t for t in texts if len(t) <= 40]  # names are short; drop long UI strings
+    return max(texts, key=len) if texts else ""
+
+
+def transcript_contains(ocr_data: list, text: str) -> bool:
+    """True if *text* (or a solid prefix of it) appears anywhere on screen —
+    the content join that ties a memory message to the visible conversation."""
+    needle = _norm(text)
+    if len(needle) < 2:
+        return False
+    probe = needle[:16]
+    return any(probe in _norm(str(it.get("text") or "")) for it in ocr_data)
+
+
+def verify_header_name(expected_display_name: str,
+                       ocr_data: Optional[list] = None) -> HeaderVerifyResult:
     """OCR the chat-header band and check it names *expected_display_name*.
 
     The feasibility study's fail-closed guard: a send proceeds only when the
@@ -78,23 +115,11 @@ def verify_header_name(expected_display_name: str) -> HeaderVerifyResult:
     if not expected:
         return HeaderVerifyResult(False, "", expected_display_name, [])
 
-    ocr_data = ocr_qianniu_window()
-    if not ocr_data:
+    data = ocr_data if ocr_data is not None else ocr_qianniu_window()
+    if not data:
         return HeaderVerifyResult(False, "", expected_display_name, [])
 
-    # Header band: the top _HEADER_BAND_FRAC of the window in absolute coords.
-    ys = [min(it["loc"][0], it["loc"][2]) for it in ocr_data if it.get("loc")]
-    if not ys:
-        return HeaderVerifyResult(False, "", expected_display_name, [])
-    top = min(ys)
-    bottom = max(max(it["loc"][0], it["loc"][2]) for it in ocr_data if it.get("loc"))
-    band_cut = top + (bottom - top) * _HEADER_BAND_FRAC
-
-    band = [it for it in ocr_data
-            if it.get("loc") and min(it["loc"][0], it["loc"][2]) <= band_cut]
-    texts = [str(it.get("text") or "").strip() for it in band]
-    texts = [t for t in texts if t]
-
+    texts = header_band_texts(data)
     matched = any(expected in _norm(t) or _norm(t) in expected for t in texts)
     best = next((t for t in texts if expected in _norm(t) or _norm(t) in expected),
                 texts[0] if texts else "")

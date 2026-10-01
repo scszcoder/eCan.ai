@@ -23,11 +23,16 @@ from typing import Optional
 from utils.logger_helper import logger_helper as logger
 from utils import win_process_memory as mem
 
-from . import mem_locator
+from . import mem_locator, name_map
 
 _PROC_NAME = "AliWorkbench"
 _SEEN_MAX = 2000
 _LABEL = "qianniu_chat"
+_LEARN_THROTTLE_S = 5.0
+
+
+def learn_enabled() -> bool:
+    return os.environ.get("ECAN_QIANNIU_LEARN", "1") != "0"
 
 
 def _poll_interval_s() -> float:
@@ -44,6 +49,7 @@ def item_for(cand: "mem_locator.MsgCandidate", seller_id: Optional[str],
     uid = buyer_ids[0] if buyer_ids else (next(iter(cand.sender_ids), "") if cand.sender_ids else "")
     text = cand.text
     msg_id = cand.msg_id or f"mem:{uid}:{text[:24]}"
+    display_name = display_name or name_map.name_for(uid)
     return {
         "customer_name": uid, "name": uid, "session_id": uid, "customer_id": uid,
         "talk_id": uid,
@@ -87,11 +93,15 @@ def inject_item(item: dict, target_agent_id: str = "") -> int:
 class QianniuMemObserver:
     """Background memory-scan → attribute → dispatch loop."""
 
-    def __init__(self):
+    def __init__(self, dispatch_fn=None):
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._seen: "OrderedDict[str, float]" = OrderedDict()
-        self.stats = {"scans": 0, "candidates": 0, "dispatched": 0}
+        self._last_learn = 0.0
+        # Override for tests / the reliability gate; defaults to the real
+        # agent-pipeline injection.
+        self._dispatch = dispatch_fn or inject_item
+        self.stats = {"scans": 0, "candidates": 0, "dispatched": 0, "learned": 0}
 
     def _first_time(self, key: str) -> bool:
         if not key or key in self._seen:
@@ -100,6 +110,28 @@ class QianniuMemObserver:
         while len(self._seen) > _SEEN_MAX:
             self._seen.popitem(last=False)
         return True
+
+    def _learn_pass(self, sender_id: str, text: str) -> None:
+        """Throttled content-join: OCR the window; if *text* is on screen, the
+        chat header names *sender_id*'s buyer — learn the mapping. This is the
+        only bridge from a memory sender id to the display name needed to open a
+        conversation (v15: the active id is not in memory)."""
+        if not learn_enabled() or name_map.name_for(sender_id):
+            return
+        now = time.monotonic()
+        if now - self._last_learn < _LEARN_THROTTLE_S:
+            return
+        self._last_learn = now
+        try:
+            from agent.mcp.server.qianniu import qianniu_ocr
+            ocr_data = qianniu_ocr.ocr_qianniu_window()
+            if not ocr_data or not qianniu_ocr.transcript_contains(ocr_data, text):
+                return
+            name = qianniu_ocr.read_header_name(ocr_data)
+            if name and name_map.learn(sender_id, name):
+                self.stats["learned"] += 1
+        except Exception as exc:
+            logger.debug(f"[QIANNIU-MEM] learn pass skipped: {exc}")
 
     def _scan_once(self, pid: int) -> None:
         self.stats["scans"] += 1
@@ -118,11 +150,19 @@ class QianniuMemObserver:
             item = item_for(cand, seller)
             if not self._first_time(item["identity_key"]):
                 continue
+            # Opportunistically learn this buyer's display name from the screen
+            # (throttled) so hands-off conversation-open works later.
+            if not item["customer_display_name"]:
+                self._learn_pass(item["customer_name"], item["last_message"])
+                learned = name_map.name_for(item["customer_name"])
+                if learned:
+                    item["customer_display_name"] = learned
             try:
-                n = inject_item(item)
+                n = self._dispatch(item)
                 self.stats["dispatched"] += 1
                 logger.info(f"[QIANNIU-MEM] dispatched buyer={item['customer_name']!r} "
-                            f"msg={item['msg_id']!r} to {n} runner(s): {item['last_message'][:40]!r}")
+                            f"name={item['customer_display_name']!r} msg={item['msg_id']!r} "
+                            f"to {n} runner(s): {item['last_message'][:40]!r}")
             except Exception as exc:
                 logger.warning(f"[QIANNIU-MEM] dispatch failed: {exc}")
 
