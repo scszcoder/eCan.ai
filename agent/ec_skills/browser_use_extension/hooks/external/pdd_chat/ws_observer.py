@@ -21,7 +21,7 @@ import json
 import os
 import time
 from collections import OrderedDict
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from utils.logger_helper import logger_helper as logger
 
@@ -37,6 +37,30 @@ LIST_CHECK_S = 10.0    # safety-net read of the conversation list
 RECLAIM_COOLDOWN_S = 120.0  # at most one reload to win the session back per this long
 RECLAIM_WAIT_S = 20.0      # how long a reload may take before the list is read again
 RECENT_DISPATCH_S = 60.0   # the list check leaves a conversation alone this long after a dispatch
+
+# Our own replies as the server pushes them back (role mall_cs): uid -> [(text, at)].
+# The surest delivery proof there is -- the probe's 20-reply run had exactly one
+# echo per reply, including two the thread check wrongly called missing.
+_ECHOES: Dict[str, List[Tuple[str, float]]] = {}
+_ECHO_KEEP_S = 300.0
+
+
+def _norm(text: str) -> str:
+    return " ".join((text or "").split())
+
+
+def record_echo(uid: str, text: str) -> None:
+    now = time.time()
+    kept = [(t, at) for t, at in _ECHOES.get(uid, []) if now - at < _ECHO_KEEP_S]
+    kept.append((_norm(text), now))
+    _ECHOES[uid] = kept[-20:]
+
+
+def echoed_since(uid: str, text: str, since: float) -> bool:
+    """Whether the server pushed back *text* to *uid* at or after *since*."""
+    want = _norm(text)
+    return any(t == want and at >= since for t, at in _ECHOES.get(uid, []))
+
 
 def dispatch_enabled() -> bool:
     return os.environ.get("ECAN_PDD_WS_DISPATCH", "1") != "0"
@@ -116,6 +140,8 @@ class _State:
         if not uid:
             logger.info(f"{seen} -> skip: no conversation id")
             return
+        if not ev.get("from_customer") and ev.get("sender_role") == "mall_cs" and ev.get("text"):
+            record_echo(uid, ev["text"])
         if not ev.get("needs_reply"):
             reason = ("not from the customer" if not ev.get("from_customer")
                       else f"kind {ev.get('kind')} needs no reply")

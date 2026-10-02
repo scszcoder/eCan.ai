@@ -35,6 +35,9 @@ class PddRunnerBridge:
     open_session_tool_name = "pdd_open_session"
     send_message_tool_name = "pdd_send_message"
     get_thread_tool_name = "pdd_get_chat_thread"
+    # One chat page per account: a second chat tab logs in again and freezes the
+    # first ("账户在别处登录"), so dispatch must never open per-conversation tabs.
+    single_chat_page = True
 
     site_adapter_preset = DEFAULT_SITE_ADAPTER
     ws_observer = ws_observer

@@ -12,6 +12,7 @@ the thread before reporting success.
 # string annotation makes it reject the action at registration.
 import asyncio
 import json
+import time
 
 from pydantic import BaseModel, Field
 
@@ -24,7 +25,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_service import (
     custom_controller,
 )
 
-from . import dom, hot_path_v2
+from . import dom, hot_path_v2, ws_observer
 from .typing_lock import get_lock
 
 SEND_CONFIRM_S = 5.0
@@ -144,11 +145,15 @@ async def pdd_get_chat_thread(params: PddGetChatThreadAction, browser_session: B
         return ActionResult(error=f"pdd_get_chat_thread failed: {exc}")
 
 
-async def _confirm_sent(evaluate, uid: str, text: str) -> bool:
+async def _confirm_sent(evaluate, uid: str, text: str, since: float = 0.0) -> bool:
+    """The server's echo of our message proves delivery; the thread is the fallback
+    for a socket that is not carrying pushes."""
     want = " ".join(text.split())
     deadline = asyncio.get_event_loop().time() + SEND_CONFIRM_S
     while asyncio.get_event_loop().time() < deadline:
         await asyncio.sleep(0.4)
+        if since and ws_observer.echoed_since(uid, text, since):
+            return True
         thread = await dom.get_thread(evaluate)
         if thread.get("uid") != uid:
             return False
@@ -181,12 +186,13 @@ async def pdd_send_message(params: PddSendMessageAction, browser_session: Browse
         cdp = await _cdp_sender(browser_session)
         if cdp is None:
             logger.warning(f"[PDD] no CDP sender for the chat tab; synthetic send to {uid} (known to be ignored)")
+        sent_at = time.time()
         out = await dom.send_text(ev, uid, text, settle=settle, cdp=cdp)
         logger.info(f"[PDD] send to {uid}: typed={out.get('ok')} cleared={out.get('cleared')} "
                     f"error={out.get('error')!r} len={len(text)} diag={out.get('diag')!r}")
         if not out.get("ok"):
             return ActionResult(error=f"pdd_send_not_typed: {out.get('error')}")
-        if not await _confirm_sent(ev, uid, text):
+        if not await _confirm_sent(ev, uid, text, since=sent_at):
             # Clicked, but the bubble did not show up: report it rather than retype
             # (a retry that re-types would duplicate a reply that did land).
             logger.warning(f"[PDD] send to {uid} not confirmed in the thread within {SEND_CONFIRM_S:.0f}s")
