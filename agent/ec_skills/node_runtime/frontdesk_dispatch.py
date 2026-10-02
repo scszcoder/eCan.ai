@@ -1815,6 +1815,20 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
     return payload
 
 
+async def _tab_for_item(session, chat_url: str, session_id: str, opened_tabs: dict, log_tag: str) -> str:
+    """The tab a dispatched conversation is worked in. A site whose chat lives on
+    ONE page (its bridge sets ``single_chat_page``) gets that page and never a new
+    tab: on 拼多多 every extra chat tab logged the account in again and froze the
+    store's page (2026-10-02 run: a new tab per dispatch, each kicking ours out)."""
+    bridge = _live_chat_bridge()
+    if bridge is not None and getattr(bridge, "single_chat_page", False):
+        try:
+            return str(await bridge.resolve_tab_target_id(session) or "")
+        except Exception:
+            return ""
+    return await _open_tab_for_session(session, chat_url, session_id, opened_tabs, log_tag)
+
+
 async def _dispatch_one_item(
     item: dict,
     *,
@@ -1845,9 +1859,7 @@ async def _dispatch_one_item(
     assigned_sessions = dispatch_state.setdefault("assigned_sessions", {})
 
     # Open tab first — instant, deterministic, costs no LLM tokens.
-    tab_id = await _open_tab_for_session(
-        session, chat_url, session_id, opened_tabs, log_tag
-    )
+    tab_id = await _tab_for_item(session, chat_url, session_id, opened_tabs, log_tag)
     opened_row = session_id
 
     customer_key = ctx.normalize_dispatch_identity_key(

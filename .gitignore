@@ -181,3 +181,6 @@ drift_journal/
 known_shapes.json
 resolver_guard.json
 **/resolver_guard.json
+
+# pdd_probe standalone test tool (local only)
+tools/pdd_probe/

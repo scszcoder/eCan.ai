@@ -213,13 +213,6 @@ async def trusted_click(cdp: Cdp, x: float, y: float) -> None:
         await cdp("Input.dispatchMouseEvent", params)
 
 
-async def press_enter(cdp: Cdp) -> None:
-    # No ``text``: the key event alone, so a box that does not send on Enter gets no newline.
-    for kind in ("keyDown", "keyUp"):
-        await cdp("Input.dispatchKeyEvent", {"type": kind, "key": "Enter", "code": "Enter",
-                                             "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13})
-
-
 async def _click_probe(evaluate: Evaluate, cdp: Cdp, point: Dict[str, Any]) -> str:
     """Click at the point; describe where the page saw the mousedown, if at all."""
     x, y = point["x"], point["y"]
@@ -282,19 +275,15 @@ async def _send_text_trusted(evaluate: Evaluate, cdp: Cdp, uid: str, text: str, 
         state = _parse(await evaluate(FOCUS_STATE_JS)) or {}
         return {"ok": False, "error": f"reply box holds {str(typed.get('value'))[:40]!r}, not the reply "
                                       f"({'; '.join(diag)}; page {state})"}
-    await press_enter(cdp)
+    # The send button, never Enter: Enter does not send on this page (99m-99o runs,
+    # every probe send), and a wasted Enter costs a settle per reply.
+    button = _parse(await evaluate(point_js(SEND_BUTTON))) or {}
+    if not button.get("ok"):
+        return {"ok": False, "error": button.get("error") or "send button not found"}
+    diag.append("send " + await _click_probe(evaluate, cdp, button))
     if settle:
         await settle()
     after = _parse(await evaluate(READ_REPLY_JS)) or {}
-    if after.get("value") != "":
-        diag.append("Enter did not send")
-        button = _parse(await evaluate(point_js(SEND_BUTTON))) or {}
-        if not button.get("ok"):
-            return {"ok": False, "error": button.get("error") or "send button not found"}
-        diag.append("send " + await _click_probe(evaluate, cdp, button))
-        if settle:
-            await settle()
-        after = _parse(await evaluate(READ_REPLY_JS)) or {}
     return {"ok": True, "uid": uid, "cleared": after.get("value") == "", "diag": "; ".join(diag)}
 
 

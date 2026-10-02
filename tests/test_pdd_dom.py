@@ -222,7 +222,7 @@ class TrustedInputTests(unittest.TestCase):
         self.assertEqual(thread["messages"][-1]["text"], "新回复")
 
 class NoMouseTests(TrustedInputTests):
-    """Clicks do nothing: the box is focused by script and Enter sends."""
+    """Clicks on rows do nothing: the failure names where the click went."""
 
     def test_trusted_send_switches_types_and_sends(self):
         pass
@@ -232,18 +232,6 @@ class NoMouseTests(TrustedInputTests):
 
     def test_synthetic_send_is_ignored_like_the_real_page(self):
         pass
-
-    def test_enter_sends_when_clicks_are_ignored(self):
-        async def go(page, evaluate, cdp, settle):
-            await evaluate("document.activeElement && document.activeElement.blur()")
-            out = await dom.send_text(evaluate, "U1", "国庆有活动哦", settle=settle, cdp=cdp)
-            thread = json.loads(await evaluate(dom.THREAD_JS))
-            return out, thread
-        out, thread = self._run(go, NO_MOUSE_PAGE)
-        self.assertTrue(out["ok"], out)
-        self.assertTrue(out["cleared"], out)
-        self.assertEqual(thread["messages"][-1]["text"], "国庆有活动哦")
-        self.assertNotIn("Enter did not send", out["diag"])
 
     def test_unopenable_conversation_reports_where_the_click_went(self):
         async def go(page, evaluate, cdp, settle):
