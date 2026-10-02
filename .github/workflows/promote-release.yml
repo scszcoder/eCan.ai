@@ -1,0 +1,296 @@
+# ============================================================================
+# Promote OTA Release — the ONLY workflow that makes a build go live
+# ============================================================================
+#
+# Release-cn/intl.yml with publish=false (default) uploads installers to
+# {env}/releases/... where they are inert. This workflow is the go-live
+# button:
+#
+#   promote  → write rollout.json, regenerate appcast + latest.json,
+#              smoke-test the published endpoints
+#   ramp     → raise rollout percent (5 → 20 → 50 → 100); JSON-only,
+#              seconds to take effect, no rebuild
+#   reduce   → lower rollout percent (explicit downward move)
+#   pause    → kill switch: no client is prompted any more
+#   resume   → unpause (keeps percent as-is)
+#   rollback → auto-derive the bad-version exclusion (latest.json's
+#              current version + the current rollout's version, minus
+#              the target), repoint rollout, regenerate the feeds
+#              without the bad version
+#
+# Defaults are FULLY OPEN: action=promote + percent=100 publishes to
+# everyone — identical to the pre-rollout behaviour. Grayscale only
+# activates when the operator deliberately picks a smaller percent.
+#
+# Control plane written by set_rollout.py:
+#   {env}/channels/{channel}/rollout.json
+#
+# The resolve step prints current/target state into the run's Step
+# Summary (free status page); version defaults to the newest universal
+# release already uploaded to the bucket — no manual version typing for
+# the normal path.
+# ============================================================================
+
+name: Promote OTA Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'Target app (cn = COS / intl = S3)'
+        required: true
+        default: 'cn'
+        type: choice
+        options:
+          - cn
+          - intl
+      action:
+        description: 'What to do (promote = publish new version; ramp/pause = adjust grayscale)'
+        required: true
+        default: 'promote'
+        type: choice
+        options:
+          - promote
+          - ramp
+          - reduce
+          - pause
+          - resume
+          - rollback
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+          - test
+      channel:
+        description: 'Release channel — must match the channel baked into client builds'
+        required: true
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - beta
+          - dev
+      percent:
+        description: 'Grayscale percent (promote/ramp/reduce only). 100 = fully open, everyone can upgrade.'
+        required: true
+        default: '100'
+        type: choice
+        options:
+          - '0'
+          - '5'
+          - '10'
+          - '20'
+          - '50'
+          - '100'
+      version:
+        description: 'Version (promote: empty = auto newest uploaded; rollback: REQUIRED)'
+        required: false
+        default: ''
+        type: string
+      cohort:
+        description: 'Whitelist email prefixes, comma separated (promote only; passes even at percent=0)'
+        required: false
+        default: ''
+        type: string
+      exclude:
+        description: 'Additional versions to drop from appcast/latest.json, comma separated (merged with the version rollback auto-derives)'
+        required: false
+        default: ''
+        type: string
+
+# One write pipeline per (app, env, channel). Never cancel a promote
+# mid-flight — a half-finished regenerate is worse than a queued one.
+concurrency:
+  group: promote-ota-${{ inputs.app }}-${{ inputs.environment }}-${{ inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: ${{ inputs.action }} (${{ inputs.app }} / ${{ inputs.environment }} / ${{ inputs.channel }})
+    runs-on: ubuntu-latest
+    # Repo-level GitHub Environment: attach Required reviewers to
+    # `production` in Settings → Environments for a human approval gate.
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          # Both backend SDK sets: the same workflow serves cn (COS)
+          # and intl (S3); installing both keeps one workflow file
+          # instead of two drifting copies.
+          cache-dependency-path: |
+            build_system/scripts/requirements-cos.txt
+            build_system/scripts/requirements.txt
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r build_system/scripts/requirements-cos.txt \
+                      -r build_system/scripts/requirements.txt
+
+      # -----------------------------------------------------------------
+      # Stage 1 — read current state + validate the requested action.
+      # Fails BEFORE anything is written if the guard says no
+      # (exit 3 from set_rollout.py = guard violation).
+      # -----------------------------------------------------------------
+      - name: Resolve and guard
+        id: resolve
+        shell: bash
+        env:
+          APP: ${{ inputs.app }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          CHANNEL: ${{ inputs.channel }}
+          ACTION: ${{ inputs.action }}
+          PERCENT: ${{ inputs.percent }}
+          VERSION: ${{ inputs.version }}
+          COHORT: ${{ inputs.cohort }}
+          EXCLUDE: ${{ inputs.exclude }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+          ECAN_TENCENT_REGION: ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+        run: |
+          ARGS=(--app "$APP" --env "$ENVIRONMENT" --channel "$CHANNEL" --action "$ACTION")
+          case "$ACTION" in
+            promote|ramp|reduce) ARGS+=(--percent "$PERCENT") ;;
+          esac
+          if [ -n "$VERSION" ]; then ARGS+=(--version "$VERSION"); fi
+          if [ "$ACTION" = "promote" ] && [ -n "$COHORT" ]; then ARGS+=(--cohort "$COHORT"); fi
+          if [ -n "$EXCLUDE" ]; then ARGS+=(--exclude "$EXCLUDE"); fi
+          python3 build_system/scripts/set_rollout.py "${ARGS[@]}" \
+            --summary "$GITHUB_STEP_SUMMARY" > resolve_status.json
+          {
+            echo "target=$(jq -r '.resolved.target_version // ""' resolve_status.json)"
+            echo "publish=$(jq -r '.resolved.publish // false' resolve_status.json)"
+            echo "smoke=$(jq -r '.resolved.smoke // false' resolve_status.json)"
+            echo "exclude=$(jq -r '.resolved.exclude // ""' resolve_status.json)"
+          } >> "$GITHUB_OUTPUT"
+          echo "::group::Resolve output"
+          cat resolve_status.json
+          echo "::endgroup::"
+
+      # -----------------------------------------------------------------
+      # Stage 2 — write the control plane FIRST. The gate must exist
+      # before any feed rewrite: the regenerate step is the publish
+      # moment for rollout-aware clients, so applying before it means
+      # there is never an ungated window. If this step fails, NOTHING
+      # has changed yet (the feeds are untouched) — the run aborts
+      # cleanly. The guard re-runs against live state, so a change
+      # made between resolve and here is caught before any mutation.
+      # -----------------------------------------------------------------
+      - name: Apply rollout control
+        id: apply
+        shell: bash
+        env:
+          APP: ${{ inputs.app }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          CHANNEL: ${{ inputs.channel }}
+          ACTION: ${{ inputs.action }}
+          PERCENT: ${{ inputs.percent }}
+          COHORT: ${{ inputs.cohort }}
+          EXCLUDE: ${{ inputs.exclude }}
+          TARGET: ${{ steps.resolve.outputs.target }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+          ECAN_TENCENT_REGION: ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+        run: |
+          ARGS=(--app "$APP" --env "$ENVIRONMENT" --channel "$CHANNEL" --action "$ACTION")
+          case "$ACTION" in
+            promote|ramp|reduce) ARGS+=(--percent "$PERCENT") ;;
+          esac
+          if [ -n "$TARGET" ]; then ARGS+=(--version "$TARGET"); fi
+          if [ "$ACTION" = "promote" ] && [ -n "$COHORT" ]; then ARGS+=(--cohort "$COHORT"); fi
+          if [ -n "$EXCLUDE" ]; then ARGS+=(--exclude "$EXCLUDE"); fi
+          python3 build_system/scripts/set_rollout.py "${ARGS[@]}" --apply \
+            --summary "$GITHUB_STEP_SUMMARY" > apply_status.json
+          echo "written=$(jq -r '.written // false' apply_status.json)" >> "$GITHUB_OUTPUT"
+          echo "::group::Apply output"
+          cat apply_status.json
+          echo "::endgroup::"
+
+      # -----------------------------------------------------------------
+      # Stage 3 — regenerate the feeds (promote / rollback only). The
+      # full scan re-lists releases/, so the new version becomes
+      # discoverable here; the gate from stage 2 is already in place
+      # for rollout-aware clients (old clients see the new version
+      # immediately — this IS the publish moment for them). Exclusions
+      # come from the resolve output: the operator's manual --exclude
+      # list merged with the bad version rollback auto-derived.
+      # -----------------------------------------------------------------
+      - name: Regenerate appcast
+        if: steps.resolve.outputs.publish == 'true'
+        shell: bash
+        env:
+          APP: ${{ inputs.app }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          CHANNEL: ${{ inputs.channel }}
+          EXCLUDE: ${{ steps.resolve.outputs.exclude }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+          ECAN_TENCENT_REGION: ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+        run: |
+          ARGS=(--env "$ENVIRONMENT" --app "$APP" --channel "$CHANNEL")
+          if [ -n "$EXCLUDE" ]; then ARGS+=(--exclude "$EXCLUDE"); fi
+          python3 build_system/scripts/generate_appcast.py "${ARGS[@]}"
+
+      - name: Regenerate latest.json
+        if: steps.resolve.outputs.publish == 'true'
+        shell: bash
+        env:
+          APP: ${{ inputs.app }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          CHANNEL: ${{ inputs.channel }}
+          TARGET: ${{ steps.resolve.outputs.target }}
+          EXCLUDE: ${{ steps.resolve.outputs.exclude }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+          ECAN_TENCENT_REGION: ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+        run: |
+          ARGS=(--env "$ENVIRONMENT" --app "$APP" --channel "$CHANNEL" --version "$TARGET")
+          if [ -n "$EXCLUDE" ]; then ARGS+=(--exclude "$EXCLUDE"); fi
+          python3 build_system/scripts/generate_latest_json.py "${ARGS[@]}"
+
+      # -----------------------------------------------------------------
+      # Stage 4 — verify the published endpoints are reachable/signed.
+      # Runs only when stage 3 actually rewrote the feeds.
+      # -----------------------------------------------------------------
+      - name: Smoke-test published endpoints
+        if: steps.resolve.outputs.smoke == 'true'
+        shell: bash
+        env:
+          APP: ${{ inputs.app }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          CHANNEL: ${{ inputs.channel }}
+          TARGET: ${{ steps.resolve.outputs.target }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          ECAN_TENCENT_SECRET_ID: ${{ secrets.ECAN_TENCENT_SECRET_ID }}
+          ECAN_TENCENT_SECRET_KEY: ${{ secrets.ECAN_TENCENT_SECRET_KEY }}
+          ECAN_TENCENT_REGION: ${{ secrets.ECAN_TENCENT_REGION || 'ap-guangzhou' }}
+        run: |
+          python3 build_system/scripts/smoke_test_ota.py \
+            --app "$APP" --env "$ENVIRONMENT" --channel "$CHANNEL" --version "$TARGET"

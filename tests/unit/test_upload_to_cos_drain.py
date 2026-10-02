@@ -73,16 +73,28 @@ def _import_upload_to_cos_module():
     )
     assert parent_path.exists(), f"upload_to_cos.py not found at {parent_path}"
 
+    # Stub deps ONLY when genuinely unavailable, and only touch modules
+    # we created — never overwrite the real installed yaml/qcloud_cos
+    # (that leaks `safe_load = lambda: {}` globally; see
+    # test_upload_to_cos_chunking.py for the failure mode).
+    created = set()
     for name in ("qcloud_cos", "qcloud_cos.cos_exception", "yaml"):
-        if name not in sys.modules:
-            mod = types.ModuleType(name)
-            sys.modules[name] = mod
-    sys.modules["qcloud_cos"].CosConfig = object
-    sys.modules["qcloud_cos"].CosS3Client = object
-    sys.modules["qcloud_cos.cos_exception"].CosServiceError = type(
-        "CosServiceError", (Exception,), {}
-    )
-    sys.modules["yaml"].safe_load = lambda *a, **k: {}
+        if name in sys.modules:
+            continue
+        try:
+            __import__(name)
+        except ImportError:
+            sys.modules[name] = types.ModuleType(name)
+            created.add(name)
+    if "qcloud_cos" in created:
+        sys.modules["qcloud_cos"].CosConfig = object
+        sys.modules["qcloud_cos"].CosS3Client = object
+    if "qcloud_cos.cos_exception" in created:
+        sys.modules["qcloud_cos.cos_exception"].CosServiceError = type(
+            "CosServiceError", (Exception,), {}
+        )
+    if "yaml" in created:
+        sys.modules["yaml"].safe_load = lambda *a, **k: {}
 
     spec = importlib.util.spec_from_file_location("upload_to_cos", parent_path)
     module = importlib.util.module_from_spec(spec)

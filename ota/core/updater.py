@@ -125,6 +125,44 @@ class OTAUpdater:
             logger.debug("[OTA] user_prefix resolution failed", exc_info=True)
         return None
 
+    def _apply_rollout_gate(self, update_info: dict) -> bool:
+        """Return False when the rollout control file withholds this offer.
+
+        Reads ``{env}/channels/{channel}/rollout.json`` (cached 300s,
+        see ``ota.core.rollout``) and applies paused / version-scope /
+        whitelist / percent checks to the candidate version. Every
+        failure path returns True — the gate may only ever withhold an
+        update deliberately, never by accident.
+        """
+        try:
+            from ota.core.rollout import fetch_rollout, get_install_id, is_eligible
+
+            rollout = fetch_rollout()
+            if not rollout:
+                return True
+
+            version = str(
+                update_info.get("latest_version") or update_info.get("version") or ""
+            ).strip()
+            if not version:
+                return True
+
+            eligible = is_eligible(
+                rollout,
+                version=version,
+                install_id=get_install_id(),
+                user_prefix=self.user_prefix,
+            )
+            if not eligible:
+                logger.info(
+                    f"[OTA] Rollout gate: not offering {version} to this client "
+                    f"(percent={rollout.get('percent')}, paused={rollout.get('paused')})"
+                )
+            return eligible
+        except Exception:
+            logger.debug("[OTA] rollout gate failed; failing open", exc_info=True)
+            return True
+
     def _create_platform_updater(self):
         """Create platform-specific updater"""
         # Dev mode can force generic updater for local debugging without platform dependencies
@@ -190,6 +228,15 @@ class OTAUpdater:
                 # Thread-safe error callback call
                 self._safe_error_callback(update_info)
                 return (False, update_info) if return_info else False
+
+            # Rollout gate: decide whether THIS client may be offered
+            # the candidate version (grayscale percent / whitelist /
+            # pause). Fail-open by design — any problem here means the
+            # update flows through ungated, never that updates stop.
+            if has_update and isinstance(update_info, dict):
+                if not self._apply_rollout_gate(update_info):
+                    has_update = False
+                    update_info = None
 
             # Thread-safe callback call
             if has_update:
