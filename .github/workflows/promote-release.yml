@@ -92,7 +92,7 @@ on:
         default: ''
         type: string
       cohort:
-        description: 'Whitelist email prefixes, comma separated (promote only; passes even at percent=0)'
+        description: 'Whitelist identities, comma separated: email local-part / phone / wechat openid (promote only; passes even at percent=0)'
         required: false
         default: ''
         type: string

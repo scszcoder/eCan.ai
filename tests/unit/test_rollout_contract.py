@@ -109,6 +109,23 @@ def test_promote_zero_percent_blocks_except_whitelist_and_other_versions():
     assert is_eligible(doc, "2.0.0", "install-a")
 
 
+def test_cohort_accepts_phone_and_openid_identities():
+    """cohort entries are opaque identity strings — phone-login and
+    WeChat-login accounts whitelist exactly like email accounts."""
+    store = _store()
+    _apply(
+        store, "promote", version="2.1.0", percent=0,
+        cohort="13800138000, AABE7F97",
+    )
+    doc = _stored(store)
+    assert doc["cohort_include_prefix"] == ["13800138000", "aabe7f97"]
+
+    assert is_eligible(doc, "2.1.0", "install-a", user_prefix="13800138000")
+    assert is_eligible(doc, "2.1.0", "install-a", user_prefix="AABE7F97")
+    assert not is_eligible(doc, "2.1.0", "install-a", user_prefix="139")
+    assert not is_eligible(doc, "2.1.0", "install-a")  # logged out
+
+
 # ---------------------------------------------------------------------------
 # pause / resume
 # ---------------------------------------------------------------------------

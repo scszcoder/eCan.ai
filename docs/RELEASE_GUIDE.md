@@ -248,7 +248,7 @@ Actions → `Promote OTA Release` → Run workflow。所有参数都是**下拉�
 | `channel` | `stable` `beta` `dev` | 必须与客户端烧入的渠道一致 |
 | `percent` | `0` `5` `10` `20` `50` `100` | 默认 **100 = 全开** |
 | `version` | 文本 | promote 留空 = 自动取桶里最新 universal 版本；**rollback 必填** |
-| `cohort` | 文本（逗号分隔邮箱前缀） | 白名单，如 `alice,bob` |
+| `cohort` | 文本（逗号分隔身份白名单） | 邮箱 `@` 前缀 / 手机号 / 微信 openid，如 `alice,13800138000` |
 | `exclude` | 文本（逗号分隔版本） | 手工追加要从 feed 剔除的版本；**rollback 会自动推导坏版本**（latest.json 当前版本 + rollout 当前 version）并与本列表合并 |
 
 **action 语义与守卫（guard 违规直接失败，不写任何东西）**：
@@ -282,6 +282,12 @@ ramp     percent=100                       # 全量
   槽位稳定；percent 提高只增不减（单调），不会把已放行的用户踢出。
 - **白名单优先于 percent**：`percent=0 + cohort` = 纯内测环；`percent=100` 时
   cohort 无实际作用（会有警告）。
+- **白名单身份（cohort 填什么）**：客户端按登录态解析一个身份值，与 cohort
+  条目**逐字匹配**（大小写不敏感），解析序为：邮箱 `@` 前缀（邮箱/Google 登录）
+  → 手机号（去空格横线，CN 手机号登录）→ 微信 `openid`（小写）→ 邮箱槽里的
+  裸用户名。未登录为 `None`，cohort 永不命中（只能走 percent）。
+  身份值可在客户端日志 `OTA Updater initialized ... (user_prefix=...)` 里查看；
+  测试可用 `ECAN_OTA_USER_PREFIX` 环境变量钉任意身份。
 - **版本作用域**：rollout 只管它命名的那个版本；其他/更旧的候选不受门槛影响。
 - **旧客户端限制（重要）**：灰度 gate 内置于新版本客户端（`ota/core/rollout.py`）。
   不带 gate 的老客户端在 appcast 重生成的瞬间就会看到新版本——它们不受

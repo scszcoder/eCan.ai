@@ -13,7 +13,9 @@ It is the single control plane for *who* is offered an update:
 Client side (``ota/core/rollout.py``) reads it on every update check:
 
     * ``paused``             → nobody is prompted (kill switch)
-    * ``cohort`` whitelist   → matching login-email prefixes always pass
+    * ``cohort`` whitelist   → matching login identities always pass
+      (email local-part / phone / wechat openid — see
+      ``OTAUpdater._resolve_user_prefix`` for the resolution order)
     * ``bucket < percent``   → sha256(install_id@version) % 100 < percent
 
 A missing / unreadable file means FULLY OPEN (percent 100) so the control

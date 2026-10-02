@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import importlib
 import json
+import sys
 import threading
+import types
 from types import SimpleNamespace
 
 import pytest
@@ -439,3 +441,61 @@ class TestUpdaterGate:
         monkeypatch.setattr(rollout, "fetch_rollout", explode)
         u = _bare_updater(False, None)
         assert u.check_for_updates(return_info=True) == (False, None)
+
+
+class TestResolveUserPrefix:
+    """Cohort identity resolution across every login type.
+
+    ``_resolve_user_prefix`` decides which ``cohort_include_prefix``
+    entry this client is matched against: email local-part → phone →
+    WeChat openid → bare username in the email slot → None.
+    """
+
+    @staticmethod
+    def _bare():
+        from ota.core.updater import OTAUpdater
+
+        return object.__new__(OTAUpdater)
+
+    @staticmethod
+    def _fake_app_context(monkeypatch, profile, *, logged_in=True):
+        module = types.ModuleType("app_context")
+        auth_mgr = SimpleNamespace(get_user_profile=lambda: profile)
+        module.AppContext = SimpleNamespace(
+            login=SimpleNamespace(auth_manager=auth_mgr) if logged_in else None
+        )
+        monkeypatch.setitem(sys.modules, "app_context", module)
+        monkeypatch.delenv("ECAN_OTA_USER_PREFIX", raising=False)
+
+    def test_env_override_wins(self, monkeypatch):
+        self._fake_app_context(monkeypatch, {"email": "bob@x.com"})
+        monkeypatch.setenv("ECAN_OTA_USER_PREFIX", " QA-User ")
+        assert self._bare()._resolve_user_prefix() == "qa-user"
+
+    def test_email_local_part_for_mail_and_google_logins(self, monkeypatch):
+        self._fake_app_context(monkeypatch, {"email": "Alice@Example.COM"})
+        assert self._bare()._resolve_user_prefix() == "alice"
+
+    def test_phone_for_cn_phone_login(self, monkeypatch):
+        self._fake_app_context(
+            monkeypatch, {"email": "", "phone": "138 0013-8000"}
+        )
+        assert self._bare()._resolve_user_prefix() == "13800138000"
+
+    def test_openid_for_wechat_login(self, monkeypatch):
+        self._fake_app_context(
+            monkeypatch, {"email": "", "phone": "", "openid": "AABE7F97"}
+        )
+        assert self._bare()._resolve_user_prefix() == "aabe7f97"
+
+    def test_bare_username_in_email_slot(self, monkeypatch):
+        self._fake_app_context(monkeypatch, {"email": "bob_wang"})
+        assert self._bare()._resolve_user_prefix() == "bob_wang"
+
+    def test_logged_out_is_none(self, monkeypatch):
+        self._fake_app_context(monkeypatch, {}, logged_in=False)
+        assert self._bare()._resolve_user_prefix() is None
+
+    def test_empty_profile_is_none(self, monkeypatch):
+        self._fake_app_context(monkeypatch, {})
+        assert self._bare()._resolve_user_prefix() is None

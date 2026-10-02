@@ -1,5 +1,6 @@
 import os
 import platform
+import re
 import threading
 import time
 from typing import Optional, Callable
@@ -81,18 +82,25 @@ class OTAUpdater:
         )
 
     def _resolve_user_prefix(self) -> Optional[str]:
-        """Return the per-user release prefix, or ``None`` for universal only.
+        """Return this login's whitelist identity, or ``None``.
 
         Resolution order (first hit wins):
           1. ``ECAN_OTA_USER_PREFIX`` env var — test/staging override.
              Empty string is an explicit "force universal-only" signal
              (distinct from the var being unset).
-          2. ``AppContext.login.auth_manager.user_profile['email']``
-             local-part (i.e. the bit before ``@``), lower-cased.
-          3. ``None`` — user is logged out, unknown, or any access path
-             above raised. In this case the multi-version picker will
-             show only universal items, which matches the existing
-             pre-multi-tenant behavior.
+          2. login email local-part (``alice`` from ``alice@x.com``) —
+             email/password and federated (Google) logins.
+          3. login phone — CN phone login; spaces/dashes/parens stripped.
+          4. WeChat ``openid`` — CN WeChat login, lower-cased.
+          5. a non-``@`` value in the profile's email slot — username
+             style logins that store the bare login name there.
+          6. ``None`` — logged out, unknown, or any access path above
+             raised. The multi-version picker then shows only
+             universal items.
+
+        The result is matched verbatim (case-insensitive) against
+        ``cohort_include_prefix`` in rollout.json, so whatever value
+        this returns is exactly what operators put in ``--cohort``.
 
         Kept deliberately noisy-safe: any import or attribute error
         along the way must degrade to ``None``, never raise, because
@@ -120,7 +128,17 @@ class OTAUpdater:
             email = (profile.get("email") or "").strip().lower()
             if "@" in email:
                 local = email.split("@", 1)[0].strip()
-                return local or None
+                if local:
+                    return local
+            phone = re.sub(r"[\s\-()]", "", str(profile.get("phone") or ""))
+            if phone:
+                return phone.lower()
+            openid = str(profile.get("openid") or "").strip().lower()
+            if openid:
+                return openid
+            if email:
+                # username-style login stored in the email slot (no @)
+                return email
         except Exception:
             logger.debug("[OTA] user_prefix resolution failed", exc_info=True)
         return None
