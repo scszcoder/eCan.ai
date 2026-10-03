@@ -34,6 +34,9 @@ from agent.mcp.server.qianniu.qianniu_ocr import (
     ocr_qianniu_window,
     verify_header_name,
     header_band_texts,
+    transcript_contains,
+    is_reception_tab,
+    find_reception_tab_point,
 )
 
 _QIANNIU_WIN_TITLES = ["千牛", "AliWorkbench", "阿里旺旺"]
@@ -163,6 +166,9 @@ async def qianniu_send(mainwin, args):
         buyer_display_name: str — the buyer the reply is FOR (header must match)
         chat_msg: str           — the reply text
         auto_open: bool         — open the buyer's conversation if not already open (default true)
+        expect_message_text: str — optional; the buyer's last message. When given,
+            the send is fail-closed on BOTH the header name AND this text being in
+            the chat body (defense-in-depth, never mis-deliver).
 
     Output (JSON): chat_sent, verified (header matched), header_name, error.
     """
@@ -173,6 +179,7 @@ async def qianniu_send(mainwin, args):
         buyer = (inp.get("buyer_display_name") or "").strip()
         msg = inp.get("chat_msg") or ""
         auto_open = inp.get("auto_open", True)
+        expect_text = (inp.get("expect_message_text") or "").strip()
         if not buyer:
             return _send_result(False, False, "buyer_display_name is required")
         if not msg:
@@ -187,19 +194,29 @@ async def qianniu_send(mainwin, args):
             return _send_result(False, False, "千牛 window not found. Is it running?")
 
         # Fail-closed guard: the open conversation MUST be this buyer.
-        v = verify_header_name(buyer)
+        ocr_data = ocr_qianniu_window()
+        v = verify_header_name(buyer, ocr_data)
         if not v.matched and auto_open:
             logger.info(f"[qianniu_send] open chat is {v.header_text!r}, not {buyer!r}; opening by name")
             opened, header, err = _open_conversation_by_name(buyer)
             if not opened:
                 return _send_result(False, False, f"could not open {buyer!r}: {err}", header)
-            v = verify_header_name(buyer)   # re-verify after the switch
+            ocr_data = ocr_qianniu_window()
+            v = verify_header_name(buyer, ocr_data)   # re-verify after the switch
         if not v.matched:
             logger.warning(f"[qianniu_send] ABORT: header {v.header_text!r} != buyer {buyer!r}; "
                            f"band saw {v.candidates[:6]}")
             return _send_result(False, False,
                                 f"header verify failed: open chat header {v.header_text!r} "
                                 f"does not match {buyer!r} — refusing to send", v.header_text)
+        # Defense-in-depth: if the buyer's message text is supplied it MUST be in
+        # the open chat body too, so a header-only match can never mis-deliver.
+        if expect_text and not transcript_contains(ocr_data, expect_text):
+            logger.warning(f"[qianniu_send] ABORT: {expect_text[:24]!r} not in open chat body "
+                           f"for {buyer!r} — refusing to send")
+            return _send_result(False, False,
+                                f"body verify failed: {expect_text[:24]!r} not in the open chat — "
+                                f"refusing to send", v.header_text)
 
         _type_and_send(msg)
         logger.info(f"[qianniu_send] sent to {buyer!r} (header {v.header_text!r}): {msg[:40]!r}")
@@ -270,6 +287,83 @@ async def qianniu_receive(mainwin, args):
             {"lines": [], "error": str(e)}, ensure_ascii=False))]
 
 
+def _ensure_reception_tab(ocr_data: list) -> tuple:
+    """If the left panel is not the 正在接待 list, click its tab and re-OCR.
+    Returns (on_reception: bool, ocr_data: list) — the (possibly refreshed) OCR.
+    """
+    if is_reception_tab(ocr_data):
+        return True, ocr_data
+    pt = find_reception_tab_point(ocr_data)
+    if not pt:
+        return False, ocr_data
+    _foreground()
+    _click(pt[0], pt[1])
+    _humanize(_POST_ACTION_DELAY)
+    ocr_data = ocr_qianniu_window()
+    return is_reception_tab(ocr_data), ocr_data
+
+
+async def qianniu_check_location(mainwin, args):
+    """Verify 千牛 is 'in the right place' before a send: on the 正在接待 tab AND
+    the intended consumer's chat thread is loaded. Read-mostly (it may click the
+    正在接待 tab when ``ensure_reception_tab`` is set, but never sends).
+
+    The thread-identity check is FAIL-CLOSED on BOTH signals: the buyer's last
+    message text must appear in the chat BODY *and* the chat-header must name the
+    buyer. Either missing → ``thread_ok=False`` and the caller must open/retry.
+
+    Input:
+        expect_message_text: str  — the buyer's message (body content-join check)
+        buyer_display_name:  str  — the buyer (chat-header name check)
+        ensure_reception_tab: bool — click 正在接待 if not already there (default true)
+
+    Output (JSON): on_reception_tab, thread_ok, matched_by ('both'|'body'|'header'|'none'),
+                   body_ok, header_ok, header_name, header_candidates, error.
+    """
+    try:
+        inp = args.get("input", args)
+        expect_text = (inp.get("expect_message_text") or "").strip()
+        buyer = (inp.get("buyer_display_name") or "").strip()
+        ensure_tab = inp.get("ensure_reception_tab", True)
+
+        def _result(on_tab, body_ok, header_ok, header_name, cands, error=""):
+            matched_by = ("both" if body_ok and header_ok else
+                          "body" if body_ok else "header" if header_ok else "none")
+            return [TextContent(type="text", text=json.dumps({
+                "on_reception_tab": on_tab,
+                "thread_ok": bool(body_ok and header_ok),
+                "matched_by": matched_by,
+                "body_ok": body_ok, "header_ok": header_ok,
+                "header_name": header_name, "header_candidates": cands[:8],
+                "error": error,
+            }, ensure_ascii=False, default=str))]
+
+        if not _foreground():
+            return _result(False, False, False, "", [], "千牛 window not found. Is it running?")
+        ocr_data = ocr_qianniu_window()
+        if not _looks_like_qianniu(ocr_data):
+            return _result(False, False, False, "", [], "layout not recognised as 千牛 (OCR drift)")
+
+        on_tab = is_reception_tab(ocr_data)
+        if not on_tab and ensure_tab:
+            on_tab, ocr_data = _ensure_reception_tab(ocr_data)
+
+        body_ok = bool(expect_text) and transcript_contains(ocr_data, expect_text)
+        header_ok = False
+        header_name = ""
+        cands = header_band_texts(ocr_data)
+        if buyer:
+            v = verify_header_name(buyer, ocr_data)
+            header_ok, header_name = v.matched, v.header_text
+        return _result(on_tab, body_ok, header_ok, header_name, cands)
+    except Exception as e:
+        logger.error(f"[qianniu_check_location] {traceback.format_exc()}")
+        return [TextContent(type="text", text=json.dumps(
+            {"on_reception_tab": False, "thread_ok": False, "matched_by": "none",
+             "body_ok": False, "header_ok": False, "header_name": "",
+             "header_candidates": [], "error": str(e)}, ensure_ascii=False))]
+
+
 # --- MCP tool schemas -------------------------------------------------------
 
 def add_qianniu_send_tool_schema(tool_schemas):
@@ -294,6 +388,8 @@ def add_qianniu_send_tool_schema(tool_schemas):
                     "chat_msg": {"type": "string", "description": "Reply text to send"},
                     "auto_open": {"type": "boolean", "default": True,
                         "description": "If the buyer's chat is not already open, search for it by name and open it first"},
+                    "expect_message_text": {"type": "string",
+                        "description": "Optional: the buyer's last message. If given, the send is fail-closed on BOTH the header name AND this text being in the chat body"},
                 },
             }},
         },
@@ -333,4 +429,35 @@ def add_qianniu_receive_tool_schema(tool_schemas):
         ),
         inputSchema={"type": "object", "properties": {
             "input": {"type": "object", "properties": {}}}},
+    ))
+
+
+def add_qianniu_check_location_tool_schema(tool_schemas):
+    import mcp.types as types
+    tool_schemas.append(types.Tool(
+        _meta={"run_in_cloud": False},
+        name="qianniu_check_location",
+        description=(
+            "<category>Qianniu</category><sub-category>Messaging</sub-category>"
+            "Verify 千牛 is in the right place before replying: on the 正在接待 tab "
+            "AND the intended buyer's chat thread is loaded. Fail-closed on BOTH "
+            "signals — the buyer's message must be in the chat body AND the header "
+            "must name the buyer. May click the 正在接待 tab but never sends. Call "
+            "this before qianniu_send; if thread_ok is false, qianniu_open_session "
+            "then re-check."
+        ),
+        inputSchema={
+            "type": "object", "required": ["input"],
+            "properties": {"input": {
+                "type": "object",
+                "properties": {
+                    "expect_message_text": {"type": "string",
+                        "description": "The buyer's message text to confirm in the chat body"},
+                    "buyer_display_name": {"type": "string",
+                        "description": "The buyer whose name the chat header must show"},
+                    "ensure_reception_tab": {"type": "boolean",
+                        "description": "Click the 正在接待 tab if not already there (default true)"},
+                },
+            }},
+        },
     ))

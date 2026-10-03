@@ -238,6 +238,7 @@ from agent.mcp.server.qianniu.qianniu_tools import (
     qianniu_send,
     qianniu_receive,
     qianniu_open_session,
+    qianniu_check_location,
 )
 # Helper -> cloud Skill Editor proxies. Wrapped in try/except so a stripped
 # cloud-worker build (missing the GUI relay module that the proxy bodies
@@ -4124,6 +4125,7 @@ tool_function_mapping = {
         "qianniu_send": qianniu_send,
         "qianniu_receive": qianniu_receive,
         "qianniu_open_session": qianniu_open_session,
+        "qianniu_check_location": qianniu_check_location,
         # Helper -> cloud Skill Editor proxies. The values may be None
         # if the proxy module failed to import (see the try/except at
         # the top of this file); guard at registration time so we don't

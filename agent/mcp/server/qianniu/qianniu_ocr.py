@@ -67,18 +67,76 @@ class HeaderVerifyResult:
     candidates: list        # all texts seen in the header band (for diagnostics)
 
 
+# Conversation-list / workbench markers used to tell which left-panel tab is up.
+_CONTACTS_MARKERS = ("黑名单", "群聊", "团队", "未分组", "新的朋友")
+_WORKBENCH_MARKERS = ("待发货", "待付款", "待处理", "待评价", "店铺数据",
+                      "数据更新", "支付金额", "交易物流", "工作台")
+# Left conversation-list column occupies roughly x in [0.12, 0.34] of the window.
+_LIST_X_FRAC = 0.34
+# The chat-pane header (buyer name) sits BELOW the global toolbar / store-stats
+# bar and ABOVE the transcript — this y-band, right of the list, not the top 12%.
+_HEADER_Y = (0.085, 0.22)
+
+
+def _extent(ocr_data: list):
+    """(x0, y0, x1, y1) bounding box of all OCR'd text (absolute coords)."""
+    locs = [it["loc"] for it in ocr_data if it.get("loc")]
+    xs = [v for lc in locs for v in (lc[1], lc[3])]
+    ys = [v for lc in locs for v in (lc[0], lc[2])]
+    return (min(xs), min(ys), max(xs), max(ys)) if xs else (0, 0, 0, 0)
+
+
 def header_band_texts(ocr_data: list) -> list:
-    """The non-empty text lines in the top ``_HEADER_BAND_FRAC`` of the window
-    (absolute coords), where the open conversation's buyer name sits."""
+    """Text lines in the CHAT-PANE header (right of the conversation list, below
+    the global toolbar/store-stats bar), where the open conversation's buyer
+    name sits.
+
+    NOTE: the old version took the top 12% of the WHOLE window, which captured
+    the store-stats bar (``今日接待 … 展开``) rather than the buyer name. This
+    restricts to the chat pane and the header y-band instead.
+    """
     locs = [it for it in ocr_data if it.get("loc")]
     if not locs:
         return []
-    top = min(min(it["loc"][0], it["loc"][2]) for it in locs)
-    bottom = max(max(it["loc"][0], it["loc"][2]) for it in locs)
-    band_cut = top + (bottom - top) * _HEADER_BAND_FRAC
-    texts = [str(it.get("text") or "").strip() for it in locs
-             if min(it["loc"][0], it["loc"][2]) <= band_cut]
-    return [t for t in texts if t]
+    x0, y0, x1, y1 = _extent(ocr_data)
+    w, h = (x1 - x0) or 1, (y1 - y0) or 1
+    list_cut = x0 + _LIST_X_FRAC * w
+    top, bot = y0 + _HEADER_Y[0] * h, y0 + _HEADER_Y[1] * h
+    out = []
+    for it in locs:
+        lc = it["loc"]
+        cx, cy = (lc[1] + lc[3]) / 2, (lc[0] + lc[2]) / 2
+        if cx > list_cut and top <= cy <= bot:
+            t = str(it.get("text") or "").strip()
+            if t:
+                out.append(t)
+    return out
+
+
+def is_reception_tab(ocr_data: list) -> bool:
+    """True if the left panel shows the 正在接待 conversation list (not the
+    联系人/contacts panel and not the 工作台/workbench home)."""
+    joined = " ".join(str(it.get("text") or "") for it in ocr_data)
+    if any(m in joined for m in _CONTACTS_MARKERS):
+        return False
+    if any(m in joined for m in _WORKBENCH_MARKERS):
+        return False
+    return "正在接待" in joined
+
+
+def find_reception_tab_point(ocr_data: list):
+    """Click-point (x, y) of the 正在接待 TAB, or None. 千牛 merges the tab bar
+    into one OCR line (``正在接待全部买家其他消息…``) where 正在接待 is the first
+    4 chars, so aim at the centre of that substring (char-proportional)."""
+    cands = [it for it in ocr_data if "正在接待" in str(it.get("text") or "") and it.get("loc")]
+    if not cands:
+        return None
+    cands.sort(key=lambda it: min(it["loc"][0], it["loc"][2]))   # topmost = tab bar
+    it = cands[0]
+    lc, txt = it["loc"], str(it.get("text") or "")
+    x1, x2 = lc[1], lc[3]
+    n = max(len(txt), 1)
+    return (int(x1 + (x2 - x1) * (2.0 / n)), int((lc[0] + lc[2]) / 2))
 
 
 def read_header_name(ocr_data: Optional[list] = None) -> str:
