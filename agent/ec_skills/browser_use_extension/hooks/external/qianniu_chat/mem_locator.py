@@ -22,7 +22,15 @@ _CARD_MARKERS = ("h5_url", "qnCardStrategyCode", "eventhandler", "layoutJson",
 _ID_TOKEN_RE = re.compile(r"^\d+\.PNM$")
 _URL_RE = re.compile(r"https?://")
 _CJK_RE = re.compile(r"[一-鿿]")
-_SENDER_ANCHOR = b'"sender"'
+# The SDK keeps the message JSON as BOTH UTF-8 and UTF-16LE; a hidden/closed
+# conversation often has only the UTF-16LE copy, so BOTH must be scanned (a
+# UTF-8-only scan was the "detected nothing from memory" bug).
+_SENDER_STR = '"sender"'
+_SENDER_ANCHOR = _SENDER_STR.encode("utf-8")
+_SENDER_ANCHOR_U16 = _SENDER_STR.encode("utf-16-le")
+_ANCHORS = ('"sender"', '"Sender"')
+_CTX = 16384
+_DECODER = json.JSONDecoder()
 
 
 def is_noise(text: str) -> bool:
@@ -44,123 +52,95 @@ def looks_like_text(text: str) -> bool:
 
 
 def region_has_messages(data: bytes) -> bool:
-    """Cheap predicate for ``win_process_memory.scan_strings`` — does this region
-    contain any sender-anchored object at all?"""
-    return _SENDER_ANCHOR in data
+    """Cheap predicate for ``win_process_memory.scan_strings`` — does this slice
+    contain a sender-anchored object in EITHER encoding?"""
+    return _SENDER_ANCHOR in data or _SENDER_ANCHOR_U16 in data
 
 
 @dataclass
 class MsgCandidate:
-    sender_ids: set = field(default_factory=set)   # all ids under the "sender" object
+    uid: str = ""                                  # sender's targetId (the actual sender)
+    sender_ids: set = field(default_factory=set)   # {uid} — kept for back-compat
     text: str = ""
     msg_id: str = ""
     send_time: Optional[int] = None
+    has_ccode: bool = False                        # outgoing marker (cid.ccode/sendStatus)
     raw: dict = field(default_factory=dict)
 
 
-def _iter_json_objects_around(data: bytes, anchor: bytes) -> Iterable[dict]:
-    """Yield decoded JSON objects whose body contains *anchor*.
-
-    Best-effort bracket matching backwards/forwards from each anchor hit to the
-    enclosing ``{...}``; objects that don't ``json.loads`` are skipped. Memory
-    holds the SDK's deserialized UTF-8 JSON, so this recovers most objects.
-    """
-    start = 0
-    while True:
-        hit = data.find(anchor, start)
-        if hit < 0:
-            return
-        start = hit + len(anchor)
-        # Walk back to the opening brace of the ENCLOSING object, matching
-        # braces so a nested object before the anchor (e.g. "ids":{...}) does
-        # not steal the match.
-        depth, j, open_at = 0, hit - 1, -1
-        while j >= 0 and j > hit - 65536:
-            c = data[j]
-            if c == 0x7D:      # }
-                depth += 1
-            elif c == 0x7B:    # {
-                if depth == 0:
-                    open_at = j
-                    break
-                depth -= 1
-            j -= 1
-        if open_at < 0:
-            continue
-        # Forward brace-match from open_at.
-        depth, i, n = 0, open_at, len(data)
-        end = -1
-        while i < n and i < open_at + 65536:   # cap object size
-            c = data[i]
-            if c == 0x7B:      # {
-                depth += 1
-            elif c == 0x7D:    # }
-                depth -= 1
-                if depth == 0:
-                    end = i + 1
-                    break
-            i += 1
-        if end < 0:
-            continue
+def _objs_in_window(decoded: str, anchor_char: int) -> Iterable[dict]:
+    """Yield the SMALLEST complete JSON dict enclosing the anchor (proven
+    raw_decode-nearest-'{' method). Smallest span = least chance of borrowing
+    fields across adjacent messages."""
+    starts = [i for i, ch in enumerate(decoded[:anchor_char + 1]) if ch == '{'][-64:]
+    best = None
+    seen = set()
+    for start in reversed(starts):
         try:
-            obj = json.loads(data[open_at:end].decode("utf-8", "strict"))
-        except Exception:
+            obj, end = _DECODER.raw_decode(decoded, start)
+        except (ValueError, RecursionError):
             continue
-        if isinstance(obj, dict):
-            yield obj
+        if not (start <= anchor_char < end) or not isinstance(obj, dict):
+            continue
+        if (start, end) in seen:
+            continue
+        seen.add((start, end))
+        if best is None or (end - start) < best[0]:
+            best = (end - start, obj)
+    if best is not None:
+        yield best[1]
 
 
-def _collect_sender_ids(sender: object) -> set:
-    """Ids under the ``sender`` object. Per study §4.2 the participant ids are
-    the dict KEYS (``{<buyerId>: ..., <sellerId>: ...}``); calibrate if a live
-    capture shows a different shape (plan §6)."""
-    ids: set = set()
+def _iter_json_objects_around(data: bytes) -> Iterable[dict]:
+    """Yield message objects around every ``"sender"`` anchor, in BOTH UTF-8 and
+    UTF-16LE. For each hit, decode a window in that encoding and recover the
+    smallest enclosing JSON object."""
+    for encoding in ("utf-8", "utf-16-le"):
+        for anchor in _ANCHORS:
+            needle = anchor.encode(encoding)
+            cursor = 0
+            while True:
+                i = data.find(needle, cursor)
+                if i < 0:
+                    break
+                cursor = i + len(needle)
+                lo = max(0, i - _CTX // 2)
+                if encoding == "utf-16-le" and (i - lo) % 2:
+                    lo += 1
+                hi = min(len(data), i + _CTX)
+                raw = data[lo:hi]
+                try:
+                    decoded = raw.decode(encoding, "replace")
+                    anchor_char = len(raw[:i - lo].decode(encoding, "replace"))
+                except Exception:
+                    continue
+                for obj in _objs_in_window(decoded, anchor_char):
+                    yield obj
+
+
+def _sender_uid(sender: object) -> str:
+    """The sender's id = the VALUE of ``sender.targetId`` (live-confirmed), NOT
+    the dict keys (collecting keys yields the literal 'targetId'/'targetType' —
+    the original bug). Falls back to a digit-valued key for alternate shapes."""
     if isinstance(sender, dict):
-        for k in sender.keys():
-            if str(k).strip():
-                ids.add(str(k))
-    elif isinstance(sender, (str, int)):
-        ids.add(str(sender))
-    return ids
-
-
-def extract_candidates(data: bytes) -> list:
-    """Carve 千牛 message objects out of a memory region.
-
-    Returns ``MsgCandidate`` records that passed the noise filter. Attribution
-    (seller vs buyer) is decided across candidates by the observer, not here:
-    the seller id is the one present on *every* message (study §4.3).
-    """
-    out: list = []
-    for obj in _iter_json_objects_around(data, _SENDER_ANCHOR):
-        sender = obj.get("sender")
-        if sender is None:
-            continue
-        # Drop UI-card objects wholesale (study §4.1): their markers are object
-        # KEYS, so a per-string check on the body alone would miss them.
-        if any(m in k for k in obj.keys() for m in _CARD_MARKERS):
-            continue
-        sender_ids = _collect_sender_ids(sender)
-        if not sender_ids:
-            continue
-        text = _best_text_field(obj)
-        if not text or not looks_like_text(text):
-            continue
-        ids = obj.get("ids") if isinstance(obj.get("ids"), dict) else {}
-        out.append(MsgCandidate(
-            sender_ids=sender_ids,
-            text=text,
-            msg_id=str((ids or {}).get("messageId") or obj.get("messageId") or ""),
-            send_time=obj.get("sendTime") if isinstance(obj.get("sendTime"), int) else None,
-            raw=obj,
-        ))
-    return out
+        uid = str(sender.get("targetId") or "")
+        if uid:
+            return uid
+        for k in sender:
+            if str(k).isdigit():
+                return str(k)
+        return ""
+    if isinstance(sender, (str, int)):
+        return str(sender)
+    return ""
 
 
 def _best_text_field(obj: dict) -> str:
-    """The body field name is client-hashed (study §4.2); pick the longest
-    string value that reads like chat text. Calibrate to the real field name
-    once a live capture pins it (plan §6)."""
+    """Body = the ``content`` field (live-confirmed); fall back to the longest
+    chat-like string only if ``content`` is absent."""
+    c = obj.get("content")
+    if isinstance(c, str) and looks_like_text(c):
+        return c
     best = ""
     for v in obj.values():
         if isinstance(v, str) and looks_like_text(v) and len(v) > len(best):
@@ -168,9 +148,59 @@ def _best_text_field(obj: dict) -> str:
     return best
 
 
+def extract_candidates(data: bytes) -> list:
+    """Carve 千牛 message objects out of a memory slice (UTF-8 + UTF-16LE).
+
+    Direction is decided by :func:`is_incoming` (ccode/sendStatus), not by
+    cross-candidate intersection — each live message carries only its own
+    sender's id."""
+    out: list = []
+    for obj in _iter_json_objects_around(data):
+        sender = obj.get("sender")
+        if sender is None:
+            continue
+        # Drop UI-card objects wholesale (study §4.1): markers are object KEYS.
+        if any(m in k for k in obj.keys() for m in _CARD_MARKERS):
+            continue
+        uid = _sender_uid(sender)
+        if not uid:
+            continue
+        text = _best_text_field(obj)
+        if not text or not looks_like_text(text):
+            continue
+        code = obj.get("code") if isinstance(obj.get("code"), dict) else {}
+        cid = obj.get("cid") if isinstance(obj.get("cid"), dict) else {}
+        st = obj.get("sendTime")
+        out.append(MsgCandidate(
+            uid=uid,
+            sender_ids={uid},
+            text=text,
+            msg_id=str((code or {}).get("messageId") or obj.get("messageId") or ""),
+            send_time=st if isinstance(st, int) else None,
+            has_ccode=bool((cid or {}).get("ccode") or obj.get("ccode")
+                           or "sendStatus" in obj or "progress" in obj),
+            raw=obj,
+        ))
+    return out
+
+
+def is_incoming(cand: "MsgCandidate", self_id: Optional[str] = "") -> bool:
+    """True if this is a BUYER message to answer. Structural direction (proven
+    v10–v14): an OUTGOING seller message carries a conversation code (ccode) +
+    sendStatus; an INCOMING buyer message carries a sender object and no ccode.
+    A known store id (``self_id``) marks its own messages outgoing too."""
+    if cand.has_ccode:
+        return False
+    if self_id:
+        return bool(cand.uid) and cand.uid != self_id
+    return True
+
+
 def seller_id_of(candidates: list) -> Optional[str]:
-    """The sender id present on *every* candidate = the seller/store (study
-    §4.3). None if it can't be determined (fewer than 2 distinct senders)."""
+    """The sender id present on *every* candidate = the seller/store. With the
+    live schema (one sender id per message) this only resolves when every
+    candidate happens to share a single id; prefer a configured store id and
+    :func:`is_incoming` for direction."""
     if not candidates:
         return None
     common = set(candidates[0].sender_ids)

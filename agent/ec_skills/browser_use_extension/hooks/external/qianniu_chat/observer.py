@@ -143,9 +143,9 @@ class QianniuMemObserver:
         self.stats["candidates"] += len(candidates)
         seller = mem_locator.seller_id_of(candidates)
         for cand in candidates:
-            # Skip seller's own outgoing messages: a candidate whose only id is
-            # the seller id is not a buyer turn.
-            if seller and cand.sender_ids == {seller}:
+            # Direction is structural (ccode/sendStatus) + the known store id —
+            # skip the seller's own outgoing messages; only buyer turns dispatch.
+            if not mem_locator.is_incoming(cand, seller):
                 continue
             item = item_for(cand, seller)
             if not self._first_time(item["identity_key"]):

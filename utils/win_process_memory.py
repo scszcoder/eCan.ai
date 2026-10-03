@@ -151,35 +151,85 @@ def read_region(handle, region: MemoryRegion, max_bytes: int = 64 * 1024 * 1024)
     return buf.raw[: read.value]
 
 
+# Chunked streaming defaults. A region is read in CHUNK-sized slices (never the
+# whole region at once) so arbitrarily large heaps are covered; OVERLAP bytes of
+# the previous slice are prepended to the next so a message object straddling a
+# slice boundary is still intact in one yield (OVERLAP must exceed the caller's
+# decode-window, ~16 KiB for the 千牛 locator). MAX_TOTAL bounds work per scan.
+_CHUNK_BYTES = 8 * 1024 * 1024
+_OVERLAP_BYTES = 20_000
+_MAX_TOTAL_BYTES = 1536 * 1024 * 1024
+
+
+def _read_chunk(handle, base: int, offset: int, size: int) -> bytes:
+    """Read ``size`` bytes at ``base+offset`` read-only. b"" on failure."""
+    if not _IS_WINDOWS or size <= 0:
+        return b""
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.ReadProcessMemory.restype = wintypes.BOOL
+    k32.ReadProcessMemory.argtypes = [
+        wintypes.HANDLE, ctypes.c_void_p, ctypes.c_void_p,
+        ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t),
+    ]
+    buf = ctypes.create_string_buffer(size)
+    read = ctypes.c_size_t(0)
+    ok = k32.ReadProcessMemory(handle, ctypes.c_void_p(base + offset), buf,
+                               size, ctypes.byref(read))
+    if not ok:
+        return b""
+    return buf.raw[: read.value]
+
+
 def scan_strings(
     pid: int,
     predicate: Callable[[bytes], bool],
     *,
     region_filter: Optional[Callable[[MemoryRegion], bool]] = None,
-    max_region_bytes: int = 32 * 1024 * 1024,
+    chunk_bytes: int = _CHUNK_BYTES,
+    overlap_bytes: int = _OVERLAP_BYTES,
+    max_total_bytes: int = _MAX_TOTAL_BYTES,
 ) -> Iterator[bytes]:
-    """Walk *pid*'s readable regions and yield raw region bytes that *predicate*
-    accepts. The predicate (and any further decoding/locating) is the caller's
-    — this module just delivers readable bytes cheaply and read-only.
+    """Walk *pid*'s readable regions and yield readable byte slices that
+    *predicate* accepts. The predicate (and any further decoding/locating) is
+    the caller's — this module just delivers readable bytes cheaply, read-only.
 
-    The caller decides UTF-8 vs UTF-16 decoding and how to carve message
-    objects out of a region; keeping that out here is what keeps this file
-    site-agnostic.
+    There is NO per-region size cap: the chat-message JSON lives in heaps far
+    larger than any fixed cap (a 32 MiB cap silently skipped exactly the region
+    that mattered — the root cause of "detected nothing from memory"). Instead
+    every committed readable region is streamed in ``chunk_bytes`` slices, each
+    prepended with the previous slice's ``overlap_bytes`` tail, bounded by
+    ``max_total_bytes`` total. The caller decides UTF-8 vs UTF-16 decoding and
+    how to carve objects out of a slice; keeping that out here is what keeps this
+    file site-agnostic.
     """
     if not available():
         logger.warning("[win_mem] process-memory scan requested on a non-Windows host")
         return
     handle = None
+    total = 0
     try:
         handle = open_process_readonly(pid)
         for region in iter_regions(handle):
-            if region.size > max_region_bytes:
-                continue
+            if total >= max_total_bytes:
+                break
             if region_filter is not None and not region_filter(region):
                 continue
-            data = read_region(handle, region, max_bytes=max_region_bytes)
-            if data and predicate(data):
-                yield data
+            offset, tail = 0, b""
+            while offset < region.size and total < max_total_bytes:
+                n = min(chunk_bytes, region.size - offset)
+                chunk = _read_chunk(handle, region.base, offset, n)
+                offset += n
+                if not chunk:
+                    tail = b""
+                    continue
+                total += len(chunk)
+                data = tail + chunk
+                if predicate(data):
+                    yield data
+                tail = chunk[-overlap_bytes:]
     finally:
         close_handle(handle)
 
