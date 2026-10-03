@@ -129,6 +129,17 @@ class ObserverBurstTests(unittest.TestCase):
         st.on_frame(base64.b64encode(a + b).decode())
         self.assertEqual([i["latest_message"] for i in got], ["国庆有折扣吗？", "过节有活动吗？"])
 
+    def test_our_reply_pushed_back_by_the_server_is_recorded_as_delivered(self):
+        import time
+        from agent.ec_skills.browser_use_extension.hooks.external.pdd_chat import ws_observer
+        st, got = self._state()
+        before = time.time() - 0.001
+        st.on_frame(chat({"from": SHOP, "to": BUYER, "content": "您好，在的", "type": 0, "msg_id": "e1"}))
+        self.assertTrue(ws_observer.echoed_since("1000000000001", " 您好，在的 ", before))
+        self.assertFalse(ws_observer.echoed_since("1000000000001", "别的", before))
+        self.assertFalse(ws_observer.echoed_since("1000000000001", "您好，在的", time.time() + 1))
+        self.assertEqual(got, [])
+
     def test_repeats_and_our_own_replies_are_not_dispatched(self):
         st, got = self._state()
         st.on_frame(chat(self._text("m1", "有人吗？")))
@@ -136,6 +147,30 @@ class ObserverBurstTests(unittest.TestCase):
         st.on_frame(chat({"from": SHOP, "to": BUYER, "content": "在的", "type": 0, "msg_id": "m9"}))
         self.assertEqual(len(got), 1)
         self.assertEqual(st.stats["messages"], 3)
+
+    def test_an_unreadable_frame_triggers_a_list_rescan(self):
+        import asyncio
+        from agent.ec_skills.browser_use_extension.hooks.external.pdd_chat import ws_observer
+        st, got = self._state()
+        calls = []
+
+        async def rescan():
+            calls.append(1)
+        st.rescan = rescan
+        raw = base64.b64decode(chat(self._text("m1", "x")))
+        i = raw.find(b"\x1f\x8b")
+        broken = base64.b64encode(raw[:i + 12] + b"\x00" * 20).decode()
+
+        async def main():
+            old, ws_observer.RESCAN_DELAY_S = ws_observer.RESCAN_DELAY_S, 0.01
+            try:
+                st.on_frame(broken)
+                st.on_frame(broken)          # one rescan in flight at a time
+                await asyncio.sleep(0.1)
+            finally:
+                ws_observer.RESCAN_DELAY_S = old
+        asyncio.run(main())
+        self.assertEqual(calls, [1])
 
     def test_an_unreadable_gzip_frame_is_counted_not_lost_silently(self):
         st, got = self._state()
