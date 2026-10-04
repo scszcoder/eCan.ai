@@ -4,7 +4,6 @@ Unit tests for OTA Configuration Loader.
 Tests CN/INTL separation, storage URL generation, and appcast URL routing.
 """
 
-import os
 import sys
 import pytest
 
@@ -360,6 +359,66 @@ class TestOTAConfigRepr:
         repr_str = repr(config)
         
         assert "intl" in repr_str.lower() or "s3" in repr_str.lower() or "ecan" in repr_str.lower()
+
+
+class TestRolloutUrl:
+    """``get_rollout_url`` must mirror ``get_appcast_url`` exactly
+    (same base, same ``channels/{channel}/`` directory) so the rollout
+    control file always sits next to the feed the client reads."""
+
+    @staticmethod
+    def _production_config(app: str, monkeypatch):
+        monkeypatch.setenv("ECAN_APP_ID", app)
+        _clear_ota_cache()
+        from ota.config.loader import get_ota_config
+        config = get_ota_config(reload=True)
+        config._config["environment"] = "production"
+        return config
+
+    def test_cn_rollout_url_points_at_cos(self, monkeypatch):
+        config = self._production_config("cn", monkeypatch)
+        url = config.get_rollout_url()
+        assert "ecan-releases-1251680599" in url
+        assert "cos.ap-shanghai.myqcloud.com" in url
+        assert url.endswith(
+            f"/channels/{config.get_channel()}/rollout.json"
+        )
+
+    def test_intl_rollout_url_points_at_s3(self, monkeypatch):
+        config = self._production_config("intl", monkeypatch)
+        url = config.get_rollout_url()
+        assert "ecan-releases" in url
+        assert "s3.us-east-1.amazonaws.com" in url
+        assert url.endswith(
+            f"/channels/{config.get_channel()}/rollout.json"
+        )
+
+    def test_rollout_url_shares_appcast_directory(self, monkeypatch):
+        # Same directory as the appcast URL — only the filename differs.
+        config = self._production_config("cn", monkeypatch)
+        appcast = config.get_appcast_url("macos", "amd64")
+        assert config.get_rollout_url() == (
+            appcast.rsplit("/", 1)[0] + "/rollout.json"
+        )
+
+    def test_disabled_ota_returns_empty_rollout_url(self, monkeypatch):
+        import tempfile
+        import yaml
+        from pathlib import Path
+
+        monkeypatch.setenv("ECAN_APP_ID", "cn")
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            yaml.dump({"ota_enabled": False, "environment": "production"}, f)
+            temp_config = f.name
+        try:
+            _clear_ota_cache()
+            from ota.config.loader import get_ota_config
+            config = get_ota_config(temp_config, reload=True)
+            assert config.get_rollout_url() == ""
+        finally:
+            Path(temp_config).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

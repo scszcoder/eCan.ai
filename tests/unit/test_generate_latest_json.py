@@ -74,6 +74,7 @@ def _bare_generator(*, environment: str = "production",
     gen.base_path = ""
     gen.user_prefix = ""
     gen.specific_version = None
+    gen.exclude_versions_cores = set()
     return gen
 
 
@@ -620,3 +621,118 @@ def _repo_root() -> Path:
     )
     # Easier: derive from the test file location.
     return Path(__file__).resolve().parents[2]
+
+
+# ---------------------------------------------------------------------------
+# Rollback path: exclude_versions drops stale entries from latest.json
+# ---------------------------------------------------------------------------
+
+class TestExcludeVersionsRollback:
+    """promote-release.yml action=rollback regenerates latest.json with
+    ``--exclude <bad version>``. The bad version must stop being
+    advertised on EVERY platform — including platforms this run never
+    re-uploads (whose entries only exist as stale merge survivors).
+    """
+
+    @staticmethod
+    def _seeded_latest(version: str) -> dict:
+        return {
+            "version": version,
+            "platforms": {
+                "windows-amd64": {
+                    "version": version,
+                    "url": f"https://bad.example/{version}/win",
+                },
+                "macos-amd64": {
+                    "version": version,
+                    "url": f"https://bad.example/{version}/mac",
+                },
+            },
+        }
+
+    def test_stale_excluded_entries_dropped_and_top_level_repointed(self):
+        gen = _bare_generator()
+        gen.exclude_versions_cores = {"1.1.0"}
+
+        # Rollback target 1.0.0: only Windows was (re-)uploaded this
+        # run — macos has NO 1.0.0 installer in the bucket, so its
+        # 1.1.0 entry would only survive via the merge.
+        installers = [
+            (k, s) for (k, s) in _platforms(gen, "1.0.0")[0]
+            if "/windows/" in k
+        ]
+        s3 = _FakeS3Client(
+            installer_objects=installers,
+            latest_json_body=self._seeded_latest("1.1.0"),
+        )
+        gen.s3 = s3
+        gen.cos = None
+
+        with patch.object(gen, "list_versions", return_value=["v1.0.0"]):
+            assert gen.generate_latest_json() is True
+
+        after = _latest_json_body(s3)
+        # Windows got a fresh 1.0.0 entry from the scan...
+        assert after["platforms"]["windows-amd64"]["version"] == "1.0.0"
+        # ...macos' stale 1.1.0 entry is GONE, not merged through.
+        assert "macos-amd64" not in after["platforms"], (
+            "excluded version's stale platform entry survived the merge"
+        )
+        # Top-level version is never the excluded one again.
+        assert after["version"] == "1.0.0"
+
+    def test_non_excluded_stale_entries_survive(self):
+        # Exclusion must be surgical: a stale entry for a version that
+        # is NOT excluded keeps the partial-build merge guarantee.
+        gen = _bare_generator()
+        gen.exclude_versions_cores = {"9.9.9"}
+
+        installers = [
+            (k, s) for (k, s) in _platforms(gen, "1.1.0")[0]
+            if "/macos/" in k
+        ]
+        seeded = {
+            "version": "1.0.0",
+            "platforms": {
+                "windows-amd64": {
+                    "version": "1.0.0",
+                    "url": "https://ok.example/1.0.0/win",
+                },
+            },
+        }
+        s3 = _FakeS3Client(
+            installer_objects=installers, latest_json_body=seeded
+        )
+        gen.s3 = s3
+        gen.cos = None
+
+        with patch.object(gen, "list_versions", return_value=["v1.1.0"]):
+            assert gen.generate_latest_json() is True
+
+        after = _latest_json_body(s3)
+        # Stale 1.0.0 windows entry survived (partial-build invariant)...
+        assert after["platforms"]["windows-amd64"]["version"] == "1.0.0"
+        # ...and the new 1.1.0 macos entries were added.
+        assert after["platforms"]["macos-amd64"]["version"] == "1.1.0"
+        assert after["version"] == "1.1.0"
+
+    def test_excluded_only_platform_falls_back_to_intended_version(self):
+        # Worst case: EVERY platform entry is excluded and the target
+        # version shipped nothing mergeable — top-level must fall back
+        # to the intended release, never an excluded one.
+        gen = _bare_generator()
+        gen.exclude_versions_cores = {"1.1.0"}
+
+        s3 = _FakeS3Client(
+            installer_objects=[],
+            latest_json_body=self._seeded_latest("1.1.0"),
+        )
+        gen.s3 = s3
+        gen.cos = None
+
+        with patch.object(gen, "list_versions", return_value=["v1.0.0"]):
+            assert gen.generate_latest_json() is True
+
+        after = _latest_json_body(s3)
+        assert after["platforms"] == {}
+        assert after["version"] == "1.0.0"

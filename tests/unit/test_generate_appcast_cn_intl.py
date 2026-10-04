@@ -75,6 +75,7 @@ def _bare_generator(*, backend: str, app_id: str, bucket: str, region: str):
     gen.prefix = "dev"
     gen.channel = "dev"
     gen.base_path = ""
+    gen.exclude_versions_cores = set()
     return gen
 
 

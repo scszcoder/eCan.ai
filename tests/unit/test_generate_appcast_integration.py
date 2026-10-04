@@ -57,6 +57,7 @@ def _bare_generator():
     gen.prefix = "dev"
     gen.channel = "dev"
     gen.base_path = ""
+    gen.exclude_versions_cores = set()
     return gen
 
 

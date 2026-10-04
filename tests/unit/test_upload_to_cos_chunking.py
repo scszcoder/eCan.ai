@@ -71,18 +71,30 @@ def _import_chunk_params_for():
     )
     assert parent_path.exists(), f"upload_to_cos.py not found at {parent_path}"
 
-    # Stub the heavy SDK deps so the module imports cleanly in a CI
-    # environment where ``qcloud_cos`` / ``yaml`` are not installed.
+    # Stub the heavy SDK deps ONLY when genuinely unavailable, and only
+    # touch modules we created ourselves. Unconditionally overwriting
+    # `yaml.safe_load` or `qcloud_cos.CosConfig` on the real installed
+    # packages leaks global state into every later test in the session
+    # (it made every YAML-based config read return {} — see the
+    # generate_appcast / ota_config order-dependent failures).
+    created = set()
     for name in ("qcloud_cos", "qcloud_cos.cos_exception", "yaml"):
-        if name not in sys.modules:
-            mod = types.ModuleType(name)
-            sys.modules[name] = mod
-    sys.modules["qcloud_cos"].CosConfig = object
-    sys.modules["qcloud_cos"].CosS3Client = object
-    sys.modules["qcloud_cos.cos_exception"].CosServiceError = type(
-        "CosServiceError", (Exception,), {}
-    )
-    sys.modules["yaml"].safe_load = lambda *a, **k: {}
+        if name in sys.modules:
+            continue
+        try:
+            __import__(name)
+        except ImportError:
+            sys.modules[name] = types.ModuleType(name)
+            created.add(name)
+    if "qcloud_cos" in created:
+        sys.modules["qcloud_cos"].CosConfig = object
+        sys.modules["qcloud_cos"].CosS3Client = object
+    if "qcloud_cos.cos_exception" in created:
+        sys.modules["qcloud_cos.cos_exception"].CosServiceError = type(
+            "CosServiceError", (Exception,), {}
+        )
+    if "yaml" in created:
+        sys.modules["yaml"].safe_load = lambda *a, **k: {}
 
     spec = importlib.util.spec_from_file_location("upload_to_cos", parent_path)
     module = importlib.util.module_from_spec(spec)

@@ -488,6 +488,7 @@ class AppcastGenerator:
         specific_version: str = None,
         user_prefix: str = '',
         app_id: str = 'intl',
+        exclude_versions: Optional[List[str]] = None,
     ):
         """
         Initialize the appcast generator
@@ -503,8 +504,18 @@ class AppcastGenerator:
                 For the auto-scan path it's only used in diagnostic logging
                 — the scan picks up every directory layout regardless.
             app_id: App identifier ('cn' | 'intl') for per-app appcast generation.
+            exclude_versions: Bare versions (e.g. '0.8.0') to omit from the
+                appcast AND latest.json candidate pools. Used by the
+                rollback path of promote-release.yml — a bad release stays
+                uploaded under releases/ for forensics but stops being
+                offered to any client.
         """
         self.environment = environment
+        self.exclude_versions_cores = {
+            _split_release_dir(str(v).strip())[1]
+            for v in (exclude_versions or [])
+            if str(v).strip()
+        }
         self.user_prefix = (user_prefix or '').strip().lower()
         self.app_id = app_id
 
@@ -751,6 +762,16 @@ class AppcastGenerator:
         - Otherwise, scans S3 and returns every version dir we find.
         """
         if self.specific_version:
+            if (
+                self.exclude_versions_cores
+                and _split_release_dir(self.specific_version)[1]
+                in self.exclude_versions_cores
+            ):
+                print(
+                    f"\n[EXCLUDE] {self.specific_version} is excluded — "
+                    "returning no versions"
+                )
+                return []
             print(f"\n[INFO] Using specific release dir: {self.specific_version}")
             return [self.specific_version]
 
@@ -795,6 +816,24 @@ class AppcastGenerator:
                         print(f"  [SKIP] Simulation build {release_dir} (not allowed in {self.environment})")
                         continue
                     versions.append(release_dir)
+
+            # Rollback support: drop excluded versions from BOTH the
+            # appcast pool and (via this shared choke point) the
+            # latest.json candidate pool. Comparison is on the bare
+            # version core so '0.8.0', 'v0.8.0' and the verbatim dir
+            # name all exclude the same directory.
+            if self.exclude_versions_cores:
+                kept = [
+                    d for d in versions
+                    if _split_release_dir(d)[1] not in self.exclude_versions_cores
+                ]
+                dropped = len(versions) - len(kept)
+                if dropped:
+                    print(
+                        f"  [EXCLUDE] Dropped {dropped} excluded version(s): "
+                        f"{', '.join(sorted(self.exclude_versions_cores))}"
+                    )
+                versions = kept
 
             # Initial sort by parsed semver descending. The final
             # chronological order is applied by `generate_appcast` once
@@ -1292,6 +1331,31 @@ class AppcastGenerator:
                     }
                     updated_platforms.append(platform_key)
         
+        # Rollback: drop stale per-platform entries still pointing at an
+        # excluded version. Without this the merge below would keep the
+        # bad version's URLs alive AND let it win the top-level max()
+        # (e.g. when the rollback target never shipped for one platform).
+        if self.exclude_versions_cores:
+            def _is_excluded(v: str) -> bool:
+                s = str(v or '').strip()
+                return (
+                    s in self.exclude_versions_cores
+                    or _split_release_dir(s)[1] in self.exclude_versions_cores
+                )
+
+            platforms_data = latest_data.get('platforms') or {}
+            stale_keys = [
+                k for k, info in platforms_data.items()
+                if _is_excluded((info or {}).get('version'))
+            ]
+            for k in stale_keys:
+                del platforms_data[k]
+            if stale_keys:
+                print(
+                    f"  [EXCLUDE] Dropped stale latest.json entry(ies) for "
+                    f"excluded version(s): {', '.join(stale_keys)}"
+                )
+
         # Global `version` is the highest across all platforms
         # currently in `latest.json`. Sort with our internal
         # `parse_version` (the same rule `list_versions` uses to pick
@@ -1453,6 +1517,11 @@ Examples:
     parser.add_argument('--app', choices=['intl', 'cn'],
                        default='intl', dest='app_id',
                        help='App identifier: intl (eCan) or cn (eCan.cn)')
+    parser.add_argument('--exclude', default='',
+                       help=(
+                           'Comma-separated versions to omit from appcast AND '
+                           'latest.json pools (rollback path of promote-release.yml)'
+                       ))
 
     args = parser.parse_args()
 
@@ -1463,6 +1532,7 @@ Examples:
         specific_version=args.version,
         user_prefix=args.user_prefix,
         app_id=args.app_id,
+        exclude_versions=[v for v in args.exclude.split(',') if v.strip()],
     )
     success = generator.run(platform_filter=args.platform, arch_filter=args.arch)
     

@@ -205,6 +205,32 @@ channel: nightly
 - main/master 分支不能使用 `stable` channel
 - **推荐使用 'auto' 让系统自动检测**
 
+## 🎛️ 上线（Promote）时的环境/渠道选择
+
+构建与上线分离后（见 [RELEASE_GUIDE.md](./RELEASE_GUIDE.md#两步式发布与灰度控制)），
+上线由 **Promote OTA Release** 工作流执行，它使用与本指南**完全相同的
+environment / channel 下拉选项**：
+
+| 工作流 | 作用 | environment/channel 取值 |
+|--------|------|--------------------------|
+| `Release CN` / `Release Intl` | 构建 + 上传（`publish=false` 默认，不改 feed） | 按本指南的映射自动/手选 |
+| `Promote OTA Release` | 上线 + 灰度（重生成 feed，写 rollout.json） | 手选，见下 |
+| `OTA Status` | 只读查看灰度状态 | 手选，同上 |
+
+**选择规则（比构建更严格——没有 auto，全部手选）**：
+
+1. **必须与客户端烧入的组合完全一致**。客户端读的是
+   `ota_config.yaml` 里 `environment → channel` 这一对
+   （如 `production → stable`、`test → beta`、`development → dev`）。
+   Promote 写到了别的组合（例如 `production + beta` 而客户端是
+   `production + stable`），等于写进客户端永远不会读的目录——**无效果**。
+2. **`app` 与客户端发行版对应**：`cn` → COS 桶（eCan.cn），`intl` → S3 桶。
+3. **默认即全量**：`percent=100` 为默认值，promote 后所有人都能看到；
+   灰度需要时才显式选小值（5/10/20/50），随后用 `ramp` 逐步放大。
+
+> 这也是 kill switch 的位置：出问题时在 Promote 工作流选
+> `action=pause`（同 environment/channel），秒级生效、无需重建。
+
 ## 🌍 与主流软件的对比
 
 ### Chrome/Chromium
@@ -315,11 +341,14 @@ ecan-releases/
 ## 📚 相关文档
 
 - [GitHub Actions Release Workflow](../.github/workflows/release.yml)
+- [Promote OTA Release Workflow](../.github/workflows/promote-release.yml)
+- [OTA Status Workflow](../.github/workflows/ota-status.yml)
+- [两步式发布与灰度控制](./RELEASE_GUIDE.md#两步式发布与灰度控制)
 - [OTA Update System](./OTA_SYSTEM.md)
 - [Appcast Generation](./build_system/scripts/generate_appcast.py)
 
 ---
 
-**最后更新**: 2026-02-24
+**最后更新**: 2026-10-01
 **版本**: 2.0
 **状态**: ✅ 已实施
