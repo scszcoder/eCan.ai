@@ -4259,7 +4259,7 @@
     "move_button": "连同登录迁移…"
   },
   "billing": {
-    "title": "账单",
+    "title": "本月费用",
     "statement": "账单",
     "print": "打印",
     "popupBlocked": "请允许弹出窗口以打印账单",
@@ -4267,7 +4267,7 @@
     "category": "类别",
     "description": "明细",
     "amount": "金额",
-    "monthTotal": "本月扣费",
+    "monthTotal": "本月合计",
     "monthTopup": "本月充值",
     "noUsage": "本月暂无扣费",
     "categories": {
@@ -4275,6 +4275,21 @@
       "knowledge_base": "知识库",
       "media_generation": "多媒体",
       "per_reply": "按回复计费"
+    },
+    "csReplies": "客服回复",
+    "replyLine": "{{count}} 条 × {{price}} = {{total}}",
+    "replyLineNoPrice": "{{count}} 条，共 {{total}}",
+    "replies": "回复数",
+    "replyCost": "回复费用",
+    "otherCost": "其他服务",
+    "dayTotal": "当日合计",
+    "showDays": "查看每日明细",
+    "hideDays": "收起每日明细",
+    "services": {
+      "llm_usage": "其他 AI 功能",
+      "knowledge_base": "知识库问答",
+      "media_generation": "做图 / 视频",
+      "adjustment": "月度最低消费补足及调整"
     },
     "types": {
       "topup": "充值",

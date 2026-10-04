@@ -76,7 +76,8 @@ _RECIPES = {
 # Feige skills (public / rentable / ¥0) instead of cloning per-agent copies:
 #
 #   skill_4f24592c81894ae7  飞鸽客服问答00  ← N Q&A tasks 飞鸽客服应答00N
-#   skill_71209937ed7449bf  飞鸽客服前台00  ← 1 front-desk task 飞鸽客服前台001
+#   skill_7f00760f659d4bc5  飞鸽客服前台01  ← 1 front-desk task 飞鸽客服前台001
+#   (until 2026-10-04: skill_71209937ed7449bf 飞鸽客服前台00 -- replace mode still clears it)
 #
 # Their prompts (pr-287230 飞鸽客服应答0, pr-330448 飞鸽客服前台0) resolve
 # under the skills' author (skill_owner); visibility of both prompts and both
@@ -95,9 +96,10 @@ _DDCS_FD_PROMPT_ID = "pr-330448"     # 飞鸽客服前台0
 _DDCS_QA_SOCIAL_PROMPT_ID = "pr-543744"  # 飞鸽社交应答0
 _DDCS_QA_RAG_PROMPT_ID = "pr-56931"      # 飞鸽RAG路由分类0
 _DDCS_QA_SKILL_ID = "skill_4f24592c81894ae7"   # 飞鸽客服问答00
-_DDCS_FD_SKILL_ID = "skill_71209937ed7449bf"   # 飞鸽客服前台00
+_DDCS_FD_SKILL_ID = "skill_7f00760f659d4bc5"   # 飞鸽客服前台01
+_DDCS_FD_LEGACY_SKILL_ID = "skill_71209937ed7449bf"   # 飞鸽客服前台00, the front desk before 01
 _DDCS_QA_SKILL_NAME = "飞鸽客服问答00"
-_DDCS_FD_SKILL_NAME = "飞鸽客服前台00"
+_DDCS_FD_SKILL_NAME = "飞鸽客服前台01"
 _DDCS_SALES_ORG_NAME = "Sales"
 
 # Chinese given names for the Q&A agents (客服小X).
@@ -508,6 +510,7 @@ class _LiveChatProfile(NamedTuple):
     env_append: dict              # run.env keys added when missing (operator tuning survives)
     env_set: dict                 # run.env keys that must hold exactly this value
     find_skill_by_name: bool      # not yet published: local ids differ per machine
+    fd_legacy_skill_ids: tuple = ()   # earlier front-desk skills: replace mode clears their tasks too
 
 
 _DDCS_PROFILE = _LiveChatProfile(
@@ -520,6 +523,7 @@ _DDCS_PROFILE = _LiveChatProfile(
              (_DDCS_FD_PROMPT_ID, "飞鸽客服前台0", "fd")),
     fd_task_prefix="飞鸽客服前台", qa_task_prefix="飞鸽客服应答",
     env_append=_DDCS_FEIGE_ENV, env_set={}, find_skill_by_name=False,
+    fd_legacy_skill_ids=(_DDCS_FD_LEGACY_SKILL_ID,),
 )
 
 # Pinduoduo (pdd_chat bundle). The bundle registers only when the process serves
@@ -539,6 +543,13 @@ _PDD_PROFILE = _LiveChatProfile(
 )
 
 _LIVE_CHAT_PROFILES = {p.scenario: p for p in (_DDCS_PROFILE, _PDD_PROFILE)}
+
+
+def _cleanup_skill_ids(profile: _LiveChatProfile) -> tuple:
+    """Skills whose tasks 'replace' mode clears: the current pair plus any front
+    desk this scenario used before (a store deployed on it would otherwise keep
+    its old front desk running next to the new one)."""
+    return (profile.fd_skill_id, profile.qa_skill_id) + tuple(profile.fd_legacy_skill_ids)
 # "<scenario>_multi": several stores of one platform on this machine, one shared Q&A pool.
 _MULTI_SUFFIX = "_multi"
 
@@ -765,7 +776,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
 
     # ── 0) 'replace' mode: clear THIS STORE's previous deployment first.
     if str(cfg.get("mode") or "add").strip().lower() == "replace":
-        _replace_cleanup(ctx, owner, (profile.fd_skill_id, profile.qa_skill_id), log,
+        _replace_cleanup(ctx, owner, _cleanup_skill_ids(profile), log,
                          store_id=store_id,
                          name_prefixes=(profile.fd_task_prefix, profile.qa_task_prefix))
     else:
@@ -939,7 +950,7 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
     if str(cfg.get("mode") or "add").strip().lower() == "replace":
         prefixes = (profile.fd_task_prefix, profile.qa_task_prefix)
         for sid in store_ids:
-            _replace_cleanup(ctx, owner, (profile.fd_skill_id, profile.qa_skill_id), log, store_id=sid,
+            _replace_cleanup(ctx, owner, _cleanup_skill_ids(profile), log, store_id=sid,
                              name_prefixes=prefixes)
         # the previous shared pool (its tasks carry no store id)
         _replace_cleanup(ctx, owner, (profile.qa_skill_id,), log, store_id="", name_prefixes=prefixes)

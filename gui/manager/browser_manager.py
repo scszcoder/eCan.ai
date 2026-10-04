@@ -1352,7 +1352,15 @@ class BrowserManager:
         """
         # cdp_port=0 means "auto-assign from pool/slot"
         _assigned_slot: Optional[BrowserSlot] = None
-        if cdp_port == 0:
+        if cdp_port == 0 and browser_type == BrowserType.FINGERPRINT:
+            # A profile's browser takes a free port of its own (launch_profile)
+            # and is found again by its profile id, never by port. The plain-
+            # Chrome slot pool starts at 9228 and shares a slot, so it handed
+            # 9228 to every store's profile: two stores starting together (two
+            # store processes, or two platforms' front desks) both launched on
+            # it and each closed its own browser (customer run 99r).
+            effective_cdp_port = 0
+        elif cdp_port == 0:
             auto_port = self.pick_auto_port(agent_id=agent_id)
             if auto_port is None:
                 logger.error(

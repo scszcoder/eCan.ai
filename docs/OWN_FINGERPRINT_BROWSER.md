@@ -253,6 +253,81 @@ process can attach to a running profile, but if the launcher has exited its
 relay is gone and the browser would silently egress from this machine's own IP;
 `launch_profile` refuses to attach in that case rather than leak the address.
 
+## Reuse or relaunch: what a new run does
+
+**A run reuses a browser that is already open on its profile; it does not
+close it and start a new one.** That holds across app restarts: the browsers
+outlive the app (`keep_alive`), and the next start finds them. In order,
+`launch_profile()` (`fingerprint_browser._launch_profile`) checks:
+
+1. **Started by this app session** and its CDP port still answers → reused.
+   Log: `'<id>' is already running on port N; reusing it`.
+2. **Any Chromium that has this profile's user-data-dir open** -- found by
+   asking the OS (`_running_browser_for`), not by trusting `.ecan_cdp.json`,
+   which can be stale or name a port another browser won:
+   - **usable** (its debug port answers CDP, that port serves only this
+     profile, and its proxy relay is alive if it has one) → **reused**. Log:
+     `'<id>' is already running (pid P, port N); reusing it`;
+   - **running but unusable** (no debug port answering for this profile, or
+     its relay died with the process that launched it) → asked to close
+     politely (so the session is flushed to disk), then a fresh one starts. It
+     has to go: it holds the profile directory, and a second Chromium cannot
+     open the same directory.
+3. **Nothing running on this profile** → launch a new one on a free port.
+
+A browser that is **not** this profile -- the user's own Chrome, or the
+plain-Chrome slot browser on `C:\chrome_data` -- is never driven and never
+closed. If it holds the port a launch asked for, the launch steps aside to a
+free port.
+
+Inside `BrowserManager`, the same profile is matched by profile id
+(`find_available_browser`), never by port, so a second node or task on the
+same profile shares the running browser.
+
+## Several stores on one machine
+
+**One Chromium per store.** Every store has its own login profile -- Fast
+Deploy creates it (`_ensure_store_login` in `cli/deploy/commands.py`) and
+records it on the store -- and its front-desk task carries that profile as
+`browser_identity`. A skill that would use a plain Chrome is switched to the
+fingerprint browser for such a task (`browser_type_for_identity`). So:
+
+| Machine runs | Browsers |
+|---|---|
+| one 抖店 store | 1 (its login profile) |
+| one 抖店 + one 拼多多 store | 2 |
+| two 抖店 stores | 2 -- and each store runs in **its own store process** (`agent/ec_agents/store_isolation.py`: 2+ stores of one platform) |
+
+Q&A agents run no browser; they answer through their store's front desk.
+
+One store per browser is a platform constraint as much as ours: a seller
+backend keeps **one** customer-service session per account. A second tab or
+window on the same account takes the session over -- on 拼多多 the old page
+shows 账户在别处登录 and stops receiving messages. So never open a store's chat
+page by hand in the browser eCan runs for it; use another browser for manual
+work.
+
+### Ports when several start at once
+
+Store browsers take a **free OS port each** (`debug_port=0`); there is no shared
+debug port. Two fixes made this true, both from the 99r customer run (two front
+desks, 抖店 + 拼多多, starting in the same millisecond):
+
+- `BrowserManager.acquire_browser` used to turn "auto" into the plain-Chrome
+  slot pool's first port, **9228**, for every profile. Both launched on 9228,
+  each then found the other's browser answering, refused it (correctly) and
+  terminated its own -- both windows closed ("Chrome 闪退") and neither agent
+  got a browser. Profiles on "auto" now keep port 0, and `launch_profile` picks
+  a free one. (`tests/unit/test_fingerprint_auto_port.py`)
+- `launch_profile` is serialized within a process (`_LAUNCH_LOCK`): choosing a
+  port and Chromium binding it are not atomic, so two launches in one process
+  could still pick the same port. (`tests/unit/test_fingerprint_launch_race.py`)
+
+Store processes are separate processes, so the lock does not span them; they
+stay apart because each picks a free OS port, not a shared constant. A node
+that **names** a CDP port still passes it through -- leave the CDP port on
+auto for any store's browser.
+
 ## Status
 
 As of 2026-09-18, **every phase of the plan (0–4) is built, and profiles have

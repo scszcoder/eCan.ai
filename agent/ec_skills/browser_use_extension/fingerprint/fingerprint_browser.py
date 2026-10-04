@@ -25,6 +25,7 @@ import json
 import os
 import socket
 import subprocess
+import threading
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -407,6 +408,15 @@ def _proxy_flags(profile: dict):
     return flags, stop, local_port
 
 
+# One launch at a time in this process. Choosing a port ("is it free?") and
+# binding it (Chromium starting up) are not atomic: two front desks starting
+# together both found 9228 free, both launched on it, each then saw the other's
+# browser answering, refused it and terminated its own -- both windows closed
+# and neither agent got a browser (customer run, 99r). Serialized, the second
+# launch finds the port taken and steps aside to a free one.
+_LAUNCH_LOCK = threading.RLock()
+
+
 def launch_profile(
     profile_id: str,
     debug_port: int = 0,
@@ -420,6 +430,17 @@ def launch_profile(
     profile — started by us or by an earlier process — its endpoint is returned
     and nothing new is launched.
     """
+    with _LAUNCH_LOCK:
+        return _launch_profile(profile_id, debug_port, headless, start_url, timeout)
+
+
+def _launch_profile(
+    profile_id: str,
+    debug_port: int,
+    headless: bool,
+    start_url: str,
+    timeout: float,
+) -> LaunchedBrowser:
     profile = registry.get_profile(profile_id)
     if not profile:
         raise KeyError(f"no browser profile registered as '{profile_id}'")

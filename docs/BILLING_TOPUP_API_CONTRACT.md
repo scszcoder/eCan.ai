@@ -68,10 +68,18 @@ query { getBillingHistory(input:{ start_date:"YYYY-MM-DD", end_date:"YYYY-MM-DD"
     status                # "success" | "pending" | "failed"
     order_id              # nullable
     coupon_code           # nullable
-    description
+    description           # plain-language, shown only in exports
+    category              # charge rows: "cs_reply" | "llm_usage" | "knowledge_base" | "media_generation"
+                          #   (none / "per_reply" = legacy spelling of cs_reply)
+    quantity              # charge rows: units this row covers (replies for cs_reply); null = 1
   }
 } }
 ```
+
+The account page shows customer-service use as **replies × unit price**: it
+sums `quantity` over `cs_reply` rows and divides their amount by it, so a row
+may cover one reply or a whole batch. Every other category is one plain line
+(2026-10-04; `gui_v2/src/pages/Account/billingSummary.ts`).
 
 ### 2. Coupon preview (read-only, no side effects)
 

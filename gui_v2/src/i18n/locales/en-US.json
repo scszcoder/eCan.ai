@@ -4200,7 +4200,7 @@
     "move_button": "Move with login…"
   },
   "billing": {
-    "title": "Billing",
+    "title": "This month's charges",
     "statement": "Billing statement",
     "print": "Print",
     "popupBlocked": "Allow pop-ups to print the statement",
@@ -4208,7 +4208,7 @@
     "category": "Category",
     "description": "Details",
     "amount": "Amount",
-    "monthTotal": "Charged this month",
+    "monthTotal": "Month total",
     "monthTopup": "Topped up",
     "noUsage": "No charges this month",
     "categories": {
@@ -4216,6 +4216,21 @@
       "knowledge_base": "Knowledge base",
       "media_generation": "Media",
       "per_reply": "Per reply"
+    },
+    "csReplies": "Customer-service replies",
+    "replyLine": "{{count}} replies × {{price}} = {{total}}",
+    "replyLineNoPrice": "{{count}} replies, {{total}}",
+    "replies": "Replies",
+    "replyCost": "Reply charges",
+    "otherCost": "Other services",
+    "dayTotal": "Day total",
+    "showDays": "Show daily details",
+    "hideDays": "Hide daily details",
+    "services": {
+      "llm_usage": "Other AI features",
+      "knowledge_base": "Knowledge-base answers",
+      "media_generation": "Images / video",
+      "adjustment": "Monthly minimum & adjustments"
     },
     "types": {
       "topup": "Top-up",

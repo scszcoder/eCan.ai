@@ -178,3 +178,21 @@ def test_a_planned_scenario_refuses_another_platforms_store(tmp_path, monkeypatc
     stores = {"amz-1": {"store_id": "amz-1", "platform": "amazon", "store_urls": ["https://x"]}}
     res = _run_scenario(tmp_path, monkeypatch, {"scenario": "tmall_cs", "config": {"store_id": "amz-1"}}, stores)
     assert res["status"] == "failure" and "is a amazon store" in res["message"]
+
+
+def test_douyin_front_desk_is_01_and_replace_still_clears_00():
+    p = cmds._DDCS_PROFILE
+    assert (p.fd_skill_id, p.fd_skill_name) == ("skill_7f00760f659d4bc5", "飞鸽客服前台01")
+    ids = cmds._cleanup_skill_ids(p)
+    assert ids[:2] == (p.fd_skill_id, p.qa_skill_id) and "skill_71209937ed7449bf" in ids
+    assert cmds._cleanup_skill_ids(cmds._PDD_PROFILE) == (cmds._PDD_PROFILE.fd_skill_id,
+                                                          cmds._PDD_PROFILE.qa_skill_id)
+
+
+def test_replace_clears_a_store_deployed_on_the_old_front_desk(monkeypatch):
+    rels = [{"task_id": "t_old_fd", "skill_id": "skill_71209937ed7449bf"}]
+    ts = _TaskSvc(rels, [{"id": "t_old_fd", "owner": "alice"}])
+    ag = _AgentSvc([{"id": "a_old_fd", "owner": "alice"}], [{"agent_id": "a_old_fd", "task_id": "t_old_fd"}])
+    monkeypatch.setattr("cli.base.sync.cloud_sync", lambda *a, **k: None)
+    out = cmds._replace_cleanup(_Ctx(ts, ag), "alice", cmds._cleanup_skill_ids(cmds._DDCS_PROFILE), [])
+    assert out["tasks"] == ["t_old_fd"] and out["agents"] == ["a_old_fd"]

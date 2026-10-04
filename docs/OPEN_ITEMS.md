@@ -10,6 +10,17 @@ _Last updated: 2026-09-21_
 
 ## 🔴 Bugs (unfixed)
 
+### ✅ FIXED — two stores' browsers started on 9228 and closed each other (2026-10-04)
+
+Customer run 99r ("Chrome 闪退"): the 抖店 and 拼多多 front desks started together;
+`BrowserManager.acquire_browser` turned their "auto" CDP port into the
+plain-Chrome slot pool's 9228 for both, both launched there, each found the
+other's browser answering, refused it and terminated its own. Fixed: a profile
+browser on auto keeps port 0 (free OS port), and `launch_profile` is serialized
+in-process. Reuse/relaunch rules and the one-browser-per-store layout are written
+up in [OWN_FINGERPRINT_BROWSER.md](OWN_FINGERPRINT_BROWSER.md) ("Reuse or
+relaunch", "Several stores on one machine").
+
 ### ✅ FIXED — a migration that adds a table froze startup on its own lock (2026-09-25)
 
 A 98w customer (DB at 3.1.6) could not get past the startup spinner: each
