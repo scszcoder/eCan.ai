@@ -1,5 +1,6 @@
 import os
 import platform
+import re
 import threading
 import time
 from typing import Optional, Callable
@@ -81,18 +82,25 @@ class OTAUpdater:
         )
 
     def _resolve_user_prefix(self) -> Optional[str]:
-        """Return the per-user release prefix, or ``None`` for universal only.
+        """Return this login's whitelist identity, or ``None``.
 
         Resolution order (first hit wins):
           1. ``ECAN_OTA_USER_PREFIX`` env var — test/staging override.
              Empty string is an explicit "force universal-only" signal
              (distinct from the var being unset).
-          2. ``AppContext.login.auth_manager.user_profile['email']``
-             local-part (i.e. the bit before ``@``), lower-cased.
-          3. ``None`` — user is logged out, unknown, or any access path
-             above raised. In this case the multi-version picker will
-             show only universal items, which matches the existing
-             pre-multi-tenant behavior.
+          2. login email local-part (``alice`` from ``alice@x.com``) —
+             email/password and federated (Google) logins.
+          3. login phone — CN phone login; spaces/dashes/parens stripped.
+          4. WeChat ``openid`` — CN WeChat login, lower-cased.
+          5. a non-``@`` value in the profile's email slot — username
+             style logins that store the bare login name there.
+          6. ``None`` — logged out, unknown, or any access path above
+             raised. The multi-version picker then shows only
+             universal items.
+
+        The result is matched verbatim (case-insensitive) against
+        ``cohort_include_prefix`` in rollout.json, so whatever value
+        this returns is exactly what operators put in ``--cohort``.
 
         Kept deliberately noisy-safe: any import or attribute error
         along the way must degrade to ``None``, never raise, because
@@ -120,10 +128,58 @@ class OTAUpdater:
             email = (profile.get("email") or "").strip().lower()
             if "@" in email:
                 local = email.split("@", 1)[0].strip()
-                return local or None
+                if local:
+                    return local
+            phone = re.sub(r"[\s\-()]", "", str(profile.get("phone") or ""))
+            if phone:
+                return phone.lower()
+            openid = str(profile.get("openid") or "").strip().lower()
+            if openid:
+                return openid
+            if email:
+                # username-style login stored in the email slot (no @)
+                return email
         except Exception:
             logger.debug("[OTA] user_prefix resolution failed", exc_info=True)
         return None
+
+    def _apply_rollout_gate(self, update_info: dict) -> bool:
+        """Return False when the rollout control file withholds this offer.
+
+        Reads ``{env}/channels/{channel}/rollout.json`` (cached 300s,
+        see ``ota.core.rollout``) and applies paused / version-scope /
+        whitelist / percent checks to the candidate version. Every
+        failure path returns True — the gate may only ever withhold an
+        update deliberately, never by accident.
+        """
+        try:
+            from ota.core.rollout import fetch_rollout, get_install_id, is_eligible
+
+            rollout = fetch_rollout()
+            if not rollout:
+                return True
+
+            version = str(
+                update_info.get("latest_version") or update_info.get("version") or ""
+            ).strip()
+            if not version:
+                return True
+
+            eligible = is_eligible(
+                rollout,
+                version=version,
+                install_id=get_install_id(),
+                user_prefix=self.user_prefix,
+            )
+            if not eligible:
+                logger.info(
+                    f"[OTA] Rollout gate: not offering {version} to this client "
+                    f"(percent={rollout.get('percent')}, paused={rollout.get('paused')})"
+                )
+            return eligible
+        except Exception:
+            logger.debug("[OTA] rollout gate failed; failing open", exc_info=True)
+            return True
 
     def _create_platform_updater(self):
         """Create platform-specific updater"""
@@ -190,6 +246,15 @@ class OTAUpdater:
                 # Thread-safe error callback call
                 self._safe_error_callback(update_info)
                 return (False, update_info) if return_info else False
+
+            # Rollout gate: decide whether THIS client may be offered
+            # the candidate version (grayscale percent / whitelist /
+            # pause). Fail-open by design — any problem here means the
+            # update flows through ungated, never that updates stop.
+            if has_update and isinstance(update_info, dict):
+                if not self._apply_rollout_gate(update_info):
+                    has_update = False
+                    update_info = None
 
             # Thread-safe callback call
             if has_update:

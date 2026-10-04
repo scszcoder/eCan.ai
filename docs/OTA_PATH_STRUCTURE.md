@@ -32,16 +32,18 @@ s3://ecan-releases/
 │   │   │   │       └── eCan-1.0.0-macos-amd64.pkg.sig
 │   │   │   └── windows/         # Windows 平台
 │   │   │       └── amd64/       # x64 架构
-│   │   │           ├── eCan-1.0.0-windows-amd64.exe
-│   │   │           ├── eCan-1.0.0-windows-amd64.exe.sha256
-│   │   │           └── eCan-1.0.0-windows-amd64.exe.sig
+│   │   │           ├── eCan-1.0.0-windows-amd64-Setup.exe
+│   │   │           ├── eCan-1.0.0-windows-amd64-Setup.exe.sha256
+│   │   │           └── eCan-1.0.0-windows-amd64-Setup.exe.sig
 │   │   └── v1.0.1/              # 下一个版本
 │   │       └── ...
 │   └── channels/                 # 发布渠道
 │       └── dev/                  # 开发渠道
 │           ├── appcast-macos-aarch64.xml
 │           ├── appcast-macos-amd64.xml
-│           └── appcast-windows-amd64.xml
+│           ├── appcast-windows-amd64.xml
+│           ├── latest.json       # 最新版本指针（多平台）
+│           └── rollout.json      # 灰度控制面（percent/paused/白名单）
 │
 ├── test/                         # 测试环境
 │   ├── releases/
@@ -65,8 +67,50 @@ s3://ecan-releases/
     │       └── ...
     └── channels/
         └── stable/               # 稳定渠道
-            └── ...
+            ├── appcast-*.xml
+            ├── latest.json
+            └── rollout.json      # 灰度控制面（percent/paused/白名单）
 ```
+
+---
+
+## 控制面：rollout.json 灰度控制
+
+`channels/{channel}/rollout.json` 是"**谁能看到更新**"的唯一控制文件，与
+feed（appcast/latest.json）解耦——**构建与上线两步分离**（见
+[RELEASE_GUIDE.md 两步式发布与灰度控制](RELEASE_GUIDE.md#两步式发布与灰度控制)）：
+
+- `{env}/releases/`：安装包（惰性数据面，上传 ≠ 发布）
+- `{env}/channels/{channel}/`：feed + **rollout.json**（控制面，Promote 才写）
+
+**文件结构**（由 `build_system/scripts/set_rollout.py` 写入）：
+
+```json
+{
+  "schema": 1,
+  "version": "1.0.0",
+  "percent": 20,
+  "paused": false,
+  "cohort_include_prefix": ["alice", "bob"],
+  "updated_at": "2026-10-01T10:00:00+00:00"
+}
+```
+
+**URL**（客户端每次检查更新时读取，TTL 300 秒缓存）：
+
+```
+https://ecan-releases.s3.us-east-1.amazonaws.com/{prefix}/channels/{channel}/rollout.json
+https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/{prefix}/channels/{channel}/rollout.json
+```
+
+**判定顺序**（客户端 `ota/core/rollout.py`，服务端 `set_rollout.plan` 对应）：
+
+1. 文件缺失 / 读取失败 / 网络故障 → **放行**（fail-open，控制面永不阻断更新）
+2. `paused=true` → 全部拦截（kill switch，优先于一切）
+3. `version` 非空且候选不匹配 → 放行（只管被 promote 的那个版本）
+4. 候选邮箱前缀命中 `cohort_include_prefix` → 放行（白名单优先于 percent）
+5. `percent >= 100` → 放行；`percent <= 0` → 拦截
+6. 否则 `sha256(install_id@版本) % 100 < percent`（分桶稳定、对 percent 单调）
 
 ---
 
@@ -104,14 +148,14 @@ production/releases/v1.0.0/macos/amd64/eCan-1.0.0-macos-amd64.pkg.sig
 **实际示例**:
 ```
 # 开发环境
-dev/releases/v1.0.0/windows/amd64/eCan-1.0.0-windows-amd64.exe
-dev/releases/v1.0.0/windows/amd64/eCan-1.0.0-windows-amd64.exe.sha256
-dev/releases/v1.0.0/windows/amd64/eCan-1.0.0-windows-amd64.exe.sig
+dev/releases/v1.0.0/windows/amd64/eCan-1.0.0-windows-amd64-Setup.exe
+dev/releases/v1.0.0/windows/amd64/eCan-1.0.0-windows-amd64-Setup.exe.sha256
+dev/releases/v1.0.0/windows/amd64/eCan-1.0.0-windows-amd64-Setup.exe.sig
 
 # 生产环境
-production/releases/v1.0.0/windows/amd64/eCan-1.0.0-windows-amd64.exe
-production/releases/v1.0.0/windows/amd64/eCan-1.0.0-windows-amd64.exe.sha256
-production/releases/v1.0.0/windows/amd64/eCan-1.0.0-windows-amd64.exe.sig
+production/releases/v1.0.0/windows/amd64/eCan-1.0.0-windows-amd64-Setup.exe
+production/releases/v1.0.0/windows/amd64/eCan-1.0.0-windows-amd64-Setup.exe.sha256
+production/releases/v1.0.0/windows/amd64/eCan-1.0.0-windows-amd64-Setup.exe.sig
 ```
 
 #### Appcast XML
@@ -288,15 +332,24 @@ appcast_url = ota_config.get_appcast_url('macos', 'aarch64')
 - **文件**: `build_system/scripts/generate_appcast.py`
 - **类**: `AppcastGenerator`
 - **方法**:
-  - `list_versions()` - 列出所有版本
+  - `list_versions()` - 列出所有版本（支持 `--exclude` 剔除坏版本）
   - `get_package_info()` - 获取包信息
   - `generate_appcast()` - 生成 XML
 
+### 灰度控制面
+- **写入**: `build_system/scripts/set_rollout.py`（`--action ... --apply`，
+  由 `.github/workflows/promote-release.yml` 调用；`--status` 为只读，
+  由 `.github/workflows/ota-status.yml` 调用）
+- **客户端读取**: `ota/core/rollout.py`（`fetch_rollout()` / `is_eligible()`，
+  挂载于 `OTAUpdater.check_for_updates`）
+- **URL 构建**: `ota/config/loader.py::get_rollout_url()`
+
 ### OTA 配置
-- **文件**: `ota/config/loader.py`
+- **文件**: `ota/config/ota_config.yaml`
 - **类**: `OTAConfig`
 - **方法**:
   - `get_appcast_url()` - 获取 Appcast URL
+  - `get_rollout_url()` - 获取灰度控制文件 URL
   - `get_s3_url()` - 构建 S3 URL
   - `get_s3_prefix()` - 获取环境前缀
 

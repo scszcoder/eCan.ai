@@ -310,3 +310,66 @@ class TestParseVersionPatchLetterSuffix:
         assert newest_first[7] == "0.9.96"
         # Then the branch build (priority 0).
         assert newest_first[8] == "0.7.0-v0.9.97d-53bdc77"
+
+
+# ---------------------------------------------------------------------------
+# Rollback path: exclude_versions shrinks the appcast candidate pool
+# ---------------------------------------------------------------------------
+
+class _CommonPrefixesOnlyS3:
+    """list_objects_v2 that answers ONLY with CommonPrefixes (the shape
+    list_versions reads). Content listing is never requested there."""
+
+    def __init__(self, dirs):
+        self.dirs = list(dirs)
+        self.calls = 0
+
+    def list_objects_v2(self, Bucket, Prefix, Delimiter=None, **kwargs):
+        self.calls += 1
+        return {
+            "CommonPrefixes": [{"Prefix": f"{Prefix}{d}/"} for d in self.dirs]
+        }
+
+
+class TestListVersionsExclude:
+    """promote-release.yml action=rollback passes ``--exclude <bad>`` so
+    the bad release leaves BOTH the appcast pool and latest.json (see
+    TestExcludeVersionsRollback in test_generate_latest_json.py)."""
+
+    def _gen(self, dirs, exclude=(), specific=None):
+        gen = AppcastGenerator(
+            environment="production",
+            channel="stable",
+            specific_version=specific,
+            exclude_versions=list(exclude),
+        )
+        gen.s3 = _CommonPrefixesOnlyS3(dirs)
+        gen.storage_backend = "s3"
+        return gen
+
+    def test_scan_drops_excluded_version(self):
+        gen = self._gen(
+            ["v1.0.0", "v1.1.0", "alice_v2.0.0"], exclude=["1.1.0"]
+        )
+        result = set(gen.list_versions())
+        assert result == {"v1.0.0", "alice_v2.0.0"}
+        assert "v1.1.0" not in result
+
+    def test_scan_keeps_everything_without_exclude(self):
+        gen = self._gen(["v1.0.0", "v1.1.0", "alice_v2.0.0"])
+        assert set(gen.list_versions()) == {"v1.0.0", "v1.1.0", "alice_v2.0.0"}
+
+    def test_bare_version_matches_v_prefixed_dir(self):
+        # exclude input is the bare core ('1.1.0'); the bucket dir is
+        # 'v1.1.0' — _split_release_dir normalizes the comparison.
+        gen = self._gen(["v1.1.0", "v1.2.0"], exclude=["1.1.0"])
+        assert gen.list_versions() == ["v1.2.0"]
+
+    def test_specific_version_excluded_returns_empty(self):
+        gen = self._gen(["v1.1.0"], exclude=["1.1.0"], specific="v1.1.0")
+        assert gen.list_versions() == []
+        assert gen.s3.calls == 0  # bailed before touching storage
+
+    def test_specific_version_kept_when_not_excluded(self):
+        gen = self._gen(["v1.1.0"], exclude=["9.9.9"], specific="v1.1.0")
+        assert gen.list_versions() == ["v1.1.0"]

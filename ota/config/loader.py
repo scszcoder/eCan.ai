@@ -295,7 +295,34 @@ class OTAConfig:
 
         # No override declared → fall through to public S3/COS storage.
         return self.get_storage_url(f"channels/{self.get_channel()}/{filename}")
-    
+
+    def get_rollout_url(self) -> str:
+        """
+        Get the rollout control file URL for the active env/channel.
+
+        Path mirrors ``get_appcast_url`` (``{base}/channels/{channel}/...``)
+        minus the language suffix — the file is written by
+        ``build_system/scripts/set_rollout.py`` and read by
+        ``ota/core/rollout.py`` on every update check.
+
+        Returns:
+            Full COS/S3 URL to ``channels/{channel}/rollout.json``, or
+            ``""`` when OTA is disabled.
+
+        Example:
+            # CN app (ECAN_APP_ID=cn), production/stable
+            get_rollout_url()
+            → https://ecan-releases-1251680599.cos.ap-shanghai.myqcloud.com/production/channels/stable/rollout.json
+        """
+        if not self.enabled:
+            return ""
+
+        local_base = self._local_appcast_base()
+        if local_base:
+            return f"{local_base}/channels/{self.get_channel()}/rollout.json"
+
+        return self.get_storage_url(f"channels/{self.get_channel()}/rollout.json")
+
     def get_s3_prefix(self) -> str:
         """
         Get S3 path prefix for current environment

@@ -120,6 +120,15 @@ on:
           - 'true'
           - 'false'
 
+      publish:
+        description: >-
+          Publish to users (regenerate appcast/latest.json/download-links +
+          OTA smoke test). false = upload artifacts only; existing clients
+          are NOT affected. Go-live happens via promote-release.yml.
+        required: false
+        default: false
+        type: boolean
+
 concurrency:
   # Per-ref × matrix × runner scope. Two manual runs with different
   # platform/arch inputs don't fight each other; two runs with identical
@@ -2279,8 +2288,13 @@ jobs:
     # clause is "build succeeded AND direct-uploaded"; together they
     # say "at least one succeeded build direct-uploaded", which is
     # what bridges the gap.
+    # publish gate: with publish=false (default) the build/upload jobs
+    # still run but every job that writes to channels/ (appcast,
+    # latest.json, download-links, smoke) is skipped — uploaded
+    # artifacts are inert until promote-release.yml goes live.
     if: |
       always() &&
+      inputs.publish == true &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (
         needs.recovery-upload-to-s3.outputs.upload-success == 'true' ||
@@ -2309,6 +2323,7 @@ jobs:
     needs: [validate-tag, generate-appcast, recovery-upload-to-s3, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
     if: |
       always() &&
+      inputs.publish == true &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (
         needs.recovery-upload-to-s3.outputs.upload-success == 'true' ||
@@ -2339,6 +2354,7 @@ jobs:
     # correct download links.
     if: |
       always() &&
+      inputs.publish == true &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (
         needs.recovery-upload-to-s3.outputs.upload-success == 'true' ||
@@ -2391,6 +2407,7 @@ jobs:
     # mask the real issue.
     needs: [validate-tag, generate-latest-json]
     if: |
+      inputs.publish == true &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       needs.generate-latest-json.result == 'success'
     uses: ./.github/workflows/shared-ota-smoke-test.yml
@@ -2411,6 +2428,7 @@ jobs:
       - name: Show summary
         env:
           VERSION:           ${{ needs.validate-tag.outputs.version }}
+          PUBLISH:           ${{ inputs.publish }}
           WINDOWS_RESULT:    ${{ needs.build-windows.result }}
           MACOS_AMD64:       ${{ needs.build-macos-amd64.result }}
           MACOS_AARCH64:     ${{ needs.build-macos-aarch64.result }}
@@ -2430,6 +2448,7 @@ jobs:
           echo ""
           echo "================ Release (Intl) Summary ================"
           echo "Version: ${VERSION}"
+          echo "Publish to users: ${PUBLISH} (false = upload-only; go live via promote-release.yml)"
           echo ""
           echo "Builds:"
           echo "  Windows amd64:  ${WINDOWS_RESULT}"

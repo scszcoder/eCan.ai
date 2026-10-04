@@ -29,6 +29,14 @@ def main() -> int:
     parser.add_argument("--version", required=True)
     parser.add_argument("--user-prefix", default="")
     parser.add_argument("--app", choices=["intl", "cn"], default="intl")
+    parser.add_argument(
+        "--exclude",
+        default="",
+        help=(
+            "Comma-separated versions whose stale per-platform entries are "
+            "dropped from latest.json (rollback path of promote-release.yml)"
+        ),
+    )
     args = parser.parse_args()
 
     generator = AppcastGenerator(
@@ -37,6 +45,7 @@ def main() -> int:
         specific_version=args.version,
         user_prefix=args.user_prefix,
         app_id=args.app,
+        exclude_versions=[v for v in args.exclude.split(',') if v.strip()],
     )
     return 0 if generator.generate_latest_json() else 1
 

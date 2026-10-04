@@ -5,6 +5,7 @@
 - [版本标签格式](#版本标签格式)
 - [环境自动检测](#环境自动检测)
 - [发布方法](#发布方法)
+- [两步式发布与灰度控制](#两步式发布与灰度控制)
 - [完整发布流程](#完整发布流程)
 - [常见场景](#常见场景)
 - [注意事项](#注意事项)
@@ -67,6 +68,13 @@ develop / dev    → development (dev channel)
 ---
 
 ## 🚀 发布方法
+
+> ⚠️ **两步式发布（当前生效模型）**：`Release CN` / `Release Intl` 工作流新增
+> **`publish` 输入，默认 `false`**。构建与上线已分离——release 工作流默认只上传
+> 安装包（`{env}/releases/`），**不改动用户可见的 appcast / latest.json**；
+> 真正的上线与灰度由 **Promote OTA Release** 工作流执行。下方方法 1-3 描述的
+> 是"构建"这一步；构建完成后请继续按
+> [两步式发布与灰度控制](#两步式发布与灰度控制) 上线。
 
 ### **方法 1：创建 Git 标签（推荐用于生产发布）**
 
@@ -193,6 +201,113 @@ ref: v0.9.0                             # 但构建旧版本代码
 - ✅ **生产发布**：明确指定标签（如 `v1.0.0`）
 - ✅ **分支测试**：`ref` 留空，自动使用功能分支
 - ⚠️ **特殊情况**：只在测试工作流修改或重建旧版本时才手动指定不同的 ref
+
+---
+
+## 🎛️ 两步式发布与灰度控制
+
+### **模型总览**
+
+```
+步骤 1  Release CN / Release Intl          步骤 2  Promote OTA Release
+        publish = false（默认）                    action = promote / ramp / ...
+        ─────────────────────────               ─────────────────────────
+        构建 + 上传 releases/{ver}/              先写 rollout.json（灰度门槛就位）
+        ❌ 不碰 channels/ 的 feed                再重生成 appcast + latest.json
+        老用户完全无感知                          ✅ OTA smoke 验证
+                                                 → 从这一刻起用户可见
+```
+
+**为什么默认 `publish=false`**：一次误触发的 release 最多浪费构建资源；
+而直接重写 appcast 会把未经验证的版本推给全体用户。构建可以随时跑，
+**上线只发生在你明确按下 Promote 之后**。
+
+### **步骤 1：构建（Release CN / Release Intl）**
+
+Actions → `Release CN`（或 `Release Intl`）→ Run workflow：
+
+| 参数 | 建议值 | 说明 |
+|------|--------|------|
+| `publish` | `false`（默认） | 只构建上传；`true` = 保留旧的"构建即上线"行为（不推荐） |
+| 其余参数 | 同以前 | 平台/架构/环境等不变 |
+
+构建成功后，安装包位于 `{env}/releases/v{版本}/`（含 `.sha256`），**此时任何
+客户端都还看不到这个版本**。Final Summary 会打印 `Publish to users: false`。
+
+### **步骤 2：上线（Promote OTA Release）**
+
+Actions → `Promote OTA Release` → Run workflow。所有参数都是**下拉表单**，
+无需记命令；每次运行都会把执行前/后的状态表格写进本次 run 的 Step Summary
+（免费的状态页），另有 `OTA Status` 工作流可随时只读查看。
+
+| 输入 | 选项 | 说明 |
+|------|------|------|
+| `app` | `cn` / `intl` | 目标应用（COS / S3） |
+| `action` | `promote` `ramp` `reduce` `pause` `resume` `rollback` | 见下表 |
+| `environment` | `production` `staging` `test` | 与客户端环境一致 |
+| `channel` | `stable` `beta` `dev` | 必须与客户端烧入的渠道一致 |
+| `percent` | `0` `5` `10` `20` `50` `100` | 默认 **100 = 全开** |
+| `version` | 文本 | promote 留空 = 自动取桶里最新 universal 版本；**rollback 必填** |
+| `cohort` | 文本（逗号分隔身份白名单） | 邮箱 `@` 前缀 / 手机号 / 微信 openid，如 `alice,13800138000` |
+| `exclude` | 文本（逗号分隔版本） | 手工追加要从 feed 剔除的版本；**rollback 会自动推导坏版本**（latest.json 当前版本 + rollout 当前 version）并与本列表合并 |
+
+**action 语义与守卫（guard 违规直接失败，不写任何东西）**：
+
+| action | 做什么 | 守卫 |
+|--------|--------|------|
+| `promote` | 重生成 appcast + latest.json + 写 rollout（percent 默认 100 全开） | 目标版本必须是 universal release 且有 `.sha256` |
+| `ramp` | 只升 percent（JSON-only，秒级生效） | 必须已有 rollout；不允许降 |
+| `reduce` | 只降 percent | 不允许升 |
+| `pause` | **Kill switch**：全体停止提示（含已排队的自动检查） | 幂等，重复 pause 只警告 |
+| `resume` | 恢复（保留原 percent） | 幂等 |
+| `rollback` | 重生成 feed 剔除坏版本，rollout 指回目标版本 | 必须显式 `version`；自动推导坏版本并从 appcast/latest.json 剔除（含手工 `exclude` 合并） |
+
+### **标准灰度节奏**
+
+```
+promote  percent=5   +  cohort=内测同事     # 内部环，先人工验证
+ramp     percent=20                        # 小流量观察
+ramp     percent=50
+ramp     percent=100                       # 全量
+（异常） pause                             # 秒级全停，无需重建
+（回滚） rollback version=上一版          # 坏版本自动剔除，可另附 exclude
+```
+
+### **灰度语义与保证**
+
+- **默认全开**：`rollout.json` 缺失 / 读取失败 / 客户端网络故障 → **全开放行**
+  （fail-open）。控制面永远不会成为更新的单点故障；老的发布方式（手动传 feed）
+  与不认识 rollout 的老客户端也完全兼容。
+- **分桶**：`sha256(install_id + "@" + version) % 100 < percent`。同一客户端
+  槽位稳定；percent 提高只增不减（单调），不会把已放行的用户踢出。
+- **白名单优先于 percent**：`percent=0 + cohort` = 纯内测环；`percent=100` 时
+  cohort 无实际作用（会有警告）。
+- **白名单身份（cohort 填什么）**：客户端按登录态解析一个身份值，与 cohort
+  条目**逐字匹配**（大小写不敏感），解析序为：邮箱 `@` 前缀（邮箱/Google 登录）
+  → 手机号（去空格横线，CN 手机号登录）→ 微信 `openid`（小写）→ 邮箱槽里的
+  裸用户名。未登录为 `None`，cohort 永不命中（只能走 percent）。
+  身份值可在客户端日志 `OTA Updater initialized ... (user_prefix=...)` 里查看；
+  测试可用 `ECAN_OTA_USER_PREFIX` 环境变量钉任意身份。
+- **版本作用域**：rollout 只管它命名的那个版本；其他/更旧的候选不受门槛影响。
+- **旧客户端限制（重要）**：灰度 gate 内置于新版本客户端（`ota/core/rollout.py`）。
+  不带 gate 的老客户端在 appcast 重生成的瞬间就会看到新版本——它们不受
+  percent 控制。因此对老客户端而言，`pause`/`ramp` 不生效，**唯一能拦住它们的
+  是不重生成 appcast（即保持 publish=false / 不 promote）**。
+- **控制面先于暴露**：promote/rollback 流程先写 rollout.json、再重生成 feed，
+  所以 rollout-aware 客户端从不存在"新版本已可见但门槛还没生效"的窗口；
+  Apply 步骤失败时 feed 完全未被改动，运行干净中止（什么都没发生）。
+- **rollback 的排除不是持久黑名单**：坏版本只在本次重生成时被剔除。之后任何
+  一次 promote 的全量扫描会把它重新列回 appcast——作为非最新条目它**不会被
+  自动推送**，但版本选择器里仍可见；latest.json 则不会复活它（合并只写当前
+  版本的条目）。需要长期下架时，后续 promote 继续带上 `exclude`。
+
+### **观测**
+
+- **每次 promote run 的 Step Summary**：当前 rollout / 已发布版本 / 可用版本 /
+  guard 结果，执行前后各一份。
+- **`OTA Status` 工作流**：随时按 app/environment/channel 只读查看 rollout 状态。
+- **下载量**：统计 COS/S3 的 `{env}/releases/` 下载日志（bucket 侧），按 percent
+  对照观察转化。
 
 ---
 
