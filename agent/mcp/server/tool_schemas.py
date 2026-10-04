@@ -2582,6 +2582,28 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="os_read_document",
+        description="<category>OS</category><sub-category>File</sub-category>Read a document as plain text: Excel (.xlsx/.xlsm, every sheet as tab-separated rows), CSV/TSV, PDF (text per page; reports scanned PDFs that have no text layer), Word (.docx, paragraphs and tables), PowerPoint (.pptx, text per slide and notes), or any text file (UTF-8/GBK detected). Legacy .xls/.doc/.ppt are not supported.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["file_path"],
+                    "properties": {
+                        "file_path": {"type": "string", "description": "Full path of the document"},
+                        "sheet": {"type": "string", "description": "Excel only: read just this sheet (default: all sheets)"},
+                        "max_rows": {"type": "integer", "default": 300, "description": "Excel/CSV: rows per sheet before cutting off"},
+                        "max_chars": {"type": "integer", "default": 40000, "description": "Cut the returned text at this many characters"},
+                    },
+                }
+            },
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_write_file",
         description="<category>OS</category><sub-category>File</sub-category>Write contents to a file (platform-independent, works on Windows/macOS/Linux). Supports both text and binary files. For text mode, provide a string. For binary mode, provide base64-encoded data. Parent directories are created automatically if they do not exist. Safe-write: when overwriting (not append), if the target file already exists it is backed up as name(1), name(2), etc. Paths can use forward slashes on all platforms.",
         inputSchema={

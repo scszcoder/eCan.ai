@@ -3307,6 +3307,26 @@ async def os_read_file(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+async def os_read_document(mainwin, args):
+    """Read an office / PDF / text document as plain text (xlsx, csv, pdf, docx, pptx, txt...)."""
+    try:
+        import json
+        from agent.mcp.server.document_reader import read_document
+
+        inp = args["input"]
+        out = read_document(
+            inp["file_path"],
+            max_chars=int(inp.get("max_chars") or 40000),
+            max_rows=int(inp.get("max_rows") or 300),
+            sheet=inp.get("sheet") or None,
+        )
+        return [TextContent(type="text", text=json.dumps(out, ensure_ascii=False, indent=2))]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorOSReadDocument")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 async def os_write_file(mainwin, args):
     """Write file contents — platform-independent (Windows/macOS/Linux).
     Supports text and binary (base64-encoded input) modes.
@@ -3946,6 +3966,7 @@ tool_function_mapping = {
         "os_move_file": os_move_file,
         "os_copy_file_dir": os_copy_file_dir,
         "os_read_file": os_read_file,
+        "os_read_document": os_read_document,
         "os_write_file": os_write_file,
         "os_screen_analyze": os_screen_analyze,
         "os_screen_capture": os_screen_capture,

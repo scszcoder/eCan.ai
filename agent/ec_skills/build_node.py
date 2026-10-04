@@ -3275,6 +3275,38 @@ def _trim_tool_result(state: dict) -> None:
         pass
 
 
+def _promote_llm_output(state: dict, node_name: str) -> None:
+    """Publish an LLM node's parsed output where the rest of the graph reads it:
+
+    1. fields flattened into ``state["result"]`` (condition expressions),
+    2. ``state["result"][node_name]`` ({{node_name.field}} templates),
+    3. ``state["tool_result"][node_name]`` -- how a downstream node takes a field by
+       name, e.g. a planner's ``{{gen_prompt}}`` in a media-gen node, and how a loop
+       condition reads one node's verdict among several LLM nodes.
+    """
+    result = state.get("result")
+    if not isinstance(result, dict):
+        return
+    inner = result.get("llm_result")
+    if isinstance(inner, dict) and isinstance(inner.get("llm_result"), dict):
+        inner = inner["llm_result"]  # double-wrapped
+    if not isinstance(inner, dict):
+        return
+    result["llm_result"] = inner
+    for k, v in inner.items():
+        if k != "llm_result":
+            result[k] = v
+    # Copies: a downstream MCP auto-select node stamps all_done/work_done onto
+    # result["llm_result"] when no tool was picked; that must not rewrite what
+    # this node said.
+    result[node_name] = dict(inner)
+    tool_result = state.get("tool_result")
+    if not isinstance(tool_result, dict):
+        tool_result = state["tool_result"] = {}
+    tool_result[node_name] = dict(inner)
+    logger.info(f"[LLM_NODE] node={node_name} promoted (flatten to result, node-name to result+tool_result)")
+
+
 def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):
     """
     Builds a callable function for a LangGraph node that interacts with an LLM.
@@ -5427,6 +5459,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 except Exception:
                     pass
 
+                _promote_llm_output(state, node_name)
+
                 logger.debug(f"llm_node finished..... {_format_state_log(state)}")
 
                 # Total time for llm_node_callable (best-effort)
@@ -5723,28 +5757,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 #
                 # 3. Tool-result promote: state["tool_result"]["node_name"] = inner
                 #    → all node outputs unified in tool_result
-                inner = _parsed.get("llm_result", {})
-                if isinstance(inner, dict) and inner.get("llm_result"):
-                    # Double-wrapped: {"llm_result": {"llm_result": {...}}}
-                    unwrapped = inner.get("llm_result")
-                    _apply_promotes(unwrapped, node_name)
-                elif isinstance(inner, dict):
-                    _apply_promotes(inner, node_name)
-
-                def _apply_promotes(inner_data, node_name):
-                    """Apply all three promote patterns for a single node output."""
-                    # 1. Flatten: merge inner_data into state["result"] for condition expressions
-                    state.setdefault("result", {})
-                    # Keep llm_result key but also expose fields at top level
-                    state["result"]["llm_result"] = inner_data
-                    for k, v in inner_data.items():
-                        if k != "llm_result":  # avoid re-wrapping
-                            state["result"][k] = v
-                    # 2+3. Node-name promote: both result and tool_result
-                    state["result"][node_name] = inner_data
-                    state.setdefault("tool_result", {})
-                    state["tool_result"][node_name] = inner_data
-                    logger.info(f"[LLM_NODE] node={node_name} promoted (flatten to result, node-name to result+tool_result)")
+                _promote_llm_output(state, node_name)
 
                 _perf_llm("total", _t0)
 
