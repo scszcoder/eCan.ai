@@ -139,23 +139,22 @@ def _output_dir(subdir: str) -> str:
 
 
 def render_template(text: Any, state: dict) -> str:
-    """Substitute ``{{var}}`` from state the same way the LLM node does."""
+    """Substitute variables from state with the LLM node's own renderer, so a field
+    here takes what an LLM prompt takes: ``{{gen_prompt}}`` (the latest upstream
+    output carrying that field), ``{{tool_result.<node>.<field>}}``,
+    ``{{node.field}}`` dot paths and ``{{#x}}...{{/x}}`` sections. A planner LLM's
+    per-image prompt reaches this node that way."""
     text = "" if text is None else str(text)
-    variables = re.findall(r"\{\{(\w+)\}\}", text)
-    if not variables:
+    if "{{" not in text:
         return text
-    from agent.ec_skills.prompt_variable_providers import resolve_prompt_variables
-    from agent.ec_skills.build_node import _safe_prompt_value
+    from agent.ec_skills.build_node import _resolve_mustache_template
     mainwin = None
     try:
         from app_context import AppContext
         mainwin = AppContext.get_main_window()
     except Exception:
         pass
-    values = resolve_prompt_variables(variable_names=variables, state=state, mainwin=mainwin)
-    for var, val in values.items():
-        text = text.replace(f"{{{{{var}}}}}", _safe_prompt_value(val))
-    return text
+    return _resolve_mustache_template(text, state, mainwin)
 
 
 def _to_int(v: Any) -> Optional[int]:
@@ -249,6 +248,12 @@ def build_media_gen_node(config_metadata: dict, node_name, skill_name, owner, bp
             return str(_cfg(inline_key, "") or "")
         return text
 
+    def _negative() -> Optional[str]:
+        # The rendered value only (param block or the rendered field, set in
+        # overrides per run): the raw field may be a template like
+        # {{negative_prompt}} that rendered empty.
+        return _overrides.get().get("negativePrompt") or None
+
     def _resolve_refs(client: ProxyMediaClient, raw: Any, state: dict) -> List[str]:
         urls = []
         for ref in split_media_list(render_template(raw, state)):
@@ -260,7 +265,7 @@ def build_media_gen_node(config_metadata: dict, node_name, skill_name, owner, bp
         data = client.generate_images(
             _model(), prompt, timeout_s=_timeout(),
             n=_to_int(_cfg("n")), size=_cfg("size"), aspect_ratio=_cfg("aspectRatio"),
-            negative_prompt=_cfg("negativePrompt"), reference_images=refs or None,
+            negative_prompt=_negative(), reference_images=refs or None,
         )
         media = []
         for i, item in enumerate(data):
@@ -311,7 +316,7 @@ def build_media_gen_node(config_metadata: dict, node_name, skill_name, owner, bp
             last = _resolve_refs(client, _cfg("lastFrame"), state) if _cfg("lastFrame") else []
             job = client.submit_video(
                 _model(), prompt,
-                negative_prompt=_cfg("negativePrompt"), image_url=first[0] if first else None,
+                negative_prompt=_negative(), image_url=first[0] if first else None,
                 last_frame_url=last[0] if last else None,
                 reference_images=refs or None, duration_seconds=_to_int(_cfg("durationSeconds")),
                 resolution=_cfg("resolution"), aspect_ratio=_cfg("aspectRatio"),

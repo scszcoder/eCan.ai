@@ -340,8 +340,16 @@ def _v2_convert_loops(wf: dict) -> dict:
             t = next((bn.get('type') for bn in (loop_node.get('blocks') or []) if bn.get('id') == nid), '')
             return t in ('block-start','block-end')
         candidates = {nid for nid in inner_nodes if not is_passthru(nid)}
-        firsts = {nid for nid in candidates if len([p for p in preds.get(nid, set()) if not is_passthru(p)]) == 0}
-        lasts = {nid for nid in candidates if len([s for s in succs.get(nid, set()) if not is_passthru(s)]) == 0}
+        # The canvas wiring says it outright: block-start -> first, last -> block-end.
+        # The no-pred / no-succ guess below misses a first node that a back edge
+        # returns to (an LLM <-> tool loop), so it only applies without that wiring.
+        block_types = {bn.get('id'): bn.get('type') for bn in (loop_node.get('blocks') or [])}
+        wired_firsts = {v for u in inner_nodes if block_types.get(u) == 'block-start'
+                        for v in succs.get(u, set()) if v in candidates}
+        wired_lasts = {u for v in inner_nodes if block_types.get(v) == 'block-end'
+                       for u in preds.get(v, set()) if u in candidates}
+        firsts = wired_firsts or {nid for nid in candidates if len([p for p in preds.get(nid, set()) if not is_passthru(p)]) == 0}
+        lasts = wired_lasts or {nid for nid in candidates if len([s for s in succs.get(nid, set()) if not is_passthru(s)]) == 0}
         return firsts or candidates, lasts or candidates
 
     new_nodes = []
@@ -416,6 +424,21 @@ def _v2_convert_loops(wf: dict) -> dict:
                 else:
                     _seed_lines += f"        if '{_rk}' not in result:\n            result['{_rk}'] = False\n"
 
+        # Per-loop iteration count (2026-10-03): state["attributes"]["loop_iterations"]
+        # [<loop id>] is 0 on the pass that enters the loop and +1 on every repeat;
+        # each pass of a loop resets the loops nested in it, so an inner loop counts
+        # from 0 again every time it is entered. Lives in attributes because an LLM
+        # node replaces state["result"] wholesale. Conditions read it as e.g.
+        #   loop_iterations["loop_x"] < 3
+        def _nested_loop_ids(node: dict) -> list:
+            found = []
+            for bn in (node.get('blocks') or []):
+                if bn.get('type') == 'loop':
+                    found.append(str(bn.get('id')))
+                found.extend(_nested_loop_ids(bn))
+            return found
+        _child_loops = _nested_loop_ids(lnode)
+
         update_node = {
             'id': update_id,
             'type': 'code',
@@ -431,7 +454,14 @@ def main(state, *, runtime, store):
         result = state.setdefault('result', {{}})
         if 'counter' not in result:
             result['counter'] = 0
-{_seed_lines}    return state
+{_seed_lines}        attrs = state.setdefault('attributes', {{}})
+        if not isinstance(attrs, dict):
+            attrs = state['attributes'] = {{}}
+        iters = attrs.setdefault('loop_iterations', {{}})
+        iters[{str(lid)!r}] = int(iters.get({str(lid)!r}, -1)) + 1
+        for _child in {_child_loops!r}:
+            iters[_child] = -1
+    return state
 """
                 }
             }
@@ -510,8 +540,15 @@ def main(state, *, runtime, store):
             logger.debug(f"[v2][loop] {lid}: creating else_out edge from {check_id} to {target_id} (orig successor: {s}, is_loop: {s in loop_ids})")
             new_edges.append({'sourceNodeID': check_id, 'targetNodeID': target_id, 'sourcePortID': 'else_out'})
         # back-edge: last inner(s) -> update
+        # A condition wired port -> block-end keeps that port on its back edge.
+        end_ids = {bn.get('id') for bn in (lnode.get('blocks') or []) if bn.get('type') == 'block-end'}
+        end_ports = {ie.get('sourceNodeID'): ie.get('sourcePortID') for ie in (lnode.get('edges') or [])
+                     if ie.get('targetNodeID') in end_ids and ie.get('sourcePortID')}
         for la in lasts:
-            new_edges.append({'sourceNodeID': la, 'targetNodeID': update_id})
+            back = {'sourceNodeID': la, 'targetNodeID': update_id}
+            if end_ports.get(la):
+                back['sourcePortID'] = end_ports[la]
+            new_edges.append(back)
 
         # copy inner graph into outer
         copy_inner(lid, lnode)
@@ -539,8 +576,13 @@ def main(state, *, runtime, store):
     edges_out.extend(new_edges)
 
     # Defensive sweep: drop edges whose endpoints are no longer present (e.g., loop containers)
+    # Keep start edges: sheet flattening drops the 'start' node but keeps its edges as
+    # the graph's START edge, so on the nested-loop pass (after flattening) this sweep
+    # used to delete start -> outer loop and the skill entered at a stray node instead.
     valid_ids = {str(n.get('id')) for n in nodes_out}
-    edges_out = [e for e in edges_out if str(e.get('sourceNodeID')) in valid_ids and str(e.get('targetNodeID')) in valid_ids]
+    edges_out = [e for e in edges_out
+                 if (str(e.get('sourceNodeID')) in valid_ids or str(e.get('sourceNodeID')).startswith('start'))
+                 and str(e.get('targetNodeID')) in valid_ids]
 
     out = {'nodes': nodes_out, 'edges': edges_out}
     _v2_debug_workflow('after_convert_loops', out)

@@ -3,6 +3,12 @@ from agent.mcp.server.wechat.wechat_tools import (
     add_wechat_send_tool_schema,
     add_wechat_receive_tool_schema,
 )
+from agent.mcp.server.qianniu.qianniu_tools import (
+    add_qianniu_send_tool_schema,
+    add_qianniu_receive_tool_schema,
+    add_qianniu_open_session_tool_schema,
+    add_qianniu_check_location_tool_schema,
+)
 from agent.mcp.server.scrapers.amazon_seller.amazon_orders_scrape import (
     add_get_amazon_summary_tool_schema,
     add_amazon_fullfill_next_order_tool_schema,
@@ -2528,6 +2534,10 @@ def build_agent_mcp_tools_schemas():
     # WeChat automation tools
     add_wechat_send_tool_schema(tool_schemas)
     add_wechat_receive_tool_schema(tool_schemas)
+    add_qianniu_send_tool_schema(tool_schemas)
+    add_qianniu_receive_tool_schema(tool_schemas)
+    add_qianniu_open_session_tool_schema(tool_schemas)
+    add_qianniu_check_location_tool_schema(tool_schemas)
 
     # Azure cost monitoring and emergency shutdown tools
     add_azure_read_billing_tool_schema(tool_schemas)
@@ -2564,6 +2574,28 @@ def build_agent_mcp_tools_schemas():
                             "default": "utf-8",
                             "description": "Text encoding to use when mode is 'text' (e.g. 'utf-8', 'gbk', 'latin-1')",
                         },
+                    },
+                }
+            },
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="os_read_document",
+        description="<category>OS</category><sub-category>File</sub-category>Read a document as plain text: Excel (.xlsx/.xlsm, every sheet as tab-separated rows), CSV/TSV, PDF (text per page; reports scanned PDFs that have no text layer), Word (.docx, paragraphs and tables), PowerPoint (.pptx, text per slide and notes), or any text file (UTF-8/GBK detected). Legacy .xls/.doc/.ppt are not supported.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["file_path"],
+                    "properties": {
+                        "file_path": {"type": "string", "description": "Full path of the document"},
+                        "sheet": {"type": "string", "description": "Excel only: read just this sheet (default: all sheets)"},
+                        "max_rows": {"type": "integer", "default": 300, "description": "Excel/CSV: rows per sheet before cutting off"},
+                        "max_chars": {"type": "integer", "default": 40000, "description": "Cut the returned text at this many characters"},
                     },
                 }
             },

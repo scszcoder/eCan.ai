@@ -47,10 +47,21 @@ def _run(cmd: List[str]):
 
 
 def split_media_list(text: Any) -> List[str]:
-    """Newline- or comma-separated paths / URLs -> list (blanks dropped)."""
+    """Newline- or comma-separated paths / URLs -> list (blanks dropped). A list
+    rendered into a template field (``["a.png", "b.png"]`` or Python's
+    ``['a.png']``) counts as that list."""
     if isinstance(text, (list, tuple)):
         return [str(x).strip() for x in text if str(x).strip()]
-    return [p.strip() for p in re.split(r"[\r\n,]+", str(text or "")) if p.strip()]
+    raw = str(text or "").strip()
+    if raw.startswith("[") and raw.endswith("]"):
+        import ast
+        try:
+            items = ast.literal_eval(raw)
+        except (ValueError, SyntaxError):
+            items = None
+        if isinstance(items, (list, tuple)):
+            return [str(x).strip() for x in items if str(x).strip()]
+    return [p.strip() for p in re.split(r"[\r\n,]+", raw) if p.strip()]
 
 
 def _ref_name(source: str) -> str:
