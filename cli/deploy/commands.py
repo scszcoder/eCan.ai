@@ -286,6 +286,17 @@ def _prompt_visible(prompt_id: str, skill_owner: str, log: list) -> bool:
     return False
 
 
+def _company_root_org_id(ctx) -> str:
+    """The company organization departments hang under ('' if there is none)."""
+    try:
+        rows = (ctx.db.org_service.get_all_orgs() or {}).get("data") or []
+    except Exception:
+        return ""
+    roots = [r for r in rows if not r.get("parent_id") and r.get("org_type") == "company"]
+    roots.sort(key=lambda r: (r.get("sort_order") or 0, str(r.get("created_at") or "")))
+    return str(roots[0].get("id") or "") if roots else ""
+
+
 def _ensure_sales_org(ctx, owner: str, log: list, name: str = _DDCS_SALES_ORG_NAME) -> str:
     """Return the id of organization *name* (Sales by default), creating it if absent."""
     result = ctx.db.org_service.search_orgs(name=name)
@@ -296,11 +307,18 @@ def _ensure_sales_org(ctx, owner: str, log: list, name: str = _DDCS_SALES_ORG_NA
         org_id = exact[0].get("id")
         log.append(f"{name} organization found: {org_id}")
         return org_id
-    created = ctx.db.org_service.add_org({
+    data = {
         "name": name,
         "description": f"{name} organization (created by Fast Deploy)",
         "owner": owner,
-    })
+    }
+    # A department goes under the company root. Created parentless, it became
+    # a second top-level organization and the Agents page stopped showing the
+    # company's departments at the top (Operations, 2026-09-28).
+    root_id = _company_root_org_id(ctx)
+    if root_id:
+        data.update({"parent_id": root_id, "org_type": "department", "level": 1})
+    created = ctx.db.org_service.add_org(data)
     if not created.get("success"):
         raise RuntimeError(_tr(f"Could not find or create {name} organization: {created.get('error')}",
                                 f"无法找到或创建部门（{name}）：{created.get('error')}"))

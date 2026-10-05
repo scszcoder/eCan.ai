@@ -394,6 +394,21 @@ def _repair_local_skill_from_cloud(local_sk: Dict[str, Any], cloud_sk: Dict[str,
     for key in _CLOUD_REPAIRABLE_SKILL_FIELDS:
         local_val = local_sk.get(key)
         cloud_val = cloud_sk.get(key)
+        if key == 'owner' and local_owner:
+            # The row belongs to the current user (caller verified the cloud
+            # twin), so it must carry the LOCAL form of the identity: My Skills
+            # filters on it and the save handler's read-only gate compares it.
+            # The cloud row holds the bare cloud form (WeChat: openid without
+            # 'wechat_'); copying that into an empty owner made the user's own
+            # skills read-only and listed twice (2026-10-04).
+            cloud_has_owner = isinstance(cloud_val, str) and cloud_val.strip()
+            if cloud_has_owner and str(local_val or '').strip() != local_owner:
+                logger.info(
+                    f"[skill_handler] Owner on local skill '{local_sk.get('name')}' "
+                    f"({local_sk.get('id')}): {local_val!r} → {local_owner!r}"
+                )
+                fields[key] = local_owner
+            continue
         if key in _PUBLISH_FIELDS and cloud_val is not None:
             # Store listing is cloud-authoritative for the owner's own skill:
             # it is what subscribers see, and local saves used to reset it.
@@ -3670,7 +3685,11 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
             # Create new skill
             logger.info(f"[skill_handler] Creating new skill: {skill_name}")
             
-            prepared_data = _prepare_skill_data(skill_info, username, skill_id=None)
+            # Keep the id the file already carries. Saving a NEW skill writes its
+            # file (this path) just before the editor's save_agent_skill, which
+            # looks the skill up by that id; a fresh DB-generated id here made
+            # that save insert a second row of the same skill (2026-10-04).
+            prepared_data = _prepare_skill_data(skill_info, username, skill_id=file_skill_id or None)
             logger.debug(f"[skill_handler] Prepared data for create: path={prepared_data.get('path')}")
             result = skill_service.add_skill(prepared_data)
             
