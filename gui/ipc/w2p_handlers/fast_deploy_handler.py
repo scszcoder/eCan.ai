@@ -193,6 +193,9 @@ def handle_fast_deploy_generate(request: IPCRequest,
             "scenario": scenario,
             "config_path": str(cfg_path),
             "plan": result.get("plan"),
+            # A scenario with no generation yet (e.g. tmall_cs) returns a plan
+            # only; the panel must not present that as a deployment.
+            "stub": bool(result.get("stub")),
             "log": log,
             "message": result.get("message") or "",
         })

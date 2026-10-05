@@ -332,6 +332,13 @@ async def _watch_list(client, sid: str, state: _State, session: Any, target_id: 
             logger.info(f"[PDD-WS] stats {state.stats} last frame {idle} ago")
 
 
+# One observer per chat tab: (cdp_url, target_id) -> its client. A monitor restart
+# that did not stop the previous observer left two of them on one tab, and every
+# customer message was dispatched -- and answered -- twice (customer run 99v,
+# 2026-10-05). Starting one now replaces whatever was there.
+_LIVE_BY_TAB: dict = {}
+
+
 async def start_ws_shadow_observer(session: Any, target_id: str, label: str = "",
                                    dispatch_fn: Optional[Callable[[dict], Any]] = None) -> Any:
     """Attach to the chat tab and dispatch from the titan socket. Returns the handle, or None."""
@@ -341,6 +348,14 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
     if not cdp_url:
         logger.warning("[PDD-WS] no cdp_url on the session; observer not started")
         return None
+    tab_key = (str(cdp_url), str(target_id))
+    previous = _LIVE_BY_TAB.pop(tab_key, None)
+    if previous is not None:
+        logger.info(f"[PDD-WS] replacing the observer already on tab {str(target_id)[-6:]} (one per tab)")
+        try:
+            await stop_ws_shadow_observer(previous)
+        except Exception as exc:
+            logger.warning(f"[PDD-WS] stopping the previous observer failed: {exc}")
     try:
         from cdp_use import CDPClient
         from agent.ec_skills.browser_use_extension.site_probe import browser_ws_url
@@ -380,6 +395,7 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         await _cold_start(client, sid, state)
         state.watch_task = asyncio.get_running_loop().create_task(
             _watch_list(client, sid, state, session, target_id))
+        _LIVE_BY_TAB[tab_key] = client
         return client
     except Exception as exc:
         logger.warning(f"[PDD-WS] observer failed to start: {exc}")
@@ -389,8 +405,16 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
 async def stop_ws_shadow_observer(client: Any) -> None:
     if client is None:
         return
+    current = False
+    for _key, _live in list(_LIVE_BY_TAB.items()):
+        if _live is client:
+            _LIVE_BY_TAB.pop(_key, None)
+            current = True
     state = getattr(client, _HANDLE_ATTR, None)
-    ws_session.set_dispatch_live(False, getattr(state, "shop", None))
+    # A replaced observer is no longer its tab's live one: clearing the flag then
+    # would switch WS dispatch off under the observer that replaced it.
+    if current:
+        ws_session.set_dispatch_live(False, getattr(state, "shop", None))
     if state is not None and state.watch_task:
         state.watch_task.cancel()
     try:

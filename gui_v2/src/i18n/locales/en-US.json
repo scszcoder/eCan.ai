@@ -747,6 +747,7 @@
       "fast_deploy_success": "Success",
       "fast_deploy_refreshing": "Refreshing agent list…",
       "fast_deploy_refreshed": "Agent list refreshed — new agents are on the Agents page.",
+      "fast_deploy_stub": "This scenario is not available yet: only a plan was made, no agents or tasks were created.",
       "fast_deploy_refresh_failed": "Auto-refresh failed — use the refresh button on the Agents page.",
       "batchSelect": "Batch select",
       "selectAll": "Select all",

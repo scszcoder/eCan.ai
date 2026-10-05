@@ -155,7 +155,13 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
             if (Array.isArray(data.log)) extra.push(...data.log.map((x: any) => String(x)));
             else if (data.message) extra.push(String(data.message));
 
-            if (resp?.success && data.status === 'success') {
+            if (resp?.success && data.status === 'success' && data.stub) {
+                // Plan only: this scenario cannot generate yet, nothing was created
+                // (天猫客服 reported "success" with no agents, 2026-10-05).
+                setStatusLines((l) => [...l, ...extra, t('pages.agents.fast_deploy_stub',
+                    'This scenario is not available yet: only a plan was made, no agents or tasks were created.')]);
+                setResult('failure');
+            } else if (resp?.success && data.status === 'success') {
                 setStatusLines((l) => [...l, ...extra]);
                 setResult('success');
                 // Pull the freshly generated agents into the stores so they

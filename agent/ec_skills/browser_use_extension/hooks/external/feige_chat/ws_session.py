@@ -1096,6 +1096,20 @@ def pending_is_fc(cid: str) -> bool:
         return bool(p and p.get("fc"))
 
 
+def _talk_of_name(sk, customer_name) -> "str | None":
+    """The conversation of *customer_name* in shop state *sk* (caller holds _lock).
+
+    A synthetic card identity (card:<talk>) IS its conversation -- routing only knows
+    real names. Without this a customer who opened with a product card fell to the
+    DOM scrape on every later text message, read the not-yet-rendered thread, and
+    mt030 skipped the new question as "already answered"; it waited 18-41s for the
+    backstop to pick it up under the real name (customer run 99v, 50-60s replies)."""
+    talk = _st(sk, "routing").get(customer_name) if sk is not None else None
+    if not talk and str(customer_name or "").startswith("card:"):
+        talk = str(customer_name)[5:].strip() or None
+    return talk
+
+
 def ws_text_scrape(customer_name: str, shop: str = ""):
     """ws008 (the swappable WS 'scrape tool'): produce a DOM-scrape-compatible customer-
     bubble result for *customer_name* PURELY from the WS frame stream — but ONLY for
@@ -1106,7 +1120,7 @@ def ws_text_scrape(customer_name: str, shop: str = ""):
     downstream dedup/stale-guard keys stay consistent with the DOM path."""
     with _lock:
         _sk = _shop_for_name(customer_name, shop)
-        talk = _st(_sk, "routing").get(customer_name) if _sk is not None else None
+        talk = _talk_of_name(_sk, customer_name)
         th = _thread.get(talk) if talk else None
         cust = dict(th.get("cust") or {}) if th else None
         agent = dict(th.get("agent") or {}) if th else None
@@ -1158,7 +1172,7 @@ def ws_thread_snapshot(customer_name: str, shop: str = ""):
     {"customer": {...}, "agent": {...}} or None when no data yet."""
     with _lock:
         _sk = _shop_for_name(customer_name, shop)
-        talk = _st(_sk, "routing").get(customer_name) if _sk is not None else None
+        talk = _talk_of_name(_sk, customer_name)
         th = _thread.get(talk) if talk else None
         if not th:
             return None

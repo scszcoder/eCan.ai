@@ -1840,6 +1840,18 @@ async def before_run_hook(
     if not _pd_config.enabled:
         return None
 
+    # This hook is registered for every browser node, so it also runs the generic
+    # fan-out for front desks of OTHER live-chat bundles (a PDD front desk has no
+    # pre-dispatch hook of its own). Such a node is not a Feige shop: registering
+    # its browser as one made the PDD store the "first" Feige shop, and Feige's
+    # cold-start / WS dispatches that carry no shop key ran through PDD's context
+    # -- PDD browser, PDD Q&A pool (customer run 99v, 2026-10-05).
+    try:
+        from agent.ec_skills.live_chat_dispatch import active_site as _active_site
+        _foreign_node = (_active_site() or "") not in ("", "feige_chat")
+    except Exception:
+        _foreign_node = False
+
     # Which shop this front desk serves: the browser it runs in.
     _fd_sess = getattr(agent, "browser_session", None)
     if _fd_sess is None:
@@ -1849,7 +1861,8 @@ async def before_run_hook(
             _fd_sess = None
     from .shop_scope import shop_key_of as _fd_shop_of
     from .ws_session import register_shop as _fd_register
-    _fd_shop = _fd_register(_fd_shop_of(_fd_sess)) if _fd_sess is not None else ""
+    _fd_shop = (_fd_register(_fd_shop_of(_fd_sess))
+                if _fd_sess is not None and not _foreign_node else "")
     # ── Build DispatchContext from hook_ctx ──
     _pd_ctx = DispatchContext(
         state=state,
@@ -1873,7 +1886,8 @@ async def before_run_hook(
     # ws023: register this context so the WS detector can route messages directly
     # through run() (bypassing the serial front-desk task) when ECAN_FEIGE_WS_DIRECT_QA=1.
     # Keyed by this front desk's shop (its browser) when several shops run.
-    _set_fd_slot(_fd_shop, (_pd_config, _pd_ctx, agent))
+    if not _foreign_node:
+        _set_fd_slot(_fd_shop, (_pd_config, _pd_ctx, agent))
     return await _run_frontdesk_dispatch(_pd_config, _pd_ctx, agent)
 
 

@@ -779,6 +779,7 @@
       "fast_deploy_success": "成功",
       "fast_deploy_refreshing": "正在刷新智能体列表…",
       "fast_deploy_refreshed": "智能体列表已刷新，新智能体已显示在智能体页面。",
+      "fast_deploy_stub": "该场景暂未开放自动生成：只生成了方案，没有创建任何智能体或任务。",
       "fast_deploy_refresh_failed": "自动刷新失败，请点击智能体页面的刷新按钮。",
       "batchSelect": "批量选择",
       "selectAll": "全选",
