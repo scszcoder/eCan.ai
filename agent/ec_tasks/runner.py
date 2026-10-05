@@ -124,6 +124,30 @@ def _live_chat_bridge():
         return None
 
 
+def _enter_task_site(target_task: Any) -> Any:
+    """Make bridge lookups resolve to *target_task*'s platform -- read from its
+    skill's hookBundles -- for work done for it outside a node run (reply
+    direct-delivery). Returns a reset token, or None when the skill names no
+    live-chat bundle (single-bundle processes keep resolving to the sole bridge,
+    as before)."""
+    try:
+        from agent.ec_skills import live_chat_dispatch
+        site = live_chat_dispatch.site_for_skill(getattr(target_task, "skill", None))
+        return live_chat_dispatch.set_active_site(site) if site else None
+    except Exception:
+        return None
+
+
+def _leave_task_site(token: Any) -> None:
+    if token is None:
+        return
+    try:
+        from agent.ec_skills import live_chat_dispatch
+        live_chat_dispatch.reset_active_site(token)
+    except Exception:
+        pass
+
+
 def _live_chat_env(name: str) -> "str | None":
     """Read a live-chat tunable env var by its platform-neutral name.
 
@@ -4504,6 +4528,14 @@ class TaskRunner(Generic[Context]):
         }
 
     def _try_direct_live_chat_delivery(self, target_task: "ManagedTask", request: Any) -> bool:
+        """Direct delivery under the target front desk's platform (see _enter_task_site)."""
+        _site_token = _enter_task_site(target_task)
+        try:
+            return self._try_direct_live_chat_delivery_impl(target_task, request)
+        finally:
+            _leave_task_site(_site_token)
+
+    def _try_direct_live_chat_delivery_impl(self, target_task: "ManagedTask", request: Any) -> bool:
         """
         Attempt to deliver a chat_message response directly via the live-chat tools,
         bypassing the LLM queue.  Returns True if the reply was sent successfully.
@@ -6387,6 +6419,13 @@ class TaskRunner(Generic[Context]):
                 return False
 
         def _run_direct_delivery_blocking() -> bool:
+            _site_token = _enter_task_site(target_task)
+            try:
+                return _run_direct_delivery_blocking_body()
+            finally:
+                _leave_task_site(_site_token)
+
+        def _run_direct_delivery_blocking_body() -> bool:
             _lock = _DIRECT_LIVE_CHAT_DELIVERY_LOCK
             if not _lock.acquire(timeout=20.0):
                 if _live_chat_ds is not None:
@@ -6449,6 +6488,15 @@ class TaskRunner(Generic[Context]):
                     pass
 
         async def _async_direct_delivery_job(_queue: Any = None) -> None:
+            # Runs as a task on the delivery worker loop, which does not inherit
+            # the caller's context -- set the platform here as well.
+            _site_token = _enter_task_site(target_task)
+            try:
+                await _async_direct_delivery_job_body(_queue)
+            finally:
+                _leave_task_site(_site_token)
+
+        async def _async_direct_delivery_job_body(_queue: Any = None) -> None:
             _track_direct_live_chat_job(_direct_job_id, _parsed, "running")
             _ledger("direct_job_start")
             try:

@@ -164,6 +164,48 @@ def active_site() -> "str | None":
     return _ACTIVE_SITE.get()
 
 
+def site_for_skill(skill: Any) -> "str | None":
+    """The live-chat site a skill runs, read from its own diagram: the first
+    ``hookBundles`` spec whose bundle has a registered runner bridge.
+
+    For work done for a task OUTSIDE its node run (reply direct-delivery, on a
+    worker loop), which has no active site and would otherwise get the process
+    default -- with 飞鸽 and 拼多多 front desks in one process that default is
+    one platform, so the other platform's replies resolved their chat tab
+    through the wrong bundle and never sent ("live-chat tab target not found",
+    customer run 99t, 2026-10-05). Read from the skill's data, so nothing
+    outside the live-chat layer has to report it.
+    """
+    diagram = getattr(skill, "diagram", None)
+    if not isinstance(diagram, dict) or not _BRIDGES:
+        return None
+    import json
+
+    def _specs(node: Any):
+        if isinstance(node, dict):
+            hb = node.get("hookBundles")
+            if isinstance(hb, dict) and "content" in hb:
+                raw = hb.get("content")
+                try:
+                    parsed = json.loads(raw) if isinstance(raw, str) else raw
+                except (TypeError, ValueError):
+                    parsed = None
+                if isinstance(parsed, list):
+                    yield from parsed
+            for v in node.values():
+                yield from _specs(v)
+        elif isinstance(node, list):
+            for v in node:
+                yield from _specs(v)
+
+    for spec in _specs(diagram):
+        path = str((spec.get("path") if isinstance(spec, dict) else spec) or "").strip()
+        name = path.replace("\\", "/").rstrip("/").split("/")[-1]
+        if name in _BRIDGES:
+            return name
+    return None
+
+
 def configured_sites() -> "list[str]":
     """Sites this process serves, from ``ECAN_LIVE_CHAT_SITE`` (comma-separated).
 

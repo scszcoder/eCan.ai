@@ -2443,6 +2443,41 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
         )
 
 
+def _skill_dir_users(skill_root, skill_service, request=None, params=None) -> list:
+    """Ids of skills (DB rows, then the in-memory pool) whose file lies inside
+    *skill_root*. Called after the deleted row is gone, so any hit is another
+    skill that still needs the folder."""
+    import os
+
+    def _inside(path) -> bool:
+        if not path:
+            return False
+        try:
+            p = os.path.normcase(os.path.abspath(str(path)))
+            root = os.path.normcase(os.path.abspath(str(skill_root)))
+            return p == root or p.startswith(root + os.sep)
+        except Exception:
+            return False
+
+    users = []
+    try:
+        for row in (skill_service.query_skills().get('data') or []):
+            if _inside(row.get('path')):
+                users.append(str(row.get('id')))
+    except Exception as e:
+        # Unknown -> treat as in use: a kept folder is recoverable, a deleted one is not.
+        logger.warning(f"[skill_handler] Could not check other users of {skill_root}: {e}")
+        return ['(unknown)']
+    try:
+        for sk in (get_handler_context(request, params).get_agent_skills() or []):
+            sid = str(getattr(sk, 'id', '') or '')
+            if sid and sid not in users and _inside(getattr(sk, 'path', None)):
+                users.append(sid)
+    except Exception:
+        pass
+    return users
+
+
 @IPCHandlerRegistry.handler('delete_agent_skill')
 def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handle deleting agent skill from database and memory
@@ -2647,7 +2682,16 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
                     diagram_dir = skill_file.parent  # diagram_dir/
                     skill_root = diagram_dir.parent  # xxx_skill/
                     
-                    if skill_root.exists() and skill_root.is_dir():
+                    _users = _skill_dir_users(skill_root, skill_service, request, params)
+                    if _users:
+                        # Two rows can share one folder (a duplicate row of the
+                        # same skill). Removing the folder would take the other
+                        # skill's files with it.
+                        logger.warning(
+                            f"[skill_handler] Kept skill directory {skill_root}: still used by "
+                            f"{', '.join(_users[:5])}"
+                        )
+                    elif skill_root.exists() and skill_root.is_dir():
                         # Safety check: only delete if it looks like a skill directory
                         if skill_root.name.endswith('_skill') or (diagram_dir.exists() and diagram_dir.name == 'diagram_dir'):
                             shutil.rmtree(str(skill_root))
