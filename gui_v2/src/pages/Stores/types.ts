@@ -38,6 +38,15 @@ export interface StoreRow {
 }
 
 /** A machine a store can be assigned to (store.machines). */
+/** What deleting a store removes (store.delete dry_run). */
+export interface StoreDeletePlan {
+  store_id: string;
+  agents: { id: string; name: string }[];
+  tasks: { id: string; name: string; agent_id: string }[];
+  /** agents that also serve another store: kept, only this store's tasks leave them */
+  kept_agents: { id: string; name: string }[];
+}
+
 export interface StoreMachine {
   id: string;
   name: string;

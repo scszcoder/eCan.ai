@@ -208,6 +208,18 @@ def handle_update(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCR
     return _catalog_call(request, 'store_update', run)
 
 
+@IPCHandlerRegistry.background_handler('store.delete')
+def handle_delete(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Delete a store with its agents and tasks: {store_id, username, dry_run?}.
+
+    ``dry_run: true`` returns what would be removed, for the confirm dialog.
+    """
+    def run():
+        from agent.ec_agents import store_catalog
+        return store_catalog.delete_store(_mainwin(), params or {})
+    return _catalog_call(request, 'store_delete', run)
+
+
 @IPCHandlerRegistry.background_handler('store.assign')
 def handle_assign(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Say where a store should run.

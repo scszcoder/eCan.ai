@@ -263,6 +263,25 @@ def store_claim(store_id: str, vehicle_id: str,
     return _call("store_claim", {"store_id": sid, "vehicle_id": vid}, timeout)
 
 
+def store_delete(store_id: str, timeout: float = DEFAULT_TIMEOUT_S) -> Dict[str, Any]:
+    """Remove a store from the account's registry for good.
+
+    Returns ``{"cloud": "deleted"}``, or ``{"cloud": "archived", "note": ...}``
+    when the server has no ``store_delete`` action yet (the store is archived
+    instead, so it stops showing up and can still be restored). A refusal of
+    both raises.
+    """
+    sid = str(store_id or "").strip()
+    if not sid:
+        raise ValueError("store_id is required")
+    try:
+        _call("store_delete", {"store_id": sid}, timeout)
+        return {"cloud": "deleted"}
+    except StoreApiError as exc:
+        store_archive(sid, timeout=timeout)
+        return {"cloud": "archived", "note": f"store_delete unavailable, archived instead: {exc}"}
+
+
 def store_archive(store_id: str, restore: bool = False,
                   timeout: float = DEFAULT_TIMEOUT_S) -> Dict[str, Any]:
     """Hide a store from listings, or bring it back."""

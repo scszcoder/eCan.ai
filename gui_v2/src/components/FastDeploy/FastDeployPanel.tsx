@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '../../services/ipc_api';
 import {
     SCENARIOS,
+    platformValue,
     getScenario,
     scenarioName,
     defaultConfig,
@@ -83,7 +84,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
     useEffect(() => {
         if (!open || !presetStoreId || !catalog.length) return;
         const st = catalog.find((x) => x.store_id === presetStoreId);
-        const sc = SCENARIOS.find((x) => x.schema.storeId && (!st || x.platform === st.platform))
+        const sc = SCENARIOS.find((x) => x.schema.storeId && (!st || x.platform === platformValue(st.platform)))
             || SCENARIOS.find((x) => x.schema.storeId);
         if (!sc) return;
         setSelectedKey(sc.key);
@@ -299,7 +300,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                             placeholder={t('pages.agents.fast_deploy_store_pick', 'Choose a store')}
                                             onChange={(v) => pickStore(v)}
                                             options={catalog
-                                                .filter((x) => !x.platform || x.platform === selected.platform)
+                                                .filter((x) => !x.platform || platformValue(x.platform) === selected.platform)
                                                 .map((x) => ({ value: x.store_id,
                                                     label: x.name && x.name !== x.store_id ? `${x.name} (${x.store_id})` : x.store_id }))}
                                             notFoundContent={t('pages.agents.fast_deploy_stores_none', 'No stores of this platform yet — create them on the Stores page')}
@@ -325,7 +326,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                             placeholder={t('pages.agents.fast_deploy_stores_pick', 'Choose the stores to staff')}
                                             onChange={(v: string[]) => setConfig((c) => ({ ...c, stores: v }))}
                                             options={catalog
-                                                .filter((x) => x.platform === selected.platform)
+                                                .filter((x) => platformValue(x.platform) === selected.platform)
                                                 .map((x) => ({ value: x.store_id,
                                                     label: x.name && x.name !== x.store_id ? `${x.name} (${x.store_id})` : x.store_id }))}
                                             notFoundContent={t('pages.agents.fast_deploy_stores_none', 'No stores of this platform yet — create them on the Stores page')}

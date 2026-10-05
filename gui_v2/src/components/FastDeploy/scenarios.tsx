@@ -122,10 +122,28 @@ export const PLATFORMS: { value: string; nameEn: string; nameZh: string }[] = [
     { value: 'otto', nameEn: 'OTTO', nameZh: 'OTTO' },
 ];
 
+/**
+ * The platform key for what a user typed or a record holds: a known platform's
+ * key, English or Chinese name (case-insensitive) all map to its key; anything
+ * else is a custom platform and stays as typed. A store saved as "天猫" is a
+ * tmall store (2026-10-05: the form's free-text entry stored the name, and
+ * Fast Deploy refused the store as "not tmall").
+ * Mirrored in agent/ec_agents/store_catalog.py (_PLATFORMS) -- keep both in step.
+ */
+export function platformValue(text: string | undefined | null): string {
+    const t = String(text || '').trim();
+    if (!t) return '';
+    const k = t.toLowerCase();
+    const p = PLATFORMS.find((x) => x.value.toLowerCase() === k
+        || x.nameEn.toLowerCase() === k || x.nameZh.toLowerCase() === k);
+    return p ? p.value : t;
+}
+
 /** Display name for a platform value; a custom platform shows as typed. */
 export function platformLabel(value: string | undefined | null, lang: string): string {
     if (!value) return '';
-    const p = PLATFORMS.find((x) => x.value === value);
+    const v = platformValue(value);
+    const p = PLATFORMS.find((x) => x.value === v);
     if (!p) return value;
     return lang && lang.toLowerCase().startsWith('zh') ? p.nameZh : p.nameEn;
 }

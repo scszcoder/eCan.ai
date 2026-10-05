@@ -63,6 +63,25 @@ Add `storeUrls` (array) to each row. Nothing else changes.
 3. URL-derived `store_id` refused; a non-http URL in `store_urls` refused.
 4. Another account cannot define into your store (tenancy).
 
+## 4. New action: `store_delete` (2026-10-05)
+
+```json
+{"action": "store_delete", "input": {"store_id": "小店一号"}}
+```
+
+Removes the caller's store record and its placement state (assigned/reported
+vehicle, claim); same ownership check as `store_archive`. Idempotent: deleting
+an absent store is success. Usage/billing rows that carry the store id stay.
+`store_list` no longer returns it, archived or not.
+
+The client (Stores page → Delete) deletes the store's agents and tasks itself,
+then calls `store_delete`; on any error it falls back to `store_archive`, so
+until this action is deployed a deleted store is archived in the cloud
+(`agent/cloud_api/store_api.py::store_delete`).
+
+Tests: delete then `store_list` with `include_archived` → absent; delete again →
+success; another account's store → refused.
+
 ## Intl
 
 No store backend exists on intl at all (docs/OPEN_ITEMS.md). Stores there are

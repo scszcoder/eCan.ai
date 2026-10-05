@@ -82,6 +82,18 @@ class DBStoreService(BaseService):
             if s is not None:
                 s.cloud_synced_at = datetime.now(timezone.utc)
 
+    def delete_store(self, store_id: str) -> bool:
+        """Remove a store's local record. Returns whether one existed."""
+        sid = str(store_id or "").strip()
+        if not sid:
+            return False
+        with self.session_scope() as session:
+            row = session.query(Store).filter(Store.store_id == sid).first()
+            if row is None:
+                return False
+            session.delete(row)
+        return True
+
     def ensure_stores(self, rows: Iterable[Dict[str, Any]], source: str) -> int:
         """Create a record for each store id not yet known; never overwrite. Returns count created."""
         created = 0

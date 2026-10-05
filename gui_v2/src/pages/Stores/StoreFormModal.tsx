@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { App, Form, Input, Modal, Radio, Select } from 'antd';
 import { get_ipc_api } from '@/services/ipc_api';
-import { PLATFORMS } from '@/components/FastDeploy/scenarios';
+import { PLATFORMS, platformValue } from '@/components/FastDeploy/scenarios';
 
 export interface StoreDefinition {
   store_id: string;
@@ -113,7 +113,7 @@ const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) =>
         <Form.Item name="platform" label={ts('platform', 'Platform')} rules={[{ required: true, whitespace: true }]}
           extra={ts('platform_hint', 'Not listed? Type its name and press Enter.')}
           getValueProps={(v) => ({ value: v ? [v] : [] })}
-          normalize={(v) => (Array.isArray(v) ? String(v[v.length - 1] || '').trim() : v)}>
+          normalize={(v) => platformValue(Array.isArray(v) ? String(v[v.length - 1] || '') : v)}>
           <Select mode="tags" showSearch optionFilterProp="label"
             options={[
               ...PLATFORMS.map((p) => ({ value: p.value, label: zh ? p.nameZh : p.nameEn })),

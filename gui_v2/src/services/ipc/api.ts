@@ -3021,6 +3021,11 @@ export class IPCAPI {
             { store_id, this_machine: !!opts.this_machine, vehicle_id: opts.vehicle_id ?? null });
     }
 
+    /** Delete a store with its agents and tasks; ``dry_run`` returns the plan only. */
+    public async deleteStore<T>(store_id: string, username: string, dry_run?: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'store.delete' }, { store_id, username, dry_run: !!dry_run });
+    }
+
     public async archiveStore<T>(store_id: string, restore?: boolean): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'store.archive' }, { store_id, restore: !!restore });
     }

@@ -499,8 +499,9 @@ def _store_record(ctx, store_id: str, platform: str) -> dict:
     if not rec:
         raise RuntimeError(_tr(f"store {store_id!r} is not in the store list -- create it on the Stores page first",
                                 f"店铺 {store_id} 不在店铺列表中，请先在店铺页面创建"))
-    plat = str(rec.get("platform") or "").strip()
-    if plat and plat != platform:
+    from agent.ec_agents.store_catalog import normalize_platform
+    plat = normalize_platform(rec.get("platform"))
+    if plat and plat != normalize_platform(platform):
         raise RuntimeError(_tr(f"store {store_id!r} is a {plat} store, not {platform}",
                                 f"店铺 {store_id} 属于 {plat} 平台，不是 {platform}"))
     return rec

@@ -6,9 +6,10 @@ import {
 } from 'antd';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useFastDeployStore } from '@/stores/fastDeployStore';
+import { useUserStore } from '@/stores/userStore';
 import type { StoreDefinition } from './StoreFormModal';
 import { platformLabel } from '@/components/FastDeploy/scenarios';
-import type { StoreMachine, StoreMeter, StoreRow } from './types';
+import type { StoreDeletePlan, StoreMachine, StoreMeter, StoreRow } from './types';
 import MoveStoreModal from './MoveStoreModal';
 import { TransferList, useFleetTransfers } from '@/components/Fleet/FleetTransfers';
 
@@ -25,11 +26,13 @@ interface Props {
 
 const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit, machines }) => {
   const { t, i18n } = useTranslation();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
   const openFastDeploy = useFastDeployStore((s) => s.openFor);
   const [busy, setBusy] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const username = useUserStore((state) => state.username);
   const { rows: transfers, refresh: refreshTransfers } = useFleetTransfers();
   const ts = (k: string, d: string, o?: Record<string, unknown>) =>
     t(`pages.stores.${k}`, { defaultValue: d, ...(o || {}) }) as string;
@@ -73,6 +76,50 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
     (zh ? m.display_name_zh : m.display_name_en) || m.display_name_zh || m.display_name_en
     || `${m.scenario_code}.${m.meter_code}`;
 
+  // Ask the backend what goes with the store first, so the confirm names it.
+  const confirmDelete = async () => {
+    setDeleting(true);
+    let plan: StoreDeletePlan | null = null;
+    try {
+      const res = await api.deleteStore<{ plan: StoreDeletePlan }>(store.storeId, username || '', true);
+      plan = res.success ? res.data?.plan || null : null;
+      if (!res.success) {
+        const err: any = res.error;
+        message.error(String((err && (err.message || err)) || ts('action_failed', 'Action failed')));
+        return;
+      }
+    } finally {
+      setDeleting(false);
+    }
+    const names = (rows: { name: string; id: string }[]) => rows.map((r) => r.name || r.id).join('、');
+    modal.confirm({
+      title: ts('delete_confirm_title', 'Delete this store?'),
+      okText: ts('delete', 'Delete'),
+      okButtonProps: { danger: true },
+      cancelText: ts('cancel', 'Cancel'),
+      content: (
+        <Space direction="vertical" size={4}>
+          <Typography.Text>{ts('delete_confirm_store', 'Store')}: {store.label || store.storeId}</Typography.Text>
+          {plan && plan.agents.length > 0 && (
+            <Typography.Text>{ts('delete_confirm_agents', 'Agents removed')} ({plan.agents.length}): {names(plan.agents)}</Typography.Text>
+          )}
+          {plan && plan.tasks.length > 0 && (
+            <Typography.Text>{ts('delete_confirm_tasks', 'Tasks removed')} ({plan.tasks.length}): {names(plan.tasks)}</Typography.Text>
+          )}
+          {plan && plan.kept_agents.length > 0 && (
+            <Typography.Text type="secondary">
+              {ts('delete_confirm_kept', 'Kept (they also serve other stores)')}: {names(plan.kept_agents)}
+            </Typography.Text>
+          )}
+          <Typography.Text type="secondary">
+            {ts('delete_confirm_profile', 'The browser login profile stays; remove it in Settings → Browser Profiles if no longer needed. This cannot be undone.')}
+          </Typography.Text>
+        </Space>
+      ),
+      onOk: () => act(() => api.deleteStore(store.storeId, username || ''), ts('deleted_ok', 'Store deleted')),
+    });
+  };
+
   const cloud = store.cloudKnown !== false;
   const archived = store.status === 'archived';
 
@@ -111,8 +158,11 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
       </Card>
       <Card size="small" title={ts('placement', 'Where it runs')}
         extra={archived ? (
-          <Button size="small" loading={busy}
-            onClick={() => act(() => api.archiveStore(store.storeId, true))}>{ts('restore', 'Restore')}</Button>
+          <Space size={4}>
+            <Button size="small" loading={busy}
+              onClick={() => act(() => api.archiveStore(store.storeId, true))}>{ts('restore', 'Restore')}</Button>
+            <Button size="small" danger loading={busy || deleting} onClick={confirmDelete}>{ts('delete', 'Delete')}</Button>
+          </Space>
         ) : (
           <Space size={4}>
             {/* Assign to any machine on the account -- this one or another. */}
@@ -140,6 +190,9 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
               onConfirm={() => act(() => api.archiveStore(store.storeId))}>
               <Button size="small" danger loading={busy}>{ts('archive', 'Archive')}</Button>
             </Popconfirm>
+            <Button size="small" danger type="primary" loading={busy || deleting} onClick={confirmDelete}>
+              {ts('delete', 'Delete')}
+            </Button>
           </Space>
         )}
       >
