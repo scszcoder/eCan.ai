@@ -1330,7 +1330,7 @@ invalidate the approach.
 
 ## ✅ Recently done
 - 2026-10-06 — 千牛 alpha v0.9.99x dispatched nothing for 8 h. Fixed in
-  v0.9.99y01:
+  v0.9.99ya:
   - the observer scanned the CHILD AliWorkbench.exe; chat is in the root;
   - `seller_id_of` named a lone buyer as the seller;
   - added a cold-start baseline + stale skip (memory holds history);

@@ -1,4 +1,4 @@
-# 天猫 / 淘宝 客服 on 千牛 — Fast Deploy + front-desk skill (v0.9.99x, updated v0.9.99y01)
+# 天猫 / 淘宝 客服 on 千牛 — Fast Deploy + front-desk skill (v0.9.99x, updated v0.9.99ya)
 
 Status (2026-10-05): **code shipped in v0.9.99x, alpha.** The deploy path, the
 multi-platform switch and the skill/prompt are built and tested off-line. Nothing
@@ -379,7 +379,7 @@ But the observer ran for ~8 h and dispatched nothing (zero `[QIANNIU-FD]` lines)
   none in the child (pid 9320).
 - psutil lists by pid, so the child came first.
 
-**Fixes in v0.9.99y01:**
+**Fixes in v0.9.99ya:**
 - **Process choice:** `observer._qianniu_pids()` returns the root process first.
   Scanning sticks to whichever process last held messages and falls back to the
   others. Test: `tests/unit/test_qianniu_observer_process.py`, using the real
@@ -424,7 +424,7 @@ Side notes from that log, not blocking:
 5. **Front-desk history.** The LLM sees prior rounds in history; the prompt
    restricts it to the current input. Watch token growth on long runs.
 
-### Log map (v0.9.99y01) — read a 千牛 run step by step
+### Log map (v0.9.99ya) — read a 千牛 run step by step
 
 Everything below is **INFO** unless marked WARNING, so it is in a customer's
 default log. Lines that would repeat every poll are logged **on change** only.
@@ -505,7 +505,7 @@ Code (this release):
   `gui_v2/src/i18n/locales/{en-US,zh-CN}.json`: multi-select + hint text.
 - Tests listed in section 7.
 
-Code (v0.9.99y01, the observer fixes and logging):
+Code (v0.9.99ya, the observer fixes and logging):
 - `qianniu_chat/observer.py`: root-process choice, cold-start baseline, stale
   skip, one-time state logs, heartbeat.
 - `qianniu_chat/mem_locator.py`: `seller_id_of` from outgoing messages only,
