@@ -51,6 +51,42 @@ def test_first_scan_is_a_baseline_and_only_new_buyer_messages_are_dispatched():
     assert obs.last_scan["incoming_in_memory"] == 3 and obs.last_scan["outgoing_in_memory"] == 1
 
 
+def test_an_empty_start_is_the_baseline_so_the_first_new_message_is_answered():
+    # Alpha 2026-10-07 (0.9.99ya): memory held no buyer message at start; the
+    # buyer's test message 有花生味牙线吗 appeared 12 min later and was swallowed
+    # as "baseline". The first successful pass is the baseline, even when empty.
+    obs, sent, fake_scan, fake_extract = _observer_with_memory(
+        [[], [_cand("678614304", "有花生味牙线吗", "m1")]])
+    with patch("psutil.process_iter", return_value=[SimpleNamespace(
+                info={"pid": 17080, "ppid": 1, "name": "AliWorkbench.exe"})]), \
+            patch.object(mem, "scan_strings", fake_scan), \
+            patch.object(mem_locator, "extract_candidates", fake_extract), \
+            patch.object(observer.name_map, "name_for", return_value=""):
+        obs._scan_pass()
+        assert obs._baselined and sent == []
+        obs._scan_pass()
+    assert [i["last_message"] for i in sent] == ["有花生味牙线吗"]
+    assert obs.stats["baseline_seen"] == 0
+
+
+def test_a_message_sent_after_start_is_answered_even_on_the_first_pass():
+    now_ms = int(time.time() * 1000)
+    obs, sent, fake_scan, fake_extract = _observer_with_memory(
+        [[_cand("b1", "旧", "m1", send_time=now_ms - 3600_000), _cand("b2", "刚发的", "m2", send_time=now_ms)]])
+    with patch.object(mem, "scan_strings", fake_scan), \
+            patch.object(mem_locator, "extract_candidates", fake_extract), \
+            patch.object(observer.name_map, "name_for", return_value=""):
+        obs._scan_once(1)
+    assert [i["last_message"] for i in sent] == ["刚发的"] and obs.stats["baseline_seen"] == 1
+
+
+def test_a_start_with_qianniu_closed_is_not_the_baseline():
+    obs = observer.QianniuMemObserver(dispatch_fn=lambda item: 0)
+    with patch("psutil.process_iter", return_value=[]):
+        obs._scan_pass()
+    assert not obs._baselined   # 千牛 opened later: its history must still be baselined
+
+
 def test_history_that_loads_later_is_skipped_as_stale():
     old_ms = int(time.time() * 1000) - 3600_000
     obs, sent, fake_scan, fake_extract = _observer_with_memory(

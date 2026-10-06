@@ -402,6 +402,26 @@ But the observer ran for ~8 h and dispatched nothing (zero `[QIANNIU-FD]` lines)
   test process's own memory was found in both encodings, and the counters
   filled.
 
+**Second alpha run (v0.9.99ya, 2026-10-07), fixed in v0.9.99yb.** The process
+fix worked. Root pid 17080 was found and scanned in ~0.6 s; its first scan
+parsed 5 objects, all UI cards, and no buyer message.
+
+The buyer's test message 有花生味牙线吗 appeared in memory 12 minutes later. It
+was swallowed by the cold-start baseline, which 0.9.99ya took on the first pass
+that found any buyer message instead of on the first pass.
+
+**Fix:**
+- The first error-free pass is the baseline, even when empty; it logs
+  `baseline: 0 buyer messages in memory at start`.
+- A message whose `sendTime` is after the run started is never baselined.
+- A start with 千牛 closed is not a baseline.
+- The first-scan line now also shows one example of a dropped UI card's keys.
+
+Tests: `test_an_empty_start_is_the_baseline_so_the_first_new_message_is_answered`
+(that exact timeline) and two neighbours. Non-blocking errors in that log are
+cloud sync (`addAgentTaskRels: Agent not found`, `queryAgentTaskRels` missing
+subfields) and one 飞鸽 skill `examples` conversion warning.
+
 Side notes from that log, not blocking:
 - The customer's skill file download failed (`requestSkillFileDownloadUrl`
   INTERNAL_SERVER_ERROR, backend), so 淘宝客服前台01 compiled from its DB diagram

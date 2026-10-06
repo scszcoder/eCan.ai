@@ -147,6 +147,7 @@ class QianniuMemObserver:
         self._scanned_pids: set = set()
         self._open_failed: set = set()
         self._baselined = False
+        self._pass_ok = False      # a scan in the current pass read 千牛 without error
         self._started_ms = int(time.time() * 1000)
         self._last_heartbeat = 0.0
         self._last_seller = None
@@ -193,15 +194,23 @@ class QianniuMemObserver:
         except Exception as exc:
             logger.warning(f"[QIANNIU-MEM] learn pass failed for buyer={sender_id!r}: {exc}")
 
+    def _send_ms(self, cand) -> Optional[int]:
+        st = cand.send_time
+        if not isinstance(st, int) or st <= 0:
+            return None
+        return st if st > 10 ** 12 else st * 1000
+
     def _is_stale(self, cand) -> bool:
         """Sent before this observer started (with a minute's grace): history
         that loaded into memory later (e.g. a conversation the seller opened),
         not a new buyer turn."""
-        st = cand.send_time
-        if not isinstance(st, int) or st <= 0:
-            return False
-        ms = st if st > 10 ** 12 else st * 1000
-        return ms < self._started_ms - 60_000
+        ms = self._send_ms(cand)
+        return ms is not None and ms < self._started_ms - 60_000
+
+    def _is_fresh(self, cand) -> bool:
+        """Known to be sent after this observer started (minus the grace)."""
+        ms = self._send_ms(cand)
+        return ms is not None and ms >= self._started_ms - 60_000
 
     def _scan_once(self, pid: int) -> bool:
         """Scan one process; True when it holds chat messages."""
@@ -221,19 +230,20 @@ class QianniuMemObserver:
                                f"(logged once per pid; access denied = eCan needs the same "
                                f"or higher privilege than 千牛)")
             return False
+        self._pass_ok = True
         ms = int((time.monotonic() - t0) * 1000)
         self._scan_ms = (self._scan_ms + [ms])[-100:]
         seller = mem_locator.seller_id_of(candidates) if candidates else None
         incoming = [c for c in candidates if mem_locator.is_incoming(c, seller)]
         self.last_scan = {"pid": pid, "ms": ms, **mstats,
-                          "extract": {k: v for k, v in xstats.items() if k != "sample_no_text_keys"},
+                          "extract": {k: v for k, v in xstats.items() if not k.startswith("sample_")},
                           "candidates": len(candidates), "incoming_in_memory": len(incoming),
                           "outgoing_in_memory": len(candidates) - len(incoming)}
         if pid not in self._scanned_pids:
             self._scanned_pids.add(pid)
+            samples = {k: v for k, v in xstats.items() if k.startswith("sample_")}
             logger.info(f"[QIANNIU-MEM] first scan of pid {pid}: {self.last_scan}"
-                        + (f" no_text example keys={xstats['sample_no_text_keys']}"
-                           if xstats.get("sample_no_text_keys") else ""))
+                        + (f" dropped-object example keys={samples}" if samples else ""))
         if not candidates:
             return False
         if seller != self._last_seller:
@@ -241,20 +251,27 @@ class QianniuMemObserver:
             logger.info(f"[QIANNIU-MEM] seller id in memory: {seller!r} "
                         f"(None = not resolvable; direction then comes from ccode/sendStatus)")
 
-        # Cold start: what is already in memory is history (already answered or
-        # not ours to answer now). Mark it seen without dispatching -- otherwise
-        # the first scan replies to every old buyer message at once.
+        # Cold start: what is in memory on the FIRST pass is history (already
+        # answered, or not ours to answer now). Mark it seen without dispatching
+        # -- otherwise the first scan replies to every old buyer message at once.
+        # Taken once, on the first successful pass even if it found nothing
+        # (_scan_pass); a message sent after this run started is never history.
+        # (0.9.99ya took it on the first pass WITH messages, so the first real
+        # new message of an empty start was swallowed -- alpha 2026-10-07.)
         if not self._baselined:
             self._baselined = True
-            fresh = 0
+            seen_now, kept = 0, []
             for cand in incoming:
+                if self._is_fresh(cand):
+                    kept.append(cand)      # a new turn: dispatched below
+                    continue
                 if self._first_time(item_for(cand, seller)["identity_key"]):
-                    fresh += 1
-            self.stats["baseline_seen"] += fresh
-            sample = [(c.uid, c.text[:20]) for c in incoming[-3:]]
-            logger.info(f"[QIANNIU-MEM] baseline: {fresh} buyer message(s) already in memory "
-                        f"marked seen, NOT answered (latest: {sample})")
-            return True
+                    seen_now += 1
+            self.stats["baseline_seen"] += seen_now
+            sample = [(c.uid, c.text[:20], c.send_time) for c in incoming[-3:]]
+            logger.info(f"[QIANNIU-MEM] baseline: {seen_now} buyer message(s) already in memory "
+                        f"marked seen, NOT answered; {len(kept)} sent after start will be "
+                        f"answered (latest uid/text/sendTime: {sample})")
 
         for cand in incoming:
             item = item_for(cand, seller)
@@ -300,16 +317,25 @@ class QianniuMemObserver:
             self._pids = pids
         order = ([self._hit_pid] if self._hit_pid in pids else []) + \
             [p for p in pids if p != self._hit_pid]
-        for pid in order:
-            if self._scan_once(pid):
-                if pid != self._hit_pid:
-                    logger.info(f"[QIANNIU-MEM] chat messages found in pid {pid}")
-                    self._hit_pid = pid
-                return
-        if pids and self._hit_pid:
-            logger.info(f"[QIANNIU-MEM] no chat messages in any 千牛 process this pass "
-                        f"(were in pid {self._hit_pid})")
-            self._hit_pid = 0
+        self._pass_ok = False
+        try:
+            for pid in order:
+                if self._scan_once(pid):
+                    if pid != self._hit_pid:
+                        logger.info(f"[QIANNIU-MEM] chat messages found in pid {pid}")
+                        self._hit_pid = pid
+                    return
+            if pids and self._hit_pid:
+                logger.info(f"[QIANNIU-MEM] no chat messages in any 千牛 process this pass "
+                            f"(were in pid {self._hit_pid})")
+                self._hit_pid = 0
+        finally:
+            # The first pass that read 千牛 without error IS the baseline, even
+            # when it found no buyer message: everything after it is new.
+            if not self._baselined and self._pass_ok:
+                self._baselined = True
+                logger.info("[QIANNIU-MEM] baseline: 0 buyer messages in memory at start; "
+                            "every new buyer message from now on is answered")
 
     def _heartbeat(self) -> None:
         now = time.monotonic()

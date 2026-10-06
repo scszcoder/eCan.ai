@@ -173,6 +173,8 @@ def extract_candidates(data: bytes, stats: Optional[dict] = None) -> list:
         # Drop UI-card objects wholesale (study §4.1): markers are object KEYS.
         if any(m in k for k in obj.keys() for m in _CARD_MARKERS):
             _bump("ui_card")
+            if "sample_ui_card_keys" not in counts:   # is it really a card? one example
+                counts["sample_ui_card_keys"] = sorted(str(k) for k in obj.keys())[:20]
             continue
         uid = _sender_uid(sender)
         if not uid:
