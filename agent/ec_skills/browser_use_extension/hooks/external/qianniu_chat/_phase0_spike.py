@@ -62,7 +62,8 @@ def main(argv=None) -> int:
         print("[spike] process-memory reading is Windows-only; cannot run the memory leg here.")
 
     if not args.no_memory and mem.available():
-        pid = args.pid or mem.find_pid_by_process_name(_PROC_NAME) or 0
+        from .observer import _qianniu_pids   # root AliWorkbench first (messages live there)
+        pid = args.pid or next(iter(_qianniu_pids()), 0)
         if not pid:
             print(f"[spike] could not find a running {_PROC_NAME} process. Is 千牛 open?")
         else:

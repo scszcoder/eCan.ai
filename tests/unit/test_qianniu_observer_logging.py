@@ -1,0 +1,142 @@
+"""千牛 observer + OCR diagnostics: the counters and one-time logs the alpha
+logs are read with, and the cold-start baseline (memory holds chat HISTORY; the
+first scan must not answer every old buyer message)."""
+import json
+import os
+import time
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import mem_locator, observer
+from agent.mcp.server.qianniu import qianniu_ocr
+from utils import win_process_memory as mem
+
+
+def _cand(uid, text, msg_id, send_time=None, outgoing=False):
+    return mem_locator.MsgCandidate(uid=uid, sender_ids={uid}, text=text, msg_id=msg_id,
+                                    send_time=send_time, has_ccode=outgoing)
+
+
+def _observer_with_memory(snapshots):
+    """An observer whose successive scans of pid 1 see the given candidate lists."""
+    sent = []
+    obs = observer.QianniuMemObserver(dispatch_fn=lambda item: sent.append(item) or 1)
+    seq = iter(snapshots)
+
+    def fake_scan_strings(pid, predicate, stats=None):
+        if stats is not None:
+            stats.update(regions=3, bytes=100, slices_matched=1)
+        yield b"slice"
+
+    def fake_extract(data, stats=None):
+        return list(next(seq))
+
+    return obs, sent, fake_scan_strings, fake_extract
+
+
+def test_first_scan_is_a_baseline_and_only_new_buyer_messages_are_dispatched():
+    history = [_cand("b1", "旧消息一", "m1"), _cand("b2", "旧消息二", "m2"),
+               _cand("shop", "卖家回复", "m3", outgoing=True)]
+    new = history + [_cand("b1", "这个有XL吗", "m4")]
+    obs, sent, fake_scan, fake_extract = _observer_with_memory([history, new, new])
+    with patch.object(mem, "scan_strings", fake_scan), \
+            patch.object(mem_locator, "extract_candidates", fake_extract), \
+            patch.object(observer.name_map, "name_for", return_value="小明"):
+        assert obs._scan_once(1) is True
+        assert sent == [] and obs.stats["baseline_seen"] == 2          # history: seen, not answered
+        obs._scan_once(1)
+        obs._scan_once(1)                                               # rescan: no duplicate
+    assert [i["last_message"] for i in sent] == ["这个有XL吗"]
+    assert obs.stats["new_incoming"] == 1 and obs.stats["dispatched"] == 1
+    assert obs.last_scan["incoming_in_memory"] == 3 and obs.last_scan["outgoing_in_memory"] == 1
+
+
+def test_history_that_loads_later_is_skipped_as_stale():
+    old_ms = int(time.time() * 1000) - 3600_000
+    obs, sent, fake_scan, fake_extract = _observer_with_memory(
+        [[_cand("b1", "x", "m1")], [_cand("b9", "一小时前", "m9", send_time=old_ms)]])
+    with patch.object(mem, "scan_strings", fake_scan), \
+            patch.object(mem_locator, "extract_candidates", fake_extract):
+        obs._scan_once(1)
+        obs._scan_once(1)
+    assert sent == [] and obs.stats["stale_skipped"] == 1
+
+
+def test_one_buyer_alone_in_memory_is_not_mistaken_for_the_seller():
+    only_buyer = [_cand("b1", "在吗", "m1"), _cand("b1", "这个有XL吗", "m2")]
+    assert mem_locator.seller_id_of(only_buyer) is None
+    assert all(mem_locator.is_incoming(c, mem_locator.seller_id_of(only_buyer)) for c in only_buyer)
+    with_reply = only_buyer + [_cand("shop", "在的", "m3", outgoing=True)]
+    assert mem_locator.seller_id_of(with_reply) == "shop"
+
+
+def test_a_dispatch_nobody_receives_is_counted():
+    obs, _sent, fake_scan, fake_extract = _observer_with_memory(
+        [[_cand("b1", "x", "m1")], [_cand("b1", "x", "m1"), _cand("b1", "新问题", "m2")]])
+    obs._dispatch = lambda item: 0
+    with patch.object(mem, "scan_strings", fake_scan), \
+            patch.object(mem_locator, "extract_candidates", fake_extract), \
+            patch.object(observer.name_map, "name_for", return_value="小明"):
+        obs._scan_once(1)
+        obs._scan_once(1)
+    assert obs.stats["dispatched_to_nobody"] == 1
+
+
+def test_an_unreadable_process_is_logged_once_not_every_poll():
+    obs = observer.QianniuMemObserver(dispatch_fn=lambda item: 0)
+
+    def denied(pid, predicate, stats=None):
+        raise OSError("OpenProcess(7) failed (winerror 5)")
+        yield  # pragma: no cover
+
+    with patch.object(mem, "scan_strings", denied), \
+            patch.object(observer.logger, "warning") as warn:
+        for _ in range(5):
+            assert obs._scan_once(7) is False
+    assert warn.call_count == 1 and obs.stats["scan_errors"] == 5
+
+
+def test_scan_strings_reports_what_it_read():
+    regions = [mem.MemoryRegion(base=0, size=10, protect=4), mem.MemoryRegion(base=100, size=10, protect=4)]
+    chunks = {0: b'.."sender"..', 100: b""}
+    stats = {}
+    with patch.object(mem, "available", return_value=True), \
+            patch.object(mem, "open_process_readonly", return_value=1), \
+            patch.object(mem, "close_handle"), \
+            patch.object(mem, "iter_regions", return_value=iter(regions)), \
+            patch.object(mem, "_read_chunk", side_effect=lambda h, base, off, n: chunks[base]):
+        out = list(mem.scan_strings(5, mem_locator.region_has_messages, stats=stats))
+    assert len(out) == 1
+    assert stats["regions"] == 2 and stats["chunks"] == 2 and stats["chunk_read_failures"] == 1
+    assert stats["slices_matched"] == 1 and stats["bytes"] == len(chunks[0]) and stats["capped"] is False
+
+
+def test_extract_candidates_counts_why_objects_were_dropped():
+    good = {"sender": {"targetId": "b1"}, "content": "这个有XL吗"}
+    no_text = {"sender": {"targetId": "b2"}, "x9f3": "https://img.alicdn.com/a.png"}
+    data = (json.dumps(good, ensure_ascii=False) + "   " + json.dumps(no_text)).encode("utf-8")
+    stats = {}
+    out = mem_locator.extract_candidates(data, stats=stats)
+    assert [c.text for c in out] == ["这个有XL吗"]
+    assert stats["kept"] == 1 and stats["no_text"] == 1
+    assert stats["sample_no_text_keys"] == ["sender", "x9f3"]
+
+
+def test_ocr_dump_lists_lines_top_to_bottom_with_positions():
+    data = [{"text": "发送", "loc": [500, 900, 520, 940]}, {"text": "小明同学", "loc": [100, 400, 120, 480]}]
+    assert qianniu_ocr.ocr_dump(data) == "2 lines: 小明同学@(440,110) | 发送@(920,510)"
+
+
+def test_failure_screenshots_keep_only_the_newest(tmp_path):
+    shot = tmp_path / "tmp.png"
+    shot.write_bytes(b"png")
+    with patch.object(qianniu_ocr, "_TMP_SHOT", str(shot)), \
+            patch.object(qianniu_ocr, "_SHOTS_KEEP", 2), \
+            patch("config.app_info.app_info", SimpleNamespace(appdata_path=str(tmp_path))):
+        folder = tmp_path / "runlogs" / "qianniu_ocr"
+        folder.mkdir(parents=True)
+        for name in ("20260101_000001_a.png", "20260101_000002_b.png"):
+            (folder / name).write_bytes(b"old")
+        path = qianniu_ocr.save_failure_shot("check none")
+    assert os.path.basename(path).endswith("_check_none.png")
+    assert sorted(os.listdir(folder)) == ["20260101_000002_b.png", os.path.basename(path)]

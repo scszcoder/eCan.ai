@@ -148,26 +148,43 @@ def _best_text_field(obj: dict) -> str:
     return best
 
 
-def extract_candidates(data: bytes) -> list:
+def extract_candidates(data: bytes, stats: Optional[dict] = None) -> list:
     """Carve 千牛 message objects out of a memory slice (UTF-8 + UTF-16LE).
 
     Direction is decided by :func:`is_incoming` (ccode/sendStatus), not by
     cross-candidate intersection — each live message carries only its own
-    sender's id."""
+    sender's id.
+
+    ``stats`` (optional dict) counts why objects were dropped — the calibration
+    signal: many ``objects`` but zero ``kept`` with high ``no_text`` means the
+    body field moved; zero ``objects`` means no ``"sender"`` object parsed."""
+    counts = stats if stats is not None else {}
+
+    def _bump(k):
+        counts[k] = counts.get(k, 0) + 1
+
     out: list = []
     for obj in _iter_json_objects_around(data):
+        _bump("objects")
         sender = obj.get("sender")
         if sender is None:
+            _bump("no_sender")
             continue
         # Drop UI-card objects wholesale (study §4.1): markers are object KEYS.
         if any(m in k for k in obj.keys() for m in _CARD_MARKERS):
+            _bump("ui_card")
             continue
         uid = _sender_uid(sender)
         if not uid:
+            _bump("no_uid")
             continue
         text = _best_text_field(obj)
         if not text or not looks_like_text(text):
+            _bump("no_text")
+            if "sample_no_text_keys" not in counts:   # one example of the keys, for calibration
+                counts["sample_no_text_keys"] = sorted(str(k) for k in obj.keys())[:20]
             continue
+        _bump("kept")
         code = obj.get("code") if isinstance(obj.get("code"), dict) else {}
         cid = obj.get("cid") if isinstance(obj.get("cid"), dict) else {}
         st = obj.get("sendTime")
@@ -197,13 +214,11 @@ def is_incoming(cand: "MsgCandidate", self_id: Optional[str] = "") -> bool:
 
 
 def seller_id_of(candidates: list) -> Optional[str]:
-    """The sender id present on *every* candidate = the seller/store. With the
-    live schema (one sender id per message) this only resolves when every
-    candidate happens to share a single id; prefer a configured store id and
-    :func:`is_incoming` for direction."""
-    if not candidates:
-        return None
-    common = set(candidates[0].sender_ids)
-    for c in candidates[1:]:
-        common &= c.sender_ids
-    return next(iter(common)) if len(common) == 1 else None
+    """The seller/store id = the one sender of the OUTGOING messages (only the
+    seller's own messages carry ccode/sendStatus, probe v10-v14), or None.
+
+    It used to be "the id common to every candidate", which with one buyer and no
+    seller reply in memory (a single-customer test) named the BUYER as seller --
+    and :func:`is_incoming` then dropped every one of that buyer's messages."""
+    ids = {c.uid for c in candidates or [] if c.has_ccode and c.uid}
+    return next(iter(ids)) if len(ids) == 1 else None

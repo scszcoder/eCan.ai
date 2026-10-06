@@ -37,6 +37,8 @@ from agent.mcp.server.qianniu.qianniu_ocr import (
     transcript_contains,
     is_reception_tab,
     find_reception_tab_point,
+    ocr_dump,
+    save_failure_shot,
 )
 
 _QIANNIU_WIN_TITLES = ["千牛", "AliWorkbench", "阿里旺旺"]
@@ -67,10 +69,11 @@ def _foreground() -> bool:
     """Bring 千牛 to the foreground. False if the window isn't found."""
     win = _find_window()
     if not win:
-        logger.warning("[qianniu] window not found; is 千牛 running?")
+        logger.warning(f"[qianniu] window not found (titles {_QIANNIU_WIN_TITLES}); is 千牛 running?")
         return False
     bring_window_to_front(win)
     _humanize(_POST_ACTION_DELAY)
+    logger.info(f"[qianniu] foregrounded window {getattr(win, 'title', win)!r}")
     return True
 
 
@@ -124,10 +127,16 @@ def _open_conversation_by_name(name: str) -> tuple:
     """
     ocr_data = ocr_qianniu_window()
     if not _looks_like_qianniu(ocr_data):
+        logger.warning(f"[qianniu] open {name!r}: layout not recognised; screen {ocr_dump(ocr_data)}")
+        save_failure_shot("open_layout_unrecognised")
         return False, "", "layout not recognised as 千牛 (OCR drift); aborting"
     box = _find_search_box(ocr_data)
     if not box:
+        logger.warning(f"[qianniu] open {name!r}: no search box (anchors {_SEARCH_ANCHORS}); "
+                       f"screen {ocr_dump(ocr_data)}")
+        save_failure_shot("open_no_search_box")
         return False, "", "search box not found via OCR; cannot open by name"
+    logger.info(f"[qianniu] open {name!r}: clicking search box at {box}, typing the name + Enter")
     _click(box[0], box[1])
     _humanize(_POST_TYPE_DELAY)
     clipboard_set_text(name)
@@ -137,6 +146,7 @@ def _open_conversation_by_name(name: str) -> tuple:
     _humanize(_SETTLE_AFTER_OPEN)
     v = verify_header_name(name)
     if v.matched:
+        logger.info(f"[qianniu] open {name!r}: opened, header {v.header_text!r}")
         return True, v.header_text, ""
     return False, v.header_text, (f"opened by search but header {v.header_text!r} "
                                   f"does not match {name!r}")
@@ -180,14 +190,20 @@ async def qianniu_send(mainwin, args):
         msg = inp.get("chat_msg") or ""
         auto_open = inp.get("auto_open", True)
         expect_text = (inp.get("expect_message_text") or "").strip()
+        logger.info(f"[qianniu_send] start buyer={buyer!r} auto_open={auto_open} "
+                    f"expect={expect_text[:24]!r} msg_len={len(msg)}: {msg[:40]!r}")
         if not buyer:
+            logger.warning("[qianniu_send] refused: buyer_display_name is empty")
             return _send_result(False, False, "buyer_display_name is required")
         if not msg:
+            logger.warning(f"[qianniu_send] refused: empty chat_msg for {buyer!r}")
             return _send_result(False, False, "chat_msg is required")
 
         # Serialize all desktop action so two sends never interleave on the one
         # shared window (study Phase 3).
         if not lock.try_acquire(holder):
+            logger.warning(f"[qianniu_send] busy: desktop lock held by {lock.holder()!r}; "
+                           f"not sent to {buyer!r}")
             return _send_result(False, False, f"another send is in progress (holder {lock.holder()!r})")
 
         if not _foreground():
@@ -200,6 +216,7 @@ async def qianniu_send(mainwin, args):
             logger.info(f"[qianniu_send] open chat is {v.header_text!r}, not {buyer!r}; opening by name")
             opened, header, err = _open_conversation_by_name(buyer)
             if not opened:
+                logger.warning(f"[qianniu_send] ABORT: could not open {buyer!r}: {err}")
                 return _send_result(False, False, f"could not open {buyer!r}: {err}", header)
             ocr_data = ocr_qianniu_window()
             v = verify_header_name(buyer, ocr_data)   # re-verify after the switch
@@ -213,7 +230,8 @@ async def qianniu_send(mainwin, args):
         # the open chat body too, so a header-only match can never mis-deliver.
         if expect_text and not transcript_contains(ocr_data, expect_text):
             logger.warning(f"[qianniu_send] ABORT: {expect_text[:24]!r} not in open chat body "
-                           f"for {buyer!r} — refusing to send")
+                           f"for {buyer!r} — refusing to send; screen {ocr_dump(ocr_data)}")
+            save_failure_shot("send_body_mismatch")
             return _send_result(False, False,
                                 f"body verify failed: {expect_text[:24]!r} not in the open chat — "
                                 f"refusing to send", v.header_text)
@@ -241,11 +259,14 @@ async def qianniu_open_session(mainwin, args):
     try:
         inp = args.get("input", args)
         buyer = (inp.get("buyer_display_name") or "").strip()
+        logger.info(f"[qianniu_open_session] start buyer={buyer!r}")
         if not buyer:
+            logger.warning("[qianniu_open_session] refused: buyer_display_name is empty")
             return [TextContent(type="text", text=json.dumps(
                 {"opened": False, "header_name": "", "error": "buyer_display_name is required"},
                 ensure_ascii=False))]
         if not lock.try_acquire(holder):
+            logger.warning(f"[qianniu_open_session] busy: desktop lock held by {lock.holder()!r}")
             return [TextContent(type="text", text=json.dumps(
                 {"opened": False, "header_name": "", "error": f"busy (holder {lock.holder()!r})"},
                 ensure_ascii=False))]
@@ -254,6 +275,8 @@ async def qianniu_open_session(mainwin, args):
                 {"opened": False, "header_name": "", "error": "千牛 window not found"},
                 ensure_ascii=False))]
         opened, header, err = _open_conversation_by_name(buyer)
+        logger.info(f"[qianniu_open_session] buyer={buyer!r} opened={opened} header={header!r} "
+                    f"error={err!r}")
         return [TextContent(type="text", text=json.dumps(
             {"opened": opened, "header_name": header, "error": err},
             ensure_ascii=False, default=str))]
@@ -279,6 +302,7 @@ async def qianniu_receive(mainwin, args):
         ocr_data = ocr_qianniu_window()
         lines = [{"text": str(it.get("text") or ""), "loc": it.get("loc")}
                  for it in ocr_data if str(it.get("text") or "").strip()]
+        logger.info(f"[qianniu_receive] {len(lines)} line(s); screen {ocr_dump(ocr_data, limit=40)}")
         return [TextContent(type="text", text=json.dumps(
             {"lines": lines, "error": ""}, ensure_ascii=False, default=str))]
     except Exception as e:
@@ -295,12 +319,16 @@ def _ensure_reception_tab(ocr_data: list) -> tuple:
         return True, ocr_data
     pt = find_reception_tab_point(ocr_data)
     if not pt:
+        logger.warning("[qianniu] not on the 正在接待 tab and the tab was not found by OCR")
         return False, ocr_data
+    logger.info(f"[qianniu] not on the 正在接待 tab; clicking it at {pt}")
     _foreground()
     _click(pt[0], pt[1])
     _humanize(_POST_ACTION_DELAY)
     ocr_data = ocr_qianniu_window()
-    return is_reception_tab(ocr_data), ocr_data
+    ok = is_reception_tab(ocr_data)
+    logger.info(f"[qianniu] after clicking 正在接待: on_tab={ok}")
+    return ok, ocr_data
 
 
 async def qianniu_check_location(mainwin, args):
@@ -326,9 +354,23 @@ async def qianniu_check_location(mainwin, args):
         buyer = (inp.get("buyer_display_name") or "").strip()
         ensure_tab = inp.get("ensure_reception_tab", True)
 
-        def _result(on_tab, body_ok, header_ok, header_name, cands, error=""):
+        logger.info(f"[qianniu_check_location] start buyer={buyer!r} expect={expect_text[:24]!r} "
+                    f"ensure_tab={ensure_tab}")
+
+        def _result(on_tab, body_ok, header_ok, header_name, cands, error="", screen=None):
             matched_by = ("both" if body_ok and header_ok else
                           "body" if body_ok else "header" if header_ok else "none")
+            summary = (f"[qianniu_check_location] buyer={buyer!r} on_tab={on_tab} "
+                       f"matched_by={matched_by} header_name={header_name!r} "
+                       f"header_band={cands[:8]} error={error!r}")
+            if body_ok and header_ok:
+                logger.info(summary)
+            else:
+                # Not a fault by itself (the LLM then opens / re-checks), but every
+                # miss carries the full screen so OCR geometry can be calibrated.
+                logger.warning(summary + (f"; screen {ocr_dump(screen)}" if screen else ""))
+                if screen is not None:   # only a capture taken by THIS check
+                    save_failure_shot(f"check_{matched_by}")
             return [TextContent(type="text", text=json.dumps({
                 "on_reception_tab": on_tab,
                 "thread_ok": bool(body_ok and header_ok),
@@ -342,7 +384,8 @@ async def qianniu_check_location(mainwin, args):
             return _result(False, False, False, "", [], "千牛 window not found. Is it running?")
         ocr_data = ocr_qianniu_window()
         if not _looks_like_qianniu(ocr_data):
-            return _result(False, False, False, "", [], "layout not recognised as 千牛 (OCR drift)")
+            return _result(False, False, False, "", [], "layout not recognised as 千牛 (OCR drift)",
+                           screen=ocr_data)
 
         on_tab = is_reception_tab(ocr_data)
         if not on_tab and ensure_tab:
@@ -355,7 +398,7 @@ async def qianniu_check_location(mainwin, args):
         if buyer:
             v = verify_header_name(buyer, ocr_data)
             header_ok, header_name = v.matched, v.header_text
-        return _result(on_tab, body_ok, header_ok, header_name, cands)
+        return _result(on_tab, body_ok, header_ok, header_name, cands, screen=ocr_data)
     except Exception as e:
         logger.error(f"[qianniu_check_location] {traceback.format_exc()}")
         return [TextContent(type="text", text=json.dumps(

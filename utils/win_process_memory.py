@@ -191,6 +191,7 @@ def scan_strings(
     chunk_bytes: int = _CHUNK_BYTES,
     overlap_bytes: int = _OVERLAP_BYTES,
     max_total_bytes: int = _MAX_TOTAL_BYTES,
+    stats: Optional[dict] = None,
 ) -> Iterator[bytes]:
     """Walk *pid*'s readable regions and yield readable byte slices that
     *predicate* accepts. The predicate (and any further decoding/locating) is
@@ -204,32 +205,50 @@ def scan_strings(
     ``max_total_bytes`` total. The caller decides UTF-8 vs UTF-16 decoding and
     how to carve objects out of a slice; keeping that out here is what keeps this
     file site-agnostic.
+
+    ``stats`` (optional dict) is filled with what the walk did, for the caller's
+    diagnostics: regions, regions_filtered, chunks, chunk_read_failures, bytes,
+    slices_matched, capped (stopped at ``max_total_bytes``).
     """
     if not available():
         logger.warning("[win_mem] process-memory scan requested on a non-Windows host")
         return
+    st = stats if stats is not None else {}
+    for k in ("regions", "regions_filtered", "chunks", "chunk_read_failures",
+              "bytes", "slices_matched"):
+        st[k] = 0
+    st["capped"] = False
     handle = None
     total = 0
     try:
         handle = open_process_readonly(pid)
         for region in iter_regions(handle):
             if total >= max_total_bytes:
+                st["capped"] = True
                 break
+            st["regions"] += 1
             if region_filter is not None and not region_filter(region):
+                st["regions_filtered"] += 1
                 continue
             offset, tail = 0, b""
             while offset < region.size and total < max_total_bytes:
                 n = min(chunk_bytes, region.size - offset)
                 chunk = _read_chunk(handle, region.base, offset, n)
                 offset += n
+                st["chunks"] += 1
                 if not chunk:
+                    st["chunk_read_failures"] += 1
                     tail = b""
                     continue
                 total += len(chunk)
+                st["bytes"] = total
                 data = tail + chunk
                 if predicate(data):
+                    st["slices_matched"] += 1
                     yield data
                 tail = chunk[-overlap_bytes:]
+            if total >= max_total_bytes:
+                st["capped"] = True
     finally:
         close_handle(handle)
 

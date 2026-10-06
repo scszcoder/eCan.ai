@@ -26,7 +26,16 @@ def register() -> bool:
     """Register the runner bridge and start the memory observer. Idempotent;
     False when not enabled."""
     global _REGISTERED
-    if _REGISTERED or not _enabled():
+    if _REGISTERED:
+        return False
+    if not _enabled():
+        try:
+            import os
+            from utils.logger_helper import logger_helper as logger
+            logger.info(f"[qianniu_chat] not enabled (ECAN_LIVE_CHAT_SITE="
+                        f"{os.environ.get('ECAN_LIVE_CHAT_SITE', '')!r})")
+        except Exception:
+            pass
         return False
     from . import runner_bridge, observer
     runner_bridge.register()

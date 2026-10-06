@@ -1,4 +1,4 @@
-# 天猫 / 淘宝 客服 on 千牛 — Fast Deploy + front-desk skill (v0.9.99x)
+# 天猫 / 淘宝 客服 on 千牛 — Fast Deploy + front-desk skill (v0.9.99x, updated v0.9.99y01)
 
 Status (2026-10-05): **code shipped in v0.9.99x, alpha.** The deploy path, the
 multi-platform switch and the skill/prompt are built and tested off-line. Nothing
@@ -364,6 +364,51 @@ Event isolation needs nothing extra:
 
 ## 8. Known risks / what the alpha logs will tell us
 
+**First alpha run (v0.9.99x, 2026-10-06), fixed in the next rev.** Two parts of
+the run worked:
+- the deploy created 7 agents / 7 tasks;
+- all three bridges registered (飞鸽 + 拼多多 + 千牛), and the front desk compiled
+  with `pr-731906` and started.
+
+But the observer ran for ~8 h and dispatched nothing (zero `[QIANNIU-FD]` lines).
+
+**Cause:** it scanned the first process named AliWorkbench.exe.
+- 千牛 runs a root AliWorkbench.exe plus a child AliWorkbench.exe and many
+  AliRender.exe.
+- In the 2026-09-30 probe run, every chat message sat in the root (pid 12040),
+  none in the child (pid 9320).
+- psutil lists by pid, so the child came first.
+
+**Fixes in v0.9.99y01:**
+- **Process choice:** `observer._qianniu_pids()` returns the root process first.
+  Scanning sticks to whichever process last held messages and falls back to the
+  others. Test: `tests/unit/test_qianniu_observer_process.py`, using the real
+  probe process table.
+- **Seller id:** `mem_locator.seller_id_of` used to take "the id common to every
+  message". With one buyer and no seller reply in memory (a single-customer
+  test), that is the BUYER, and every one of their messages was then dropped as
+  outgoing. It now takes the sender of the outgoing (`ccode` / `sendStatus`)
+  messages only.
+- **Cold-start baseline:** 千牛 memory holds chat HISTORY, so the first scan
+  that finds messages now marks every buyer message already in memory as seen
+  and answers none of them. After that, a message whose `sendTime` is before
+  the run started (minus 60 s grace) is skipped as stale. This covers a
+  conversation opened later, whose history loads into memory then. Both are
+  logged.
+- **Logging at every step:** see the log map below. Tests:
+  `tests/unit/test_qianniu_observer_logging.py`.
+- **Live check:** the real Windows read path (OpenProcess / ReadProcessMemory →
+  `extract_candidates`) was checked on this machine. A message planted in the
+  test process's own memory was found in both encodings, and the counters
+  filled.
+
+Side notes from that log, not blocking:
+- The customer's skill file download failed (`requestSkillFileDownloadUrl`
+  INTERNAL_SERVER_ERROR, backend), so 淘宝客服前台01 compiled from its DB diagram
+  copy. That copy was the new graph.
+- `[build_llm_node] … both set to 'in-line'` is a false positive (it fires on
+  the working Feige Q&A nodes too).
+
 1. **Memory body field + OCR geometry are uncalibrated** (bundle README "Needs a
    live client"). If the body field is wrong, no `[QIANNIU-MEM]` dispatches
    happen. If the geometry is wrong, `qianniu_check_location` returns
@@ -379,15 +424,71 @@ Event isolation needs nothing extra:
 5. **Front-desk history.** The LLM sees prior rounds in history; the prompt
    restricts it to the current input. Watch token growth on long runs.
 
+### Log map (v0.9.99y01) — read a 千牛 run step by step
+
+Everything below is **INFO** unless marked WARNING, so it is in a customer's
+default log. Lines that would repeat every poll are logged **on change** only.
+The 5-minute heartbeat carries the running numbers.
+
+| # | step | grep | what it tells you |
+|---|---|---|---|
+| 1 | bundle on/off | `[qianniu_chat] 千牛 live-chat bundle registered` / `[qianniu_chat] not enabled (ECAN_LIVE_CHAT_SITE=…)` | Is 千牛 on in this process, and what the site list was. |
+| 2 | observer start | `[QIANNIU-MEM] observer loop started (poll …s, learn=…)` | The memory reader thread is running. |
+| 3 | 千牛 processes | `[QIANNIU-MEM] 千牛 processes: root=… others=[…]` / `not running; waiting` | Logged on change. "not running" = 千牛 closed, or a different exe name. |
+| 4 | unreadable process | WARNING `[QIANNIU-MEM] cannot read pid …` | Once per pid. Access denied = eCan runs with lower privilege than 千牛. |
+| 5 | first scan of a pid | `[QIANNIU-MEM] first scan of pid N: {…}` | See "Calibration fields" below; `no_text example keys=` comes with it. |
+| 6 | where messages are | `[QIANNIU-MEM] chat messages found in pid N` / `no chat messages in any 千牛 process this pass` | Which process holds the chat. |
+| 7 | seller id | `[QIANNIU-MEM] seller id in memory: …` | On change. `None` = no seller reply in memory yet; direction then comes from ccode. |
+| 8 | cold start | `[QIANNIU-MEM] baseline: N buyer message(s) already in memory marked seen, NOT answered (latest: …)` | History not answered. A buyer who wrote just before start is in here. |
+| 9 | stale skip | `[QIANNIU-MEM] skip stale buyer=… sendTime=…` | Old history that loaded later. |
+| 10 | name learning | `[QIANNIU-MEM] learned buyer=… -> name=…` / `learn buyer=…: not in the open chat` / `no header name; header band=[…]` | Mapping a buyer id to the display name on screen. |
+| 11 | dispatch | `[QIANNIU-MEM] dispatched buyer=… name=… msg=… to N runner(s): '…'` | A new buyer turn went to the agents. WARNING `no agent runner received it` if N=0. |
+| 12 | routing | `[QUEUE] sync_task_wait_in_line: event_type=browser_event, sub_type=qianniu_chat` / `[QUEUE] Routed … to task=天猫客服前台001` | Which task took it. Generic runner log. |
+| 13 | front-desk prep | `[QIANNIU-FD] event=browser_event -> {"kind": "customer_message", …}` / `event=chat_message -> {"kind": "qa_reply", …}` | Exactly what the LLM gets as input. From the skill's code node. |
+| 14 | LLM + tool | `[LLM] …`, `[MCP Auto-Select] Resolved tool: '…' with input: …`, `[MCP] tool=… duration…` | The tool the front desk chose and how long it took. Generic. |
+| 15 | hand-off to Q&A | `Resolved tool: 'send_chat'` (FD) → Q&A agent's `[QUEUE] … chat_message` → its `send_chat` back | Generic A2A logs. |
+| 16 | OCR capture | `[qianniu] OCR window=… img=WxH lines=N in Xms` / WARNING `capture of the 千牛 window failed` | Every capture. |
+| 17 | location check | `[qianniu_check_location] start …`, then `buyer=… on_tab=… matched_by=both\|body\|header\|none header_name=… header_band=[…]` | A miss is a WARNING that carries `screen N lines: text@(x,y) \| …` and keeps a screenshot. |
+| 18 | 正在接待 tab | `[qianniu] not on the 正在接待 tab; clicking it at (x,y)` / `after clicking 正在接待: on_tab=…` | Tab switching. |
+| 19 | open by name | `[qianniu_open_session] start …`, `[qianniu] open '…': clicking search box at …`, `opened, header …`, result line | A WARNING with the screen dump if there is no search box or the layout is not recognised. |
+| 20 | header verify | `[qianniu] header verify OK: … ~ …` / WARNING `header verify MISMATCH: expected …, header band saw […]; screen …` | The header check behind every send. |
+| 21 | send | `[qianniu_send] start buyer=… auto_open=… expect=… msg_len=…`, `ABORT: …` (with screen dump), `busy: desktop lock held by …`, `sent to … (header …)` | The final send step. |
+| 22 | heartbeat | `[QIANNIU-MEM] heartbeat pids=… msg_pid=… scan_ms avg=… max=… stats={…} last_scan={…}` | Every 5 min (the first one at start). |
+
+**Calibration fields** (in the first-scan line, the heartbeat's `last_scan`, and
+each pass's counters):
+- `regions` / `bytes` / `chunk_read_failures` / `capped`: how much memory was read.
+- `slices_matched`: memory slices containing a `"sender"` anchor.
+- `extract.objects`: JSON objects parsed around anchors.
+- `extract.kept`: message candidates. Drop reasons are `no_sender`, `ui_card`,
+  `no_uid` and `no_text`.
+- `incoming_in_memory` / `outgoing_in_memory`: the direction split.
+
+How to read them:
+- `objects > 0, kept = 0, no_text high`: the message body field moved. The logged
+  `no_text example keys` show the real keys.
+- `slices_matched = 0`: this process holds no chat (wrong process, or no
+  conversation loaded).
+- Cumulative `stats`: `baseline_seen`, `stale_skipped`, `new_incoming`,
+  `dispatched`, `dispatched_to_nobody`, `learn_attempts`, `learned`,
+  `scan_errors`.
+
+**Screenshots:** each failed check, header mismatch, refused send or failed open
+keeps the OCR'd screenshot. They go to
+`<appdata>/runlogs/qianniu_ocr/<time>_<reason>.png`, newest 20, next to the log
+the customer already sends. They contain the visible chat, are local only, and
+`ECAN_QIANNIU_SAVE_SHOTS=0` turns them off.
+
 ### Debugging playbook
 
-| symptom | grep | meaning |
+| symptom | look at | meaning |
 |---|---|---|
-| no reaction at all | `[qianniu_chat] 千牛 live-chat bundle registered` | missing → `ECAN_LIVE_CHAT_SITE` lacks `qianniu_chat` or no restart |
-| bundle up, nothing dispatched | `[QIANNIU-MEM]` | observer not attributing messages (calibration) |
-| dispatched but FD silent | `[QIANNIU-FD] event=` | prep never ran → pend label / routing |
-| FD dispatched, no Q&A answer | `send_chat` / `Recipient agent not found` | empty or stale `qa_agent_ids` → redeploy |
-| answer never sent | `[qianniu_send]` (`ABORT: header` / `body verify failed`) | OCR checks refused — correct, fail-closed; calibrate or name not learned |
+| no reaction at all | step 1 | missing → `ECAN_LIVE_CHAT_SITE` lacks `qianniu_chat`, or no restart |
+| bundle up, nothing dispatched | steps 3-5, 22 | process found? readable? `slices_matched` / `extract.kept` (calibration fields) |
+| messages in memory, none dispatched | steps 7-9, 22 | everything baselined or stale (only messages after start are answered); `incoming_in_memory = 0` with candidates → direction classification |
+| dispatched but FD silent | steps 12-13 | routing / pend label (`browserEventLabel` must be `qianniu_chat`) |
+| FD dispatched, no Q&A answer | steps 14-15 | empty or stale `qa_agent_ids` → redeploy |
+| answer never sent | steps 17-21 + `runlogs/qianniu_ocr/*.png` | which check refused, and the full screen it saw |
 | reply landed in 拼多多/飞鸽 | `[DIRECT-DELIVERY] Using cached browser session` for a 天猫 task | `hookBundles` missing from the skill (re-publish) |
 
 ---
@@ -403,6 +504,20 @@ Code (this release):
 - `gui_v2/src/pages/Settings/components/LiveChatSiteSetting.tsx` +
   `gui_v2/src/i18n/locales/{en-US,zh-CN}.json`: multi-select + hint text.
 - Tests listed in section 7.
+
+Code (v0.9.99y01, the observer fixes and logging):
+- `qianniu_chat/observer.py`: root-process choice, cold-start baseline, stale
+  skip, one-time state logs, heartbeat.
+- `qianniu_chat/mem_locator.py`: `seller_id_of` from outgoing messages only,
+  extraction drop counters.
+- `qianniu_chat/__init__.py`: "not enabled" line.
+- `qianniu_chat/_phase0_spike.py`: root-process choice.
+- `utils/win_process_memory.py`: optional `stats` on `scan_strings`.
+- `agent/mcp/server/qianniu/qianniu_ocr.py`: capture timing, `ocr_dump`,
+  `save_failure_shot`, header-verify logs.
+- `agent/mcp/server/qianniu/qianniu_tools.py`: step / result logs for every tool.
+- Tests: `tests/unit/test_qianniu_observer_process.py`,
+  `tests/unit/test_qianniu_observer_logging.py`.
 
 Data (author machine, gitignored — publish from the app):
 - `my_skills/淘宝客服前台01_skill/diagram_dir/淘宝客服前台01_skill.json` + `_bundle.json`

@@ -8,7 +8,9 @@ intended recipient before any send. Read-only — this module never sends input.
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -19,6 +21,47 @@ from utils.logger_helper import logger_helper as logger
 _QIANNIU_WIN_KW = "千牛"
 _OCR_MAX_LONG_SIDE = 1500            # match wechat_tools; resize before OCR
 _HEADER_BAND_FRAC = 0.12             # top 12% of the window holds the buyer-name header
+_TMP_SHOT = os.path.join(tempfile.gettempdir(), "qianniu_ocr_tmp.png")
+_SHOTS_KEEP = 20
+
+
+def ocr_dump(ocr_data: list, limit: int = 80) -> str:
+    """Every OCR line as ``text@(x,y)`` (centre, absolute coords), top to bottom.
+    Logged on any failed check: it is what OCR-geometry calibration needs."""
+    rows = []
+    for it in ocr_data or []:
+        lc = it.get("loc")
+        t = str(it.get("text") or "").strip()
+        if not lc or not t:
+            continue
+        rows.append(((lc[0] + lc[2]) / 2, (lc[1] + lc[3]) / 2, t))
+    rows.sort()
+    out = [f"{t}@({int(x)},{int(y)})" for y, x, t in rows[:limit]]
+    more = f" …+{len(rows) - limit}" if len(rows) > limit else ""
+    return f"{len(rows)} lines: " + " | ".join(out) + more
+
+
+def save_failure_shot(reason: str) -> str:
+    """Keep the last OCR'd screenshot as <runlogs>/qianniu_ocr/<time>_<reason>.png
+    (the newest ``_SHOTS_KEEP``) so a failed check can be seen, not guessed.
+    Local only; ECAN_QIANNIU_SAVE_SHOTS=0 turns it off. Returns the path or ""."""
+    if os.environ.get("ECAN_QIANNIU_SAVE_SHOTS", "1") == "0" or not os.path.exists(_TMP_SHOT):
+        return ""
+    try:
+        from config.app_info import app_info
+        folder = os.path.join(app_info.appdata_path, "runlogs", "qianniu_ocr")
+        os.makedirs(folder, exist_ok=True)
+        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in reason)[:40]
+        path = os.path.join(folder, f"{time.strftime('%Y%m%d_%H%M%S')}_{safe}.png")
+        shutil.copyfile(_TMP_SHOT, path)
+        shots = sorted(f for f in os.listdir(folder) if f.endswith(".png"))
+        for old in shots[:-_SHOTS_KEEP]:
+            os.remove(os.path.join(folder, old))
+        logger.info(f"[qianniu] screenshot kept for '{reason}': {path}")
+        return path
+    except Exception as exc:
+        logger.warning(f"[qianniu] could not keep screenshot ({exc})")
+        return ""
 
 
 def ocr_qianniu_window() -> list:
@@ -29,7 +72,12 @@ def ocr_qianniu_window() -> list:
         run_ocr_on_image, scale_ocr_coordinates,
     )
 
-    screen_img, _image_bytes, window_rect = captureScreen(_QIANNIU_WIN_KW)
+    t0 = time.monotonic()
+    try:
+        screen_img, _image_bytes, window_rect = captureScreen(_QIANNIU_WIN_KW)
+    except Exception as exc:
+        logger.warning(f"[qianniu] capture of the 千牛 window failed: {exc}")
+        raise
     orig_w, orig_h = screen_img.size
 
     scale_x, scale_y = 1.0, 1.0
@@ -40,10 +88,9 @@ def ocr_qianniu_window() -> list:
         screen_img = screen_img.resize((new_w, new_h))
         scale_x, scale_y = orig_w / new_w, orig_h / new_h
 
-    tmp_file = os.path.join(tempfile.gettempdir(), "qianniu_ocr_tmp.png")
-    screen_img.save(tmp_file)
+    screen_img.save(_TMP_SHOT)
 
-    ocr_result = run_ocr_on_image(tmp_file)
+    ocr_result = run_ocr_on_image(_TMP_SHOT)
     if ocr_result.get("status") != "success":
         logger.error(f"[qianniu] local OCR failed: {ocr_result.get('error')}")
         return []
@@ -52,6 +99,8 @@ def ocr_qianniu_window() -> list:
     if scale_x != 1.0 or scale_y != 1.0:
         result = scale_ocr_coordinates(result, scale_x, scale_y)
     result = _apply_window_offset(result, window_rect)
+    logger.info(f"[qianniu] OCR window={window_rect} img={orig_w}x{orig_h} lines={len(result)} "
+                f"in {int((time.monotonic() - t0) * 1000)}ms")
     return result
 
 
@@ -171,17 +220,23 @@ def verify_header_name(expected_display_name: str,
     """
     expected = _norm(expected_display_name)
     if not expected:
+        logger.info("[qianniu] header verify skipped: no expected buyer name")
         return HeaderVerifyResult(False, "", expected_display_name, [])
 
     data = ocr_data if ocr_data is not None else ocr_qianniu_window()
     if not data:
+        logger.warning(f"[qianniu] header verify for {expected_display_name!r}: OCR read nothing")
         return HeaderVerifyResult(False, "", expected_display_name, [])
 
     texts = header_band_texts(data)
     matched = any(expected in _norm(t) or _norm(t) in expected for t in texts)
     best = next((t for t in texts if expected in _norm(t) or _norm(t) in expected),
                 texts[0] if texts else "")
-    if not matched:
+    if matched:
+        logger.info(f"[qianniu] header verify OK: {expected_display_name!r} ~ {best!r}")
+    else:
         logger.warning(f"[qianniu] header verify MISMATCH: expected "
-                       f"{expected_display_name!r}, header band saw {texts[:6]}")
+                       f"{expected_display_name!r}, header band saw {texts[:12]}; "
+                       f"screen {ocr_dump(data)}")
+        save_failure_shot("header_mismatch")
     return HeaderVerifyResult(matched, best, expected_display_name, texts)

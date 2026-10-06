@@ -1329,6 +1329,15 @@ invalidate the approach.
 ---
 
 ## ✅ Recently done
+- 2026-10-06 — 千牛 alpha v0.9.99x dispatched nothing for 8 h. Fixed in
+  v0.9.99y01:
+  - the observer scanned the CHILD AliWorkbench.exe; chat is in the root;
+  - `seller_id_of` named a lone buyer as the seller;
+  - added a cold-start baseline + stale skip (memory holds history);
+  - added INFO logs for every step of the chain, failure screenshots in
+    `runlogs/qianniu_ocr/`, and a 5-min heartbeat.
+
+  Log map: docs/QIANNIU_TMALL_FAST_DEPLOY.md §8.
 - 2026-10-05 — 天猫客服 Fast Deploy is real (was a stub that showed 失败):
   - `_TMALL_PROFILE` (native desktop: no Chrome pre-check / browser login /
     store URL; Q&A pool passed as `task_vars.qa_agent_ids`);
