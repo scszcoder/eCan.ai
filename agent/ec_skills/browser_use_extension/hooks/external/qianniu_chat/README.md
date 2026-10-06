@@ -35,6 +35,14 @@ measurement on a live client (see "Needs a live client" below).
 | `__init__.py` | gated `register()` → bridge + observer | 1 |
 | `_phase3_gate.py` | reliability-gate harness: observe/reply, reports wrong-recipient sends / dups / latency | 3 |
 
+## Fast Deploy (天猫客服)
+
+快速生成 → 天猫客服 deploys a front desk on 淘宝客服前台01 (no browser node) plus
+the shared 飞鸽客服问答00 Q&A pool, and adds `qianniu_chat` to
+`ECAN_LIVE_CHAT_SITE` alongside 飞鸽 / 拼多多. Skill graph, prompt `pr-731906`,
+multi-platform guard and debugging playbook:
+`docs/QIANNIU_TMALL_FAST_DEPLOY.md`.
+
 ## Wiring
 
 - `ECAN_LIVE_CHAT_SITE=qianniu_chat` — activates the bundle (bridge + observer).

@@ -530,6 +530,7 @@ class _LiveChatProfile(NamedTuple):
     env_set: dict                 # run.env keys that must hold exactly this value
     find_skill_by_name: bool      # not yet published: local ids differ per machine
     fd_legacy_skill_ids: tuple = ()   # earlier front-desk skills: replace mode clears their tasks too
+    native_desktop: bool = False      # native client (千牛): no browser login profile, no Chrome pre-check, store URL optional
 
 
 _DDCS_PROFILE = _LiveChatProfile(
@@ -561,7 +562,24 @@ _PDD_PROFILE = _LiveChatProfile(
     env_append={}, env_set={"ECAN_LIVE_CHAT_SITE": "pdd_chat"}, find_skill_by_name=True,
 )
 
-_LIVE_CHAT_PROFILES = {p.scenario: p for p in (_DDCS_PROFILE, _PDD_PROFILE)}
+# Tmall (qianniu_chat bundle): the 千牛 desktop client, driven by process-memory
+# intake + OCR-verified send (hooks/external/qianniu_chat), not a browser. Same
+# Feige Q&A side as Pinduoduo; the front desk is the 淘宝客服前台01 skill
+# (pend_event -> code -> llm -> mcp, no browser node) on prompt 千牛客服前台0.
+_TMALL_PROFILE = _LiveChatProfile(
+    scenario="tmall_cs", label="天猫客服", platform="tmall", login_domain="",
+    qa_skill_id=_DDCS_QA_SKILL_ID, qa_skill_name=_DDCS_QA_SKILL_NAME,
+    fd_skill_id="skill_e92218afd50a4ae6", fd_skill_name="淘宝客服前台01",
+    prompts=((_DDCS_QA_PROMPT_ID, "飞鸽客服应答0", "qa"),
+             (_DDCS_QA_SOCIAL_PROMPT_ID, "飞鸽社交应答0", "qa"),
+             (_DDCS_QA_RAG_PROMPT_ID, "飞鸽RAG路由分类0", "qa"),
+             ("pr-731906", "千牛客服前台0", "fd")),
+    fd_task_prefix="天猫客服前台", qa_task_prefix="天猫客服应答",
+    env_append={}, env_set={"ECAN_LIVE_CHAT_SITE": "qianniu_chat"}, find_skill_by_name=True,
+    native_desktop=True,
+)
+
+_LIVE_CHAT_PROFILES = {p.scenario: p for p in (_DDCS_PROFILE, _PDD_PROFILE, _TMALL_PROFILE)}
 
 
 def _cleanup_skill_ids(profile: _LiveChatProfile) -> tuple:
@@ -573,11 +591,26 @@ def _cleanup_skill_ids(profile: _LiveChatProfile) -> tuple:
 _MULTI_SUFFIX = "_multi"
 
 
+# Comma-separated run.env keys a deploy ADDS to instead of replacing: one
+# process serves 飞鸽 + 拼多多 + 千牛 together, so deploying one platform must not
+# switch another off. Existing entries stay first (the first is the default site).
+_LIST_ENV_KEYS = {"ECAN_LIVE_CHAT_SITE"}
+
+
+def _merged_list_value(old: str, new: str) -> str:
+    items = [s.strip() for s in str(old or "").split(",") if s.strip()]
+    for s in str(new or "").split(","):
+        if s.strip() and s.strip() not in items:
+            items.append(s.strip())
+    return ",".join(items)
+
+
 def _set_run_env(env_map: dict, log: list) -> None:
     """Make each key in <appdata>/run.env hold exactly its value (replace or append).
 
     For switches whose value matters (the live-chat site) -- unlike
     ``_write_run_env``, which never overwrites an operator's tuning.
+    Keys in ``_LIST_ENV_KEYS`` are merged into the existing list instead.
     """
     if not env_map:
         return
@@ -589,6 +622,11 @@ def _set_run_env(env_map: dict, log: list) -> None:
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
                 lines = f.read().splitlines()
+        env_map = dict(env_map)
+        for i, line in enumerate(lines):
+            m = _re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$", line)
+            if m and m.group(1) in env_map and m.group(1) in _LIST_ENV_KEYS:
+                env_map[m.group(1)] = _merged_list_value(m.group(2), env_map[m.group(1)])
         done = set()
         for i, line in enumerate(lines):
             m = _re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
@@ -789,7 +827,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
                                 "请选择店铺（请先在店铺页面创建）"))
     rec = _store_record(ctx, store_id, profile.platform)
     store_urls = _store_urls_of(rec)
-    if not store_urls:
+    if not store_urls and not profile.native_desktop:
         raise RuntimeError(_tr(f"store {store_id!r} has no URL -- add it on the Stores page",
                                 f"店铺 {store_id} 没有设置链接，请在店铺页面添加"))
 
@@ -811,9 +849,10 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
 
     # ── Store URL propagation: per-task variables. apply_task_vars seeds
     #    these into every run's prompt variables ({{store_url}} / {{store_urls}}).
-    task_vars = {"store_url": store_urls[0], "store_urls": ",".join(store_urls)}
-    log.append(f"Task variables: store_url={store_urls[0]} (+{len(store_urls) - 1} more)"
-               if len(store_urls) > 1 else f"Task variables: store_url={store_urls[0]}")
+    task_vars = {"store_url": store_urls[0] if store_urls else "", "store_urls": ",".join(store_urls)}
+    if store_urls:
+        log.append(f"Task variables: store_url={store_urls[0]} (+{len(store_urls) - 1} more)"
+                   if len(store_urls) > 1 else f"Task variables: store_url={store_urls[0]}")
 
     task_vars["store_id"] = store_id
     log.append(f"Store id: {store_id}")
@@ -829,14 +868,21 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     # logged-in browser (build_helpers.browser_type_for_identity). Local only
     # -- the profile never syncs.
     rec = {**rec, "store_id": store_id, "name": rec.get("name") or store_id}
-    identity, needs = _ensure_store_login(ctx, rec, profile.login_domain, log)
-    log.append(f"Browser: store {store_id!r} runs in its own login profile "
-               f"{identity['browser_profile_id']!r}")
-    needs_login = ([{"store_id": store_id, "store_name": rec["name"],
-                     "profile_id": identity["browser_profile_id"]}] if needs else [])
-    if needs_login:
-        log.append(f"Sign store {rec['name']!r} in once (Settings → Browser Profiles → Launch): "
-                   f"{identity['browser_profile_id']}")
+    if profile.native_desktop:
+        # 千牛 is a desktop client signed in on this machine: no browser profile.
+        identity, needs_login = None, []
+        log.append(_tr("Open the 千牛 desktop client and sign in on this machine before starting the agents "
+                       "(one store per machine).",
+                       "请在本机打开并登录千牛客户端后再启动智能体（每台机器仅支持一个店铺）。"))
+    else:
+        identity, needs = _ensure_store_login(ctx, rec, profile.login_domain, log)
+        log.append(f"Browser: store {store_id!r} runs in its own login profile "
+                   f"{identity['browser_profile_id']!r}")
+        needs_login = ([{"store_id": store_id, "store_name": rec["name"],
+                         "profile_id": identity["browser_profile_id"]}] if needs else [])
+        if needs_login:
+            log.append(f"Sign store {rec['name']!r} in once (Settings → Browser Profiles → Launch): "
+                       f"{identity['browser_profile_id']}")
     b = _Builder(ctx, owner, org_id, profile.label)
 
     def _add_task(name: str, skill_id: str, extra_vars: dict | None = None) -> str:
@@ -866,8 +912,17 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     for i in range(1, qa_n + 1):
         qa_task_ids.append(_add_task(f"{profile.qa_task_prefix}{i:03d}", qa_skill_id,
                                      extra_vars={"front_desk_agent_id": fd_agent_id}))
-    for name, tid in zip(_draw_qa_names(qa_n), qa_task_ids):
-        b.agent(f"客服小{name}", qa_skill_id, tid, vehicle_id)
+    qa_agent_ids = [b.agent(f"客服小{name}", qa_skill_id, tid, vehicle_id)
+                    for name, tid in zip(_draw_qa_names(qa_n), qa_task_ids)]
+    if profile.native_desktop:
+        # No browser node injects the Q&A pool into this front desk's prompt
+        # (Feige's actionable_items hook does); hand it the ids as a task var.
+        fd_settings = {"task_vars": {**task_vars, "qa_agent_ids": ",".join(qa_agent_ids)}}
+        ur = ctx.db.task_service.update_task(fd_task_id, {"settings": fd_settings})
+        if not (isinstance(ur, dict) and ur.get("success")):
+            raise RuntimeError(_tr(f"update task {fd_name} failed: {(ur or {}).get('error')}",
+                                    f"更新任务 {fd_name} 失败：{(ur or {}).get('error')}"))
+        log.append(f"Front desk {fd_name}: task_vars.qa_agent_ids = {len(qa_agent_ids)} Q&A agent(s)")
     log.append(f"Created {qa_n} Q&A task(s) {profile.qa_task_prefix}001..{qa_n:03d} → "
                f"{profile.qa_skill_name} (task_vars.front_desk_agent_id={fd_agent_id})")
     log.append(f"Created {qa_n} Q&A agent(s) 客服小X (org=Sales)")
@@ -1263,10 +1318,13 @@ def scenario(config, output):
         # failed before detection ever started because eCan attached to a
         # Chrome without the Feige page. See cli/deploy/chrome_precheck.py.
         from .chrome_precheck import run_chrome_precheck
-        try:
-            pre_ok, pre_log, pre_msg = run_chrome_precheck()
-        except Exception as e:  # never let the check itself block a deploy
-            pre_ok, pre_log, pre_msg = True, [f"Chrome pre-check skipped: {e}"], ""
+        if profile.native_desktop:   # 千牛 is not a browser site
+            pre_ok, pre_log, pre_msg = True, [], ""
+        else:
+            try:
+                pre_ok, pre_log, pre_msg = run_chrome_precheck()
+            except Exception as e:  # never let the check itself block a deploy
+                pre_ok, pre_log, pre_msg = True, [f"Chrome pre-check skipped: {e}"], ""
         if not pre_ok:
             _emit({
                 "status": "failure",

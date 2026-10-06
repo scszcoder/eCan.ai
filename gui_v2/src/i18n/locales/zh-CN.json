@@ -1519,7 +1519,7 @@
       "basic_mode_settings": "基础模式设置",
       "live_chat_settings": "客服聊天",
       "live_chat_site": "客服平台",
-      "live_chat_site_hint": "目前每台电脑只运行一个平台。快速生成会自动设置。",
+      "live_chat_site_hint": "飞鸽始终开启；可同时加选拼多多、千牛一起运行。快速生成会自动设置。",
       "live_chat_site_restart": "请重启 eCan 以切换平台。",
       "live_chat_site_save_failed": "保存失败",
       "engine_port_settings": "引擎和端口设置",

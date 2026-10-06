@@ -965,6 +965,15 @@ invalidate the approach.
 
 ## 🔵 Tmall / Qianniu (Phase 2+) — see docs/TMALL_QIANNIU_CHAT_DESIGN.md
 
+- **2026-10-05 (v0.9.99x): the route taken is the 千牛 DESKTOP client**
+  (`qianniu_chat` bundle: memory intake + OCR-verified send). 快速生成 → 天猫客服
+  now deploys for real on a rebuilt no-browser 淘宝客服前台01, and 千牛 runs
+  alongside 飞鸽 + 拼多多 — see **docs/QIANNIU_TMALL_FAST_DEPLOY.md**. The web
+  items below apply only to the abandoned 千牛 Web route. Still open:
+  - live calibration (memory body field, OCR header geometry);
+  - first alpha run (real LLM turn on `pr-731906`, end-to-end send);
+  - publishing 淘宝客服前台01 + `pr-731906` (data).
+
 - **BLOCKER (2026-09-27): there is no 千牛 Web chat to calibrate against.**
   qianniu_probe runs: the web workbench (qn.taobao.com) only has 接待 *settings*
   (接待工具 cards); the 接待中心 itself says "需下载千牛客户端使用". The desktop
@@ -1320,6 +1329,15 @@ invalidate the approach.
 ---
 
 ## ✅ Recently done
+- 2026-10-05 — 天猫客服 Fast Deploy is real (was a stub that showed 失败):
+  - `_TMALL_PROFILE` (native desktop: no Chrome pre-check / browser login /
+    store URL; Q&A pool passed as `task_vars.qa_agent_ids`);
+  - 淘宝客服前台01 rebuilt as pend_event → prep code → LLM → qianniu_* tools;
+  - `ECAN_LIVE_CHAT_SITE` merged, not replaced; Settings switch multi-select;
+  - `hookBundles` on the skill stops a 千牛 reply reaching another platform's
+    browser.
+
+  Details + debugging playbook: docs/QIANNIU_TMALL_FAST_DEPLOY.md.
 - 2026-08-16 — CN HTTP cloud auth, round 2: the 08-12 fix was insufficient — the
   SCF HTTP gate (`cloudbase-graphql/scf/auth.js resolveIdentity`) cannot validate
   the WeChat access JWT (`uid` claim, no `sub`) over plain HTTPS; only the

@@ -45,6 +45,20 @@ def test_handler_saves_and_flags_restart(home):
         assert run_env.read_value("ECAN_LIVE_CHAT_SITE") is None
 
 
+def test_handler_saves_several_sites_together(home):
+    from gui.ipc.w2p_handlers import live_chat_site_handler as h
+    req = {"id": "1", "method": "live_chat_site.set", "params": {}}
+    with patch.dict(os.environ, {"ECAN_LIVE_CHAT_SITE": ""}):
+        res = h.handle_set(req, {"site": "pdd_chat,qianniu_chat"})
+        data = res["result"] if isinstance(res, dict) and "result" in res else getattr(res, "result", None)
+        assert run_env.read_value("ECAN_LIVE_CHAT_SITE") == "pdd_chat,qianniu_chat"
+        assert data["sites"] == ["pdd_chat", "qianniu_chat"]
+        h.handle_set(req, {"sites": ["qianniu_chat"]})
+        assert run_env.read_value("ECAN_LIVE_CHAT_SITE") == "qianniu_chat"
+        h.handle_set(req, {"site": "pdd_chat,evil"})   # one bad name refuses the whole save
+        assert run_env.read_value("ECAN_LIVE_CHAT_SITE") == "qianniu_chat"
+
+
 def test_handler_refuses_unknown_sites(home):
     from gui.ipc.w2p_handlers import live_chat_site_handler as h
     req = {"id": "1", "method": "live_chat_site.set", "params": {}}

@@ -1461,7 +1461,7 @@
       "basic_mode_settings": "Basic Mode Settings",
       "live_chat_settings": "Customer chat",
       "live_chat_site": "Live-chat platform",
-      "live_chat_site_hint": "One platform per machine for now. Fast Deploy sets this for you.",
+      "live_chat_site_hint": "Feige is always on; add Pinduoduo / Qianniu to run them alongside it. Fast Deploy sets this for you.",
       "live_chat_site_restart": "Restart eCan to apply the new platform.",
       "live_chat_site_save_failed": "Could not save",
       "engine_port_settings": "Engine and Port Settings",

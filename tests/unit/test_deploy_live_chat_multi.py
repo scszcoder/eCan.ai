@@ -44,11 +44,12 @@ class TestPinduoduoSingleStore:
         assert "ECAN_LIVE_CHAT_SITE=pdd_chat" in run_env
         assert "ECAN_FEIGE_WS" not in run_env, "Feige flags stay out of a Pinduoduo deploy"
 
-    def test_the_site_switch_replaces_an_old_value(self, _env):
+    def test_the_site_switch_adds_to_an_old_value(self, _env):
+        # One process serves 飞鸽 + 拼多多 + 千牛: deploying PDD must not switch the others off.
         (_env / "run.env").write_text("ECAN_LIVE_CHAT_SITE=feige_chat\nOTHER=1\n", encoding="utf-8")
         dc._set_run_env({"ECAN_LIVE_CHAT_SITE": "pdd_chat"}, [])
         text = (_env / "run.env").read_text(encoding="utf-8")
-        assert "ECAN_LIVE_CHAT_SITE=pdd_chat" in text and "feige_chat" not in text and "OTHER=1" in text
+        assert "ECAN_LIVE_CHAT_SITE=feige_chat,pdd_chat" in text and "OTHER=1" in text
 
     def test_an_unpublished_skill_is_found_by_its_exact_name(self):
         ctx = _make_ctx(missing_skill=dc._PDD_PROFILE.fd_skill_id)

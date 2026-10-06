@@ -156,7 +156,8 @@ def _run_scenario(tmp_path, monkeypatch, payload, stores):
     from types import SimpleNamespace
     from click.testing import CliRunner
     import cli.base.output as cli_output
-    ctx = SimpleNamespace(db=SimpleNamespace(store_service=SimpleNamespace(get_store=stores.get)))
+    ctx = SimpleNamespace(username="alice",
+                          db=SimpleNamespace(store_service=SimpleNamespace(get_store=stores.get)))
     monkeypatch.setattr("cli.base.context.get_context", lambda: ctx)
     cfg = tmp_path / "cfg.json"
     out = tmp_path / "out.json"
@@ -166,15 +167,27 @@ def _run_scenario(tmp_path, monkeypatch, payload, stores):
     return json.loads(out.read_text(encoding="utf-8"))
 
 
-def test_a_planned_scenario_takes_the_picked_stores_urls(tmp_path, monkeypatch):
-    stores = {"tm-1": {"store_id": "tm-1", "platform": "tmall",
-                       "store_urls": ["https://myseller.taobao.com"]}}
-    res = _run_scenario(tmp_path, monkeypatch, {"scenario": "tmall_cs", "config": {"store_id": "tm-1"}}, stores)
-    assert res["status"] == "success"
-    assert "Store URLs: 1" in res["log"]
+def test_tmall_is_a_real_native_desktop_deployment_not_a_stub():
+    p = cmds._LIVE_CHAT_PROFILES["tmall_cs"]
+    assert p.native_desktop and p.platform == "tmall"
+    assert (p.fd_skill_id, p.fd_skill_name) == ("skill_e92218afd50a4ae6", "淘宝客服前台01")
+    assert p.env_set == {"ECAN_LIVE_CHAT_SITE": "qianniu_chat"}
+    assert ("pr-731906", "千牛客服前台0", "fd") in p.prompts
+    assert not cmds._PDD_PROFILE.native_desktop and not cmds._DDCS_PROFILE.native_desktop
 
 
-def test_a_planned_scenario_refuses_another_platforms_store(tmp_path, monkeypatch):
+def test_live_chat_site_is_added_to_run_env_not_replaced(tmp_path, monkeypatch):
+    # 飞鸽 + 拼多多 + 千牛 run in one process: deploying one platform must keep the others.
+    monkeypatch.setattr("config.envi.getECBotDataHome", lambda: str(tmp_path))
+    monkeypatch.delenv("ECAN_LIVE_CHAT_SITE", raising=False)
+    (tmp_path / "run.env").write_text("FOO=1\nECAN_LIVE_CHAT_SITE=pdd_chat\n", encoding="utf-8")
+    cmds._set_run_env({"ECAN_LIVE_CHAT_SITE": "qianniu_chat"}, [])
+    cmds._set_run_env({"ECAN_LIVE_CHAT_SITE": "pdd_chat"}, [])   # redeploy PDD: no duplicate, order kept
+    assert (tmp_path / "run.env").read_text(encoding="utf-8").splitlines() == [
+        "FOO=1", "ECAN_LIVE_CHAT_SITE=pdd_chat,qianniu_chat"]
+
+
+def test_a_live_chat_scenario_refuses_another_platforms_store(tmp_path, monkeypatch):
     stores = {"amz-1": {"store_id": "amz-1", "platform": "amazon", "store_urls": ["https://x"]}}
     res = _run_scenario(tmp_path, monkeypatch, {"scenario": "tmall_cs", "config": {"store_id": "amz-1"}}, stores)
     assert res["status"] == "failure" and "is a amazon store" in res["message"]

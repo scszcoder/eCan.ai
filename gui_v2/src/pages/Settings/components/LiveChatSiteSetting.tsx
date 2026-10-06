@@ -11,12 +11,13 @@ interface SiteOption {
 
 interface SiteState {
   site: string;
+  sites: string[];
   running_site: string;
   restart_needed: boolean;
   options: SiteOption[];
 }
 
-/** Which live-chat platform (飞鸽 / 拼多多) this machine serves. Saved to run.env; applies after restart. */
+/** Live-chat platforms this machine serves besides 飞鸽 (always on): 拼多多, 千牛. Saved to run.env; applies after restart. */
 export const LiveChatSiteSetting: React.FC = () => {
   const { t, i18n } = useTranslation();
   const [state, setState] = useState<SiteState | null>(null);
@@ -30,10 +31,10 @@ export const LiveChatSiteSetting: React.FC = () => {
 
   useEffect(() => { load(); }, [load]);
 
-  const onChange = async (site: string) => {
+  const onChange = async (sites: string[]) => {
     setSaving(true);
     try {
-      const res = await get_ipc_api().setLiveChatSite<SiteState>(site);
+      const res = await get_ipc_api().setLiveChatSite<SiteState>(sites.join(','));
       if (res?.success && res.data) {
         setState(res.data);
       } else {
@@ -50,9 +51,11 @@ export const LiveChatSiteSetting: React.FC = () => {
       <Space>
         <Typography.Text>{t('pages.settings.live_chat_site', 'Live-chat platform')}</Typography.Text>
         <Select
+          mode="multiple"
           size="small"
-          style={{ minWidth: 180 }}
-          value={state.site}
+          style={{ minWidth: 240 }}
+          placeholder={zh ? '仅飞鸽' : 'Feige only'}
+          value={state.sites}
           loading={saving}
           onChange={onChange}
           options={state.options.map((o) => ({ value: o.value, label: zh ? o.label_zh : o.label_en }))}
@@ -60,7 +63,7 @@ export const LiveChatSiteSetting: React.FC = () => {
       </Space>
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
         {t('pages.settings.live_chat_site_hint',
-          'One platform per machine for now. Fast Deploy sets this for you.')}
+          'Feige is always on; add Pinduoduo / Qianniu to run them alongside it. Fast Deploy sets this for you.')}
       </Typography.Text>
       {state.restart_needed && (
         <Alert
