@@ -158,6 +158,30 @@ def test_extract_candidates_counts_why_objects_were_dropped():
     assert stats["sample_no_text_keys"] == ["sender", "x9f3"]
 
 
+def test_cards_and_memory_changes_are_logged_once():
+    # 0.9.99yb alpha: 6 objects were dropped as cards and the log could not say
+    # whether a new buyer message hid among them. Each card is now described once,
+    # and a scan whose counts differ from the last one says so.
+    card = {"sender": {"targetId": "sys"}, "layoutJson": "{}", "msgType": 101,
+            "templateId": 9, "summary": "[卡片]物流通知", "code": {"messageId": "c1"}}
+    one = json.dumps(card, ensure_ascii=False).encode("utf-8")
+    two = one + b"   " + json.dumps({**card, "code": {"messageId": "c2"}, "summary": "新卡片"},
+                                     ensure_ascii=False).encode("utf-8")
+    slices = iter([one, one, two])
+    obs = observer.QianniuMemObserver(dispatch_fn=lambda item: 0)
+
+    def fake_scan(pid, predicate, stats=None):
+        yield next(slices)
+
+    with patch.object(mem, "scan_strings", fake_scan), patch.object(observer.logger, "info") as info:
+        for _ in range(3):
+            obs._scan_once(1)
+    lines = [c.args[0] for c in info.call_args_list]
+    assert sum("card in memory" in l for l in lines) == 2              # c1 once, then c2
+    assert any("summary='新卡片'" in l for l in lines)
+    assert sum("memory changed in pid 1" in l for l in lines) == 1      # only the 3rd scan changed
+
+
 def test_ocr_dump_lists_lines_top_to_bottom_with_positions():
     data = [{"text": "发送", "loc": [500, 900, 520, 940]}, {"text": "小明同学", "loc": [100, 400, 120, 480]}]
     assert qianniu_ocr.ocr_dump(data) == "2 lines: 小明同学@(440,110) | 发送@(920,510)"

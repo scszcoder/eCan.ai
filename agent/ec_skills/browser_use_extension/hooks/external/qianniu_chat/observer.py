@@ -58,6 +58,96 @@ def _qianniu_pids() -> list:
     return roots + sorted(pid for pid in parent_of if pid not in roots)
 
 
+# ── FIND mode (diagnostic; the standalone bot's --find/--probe, in the app) ──
+# ECAN_QIANNIU_FIND="有樱桃味牙线吗" (several: separate with |) makes every scan
+# look for that exact text in BOTH encodings and log, on change, how 千牛 holds
+# it: whether a "sender" message object is nearby, which message keys surround
+# it, and one context dump. It answers "the buyer's message landed but was not
+# detected" in one run: text-only (no structure), structured-but-classed-
+# outgoing, or not in this process at all.
+_FIND_KEYS = ("sender", "targetId", "content", "ccode", "cid", "conversationCode",
+              "conversationId", "messageId", "sendTime", "selfStatus", "summary",
+              "msgType", "lastMessage", "unread", "nick", "receiver", "layoutJson")
+
+
+def _find_needles() -> list:
+    raw = os.environ.get("ECAN_QIANNIU_FIND", "").strip()
+    return [(t, t.encode("utf-8"), t.encode("utf-16-le"))
+            for t in (x.strip() for x in raw.split("|")) if t]
+
+
+def _printable(s: str) -> str:
+    return s.translate({c: "." for c in range(0x20) if c not in (0x09, 0x0a)})
+
+
+def _find_in_slice(data: bytes, needles: list, finds: dict) -> None:
+    for text, n8, n16 in needles:
+        for enc, needle in (("utf-8", n8), ("utf-16-le", n16)):
+            cursor = 0
+            while True:
+                i = data.find(needle, cursor)
+                if i < 0:
+                    break
+                cursor = i + len(needle)
+                f = finds.setdefault(text, {"utf-8": 0, "utf-16-le": 0, "sender_near": 0,
+                                            "in_object": 0, "in_message_object": 0,
+                                            "object_keys": set(), "keys": set(),
+                                            "sample": "", "sample_in_object": ""})
+                f[enc] += 1
+                span = 4000 if enc == "utf-8" else 8000
+                near = data[max(0, i - span):i + span]
+                for k in _FIND_KEYS:
+                    if f'"{k}"'.encode(enc) in near:
+                        f["keys"].add(k)
+                if '"sender"'.encode(enc) in near:
+                    f["sender_near"] += 1
+                # Definitive: is the text INSIDE a JSON object, and is that object a
+                # message (has "sender")? "Nearby" alone can be a neighbouring object.
+                obj = _enclosing_object(data, i, len(needle), enc)
+                if obj is not None:
+                    f["in_object"] += 1
+                    f["object_keys"].update(str(k) for k in list(obj.keys())[:30])
+                    if "sender" in obj:
+                        f["in_message_object"] += 1
+                lo = max(0, i - 600)
+                if enc == "utf-16-le" and (i - lo) % 2:
+                    lo += 1
+                ctx = f"[{enc}] " + _printable(data[lo:i + len(needle) + 600].decode(enc, "replace"))[:900]
+                if not f["sample"]:
+                    f["sample"] = ctx
+                if obj is not None and not f["sample_in_object"]:
+                    f["sample_in_object"] = (f"[{enc}] object keys={sorted(str(k) for k in obj)[:30]} "
+                                             f"sender={obj.get('sender')!r}"[:900])
+
+
+def _enclosing_object(data: bytes, i: int, n: int, enc: str):
+    """The smallest JSON object enclosing the bytes at [i, i+n), or None."""
+    lo = max(0, i - 8192)
+    if enc == "utf-16-le" and (i - lo) % 2:
+        lo += 1
+    raw = data[lo:min(len(data), i + n + 8192)]
+    try:
+        decoded = raw.decode(enc, "replace")
+        at = len(raw[:i - lo].decode(enc, "replace"))
+    except Exception:
+        return None
+    for obj in mem_locator._objs_in_window(decoded, at):
+        return obj
+    return None
+
+
+def _direction_reason(cand, seller: Optional[str]) -> str:
+    raw = cand.raw if isinstance(cand.raw, dict) else {}
+    cid = raw.get("cid") if isinstance(raw.get("cid"), dict) else {}
+    why = [k for k, on in (("cid.ccode", bool(cid.get("ccode"))), ("ccode", bool(raw.get("ccode"))),
+                           ("sendStatus", "sendStatus" in raw), ("progress", "progress" in raw)) if on]
+    if why:
+        return "outgoing marker: " + ",".join(why)
+    if seller and cand.uid == seller:
+        return "sender is the store id"
+    return "no outgoing marker"
+
+
 def learn_enabled() -> bool:
     return os.environ.get("ECAN_QIANNIU_LEARN", "1") != "0"
 
@@ -148,6 +238,14 @@ class QianniuMemObserver:
         self._open_failed: set = set()
         self._baselined = False
         self._pass_ok = False      # a scan in the current pass read 千牛 without error
+        self._shape: dict = {}     # pid -> last scan's extraction counts (log on change)
+        self._cards_seen: set = set()
+        self._objs_seen: "OrderedDict[str, int]" = OrderedDict()
+        self._needles = _find_needles()
+        self._find_state: dict = {}   # (pid, text) -> last reported summary
+        if self._needles:
+            logger.info(f"[QIANNIU-MEM] FIND mode: searching memory for "
+                        f"{[t for t, _a, _b in self._needles]} every scan (ECAN_QIANNIU_FIND)")
         self._started_ms = int(time.time() * 1000)
         self._last_heartbeat = 0.0
         self._last_seller = None
@@ -200,6 +298,33 @@ class QianniuMemObserver:
             return None
         return st if st > 10 ** 12 else st * 1000
 
+    def _report_finds(self, pid: int, needles: list, finds: dict) -> None:
+        """Log FIND results for *pid* when they change (and the dump once)."""
+        for text, _n8, _n16 in needles:
+            f = finds.get(text)
+            summary = ((f["utf-8"], f["utf-16-le"], f["in_message_object"], f["in_object"],
+                        tuple(sorted(f["keys"]))) if f else (0, 0, 0, 0, ()))
+            key = (pid, text)
+            if self._find_state.get(key) == summary:
+                continue
+            first = key not in self._find_state
+            self._find_state[key] = summary
+            if not f:
+                if not first:
+                    logger.info(f"[QIANNIU-MEM] FIND {text!r}: no longer in pid {pid}")
+                continue
+            logger.info(f"[QIANNIU-MEM] FIND {text!r} in pid {pid}: utf8_hits={f['utf-8']} "
+                        f"utf16_hits={f['utf-16-le']} inside_message_object={f['in_message_object']} "
+                        f"inside_other_object={f['in_object'] - f['in_message_object']} "
+                        f"bare_text={f['utf-8'] + f['utf-16-le'] - f['in_object']} "
+                        f"object_keys={sorted(f['object_keys'])[:40]} keys_nearby={sorted(f['keys'])}")
+            if f["sample_in_object"] and (pid, text, "dump_obj") not in self._find_state:
+                self._find_state[(pid, text, "dump_obj")] = True
+                logger.info(f"[QIANNIU-MEM] FIND {text!r} enclosing object: {f['sample_in_object']}")
+            if (pid, text, "dump") not in self._find_state:
+                self._find_state[(pid, text, "dump")] = True
+                logger.info(f"[QIANNIU-MEM] FIND {text!r} context: {f['sample']}")
+
     def _is_stale(self, cand) -> bool:
         """Sent before this observer started (with a minute's grace): history
         that loaded into memory later (e.g. a conversation the seller opened),
@@ -219,8 +344,19 @@ class QianniuMemObserver:
         mstats: dict = {}
         xstats: dict = {}
         candidates: list = []
+        finds: dict = {}
+        needles = self._needles
+
+        def wanted(data: bytes) -> bool:
+            return mem_locator.region_has_messages(data) or any(
+                n8 in data or n16 in data for _t, n8, n16 in needles)
+
         try:
-            for data in mem.scan_strings(pid, mem_locator.region_has_messages, stats=mstats):
+            for data in mem.scan_strings(pid, wanted, stats=mstats):
+                if needles:
+                    _find_in_slice(data, needles, finds)
+                    if not mem_locator.region_has_messages(data):
+                        continue          # a FIND-only slice: no message objects to carve
                 candidates.extend(mem_locator.extract_candidates(data, stats=xstats))
         except OSError as exc:
             self.stats["scan_errors"] += 1
@@ -235,15 +371,45 @@ class QianniuMemObserver:
         self._scan_ms = (self._scan_ms + [ms])[-100:]
         seller = mem_locator.seller_id_of(candidates) if candidates else None
         incoming = [c for c in candidates if mem_locator.is_incoming(c, seller)]
-        self.last_scan = {"pid": pid, "ms": ms, **mstats,
-                          "extract": {k: v for k, v in xstats.items() if not k.startswith("sample_")},
+        extract = {k: v for k, v in xstats.items() if isinstance(v, int)}
+        self.last_scan = {"pid": pid, "ms": ms, **mstats, "extract": extract,
                           "candidates": len(candidates), "incoming_in_memory": len(incoming),
                           "outgoing_in_memory": len(candidates) - len(incoming)}
+        shape = (tuple(sorted(extract.items())), len(incoming))
         if pid not in self._scanned_pids:
             self._scanned_pids.add(pid)
             samples = {k: v for k, v in xstats.items() if k.startswith("sample_")}
             logger.info(f"[QIANNIU-MEM] first scan of pid {pid}: {self.last_scan}"
                         + (f" dropped-object example keys={samples}" if samples else ""))
+        elif shape != self._shape.get(pid):
+            # On change only: a message arriving in ANY form (even one dropped as a
+            # card) leaves a trace, so "nothing arrived" is provable from the log.
+            logger.info(f"[QIANNIU-MEM] memory changed in pid {pid}: extract={extract} "
+                        f"incoming_in_memory={len(incoming)} (was {self._shape.get(pid)})")
+        self._shape[pid] = shape
+        for card in xstats.get("ui_cards") or []:
+            key = card.get("msg_id") or f"{card.get('sender')}|{card.get('summary')}"
+            if key not in self._cards_seen:
+                self._cards_seen.add(key)
+                logger.info(f"[QIANNIU-MEM] card in memory (not answered): msgType={card.get('msgType')!r} "
+                            f"templateId={card.get('templateId')!r} sender={card.get('sender')!r} "
+                            f"sendTime={card.get('sendTime')!r} summary={card.get('summary')!r}")
+        if needles:
+            self._report_finds(pid, needles, finds)
+        # Every message object, either direction, once: an incoming buyer message
+        # that is classed OUTGOING is dropped silently otherwise.
+        for cand in candidates:
+            key = f"{cand.uid}|{cand.msg_id or cand.text[:24]}"
+            if key in self._objs_seen:
+                continue
+            self._objs_seen[key] = 1
+            while len(self._objs_seen) > _SEEN_MAX:
+                self._objs_seen.popitem(last=False)
+            if self._baselined:   # the baseline line already summarises the start
+                logger.info(f"[QIANNIU-MEM] new message object: dir="
+                            f"{'IN' if mem_locator.is_incoming(cand, seller) else 'OUT'} "
+                            f"({_direction_reason(cand, seller)}) uid={cand.uid!r} msg={cand.msg_id!r} "
+                            f"sendTime={cand.send_time} text={cand.text[:30]!r}")
         if not candidates:
             return False
         if seller != self._last_seller:

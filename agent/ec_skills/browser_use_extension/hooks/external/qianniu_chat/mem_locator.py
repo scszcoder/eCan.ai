@@ -175,6 +175,15 @@ def extract_candidates(data: bytes, stats: Optional[dict] = None) -> list:
             _bump("ui_card")
             if "sample_ui_card_keys" not in counts:   # is it really a card? one example
                 counts["sample_ui_card_keys"] = sorted(str(k) for k in obj.keys())[:20]
+            cards = counts.setdefault("ui_cards", [])   # what each card is, for the log
+            if len(cards) < 50:
+                code = obj.get("code") if isinstance(obj.get("code"), dict) else {}
+                cards.append({
+                    "msg_id": str((code or {}).get("messageId") or obj.get("messageId") or ""),
+                    "msgType": obj.get("msgType"), "templateId": obj.get("templateId"),
+                    "sender": _sender_uid(obj.get("sender")), "sendTime": obj.get("sendTime"),
+                    "summary": str(obj.get("summary") or "")[:40],
+                })
             continue
         uid = _sender_uid(sender)
         if not uid:

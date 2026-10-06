@@ -422,6 +422,62 @@ Tests: `test_an_empty_start_is_the_baseline_so_the_first_new_message_is_answered
 cloud sync (`addAgentTaskRels: Agent not found`, `queryAgentTaskRels` missing
 subfields) and one 飞鸽 skill `examples` conversion warning.
 
+**Third alpha run (v0.9.99yb, 2026-10-07), changes in v0.9.99yc.** The
+baseline worked (the 04:15 message was correctly skipped as history). The
+operator then sent 有樱桃味牙线吗 as buyer sctisz while 大作战panda's chat was
+open. It landed in 千牛 but was never detected: no new message object entered
+memory in that run.
+
+What the probes and the standalone bot (`eCan.ai-cn/customer_logs/tools/qianniu_cs_bot`,
+v0.15) say about it:
+- The app already has the bot's detection (`cffaedda5`: both encodings, no
+  region cap, `ccode` direction).
+- The bot holds that hidden-conversation messages are in memory (often only the
+  UTF-16LE copy).
+- Probe v8 recorded a hidden message as `text, no structured metadata`.
+
+The log could not tell which applies, so v0.9.99yc:
+- **FIND mode** (`ECAN_QIANNIU_FIND=<text>[|<text>]` in run.env): each scan
+  reports, on change, where that exact text is (`inside_message_object` /
+  `inside_other_object` / `bare_text`), the enclosing object's keys, and one
+  context dump. This is the bot's `--find`/`--probe` inside the app. The test
+  text is chosen by the operator, so one run settles text-only vs structured vs
+  classed-outgoing.
+- **Every new message object** (either direction) is logged once with the
+  reason for its direction (`cid.ccode` / `ccode` / `sendStatus` / `progress` /
+  store id). This is the only place a buyer message classed OUTGOING becomes
+  visible.
+
+**Mis-delivery bug found while porting the bot's routing (fixed):**
+- `transcript_contains` matched ANY OCR line on screen, including the 正在接待
+  list previews.
+- With panda open and sctisz's message showing as a list preview:
+  `qianniu_check_location` said `body_ok`, the prompt picked panda's header
+  name, and `qianniu_send` verified panda's header plus the "body" (really the
+  preview). sctisz's answer would have gone to **panda**.
+- The learning pass had the same hole: it could bind sctisz's id to panda's
+  name.
+
+`transcript_contains` now checks only the chat BODY (right of the list, below
+the header), with a strict 6-character prefix: the bot's live-tuned rule.
+
+**Routing ported from the bot:**
+- **`find_conversation_row`:** finds the 正在接待 row whose preview shows the
+  message. No name or search is needed, and it returns the list name above the
+  preview.
+- **`qianniu_send`, when `expect_message_text` is given:**
+  - the body is the gate; if it does not show the text, the tool opens the row
+    by preview, then falls back to a name search, then re-verifies;
+  - a text shorter than 4 characters ("在吗") also needs a header-name match;
+  - `buyer_display_name` may be empty.
+- **`qianniu_open_session`:** accepts `message_text` for the same preview route.
+
+Prompt `pr-731906` Flow B is now one call: `qianniu_send` with
+`expect_message_text` and `auto_open: true` (data: republish). Tests:
+`tests/unit/test_qianniu_send_routing.py` covers the exact panda/sctisz
+screens: the reply opens sctisz's row or is refused, and is never typed into
+panda's chat.
+
 Side notes from that log, not blocking:
 - The customer's skill file download failed (`requestSkillFileDownloadUrl`
   INTERNAL_SERVER_ERROR, backend), so 淘宝客服前台01 compiled from its DB diagram
@@ -462,6 +518,9 @@ The 5-minute heartbeat carries the running numbers.
 | 8 | cold start | `[QIANNIU-MEM] baseline: N buyer message(s) already in memory marked seen, NOT answered (latest: …)` | History not answered. A buyer who wrote just before start is in here. |
 | 9 | stale skip | `[QIANNIU-MEM] skip stale buyer=… sendTime=…` | Old history that loaded later. |
 | 10 | name learning | `[QIANNIU-MEM] learned buyer=… -> name=…` / `learn buyer=…: not in the open chat` / `no header name; header band=[…]` | Mapping a buyer id to the display name on screen. |
+| 10a | message objects | `[QIANNIU-MEM] new message object: dir=IN\|OUT (reason) uid=… msg=… sendTime=… text=…` | Every new message object once, either direction (v0.9.99yc). |
+| 10b | cards / memory changes | `[QIANNIU-MEM] card in memory (not answered): msgType=… summary=…` / `memory changed in pid N: extract={…}` | What each dropped card is; any change in what memory holds (v0.9.99yc). |
+| 10c | FIND mode | `[QIANNIU-MEM] FIND '<text>' in pid N: … inside_message_object=… bare_text=… object_keys=[…]`, then `enclosing object:` / `context:` | Only with `ECAN_QIANNIU_FIND` set: exactly how 千牛 holds the operator's test text (v0.9.99yc). |
 | 11 | dispatch | `[QIANNIU-MEM] dispatched buyer=… name=… msg=… to N runner(s): '…'` | A new buyer turn went to the agents. WARNING `no agent runner received it` if N=0. |
 | 12 | routing | `[QUEUE] sync_task_wait_in_line: event_type=browser_event, sub_type=qianniu_chat` / `[QUEUE] Routed … to task=天猫客服前台001` | Which task took it. Generic runner log. |
 | 13 | front-desk prep | `[QIANNIU-FD] event=browser_event -> {"kind": "customer_message", …}` / `event=chat_message -> {"kind": "qa_reply", …}` | Exactly what the LLM gets as input. From the skill's code node. |
@@ -472,7 +531,8 @@ The 5-minute heartbeat carries the running numbers.
 | 18 | 正在接待 tab | `[qianniu] not on the 正在接待 tab; clicking it at (x,y)` / `after clicking 正在接待: on_tab=…` | Tab switching. |
 | 19 | open by name | `[qianniu_open_session] start …`, `[qianniu] open '…': clicking search box at …`, `opened, header …`, result line | A WARNING with the screen dump if there is no search box or the layout is not recognised. |
 | 20 | header verify | `[qianniu] header verify OK: … ~ …` / WARNING `header verify MISMATCH: expected …, header band saw […]; screen …` | The header check behind every send. |
-| 21 | send | `[qianniu_send] start buyer=… auto_open=… expect=… msg_len=…`, `ABORT: …` (with screen dump), `busy: desktop lock held by …`, `sent to … (header …)` | The final send step. |
+| 20a | open by preview | `[qianniu] open by preview '…': clicking row at (x,y) (list name '…')` / `opened, message is in the chat body` / WARNING `no 正在接待 row shows it` / `clicked but the message is not in the chat body` | The hidden-conversation route (v0.9.99yc). |
+| 21 | send | `[qianniu_send] start buyer=… auto_open=… expect=… msg_len=…`, `ABORT: …` (with screen dump), `busy: desktop lock held by …`, `sent (already open / opened by preview / opened by name search; body=… header=…)` | The final send step. |
 | 22 | heartbeat | `[QIANNIU-MEM] heartbeat pids=… msg_pid=… scan_ms avg=… max=… stats={…} last_scan={…}` | Every 5 min (the first one at start). |
 
 **Calibration fields** (in the first-scan line, the heartbeat's `last_scan`, and

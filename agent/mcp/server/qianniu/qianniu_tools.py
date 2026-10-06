@@ -37,9 +37,16 @@ from agent.mcp.server.qianniu.qianniu_ocr import (
     transcript_contains,
     is_reception_tab,
     find_reception_tab_point,
+    find_conversation_row,
     ocr_dump,
     save_failure_shot,
+    _norm,
 )
+
+# A message this short ("在吗", "你好") is too common to identify a buyer by
+# body text alone: two buyers may both have sent it. Without a header-name
+# match, a send keyed on such a text is refused (fail-closed).
+_MIN_BODY_ID_CHARS = 4
 
 _QIANNIU_WIN_TITLES = ["千牛", "AliWorkbench", "阿里旺旺"]
 _POST_ACTION_DELAY = 0.6
@@ -152,6 +159,38 @@ def _open_conversation_by_name(name: str) -> tuple:
                                   f"does not match {name!r}")
 
 
+def _open_conversation_by_preview(text: str) -> tuple:
+    """Open the 正在接待 conversation whose list PREVIEW shows *text*, then
+    confirm *text* is in the chat BODY (the standalone bot's proven hidden-
+    conversation route: no buyer name or search needed). Returns
+    (opened_and_verified, buyer_name_from_list, error). Assumes 千牛 is
+    foregrounded and the caller holds the desktop lock."""
+    ocr_data = ocr_qianniu_window()
+    if not _looks_like_qianniu(ocr_data):
+        logger.warning(f"[qianniu] open by preview {text[:16]!r}: layout not recognised; "
+                       f"screen {ocr_dump(ocr_data)}")
+        save_failure_shot("preview_layout_unrecognised")
+        return False, "", "layout not recognised as 千牛 (OCR drift)"
+    _on_tab, ocr_data = _ensure_reception_tab(ocr_data)
+    pt, name = find_conversation_row(ocr_data, text)
+    if not pt:
+        logger.warning(f"[qianniu] open by preview {text[:16]!r}: no 正在接待 row shows it; "
+                       f"screen {ocr_dump(ocr_data)}")
+        save_failure_shot("preview_no_row")
+        return False, "", "no 正在接待 row previews this message"
+    logger.info(f"[qianniu] open by preview {text[:16]!r}: clicking row at {pt} (list name {name!r})")
+    _click(pt[0], pt[1])
+    _humanize(_SETTLE_AFTER_OPEN)
+    ocr_data = ocr_qianniu_window()
+    if transcript_contains(ocr_data, text):
+        logger.info(f"[qianniu] open by preview {text[:16]!r}: opened, message is in the chat body")
+        return True, name, ""
+    logger.warning(f"[qianniu] open by preview {text[:16]!r}: clicked but the message is not in "
+                   f"the chat body; screen {ocr_dump(ocr_data)}")
+    save_failure_shot("preview_open_not_in_body")
+    return False, name, "clicked the row but the message is not in the chat body"
+
+
 def _send_result(sent: bool, verified: bool, error: str, header: str = "") -> list:
     return [TextContent(type="text", text=json.dumps({
         "chat_sent": sent, "verified": verified, "error": error,
@@ -165,22 +204,28 @@ def _lock():
 
 
 async def qianniu_send(mainwin, args):
-    """Send a text reply to buyer *buyer_display_name* in 千牛.
+    """Send a text reply to one buyer in 千牛 — fail-closed, never to the wrong buyer.
 
-    If the open conversation is not that buyer and ``auto_open`` is set
-    (default), searches for the buyer by name and opens their conversation
-    first. The reply is sent ONLY after an OCR header verify confirms the open
-    chat is the intended buyer — fail-closed, never mis-delivers (study §5).
+    Which conversation is "the buyer's" is decided by one of two identities:
+
+    * ``expect_message_text`` given (the buyer's own latest message — the
+      normal case): the open chat's BODY must show it (strict prefix, chat body
+      only; the 正在接待 list does not count). If it does not and ``auto_open``
+      is set, the conversation whose 正在接待 PREVIEW shows it is opened (works
+      with no buyer name — the hidden-conversation route the standalone bot
+      proved), else, with a name, the buyer is searched by name. A text shorter
+      than ``_MIN_BODY_ID_CHARS`` ("在吗") is too common to identify a buyer, so
+      it also needs the header to name ``buyer_display_name``.
+    * no expect text: the header must name ``buyer_display_name`` (search by
+      name to open it).
 
     Input:
-        buyer_display_name: str — the buyer the reply is FOR (header must match)
-        chat_msg: str           — the reply text
-        auto_open: bool         — open the buyer's conversation if not already open (default true)
-        expect_message_text: str — optional; the buyer's last message. When given,
-            the send is fail-closed on BOTH the header name AND this text being in
-            the chat body (defense-in-depth, never mis-deliver).
+        buyer_display_name: str  — the buyer (may be "" when expect_message_text is given)
+        chat_msg: str            — the reply text
+        auto_open: bool          — open the buyer's conversation if it is not the open one (default true)
+        expect_message_text: str — the buyer's message this reply answers
 
-    Output (JSON): chat_sent, verified (header matched), header_name, error.
+    Output (JSON): chat_sent, verified, header_name, error.
     """
     lock = _lock()
     holder = f"send:{id(args)}"
@@ -192,53 +237,68 @@ async def qianniu_send(mainwin, args):
         expect_text = (inp.get("expect_message_text") or "").strip()
         logger.info(f"[qianniu_send] start buyer={buyer!r} auto_open={auto_open} "
                     f"expect={expect_text[:24]!r} msg_len={len(msg)}: {msg[:40]!r}")
-        if not buyer:
-            logger.warning("[qianniu_send] refused: buyer_display_name is empty")
-            return _send_result(False, False, "buyer_display_name is required")
         if not msg:
             logger.warning(f"[qianniu_send] refused: empty chat_msg for {buyer!r}")
             return _send_result(False, False, "chat_msg is required")
+        if not buyer and not expect_text:
+            logger.warning("[qianniu_send] refused: neither buyer_display_name nor expect_message_text")
+            return _send_result(False, False,
+                                "buyer_display_name or expect_message_text is required")
 
         # Serialize all desktop action so two sends never interleave on the one
         # shared window (study Phase 3).
         if not lock.try_acquire(holder):
             logger.warning(f"[qianniu_send] busy: desktop lock held by {lock.holder()!r}; "
-                           f"not sent to {buyer!r}")
+                           f"not sent to {buyer or expect_text[:16]!r}")
             return _send_result(False, False, f"another send is in progress (holder {lock.holder()!r})")
 
         if not _foreground():
             return _send_result(False, False, "千牛 window not found. Is it running?")
 
-        # Fail-closed guard: the open conversation MUST be this buyer.
+        short = bool(expect_text) and len(_norm(expect_text)) < _MIN_BODY_ID_CHARS
+
+        def identify(ocr_data):
+            """(is the buyer's chat, body_ok, header result or None)."""
+            hdr = verify_header_name(buyer, ocr_data, quiet=bool(expect_text)) if buyer else None
+            if expect_text:
+                body = transcript_contains(ocr_data, expect_text)
+                return body and (not short or bool(hdr and hdr.matched)), body, hdr
+            return bool(hdr and hdr.matched), False, hdr
+
         ocr_data = ocr_qianniu_window()
-        v = verify_header_name(buyer, ocr_data)
-        if not v.matched and auto_open:
-            logger.info(f"[qianniu_send] open chat is {v.header_text!r}, not {buyer!r}; opening by name")
-            opened, header, err = _open_conversation_by_name(buyer)
+        ok, body_ok, hdr = identify(ocr_data)
+        route = "already open"
+        if not ok and auto_open:
+            opened, err = False, ""
+            if expect_text:
+                opened, list_name, err = _open_conversation_by_preview(expect_text)
+                route = f"opened by preview (list name {list_name!r})"
+            if not opened and buyer:
+                opened, _header, err = _open_conversation_by_name(buyer)
+                route = "opened by name search"
             if not opened:
-                logger.warning(f"[qianniu_send] ABORT: could not open {buyer!r}: {err}")
-                return _send_result(False, False, f"could not open {buyer!r}: {err}", header)
+                logger.warning(f"[qianniu_send] ABORT: could not open the buyer's chat "
+                               f"(buyer={buyer!r} expect={expect_text[:16]!r}): {err}")
+                return _send_result(False, False, f"could not open the buyer's chat: {err}")
             ocr_data = ocr_qianniu_window()
-            v = verify_header_name(buyer, ocr_data)   # re-verify after the switch
-        if not v.matched:
-            logger.warning(f"[qianniu_send] ABORT: header {v.header_text!r} != buyer {buyer!r}; "
-                           f"band saw {v.candidates[:6]}")
-            return _send_result(False, False,
-                                f"header verify failed: open chat header {v.header_text!r} "
-                                f"does not match {buyer!r} — refusing to send", v.header_text)
-        # Defense-in-depth: if the buyer's message text is supplied it MUST be in
-        # the open chat body too, so a header-only match can never mis-deliver.
-        if expect_text and not transcript_contains(ocr_data, expect_text):
-            logger.warning(f"[qianniu_send] ABORT: {expect_text[:24]!r} not in open chat body "
-                           f"for {buyer!r} — refusing to send; screen {ocr_dump(ocr_data)}")
-            save_failure_shot("send_body_mismatch")
-            return _send_result(False, False,
-                                f"body verify failed: {expect_text[:24]!r} not in the open chat — "
-                                f"refusing to send", v.header_text)
+            ok, body_ok, hdr = identify(ocr_data)   # re-verify after the switch
+        header_text = hdr.header_text if hdr else ""
+        if not ok:
+            if expect_text and body_ok and short:
+                why = (f"{expect_text!r} is too short to identify the buyer by text alone and the "
+                       f"header does not show {buyer!r}")
+            elif expect_text:
+                why = f"{expect_text[:24]!r} is not in the open chat body"
+            else:
+                why = f"open chat header {header_text!r} does not match {buyer!r}"
+            logger.warning(f"[qianniu_send] ABORT: {why} — refusing to send; screen {ocr_dump(ocr_data)}")
+            save_failure_shot("send_not_identified")
+            return _send_result(False, False, f"{why} — refusing to send", header_text)
 
         _type_and_send(msg)
-        logger.info(f"[qianniu_send] sent to {buyer!r} (header {v.header_text!r}): {msg[:40]!r}")
-        return _send_result(True, True, "", v.header_text)
+        logger.info(f"[qianniu_send] sent ({route}; body={body_ok} header={header_text!r}) "
+                    f"buyer={buyer!r}: {msg[:40]!r}")
+        return _send_result(True, True, "", header_text)
 
     except Exception as e:
         logger.error(f"[qianniu_send] {traceback.format_exc()}")
@@ -259,11 +319,13 @@ async def qianniu_open_session(mainwin, args):
     try:
         inp = args.get("input", args)
         buyer = (inp.get("buyer_display_name") or "").strip()
-        logger.info(f"[qianniu_open_session] start buyer={buyer!r}")
-        if not buyer:
-            logger.warning("[qianniu_open_session] refused: buyer_display_name is empty")
+        message_text = (inp.get("message_text") or "").strip()
+        logger.info(f"[qianniu_open_session] start buyer={buyer!r} message_text={message_text[:16]!r}")
+        if not buyer and not message_text:
+            logger.warning("[qianniu_open_session] refused: neither buyer_display_name nor message_text")
             return [TextContent(type="text", text=json.dumps(
-                {"opened": False, "header_name": "", "error": "buyer_display_name is required"},
+                {"opened": False, "header_name": "",
+                 "error": "buyer_display_name or message_text is required"},
                 ensure_ascii=False))]
         if not lock.try_acquire(holder):
             logger.warning(f"[qianniu_open_session] busy: desktop lock held by {lock.holder()!r}")
@@ -274,7 +336,11 @@ async def qianniu_open_session(mainwin, args):
             return [TextContent(type="text", text=json.dumps(
                 {"opened": False, "header_name": "", "error": "千牛 window not found"},
                 ensure_ascii=False))]
-        opened, header, err = _open_conversation_by_name(buyer)
+        opened, header, err = False, "", ""
+        if message_text:     # the buyer's message in the 正在接待 list: no name needed
+            opened, header, err = _open_conversation_by_preview(message_text)
+        if not opened and buyer:
+            opened, header, err = _open_conversation_by_name(buyer)
         logger.info(f"[qianniu_open_session] buyer={buyer!r} opened={opened} header={header!r} "
                     f"error={err!r}")
         return [TextContent(type="text", text=json.dumps(
@@ -416,23 +482,25 @@ def add_qianniu_send_tool_schema(tool_schemas):
         name="qianniu_send",
         description=(
             "<category>Qianniu</category><sub-category>Messaging</sub-category>"
-            "Send a text reply to the currently-open 千牛 (Taobao/Tmall seller) "
-            "conversation. Before sending it OCR-verifies that the open chat's "
-            "header names buyer_display_name, and refuses to send on any mismatch "
-            "(never mis-delivers to the wrong buyer)."
+            "Send a text reply to one 千牛 (Taobao/Tmall seller) buyer, fail-closed. "
+            "With expect_message_text (the buyer's own message) the open chat's BODY "
+            "must show it; if it does not, the conversation whose 正在接待 list preview "
+            "shows it is opened first (no buyer name needed). Without it, the chat "
+            "header must name buyer_display_name. Refuses on any mismatch (never "
+            "mis-delivers to the wrong buyer)."
         ),
         inputSchema={
             "type": "object", "required": ["input"],
             "properties": {"input": {
-                "type": "object", "required": ["buyer_display_name", "chat_msg"],
+                "type": "object", "required": ["chat_msg"],
                 "properties": {
                     "buyer_display_name": {"type": "string",
-                        "description": "Display name of the buyer the reply is for; the open chat header must match it"},
+                        "description": "Display name of the buyer, if known (may be empty when expect_message_text is given)"},
                     "chat_msg": {"type": "string", "description": "Reply text to send"},
                     "auto_open": {"type": "boolean", "default": True,
-                        "description": "If the buyer's chat is not already open, search for it by name and open it first"},
+                        "description": "Open the buyer's conversation first if it is not the open one"},
                     "expect_message_text": {"type": "string",
-                        "description": "Optional: the buyer's last message. If given, the send is fail-closed on BOTH the header name AND this text being in the chat body"},
+                        "description": "The buyer's message this reply answers; identifies the buyer's conversation by its text"},
                 },
             }},
         },
@@ -446,14 +514,17 @@ def add_qianniu_open_session_tool_schema(tool_schemas):
         name="qianniu_open_session",
         description=(
             "<category>Qianniu</category><sub-category>Messaging</sub-category>"
-            "Open a 千牛 (Taobao/Tmall) buyer's conversation by searching their "
-            "display name, and OCR-verify the chat header. Does not send anything."
+            "Open a 千牛 (Taobao/Tmall) buyer's conversation: by the 正在接待 row whose "
+            "preview shows message_text (no name needed), else by searching "
+            "buyer_display_name. OCR-verifies the result. Does not send anything."
         ),
         inputSchema={
             "type": "object", "required": ["input"],
             "properties": {"input": {
-                "type": "object", "required": ["buyer_display_name"],
-                "properties": {"buyer_display_name": {"type": "string",
+                "type": "object",
+                "properties": {"message_text": {"type": "string",
+                    "description": "The buyer's latest message (matched against the 正在接待 list previews)"},
+                               "buyer_display_name": {"type": "string",
                     "description": "Display name of the buyer whose conversation to open"}},
             }},
         },

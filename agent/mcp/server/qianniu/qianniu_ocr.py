@@ -8,6 +8,7 @@ intended recipient before any send. Read-only — this module never sends input.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -200,18 +201,79 @@ def read_header_name(ocr_data: Optional[list] = None) -> str:
     return max(texts, key=len) if texts else ""
 
 
+# Chat BODY = right of the conversation list, below the chat header. Values from
+# the standalone bot (live-tuned on the customer client, qianniu_cs_bot v0.15).
+_BODY_TOP_FRAC = 0.14
+_BODY_PROBE_CHARS = 6
+
+
 def transcript_contains(ocr_data: list, text: str) -> bool:
-    """True if *text* (or a solid prefix of it) appears anywhere on screen —
-    the content join that ties a memory message to the visible conversation."""
+    """True if the first chars of *text* appear in the open conversation's chat
+    BODY — the content join that ties a memory message to the open chat.
+
+    Only the body counts. It used to match ANY line on screen, so a hidden
+    buyer's message showing as a 正在接待 list PREVIEW "confirmed" whichever
+    conversation was open, and their reply could be sent to that other buyer
+    (and the learning pass could bind their id to the wrong name). Strict
+    contiguous prefix, no fuzzy match: Chinese messages share characters, and a
+    false negative (skip a send) is acceptable where a false positive is not."""
     needle = _norm(text)
     if len(needle) < 2:
         return False
-    probe = needle[:16]
-    return any(probe in _norm(str(it.get("text") or "")) for it in ocr_data)
+    probe = needle[:_BODY_PROBE_CHARS]
+    locs = [it for it in ocr_data or [] if it.get("loc")]
+    if not locs:
+        return False
+    x0, y0, x1, y1 = _extent(locs)
+    w, h = (x1 - x0) or 1, (y1 - y0) or 1
+    cut, top = x0 + _LIST_X_FRAC * w, y0 + _BODY_TOP_FRAC * h
+    for it in locs:
+        lc = it["loc"]
+        cx, cy = (lc[1] + lc[3]) / 2, (lc[0] + lc[2]) / 2
+        if cx > cut and cy > top and probe in _norm(str(it.get("text") or "")):
+            return True
+    return False
+
+
+# 正在接待 list column (fractions of the OCR extent) and its non-conversation
+# labels — ported from the bot's find_conversation_row.
+_LIST_X = (0.12, _LIST_X_FRAC)
+_LIST_SKIP = ("全部买家", "其他消息", "联系人", "列表分组", "最后一句", "消息",
+              "离线", "分组", "正在接待")
+_TIMEISH = re.compile(r"^[\d:：]+$|小时|分钟|刚刚|昨天|星期|周|天前|:")
+
+
+def find_conversation_row(ocr_data: list, text: str):
+    """(click point, buyer name) of the 正在接待 row whose PREVIEW shows *text*,
+    or (None, ""). A new message bumps its conversation up and changes its
+    preview, so this finds a hidden buyer with no name and no search; the name
+    is the non-time list line just above the preview (≤70 px)."""
+    probe = _norm(text)[:4]           # previews are truncated: a short prefix
+    locs = [it for it in ocr_data or [] if it.get("loc") and str(it.get("text") or "").strip()]
+    if not probe or not locs:
+        return None, ""
+    x0, _y0, x1, _y1 = _extent(locs)
+    w = (x1 - x0) or 1
+    lines = []
+    for it in locs:
+        lc = it["loc"]
+        cx, cy = (lc[1] + lc[3]) / 2, (lc[0] + lc[2]) / 2
+        if x0 + _LIST_X[0] * w <= cx <= x0 + _LIST_X[1] * w:
+            lines.append((cy, cx, str(it["text"]).strip()))
+    cands = sorted((cy, cx) for cy, cx, t in lines
+                   if probe in _norm(t) and not any(s in t for s in _LIST_SKIP))
+    if not cands:
+        return None, ""
+    cy, cx = cands[0]                 # topmost: the newest message is at the top
+    above = sorted((cy - ly, t) for ly, _lx, t in lines
+                   if 0 < cy - ly <= 70 and not any(s in t for s in _LIST_SKIP)
+                   and not (_TIMEISH.search(t) and len(t) <= 8) and _norm(t)[:4] != probe)
+    return (int(cx), int(cy)), (above[0][1] if above else "")
 
 
 def verify_header_name(expected_display_name: str,
-                       ocr_data: Optional[list] = None) -> HeaderVerifyResult:
+                       ocr_data: Optional[list] = None,
+                       quiet: bool = False) -> HeaderVerifyResult:
     """OCR the chat-header band and check it names *expected_display_name*.
 
     The feasibility study's fail-closed guard: a send proceeds only when the
@@ -234,6 +296,9 @@ def verify_header_name(expected_display_name: str,
                 texts[0] if texts else "")
     if matched:
         logger.info(f"[qianniu] header verify OK: {expected_display_name!r} ~ {best!r}")
+    elif quiet:   # informational only (the caller's gate is something else)
+        logger.info(f"[qianniu] header does not show {expected_display_name!r} "
+                    f"(band {texts[:8]}); not the gate here")
     else:
         logger.warning(f"[qianniu] header verify MISMATCH: expected "
                        f"{expected_display_name!r}, header band saw {texts[:12]}; "
