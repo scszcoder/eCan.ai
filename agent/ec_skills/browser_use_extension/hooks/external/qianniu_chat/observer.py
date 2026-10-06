@@ -302,8 +302,11 @@ class QianniuMemObserver:
         """Log FIND results for *pid* when they change (and the dump once)."""
         for text, _n8, _n16 in needles:
             f = finds.get(text)
-            summary = ((f["utf-8"], f["utf-16-le"], f["in_message_object"], f["in_object"],
-                        tuple(sorted(f["keys"]))) if f else (0, 0, 0, 0, ()))
+            # Change key = what the text IS in, not raw hit counts (those drift every
+            # scan as memory churns; 0.9.99yc logged a FIND line every 4 s).
+            summary = ((f["in_message_object"], f["in_object"] - f["in_message_object"],
+                        f["utf-8"] + f["utf-16-le"] > f["in_object"], tuple(sorted(f["keys"])))
+                       if f else None)
             key = (pid, text)
             if self._find_state.get(key) == summary:
                 continue

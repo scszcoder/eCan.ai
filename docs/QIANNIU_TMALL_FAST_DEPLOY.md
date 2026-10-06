@@ -478,6 +478,44 @@ Prompt `pr-731906` Flow B is now one call: `qianniu_send` with
 screens: the reply opens sctisz's row or is refused, and is never typed into
 panda's chat.
 
+**Fourth alpha run (v0.9.99yc, 2026-10-07), fixes in v0.9.99yd.**
+
+*Memory detection proven.* The test text 有石榴味牙线吗 (FIND mode on) was found
+**inside a message object**: keys `code, content, msgType, receiverState,
+selfStatus, sendTime, sender, status`, sender `{targetId: 678614304,
+targetType: 3}`, UTF-8 copy. It was classed `dir=IN`, and the observer
+dispatched it to all 21 runners at 07:23:09.
+
+Two blockers stopped it there:
+
+1. **No routing rule.** Every runner logged `No target task found for
+   browser_event (sub_type=qianniu_chat)`.
+   - The 天猫 front desk registered no rules at all at launch, while 飞鸽 and
+     拼多多 each registered `browser_event:新消息`.
+   - Cause: 淘宝客服前台01 is compiled from its DB copy on the customer (the
+     skill-file download fails on the backend). Its diagram reaches the runner
+     as a JSON string, double-encoded in the author's DB.
+   - `_extract_event_types_from_skill` returned [] for a non-dict, and logged
+     that only at DEBUG.
+
+   Fix: `agent/ec_skills/skill_diagram.as_workflow()` reads every stored shape
+   (string / double-encoded string / `{workFlow}` / editor `{sheets}` /
+   `{nodes}`). The runner's rule extractor and `site_for_skill` (the
+   cross-platform guard, same hole) use it. "No pend_event nodes" is now INFO.
+   Test: `tests/unit/test_skill_diagram_shapes.py`.
+2. **OCR missing in the installed app.** The error was `local OCR failed: No
+   such file or directory: …\_internal\rapidocr_onnxruntime\config.yaml`. The
+   build packaged rapidocr's code but not its data (`config.yaml` + three
+   `.onnx` models, ~16 MB). Every OCR check behind a send would fail.
+
+   Fix: `rapidocr_onnxruntime` added to `build_config.json`
+   `build.pyinstaller.collect_data_only`. Verified on the 3.12 build venv that
+   `collect_data_files('rapidocr_onnxruntime')` returns exactly those 4 files.
+   Check the build log for `[SPEC] Collected data: rapidocr_onnxruntime`.
+
+FIND mode also logged on every scan as raw hit counts drifted. It now logs only
+when what the text is inside changes.
+
 Side notes from that log, not blocking:
 - The customer's skill file download failed (`requestSkillFileDownloadUrl`
   INTERNAL_SERVER_ERROR, backend), so 淘宝客服前台01 compiled from its DB diagram

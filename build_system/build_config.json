@@ -146,7 +146,8 @@
         "boto3",
         "cryptography",
         "selenium",
-        "webdriver_manager"
+        "webdriver_manager",
+        "rapidocr_onnxruntime"
       ],
       "hiddenimports": [
         "binascii",

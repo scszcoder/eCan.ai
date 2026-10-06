@@ -2853,13 +2853,18 @@ class TaskRunner(Generic[Context]):
             )
             return resolved
         try:
+            from agent.ec_skills.skill_diagram import as_workflow
             diagram = getattr(skill, "diagram", None)
-            if not isinstance(diagram, dict):
+            # Any stored shape: file {"workFlow"}, editor {"sheets"}, DB object, or a
+            # (double-)encoded JSON string. A string used to return [] here, so a
+            # skill compiled from its DB copy launched with no routing rules at all.
+            wf = as_workflow(diagram)
+            if wf is None:
+                logger.info(f"[EventRouting] task '{_task_label}': skill "
+                            f"'{getattr(skill, 'name', '?')}' has no readable diagram "
+                            f"(type={type(diagram).__name__}); no pend_event routing")
                 return results
-            
-            # Get nodes from workFlow or top-level
-            wf = diagram.get("workFlow") or diagram
-            nodes = wf.get("nodes") or diagram.get("nodes") or []
+            nodes = wf.get("nodes") or []
             
             def _collect_all_nodes(node_list: list) -> list:
                 """Recursively collect all nodes, including those nested in blocks (loop, conditional)."""
@@ -3017,7 +3022,9 @@ class TaskRunner(Generic[Context]):
         try:
             event_entries = self._extract_event_types_from_skill(skill, task)
             if not event_entries:
-                logger.debug(f"[EventRouting] No pend_event nodes found in skill for task '{task.name}'")
+                # INFO: for a live-chat front desk this means no event ever reaches it.
+                logger.info(f"[EventRouting] No pend_event nodes found in skill "
+                            f"'{getattr(skill, 'name', '?')}' for task '{task.name}' -- no routing rules")
                 return
             
             amended = False

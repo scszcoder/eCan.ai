@@ -177,6 +177,11 @@ def site_for_skill(skill: Any) -> "str | None":
     outside the live-chat layer has to report it.
     """
     diagram = getattr(skill, "diagram", None)
+    if not isinstance(diagram, dict):
+        # A DB-loaded diagram can be a (double-)encoded JSON string; reading it as
+        # "no bundle" would send a 千牛 reply down another platform's browser path.
+        from agent.ec_skills.skill_diagram import as_workflow
+        diagram = as_workflow(diagram)
     if not isinstance(diagram, dict) or not _BRIDGES:
         return None
     import json
