@@ -32,6 +32,7 @@ import {
     GlobalOutlined,
     MoreOutlined,
     HeartOutlined,
+    SyncOutlined,
 } from '@ant-design/icons';
 
 import { useTranslation } from 'react-i18next';
@@ -182,6 +183,8 @@ interface SkillDetailsProps {
     subscribedSkillIds?: string[];
     onSubscribe?: (skillId: string) => Promise<void>;
     onUnsubscribe?: (skillId: string) => Promise<void>;
+    /** Update in place: latest skill + files + all its prompts, links kept. */
+    onUpdate?: (skillId: string) => Promise<void>;
 }
 
 /**
@@ -347,7 +350,7 @@ const TagInput: React.FC<{
     );
 };
 
-const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRefresh, onSave, onSkillChange, onCancel, onDelete, subscribedSkillIds, onSubscribe, onUnsubscribe }) => {
+const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRefresh, onSave, onSkillChange, onCancel, onDelete, subscribedSkillIds, onSubscribe, onUnsubscribe, onUpdate }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const { message } = App.useApp();  // Use App context for message
@@ -373,6 +376,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const [editMode, setEditMode] = React.useState(isNew);
     const [publishLoading, setPublishLoading] = React.useState(false);
     const [subscribeLoading, setSubscribeLoading] = React.useState(false);
+    const [updateLoading, setUpdateLoading] = React.useState(false);
 
     const ownerValue = String(((skill as any)?.owner ?? '')).trim();
     const usernameValue = String((username ?? '')).trim();
@@ -1700,6 +1704,24 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                 >
                                     {isSubscribed ? t('pages.skills.unsubscribe', 'Unsubscribe') : t('pages.skills.subscribe', 'Subscribe')}
                                 </Button>
+                                {isSubscribed && onUpdate && (
+                                    <Button
+                                        icon={<SyncOutlined />}
+                                        loading={updateLoading}
+                                        title={t('pages.skills.updateHint', '获取作者的最新版本及其提示词，不影响已关联的智能体和任务')}
+                                        onClick={async () => {
+                                            setUpdateLoading(true);
+                                            try {
+                                                await onUpdate(String((skill as any)?.id ?? ''));
+                                            } finally {
+                                                setUpdateLoading(false);
+                                            }
+                                        }}
+                                        style={{ ...buttonStyle, height: 36, minWidth: 80 }}
+                                    >
+                                        {t('pages.skills.updateAction', 'Update')}
+                                    </Button>
+                                )}
                                 <Button
                                     icon={<PlayCircleOutlined />}
                                     onClick={goToEditorAndRun}

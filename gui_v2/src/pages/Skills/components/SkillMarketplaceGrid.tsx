@@ -27,6 +27,7 @@ import {
     CloseOutlined,
     CheckCircleOutlined,
     LockOutlined,
+    SyncOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
@@ -468,6 +469,8 @@ export interface SkillMarketplaceGridProps {
     subscribedSkillIds?: string[];
     onSubscribe: (skillId: string) => Promise<void>;
     onUnsubscribe: (skillId: string) => Promise<void>;
+    /** Update in place: latest skill + files + all its prompts, links kept. */
+    onUpdate?: (skillId: string) => Promise<void>;
     onCopy: (skill: Skill) => Promise<void>;
     onRun?: (skill: Skill) => void;
     onReport: (skill: Skill, reason: string, note: string) => Promise<void> | void;
@@ -484,6 +487,7 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
     subscribedSkillIds = [],
     onSubscribe,
     onUnsubscribe,
+    onUpdate,
     onCopy,
     onRun,
     onReport,
@@ -628,7 +632,7 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
                                     $variant="subscribe"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        onSubscribe(skillIdStr);
+                                        (onUpdate ?? onSubscribe)(skillIdStr);
                                     }}
                                     title={t('pages.skills.updateAvailableHint', 'A newer version was published — click to update')}
                                 >
@@ -638,6 +642,12 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
                                 <Dropdown
                                     menu={{
                                         items: [
+                                            ...(onUpdate ? [{
+                                                key: 'update',
+                                                icon: <SyncOutlined />,
+                                                label: t('pages.skills.updateAction', 'Update'),
+                                                onClick: () => onUpdate(skillIdStr),
+                                            }] : []),
                                             {
                                                 key: 'unsubscribe',
                                                 icon: <CloseOutlined />,

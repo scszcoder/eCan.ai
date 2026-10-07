@@ -650,6 +650,15 @@ export class IPCAPI {
     );
     }
 
+    // Update a subscribed skill in place: latest skill + files + ALL its prompts,
+    // without unsubscribing (agents/tasks keep their links to it).
+    public async updateSubscribedSkill<T>(username: string, skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+            { method: 'update_subscribed_skill' },
+            { skillId, owner: username }
+        );
+    }
+
     public async unsubscribeFromSkill<T>(username: string, skillId: string): Promise<APIResponse<T>> {
         return apiRouter.execute(
       {

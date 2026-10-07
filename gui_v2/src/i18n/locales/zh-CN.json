@@ -2187,6 +2187,11 @@
       "getAction": "获取",
       "updateAction": "更新",
       "updateAvailableHint": "作者发布了新版本 — 点击更新",
+      "updateHint": "获取作者的最新版本及其提示词，不影响已关联的智能体和任务",
+      "updating": "正在更新技能…",
+      "updateFailed": "更新失败",
+      "updatedSummary": "已更新：版本 {{from}} → {{to}}，提示词 {{n}} 个",
+      "updatePromptsFailed": "{{n}} 个提示词未能更新，详见日志",
       "cloudNewerBadge": "云端有新版本",
       "heroSearchPlaceholder": "搜索技能...",
       "heroStats": {

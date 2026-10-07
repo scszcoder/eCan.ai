@@ -1506,7 +1506,7 @@ def _upload_skill_prompts(skill_data: Dict[str, Any]) -> None:
 
 
 def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=None,
-                            extra_prompt_ids=()) -> None:
+                            extra_prompt_ids=(), refresh: bool = False) -> Dict[str, list]:
     """Download a subscribed skill's referenced prompts into the local
     subscribed_prompts store (SHARED_SKILL prompts leg, 2026-08-25).
 
@@ -1517,7 +1517,17 @@ def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=No
     server allows id-specific cross-owner reads for prompts referenced by
     the author's public skills) and writes it to subscribed_prompts/ —
     loaded with source='subscribed', which the bulk cloud push excludes.
-    Best-effort: failures are logged, never block the subscribe."""
+    Best-effort: failures are logged, never block the subscribe.
+
+    ``refresh=True`` (skill Update / re-subscribe) re-fetches EVERY referenced
+    prompt and overwrites the subscribed copies. Without it only MISSING
+    prompts were fetched, so an author's republished prompt never reached a
+    machine that already had the old one (0.9.99yd alpha: pr-731906 stayed
+    stale through two republishes). A prompt in the user's OWN my_prompts is
+    never overwritten -- that copy is theirs.
+
+    Returns {"downloaded": [...], "failed": [...], "kept_own": [...]}."""
+    summary: Dict[str, list] = {"downloaded": [], "failed": [], "kept_own": []}
     try:
         from gui.ipc.w2p_handlers import prompt_handler
         from gui.ipc.w2p_handlers.prompt_cloud_sync import _get_cloud_context, _appsync_request
@@ -1531,18 +1541,26 @@ def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=No
         author = str((config or {}).get('skill_owner') or cloud_skill.get('owner') or '').strip()
         prompt_ids = sorted(set(_extract_skill_prompt_ids(cloud_skill)) | set(extra_prompt_ids or ()))
         if not author or not prompt_ids:
-            return
+            return summary
 
-        have = {p.get('id') for p in prompt_handler._load_all_prompts()}
-        missing = [pid for pid in prompt_ids if pid not in have]
+        if refresh:
+            own = {p.get('id') for p, _m in prompt_handler._load_prompts_from_directory(
+                prompt_handler._get_my_prompts_dir(), source="my_prompts", read_only=False)}
+            summary["kept_own"] = [pid for pid in prompt_ids if pid in own]
+            missing = [pid for pid in prompt_ids if pid not in own]
+        else:
+            have = {p.get('id') for p in prompt_handler._load_all_prompts()}
+            missing = [pid for pid in prompt_ids if pid not in have]
         if not missing:
-            logger.info(f"[subscribe_to_skill] all {len(prompt_ids)} referenced prompt(s) already local")
-            return
+            logger.info(f"[subscribe_to_skill] all {len(prompt_ids)} referenced prompt(s) already local"
+                        + (f" (own copies kept: {summary['kept_own']})" if summary["kept_own"] else ""))
+            return summary
 
         ctx = _get_cloud_context()
         if not ctx:
             logger.warning("[subscribe_to_skill] no cloud context — prompt download skipped")
-            return
+            summary["failed"] = list(missing)
+            return summary
 
         target_dir = prompt_handler._get_subscribed_prompts_dir()
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -1573,13 +1591,16 @@ def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=No
                 failed.append((pid, str(e)))
 
         if downloaded:
-            logger.info(f"[subscribe_to_skill] downloaded {len(downloaded)} prompt(s) "
-                        f"from author {author}: {downloaded}")
+            logger.info(f"[subscribe_to_skill] {'refreshed' if refresh else 'downloaded'} "
+                        f"{len(downloaded)} prompt(s) from author {author}: {downloaded}")
         for pid, reason in failed:
             logger.warning(f"[subscribe_to_skill] prompt download FAILED for {pid} "
                            f"(author={author}): {reason}")
+        summary["downloaded"] = downloaded
+        summary["failed"] = [pid for pid, _r in failed]
     except Exception as e:
         logger.warning(f"[subscribe_to_skill] prompt download step failed (non-fatal): {e}")
+    return summary
 
 
 # How long subscribing waits for the skill's files (a package is typically
@@ -1672,6 +1693,105 @@ def _find_cloud_skill_for_subscribe(request, params, skill_id: str):
     return target
 
 
+def _find_local_skill(skill_service, skill_id: str) -> Optional[Dict[str, Any]]:
+    """The local skill row for *skill_id* (its id, or a legacy askid), or None."""
+    existing = skill_service.get_skill_by_id(skill_id)
+    if existing.get('success') and existing.get('data'):
+        return existing['data']
+    try:
+        query_result = skill_service.query_skills()
+        rows = query_result.get('data', []) if query_result.get('success') else []
+        return next((row for row in rows
+                     if str(row.get('askid') or '').strip() == str(skill_id).strip()), None)
+    except Exception:
+        return None
+
+
+def _refresh_subscribed_skill(request, params, skill_service, existing_data: Dict[str, Any],
+                              skill_id: str, username: str) -> Optional[Dict[str, Any]]:
+    """Bring an already-subscribed skill up to date IN PLACE: the latest cloud
+    record, its files and ALL its prompts (refreshed, not just missing ones),
+    then recompile it in memory and rebind the running tasks.
+
+    The local row keeps its id, so the agent / task links survive -- unlike
+    unsubscribe + re-subscribe, which cascade-deletes them. Returns a summary,
+    or None when the cloud record is not found."""
+    target = _find_cloud_skill_for_subscribe(request, params, skill_id)
+    if not target:
+        return None
+    local_id = existing_data.get('id', skill_id)
+    skill_data = _prepare_skill_data(target, target.get('owner', username), skill_id)
+    skill_data['id'] = local_id
+    skill_data['askid'] = existing_data.get('askid')
+    skill_data['source'] = 'subscribed'
+    skill_service.update_skill(local_id, skill_data)
+    logger.info(f"[skill_handler] Updated subscribed skill {skill_id} with latest cloud data "
+                f"(version {existing_data.get('version')!r} -> {skill_data.get('version')!r})")
+    try:
+        download_skill_files_from_cloud(
+            skill_data, trace_id=f"refresh-{str(local_id)[:8]}",
+            file_owner=str(target.get('owner') or ''), wait_s=_SUBSCRIBE_FILES_WAIT_S)
+    except Exception as dl_err:
+        logger.warning(f"[refresh_subscribed_skill] file re-download failed (non-fatal): {dl_err}")
+    prompts = _download_skill_prompts(target, request, params,
+                                      extra_prompt_ids=_skill_file_prompt_ids(skill_data),
+                                      refresh=True)
+    tasks_rebound = 0
+    try:
+        _update_skill_in_memory(local_id, skill_data, request, params)
+        ctx = get_handler_context(request, params)
+        current = next((s for s in (ctx.get_agent_skills() or [])
+                        if str(getattr(s, 'id', '')) == str(local_id)), None) if ctx else None
+        tasks_rebound = _sync_runtime_tasks_for_skill(current, request, params) or 0
+    except Exception as mem_err:
+        logger.warning(f"[refresh_subscribed_skill] in-memory refresh failed (non-fatal): {mem_err}")
+    summary = {
+        'id': local_id, 'name': skill_data.get('name'),
+        'version_before': existing_data.get('version'), 'version_after': skill_data.get('version'),
+        'prompts_refreshed': prompts.get('downloaded', []), 'prompts_failed': prompts.get('failed', []),
+        'prompts_kept_own': prompts.get('kept_own', []), 'tasks_rebound': tasks_rebound,
+    }
+    logger.info(f"[refresh_subscribed_skill] {summary}")
+    return summary
+
+
+@IPCHandlerRegistry.handler('update_subscribed_skill')
+def handle_update_subscribed_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Update a subscribed skill to the author's latest: the skill, its files and
+    every prompt it uses -- what unsubscribe + re-subscribe did, WITHOUT the
+    unsubscribe, so agents and tasks keep using it (no re-linking)."""
+    try:
+        username = resolve_username(request, params)
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username')
+        is_valid, data, error = validate_params(params, ['skillId'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+        skill_id = data['skillId']
+        skill_service = _get_skill_service(request, params)
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+
+        existing_data = _find_local_skill(skill_service, skill_id)
+        if not existing_data:
+            return create_error_response(request, 'SKILL_NOT_SUBSCRIBED',
+                                         '未订阅该技能 (skill is not subscribed on this machine)')
+        owner = str(existing_data.get('owner') or '')
+        if owner and owner.lower() == username.lower():
+            # The author's local copy is the working copy; pulling the cloud one
+            # over it would throw away unpublished edits.
+            return create_error_response(request, 'UPDATE_OWN_SKILL',
+                                         '这是您自己的技能，无需从商店更新 (this is your own skill)')
+
+        summary = _refresh_subscribed_skill(request, params, skill_service, existing_data, skill_id, username)
+        if summary is None:
+            return create_error_response(request, 'SKILL_NOT_FOUND', f'Skill {skill_id} not found in cloud')
+        return create_success_response(request, {'success': True, **summary})
+    except Exception as e:
+        logger.error(f"Error in update_subscribed_skill handler: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'UPDATE_SKILL_ERROR', f"Error during update: {str(e)}")
+
+
 @IPCHandlerRegistry.handler('subscribe_to_skill')
 def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Subscribe to a public skill by saving it to the local database.
@@ -1716,25 +1836,8 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
         if existing.get('success') and existing.get('data'):
             existing_data = existing.get('data') or {}
             # Fetch latest from cloud (own skills OR the public catalog) and
-            # update the local record
-            target = _find_cloud_skill_for_subscribe(request, params, skill_id)
-            if target:
-                # Update existing record with latest cloud data
-                skill_data = _prepare_skill_data(target, target.get('owner', username), skill_id)
-                skill_data['id'] = existing_data.get('id', skill_id)
-                skill_data['askid'] = existing_data.get('askid')
-                # Ensure source is 'subscribed'
-                skill_data['source'] = 'subscribed'
-                update_result = skill_service.update_skill(skill_data['id'], skill_data)
-                logger.info(f"[skill_handler] Updated existing subscribed skill {skill_id} with latest cloud data")
-                try:
-                    download_skill_files_from_cloud(
-                        skill_data, trace_id=f"resubscribe-{str(skill_data.get('id',''))[:8]}",
-                        file_owner=str(target.get('owner') or ''), wait_s=_SUBSCRIBE_FILES_WAIT_S)
-                except Exception as dl_err:
-                    logger.warning(f"[subscribe_to_skill] file re-download failed (non-fatal): {dl_err}")
-                _download_skill_prompts(target, request, params,
-                                        extra_prompt_ids=_skill_file_prompt_ids(skill_data))
+            # update the local record, files and prompts in place.
+            _refresh_subscribed_skill(request, params, skill_service, existing_data, skill_id, username)
 
             # Sync to cloud even for re-subscribe (idempotent — recreates agent_skill_rels if missing)
             try:

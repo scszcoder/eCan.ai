@@ -2129,6 +2129,11 @@
       "getAction": "Get",
       "updateAction": "Update",
       "updateAvailableHint": "A newer version was published — click to update",
+      "updateHint": "Get the author's latest version and its prompts; linked agents and tasks are kept",
+      "updating": "Updating skill…",
+      "updateFailed": "Update failed",
+      "updatedSummary": "Updated: version {{from}} → {{to}}, {{n}} prompt(s)",
+      "updatePromptsFailed": "{{n}} prompt(s) could not be updated — see the log",
       "cloudNewerBadge": "Newer version in cloud",
       "heroSearchPlaceholder": "Search skills...",
       "heroStats": {

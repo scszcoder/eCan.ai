@@ -382,6 +382,36 @@ const Skills: React.FC = () => {
         }
     };
 
+    // Update = fetch the author's latest skill, files and every prompt it uses,
+    // keeping the subscription (and so every agent/task link) in place.
+    const handleUpdate = async (skillId: string) => {
+        if (!username) return;
+        const hide = message.loading(t('pages.skills.updating', '正在更新技能…'), 0);
+        try {
+            const resp = await get_ipc_api().updateSubscribedSkill(username, skillId);
+            const err: any = resp?.error;
+            const result = resp?.data as any;
+            if (!resp?.success || result?.success === false) {
+                message.error(err?.message || result?.error || t('pages.skills.updateFailed', '更新失败'));
+                return;
+            }
+            const refreshed = (result?.prompts_refreshed || []).length;
+            const failed = (result?.prompts_failed || []).length;
+            message.success(t('pages.skills.updatedSummary', {
+                defaultValue: '已更新：版本 {{from}} → {{to}}，提示词 {{n}} 个',
+                from: result?.version_before ?? '-', to: result?.version_after ?? '-', n: refreshed,
+            }));
+            if (failed) {
+                message.warning(t('pages.skills.updatePromptsFailed', {
+                    defaultValue: '{{n}} 个提示词未能更新，详见日志', n: failed,
+                }));
+            }
+            await handleRefresh();
+        } finally {
+            hide();
+        }
+    };
+
     const handleUnsubscribe = async (skillId: string) => {
         if (!username) return;
         const api = get_ipc_api();
@@ -636,6 +666,7 @@ const Skills: React.FC = () => {
                     subscribedSkillIds={subscribedSkillIds}
                     onSubscribe={handleSubscribe}
                     onUnsubscribe={handleUnsubscribe}
+                    onUpdate={handleUpdate}
                     onCopy={handleCopy}
                     onRun={handleRun}
                     onReport={handleReport}
@@ -653,6 +684,7 @@ const Skills: React.FC = () => {
                     subscribedSkillIds={subscribedSkillIds}
                     onSubscribe={handleSubscribe}
                     onUnsubscribe={handleUnsubscribe}
+                    onUpdate={handleUpdate}
                     onCopy={handleCopy}
                     onRun={handleRun}
                     onReport={handleReport}
@@ -670,6 +702,7 @@ const Skills: React.FC = () => {
                     subscribedSkillIds={subscribedSkillIds}
                     onSubscribe={handleSubscribe}
                     onUnsubscribe={handleUnsubscribe}
+                    onUpdate={handleUpdate}
                     onCopy={handleCopy}
                     onRun={handleRun}
                     onReport={handleReport}
@@ -717,6 +750,7 @@ const Skills: React.FC = () => {
                     subscribedSkillIds={subscribedSkillIds}
                     onSubscribe={handleSubscribe}
                     onUnsubscribe={handleUnsubscribe}
+                    onUpdate={handleUpdate}
                     onCopy={handleCopy}
                     onRun={handleRun}
                     onReport={handleReport}
@@ -733,6 +767,7 @@ const Skills: React.FC = () => {
                     subscribedSkillIds={subscribedSkillIds}
                     onSubscribe={handleSubscribe}
                     onUnsubscribe={handleUnsubscribe}
+                    onUpdate={handleUpdate}
                     onCopy={handleCopy}
                     onRun={handleRun}
                     onReport={handleReport}
@@ -926,6 +961,7 @@ const Skills: React.FC = () => {
                             subscribedSkillIds={subscribedSkillIds}
                             onSubscribe={handleSubscribe}
                             onUnsubscribe={handleUnsubscribe}
+                            onUpdate={handleUpdate}
                         />
                     </div>
                 </div>

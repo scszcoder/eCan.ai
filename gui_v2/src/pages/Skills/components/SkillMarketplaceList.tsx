@@ -19,6 +19,7 @@ import {
     MoreOutlined,
     CloseOutlined,
     LockOutlined,
+    SyncOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
@@ -238,6 +239,8 @@ export interface SkillMarketplaceListProps {
     subscribedSkillIds?: string[];
     onSubscribe: (skillId: string) => Promise<void>;
     onUnsubscribe: (skillId: string) => Promise<void>;
+    /** Update in place: latest skill + files + all its prompts, links kept. */
+    onUpdate?: (skillId: string) => Promise<void>;
     onCopy: (skill: Skill) => Promise<void>;
     onRun?: (skill: Skill) => void;
     onDownload?: (skill: Skill) => Promise<void> | void;
@@ -256,6 +259,7 @@ const SkillMarketplaceList: React.FC<SkillMarketplaceListProps> = ({
     subscribedSkillIds = [],
     onSubscribe,
     onUnsubscribe,
+    onUpdate,
     onCopy,
     onRun,
     onReport,
@@ -437,18 +441,29 @@ const SkillMarketplaceList: React.FC<SkillMarketplaceListProps> = ({
                     ) : subscribed && (skill as any)?.update_available ? (
                         <PillButton
                             $variant="subscribe"
-                            onClick={() => onSubscribe(skillIdStr)}
+                            onClick={() => (onUpdate ?? onSubscribe)(skillIdStr)}
                             title={t('pages.skills.updateAvailableHint', 'A newer version was published — click to update')}
                         >
                             <DownloadOutlined /> {t('pages.skills.updateAction', 'Update')}
                         </PillButton>
                     ) : subscribed ? (
-                        <PillButton
-                            $variant="danger"
-                            onClick={() => onUnsubscribe(skillIdStr)}
-                        >
-                            <CloseOutlined /> {t('pages.skills.unsubscribe', 'Unsubscribe')}
-                        </PillButton>
+                        <>
+                            {onUpdate && (
+                                <PillButton
+                                    $variant="subscribe"
+                                    onClick={() => onUpdate(skillIdStr)}
+                                    title={t('pages.skills.updateHint', '获取作者的最新版本及其提示词，不影响已关联的智能体和任务')}
+                                >
+                                    <SyncOutlined /> {t('pages.skills.updateAction', 'Update')}
+                                </PillButton>
+                            )}
+                            <PillButton
+                                $variant="danger"
+                                onClick={() => onUnsubscribe(skillIdStr)}
+                            >
+                                <CloseOutlined /> {t('pages.skills.unsubscribe', 'Unsubscribe')}
+                            </PillButton>
+                        </>
                     ) : (
                         <PillButton
                             $variant="subscribe"
