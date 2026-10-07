@@ -151,3 +151,12 @@ def test_on_the_real_screen_open_by_preview_clicks_the_list_row_not_a_bubble():
 
 def test_on_the_real_screen_the_rating_badge_is_not_the_buyer_name():
     assert qianniu_ocr.read_header_name(REAL_SCREEN) == "sctisz"
+
+
+def test_the_buyer_name_is_the_one_beside_the_rating_badge_not_another_name_in_the_band():
+    # Alpha 2026-10-07 (yj multi-buyer): a new buyer was learned as 'sctisz'
+    # (another buyer); another as the timestamp '2026-10-714:51:37'.
+    base = [it for it in REAL_SCREEN if it["text"] not in ("sctisz", "好评100.00%企超级")]
+    band = [_real("sctisz", 521, 149), _real("2026-10-714:51:37", 700, 180),
+            _real("t_8812", 1152, 214), _real("好评100.00%企超级", 1280, 213)]
+    assert qianniu_ocr.read_header_name(base + band) == "t_8812"

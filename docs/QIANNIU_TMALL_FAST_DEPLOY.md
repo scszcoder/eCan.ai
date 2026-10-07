@@ -750,3 +750,23 @@ The skill Update replaced `pr-731906`, and the body-gated send works:
 Not code: the Q&A agent's first reply is often the holding phrase
 「这边帮您核实一下，稍后回复您。」. RAG (`workspace=''`) found nothing for these
 products, so this store needs its own knowledge base.
+
+**Tenth and eleventh alpha runs (v0.9.99yj): the first clean runs.**
+- Single buyer: 2/2 answered end-to-end alongside 拼多多 and 飞鸽, in about
+  30–36 s per turn.
+- Three buyers, minutes apart: every reply went into the right chat, because
+  each send matched the buyer's own message in the chat body. Naming broke:
+  - new buyer 3163207694 was learned as `sctisz`, which is another buyer's
+    name;
+  - buyer 54868217 was learned as the timestamp `2026-10-714:51:37`;
+  - that buyer's first "message" was the msgType 129 entry notice
+    `当前用户来自 商品详情页`, and it was answered.
+
+Fixes (v0.9.99yk):
+- the name is the line beside the rating badge;
+- timestamps are not names;
+- one name, one buyer: a name already held by another buyer is refused, and a
+  name stored for two buyers is used for neither;
+- `当前用户来自` is a system notice;
+- the learn pass logs the header band with positions, so a wrong name can be
+  diagnosed from the log.

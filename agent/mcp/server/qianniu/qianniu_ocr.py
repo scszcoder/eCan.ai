@@ -191,6 +191,25 @@ def _list_column(ocr_data: list):
     return x0 + 0.12 * w, x0 + _LIST_X_FRAC * w
 
 
+def header_band_items(ocr_data: list) -> list:
+    """[(text, (cx, cy))] in the chat-pane header band (see header_band_texts)."""
+    locs = [it for it in ocr_data or [] if it.get("loc")]
+    if not locs:
+        return []
+    x0, y0, x1, y1 = _extent(locs)
+    h = (y1 - y0) or 1
+    list_cut = _list_column(locs)[1]
+    top, bot = y0 + _HEADER_Y[0] * h, y0 + _HEADER_Y[1] * h
+    out = []
+    for it in locs:
+        lc = it["loc"]
+        cx, cy = (lc[1] + lc[3]) / 2, (lc[0] + lc[2]) / 2
+        t = str(it.get("text") or "").strip()
+        if t and cx > list_cut and top <= cy <= bot:
+            out.append((t, (int(cx), int(cy))))
+    return out
+
+
 def header_band_texts(ocr_data: list) -> list:
     """Text lines in the CHAT-PANE header (right of the conversation list, below
     the global toolbar/store-stats bar), where the open conversation's buyer
@@ -200,22 +219,7 @@ def header_band_texts(ocr_data: list) -> list:
     the store-stats bar (``今日接待 … 展开``) rather than the buyer name. This
     restricts to the chat pane and the header y-band instead.
     """
-    locs = [it for it in ocr_data if it.get("loc")]
-    if not locs:
-        return []
-    x0, y0, x1, y1 = _extent(ocr_data)
-    h = (y1 - y0) or 1
-    list_cut = _list_column(locs)[1]
-    top, bot = y0 + _HEADER_Y[0] * h, y0 + _HEADER_Y[1] * h
-    out = []
-    for it in locs:
-        lc = it["loc"]
-        cx, cy = (lc[1] + lc[3]) / 2, (lc[0] + lc[2]) / 2
-        if cx > list_cut and top <= cy <= bot:
-            t = str(it.get("text") or "").strip()
-            if t:
-                out.append(t)
-    return out
+    return [t for t, _xy in header_band_items(ocr_data)]
 
 
 def is_reception_tab(ocr_data: list) -> bool:
@@ -254,8 +258,19 @@ def read_header_name(ocr_data: Optional[list] = None) -> str:
         looks_like_buyer_name,
     )
     data = ocr_data if ocr_data is not None else ocr_qianniu_window()
-    texts = [t for t in header_band_texts(data) if looks_like_buyer_name(t)]   # not banners / UI labels
-    return max(texts, key=len) if texts else ""
+    items = header_band_items(data)
+    names = [(t, xy) for t, xy in items if looks_like_buyer_name(t)]   # not banners / UI labels
+    if not names:
+        return ""
+    # The open chat's buyer name sits just left of its rating badge
+    # ("sctisz  好评100.00%企超级"); other names can share the band.
+    badges = [xy for t, xy in items if "好评" in t or "%" in t]
+    if badges:
+        bx, by = badges[0]
+        row = [(bx - xy[0], t) for t, xy in names if abs(xy[1] - by) <= 15 and xy[0] < bx]
+        if row:
+            return min(row)[1]
+    return max((t for t, _xy in names), key=len)
 
 
 # Chat BODY = right of the conversation list, below the chat header. Values from

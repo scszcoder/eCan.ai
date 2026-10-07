@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from typing import Dict, Optional
 
@@ -77,12 +78,16 @@ _NOT_NAME_WORDS = ("客服", "接待", "升级", "助力", "活动", "报名", "
                    "好评", "超级", "会员", "粉丝", "新客")
 
 
+# A chat timestamp like "2026-10-714:51:37" (learned as a name, alpha 2026-10-07).
+_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{1,2}-\d|^\d{1,2}[:：]\d{2}|^[\d\-:：/ .]+$")
+
+
 def looks_like_buyer_name(text: str) -> bool:
-    """False for blank, overlong, punctuated or UI-worded text."""
+    """False for blank, overlong, punctuated, timestamp or UI-worded text."""
     t = (text or "").strip()
     if not t or len(t) > 24:
         return False
-    if any(p in t for p in _NOT_NAME_PUNCT):
+    if any(p in t for p in _NOT_NAME_PUNCT) or _TIMESTAMP_RE.search(t):
         return False
     return not any(w in t for w in _NOT_NAME_WORDS)
 
@@ -90,8 +95,16 @@ def looks_like_buyer_name(text: str) -> bool:
 def name_for(sender_id: str) -> str:
     """Learned display name for a sender id, or "" (a stored UI-text "name"
     learned before this check existed is ignored)."""
-    name = _load().get(str(sender_id or ""), "")
-    return name if looks_like_buyer_name(name) else ""
+    data = _load()
+    sid = str(sender_id or "")
+    name = data.get(sid, "")
+    if not looks_like_buyer_name(name):
+        return ""
+    # A name stored for two buyers (learned before the one-name-one-buyer rule)
+    # is ambiguous: use neither.
+    if any(v == name for k, v in data.items() if k not in (sid, _SELF_KEY)):
+        return ""
+    return name
 
 
 def id_for(display_name: str) -> str:
@@ -111,6 +124,13 @@ def learn(sender_id: str, display_name: str) -> bool:
         return False
     if not looks_like_buyer_name(dn):
         logger.info(f"[qianniu] not learning {dn!r} for sender {sid!r}: looks like UI text, not a name")
+        return False
+    owner = next((k for k, v in _load().items() if v == dn and k not in (sid, _SELF_KEY)), "")
+    if owner:
+        # One name, one buyer: a second buyer "named" like a known one means the
+        # screen read was wrong (alpha 2026-10-07: new buyer 3163207694 was
+        # learned as 'sctisz', already buyer 678614304).
+        logger.info(f"[qianniu] not learning {dn!r} for sender {sid!r}: already the name of {owner!r}")
         return False
     with _LOCK:
         data = _load()

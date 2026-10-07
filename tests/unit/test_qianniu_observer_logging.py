@@ -294,3 +294,16 @@ def test_a_front_desk_qianniu_send_round_is_not_echoed_to_the_qa_agent():
             patch.object(llm_utils, "logger") as log:
         assert llm_utils.send_response_back(state) is state
     assert any("front-desk delivery" in str(c) for c in log.info.call_args_list)
+
+
+def test_one_name_one_buyer_and_timestamps_and_entry_notices_are_not_names_or_questions(tmp_path):
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import name_map
+    store = tmp_path / "names.json"
+    store.write_text(json.dumps({"678614304": "sctisz", "3163207694": "sctisz"}), encoding="utf-8")
+    with patch.object(name_map, "_store_path", return_value=str(store)), \
+            patch.object(name_map, "_CACHE", None):
+        assert name_map.name_for("678614304") == "" and name_map.name_for("3163207694") == ""  # ambiguous
+        assert name_map.learn("54868217", "sctisz") is False                                  # taken
+        assert name_map.learn("54868217", "2026-10-714:51:37") is False                       # a timestamp
+        assert name_map.learn("54868217", "t_8812") is True
+    assert observer._is_system_notice("当前用户来自 商品详情页")

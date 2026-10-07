@@ -37,7 +37,9 @@ _NOBODY_RETRY_S = 120.0   # keep re-dispatching a message no runner took (startu
 # 请您尽快妥善处理买家问题。若消极接待行为属实…" was dispatched as a buyer
 # question). Never answer them. Keyword-based like the 飞鸽 front desk's filter;
 # replace with a msgType rule once "new message object" logs show the values.
-_SYSTEM_NOTICE_MARKERS = ("【即将超时】", "未回复买家", "消极接待", "系统关闭会话", "客服超时")
+_SYSTEM_NOTICE_MARKERS = ("【即将超时】", "未回复买家", "消极接待", "系统关闭会话", "客服超时",
+                          # msgType 129 entry notice (alpha 2026-10-07): not a question
+                          "当前用户来自")
 
 
 def _is_system_notice(text: str) -> bool:
@@ -338,9 +340,14 @@ class QianniuMemObserver:
                 logger.info(f"[QIANNIU-MEM] learn buyer={sender_id!r}: message on screen but no "
                             f"header name; header band={qianniu_ocr.header_band_texts(ocr_data)[:8]}")
                 return
+            band = [f"{t}@{xy}" for t, xy in qianniu_ocr.header_band_items(ocr_data)[:10]]
             if name_map.learn(sender_id, name):
                 self.stats["learned"] += 1
-                logger.info(f"[QIANNIU-MEM] learned buyer={sender_id!r} -> name={name!r}")
+                logger.info(f"[QIANNIU-MEM] learned buyer={sender_id!r} -> name={name!r} "
+                            f"(header band: {band})")
+            else:
+                logger.info(f"[QIANNIU-MEM] learn buyer={sender_id!r}: kept no name from {name!r} "
+                            f"(header band: {band})")
         except Exception as exc:
             logger.warning(f"[QIANNIU-MEM] learn pass failed for buyer={sender_id!r}: {exc}")
 
