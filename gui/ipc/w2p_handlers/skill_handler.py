@@ -1473,6 +1473,10 @@ def _skill_file_prompt_ids(skill_data: Dict[str, Any]) -> list:
     ids = set()
     if skill_dir and skill_dir.exists():
         for fp in skill_dir.rglob("*.json"):
+            # .harness_bak/ etc. hold old backups whose prompts are long gone
+            # (0.9.99yf: "2个提示词未能更新" were ids only a backup referenced).
+            if any(part.startswith('.') for part in fp.relative_to(skill_dir).parts[:-1]):
+                continue
             try:
                 ids.update(re.findall(r'pr-\d+', fp.read_text(encoding='utf-8', errors='ignore')))
             except Exception:
@@ -1523,11 +1527,15 @@ def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=No
     prompt and overwrites the subscribed copies. Without it only MISSING
     prompts were fetched, so an author's republished prompt never reached a
     machine that already had the old one (0.9.99yd alpha: pr-731906 stayed
-    stale through two republishes). A prompt in the user's OWN my_prompts is
-    never overwritten -- that copy is theirs.
+    stale through two republishes). A my_prompts copy of a prompt the author
+    serves is replaced too -- the author's version is what the skill was
+    published with; the local copy is moved to my_prompts/.replaced/, not
+    deleted (0.9.99yf alpha: a stale my_prompts pr-731906 was "kept" and,
+    since my_prompts is read first, the update changed nothing).
 
-    Returns {"downloaded": [...], "failed": [...], "kept_own": [...]}."""
-    summary: Dict[str, list] = {"downloaded": [], "failed": [], "kept_own": []}
+    Returns {"downloaded": [...], "failed": [...], "kept_own": [...],
+    "replaced_own": [...]}."""
+    summary: Dict[str, list] = {"downloaded": [], "failed": [], "kept_own": [], "replaced_own": []}
     try:
         from gui.ipc.w2p_handlers import prompt_handler
         from gui.ipc.w2p_handlers.prompt_cloud_sync import _get_cloud_context, _appsync_request
@@ -1543,11 +1551,11 @@ def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=No
         if not author or not prompt_ids:
             return summary
 
+        own = set()
         if refresh:
             own = {p.get('id') for p, _m in prompt_handler._load_prompts_from_directory(
                 prompt_handler._get_my_prompts_dir(), source="my_prompts", read_only=False)}
-            summary["kept_own"] = [pid for pid in prompt_ids if pid in own]
-            missing = [pid for pid in prompt_ids if pid not in own]
+            missing = list(prompt_ids)
         else:
             have = {p.get('id') for p in prompt_handler._load_all_prompts()}
             missing = [pid for pid in prompt_ids if pid not in have]
@@ -1587,12 +1595,20 @@ def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=No
                 with out.open('w', encoding='utf-8') as f:
                     json.dump(pdata, f, ensure_ascii=False, indent=2)
                 downloaded.append(pid)
+                if pid in own:
+                    _move_own_prompt_aside(prompt_handler._get_my_prompts_dir(), pid)
+                    summary["replaced_own"].append(pid)
             except Exception as e:
                 failed.append((pid, str(e)))
+        # An own copy the author does not serve stays the user's.
+        summary["kept_own"] = [pid for pid in own & set(prompt_ids) if pid not in downloaded]
 
         if downloaded:
             logger.info(f"[subscribe_to_skill] {'refreshed' if refresh else 'downloaded'} "
                         f"{len(downloaded)} prompt(s) from author {author}: {downloaded}")
+        if summary["replaced_own"]:
+            logger.info(f"[subscribe_to_skill] author's version replaced local my_prompts copies "
+                        f"(moved to my_prompts/.replaced/): {summary['replaced_own']}")
         for pid, reason in failed:
             logger.warning(f"[subscribe_to_skill] prompt download FAILED for {pid} "
                            f"(author={author}): {reason}")
@@ -1601,6 +1617,23 @@ def _download_skill_prompts(cloud_skill: Dict[str, Any], request=None, params=No
     except Exception as e:
         logger.warning(f"[subscribe_to_skill] prompt download step failed (non-fatal): {e}")
     return summary
+
+
+def _move_own_prompt_aside(my_prompts_dir, prompt_id: str) -> None:
+    """Move every my_prompts/*.json holding *prompt_id* into
+    my_prompts/.replaced/ (out of every loader's top-level glob)."""
+    import time as _time
+    from pathlib import Path
+    my_dir = Path(my_prompts_dir)
+    dest = my_dir / ".replaced"
+    for fp in my_dir.glob("*.json"):
+        try:
+            if json.loads(fp.read_text(encoding="utf-8")).get("id") != prompt_id:
+                continue
+            dest.mkdir(exist_ok=True)
+            fp.replace(dest / f"{fp.stem}.{_time.strftime('%Y%m%d_%H%M%S')}.json")
+        except Exception as e:
+            logger.warning(f"[subscribe_to_skill] could not move aside {fp.name}: {e}")
 
 
 # How long subscribing waits for the skill's files (a package is typically
@@ -1749,7 +1782,8 @@ def _refresh_subscribed_skill(request, params, skill_service, existing_data: Dic
         'id': local_id, 'name': skill_data.get('name'),
         'version_before': existing_data.get('version'), 'version_after': skill_data.get('version'),
         'prompts_refreshed': prompts.get('downloaded', []), 'prompts_failed': prompts.get('failed', []),
-        'prompts_kept_own': prompts.get('kept_own', []), 'tasks_rebound': tasks_rebound,
+        'prompts_kept_own': prompts.get('kept_own', []),
+        'prompts_replaced_own': prompts.get('replaced_own', []), 'tasks_rebound': tasks_rebound,
     }
     logger.info(f"[refresh_subscribed_skill] {summary}")
     return summary

@@ -54,10 +54,45 @@ def test_without_refresh_a_prompt_already_local_is_kept(tmp_path):
     assert summary["downloaded"] == ["pr-2"] and body("pr-1") == "OLD"
 
 
-def test_refresh_never_overwrites_the_users_own_prompt(tmp_path):
-    summary, _body = _run(tmp_path, refresh=True, mine=[("pr-1", "MINE")])
-    assert summary["kept_own"] == ["pr-1"] and summary["downloaded"] == ["pr-2"]
-    assert json.loads((tmp_path / "my_prompts" / "0_pr-1.json").read_text(encoding="utf-8"))["mdContent"] == "MINE"
+def test_refresh_replaces_a_my_prompts_copy_of_the_authors_prompt_and_keeps_a_backup(tmp_path):
+    # 0.9.99yf alpha: a stale my_prompts pr-731906 was "kept"; my_prompts is
+    # read first, so the update changed nothing.
+    summary, body = _run(tmp_path, refresh=True, mine=[("pr-1", "MINE")])
+    assert sorted(summary["downloaded"]) == ["pr-1", "pr-2"] and body("pr-1") == "NEW pr-1"
+    assert summary["replaced_own"] == ["pr-1"] and summary["kept_own"] == []
+    assert not (tmp_path / "my_prompts" / "0_pr-1.json").exists()
+    backups = list((tmp_path / "my_prompts" / ".replaced").glob("0_pr-1.*.json"))
+    assert len(backups) == 1 and json.loads(backups[0].read_text(encoding="utf-8"))["mdContent"] == "MINE"
+
+
+def test_refresh_keeps_an_own_prompt_the_author_does_not_serve(tmp_path):
+    def cloud(*_a, variables=None, **_k):
+        if variables["input"]["id"] == "pr-1":
+            return {"errors": [{"message": "Cross-owner access is forbidden"}]}
+        return _cloud(variables=variables)
+    with patch.object(skill_handler, "_extract_skill_prompt_ids", return_value=["pr-1", "pr-2"]):
+        my_dir, sub_dir = _prompt_dirs(tmp_path, mine=[("pr-1", "MINE")])
+        with patch.object(prompt_handler, "_get_my_prompts_dir", return_value=my_dir), \
+                patch.object(prompt_handler, "_get_subscribed_prompts_dir", return_value=sub_dir), \
+                patch("gui.ipc.w2p_handlers.prompt_cloud_sync._get_cloud_context", return_value={"owner": "me"}), \
+                patch("gui.ipc.w2p_handlers.prompt_cloud_sync._appsync_request", side_effect=cloud):
+            summary = skill_handler._download_skill_prompts(SKILL, refresh=True)
+    assert summary["kept_own"] == ["pr-1"] and summary["replaced_own"] == []
+    assert json.loads((my_dir / "0_pr-1.json").read_text(encoding="utf-8"))["mdContent"] == "MINE"
+
+
+def test_hidden_backup_dirs_are_neither_scanned_for_prompts_nor_published(tmp_path):
+    # 0.9.99yf: "2个提示词未能更新" = pr ids only a .harness_bak/ backup referenced.
+    from gui.ipc.w2p_handlers import skill_file_sync
+    import io, zipfile
+    sk = tmp_path / "淘宝客服前台01_skill"
+    (sk / "diagram_dir" / ".harness_bak").mkdir(parents=True)
+    (sk / "diagram_dir" / "a.json").write_text('{"p": "pr-731906"}', encoding="utf-8")
+    (sk / "diagram_dir" / ".harness_bak" / "old.json").write_text('{"p": "pr-382693"}', encoding="utf-8")
+    with patch("gui.ipc.w2p_handlers.skill_file_sync._get_my_skills_dir", return_value=str(tmp_path)):
+        assert skill_handler._skill_file_prompt_ids({"name": "淘宝客服前台01"}) == ["pr-731906"]
+    names = zipfile.ZipFile(io.BytesIO(skill_file_sync._zip_skill_dir(sk))).namelist()
+    assert [n.replace("\\", "/") for n in names] == ["diagram_dir/a.json"]
 
 
 class _Svc:

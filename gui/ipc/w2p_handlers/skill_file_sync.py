@@ -143,7 +143,10 @@ def _zip_skill_dir(skill_dir: Path) -> Optional[bytes]:
     buf = io.BytesIO()
     try:
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for root, _dirs, files in os.walk(skill_dir):
+            for root, dirs, files in os.walk(skill_dir):
+                # Hidden dirs (.harness_bak/ backups, ...) are not part of the
+                # skill; shipping them made subscribers chase their stale prompts.
+                dirs[:] = [d for d in dirs if not d.startswith('.')]
                 for fname in files:
                     abs_path = os.path.join(root, fname)
                     arc_name = os.path.relpath(abs_path, skill_dir)
