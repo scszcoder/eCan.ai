@@ -542,6 +542,35 @@ Then:
 Also seen: the customer still ran the OLD `pr-731906` (multi-step Flow B), so
 the republish had not reached that machine.
 
+**Sixth alpha run (v0.9.99yd + deepseek skill, 2026-10-07): first full
+front-desk → Q&A → front-desk round trip.**
+- The front desk (deepseek-v4-flash, 2.2 s) handed 有石榴味牙线吗 to Q&A agent
+  客服小岚 via `send_chat`.
+- The Q&A agent classified it, ran `rag_query`, and replied 这边暂未查到石榴味牙线信息，
+  您可以发下商品链接，我帮您看看。
+- The front desk got the `qa_reply`.
+
+Three new blockers, fixed in v0.9.99ye / skill data:
+1. **Wrong 千牛 window.** The tools focused and OCR'd `倪好数码:小柒-千牛工作台`, the
+   workbench home: a promo banner, no 正在接待 list. Chats are in the separate
+   接待中心 window. Fix: `qianniu_ocr.qianniu_chat_window()` ranks windows with
+   `接待` in the title first, then by area (the bot's rule). Focus and capture
+   both use it, and capture targets that window's exact title. It logs the
+   candidate titles on change, and warns when no 接待 window is open.
+2. **Front-desk ↔ Q&A echo loop.** A front-desk round that does not end in a
+   successful `send_chat` (an `all_done`, or the intended `qianniu_send`) was
+   sent back to the Q&A agent by `send_response_back`. The Q&A agent answered
+   the same question again: 2 full cycles before the app closed. Fix (skill
+   data): prep and terminator set `attributes.async_response = False`, the
+   documented opt-out. The skip line is INFO now.
+3. **A 千牛 system notice was dispatched as a buyer question**
+   (`【即将超时】…未回复买家…消极接待…`). Fix: the observer skips notices by
+   keyword (like the 飞鸽 filter), and logs `msgType` on every new message object
+   so a structural rule can replace the keywords.
+
+Still open: the customer kept running the OLD `pr-731906`, so the republish
+did not reach the machine.
+
 Side notes from that log, not blocking:
 - The customer's skill file download failed (`requestSkillFileDownloadUrl`
   INTERNAL_SERVER_ERROR, backend), so 淘宝客服前台01 compiled from its DB diagram

@@ -3175,7 +3175,7 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
 
         # If async_response is explicitly False, skip sending (sync mode - result via waiter)
         if not force_send and async_response is False:
-            logger.debug("[send_response_back] async_response=False, skipping A2A send (sync mode)")
+            logger.info("[send_response_back] async_response=False, skipping A2A send (sync mode)")
             return state
         
         # Default behavior: send via A2A (async mode)

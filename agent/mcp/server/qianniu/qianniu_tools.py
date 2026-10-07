@@ -25,7 +25,6 @@ from mcp.types import TextContent
 
 from utils.logger_helper import logger_helper as logger
 from agent.mcp.server.wechat.platform_utils import (
-    find_windows_by_title,
     bring_window_to_front,
     clipboard_set_text,
     paste_hotkey,
@@ -48,7 +47,6 @@ from agent.mcp.server.qianniu.qianniu_ocr import (
 # match, a send keyed on such a text is refused (fail-closed).
 _MIN_BODY_ID_CHARS = 4
 
-_QIANNIU_WIN_TITLES = ["千牛", "AliWorkbench", "阿里旺旺"]
 _POST_ACTION_DELAY = 0.6
 _POST_TYPE_DELAY = 0.5
 _SETTLE_AFTER_OPEN = 1.4
@@ -68,15 +66,18 @@ def _humanize(base: float) -> None:
 
 
 def _find_window():
-    wins = find_windows_by_title(_QIANNIU_WIN_TITLES)
-    return wins[0] if wins else None
+    # The 接待中心 chat window first (not the 千牛工作台 home) -- shared with the OCR
+    # capture so the window we focus is the window we read.
+    from agent.mcp.server.qianniu.qianniu_ocr import qianniu_chat_window
+    return qianniu_chat_window()
 
 
 def _foreground() -> bool:
     """Bring 千牛 to the foreground. False if the window isn't found."""
     win = _find_window()
     if not win:
-        logger.warning(f"[qianniu] window not found (titles {_QIANNIU_WIN_TITLES}); is 千牛 running?")
+        from agent.mcp.server.qianniu.qianniu_ocr import QIANNIU_WIN_TITLES
+        logger.warning(f"[qianniu] window not found (titles {list(QIANNIU_WIN_TITLES)}); is 千牛 running?")
         return False
     bring_window_to_front(win)
     _humanize(_POST_ACTION_DELAY)

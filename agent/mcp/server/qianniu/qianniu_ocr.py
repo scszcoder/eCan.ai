@@ -65,8 +65,42 @@ def save_failure_shot(reason: str) -> str:
         return ""
 
 
+# 千牛 windows by title. The CHAT window (接待中心) is a separate top-level window
+# from the 千牛工作台 home; chats, the 正在接待 list and the composer live only in
+# the former. The standalone bot (qianniu_cs_bot v0.15) prefers 接待 then the
+# largest; the app used "the first 千牛 window", which on the 0.9.99yd alpha was
+# 倪好数码:小柒-千牛工作台 -- the workbench home, so every check saw a promo page.
+QIANNIU_WIN_TITLES = ("接待", "千牛", "AliWorkbench", "阿里旺旺")
+_CHAT_WIN_MARK = "接待"
+_last_window_set = [None]
+
+
+def qianniu_chat_window():
+    """The 千牛 window to act on (WindowInfo with .title), or None: a 接待 (chat)
+    window first, then the largest. Logs the candidates when they change and
+    warns when no chat window is open."""
+    from agent.mcp.server.wechat.platform_utils import find_windows_by_title
+    seen, wins = set(), []
+    for w in find_windows_by_title(list(QIANNIU_WIN_TITLES)):
+        key = getattr(w, "hwnd", None) or w.title
+        if key not in seen:
+            seen.add(key)
+            wins.append(w)
+    wins.sort(key=lambda w: (_CHAT_WIN_MARK in (w.title or ""),
+                             max(getattr(w, "width", 0) or 0, 1) * max(getattr(w, "height", 0) or 0, 1)),
+              reverse=True)
+    titles = tuple(w.title for w in wins)
+    if titles != _last_window_set[0]:
+        _last_window_set[0] = titles
+        logger.info(f"[qianniu] 千牛 windows: {list(titles)}; using {titles[0] if titles else None!r}")
+        if titles and not any(_CHAT_WIN_MARK in t for t in titles):
+            logger.warning("[qianniu] no 接待中心 (chat) window is open -- the 正在接待 list and the "
+                           "chat composer are only there; open 接待中心 in 千牛")
+    return wins[0] if wins else None
+
+
 def ocr_qianniu_window() -> list:
-    """Capture the 千牛 window and run local OCR. Returns ocr_data in remote
+    """Capture the 千牛 chat window and run local OCR. Returns ocr_data in remote
     format with **absolute screen coords** (``loc=[y1,x1,y2,x2]``), or []."""
     from agent.ec_skills.ocr.image_prep import captureScreen, _apply_window_offset
     from agent.mcp.server.local_ocr.paddle_ocr import (
@@ -74,8 +108,10 @@ def ocr_qianniu_window() -> list:
     )
 
     t0 = time.monotonic()
+    win = qianniu_chat_window()
+    keyword = win.title if win and win.title else _QIANNIU_WIN_KW   # exact title of the chosen window
     try:
-        screen_img, _image_bytes, window_rect = captureScreen(_QIANNIU_WIN_KW)
+        screen_img, _image_bytes, window_rect = captureScreen(keyword)
     except Exception as exc:
         logger.warning(f"[qianniu] capture of the 千牛 window failed: {exc}")
         raise
@@ -100,8 +136,8 @@ def ocr_qianniu_window() -> list:
     if scale_x != 1.0 or scale_y != 1.0:
         result = scale_ocr_coordinates(result, scale_x, scale_y)
     result = _apply_window_offset(result, window_rect)
-    logger.info(f"[qianniu] OCR window={window_rect} img={orig_w}x{orig_h} lines={len(result)} "
-                f"in {int((time.monotonic() - t0) * 1000)}ms")
+    logger.info(f"[qianniu] OCR window={keyword!r} rect={window_rect} img={orig_w}x{orig_h} "
+                f"lines={len(result)} in {int((time.monotonic() - t0) * 1000)}ms")
     return result
 
 

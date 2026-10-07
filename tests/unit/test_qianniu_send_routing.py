@@ -38,6 +38,23 @@ SCTISZ_OPEN = screen("sctisz", ["有樱桃味牙线吗"],
                      [("sctisz", "有樱桃味牙线吗"), ("大作战panda", "有花生味牙线吗")])
 
 
+def test_the_chat_window_is_chosen_over_the_bigger_workbench_window():
+    # 0.9.99yd alpha: the app focused + OCR'd 倪好数码:小柒-千牛工作台 (the home page)
+    # instead of the 接待中心 chat window. Bot rule: 接待 first, then largest.
+    from types import SimpleNamespace
+    from unittest.mock import patch as _patch
+    workbench = SimpleNamespace(title="倪好数码:小柒-千牛工作台", hwnd=1, width=1600, height=850)
+    chat = SimpleNamespace(title="倪好数码:小柒-接待中心", hwnd=2, width=1200, height=700)
+    with _patch("agent.mcp.server.wechat.platform_utils.find_windows_by_title",
+                return_value=[workbench, chat, workbench]):
+        assert qianniu_ocr.qianniu_chat_window() is chat
+    qianniu_ocr._last_window_set[0] = None
+    with _patch("agent.mcp.server.wechat.platform_utils.find_windows_by_title",
+                return_value=[workbench]), _patch.object(qianniu_ocr.logger, "warning") as warn:
+        assert qianniu_ocr.qianniu_chat_window() is workbench
+    assert warn.called and "接待中心" in warn.call_args[0][0]
+
+
 def test_a_list_preview_is_not_the_open_chat_body():
     assert qianniu_ocr.transcript_contains(PANDA_OPEN, "有花生味牙线吗") is True
     assert qianniu_ocr.transcript_contains(PANDA_OPEN, "有樱桃味牙线吗") is False   # only in the list

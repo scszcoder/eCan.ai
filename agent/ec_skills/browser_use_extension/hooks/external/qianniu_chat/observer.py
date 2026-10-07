@@ -31,6 +31,18 @@ _LABEL = "qianniu_chat"
 _LEARN_THROTTLE_S = 5.0
 _HEARTBEAT_S = 300.0
 
+# 千牛 platform notices that arrive as ordinary-looking message objects in the
+# buyer's conversation (alpha 2026-10-07: "【即将超时】您即将超超20分钟未回复买家，
+# 请您尽快妥善处理买家问题。若消极接待行为属实…" was dispatched as a buyer
+# question). Never answer them. Keyword-based like the 飞鸽 front desk's filter;
+# replace with a msgType rule once "new message object" logs show the values.
+_SYSTEM_NOTICE_MARKERS = ("【即将超时】", "未回复买家", "消极接待", "系统关闭会话", "客服超时")
+
+
+def _is_system_notice(text: str) -> bool:
+    t = text or ""
+    return any(m in t for m in _SYSTEM_NOTICE_MARKERS)
+
 
 def _qianniu_pids() -> list:
     """Every AliWorkbench.exe pid, the ROOT process first.
@@ -412,6 +424,7 @@ class QianniuMemObserver:
                 logger.info(f"[QIANNIU-MEM] new message object: dir="
                             f"{'IN' if mem_locator.is_incoming(cand, seller) else 'OUT'} "
                             f"({_direction_reason(cand, seller)}) uid={cand.uid!r} msg={cand.msg_id!r} "
+                            f"msgType={(cand.raw or {}).get('msgType')!r} "
                             f"sendTime={cand.send_time} text={cand.text[:30]!r}")
         if not candidates:
             return False
@@ -445,6 +458,11 @@ class QianniuMemObserver:
         for cand in incoming:
             item = item_for(cand, seller)
             if not self._first_time(item["identity_key"]):
+                continue
+            if _is_system_notice(cand.text):
+                self.stats["system_notice_skipped"] = self.stats.get("system_notice_skipped", 0) + 1
+                logger.info(f"[QIANNIU-MEM] skip 千牛 system notice msg={item['msg_id']!r} "
+                            f"msgType={(cand.raw or {}).get('msgType')!r}: {item['last_message'][:30]!r}")
                 continue
             if self._is_stale(cand):
                 self.stats["stale_skipped"] += 1

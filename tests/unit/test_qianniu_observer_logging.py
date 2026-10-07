@@ -106,6 +106,22 @@ def test_one_buyer_alone_in_memory_is_not_mistaken_for_the_seller():
     assert mem_locator.seller_id_of(with_reply) == "shop"
 
 
+def test_a_qianniu_system_notice_is_never_dispatched():
+    # Alpha 2026-10-07: this notice arrived as an incoming message object and was
+    # dispatched to the front desk as if a buyer had asked it.
+    notice = "【即将超时】您即将超超20分钟未回复买家，请您尽快妥善处理买家问题。若消极接待行为属实"
+    obs, sent, fake_scan, fake_extract = _observer_with_memory(
+        [[], [_cand("678614304", notice, "m1"), _cand("678614304", "有石榴味牙线吗", "m2")]])
+    with patch.object(mem, "scan_strings", fake_scan), \
+            patch.object(mem_locator, "extract_candidates", fake_extract), \
+            patch.object(observer.name_map, "name_for", return_value=""):
+        obs._scan_once(1)
+        obs._baselined = True
+        obs._scan_once(1)
+    assert [i["last_message"] for i in sent] == ["有石榴味牙线吗"]
+    assert obs.stats["system_notice_skipped"] == 1
+
+
 def test_a_dispatch_nobody_receives_is_counted():
     obs, _sent, fake_scan, fake_extract = _observer_with_memory(
         [[_cand("b1", "x", "m1")], [_cand("b1", "x", "m1"), _cand("b1", "新问题", "m2")]])
