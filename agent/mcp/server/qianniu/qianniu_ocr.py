@@ -172,6 +172,25 @@ def _extent(ocr_data: list):
     return (min(xs), min(ys), max(xs), max(ys)) if xs else (0, 0, 0, 0)
 
 
+# Lines that span the 正在接待 list column: the tab bar and the search box.
+_LIST_ANCHORS = ("正在接待全部", "全部买家", "联系人、订单号", "订单号、聊天记录")
+
+
+def _list_column(ocr_data: list):
+    """(left, right) x of the conversation-list column. Read from the tab bar /
+    search box when on screen: the fixed fractions assumed no left nav strip,
+    and on a window with one (alpha 2026-10-07) the cut landed at x~620 while
+    buyer bubbles sat at x~580 -- the body check rejected the buyer's message
+    and "open by preview" clicked a chat bubble instead of the list row."""
+    anchors = [it["loc"] for it in ocr_data or []
+               if it.get("loc") and any(a in str(it.get("text") or "") for a in _LIST_ANCHORS)]
+    if anchors:
+        return min(lc[1] for lc in anchors) - 10, max(lc[3] for lc in anchors) + 10
+    x0, _y0, x1, _y1 = _extent(ocr_data or [])
+    w = (x1 - x0) or 1
+    return x0 + 0.12 * w, x0 + _LIST_X_FRAC * w
+
+
 def header_band_texts(ocr_data: list) -> list:
     """Text lines in the CHAT-PANE header (right of the conversation list, below
     the global toolbar/store-stats bar), where the open conversation's buyer
@@ -185,8 +204,8 @@ def header_band_texts(ocr_data: list) -> list:
     if not locs:
         return []
     x0, y0, x1, y1 = _extent(ocr_data)
-    w, h = (x1 - x0) or 1, (y1 - y0) or 1
-    list_cut = x0 + _LIST_X_FRAC * w
+    h = (y1 - y0) or 1
+    list_cut = _list_column(locs)[1]
     top, bot = y0 + _HEADER_Y[0] * h, y0 + _HEADER_Y[1] * h
     out = []
     for it in locs:
@@ -263,8 +282,8 @@ def transcript_contains(ocr_data: list, text: str) -> bool:
     if not locs:
         return False
     x0, y0, x1, y1 = _extent(locs)
-    w, h = (x1 - x0) or 1, (y1 - y0) or 1
-    cut, top = x0 + _LIST_X_FRAC * w, y0 + _BODY_TOP_FRAC * h
+    h = (y1 - y0) or 1
+    cut, top = _list_column(locs)[1], y0 + _BODY_TOP_FRAC * h
     for it in locs:
         lc = it["loc"]
         cx, cy = (lc[1] + lc[3]) / 2, (lc[0] + lc[2]) / 2
@@ -273,9 +292,8 @@ def transcript_contains(ocr_data: list, text: str) -> bool:
     return False
 
 
-# 正在接待 list column (fractions of the OCR extent) and its non-conversation
-# labels — ported from the bot's find_conversation_row.
-_LIST_X = (0.12, _LIST_X_FRAC)
+# 正在接待 list's non-conversation labels — ported from the bot's
+# find_conversation_row (the column itself comes from _list_column).
 _LIST_SKIP = ("全部买家", "其他消息", "联系人", "列表分组", "最后一句", "消息",
               "离线", "分组", "正在接待")
 _TIMEISH = re.compile(r"^[\d:：]+$|小时|分钟|刚刚|昨天|星期|周|天前|:")
@@ -290,13 +308,12 @@ def find_conversation_row(ocr_data: list, text: str):
     locs = [it for it in ocr_data or [] if it.get("loc") and str(it.get("text") or "").strip()]
     if not probe or not locs:
         return None, ""
-    x0, _y0, x1, _y1 = _extent(locs)
-    w = (x1 - x0) or 1
+    left, right = _list_column(locs)
     lines = []
     for it in locs:
         lc = it["loc"]
         cx, cy = (lc[1] + lc[3]) / 2, (lc[0] + lc[2]) / 2
-        if x0 + _LIST_X[0] * w <= cx <= x0 + _LIST_X[1] * w:
+        if left <= cx <= right:
             lines.append((cy, cx, str(it["text"]).strip()))
     cands = sorted((cy, cx) for cy, cx, t in lines
                    if probe in _norm(t) and not any(s in t for s in _LIST_SKIP))

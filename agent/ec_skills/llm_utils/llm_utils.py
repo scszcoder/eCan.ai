@@ -3163,6 +3163,23 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                         f"duplicate-enqueue feedback loop."
                     )
                     return state
+
+                # A front desk's round that ended in a tool acting on the
+                # customer's chat app is local to the front desk: the Q&A bot
+                # that asked already finished its turn. Propagating it made the
+                # Q&A bot answer the tool-result JSON as if a buyer asked it,
+                # and its "reply" was sent to the buyer (千牛 alpha 2026-10-07:
+                # "好的，有需要随时找我～" and repeat answers).
+                _LOCAL_DELIVERY_TOOLS = {"qianniu_send", "qianniu_open_session",
+                                         "qianniu_check_location"}
+                _round_tool = _tool_name or str((state.get("result") or {}).get("tool_name") or "")
+                if _round_tool in _LOCAL_DELIVERY_TOOLS and not force_send:
+                    logger.info(
+                        f"[send_response_back] short-circuit: round ended in "
+                        f"{_round_tool!r} (front-desk delivery); not propagating "
+                        f"its result to the opposite agent."
+                    )
+                    return state
         except Exception as _hp_guard_err:
             logger.debug(
                 f"[send_response_back] hot-path guard check failed "

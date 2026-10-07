@@ -728,3 +728,25 @@ Rollback:
 - code: revert the release commit. 天猫客服 then becomes the stub again, and the
   Settings switch goes back to single-select. A merged run.env value keeps
   working on old builds, because `configured_sites` already parses lists.
+
+**Ninth alpha run (v0.9.99yi, 2026-10-07): replies go out; four new problems.**
+The skill Update replaced `pr-731906`, and the body-gated send works:
+`sent (already open; body=True)`. Our own reply was recognised as
+`dir=OUT (our own sent reply)` and the store id was learned. Then:
+1. **The first message went to 0 runners.** The observer was up before the
+   front desk registered. Fix: a message no runner took is retried for 120 s.
+2. **The rating badge `好评100.00%企超级` was learned as the name.** It sits
+   next to the real name `sctisz`. Fix: `%` and badge words are rejected.
+3. **The column split was wrong on this window.** It has a left nav strip,
+   which put the fixed 34% list/body cut at x≈620 while buyer bubbles sit at
+   x≈580. The body check rejected the buyer's own message (ABORT), and "open
+   by preview" clicked a chat bubble. Fix: `_list_column` takes the list
+   bounds from the 正在接待 tab bar and the search box.
+4. **The front desk echoed its `qianniu_send` result to the Q&A agent.** The
+   Q&A agent answered that JSON ("好的，有需要随时找我～", repeat answers), and
+   those went to the buyer. Fix: `send_response_back` never propagates a round
+   that ended in a 千牛 delivery tool.
+
+Not code: the Q&A agent's first reply is often the holding phrase
+「这边帮您核实一下，稍后回复您。」. RAG (`workspace=''`) found nothing for these
+products, so this store needs its own knowledge base.

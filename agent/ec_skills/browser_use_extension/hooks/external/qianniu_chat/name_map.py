@@ -70,8 +70,11 @@ def _save(data: Dict[str, str]) -> None:
 # UI text that the header-band OCR can mistake for a buyer name. Alpha
 # 2026-10-07: the 接待中心 header band held the promo "智能客服全新升级，助力客服高效
 # 接待！", which was learned (and saved) as a buyer's display name.
-_NOT_NAME_PUNCT = "，。！？、：；!?"
-_NOT_NAME_WORDS = ("客服", "接待", "升级", "助力", "活动", "报名", "智能", "千牛", "工作台", "店铺", "通知")
+# Alpha 2026-10-07 (yi): the header's rating badge "好评100.00%企超级" (next to
+# the real name "sctisz") was the longest line, so it was learned instead.
+_NOT_NAME_PUNCT = "，。！？、：；!?%％"
+_NOT_NAME_WORDS = ("客服", "接待", "升级", "助力", "活动", "报名", "智能", "千牛", "工作台", "店铺", "通知",
+                   "好评", "超级", "会员", "粉丝", "新客")
 
 
 def looks_like_buyer_name(text: str) -> bool:

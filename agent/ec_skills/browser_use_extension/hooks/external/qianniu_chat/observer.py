@@ -30,6 +30,7 @@ _SEEN_MAX = 2000
 _LABEL = "qianniu_chat"
 _LEARN_THROTTLE_S = 5.0
 _HEARTBEAT_S = 300.0
+_NOBODY_RETRY_S = 120.0   # keep re-dispatching a message no runner took (startup)
 
 # 千牛 platform notices that arrive as ordinary-looking message objects in the
 # buyer's conversation (alpha 2026-10-07: "【即将超时】您即将超超20分钟未回复买家，
@@ -299,6 +300,7 @@ class QianniuMemObserver:
         self._started_ms = int(time.time() * 1000)
         self._last_heartbeat = 0.0
         self._last_seller = None
+        self._nobody_since: dict = {}   # identity_key -> first time no runner took it
 
     def _first_time(self, key: str) -> bool:
         if not key or key in self._seen:
@@ -522,16 +524,34 @@ class QianniuMemObserver:
                 learned = name_map.name_for(item["customer_name"])
                 if learned:
                     item["customer_display_name"] = learned
+            key = item["identity_key"]
+            retrying = key in self._nobody_since
             try:
                 n = self._dispatch(item)
-                self.stats["dispatched"] += 1
-                logger.info(f"[QIANNIU-MEM] dispatched buyer={item['customer_name']!r} "
-                            f"name={item['customer_display_name']!r} msg={item['msg_id']!r} "
-                            f"sendTime={cand.send_time} to {n} runner(s): {item['last_message'][:40]!r}")
-                if not n:
+                if n or not retrying:
+                    self.stats["dispatched"] += 1
+                    logger.info(f"[QIANNIU-MEM] dispatched buyer={item['customer_name']!r} "
+                                f"name={item['customer_display_name']!r} msg={item['msg_id']!r} "
+                                f"sendTime={cand.send_time} to {n} runner(s)"
+                                f"{' (retry)' if retrying else ''}: {item['last_message'][:40]!r}")
+                if n:
+                    self._nobody_since.pop(key, None)
+                    continue
+                # Nobody listening yet -- at startup the observer is up before the
+                # front desk registers its rule (alpha 2026-10-07: the first message
+                # went to 0 runners and was never answered). Un-see it so the next
+                # scans retry, for up to _NOBODY_RETRY_S.
+                first = self._nobody_since.setdefault(key, time.time())
+                if time.time() - first < _NOBODY_RETRY_S:
+                    self._seen.pop(key, None)
+                    if not retrying:
+                        logger.warning(f"[QIANNIU-MEM] no agent runner received it yet; retrying for "
+                                       f"{_NOBODY_RETRY_S:.0f}s (front desk still starting?)")
+                else:
+                    self._nobody_since.pop(key, None)
                     self.stats["dispatched_to_nobody"] += 1
-                    logger.warning("[QIANNIU-MEM] no agent runner received it -- is the 天猫客服 "
-                                   "front desk deployed and running?")
+                    logger.warning(f"[QIANNIU-MEM] no agent runner received msg={item['msg_id']!r} in "
+                                   f"{_NOBODY_RETRY_S:.0f}s -- is the 天猫客服 front desk deployed and running?")
             except Exception as exc:
                 logger.warning(f"[QIANNIU-MEM] dispatch failed: {exc}")
         return True

@@ -173,10 +173,29 @@ def test_a_dispatch_nobody_receives_is_counted():
     obs._dispatch = lambda item: 0
     with patch.object(mem, "scan_strings", fake_scan), \
             patch.object(mem_locator, "extract_candidates", fake_extract), \
-            patch.object(observer.name_map, "name_for", return_value="小明"):
+            patch.object(observer.name_map, "name_for", return_value="小明"), \
+            patch.object(observer, "_NOBODY_RETRY_S", 0):
         obs._scan_once(1)
         obs._scan_once(1)
     assert obs.stats["dispatched_to_nobody"] == 1
+
+
+def test_a_message_no_runner_took_at_startup_is_retried_until_one_does():
+    # Alpha 2026-10-07 (yi): "有粉色牙线吗？" went to 0 runners (front desk not
+    # registered yet) and was never answered.
+    msg = _cand("b1", "有粉色牙线吗？", "m1", send_time=int(time.time() * 1000))
+    obs, _sent, fake_scan, fake_extract = _observer_with_memory([[], [msg], [msg], [msg], [msg]])
+    reached = iter([0, 0, 1])
+    got = []
+    obs._dispatch = lambda item: got.append(item["last_message"]) or next(reached)
+    with patch.object(mem, "scan_strings", fake_scan), \
+            patch.object(mem_locator, "extract_candidates", fake_extract), \
+            patch.object(observer.name_map, "name_for", return_value="小明"):
+        for _ in range(5):
+            obs._scan_once(1)
+            obs._baselined = True
+    assert got == ["有粉色牙线吗？"] * 3          # retried, then delivered once, then left alone
+    assert obs.stats["dispatched_to_nobody"] == 0 and obs._nobody_since == {}
 
 
 def test_an_unreadable_process_is_logged_once_not_every_poll():
@@ -261,3 +280,17 @@ def test_failure_screenshots_keep_only_the_newest(tmp_path):
         path = qianniu_ocr.save_failure_shot("check none")
     assert os.path.basename(path).endswith("_check_none.png")
     assert sorted(os.listdir(folder)) == ["20260101_000002_b.png", os.path.basename(path)]
+
+
+def test_a_front_desk_qianniu_send_round_is_not_echoed_to_the_qa_agent():
+    # Alpha 2026-10-07 (yi): the front desk's qianniu_send result went back to
+    # the Q&A agent, which "answered" it ("好的，有需要随时找我～") -- sent to the buyer.
+    from agent.ec_skills.llm_utils import llm_utils
+    state = {"messages": ["agent_fd", "678614304"], "attributes": {"async_response": True},
+             "result": {"tool_name": "qianniu_send",
+                        "llm_result": {"tool_name": "qianniu_send", "work_result": {"chat_sent": True}}}}
+    agent = SimpleNamespace(mainwin=SimpleNamespace())
+    with patch.object(llm_utils, "get_agent_by_id", return_value=agent), \
+            patch.object(llm_utils, "logger") as log:
+        assert llm_utils.send_response_back(state) is state
+    assert any("front-desk delivery" in str(c) for c in log.info.call_args_list)

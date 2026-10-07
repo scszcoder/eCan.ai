@@ -113,3 +113,41 @@ def test_without_message_text_the_header_is_the_gate():
     res, _c, typed = _send([PANDA_OPEN], buyer_display_name="sctisz", chat_msg="您好",
                            auto_open=False)
     assert res["chat_sent"] is False and typed == []
+
+
+# The customer's real 接待中心 screen, alpha 2026-10-07 (0.9.99yi): (text, cx, cy)
+# from the failure dump. A left nav strip (工作台/消息/进店 at x~96) shifts the
+# list to x~200-390 and the buyer's bubbles to x~580 -- the fixed 34% cut sat at
+# x~620, so the body check rejected "有黑人牙膏吗" and "open by preview" clicked
+# a chat bubble.
+def _real(text, cx, cy):
+    half = max(len(text), 1) * 7
+    return {"text": text, "loc": [cy - 8, cx - half, cy + 8, cx + half]}
+
+
+REAL_SCREEN = [_real(t, x, y) for t, x, y in [
+    ("×", 1662, 24), ("小柒", 213, 68), ("在线停止辅助离线", 291, 96), ("今日接待", 493, 98),
+    ("联系人、订单号、聊天记录", 271, 152), ("智能客服全新升级，助力客服高效接待！", 1289, 165),
+    ("操作指南", 1465, 165), ("工作台", 96, 203), ("好评100.00%企超级", 1280, 213),
+    ("sctisz", 1152, 214), ("正在接待全部买家其他消息", 252, 229), ("有蓝色牙线吗？", 586, 240),
+    ("消息", 97, 292), ("倪好数码：小柒", 959, 302), ("正在接待1", 202, 316),
+    ("这边帮您核实一下，稍后回复您。", 867, 349), ("sctisz", 231, 361), ("3秒", 391, 362),
+    ("进店", 97, 382), ("节日有打折吗", 254, 387), ("sctisz", 538, 443), ("有粉色牙线吗？", 586, 490),
+    ("sctisz", 538, 552), ("有黑人牙膏吗", 580, 599), ("这边帮您核实一下，稍后回复您。", 867, 708),
+    ("发送", 1600, 1100),
+]]
+
+
+def test_on_the_real_screen_the_buyers_bubble_is_chat_body():
+    assert qianniu_ocr.transcript_contains(REAL_SCREEN, "有黑人牙膏吗")
+    assert not qianniu_ocr.transcript_contains(REAL_SCREEN, "节日有打折吗")   # list preview only
+
+
+def test_on_the_real_screen_open_by_preview_clicks_the_list_row_not_a_bubble():
+    point, name = qianniu_ocr.find_conversation_row(REAL_SCREEN, "节日有打折吗")
+    assert point == (254, 387) and name == "sctisz"
+    assert qianniu_ocr.find_conversation_row(REAL_SCREEN, "有黑人牙膏吗") == (None, "")
+
+
+def test_on_the_real_screen_the_rating_badge_is_not_the_buyer_name():
+    assert qianniu_ocr.read_header_name(REAL_SCREEN) == "sctisz"
