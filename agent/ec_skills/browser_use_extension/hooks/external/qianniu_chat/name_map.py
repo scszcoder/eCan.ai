@@ -67,9 +67,28 @@ def _save(data: Dict[str, str]) -> None:
         logger.debug(f"[qianniu] name_map save failed: {exc}")
 
 
+# UI text that the header-band OCR can mistake for a buyer name. Alpha
+# 2026-10-07: the 接待中心 header band held the promo "智能客服全新升级，助力客服高效
+# 接待！", which was learned (and saved) as a buyer's display name.
+_NOT_NAME_PUNCT = "，。！？、：；!?"
+_NOT_NAME_WORDS = ("客服", "接待", "升级", "助力", "活动", "报名", "智能", "千牛", "工作台", "店铺", "通知")
+
+
+def looks_like_buyer_name(text: str) -> bool:
+    """False for blank, overlong, punctuated or UI-worded text."""
+    t = (text or "").strip()
+    if not t or len(t) > 24:
+        return False
+    if any(p in t for p in _NOT_NAME_PUNCT):
+        return False
+    return not any(w in t for w in _NOT_NAME_WORDS)
+
+
 def name_for(sender_id: str) -> str:
-    """Learned display name for a sender id, or ""."""
-    return _load().get(str(sender_id or ""), "")
+    """Learned display name for a sender id, or "" (a stored UI-text "name"
+    learned before this check existed is ignored)."""
+    name = _load().get(str(sender_id or ""), "")
+    return name if looks_like_buyer_name(name) else ""
 
 
 def id_for(display_name: str) -> str:
@@ -86,6 +105,9 @@ def learn(sender_id: str, display_name: str) -> bool:
     an entry. No-op on blanks."""
     sid, dn = str(sender_id or "").strip(), (display_name or "").strip()
     if not sid or not dn:
+        return False
+    if not looks_like_buyer_name(dn):
+        logger.info(f"[qianniu] not learning {dn!r} for sender {sid!r}: looks like UI text, not a name")
         return False
     with _LOCK:
         data = _load()

@@ -1549,7 +1549,15 @@ class MainWindow:
         self.file_resource = FileResource(self.homepath)
         self.static_resource = StaticResource()
         self.session = set_up_cloud()
-        self.threadPoolExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=16)
+        # Every agent task's run loop (launch_unified_run) holds one of these
+        # threads for its whole life. At 16, a machine running 飞鸽 + 拼多多 +
+        # 天猫 (22 tasks) never started the last 6 -- 5 of the 6 天猫 Q&A
+        # workers sat "pending" and their questions were never answered
+        # (千牛 alpha 2026-10-07). The loops mostly block on events, so a
+        # roomy pool is cheap.
+        _task_pool = int(os.environ.get("ECAN_TASK_POOL_WORKERS", "64") or 64)
+        self.threadPoolExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=_task_pool)
+        logger.info(f"[MainGUI] task thread pool: max_workers={_task_pool} (ECAN_TASK_POOL_WORKERS)")
         
         # Port allocation for thread-safe agent port management
         self._port_allocator = get_port_allocator()

@@ -571,6 +571,32 @@ Three new blockers, fixed in v0.9.99ye / skill data:
 Still open: the customer kept running the OLD `pr-731906`, so the republish
 did not reach the machine.
 
+**Seventh alpha run (v0.9.99ye, 2026-10-07): the chat window fix works; the
+Q&A worker never started.**
+- `千牛 windows: ['倪好数码:小柒-接待中心', '倪好数码:小柒-千牛工作台']; using
+  '倪好数码:小柒-接待中心'`.
+- The message was dispatched, and the front desk (deepseek) handed it to
+  客服小岚.
+- Then nothing for 87 s.
+
+1. **Only 16 of 22 tasks ever ran.** Every task's run loop holds a thread of
+   `mainwin.threadPoolExecutor` for its whole life, and that pool had
+   `max_workers=16`. With 飞鸽 + 拼多多 + 天猫 on one machine (3 front desks + 19
+   Q&A workers = 22 tasks), the 6 launched last stayed `future=pending`
+   forever: 5 of the 6 天猫 Q&A workers. The question routed to 客服小岚
+   (天猫客服应答001) sat in a queue nobody read. Fix:
+   - the pool defaults to 64 workers, overridable with `ECAN_TASK_POOL_WORKERS`;
+   - `[AGENT_START]` WARNs when a task has to wait for a free task thread.
+
+   This also explains "千牛 alongside 飞鸽 and 拼多多" failing once enough
+   agents are deployed.
+2. **A promo banner was learned as the buyer's name.** `read_header_name` took
+   the longest header-band line, `智能客服全新升级，助力客服高效接待！`, and
+   `name_map` saved it. Fix: `name_map.looks_like_buyer_name` rejects
+   punctuated or UI-worded text. It applies when learning, in
+   `read_header_name`, and when reading back a stored entry, so the
+   already-saved bad name is ignored.
+
 Side notes from that log, not blocking:
 - The customer's skill file download failed (`requestSkillFileDownloadUrl`
   INTERNAL_SERVER_ERROR, backend), so 淘宝客服前台01 compiled from its DB diagram

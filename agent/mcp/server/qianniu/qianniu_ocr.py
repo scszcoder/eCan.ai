@@ -231,9 +231,11 @@ def read_header_name(ocr_data: Optional[list] = None) -> str:
     The longest header-band line that is not an obvious UI control — used by
     the observer's learning pass to join a memory sender id to a screen name.
     """
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.name_map import (
+        looks_like_buyer_name,
+    )
     data = ocr_data if ocr_data is not None else ocr_qianniu_window()
-    texts = header_band_texts(data)
-    texts = [t for t in texts if len(t) <= 40]  # names are short; drop long UI strings
+    texts = [t for t in header_band_texts(data) if looks_like_buyer_name(t)]   # not banners / UI labels
     return max(texts, key=len) if texts else ""
 
 

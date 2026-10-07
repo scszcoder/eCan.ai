@@ -605,6 +605,19 @@ class EC_Agent(Agent):
 				future.add_done_callback(lambda f, run_id=task.run_id: self._task_done_callback(run_id, f))
 				qid_after = id(task.queue) if hasattr(task, 'queue') and task.queue is not None else None
 				logger.info(f"[AGENT_START] ✅ Submitted: agent={self.card.name}, task={task.name}, task_id={task.id}, run_id={task.run_id}, queue_id={qid_after}, future={future}")
+				# A task run loop holds a pool thread for its lifetime: if none is
+				# free this task does not start until another task ENDS -- for
+				# event-driven tasks, never. Say so instead of sitting "pending".
+				try:
+					_waiting = thread_pool_executor._work_queue.qsize()
+					if _waiting:
+						logger.warning(
+							f"[AGENT_START] ⚠️ task {task.name} (agent {self.card.name}) is WAITING for a free "
+							f"task thread: pool max_workers={thread_pool_executor._max_workers}, "
+							f"{_waiting} task(s) queued -- it will not run until another task ends. "
+							f"Raise ECAN_TASK_POOL_WORKERS.")
+				except Exception:
+					pass
 			else:
 				logger.error(f"[AGENT_START] ❌ Task {task.name} is missing a 'run_id' and cannot be tracked.")
 

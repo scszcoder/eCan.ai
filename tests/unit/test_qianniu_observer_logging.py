@@ -122,6 +122,26 @@ def test_a_qianniu_system_notice_is_never_dispatched():
     assert obs.stats["system_notice_skipped"] == 1
 
 
+def test_a_banner_is_never_learned_or_used_as_a_buyer_name(tmp_path):
+    # Alpha 2026-10-07: "智能客服全新升级，助力客服高效接待！" (a promo in the
+    # 接待中心 header band) was learned and saved as buyer 678614304's name.
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import name_map
+    banner = "智能客服全新升级，助力客服高效接待！"
+    assert not name_map.looks_like_buyer_name(banner)
+    assert name_map.looks_like_buyer_name("sctisz") and name_map.looks_like_buyer_name("大作战panda")
+    store = tmp_path / "names.json"
+    store.write_text(json.dumps({"678614304": banner}, ensure_ascii=False), encoding="utf-8")
+    with patch.object(name_map, "_store_path", return_value=str(store)), \
+            patch.object(name_map, "_CACHE", None):
+        assert name_map.name_for("678614304") == ""          # the saved bad entry is ignored
+        assert name_map.learn("678614304", banner) is False
+        assert name_map.learn("678614304", "sctisz") is True
+        assert name_map.name_for("678614304") == "sctisz"
+    rows = [{"text": banner, "loc": [100, 600, 120, 900]}, {"text": "sctisz", "loc": [120, 600, 140, 700]},
+            {"text": "千牛", "loc": [0, 0, 10, 10]}, {"text": "发送", "loc": [790, 990, 800, 1000]}]
+    assert qianniu_ocr.read_header_name(rows) == "sctisz"
+
+
 def test_a_dispatch_nobody_receives_is_counted():
     obs, _sent, fake_scan, fake_extract = _observer_with_memory(
         [[_cand("b1", "x", "m1")], [_cand("b1", "x", "m1"), _cand("b1", "新问题", "m2")]])
