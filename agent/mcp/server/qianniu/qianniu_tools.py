@@ -299,6 +299,11 @@ async def qianniu_send(mainwin, args):
         _type_and_send(msg)
         logger.info(f"[qianniu_send] sent ({route}; body={body_ok} header={header_text!r}) "
                     f"buyer={buyer!r}: {msg[:40]!r}")
+        try:   # our reply reappears in 千牛 memory looking incoming; mark it as ours
+            from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.observer import record_sent
+            record_sent(msg)
+        except Exception as rec_err:
+            logger.warning(f"[qianniu_send] could not record the sent text: {rec_err}")
         return _send_result(True, True, "", header_text)
 
     except Exception as e:

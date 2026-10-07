@@ -119,5 +119,28 @@ def learn(sender_id: str, display_name: str) -> bool:
     return True
 
 
+# The store's own sender id, learned when our sent reply shows up in memory
+# (the standalone bot's rule). Kept in the same file under a reserved key.
+_SELF_KEY = "__store_self_id__"
+
+
+def store_self_id() -> str:
+    return _load().get(_SELF_KEY, "")
+
+
+def learn_store_self_id(sender_id: str) -> bool:
+    sid = str(sender_id or "").strip()
+    if not sid:
+        return False
+    with _LOCK:
+        data = _load()
+        if data.get(_SELF_KEY) == sid:
+            return False
+        data[_SELF_KEY] = sid
+        _save(data)
+    logger.info(f"[qianniu] learned the store's own sender id = {sid!r} (our reply echoed in memory)")
+    return True
+
+
 def known_ids() -> set:
     return set(_load().keys())

@@ -44,6 +44,42 @@ def _is_system_notice(text: str) -> bool:
     return any(m in t for m in _SYSTEM_NOTICE_MARKERS)
 
 
+# ── Our own sends (alpha 2026-10-07) ─────────────────────────────────────────
+# A reply we type into 千牛 lands in memory as a message object WITHOUT the
+# outgoing markers (no ccode / sendStatus), from the store's own sender id --
+# so it looked like a new buyer message, was dispatched, answered and sent
+# again: a self-echo loop. qianniu_send records every text it sends; a memory
+# message matching one of them is ours, and its sender is the store itself.
+_SENT_TTL_S = 600.0
+_sent_texts: "OrderedDict[str, float]" = OrderedDict()
+_sent_lock = threading.Lock()
+
+
+def _norm_text(text: str) -> str:
+    return "".join((text or "").split())
+
+
+def record_sent(text: str) -> None:
+    """Called by qianniu_send after a successful send."""
+    key = _norm_text(text)
+    if not key:
+        return
+    with _sent_lock:
+        _sent_texts[key] = time.monotonic()
+        while len(_sent_texts) > 200:
+            _sent_texts.popitem(last=False)
+
+
+def _is_our_send(text: str) -> bool:
+    key = _norm_text(text)
+    if not key:
+        return False
+    now = time.monotonic()
+    with _sent_lock:
+        ts = _sent_texts.get(key)
+        return ts is not None and now - ts <= _SENT_TTL_S
+
+
 def _qianniu_pids() -> list:
     """Every AliWorkbench.exe pid, the ROOT process first.
 
@@ -149,6 +185,8 @@ def _enclosing_object(data: bytes, i: int, n: int, enc: str):
 
 
 def _direction_reason(cand, seller: Optional[str]) -> str:
+    if _is_our_send(cand.text):
+        return "our own sent reply"
     raw = cand.raw if isinstance(cand.raw, dict) else {}
     cid = raw.get("cid") if isinstance(raw.get("cid"), dict) else {}
     why = [k for k, on in (("cid.ccode", bool(cid.get("ccode"))), ("ccode", bool(raw.get("ccode"))),
@@ -384,8 +422,14 @@ class QianniuMemObserver:
         self._pass_ok = True
         ms = int((time.monotonic() - t0) * 1000)
         self._scan_ms = (self._scan_ms + [ms])[-100:]
-        seller = mem_locator.seller_id_of(candidates) if candidates else None
-        incoming = [c for c in candidates if mem_locator.is_incoming(c, seller)]
+        # Our own sent reply in memory names the store's sender id (bot rule).
+        for cand in candidates:
+            if cand.uid and _is_our_send(cand.text):
+                name_map.learn_store_self_id(cand.uid)
+        seller = (mem_locator.seller_id_of(candidates) if candidates else None) or \
+            (name_map.store_self_id() or None)
+        incoming = [c for c in candidates
+                    if mem_locator.is_incoming(c, seller) and not _is_our_send(c.text)]
         extract = {k: v for k, v in xstats.items() if isinstance(v, int)}
         self.last_scan = {"pid": pid, "ms": ms, **mstats, "extract": extract,
                           "candidates": len(candidates), "incoming_in_memory": len(incoming),
@@ -422,7 +466,7 @@ class QianniuMemObserver:
                 self._objs_seen.popitem(last=False)
             if self._baselined:   # the baseline line already summarises the start
                 logger.info(f"[QIANNIU-MEM] new message object: dir="
-                            f"{'IN' if mem_locator.is_incoming(cand, seller) else 'OUT'} "
+                            f"{'IN' if any(c is cand for c in incoming) else 'OUT'} "
                             f"({_direction_reason(cand, seller)}) uid={cand.uid!r} msg={cand.msg_id!r} "
                             f"msgType={(cand.raw or {}).get('msgType')!r} "
                             f"sendTime={cand.send_time} text={cand.text[:30]!r}")

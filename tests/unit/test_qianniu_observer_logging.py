@@ -142,6 +142,31 @@ def test_a_banner_is_never_learned_or_used_as_a_buyer_name(tmp_path):
     assert qianniu_ocr.read_header_name(rows) == "sctisz"
 
 
+def test_our_own_sent_reply_is_never_dispatched_and_names_the_store(tmp_path):
+    # Alpha 2026-10-07 (0.9.99yf): our reply "这边帮您核实一下，稍后回复您。" came
+    # back in memory from uid 2223147939796 with no outgoing marker, was
+    # dispatched as a buyer message, answered and sent again (self-echo loop).
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import name_map
+    reply = "这边帮您核实一下，稍后回复您。"
+    store = tmp_path / "names.json"
+    obs, sent, fake_scan, fake_extract = _observer_with_memory([
+        [],
+        [_cand("2223147939796", reply, "m9"), _cand("2223147939796", reply, "")],
+        [_cand("2223147939796", "嗯嗯人工补充", "m10"), _cand("678614304", "有蓝色牙线吗？", "m11")],
+    ])
+    with patch.object(mem, "scan_strings", fake_scan), \
+            patch.object(mem_locator, "extract_candidates", fake_extract), \
+            patch.object(name_map, "_store_path", return_value=str(store)), \
+            patch.object(name_map, "_CACHE", None):
+        obs._scan_once(1)
+        obs._baselined = True
+        observer.record_sent(reply)
+        obs._scan_once(1)
+        assert sent == [] and name_map.store_self_id() == "2223147939796"
+        obs._scan_once(1)      # the store's own (human-typed) message stays outgoing too
+    assert [i["last_message"] for i in sent] == ["有蓝色牙线吗？"]
+
+
 def test_a_dispatch_nobody_receives_is_counted():
     obs, _sent, fake_scan, fake_extract = _observer_with_memory(
         [[_cand("b1", "x", "m1")], [_cand("b1", "x", "m1"), _cand("b1", "新问题", "m2")]])
