@@ -99,12 +99,40 @@ def qianniu_chat_window():
     return wins[0] if wins else None
 
 
+# ── Faster reads: skip the right customer panel ──────────────────────────────
+# A read cost 6-7 s on the alpha customer's PC (alpha 2026-10-07): recognition
+# time grows with the number of text lines, and the right customer panel below
+# its name/badge strip (store identity, orders, a product grid with prices) is
+# the densest text on screen -- and nothing reads it. It is painted white before
+# OCR, so every coordinate stays where it was. Its left edge is calibrated from
+# a FULL read (the panel's own labels); no calibration -> no blanking, and a
+# full read recalibrates every _FULL_READ_EVERY reads or when the window size
+# changes.
+_PANEL_LABELS = ("店铺身份", "店铺消费", "邀请关注", "添加备注", "邀请入会", "足迹", "商品ID")
+_PANEL_KEEP_TOP_FRAC = 0.25      # the buyer name + rating badge sit above this
+_FULL_READ_EVERY = 20
+_panel_cal: dict = {}            # (window w, h) -> panel left x, window-relative px
+_reads = [0]
+
+
+def _panel_left(ocr_rel: list, win_w: int):
+    """Window-relative x where the right customer panel starts, or None. Uses
+    the panel's own labels; must leave the left 55% (list + chat) alone."""
+    xs = [it["loc"][1] for it in ocr_rel or []
+          if it.get("loc") and any(lb in str(it.get("text") or "") for lb in _PANEL_LABELS)]
+    if not xs:
+        return None
+    left = min(xs) - 12
+    return left if left > 0.55 * win_w else None
+
+
 def ocr_qianniu_window() -> list:
     """Capture the 千牛 chat window and run local OCR. Returns ocr_data in remote
     format with **absolute screen coords** (``loc=[y1,x1,y2,x2]``), or []."""
+    from PIL import ImageDraw
     from agent.ec_skills.ocr.image_prep import captureScreen, _apply_window_offset
     from agent.mcp.server.local_ocr.paddle_ocr import (
-        run_ocr_on_image, scale_ocr_coordinates,
+        _get_ocr, normalize_to_remote_format, scale_ocr_coordinates,
     )
 
     t0 = time.monotonic()
@@ -125,19 +153,39 @@ def ocr_qianniu_window() -> list:
         screen_img = screen_img.resize((new_w, new_h))
         scale_x, scale_y = orig_w / new_w, orig_h / new_h
 
+    _reads[0] += 1
+    panel_x = _panel_cal.get((orig_w, orig_h))
+    blank = panel_x is not None and _reads[0] % _FULL_READ_EVERY != 0
+    if blank:
+        ImageDraw.Draw(screen_img).rectangle(
+            [int(panel_x / scale_x), int(orig_h * _PANEL_KEEP_TOP_FRAC / scale_y),
+             screen_img.width, screen_img.height], fill="white")
     screen_img.save(_TMP_SHOT)
 
-    ocr_result = run_ocr_on_image(_TMP_SHOT)
-    if ocr_result.get("status") != "success":
-        logger.error(f"[qianniu] local OCR failed: {ocr_result.get('error')}")
+    try:
+        # use_cls=False: 千牛 text is never rotated. A per-call option -- the
+        # shared engine's settings (WeChat OCR) are not changed.
+        raw, elapsed = _get_ocr()(_TMP_SHOT, use_cls=False)
+    except Exception as exc:
+        logger.error(f"[qianniu] local OCR failed: {exc}")
         return []
-
-    result = ocr_result.get("ocr_data", [])
+    result = normalize_to_remote_format(raw)
     if scale_x != 1.0 or scale_y != 1.0:
         result = scale_ocr_coordinates(result, scale_x, scale_y)
+    if not blank:    # a full read: (re)calibrate the panel edge for this window size
+        left = _panel_left(result, orig_w)
+        if left != _panel_cal.get((orig_w, orig_h)):
+            logger.info(f"[qianniu] customer panel edge for window {orig_w}x{orig_h}: x={left} "
+                        f"({'blanked below the name strip from now on' if left else 'not found; full reads'})")
+        if left:
+            _panel_cal[(orig_w, orig_h)] = left
+        else:
+            _panel_cal.pop((orig_w, orig_h), None)
     result = _apply_window_offset(result, window_rect)
+    split = "/".join(f"{x:.1f}" for x in (elapsed or [])) if isinstance(elapsed, (list, tuple)) else "?"
     logger.info(f"[qianniu] OCR window={keyword!r} rect={window_rect} img={orig_w}x{orig_h} "
-                f"lines={len(result)} in {int((time.monotonic() - t0) * 1000)}ms")
+                f"lines={len(result)} {'panel-blanked' if blank else 'full'} det/cls/rec={split}s "
+                f"in {int((time.monotonic() - t0) * 1000)}ms")
     return result
 
 

@@ -81,8 +81,9 @@ def _send(frames, **inp):
 
 def test_reply_to_a_hidden_buyer_opens_their_row_then_sends():
     # open chat = panda; the reply is for sctisz (name unknown to the agent).
-    # 3 screen reads: the first is reused to find the row (each costs ~6 s).
-    res, clicks, typed = _send([PANDA_OPEN, SCTISZ_OPEN, SCTISZ_OPEN],
+    # 2 screen reads: the first finds the row, the post-click one verifies AND
+    # identifies (each read costs ~6 s on the customer PC).
+    res, clicks, typed = _send([PANDA_OPEN, SCTISZ_OPEN],
                                buyer_display_name="", chat_msg="有的，樱桃味有货",
                                expect_message_text="有樱桃味牙线吗")
     assert res["chat_sent"] is True and typed == ["有的，樱桃味有货"]
@@ -184,3 +185,58 @@ def test_a_mouse_left_in_a_screen_corner_does_not_abort_the_send():
                     None, {"input": {"chat_msg": "有的", "expect_message_text": "有樱桃味牙线吗"}}))
         assert json.loads(out[0].text)["chat_sent"] is True and seen == [False]
         assert pyautogui.FAILSAFE is True                  # restored afterwards
+
+
+def _fake_capture_and_engine(seen_imgs, lines):
+    """captureScreen -> a white 1656x1123 window at (58, 1); the engine records
+    the image it was given and returns *lines* as (quad, text, score)."""
+    from PIL import Image
+
+    def capture(_kw):
+        return Image.new("RGB", (1656, 1123), "black"), b"", (58, 1)
+
+    def engine(path, **kw):
+        seen_imgs.append((Image.open(path).copy(), kw))
+        raw = [([[x - 20, y - 8], [x + 20, y - 8], [x + 20, y + 8], [x - 20, y + 8]], t, 0.9)
+               for t, x, y in lines]
+        return raw, [1.0, 0.0, 2.0]
+    return capture, engine
+
+
+def test_reads_skip_the_customer_panel_once_its_edge_is_calibrated():
+    from agent.ec_skills.ocr import image_prep
+    from agent.mcp.server.local_ocr import paddle_ocr
+    seen = []
+    lines = [("正在接待全部买家其他消息", 200, 230), ("有樱桃味牙线吗", 530, 600),
+             ("sctisz", 1100, 213), ("好评100.00%企超级", 1220, 213), ("店铺身份：非会员", 1160, 266)]
+    capture, engine = _fake_capture_and_engine(seen, lines)
+    qianniu_ocr._panel_cal.clear()
+    qianniu_ocr._reads[0] = 0
+    with patch.object(image_prep, "captureScreen", side_effect=capture), \
+            patch.object(paddle_ocr, "_get_ocr", return_value=engine), \
+            patch.object(qianniu_ocr, "qianniu_chat_window", return_value=None):
+        first = qianniu_ocr.ocr_qianniu_window()       # full read: calibrates
+        second = qianniu_ocr.ocr_qianniu_window()      # panel blanked
+    (img1, kw1), (img2, kw2) = seen
+    assert kw1 == kw2 == {"use_cls": False}            # no shared engine state touched
+    sx = 1656 / img1.width
+    px = int(qianniu_ocr._panel_cal[(1656, 1123)] / sx)
+    assert img1.getpixel((img1.width - 5, img1.height - 5)) == (0, 0, 0)
+    assert img2.getpixel((img2.width - 5, img2.height - 5)) == (255, 255, 255)   # panel blanked
+    assert img2.getpixel((px - 30, img2.height - 5)) == (0, 0, 0)                # chat untouched
+    assert img2.getpixel((img2.width - 5, 50)) == (0, 0, 0)                      # name strip kept
+    assert [it["loc"] for it in first] == [it["loc"] for it in second]          # same coordinates
+
+
+def test_without_the_panel_labels_nothing_is_blanked():
+    from agent.ec_skills.ocr import image_prep
+    from agent.mcp.server.local_ocr import paddle_ocr
+    seen = []
+    capture, engine = _fake_capture_and_engine(seen, [("有樱桃味牙线吗", 530, 600)])
+    qianniu_ocr._panel_cal.clear()
+    with patch.object(image_prep, "captureScreen", side_effect=capture), \
+            patch.object(paddle_ocr, "_get_ocr", return_value=engine), \
+            patch.object(qianniu_ocr, "qianniu_chat_window", return_value=None):
+        qianniu_ocr.ocr_qianniu_window()
+        qianniu_ocr.ocr_qianniu_window()
+    assert all(img.getpixel((img.width - 5, img.height - 5)) == (0, 0, 0) for img, _kw in seen)

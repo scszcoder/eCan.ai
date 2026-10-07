@@ -92,7 +92,7 @@ def _looks_like_qianniu(ocr_data: list) -> bool:
     if not ocr_data:
         return False
     blob = " ".join(str(it.get("text") or "") for it in ocr_data).lower()
-    return any(a in blob for a in ("搜索", "发送", "send", "阿里", "千牛", "宝贝"))
+    return any(a in blob for a in ("搜索", "发送", "send", "阿里", "千牛", "宝贝", "正在接待"))
 
 
 @contextlib.contextmanager
@@ -175,13 +175,14 @@ def _open_conversation_by_name(name: str) -> tuple:
                                   f"does not match {name!r}")
 
 
-def _open_conversation_by_preview(text: str, ocr_data: list = None) -> tuple:
+def _open_conversation_by_preview(text: str, ocr_data: list = None, frame_out: list = None) -> tuple:
     """Open the 正在接待 conversation whose list PREVIEW shows *text*, then
     confirm *text* is in the chat BODY (the standalone bot's proven hidden-
     conversation route: no buyer name or search needed). Returns
     (opened_and_verified, buyer_name_from_list, error). Assumes 千牛 is
     foregrounded and the caller holds the desktop lock. *ocr_data*: the
-    caller's fresh frame (each OCR costs ~6 s on the customer PC)."""
+    caller's fresh frame (each OCR costs ~6 s on the customer PC);
+    *frame_out* receives the post-click frame, so the caller need not re-read."""
     if not ocr_data:
         ocr_data = ocr_qianniu_window()
     if not _looks_like_qianniu(ocr_data):
@@ -200,6 +201,8 @@ def _open_conversation_by_preview(text: str, ocr_data: list = None) -> tuple:
     _click(pt[0], pt[1])
     _humanize(_SETTLE_AFTER_OPEN)
     ocr_data = ocr_qianniu_window()
+    if frame_out is not None:
+        frame_out.append(ocr_data)
     if transcript_contains(ocr_data, text):
         logger.info(f"[qianniu] open by preview {text[:16]!r}: opened, message is in the chat body")
         return True, name, ""
@@ -298,19 +301,22 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
     ok, body_ok, hdr = identify(ocr_data)
     route = "already open"
     if not ok and auto_open:
-        opened, err = False, ""
+        opened, err, frames = False, "", []
         if expect_text:
-            opened, list_name, err = _open_conversation_by_preview(expect_text, ocr_data)
+            opened, list_name, err = _open_conversation_by_preview(expect_text, ocr_data, frames)
             route = f"opened by preview (list name {list_name!r})"
         if not opened and buyer:
+            frames = []
             opened, _header, err = _open_conversation_by_name(buyer)
             route = "opened by name search"
         if not opened:
             logger.warning(f"[qianniu_send] ABORT: could not open the buyer's chat "
                            f"(buyer={buyer!r} expect={expect_text[:16]!r}): {err}")
             return _send_result(False, False, f"could not open the buyer's chat: {err}")
-        ocr_data = ocr_qianniu_window()
-        ok, body_ok, hdr = identify(ocr_data)   # re-verify after the switch
+        # Re-verify after the switch -- on the frame the preview route just read
+        # (a fresh read costs ~6 s), else a new one.
+        ocr_data = frames[-1] if frames else ocr_qianniu_window()
+        ok, body_ok, hdr = identify(ocr_data)
     header_text = hdr.header_text if hdr else ""
     if not ok:
         if expect_text and body_ok and short:

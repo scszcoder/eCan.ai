@@ -794,3 +794,24 @@ Fixes (v0.9.99yl):
 Remaining throughput limit: one front desk and one desktop, with ~6 s per
 screen read. The next lever is a faster read (crop to the chat window
 regions / smaller detector input).
+
+**Faster screen reads (v0.9.99ym, which includes the yl fixes; the yl build was
+cancelled).** A read cost 6–7 s on the customer PC. Recognition time grows
+with the number of text lines, and the densest text, the right customer panel
+below its name/badge strip, is never read. `ocr_qianniu_window` now:
+- paints that panel white before OCR, so coordinates are unchanged;
+- calibrates the panel's left edge from a full read, using the panel's own
+  labels (店铺身份/足迹/…). No labels means no blanking. A full read
+  recalibrates every 20 reads and whenever the window size changes;
+- calls the shared RapidOCR engine with `use_cls=False` per call, which
+  changes no engine state, so WeChat OCR is unaffected;
+- logs `det/cls/rec` seconds and `panel-blanked|full` on every read.
+
+A send into a hidden chat now reuses the post-click frame for the final
+check, one read fewer. Measured on CPU, blanking half the image cut
+recognition time ~47% and the total ~35%.
+
+All changes are inside `agent/mcp/server/qianniu/`; 飞鸽 and 拼多多 do not use
+this module. These 飞鸽 tests already failed before this work and fail the
+same with the pre-session shared files: `test_feige_send_lock` (3),
+`test_feige_focus_lock` (1), `test_direct_feige_delivery_worker` (1).
