@@ -516,6 +516,32 @@ Two blockers stopped it there:
 FIND mode also logged on every scan as raw hit counts drifted. It now logs only
 when what the text is inside changes.
 
+**Fifth alpha run (v0.9.99yd, 2026-10-07): routing works; the front desk's LLM
+failed.** Both yd fixes held:
+- the front desk registered `browser_event (label='qianniu_chat')` at launch;
+- the test message was routed to 天猫客服前台001, and `[QIANNIU-FD]` produced
+  the `customer_message` input;
+- OCR ran.
+
+Then:
+1. **LLM rejected by the proxy.** `503 unsupported chat provider: dashscope`
+   for `qwen3.8-max`. The node's model had been cloned from the author's local
+   飞鸽客服问答00, which still said `Qwen`. The published copy on the customer
+   runs `openai/gpt-5.4` + `gpt-4o-mini`. Fix (skill data): front-desk LLM =
+   `DeepSeek / deepseek-v4-flash`, thinking off. It is domestic and was measured
+   at 2–3 s against qwen's 8–16 s through the proxy (OPEN_ITEMS 2026-09-17,
+   `3ced3f6db`). The node is a plain LLM node, so the deepseek json_schema gap
+   does not apply.
+2. **One failed round ended the whole task.** The failure left
+   `llm_result.all_done=True`, and the OUTER loop exits on `all_done`, so the
+   task completed and was relaunched without its state. Any `all_done` answer
+   (skip / unknown input) would do the same. Fix (skill data): the loop
+   terminator `code_qn_end` resets `all_done` / `work_done`, so every round goes
+   back to pend_event.
+
+Also seen: the customer still ran the OLD `pr-731906` (multi-step Flow B), so
+the republish had not reached that machine.
+
 Side notes from that log, not blocking:
 - The customer's skill file download failed (`requestSkillFileDownloadUrl`
   INTERNAL_SERVER_ERROR, backend), so 淘宝客服前台01 compiled from its DB diagram
