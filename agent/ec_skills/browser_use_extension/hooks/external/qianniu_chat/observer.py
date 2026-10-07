@@ -508,6 +508,7 @@ class QianniuMemObserver:
                         f"marked seen, NOT answered; {len(kept)} sent after start will be "
                         f"answered (latest uid/text/sendTime: {sample})")
 
+        to_learn = []
         for cand in incoming:
             item = item_for(cand, seller)
             if not self._first_time(item["identity_key"]):
@@ -524,13 +525,12 @@ class QianniuMemObserver:
                             f"(before this run started): {item['last_message'][:30]!r}")
                 continue
             self.stats["new_incoming"] += 1
-            # Opportunistically learn this buyer's display name from the screen
-            # (throttled) so hands-off conversation-open works later.
+            # Learn an unknown buyer's display name from the screen AFTER
+            # dispatching: the learn pass is a ~6-8 s OCR, and it used to delay
+            # every new buyer's first message by that much (alpha 2026-10-07).
+            # The send identifies the chat by the message text, not the name.
             if not item["customer_display_name"]:
-                self._learn_pass(item["customer_name"], item["last_message"])
-                learned = name_map.name_for(item["customer_name"])
-                if learned:
-                    item["customer_display_name"] = learned
+                to_learn.append((item["customer_name"], item["last_message"]))
             key = item["identity_key"]
             retrying = key in self._nobody_since
             try:
@@ -561,6 +561,9 @@ class QianniuMemObserver:
                                    f"{_NOBODY_RETRY_S:.0f}s -- is the 天猫客服 front desk deployed and running?")
             except Exception as exc:
                 logger.warning(f"[QIANNIU-MEM] dispatch failed: {exc}")
+        # The front desk's reply prep reads the name from name_map later.
+        for sender_id, text in to_learn:
+            self._learn_pass(sender_id, text)
         return True
 
     def _scan_pass(self) -> None:

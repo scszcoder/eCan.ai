@@ -81,7 +81,8 @@ def _send(frames, **inp):
 
 def test_reply_to_a_hidden_buyer_opens_their_row_then_sends():
     # open chat = panda; the reply is for sctisz (name unknown to the agent).
-    res, clicks, typed = _send([PANDA_OPEN, PANDA_OPEN, SCTISZ_OPEN, SCTISZ_OPEN],
+    # 3 screen reads: the first is reused to find the row (each costs ~6 s).
+    res, clicks, typed = _send([PANDA_OPEN, SCTISZ_OPEN, SCTISZ_OPEN],
                                buyer_display_name="", chat_msg="有的，樱桃味有货",
                                expect_message_text="有樱桃味牙线吗")
     assert res["chat_sent"] is True and typed == ["有的，樱桃味有货"]
@@ -160,3 +161,26 @@ def test_the_buyer_name_is_the_one_beside_the_rating_badge_not_another_name_in_t
     band = [_real("sctisz", 521, 149), _real("2026-10-714:51:37", 700, 180),
             _real("t_8812", 1152, 214), _real("好评100.00%企超级", 1280, 213)]
     assert qianniu_ocr.read_header_name(base + band) == "t_8812"
+
+
+def test_the_reception_list_is_recognised_despite_the_nav_strips_workbench_label():
+    # Alpha 2026-10-07 (yk): "工作台" in the left nav made every send click the
+    # 正在接待 tab and re-read the screen (~7 s each, "on_tab=False" every time).
+    assert qianniu_ocr.is_reception_tab(REAL_SCREEN)
+
+
+def test_a_mouse_left_in_a_screen_corner_does_not_abort_the_send():
+    # Alpha 2026-10-07 (yk): FailSafeException mid-send lost a reply.
+    import pyautogui
+    seen = []
+    with patch.object(pyautogui, "FAILSAFE", True):
+        with patch.object(qianniu_tools, "_type_and_send",
+                          side_effect=lambda m: seen.append(pyautogui.FAILSAFE)):
+            seq = iter([SCTISZ_OPEN])
+            with patch.object(qianniu_tools, "ocr_qianniu_window", side_effect=lambda: next(seq)), \
+                    patch.object(qianniu_tools, "_foreground", return_value=True), \
+                    patch.object(qianniu_tools, "_humanize"):
+                out = asyncio.run(qianniu_tools.qianniu_send(
+                    None, {"input": {"chat_msg": "有的", "expect_message_text": "有樱桃味牙线吗"}}))
+        assert json.loads(out[0].text)["chat_sent"] is True and seen == [False]
+        assert pyautogui.FAILSAFE is True                  # restored afterwards

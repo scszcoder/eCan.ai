@@ -226,6 +226,13 @@ def is_reception_tab(ocr_data: list) -> bool:
     """True if the left panel shows the 正在接待 conversation list (not the
     联系人/contacts panel and not the 工作台/workbench home)."""
     joined = " ".join(str(it.get("text") or "") for it in ocr_data)
+    # The list's own tab bar ("正在接待全部买家其他消息") is shown only on that
+    # list. Checked first: the 接待中心 window's left nav always shows "工作台",
+    # so every send "left" the tab, clicked it and re-OCR'd (~7 s; alpha
+    # 2026-10-07, "after clicking 正在接待: on_tab=False" every time).
+    if any("正在接待" in str(it.get("text") or "") and "全部买家" in str(it.get("text") or "")
+           for it in ocr_data):
+        return True
     if any(m in joined for m in _CONTACTS_MARKERS):
         return False
     if any(m in joined for m in _WORKBENCH_MARKERS):

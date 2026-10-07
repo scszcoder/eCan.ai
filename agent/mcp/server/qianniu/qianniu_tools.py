@@ -14,6 +14,7 @@ Co-pilot scope (Phase 1): these act on the ALREADY-OPEN conversation. Auto
 conversation-switching (OCR sidebar click + search-by-name) lands in Phase 2;
 until then the human/observer opens the chat and the header-verify guards it.
 """
+import contextlib
 import json
 import os
 import random
@@ -94,6 +95,20 @@ def _looks_like_qianniu(ocr_data: list) -> bool:
     return any(a in blob for a in ("搜索", "发送", "send", "阿里", "千牛", "宝贝"))
 
 
+@contextlib.contextmanager
+def _no_corner_failsafe():
+    """PyAutoGUI aborts any action while the mouse rests in a screen corner
+    (its "fail-safe"). On an unattended 千牛 desk that only means someone left
+    the mouse there -- alpha 2026-10-07: a reply was lost to
+    FailSafeException mid-send. Off while our own desktop actions run."""
+    prev = pyautogui.FAILSAFE
+    pyautogui.FAILSAFE = False
+    try:
+        yield
+    finally:
+        pyautogui.FAILSAFE = prev
+
+
 def _click(x: int, y: int) -> None:
     pyautogui.moveTo(x, y)
     time.sleep(0.15)
@@ -160,13 +175,15 @@ def _open_conversation_by_name(name: str) -> tuple:
                                   f"does not match {name!r}")
 
 
-def _open_conversation_by_preview(text: str) -> tuple:
+def _open_conversation_by_preview(text: str, ocr_data: list = None) -> tuple:
     """Open the 正在接待 conversation whose list PREVIEW shows *text*, then
     confirm *text* is in the chat BODY (the standalone bot's proven hidden-
     conversation route: no buyer name or search needed). Returns
     (opened_and_verified, buyer_name_from_list, error). Assumes 千牛 is
-    foregrounded and the caller holds the desktop lock."""
-    ocr_data = ocr_qianniu_window()
+    foregrounded and the caller holds the desktop lock. *ocr_data*: the
+    caller's fresh frame (each OCR costs ~6 s on the customer PC)."""
+    if not ocr_data:
+        ocr_data = ocr_qianniu_window()
     if not _looks_like_qianniu(ocr_data):
         logger.warning(f"[qianniu] open by preview {text[:16]!r}: layout not recognised; "
                        f"screen {ocr_dump(ocr_data)}")
@@ -253,64 +270,69 @@ async def qianniu_send(mainwin, args):
                            f"not sent to {buyer or expect_text[:16]!r}")
             return _send_result(False, False, f"another send is in progress (holder {lock.holder()!r})")
 
-        if not _foreground():
-            return _send_result(False, False, "千牛 window not found. Is it running?")
-
-        short = bool(expect_text) and len(_norm(expect_text)) < _MIN_BODY_ID_CHARS
-
-        def identify(ocr_data):
-            """(is the buyer's chat, body_ok, header result or None)."""
-            hdr = verify_header_name(buyer, ocr_data, quiet=bool(expect_text)) if buyer else None
-            if expect_text:
-                body = transcript_contains(ocr_data, expect_text)
-                return body and (not short or bool(hdr and hdr.matched)), body, hdr
-            return bool(hdr and hdr.matched), False, hdr
-
-        ocr_data = ocr_qianniu_window()
-        ok, body_ok, hdr = identify(ocr_data)
-        route = "already open"
-        if not ok and auto_open:
-            opened, err = False, ""
-            if expect_text:
-                opened, list_name, err = _open_conversation_by_preview(expect_text)
-                route = f"opened by preview (list name {list_name!r})"
-            if not opened and buyer:
-                opened, _header, err = _open_conversation_by_name(buyer)
-                route = "opened by name search"
-            if not opened:
-                logger.warning(f"[qianniu_send] ABORT: could not open the buyer's chat "
-                               f"(buyer={buyer!r} expect={expect_text[:16]!r}): {err}")
-                return _send_result(False, False, f"could not open the buyer's chat: {err}")
-            ocr_data = ocr_qianniu_window()
-            ok, body_ok, hdr = identify(ocr_data)   # re-verify after the switch
-        header_text = hdr.header_text if hdr else ""
-        if not ok:
-            if expect_text and body_ok and short:
-                why = (f"{expect_text!r} is too short to identify the buyer by text alone and the "
-                       f"header does not show {buyer!r}")
-            elif expect_text:
-                why = f"{expect_text[:24]!r} is not in the open chat body"
-            else:
-                why = f"open chat header {header_text!r} does not match {buyer!r}"
-            logger.warning(f"[qianniu_send] ABORT: {why} — refusing to send; screen {ocr_dump(ocr_data)}")
-            save_failure_shot("send_not_identified")
-            return _send_result(False, False, f"{why} — refusing to send", header_text)
-
-        _type_and_send(msg)
-        logger.info(f"[qianniu_send] sent ({route}; body={body_ok} header={header_text!r}) "
-                    f"buyer={buyer!r}: {msg[:40]!r}")
-        try:   # our reply reappears in 千牛 memory looking incoming; mark it as ours
-            from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.observer import record_sent
-            record_sent(msg)
-        except Exception as rec_err:
-            logger.warning(f"[qianniu_send] could not record the sent text: {rec_err}")
-        return _send_result(True, True, "", header_text)
-
+        with _no_corner_failsafe():
+            return _send_locked(buyer, msg, auto_open, expect_text)
     except Exception as e:
         logger.error(f"[qianniu_send] {traceback.format_exc()}")
         return _send_result(False, False, str(e))
     finally:
         lock.release(holder)
+
+
+def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
+    """qianniu_send's desktop part; the caller holds the desktop lock."""
+    if not _foreground():
+        return _send_result(False, False, "千牛 window not found. Is it running?")
+
+    short = bool(expect_text) and len(_norm(expect_text)) < _MIN_BODY_ID_CHARS
+
+    def identify(ocr_data):
+        """(is the buyer's chat, body_ok, header result or None)."""
+        hdr = verify_header_name(buyer, ocr_data, quiet=bool(expect_text)) if buyer else None
+        if expect_text:
+            body = transcript_contains(ocr_data, expect_text)
+            return body and (not short or bool(hdr and hdr.matched)), body, hdr
+        return bool(hdr and hdr.matched), False, hdr
+
+    ocr_data = ocr_qianniu_window()
+    ok, body_ok, hdr = identify(ocr_data)
+    route = "already open"
+    if not ok and auto_open:
+        opened, err = False, ""
+        if expect_text:
+            opened, list_name, err = _open_conversation_by_preview(expect_text, ocr_data)
+            route = f"opened by preview (list name {list_name!r})"
+        if not opened and buyer:
+            opened, _header, err = _open_conversation_by_name(buyer)
+            route = "opened by name search"
+        if not opened:
+            logger.warning(f"[qianniu_send] ABORT: could not open the buyer's chat "
+                           f"(buyer={buyer!r} expect={expect_text[:16]!r}): {err}")
+            return _send_result(False, False, f"could not open the buyer's chat: {err}")
+        ocr_data = ocr_qianniu_window()
+        ok, body_ok, hdr = identify(ocr_data)   # re-verify after the switch
+    header_text = hdr.header_text if hdr else ""
+    if not ok:
+        if expect_text and body_ok and short:
+            why = (f"{expect_text!r} is too short to identify the buyer by text alone and the "
+                   f"header does not show {buyer!r}")
+        elif expect_text:
+            why = f"{expect_text[:24]!r} is not in the open chat body"
+        else:
+            why = f"open chat header {header_text!r} does not match {buyer!r}"
+        logger.warning(f"[qianniu_send] ABORT: {why} — refusing to send; screen {ocr_dump(ocr_data)}")
+        save_failure_shot("send_not_identified")
+        return _send_result(False, False, f"{why} — refusing to send", header_text)
+
+    _type_and_send(msg)
+    logger.info(f"[qianniu_send] sent ({route}; body={body_ok} header={header_text!r}) "
+                f"buyer={buyer!r}: {msg[:40]!r}")
+    try:   # our reply reappears in 千牛 memory looking incoming; mark it as ours
+        from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.observer import record_sent
+        record_sent(msg)
+    except Exception as rec_err:
+        logger.warning(f"[qianniu_send] could not record the sent text: {rec_err}")
+    return _send_result(True, True, "", header_text)
 
 
 async def qianniu_open_session(mainwin, args):

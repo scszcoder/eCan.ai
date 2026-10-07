@@ -770,3 +770,27 @@ Fixes (v0.9.99yk):
 - `当前用户来自` is a system notice;
 - the learn pass logs the header band with positions, so a wrong name can be
   diagnosed from the log.
+
+**Twelfth alpha run (v0.9.99yk): "还是卡" with several buyers.** Only two buyer
+text messages reached 千牛 memory in the session. The other new objects were
+notices, all correctly skipped. Both were handled, but:
+- one reply was lost to PyAutoGUI's corner fail-safe mid-send
+  (`FailSafeException`);
+- every send needlessly clicked the 正在接待 tab and re-read the screen,
+  because the left nav's `工作台` label fooled `is_reception_tab`;
+- the hidden-chat route read the screen twice in a row;
+- each new buyer's first message waited ~8 s for the name-learning screen
+  read before it was dispatched.
+
+Each screen read is ~6–7 s on this PC, so a turn took 45–60 s, and buyers
+queue behind one serial desktop.
+
+Fixes (v0.9.99yl):
+- the fail-safe is off during our own desktop actions;
+- the tab bar line `正在接待全部买家…` proves the list is shown;
+- the preview route reuses the caller's frame;
+- learning runs after dispatch.
+
+Remaining throughput limit: one front desk and one desktop, with ~6 s per
+screen read. The next lever is a faster read (crop to the chat window
+regions / smaller detector input).

@@ -307,3 +307,19 @@ def test_one_name_one_buyer_and_timestamps_and_entry_notices_are_not_names_or_qu
         assert name_map.learn("54868217", "2026-10-714:51:37") is False                       # a timestamp
         assert name_map.learn("54868217", "t_8812") is True
     assert observer._is_system_notice("当前用户来自 商品详情页")
+
+
+def test_a_new_buyers_first_message_is_dispatched_before_the_name_learning_ocr():
+    # Alpha 2026-10-07 (yk): the ~8 s learn-pass OCR ran before dispatch.
+    msg = _cand("b9", "这款是塑料环保吗", "m1", send_time=int(time.time() * 1000))
+    obs, _sent, fake_scan, fake_extract = _observer_with_memory([[], [msg]])
+    order = []
+    obs._dispatch = lambda item: order.append("dispatch") or 1
+    with patch.object(mem, "scan_strings", fake_scan), \
+            patch.object(mem_locator, "extract_candidates", fake_extract), \
+            patch.object(observer.name_map, "name_for", return_value=""), \
+            patch.object(obs, "_learn_pass", side_effect=lambda *a: order.append("learn")):
+        obs._scan_once(1)
+        obs._baselined = True
+        obs._scan_once(1)
+    assert order == ["dispatch", "learn"]
