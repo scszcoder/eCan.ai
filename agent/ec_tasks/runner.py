@@ -5086,6 +5086,17 @@ class TaskRunner(Generic[Context]):
                 )
                 _ledger("direct_delivered_dup_skip", delivered_age_s=_delivered_age)
                 return True
+            # A site whose one conversation can surface under two identities
+            # (飞鸽: card:<talk> and the bound name) drops the twin reply here.
+            _twin_fn = getattr(_live_chat_ds, "cross_identity_twin", None)
+            _twin = _twin_fn(_customer_name) if callable(_twin_fn) else ""
+            if _twin:
+                logger.info(
+                    f"[DIRECT-DELIVERY] Twin skip: customer={_customer_name!r} is the same "
+                    f"conversation as {_twin!r}, which was just answered task={target_task.name}"
+                )
+                _ledger("direct_twin_skip", twin=_twin)
+                return True
             _dedup_age = _live_chat_ds.claim_send_for_turn(
                 _customer_name,
                 _response_text,

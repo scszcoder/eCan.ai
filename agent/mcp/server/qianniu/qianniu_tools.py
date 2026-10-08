@@ -78,6 +78,38 @@ def _find_window():
     return qianniu_chat_window()
 
 
+def _is_front(win) -> bool:
+    """True if *win* (the 千牛 chat window) is the foreground window. Unknown
+    (no hwnd / not Windows) counts as front -- nothing better to check."""
+    hwnd = getattr(win, "hwnd", None)
+    if not hwnd:
+        return True
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        fg = user32.GetForegroundWindow()
+        return bool(fg) and (fg == hwnd or user32.GetAncestor(fg, 3) == hwnd)   # 3 = GA_ROOTOWNER
+    except Exception:
+        return True
+
+
+def _ensure_front(what: str) -> None:
+    """Make sure 千牛 is in front right before *what* (a click / paste / Enter).
+    飞鸽 and 拼多多 raise Chrome (Page.bringToFront) at any moment on the same
+    desktop (alpha 2026-10-08: a 千牛 screen read caught the 抖店 window). Re-
+    foreground once; if 千牛 is still not in front, raise -- never type or click
+    into another app."""
+    win = _find_window()
+    if _is_front(win):
+        return
+    logger.warning(f"[qianniu] another window is in front before {what}; bringing 千牛 back")
+    if win is not None:
+        bring_window_to_front(win)
+        time.sleep(0.3)
+    if not _is_front(_find_window()):
+        raise RuntimeError(f"千牛 is not the foreground window before {what}; not acting")
+
+
 def _foreground() -> bool:
     """Bring 千牛 to the foreground. False if the window isn't found."""
     win = _find_window()
@@ -97,7 +129,24 @@ def _looks_like_qianniu(ocr_data: list) -> bool:
     if not ocr_data:
         return False
     blob = " ".join(str(it.get("text") or "") for it in ocr_data).lower()
-    return any(a in blob for a in ("搜索", "发送", "send", "阿里", "千牛", "宝贝", "正在接待"))
+    return any(a in blob for a in _QIANNIU_MARKS)
+
+
+# Text only 千牛's chat window shows. "发送"/"搜索" are not enough: 抖店's Chrome
+# page has them too, and a read that caught Chrome over 千牛 passed as 千牛.
+_QIANNIU_MARKS = ("正在接待", "接待中心", "千牛", "阿里旺旺")
+
+
+def _read_qianniu() -> list:
+    """A screen read of 千牛 -- re-taken once after bringing 千牛 back to the
+    front when the first read does not look like 千牛 (another app on top)."""
+    ocr_data = ocr_qianniu_window()
+    if _looks_like_qianniu(ocr_data):
+        return ocr_data
+    logger.warning(f"[qianniu] the screen read is not 千牛 (another window on top?); "
+                   f"bringing 千牛 to the front and reading again: {ocr_dump(ocr_data, limit=12)}")
+    _foreground()
+    return ocr_qianniu_window()
 
 
 @contextlib.contextmanager
@@ -115,6 +164,7 @@ def _no_corner_failsafe():
 
 
 def _click(x: int, y: int) -> None:
+    _ensure_front(f"click at ({x}, {y})")
     pyautogui.moveTo(x, y)
     time.sleep(0.15)
     pyautogui.click(x, y)
@@ -140,8 +190,10 @@ def _find_search_box(ocr_data: list):
 def _type_and_send(text: str) -> None:
     """Clipboard → Ctrl+V → Enter (study §4.4: Enter sends, not the button)."""
     clipboard_set_text(text)
+    _ensure_front("pasting the reply")
     paste_hotkey()
     _humanize(_POST_TYPE_DELAY)
+    _ensure_front("pressing Enter to send")
     pyautogui.press("enter")
     _humanize(_POST_ACTION_DELAY)
 
@@ -153,7 +205,7 @@ def _open_conversation_by_name(name: str) -> tuple:
     千牛 has no stable conversation id we can address, so the display name is
     the only durable key (study §5). Assumes 千牛 is already foregrounded.
     """
-    ocr_data = ocr_qianniu_window()
+    ocr_data = _read_qianniu()
     if not _looks_like_qianniu(ocr_data):
         logger.warning(f"[qianniu] open {name!r}: layout not recognised; screen {ocr_dump(ocr_data)}")
         save_failure_shot("open_layout_unrecognised")
@@ -189,7 +241,7 @@ def _open_conversation_by_preview(text: str, ocr_data: list = None, frame_out: l
     caller's fresh frame (each OCR costs ~6 s on the customer PC);
     *frame_out* receives the post-click frame, so the caller need not re-read."""
     if not ocr_data:
-        ocr_data = ocr_qianniu_window()
+        ocr_data = _read_qianniu()
     if not _looks_like_qianniu(ocr_data):
         logger.warning(f"[qianniu] open by preview {text[:16]!r}: layout not recognised; "
                        f"screen {ocr_dump(ocr_data)}")
@@ -205,7 +257,7 @@ def _open_conversation_by_preview(text: str, ocr_data: list = None, frame_out: l
     logger.info(f"[qianniu] open by preview {text[:16]!r}: clicking row at {pt} (list name {name!r})")
     _click(pt[0], pt[1])
     _humanize(_SETTLE_AFTER_OPEN)
-    ocr_data = ocr_qianniu_window()
+    ocr_data = _read_qianniu()
     if frame_out is not None:
         frame_out.append(ocr_data)
     if transcript_contains(ocr_data, text):
@@ -307,7 +359,7 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
             return body and (not short or bool(hdr and hdr.matched)), body, hdr
         return bool(hdr and hdr.matched), False, hdr
 
-    ocr_data = ocr_qianniu_window()
+    ocr_data = _read_qianniu()
     ok, body_ok, hdr = identify(ocr_data)
     route = "already open"
     if not ok and auto_open:
@@ -325,7 +377,7 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
             return _send_result(False, False, f"could not open the buyer's chat: {err}")
         # Re-verify after the switch -- on the frame the preview route just read
         # (a fresh read costs ~6 s), else a new one.
-        ocr_data = frames[-1] if frames else ocr_qianniu_window()
+        ocr_data = frames[-1] if frames else _read_qianniu()
         ok, body_ok, hdr = identify(ocr_data)
     header_text = hdr.header_text if hdr else ""
     if not ok:
@@ -409,7 +461,7 @@ async def qianniu_receive(mainwin, args):
             return [TextContent(type="text", text=json.dumps(
                 {"lines": [], "error": "千牛 window not found. Is it running?"},
                 ensure_ascii=False))]
-        ocr_data = ocr_qianniu_window()
+        ocr_data = _read_qianniu()
         lines = [{"text": str(it.get("text") or ""), "loc": it.get("loc")}
                  for it in ocr_data if str(it.get("text") or "").strip()]
         logger.info(f"[qianniu_receive] {len(lines)} line(s); screen {ocr_dump(ocr_data, limit=40)}")
@@ -435,7 +487,7 @@ def _ensure_reception_tab(ocr_data: list) -> tuple:
     _foreground()
     _click(pt[0], pt[1])
     _humanize(_POST_ACTION_DELAY)
-    ocr_data = ocr_qianniu_window()
+    ocr_data = _read_qianniu()
     ok = is_reception_tab(ocr_data)
     logger.info(f"[qianniu] after clicking 正在接待: on_tab={ok}")
     return ok, ocr_data
@@ -492,7 +544,7 @@ async def qianniu_check_location(mainwin, args):
 
         if not _foreground():
             return _result(False, False, False, "", [], "千牛 window not found. Is it running?")
-        ocr_data = ocr_qianniu_window()
+        ocr_data = _read_qianniu()
         if not _looks_like_qianniu(ocr_data):
             return _result(False, False, False, "", [], "layout not recognised as 千牛 (OCR drift)",
                            screen=ocr_data)
@@ -547,7 +599,7 @@ def cold_start_sweep(dispatch, already_handled, max_rows: int = 8) -> dict:
         with _no_corner_failsafe():
             if not _foreground():
                 return stats
-            _on_tab, ocr_data = _ensure_reception_tab(ocr_qianniu_window())
+            _on_tab, ocr_data = _ensure_reception_tab(_read_qianniu())
             rows = conversation_rows(ocr_data, limit=max_rows)
     finally:
         lock.release(holder)
@@ -564,7 +616,7 @@ def cold_start_sweep(dispatch, already_handled, max_rows: int = 8) -> dict:
                 _foreground()
                 _click(pt[0], pt[1])
                 _humanize(_SETTLE_AFTER_OPEN)
-                side, text = last_turn(ocr_qianniu_window(), name, store)
+                side, text = last_turn(_read_qianniu(), name, store)
         except Exception as exc:
             stats["skipped"] += 1
             logger.warning(f"[QIANNIU-COLD] row {name!r}: open/read failed: {exc}")

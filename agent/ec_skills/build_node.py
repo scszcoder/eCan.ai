@@ -9416,6 +9416,13 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                         break
                 else:
                     logger.info(f"[pend_event_node][DEBUG] Event MATCHED, breaking wait loop, node={node_name}")
+                    # ws148 #2: a new inbound event is a new turn -- reset the tool-select
+                    # loop cap's counter here too. It was only reset on the Q&A chat path,
+                    # so a skill that wakes on browser_event (the 千牛 front desk: 2 tools a
+                    # turn) hit "loop cap hit (9>8)" after ~4 turns and then did nothing
+                    # (千牛 alpha 2026-10-08: "一开始行后来不行了", "一对二卡死").
+                    if isinstance(state, dict) and isinstance(state.get("attributes"), dict):
+                        state["attributes"]["_ecan_toolselect_iters"] = 0
                     break
 
             # If this is a send_chat confirmation during async A2A, skip it and continue waiting

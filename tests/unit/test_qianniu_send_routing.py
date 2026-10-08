@@ -276,3 +276,36 @@ def test_the_cold_start_sweep_leaves_chats_we_answered_or_already_dispatched():
     assert sent == []
     stats, sent = _sweep([REAL_SCREEN, REAL_SCREEN], handled=lambda n, t: True)
     assert sent == [] and stats["handled"] == 1
+
+
+def test_a_read_that_caught_another_app_is_retaken_after_bringing_qianniu_back():
+    # yn alpha: the 千牛 read caught 抖店's Chrome window ("发送给陆地飞鱼…"),
+    # which passed the old "发送" check; the send then aborted.
+    douyin = [_real("发送给陆地飞鱼，使用Enter发送消息", 752, 1027), _real("发送", 1284, 1098)]
+    seq = iter([douyin, REAL_SCREEN])
+    fg = []
+    with patch.object(qianniu_tools, "ocr_qianniu_window", side_effect=lambda: next(seq)), \
+            patch.object(qianniu_tools, "_foreground", side_effect=lambda: fg.append(1) or True):
+        assert qianniu_tools._read_qianniu() is REAL_SCREEN
+    assert fg == [1]
+
+
+def test_nothing_is_typed_when_another_app_stays_in_front():
+    from types import SimpleNamespace as NS
+    with patch.object(qianniu_tools, "_find_window", return_value=NS(hwnd=111, title="x-接待中心")), \
+            patch.object(qianniu_tools, "_is_front", return_value=False), \
+            patch.object(qianniu_tools, "bring_window_to_front"), \
+            patch.object(qianniu_tools, "clipboard_set_text"), \
+            patch.object(qianniu_tools, "paste_hotkey") as paste, \
+            patch.object(qianniu_tools.pyautogui, "press") as press:
+        try:
+            qianniu_tools._type_and_send("有的")
+            raised = False
+        except RuntimeError:
+            raised = True
+    assert raised and not paste.called and not press.called
+
+
+def test_an_unread_dot_is_not_a_conversation_row():
+    rows = REAL_SCREEN + [_real(".", 236, 340)]       # the red dot above the name
+    assert qianniu_ocr.conversation_rows(rows) == [("sctisz", "节日有打折吗", (231, 361))]

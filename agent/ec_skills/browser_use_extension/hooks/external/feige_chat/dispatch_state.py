@@ -443,6 +443,35 @@ def real_reply_since(customer: str, since_ts: float) -> str:
     return ""
 
 
+CROSS_IDENTITY_TWIN_WINDOW_S = 30.0
+
+
+def cross_identity_twin(customer: str, window: float = CROSS_IDENTITY_TWIN_WINDOW_S) -> str:
+    """The OTHER identity of *customer*'s conversation (``card:<talk>`` <-> the
+    bound real name) when a real reply was queued for it within *window*, else
+    "". A nameless product card dispatches as card:<talk> while the named row
+    dispatches too -- one buyer turn, two answers (live 2026-10-08: 肽斯特 got
+    the named answer, then the card twin 0.6 s later). The first reply queued
+    wins; the twin is dropped at delivery."""
+    if os.environ.get("ECAN_FEIGE_TWIN_GUARD", "1") == "0":
+        return ""
+    cust = str(customer or "").strip()
+    if not cust:
+        return ""
+    try:
+        from . import ws_session as _wss
+        if cust.startswith("card:"):
+            other = str(_wss.name_for_talk(cust[len("card:"):]) or "").strip()
+        else:
+            talk = str(_wss.talk_for_name(cust) or "").strip()
+            other = f"card:{talk}" if talk else ""
+    except Exception:
+        return ""
+    if not other or other == cust or other.startswith("card:") == cust.startswith("card:"):
+        return ""
+    return other if real_reply_since(other, time.time() - window) else ""
+
+
 def matches_recent_agent_reply(customer: str, sidebar_text: str) -> str:
     """Return the matching recorded reply if ``sidebar_text`` looks like
     our own DOM-echo for ``customer`` (real reply or a placeholder typed

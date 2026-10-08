@@ -848,3 +848,28 @@ platforms reply again.** Customer feedback:
    - one in-flight flush per entry;
    - drop the parked reply when the buyer was already answered under the real
      name (`dispatch_state.real_reply_since`).
+
+**v0.9.99yn run (2026-10-08 13:06–13:42).** The product cards now read
+correctly (`product=[商品卡片] 牙签盒牙线棒收纳盒…`), and the 飞鸽 parked-twin
+drop fired. Feedback: 「千牛一对一一开始行后来不行了…一对二卡死」, 「抖店有一次重复」.
+1. **千牛 stopped after ~4 turns.** The MCP node's ws148 loop cap (8 tool
+   calls per turn) counter was only reset on the Q&A chat path. The 千牛 front
+   desk wakes on `browser_event` and uses 2 tools per turn, so its 9th call hit
+   `loop cap hit (9>8)` and every later turn did nothing. Fix (yo): reset
+   `_ecan_toolselect_iters` whenever a pend_event accepts an event.
+2. **Chrome over 千牛.** 飞鸽/拼多多 raise Chrome (`Page.bringToFront`). A 千牛
+   read at 13:29 caught 抖店's window, which passed the old 「发送」 check, and the
+   send aborted. Fix (yo):
+   - a read must show a 千牛-only marker (正在接待/接待中心/千牛); otherwise eCan
+     re-foregrounds and reads again (`_read_qianniu`);
+   - `_ensure_front` runs before every click, paste and Enter. If 千牛 cannot be
+     brought back in front, it raises and nothing is typed into another app.
+3. **Cold-start sweep: junk row.** The red unread dot was read as row name
+   `'.'`. Fix: row lines need at least 2 word characters, and a dispatched
+   text needs at least 2 as well.
+4. **飞鸽 twin (肽斯特 13:26:35).** The card copy's reply was delivered directly
+   (not parked) 0.6 s after the named reply. Fix (yo):
+   `dispatch_state.cross_identity_twin`, called through an optional per-site
+   hook in the runner's direct delivery. The first reply queued for a
+   conversation wins; the other identity's reply within 30 s is dropped
+   (`ECAN_FEIGE_TWIN_GUARD=0` turns it off).

@@ -403,6 +403,7 @@ def find_conversation_row(ocr_data: list, text: str):
 _ROW_PREVIEW_DY = (12, 45)        # a row = name line, preview line this far below
 _TIMESTAMP_LINE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}\s*\d{1,2}:\d{2}|^\d{1,2}:\d{2}(:\d{2})?$")
 _BODY_NOISE = ("已读", "未读", "当前用户来自", "发送", "按Enter", "请输入")
+_WORDY_RE = re.compile(r"[一-鿿A-Za-z0-9]")
 
 
 def conversation_rows(ocr_data: list, limit: int = 8) -> list:
@@ -418,6 +419,10 @@ def conversation_rows(ocr_data: list, limit: int = 8) -> list:
         if not lc or not t:
             continue
         cx, cy = (lc[1] + lc[3]) / 2, (lc[0] + lc[2]) / 2
+        # A red unread dot / badge OCRs as "." or a digit: not a row line
+        # (yn alpha: row name '.', its "message" 「个关闭」 was dispatched).
+        if len(_WORDY_RE.findall(t)) < 2:
+            continue
         if cy > tab_y + 5 and left <= cx <= right and not any(s in t for s in _LIST_SKIP) \
                 and not (_TIMEISH.search(t) and len(t) <= 8):
             lines.append((cy, cx, t))
@@ -465,7 +470,8 @@ def last_turn(ocr_data: list, buyer_name: str, store_label: str) -> tuple:
     text = [t for cy, _cx, t in body
             if hy < cy <= hy + 150 and not _norm(t).startswith(bn) and not _TIMESTAMP_LINE.search(t)
             and not any(n in t for n in _BODY_NOISE)]
-    return "buyer", "".join(text[:3])
+    joined = "".join(text[:3])
+    return ("buyer", joined) if len(_WORDY_RE.findall(joined)) >= 2 else ("unknown", "")
 
 
 def verify_header_name(expected_display_name: str,

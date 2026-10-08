@@ -58,3 +58,17 @@ def test_a_buyer_already_answered_by_name_does_not_get_the_parked_twin():
     sent = []
     _run_flushes(1, sent)
     assert sent == [] and undeliverable._PARKED == {}
+
+
+def test_a_card_twin_reply_is_dropped_when_the_named_row_was_just_answered():
+    # Live 2026-10-08 13:26:35: 肽斯特 answered by name, then its card twin
+    # card:7694164008211039490 0.6 s later.
+    dispatch_state.recent_agent_replies_by_customer.clear()
+    wss = SimpleNamespace(name_for_talk=lambda t: "肽斯特" if t == "7694164008211039490" else "",
+                          talk_for_name=lambda n: "7694164008211039490" if n == "肽斯特" else "")
+    with patch("agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_session", wss, create=True):
+        assert dispatch_state.cross_identity_twin("card:7694164008211039490") == ""   # first one wins
+        dispatch_state.remember_agent_reply("肽斯特", "您好，这款篮球服是速干面料。")
+        assert dispatch_state.cross_identity_twin("card:7694164008211039490") == "肽斯特"
+        assert dispatch_state.cross_identity_twin("肽斯特") == ""     # its own reply is not a twin
+        assert dispatch_state.cross_identity_twin("packet") == ""     # unbound buyer
