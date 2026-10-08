@@ -319,6 +319,13 @@ class QianniuMemObserver:
         conversation (v15: the active id is not in memory)."""
         if not learn_enabled() or name_map.name_for(sender_id):
             return
+        # A short message ("人工", "在吗") is on many chats' screens: it cannot
+        # prove which chat is open (0.9.99ym: "人工" -> name "0.00元"). Checked
+        # before the ~7 s screen read.
+        if len("".join((text or "").split())) < 4:
+            logger.info(f"[QIANNIU-MEM] learn buyer={sender_id!r}: message {text!r} too short "
+                        f"to identify the open chat; not learning a name from it")
+            return
         now = time.monotonic()
         if now - self._last_learn < _LEARN_THROTTLE_S:
             logger.debug(f"[QIANNIU-MEM] learn throttled for buyer={sender_id!r}")

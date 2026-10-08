@@ -323,3 +323,15 @@ def test_a_new_buyers_first_message_is_dispatched_before_the_name_learning_ocr()
         obs._baselined = True
         obs._scan_once(1)
     assert order == ["dispatch", "learn"]
+
+
+def test_a_price_is_not_a_name_and_a_short_message_never_triggers_learning():
+    # 0.9.99ym: buyer asked "人工"; the learn pass read "0.00元" as their name.
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import name_map
+    assert not name_map.looks_like_buyer_name("0.00元") and not name_map.looks_like_buyer_name("￥20.9")
+    obs = observer.QianniuMemObserver(dispatch_fn=lambda item: 1)
+    with patch.object(observer, "learn_enabled", return_value=True), \
+            patch.object(observer.name_map, "name_for", return_value=""), \
+            patch("agent.mcp.server.qianniu.qianniu_ocr.ocr_qianniu_window") as read:
+        obs._learn_pass("54868217", "人工")
+    read.assert_not_called()                     # no 7-s screen read for it either
