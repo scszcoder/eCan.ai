@@ -235,11 +235,33 @@ def item_for(cand: "mem_locator.MsgCandidate", seller_id: Optional[str],
     }
 
 
+def route_ready() -> bool:
+    """True once some agent runner routes browser_event:qianniu_chat to a task
+    (the 天猫 front desk has registered). Runners that merely RECEIVE the event
+    log "No target task found" and drop it, yet were counted as reached (yo
+    alpha: a cold-start dispatch 33 s before the front desk started was lost).
+    Unknown (no app context) counts as ready."""
+    try:
+        from app_context import AppContext
+        mw = AppContext.get_main_window()
+        agents = getattr(mw, "agents", None)
+        if not agents:
+            return True
+        key = f"browser_event:{_LABEL}"
+        return any(key in (getattr(getattr(ag, "runner", None), "_global_event_routing", None) or {})
+                   for ag in agents)
+    except Exception:
+        return True
+
+
 def inject_item(item: dict, target_agent_id: str = "") -> int:
     """Emit the browser-event envelope and dispatch to agent runners.
 
-    Returns the number of runners reached (0 if none / app not up yet).
+    Returns the number of runners reached (0 if none / app not up yet / no task
+    routes 千牛 events yet -- the caller retries).
     """
+    if not route_ready():
+        return 0
     from agent.ec_skills.browser_use_extension.event_monitor import (
         _build_normalized_browser_event, _dispatch_to_runners,
     )
@@ -686,6 +708,15 @@ class QianniuMemObserver:
         def run():
             if self._stop.wait(_COLD_SWEEP_DELAY_S):
                 return
+            # Wait for the 天猫 front desk to route 千牛 events: answering a waiting
+            # chat before it listens loses the message (yo alpha).
+            waited = 0.0
+            while not route_ready() and waited < 180:
+                if self._stop.wait(5):
+                    return
+                waited += 5
+            logger.info(f"[QIANNIU-COLD] front desk {'ready' if route_ready() else 'NOT ready'} "
+                        f"after {waited:.0f}s; sweeping")
             try:
                 from agent.mcp.server.qianniu.qianniu_tools import cold_start_sweep
                 cold_start_sweep(self._cold_dispatch, self._already_handled)

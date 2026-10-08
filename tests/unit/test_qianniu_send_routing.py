@@ -309,3 +309,8 @@ def test_nothing_is_typed_when_another_app_stays_in_front():
 def test_an_unread_dot_is_not_a_conversation_row():
     rows = REAL_SCREEN + [_real(".", 236, 340)]       # the red dot above the name
     assert qianniu_ocr.conversation_rows(rows) == [("sctisz", "节日有打折吗", (231, 361))]
+
+
+def test_a_read_marker_is_not_part_of_the_buyers_last_message():
+    screen = REAL_SCREEN + [_real("..0", 600, 620)]
+    assert qianniu_ocr.last_turn(screen, "sctisz", "倪好数码:小柒") == ("buyer", "有黑人牙膏吗")

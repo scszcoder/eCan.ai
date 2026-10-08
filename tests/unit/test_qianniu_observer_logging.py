@@ -379,3 +379,25 @@ def test_a_waiting_chat_found_by_the_sweep_is_dispatched_unless_live_already_did
         obs._cold_dispatch("xuboz71", "现在拍能不能发货")
     assert got[0]["customer_id"] == "54868217" and got[0]["customer_display_name"] == "xuboz71"
     assert got[0]["latest_message"] == "现在拍能不能发货" and got[0]["source"] == "qianniu_coldstart"
+
+
+def test_a_timeout_notice_card_is_never_a_product():
+    # yo alpha: panda's product context became the 【即将超时】 notice.
+    notice = {"sender": {"targetId": "3163207694"}, "msgType": 129, "templateId": 397001,
+              "summary": "【即将超时】您即将超超20分钟未回复买家，请您尽快妥善处理买家问题。",
+              "originalData": json.dumps({"title": "【即将超时】您即将超超20分钟未回复买家"}, ensure_ascii=False)}
+    assert mem_locator.extract_product(notice) == ""
+
+
+def test_nothing_is_dispatched_before_the_front_desk_routes_qianniu_events():
+    # yo alpha: the cold-start dispatch reached 21 runners 33 s before the 天猫
+    # front desk started; every runner logged "No target task found".
+    from types import SimpleNamespace as NS
+    unrouted = NS(agents=[NS(runner=NS(_global_event_routing={"chat_message": {}}))])
+    routed = NS(agents=[NS(runner=NS(_global_event_routing={"browser_event:qianniu_chat": {}}))])
+    import app_context
+    with patch.object(app_context.AppContext, "get_main_window", return_value=unrouted):
+        assert observer.route_ready() is False
+        assert observer.inject_item({"identity_key": "k"}) == 0
+    with patch.object(app_context.AppContext, "get_main_window", return_value=routed):
+        assert observer.route_ready() is True

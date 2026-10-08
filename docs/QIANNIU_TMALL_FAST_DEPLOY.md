@@ -873,3 +873,23 @@ drop fired. Feedback: 「千牛一对一一开始行后来不行了…一对二�
    hook in the runner's direct delivery. The first reply queued for a
    conversation wins; the other identity's reply within 30 s is dropped
    (`ECAN_FEIGE_TWIN_GUARD=0` turns it off).
+
+**v0.9.99yo run (2026-10-08 15:32 →).** No loop-cap stalls; 抖店's twin
+guard fired once. Problems:
+1. **The cold-start reply was lost.** The sweep found xuboz71 waiting and
+   dispatched at 15:34:16, but the 天猫 front desk only started at 15:34:49.
+   Every runner logged "No target task found", yet the dispatch counted 21
+   runners "reached".
+   - Fix (yp): `observer.route_ready()` checks that some runner routes
+     `browser_event:qianniu_chat`. `inject_item` returns 0 until then, so the
+     120 s startup retry really retries.
+   - The sweep waits up to 3 min for the route.
+2. **panda's product context was the 【即将超时】 notice card.** The reply asked
+   for a product link. Fix: notice cards are never products.
+3. **Cold-start text carried a read marker (`..0`).** Fix: body lines need at
+   least 2 word characters.
+4. **抖店 twin missed.** The card twin was queued 11 ms after the named reply,
+   before card and name were bound, and went out 9 s later. Fix: the twin check
+   runs again when the delivery job starts (`reason='twin_skip'`, ok outcome).
+- The 18:08 「1」 in xuboz71's chat was typed by the store (uid = store id), not
+  a missed buyer message.

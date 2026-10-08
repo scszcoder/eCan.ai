@@ -469,7 +469,7 @@ def last_turn(ocr_data: list, buyer_name: str, store_label: str) -> tuple:
         return side, ""
     text = [t for cy, _cx, t in body
             if hy < cy <= hy + 150 and not _norm(t).startswith(bn) and not _TIMESTAMP_LINE.search(t)
-            and not any(n in t for n in _BODY_NOISE)]
+            and not any(n in t for n in _BODY_NOISE) and len(_WORDY_RE.findall(t)) >= 2]   # not "..0"
     joined = "".join(text[:3])
     return ("buyer", joined) if len(_WORDY_RE.findall(joined)) >= 2 else ("unknown", "")
 

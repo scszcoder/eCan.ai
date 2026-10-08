@@ -5243,6 +5243,22 @@ class TaskRunner(Generic[Context]):
             _resolve_live_chat_tab_target_id = _dd_bridge.resolve_tab_target_id
 
             _ledger("direct_guarded_send_start")
+            # Twin check again at send time: the conversation's two identities
+            # are often linked only between queueing and sending (live 2026-10-08
+            # 15:41: the card twin was queued 11 ms after the named reply, before
+            # the bind, and went out 9 s later).
+            try:
+                _twin_fn2 = getattr(_live_chat_ds, "cross_identity_twin", None)
+                _twin2 = _twin_fn2(_customer_name) if callable(_twin_fn2) else ""
+            except Exception:
+                _twin2 = ""
+            if _twin2:
+                logger.info(
+                    f"[DIRECT-DELIVERY] Twin skip at send time: customer={_customer_name!r} is the "
+                    f"same conversation as {_twin2!r}, which was just answered"
+                )
+                _ledger("direct_twin_skip", twin=_twin2, at="send")
+                return _hot_path_v2.HotPathOutcomeV2(ok=True, reason="twin_skip")
             _eval_dispatch_state["dispatched"] = False  # ws024: reset per attempt
             # 2026-05-25 mt044D: outer wait_for around the resolve was 2.0s
             # — too tight when the multi-candidate probe inside the resolve

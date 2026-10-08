@@ -179,8 +179,15 @@ def _walk_card(value, depth: int = 0):
             pass
 
 
+# 千牛 system notices are cards too; their "title" is the notice, not a product
+# (yo alpha: panda's product context became 【即将超时】您即将超超20分钟未回复…).
+_NOTICE_MARKS = ("【即将超时】", "未回复买家", "消极接待", "系统关闭会话", "客服超时", "超时")
+
+
 def extract_product(obj: dict) -> str:
     """"[商品卡片] <title> 价格:￥<price> 商品ID:<id>" from a card object, or ""."""
+    if any(m in str(obj.get("summary") or "") for m in _NOTICE_MARKS):
+        return ""
     titles, price, item_id = [], "", ""
     for k, v in _walk_card({key: obj.get(key) for key in ("originalData", "ext", "layoutJson", "content")}):
         kl = k.lower()
@@ -195,7 +202,8 @@ def extract_product(obj: dict) -> str:
                 item_id = m.group(1)
             elif kl in _ID_KEYS and sv.isdigit() and len(sv) >= 8:
                 item_id = sv
-        if kl in _TITLE_KEYS and _CJK_RE.search(sv) and 4 <= len(sv) <= 120 and "当前用户来自" not in sv:
+        if kl in _TITLE_KEYS and _CJK_RE.search(sv) and 4 <= len(sv) <= 120 and "当前用户来自" not in sv \
+                and not any(m in sv for m in _NOTICE_MARKS):
             titles.append(sv)
         if not price and any(p == kl for p in _PRICE_KEYS) and _PRICE_RE.match(sv):
             price = sv.lstrip("¥￥ ")
