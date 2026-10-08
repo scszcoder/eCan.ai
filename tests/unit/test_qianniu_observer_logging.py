@@ -335,3 +335,47 @@ def test_a_price_is_not_a_name_and_a_short_message_never_triggers_learning():
             patch("agent.mcp.server.qianniu.qianniu_ocr.ocr_qianniu_window") as read:
         obs._learn_pass("54868217", "人工")
     read.assert_not_called()                     # no 7-s screen read for it either
+
+
+def test_a_buyers_product_card_rides_along_with_their_question():
+    # Alpha 2026-10-08: 「这款牙线盒质量怎么样」 reached Q&A with no product, so every
+    # answer was 「我帮您再核实下」; 飞鸽 passes the card as "[商品卡片] …".
+    card = {
+        "sender": {"targetId": "54868217"}, "msgType": 129, "templateId": 332001, "sendTime": 1,
+        "layoutJson": "{}", "summary": "当前用户来自 商品详情页",
+        "originalData": json.dumps({"data": {"item": {
+            "title": "新款2026升级自动牙签盒弹出式家用餐厅", "price": "20.9",
+            "url": "https://item.taobao.com/item.htm?id=812345678901&spm=a1"}}}, ensure_ascii=False),
+    }
+    assert mem_locator.extract_product(card) == \
+        "[商品卡片] 新款2026升级自动牙签盒弹出式家用餐厅 价格:￥20.9 商品ID:812345678901"
+    stats = {}
+    raw = json.dumps(card, ensure_ascii=False).encode("utf-8")
+    assert mem_locator.extract_candidates(raw, stats) == []                 # still not a question
+    assert stats["ui_cards"][0]["product"].startswith("[商品卡片] 新款2026")
+
+    now = int(time.time() * 1000)
+    q = _cand("54868217", "这款塑料环保吗", "m2", send_time=now)
+    obs, sent, fake_scan, fake_extract = _observer_with_memory([[], [q]])
+    obs._product_by_buyer["54868217"] = (now, "[商品卡片] 新款2026升级自动牙签盒 价格:￥20.9")
+    with patch.object(mem, "scan_strings", fake_scan), \
+            patch.object(mem_locator, "extract_candidates", fake_extract), \
+            patch.object(observer.name_map, "name_for", return_value="xuboz71"):
+        obs._scan_once(1)
+        obs._baselined = True
+        obs._scan_once(1)
+    assert sent[0]["latest_message"] == "这款塑料环保吗"
+    assert sent[0]["product_card"].startswith("[商品卡片] 新款2026")
+
+
+def test_a_waiting_chat_found_by_the_sweep_is_dispatched_unless_live_already_did():
+    obs = observer.QianniuMemObserver(dispatch_fn=lambda item: 1)
+    obs._note_dispatched_text("这款塑料环保吗")
+    assert obs._already_handled("xuboz71", "这款塑料环保吗？")
+    assert not obs._already_handled("xuboz71", "现在拍能不能发货")
+    got = []
+    obs._dispatch = lambda item: got.append(item) or 1
+    with patch.object(observer.name_map, "id_for", return_value="54868217"):
+        obs._cold_dispatch("xuboz71", "现在拍能不能发货")
+    assert got[0]["customer_id"] == "54868217" and got[0]["customer_display_name"] == "xuboz71"
+    assert got[0]["latest_message"] == "现在拍能不能发货" and got[0]["source"] == "qianniu_coldstart"

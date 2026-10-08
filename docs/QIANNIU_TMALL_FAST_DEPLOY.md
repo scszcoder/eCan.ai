@@ -815,3 +815,36 @@ All changes are inside `agent/mcp/server/qianniu/`; 飞鸽 and 拼多多 do not 
 this module. These 飞鸽 tests already failed before this work and fail the
 same with the pre-session shared files: `test_feige_send_lock` (3),
 `test_feige_focus_lock` (1), `test_direct_feige_delivery_worker` (1).
+
+**Alpha run with the new OpenAI key (v0.9.99ym, 2026-10-08): all three
+platforms reply again.** Customer feedback:
+1. **"冷启动出不来，得再顶一句" (千牛).** At startup 千牛's memory held only notice
+   cards, no buyer text, so chats that were already waiting were invisible.
+   - Fix (yn): a one-time **cold-start sweep**, 20 s after the baseline
+     (`ECAN_QIANNIU_COLDSTART=0` turns it off).
+   - It reads the 正在接待 rows (`conversation_rows`) and opens each one,
+     holding the desktop lock one chat at a time.
+   - `last_turn` finds the lowest message label: the buyer's name, or the store
+     account taken from the window title. A buyer who spoke last is
+     dispatched, unless the memory path already dispatched that text.
+   - `qianniu_send` waits up to 45 s for the desktop instead of failing.
+   - Every decision is logged under `[QIANNIU-COLD]`.
+2. **"回复质量差" (千牛): every answer was 「我帮您再核实下」.** The Q&A skill
+   (飞鸽客服问答00) and its prompt are shared by all three platforms. 飞鸽
+   passes the buyer's product card (`[商品卡片] 标题 价格 发货…`); 千牛 passed
+   only the bare question, and the observer dropped the product cards.
+   - Fix (yn): `mem_locator.extract_product` reads title, price and item id
+     from card objects (the link card and 「当前用户来自 商品详情页」).
+   - The observer attaches the buyer's newest card to each message as
+     `product_card`; the dispatch log shows `product=…`.
+   - When nothing can be read, the card's raw payload is logged once, for
+     calibration.
+   - Skill data: the 淘宝客服前台01 prep puts it first in
+     `customer_recent_messages` (republish + 更新).
+3. **"回复一下子弹出四条" (陆地飞鱼 — this is 飞鸽).** A nameless product card
+   was answered under `card:<talk>` and under the real name. Then the parked
+   card reply was flushed by overlapping backstop ticks: **DELIVERED ×3** in
+   one second. Fix (yn), in `undeliverable.resolve_and_flush`:
+   - one in-flight flush per entry;
+   - drop the parked reply when the buyer was already answered under the real
+     name (`dispatch_state.real_reply_since`).

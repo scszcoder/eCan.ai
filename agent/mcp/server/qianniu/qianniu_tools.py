@@ -14,6 +14,7 @@ Co-pilot scope (Phase 1): these act on the ALREADY-OPEN conversation. Auto
 conversation-switching (OCR sidebar click + search-by-name) lands in Phase 2;
 until then the human/observer opens the chat and the header-verify guards it.
 """
+import asyncio
 import contextlib
 import json
 import os
@@ -38,6 +39,9 @@ from agent.mcp.server.qianniu.qianniu_ocr import (
     is_reception_tab,
     find_reception_tab_point,
     find_conversation_row,
+    conversation_rows,
+    last_turn,
+    qianniu_chat_window,
     ocr_dump,
     save_failure_shot,
     _norm,
@@ -47,6 +51,7 @@ from agent.mcp.server.qianniu.qianniu_ocr import (
 # body text alone: two buyers may both have sent it. Without a header-name
 # match, a send keyed on such a text is refused (fail-closed).
 _MIN_BODY_ID_CHARS = 4
+_LOCK_WAIT_S = 45.0   # a send waits this long for the desktop (cold-start sweep) before failing
 
 _POST_ACTION_DELAY = 0.6
 _POST_TYPE_DELAY = 0.5
@@ -267,8 +272,13 @@ async def qianniu_send(mainwin, args):
                                 "buyer_display_name or expect_message_text is required")
 
         # Serialize all desktop action so two sends never interleave on the one
-        # shared window (study Phase 3).
-        if not lock.try_acquire(holder):
+        # shared window (study Phase 3). Wait for it (the startup cold-start
+        # sweep holds it one chat at a time) rather than lose the reply.
+        waited = 0.0
+        while not lock.try_acquire(holder) and waited < _LOCK_WAIT_S:
+            await asyncio.sleep(0.5)
+            waited += 0.5
+        if lock.holder() != holder:
             logger.warning(f"[qianniu_send] busy: desktop lock held by {lock.holder()!r}; "
                            f"not sent to {buyer or expect_text[:16]!r}")
             return _send_result(False, False, f"another send is in progress (holder {lock.holder()!r})")
@@ -508,6 +518,76 @@ async def qianniu_check_location(mainwin, args):
 
 
 # --- MCP tool schemas -------------------------------------------------------
+
+def _store_label() -> str:
+    """The store's sub-account as it labels our own messages: the 接待中心 window
+    title before "-接待中心" (e.g. "倪好数码:小柒")."""
+    win = qianniu_chat_window()
+    title = str(getattr(win, "title", "") or "")
+    return title.split("-")[0].strip() if "-" in title else ""
+
+
+def cold_start_sweep(dispatch, already_handled, max_rows: int = 8) -> dict:
+    """Answer chats that were waiting when eCan started. 千牛's memory holds no
+    buyer text for them, so the memory observer never sees them until the buyer
+    writes again (alpha 2026-10-08: "冷启动出不来，得再顶一句").
+
+    Opens each 正在接待 row (one chat per desktop-lock hold, so replies are not
+    blocked for long) and asks who spoke last; when it is the buyer, calls
+    ``dispatch(name, text)`` unless ``already_handled(name, text)``. Every
+    decision is logged under [QIANNIU-COLD]. Returns counts."""
+    stats = {"rows": 0, "dispatched": 0, "store_last": 0, "unknown": 0, "handled": 0, "skipped": 0}
+    store = _store_label()
+    lock = _lock()
+    holder = "coldstart"
+    if not lock.try_acquire(holder):
+        logger.info(f"[QIANNIU-COLD] desktop busy ({lock.holder()!r}); cold-start sweep skipped")
+        return stats
+    try:
+        with _no_corner_failsafe():
+            if not _foreground():
+                return stats
+            _on_tab, ocr_data = _ensure_reception_tab(ocr_qianniu_window())
+            rows = conversation_rows(ocr_data, limit=max_rows)
+    finally:
+        lock.release(holder)
+    stats["rows"] = len(rows)
+    logger.info(f"[QIANNIU-COLD] sweep: store label {store!r}; {len(rows)} 正在接待 row(s): "
+                f"{[(n, p[:12]) for n, p, _pt in rows]}")
+    for name, preview, pt in rows:
+        if not lock.try_acquire(holder):
+            stats["skipped"] += 1
+            logger.info(f"[QIANNIU-COLD] row {name!r}: desktop busy ({lock.holder()!r}); skipped")
+            continue
+        try:
+            with _no_corner_failsafe():
+                _foreground()
+                _click(pt[0], pt[1])
+                _humanize(_SETTLE_AFTER_OPEN)
+                side, text = last_turn(ocr_qianniu_window(), name, store)
+        except Exception as exc:
+            stats["skipped"] += 1
+            logger.warning(f"[QIANNIU-COLD] row {name!r}: open/read failed: {exc}")
+            continue
+        finally:
+            lock.release(holder)
+        if side == "store":
+            stats["store_last"] += 1
+            logger.info(f"[QIANNIU-COLD] row {name!r}: the store spoke last; nothing to answer")
+        elif side != "buyer" or not text:
+            stats["unknown"] += 1
+            logger.info(f"[QIANNIU-COLD] row {name!r} (preview {preview[:16]!r}): last turn not readable; "
+                        f"skipped")
+        elif already_handled(name, text):
+            stats["handled"] += 1
+            logger.info(f"[QIANNIU-COLD] row {name!r}: {text[:24]!r} already dispatched live; skipped")
+        else:
+            stats["dispatched"] += 1
+            logger.info(f"[QIANNIU-COLD] row {name!r}: buyer spoke last {text[:30]!r} -> dispatching")
+            dispatch(name, text)
+    logger.info(f"[QIANNIU-COLD] sweep done: {stats}")
+    return stats
+
 
 def add_qianniu_send_tool_schema(tool_schemas):
     import mcp.types as types

@@ -148,6 +148,69 @@ def _best_text_field(obj: dict) -> str:
     return best
 
 
+# ── Product cards (alpha 2026-10-08) ─────────────────────────────────────────
+# A buyer's product link card and the 「当前用户来自 商品详情页」 card carry the
+# product (title, price, item link) the buyer is asking about ("这款…"). Without
+# it the Q&A agent cannot answer; 飞鸽 passes the same facts as "[商品卡片] …".
+# The card payload lives in originalData / ext / layoutJson (JSON, often as
+# nested strings); this walks it generically -- calibrate from the log.
+_ITEM_ID_RE = re.compile(r"(?:item\.taobao\.com|detail\.tmall\.com|tmall\.com|taobao\.com)[^\s\"']*?[?&]id=(\d{6,})")
+_TITLE_KEYS = ("title", "itemtitle", "auctiontitle", "itemname", "goodsname", "name", "subject")
+_PRICE_KEYS = ("price", "itemprice", "promotionprice", "reserveprice", "saleprice", "finalprice")
+_ID_KEYS = ("itemid", "auctionid", "item_id", "goodsid", "id")
+_PRICE_RE = re.compile(r"^[¥￥]?\s*\d+(\.\d{1,2})?$")
+
+
+def _walk_card(value, depth: int = 0):
+    """Yield (key, value) pairs of a card payload, decoding nested JSON strings."""
+    if depth > 6:
+        return
+    if isinstance(value, dict):
+        for k, v in value.items():
+            yield str(k), v
+            yield from _walk_card(v, depth + 1)
+    elif isinstance(value, list):
+        for v in value[:50]:
+            yield from _walk_card(v, depth + 1)
+    elif isinstance(value, str) and value[:1] in "{[" and len(value) < 200_000:
+        try:
+            yield from _walk_card(json.loads(value), depth + 1)
+        except (ValueError, RecursionError):
+            pass
+
+
+def extract_product(obj: dict) -> str:
+    """"[商品卡片] <title> 价格:￥<price> 商品ID:<id>" from a card object, or ""."""
+    titles, price, item_id = [], "", ""
+    for k, v in _walk_card({key: obj.get(key) for key in ("originalData", "ext", "layoutJson", "content")}):
+        kl = k.lower()
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            v = str(v)
+        if not isinstance(v, str):
+            continue
+        sv = v.strip()
+        if not item_id:
+            m = _ITEM_ID_RE.search(sv)
+            if m:
+                item_id = m.group(1)
+            elif kl in _ID_KEYS and sv.isdigit() and len(sv) >= 8:
+                item_id = sv
+        if kl in _TITLE_KEYS and _CJK_RE.search(sv) and 4 <= len(sv) <= 120 and "当前用户来自" not in sv:
+            titles.append(sv)
+        if not price and any(p == kl for p in _PRICE_KEYS) and _PRICE_RE.match(sv):
+            price = sv.lstrip("¥￥ ")
+    if not titles and not item_id:
+        return ""
+    parts = ["[商品卡片]"]
+    if titles:
+        parts.append(max(titles, key=len))
+    if price:
+        parts.append(f"价格:￥{price}")
+    if item_id:
+        parts.append(f"商品ID:{item_id}")
+    return " ".join(parts)
+
+
 def extract_candidates(data: bytes, stats: Optional[dict] = None) -> list:
     """Carve 千牛 message objects out of a memory slice (UTF-8 + UTF-16LE).
 
@@ -183,6 +246,8 @@ def extract_candidates(data: bytes, stats: Optional[dict] = None) -> list:
                     "msgType": obj.get("msgType"), "templateId": obj.get("templateId"),
                     "sender": _sender_uid(obj.get("sender")), "sendTime": obj.get("sendTime"),
                     "summary": str(obj.get("summary") or "")[:40],
+                    "product": extract_product(obj),
+                    "payload_sample": str(obj.get("originalData") or obj.get("ext") or "")[:600],
                 })
             continue
         uid = _sender_uid(sender)

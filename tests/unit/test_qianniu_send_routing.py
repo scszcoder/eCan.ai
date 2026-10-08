@@ -240,3 +240,39 @@ def test_without_the_panel_labels_nothing_is_blanked():
         qianniu_ocr.ocr_qianniu_window()
         qianniu_ocr.ocr_qianniu_window()
     assert all(img.getpixel((img.width - 5, img.height - 5)) == (0, 0, 0) for img, _kw in seen)
+
+
+# Cold start (alpha 2026-10-08, "冷启动出不来，得再顶一句"): chats already waiting
+# at startup are read from the screen, since 千牛 memory holds no text for them.
+_STORE = _real("倪好数码：小柒", 959, 662)
+
+
+def test_last_turn_reads_who_spoke_last_in_the_open_chat():
+    assert qianniu_ocr.last_turn(REAL_SCREEN, "sctisz", "倪好数码:小柒") == ("buyer", "有黑人牙膏吗")
+    with_reply = REAL_SCREEN + [_STORE]                      # our reply under the last question
+    assert qianniu_ocr.last_turn(with_reply, "sctisz", "倪好数码:小柒") == ("store", "")
+    assert qianniu_ocr.conversation_rows(REAL_SCREEN) == [("sctisz", "节日有打折吗", (231, 361))]
+
+
+def _sweep(frames, handled=lambda n, t: False):
+    seq, sent = iter(frames), []
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.typing_lock import get_lock
+    get_lock().release("")
+    with patch.object(qianniu_tools, "ocr_qianniu_window", side_effect=lambda: next(seq)), \
+            patch.object(qianniu_tools, "_foreground", return_value=True), \
+            patch.object(qianniu_tools, "_click"), patch.object(qianniu_tools, "_humanize"), \
+            patch.object(qianniu_tools, "_store_label", return_value="倪好数码:小柒"):
+        stats = qianniu_tools.cold_start_sweep(lambda n, t: sent.append((n, t)), handled)
+    return stats, sent
+
+
+def test_the_cold_start_sweep_answers_a_buyer_who_spoke_last():
+    stats, sent = _sweep([REAL_SCREEN, REAL_SCREEN])
+    assert sent == [("sctisz", "有黑人牙膏吗")] and stats["dispatched"] == 1
+
+
+def test_the_cold_start_sweep_leaves_chats_we_answered_or_already_dispatched():
+    _stats, sent = _sweep([REAL_SCREEN, REAL_SCREEN + [_STORE]])
+    assert sent == []
+    stats, sent = _sweep([REAL_SCREEN, REAL_SCREEN], handled=lambda n, t: True)
+    assert sent == [] and stats["handled"] == 1

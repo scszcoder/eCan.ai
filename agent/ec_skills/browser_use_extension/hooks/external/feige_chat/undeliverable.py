@@ -38,6 +38,9 @@ _LOCK = threading.RLock()
 _PARKED: dict[str, dict] = {}
 
 _FLUSH_CDP_TIMEOUT_S = 12.0
+# A named-lane answer recorded up to this long BEFORE the park still covers the
+# turn: it is pre-recorded when queued, before the card lane fails and parks.
+_NAMED_ANSWER_SLACK_S = 60.0
 
 
 def _ttl_s() -> float:
@@ -161,10 +164,30 @@ async def resolve_and_flush(browser_session: Any) -> int:
                 continue
         except Exception:
             pass
+        # Already answered under the REAL name since this was parked? The card
+        # identity and the named sidebar row are the same buyer, dispatched on
+        # two lanes; the named lane's answer covers this turn (live 2026-10-08
+        # 陆地飞鱼: named answer 10:49:35, then this parked twin delivered too).
+        try:
+            from . import dispatch_state as _ds_named
+            _named = _ds_named.real_reply_since(name, entry["parked_at"] - _NAMED_ANSWER_SLACK_S)
+        except Exception:
+            _named = ""
+        if _named:
+            with _LOCK:
+                _PARKED.pop(talk, None)
+            logger.info(
+                f"[WS170-FLUSH] dropping parked reply for cust={entry['customer_key']!r}: "
+                f"{name!r} was already answered under the real name ({_named[:30]!r})"
+            )
+            continue
         with _LOCK:
             live = _PARKED.get(talk)
-            if live is None:
+            # One delivery at a time: overlapping backstop ticks each delivered
+            # the same parked reply (live 2026-10-08: DELIVERED x3 in 1 s).
+            if live is None or live.get("flushing"):
                 continue
+            live["flushing"] = True
             live["flush_attempts"] += 1
             attempts = live["flush_attempts"]
         if attempts > _max_attempts():
@@ -232,6 +255,11 @@ async def resolve_and_flush(browser_session: Any) -> int:
                 f"[WS170-FLUSH] delivery attempt failed for {name!r}: "
                 f"{type(_e).__name__}: {str(_e)[:120]} — keeping park entry"
             )
+        finally:
+            with _LOCK:
+                live = _PARKED.get(talk)
+                if live is not None:
+                    live["flushing"] = False   # kept for a retry; delivered ones are popped
     return delivered
 
 

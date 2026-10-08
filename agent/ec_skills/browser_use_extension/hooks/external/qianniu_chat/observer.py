@@ -31,6 +31,8 @@ _LABEL = "qianniu_chat"
 _LEARN_THROTTLE_S = 5.0
 _HEARTBEAT_S = 300.0
 _NOBODY_RETRY_S = 120.0   # keep re-dispatching a message no runner took (startup)
+_PRODUCT_TTL_MS = 3 * 3600 * 1000   # a product card older than this no longer frames the chat
+_COLD_SWEEP_DELAY_S = 20.0          # let the front desk register before reading waiting chats
 
 # 千牛 platform notices that arrive as ordinary-looking message objects in the
 # buyer's conversation (alpha 2026-10-07: "【即将超时】您即将超超20分钟未回复买家，
@@ -303,6 +305,28 @@ class QianniuMemObserver:
         self._last_heartbeat = 0.0
         self._last_seller = None
         self._nobody_since: dict = {}   # identity_key -> first time no runner took it
+        self._product_by_buyer: dict = {}   # buyer uid -> (sendTime ms, "[商品卡片] …")
+        self._cold_started = False
+        self._dispatched_texts: list = []   # (normalized text, ts) the memory path dispatched
+
+    def _note_product(self, card: dict, seller: Optional[str]) -> None:
+        """Remember each buyer's NEWEST product card (link card or 「当前用户来自
+        商品详情页」) -- the product their "这款…" questions are about."""
+        product, uid = card.get("product") or "", str(card.get("sender") or "")
+        if not product or not uid or uid == seller or uid == name_map.store_self_id():
+            return
+        st = card.get("sendTime") if isinstance(card.get("sendTime"), int) else 0
+        prev = self._product_by_buyer.get(uid)
+        if prev is None or st >= prev[0]:
+            self._product_by_buyer[uid] = (st, product)
+
+    def product_for(self, uid: str) -> str:
+        """The buyer's latest product card line, if seen within _PRODUCT_TTL_MS."""
+        hit = self._product_by_buyer.get(str(uid or ""))
+        if not hit:
+            return ""
+        st, product = hit
+        return product if not st or time.time() * 1000 - st <= _PRODUCT_TTL_MS else ""
 
     def _first_time(self, key: str) -> bool:
         if not key or key in self._seen:
@@ -466,9 +490,13 @@ class QianniuMemObserver:
             key = card.get("msg_id") or f"{card.get('sender')}|{card.get('summary')}"
             if key not in self._cards_seen:
                 self._cards_seen.add(key)
+                product = card.get("product") or ""
                 logger.info(f"[QIANNIU-MEM] card in memory (not answered): msgType={card.get('msgType')!r} "
                             f"templateId={card.get('templateId')!r} sender={card.get('sender')!r} "
-                            f"sendTime={card.get('sendTime')!r} summary={card.get('summary')!r}")
+                            f"sendTime={card.get('sendTime')!r} summary={card.get('summary')!r} "
+                            + (f"product={product!r}" if product else
+                               f"no product read; payload={card.get('payload_sample')!r}"))
+            self._note_product(card, seller)
         if needles:
             self._report_finds(pid, needles, finds)
         # Every message object, either direction, once: an incoming buyer message
@@ -518,6 +546,10 @@ class QianniuMemObserver:
         to_learn = []
         for cand in incoming:
             item = item_for(cand, seller)
+            # The product the buyer is looking at -- the front-desk prep passes
+            # it to Q&A as "[商品卡片] …" (飞鸽's format). latest_message stays the
+            # buyer's own text: the send check matches it on screen.
+            item["product_card"] = self.product_for(item["customer_id"])
             if not self._first_time(item["identity_key"]):
                 continue
             if _is_system_notice(cand.text):
@@ -547,9 +579,11 @@ class QianniuMemObserver:
                     logger.info(f"[QIANNIU-MEM] dispatched buyer={item['customer_name']!r} "
                                 f"name={item['customer_display_name']!r} msg={item['msg_id']!r} "
                                 f"sendTime={cand.send_time} to {n} runner(s)"
-                                f"{' (retry)' if retrying else ''}: {item['last_message'][:40]!r}")
+                                f"{' (retry)' if retrying else ''}: {item['last_message'][:40]!r}"
+                                f" product={item['product_card'][:60] or None!r}")
                 if n:
                     self._nobody_since.pop(key, None)
+                    self._note_dispatched_text(item["last_message"])
                     continue
                 # Nobody listening yet -- at startup the observer is up before the
                 # front desk registers its rule (alpha 2026-10-07: the first message
@@ -604,6 +638,62 @@ class QianniuMemObserver:
                 self._baselined = True
                 logger.info("[QIANNIU-MEM] baseline: 0 buyer messages in memory at start; "
                             "every new buyer message from now on is answered")
+            if self._baselined and not self._cold_started:
+                self._cold_started = True
+                self._start_cold_sweep()
+
+    # ── Cold start: chats already waiting when eCan started ─────────────────
+    def _note_dispatched_text(self, text: str) -> None:
+        self._dispatched_texts.append((_norm_text(text), time.time()))
+        del self._dispatched_texts[:-200]
+
+    def _already_handled(self, _name: str, text: str) -> bool:
+        """True if the memory path dispatched this text (same 6-char prefix)
+        in the last 30 min -- the sweep must not answer it a second time."""
+        probe, cutoff = _norm_text(text)[:6], time.time() - 1800
+        return bool(probe) and any(t.startswith(probe) or probe.startswith(t[:6])
+                                   for t, ts in self._dispatched_texts if ts >= cutoff and t)
+
+    def _cold_dispatch(self, name: str, text: str) -> None:
+        """Dispatch a waiting chat found on screen. The memory sender id is
+        unknown for it; the learned one is used when the name maps to one."""
+        uid = name_map.id_for(name) or f"qnname:{name}"
+        msg_id = f"cold:{uid}:{_norm_text(text)[:24]}"
+        item = {
+            "customer_name": uid, "name": uid, "session_id": uid, "customer_id": uid, "talk_id": uid,
+            "customer_display_name": name,
+            "last_message": text, "latest_message": text,
+            "msg_id": msg_id, "latest_message_msg_id": msg_id,
+            "identity_key": f"{uid}|{msg_id}", "unread_badge": "1",
+            "source": "qianniu_coldstart", "message_kind": "text",
+            "product_card": self.product_for(uid),
+        }
+        for attempt in range(1, 13):           # the front desk may still be starting
+            n = self._dispatch(item)
+            if n:
+                self._note_dispatched_text(text)
+                logger.info(f"[QIANNIU-COLD] dispatched buyer={name!r} (id {uid!r}) to {n} runner(s): "
+                            f"{text[:40]!r} product={item['product_card'][:60] or None!r}")
+                return
+            time.sleep(10)
+        logger.warning(f"[QIANNIU-COLD] no agent runner took buyer={name!r}'s waiting message in 120 s")
+
+    def _start_cold_sweep(self) -> None:
+        if os.environ.get("ECAN_QIANNIU_COLDSTART", "1") == "0":
+            logger.info("[QIANNIU-COLD] cold-start sweep off (ECAN_QIANNIU_COLDSTART=0)")
+            return
+
+        def run():
+            if self._stop.wait(_COLD_SWEEP_DELAY_S):
+                return
+            try:
+                from agent.mcp.server.qianniu.qianniu_tools import cold_start_sweep
+                cold_start_sweep(self._cold_dispatch, self._already_handled)
+            except Exception as exc:
+                logger.warning(f"[QIANNIU-COLD] sweep failed: {exc}")
+        threading.Thread(target=run, name="qianniu-coldstart", daemon=True).start()
+        logger.info(f"[QIANNIU-COLD] cold-start sweep in {_COLD_SWEEP_DELAY_S:.0f}s: chats that were "
+                    f"already waiting are read from the screen")
 
     def _heartbeat(self) -> None:
         now = time.monotonic()

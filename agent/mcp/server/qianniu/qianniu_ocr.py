@@ -366,7 +366,7 @@ def transcript_contains(ocr_data: list, text: str) -> bool:
 # find_conversation_row (the column itself comes from _list_column).
 _LIST_SKIP = ("全部买家", "其他消息", "联系人", "列表分组", "最后一句", "消息",
               "离线", "分组", "正在接待")
-_TIMEISH = re.compile(r"^[\d:：]+$|小时|分钟|刚刚|昨天|星期|周|天前|:")
+_TIMEISH = re.compile(r"^[\d:：]+$|小时|分钟|刚刚|昨天|星期|周|天前|:|^\d+秒$")
 
 
 def find_conversation_row(ocr_data: list, text: str):
@@ -394,6 +394,78 @@ def find_conversation_row(ocr_data: list, text: str):
                    if 0 < cy - ly <= 70 and not any(s in t for s in _LIST_SKIP)
                    and not (_TIMEISH.search(t) and len(t) <= 8) and _norm(t)[:4] != probe)
     return (int(cx), int(cy)), (above[0][1] if above else "")
+
+
+# ── Cold start (alpha 2026-10-08) ────────────────────────────────────────────
+# At startup 千牛's memory holds no buyer text for chats that were already
+# waiting, so the memory observer cannot see them ("冷启动出不来，得再顶一句").
+# These read the screen instead: the 正在接待 rows, and who spoke last in a chat.
+_ROW_PREVIEW_DY = (12, 45)        # a row = name line, preview line this far below
+_TIMESTAMP_LINE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}\s*\d{1,2}:\d{2}|^\d{1,2}:\d{2}(:\d{2})?$")
+_BODY_NOISE = ("已读", "未读", "当前用户来自", "发送", "按Enter", "请输入")
+
+
+def conversation_rows(ocr_data: list, limit: int = 8) -> list:
+    """[(name, preview, (x, y))] for the 正在接待 list, top to bottom."""
+    left, right = _list_column(ocr_data)
+    # Rows sit below the list's tab bar; above it are the account/status lines.
+    tab_y = max(((it["loc"][0] + it["loc"][2]) / 2 for it in ocr_data or []
+                 if it.get("loc") and any(a in str(it.get("text") or "") for a in _LIST_ANCHORS)),
+                default=0)
+    lines = []
+    for it in ocr_data or []:
+        lc, t = it.get("loc"), str(it.get("text") or "").strip()
+        if not lc or not t:
+            continue
+        cx, cy = (lc[1] + lc[3]) / 2, (lc[0] + lc[2]) / 2
+        if cy > tab_y + 5 and left <= cx <= right and not any(s in t for s in _LIST_SKIP) \
+                and not (_TIMEISH.search(t) and len(t) <= 8):
+            lines.append((cy, cx, t))
+    lines.sort()
+    rows, i = [], 0
+    while i < len(lines) - 1 and len(rows) < limit:
+        (y1, x1, t1), (y2, _x2, t2) = lines[i], lines[i + 1]
+        if _ROW_PREVIEW_DY[0] <= y2 - y1 <= _ROW_PREVIEW_DY[1]:
+            rows.append((t1, t2, (int(x1), int(y1))))
+            i += 2
+        else:
+            i += 1
+    return rows
+
+
+def _colon_norm(s: str) -> str:
+    return _norm(s).replace("：", ":")
+
+
+def last_turn(ocr_data: list, buyer_name: str, store_label: str) -> tuple:
+    """Who spoke last in the open chat: ("buyer", text) / ("store", "") /
+    ("unknown", ""). Each message has a label line -- the buyer's name, or the
+    store account (``store_label``, from the window title) -- and the lowest
+    label is the last turn. *text* = the message lines under the buyer's label."""
+    _left, list_right = _list_column(ocr_data)
+    _x0, y0, _x1, y1 = _extent(ocr_data or [])
+    top = y0 + _HEADER_Y[1] * ((y1 - y0) or 1)
+    body = []
+    for it in ocr_data or []:
+        lc, t = it.get("loc"), str(it.get("text") or "").strip()
+        if not lc or not t:
+            continue
+        cx, cy = (lc[1] + lc[3]) / 2, (lc[0] + lc[2]) / 2
+        if cx > list_right and cy > top:
+            body.append((cy, cx, t))
+    body.sort()
+    bn, sl = _norm(buyer_name), _colon_norm(store_label)
+    labels = [(cy, "buyer") for cy, _cx, t in body if bn and _norm(t).startswith(bn)] + \
+             [(cy, "store") for cy, _cx, t in body if sl and sl in _colon_norm(t)]
+    if not labels:
+        return "unknown", ""
+    hy, side = max(labels)
+    if side != "buyer":
+        return side, ""
+    text = [t for cy, _cx, t in body
+            if hy < cy <= hy + 150 and not _norm(t).startswith(bn) and not _TIMESTAMP_LINE.search(t)
+            and not any(n in t for n in _BODY_NOISE)]
+    return "buyer", "".join(text[:3])
 
 
 def verify_header_name(expected_display_name: str,

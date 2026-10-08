@@ -429,6 +429,20 @@ def _append_recent_agent_reply(cust: str, reply_norm: str) -> None:
             del lst[: len(lst) - RECENT_REPLY_MAX_PER_CUSTOMER]
 
 
+def real_reply_since(customer: str, since_ts: float) -> str:
+    """The newest non-placeholder reply recorded for *customer* at or after
+    *since_ts* (within RECENT_REPLY_TTL_S), else "". Lets a parked card-identity
+    reply see that the same buyer was already answered under the real name."""
+    cust, _ = _fingerprint(customer or "", "x")
+    if not cust:
+        return ""
+    with _recent_replies_lock:
+        for txt, ts in reversed(recent_agent_replies_by_customer.get(cust) or []):
+            if ts >= since_ts and not is_placeholder_text(txt):
+                return txt
+    return ""
+
+
 def matches_recent_agent_reply(customer: str, sidebar_text: str) -> str:
     """Return the matching recorded reply if ``sidebar_text`` looks like
     our own DOM-echo for ``customer`` (real reply or a placeholder typed
