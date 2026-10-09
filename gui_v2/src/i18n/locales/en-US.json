@@ -3069,6 +3069,7 @@
           "timeout": "Gunicorn worker timeout in seconds, also serves as default LLM request timeout",
           "corsOrigins": "Allowed CORS origins, separated by commas",
           "ssl": "Enable SSL/TLS encrypted connections",
+          "sslVerify": "Verify TLS certificates of the LLM, embedding, rerank and parser services. Turn off only for a trusted local service with a self-signed certificate.",
           "inputDir": "Absolute path for document input directory",
           "workingDir": "Absolute path for working directory to store RAG data",
           "tiktokenCacheDir": "Tiktoken cache directory for offline deployment",

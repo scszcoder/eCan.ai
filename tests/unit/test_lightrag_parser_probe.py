@@ -34,8 +34,23 @@ def test_mineru_local_uses_health_endpoint(monkeypatch):
     assert request.call_args.kwargs["headers"] == {
         "Authorization": "Bearer local-secret"
     }
-    assert request.call_args.kwargs["verify"] is False
+    # TLS verification is on by default.
+    assert request.call_args.kwargs["verify"] is True
     request.assert_called_once()
+
+
+def test_mineru_probe_can_disable_ssl_verification(monkeypatch):
+    request = Mock(return_value=_response())
+    monkeypatch.setattr("knowledge.lightrag_parser_probe.requests.request", request)
+
+    probe_parser("mineru", {
+        "MINERU_API_MODE": "local",
+        "MINERU_LOCAL_ENDPOINT": "https://mineru.local",
+        "MINERU_LOCAL_API_KEY": "secret",
+        "SSL_VERIFY": "false",
+    })
+
+    assert request.call_args.kwargs["verify"] is False
 
 
 def test_mineru_probe_honors_explicit_ssl_verification(monkeypatch):

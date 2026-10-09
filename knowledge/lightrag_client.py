@@ -348,7 +348,8 @@ class LightragClient:
                 - response_type: Response type
                 - user_prompt: Custom user prompt
                 - conversation_history: List of previous messages
-                - ids: List of document IDs to search in
+                (Document-id filtering is not supported by the LightRAG
+                query API; scope retrieval with ``workspace`` instead.)
                 
         Returns:
             Dict with query response

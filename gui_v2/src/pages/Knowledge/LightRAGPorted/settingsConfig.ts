@@ -71,6 +71,7 @@ export const BASIC_FIELDS: FieldConfig[] = [
   
   // SSL Configuration
   { key: 'SSL', type: 'boolean', placeholder: 'false', section: 'ssl', tooltip: 'tooltips.ssl' },
+  { key: 'SSL_VERIFY', type: 'boolean', defaultValue: 'true', section: 'ssl', tooltip: 'tooltips.sslVerify' },
   { key: 'SSL_CERTFILE', type: 'text', placeholder: '/path/to/cert.pem', section: 'ssl' },
   { key: 'SSL_KEYFILE', type: 'text', placeholder: '/path/to/key.pem', section: 'ssl' },
   

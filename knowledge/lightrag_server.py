@@ -493,10 +493,12 @@ class LightragServer:
         elif rerank_binding != 'ollama':
             _map_binding(rerank_binding, LIGHTRAG_RERANK_SUPPORTED, 'RERANK_BINDING', default='jina')
         
-        # 7. Add SSL/TLS configuration to fix certificate errors
-        # Disable SSL verification for development/testing (can be overridden by extra_env)
-        if 'SSL_VERIFY' not in env:
-            env['SSL_VERIFY'] = 'false'
+        # 7. TLS certificate verification stays ON unless the user turns it
+        # off (Settings > SSL > SSL_VERIFY) for a self-signed local service.
+        # It used to default to off, which disabled verification for every
+        # outbound LLM/embedding/parser call.
+        if not str(env.get('SSL_VERIFY') or '').strip():
+            env['SSL_VERIFY'] = 'true'
 
         # 8. Clean up empty string values that cause argument parsing errors
         # LightRAG server cannot handle empty strings for numeric/float parameters

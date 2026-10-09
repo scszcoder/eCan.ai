@@ -57,10 +57,9 @@ def probe_model_service(kind: str, settings: Dict[str, Any]) -> Dict[str, Any]:
     host = settings.get(f"{prefix}_BINDING_HOST")
     model = str(settings.get(f"{prefix}_MODEL") or "").strip()
     api_key = str(settings.get(f"{prefix}_BINDING_API_KEY") or "").strip()
-    # LightRAG itself defaults SSL_VERIFY to false so self-signed HTTPS
-    # providers work. Keep the probe consistent with the actual runtime;
-    # callers can explicitly set SSL_VERIFY=true for strict verification.
-    ssl_value = str(settings.get("SSL_VERIFY", "false")).strip().lower()
+    # Keep the probe consistent with the runtime: TLS verification is on
+    # unless the user set SSL_VERIFY=false for a self-signed local service.
+    ssl_value = str(settings.get("SSL_VERIFY", "true")).strip().lower()
     verify_ssl = ssl_value in {"1", "true", "yes", "on"}
     if not binding:
         raise ServiceProbeError("missing_config", "未选择服务提供商")

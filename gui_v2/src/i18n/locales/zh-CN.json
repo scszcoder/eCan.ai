@@ -3084,6 +3084,7 @@
           "timeout": "请求超时（秒）",
           "corsOrigins": "允许的CORS源（逗号分隔）",
           "ssl": "启用SSL/TLS",
+          "sslVerify": "校验 LLM、向量、重排序和解析服务的 TLS 证书。仅当本地可信服务使用自签名证书时才关闭。",
           "inputDir": "输入文档目录",
           "workingDir": "工作数据目录（存储）",
           "tiktokenCacheDir": "Tiktoken缓存目录",
