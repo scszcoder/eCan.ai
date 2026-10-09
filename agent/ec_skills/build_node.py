@@ -8203,6 +8203,15 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         logger.info(log_msg)
                         send_skill_editor_log("log", log_msg)
                         _rag_mainwin = AppContext.get_main_window()
+                        # Scope for product knowledge comes from the run state
+                        # (task store_id + the buyer's product card), never from
+                        # the LLM's tool arguments.
+                        try:
+                            from knowledge.ks.agent_bridge import scope_from_state
+                            if isinstance(_actual_tool_input, dict) and isinstance(_actual_tool_input.get('input'), dict):
+                                _actual_tool_input['input'].setdefault('_ks_scope', scope_from_state(state))
+                        except Exception as _scope_err:
+                            logger.debug(f"[MCP_DIRECT] product scope unavailable: {_scope_err}")
                         content_blocks = await _rag_func(_rag_mainwin, _actual_tool_input)
                         return CallToolResult(content=content_blocks, isError=False)
                 except Exception as _direct_rag_err:

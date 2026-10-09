@@ -281,6 +281,21 @@ async def rag_query(mainwin, args):
         except Exception:
             pass
         
+        # Product knowledge first (knowledge/ks/agent_bridge.py): when the
+        # merchant has a product catalog and the question can be scoped to a
+        # store / product card, answer from the product record + scoped search
+        # in milliseconds. Returns None to fall through to LightRAG.
+        try:
+            from knowledge.ks.agent_bridge import try_product_answer
+            _ks_meta = await asyncio.to_thread(try_product_answer, mainwin, input_data)
+        except Exception as _ks_err:
+            logger.warning(f"[MCP][RAG_QUERY] product knowledge bridge failed: {_ks_err}")
+            _ks_meta = None
+        if _ks_meta:
+            _ks_out = TextContent(type="text", text=_ks_meta["data"]["response"])
+            _ks_out.meta = _ks_meta
+            return [_ks_out]
+
         # Optional LightRAG workspace (tenant) for data isolation.
         # Empty / missing → uses the server's default workspace.
         workspace = (input_data.get("workspace") or "").strip() or None

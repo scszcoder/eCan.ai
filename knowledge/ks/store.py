@@ -308,6 +308,14 @@ class KSStore:
 
     def resolve_item(self, tenant_id: str, platform_item_id: str, store_id: Optional[str] = None) -> Optional[str]:
         """Product id for a platform item id (商品ID), preferring the given store."""
+        hit = self.resolve_listing(tenant_id, platform_item_id, store_id)
+        return hit[0] if hit else None
+
+    def resolve_listing(self, tenant_id: str, platform_item_id: str,
+                        store_id: Optional[str] = None) -> Optional[Tuple[str, str]]:
+        """(product_id, store_id) for a platform item id. Item ids are per
+        store listing, so they also identify the store when the caller
+        doesn't know it (e.g. a shared Q&A agent serving several shops)."""
         if not platform_item_id:
             return None
         with self.session() as s:
@@ -318,8 +326,8 @@ class KSStore:
                 return None
             for r in rows:
                 if store_id and r.store_id == store_id:
-                    return r.product_id
-            return rows[0].product_id
+                    return r.product_id, r.store_id
+            return rows[0].product_id, rows[0].store_id
 
     def store_product_ids(self, store_id: str) -> set:
         with self.session() as s:

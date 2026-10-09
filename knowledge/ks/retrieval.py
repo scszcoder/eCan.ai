@@ -139,10 +139,15 @@ class ProductRetriever:
 
         # ---- scope ---------------------------------------------------------
         store = self.store.find_store(tenant_id, store_ref) if store_ref else None
-        r.store = store
         store_id = store["id"] if store else None
         if not product_id and platform_item_id:
-            product_id = self.store.resolve_item(tenant_id, platform_item_id, store_id) or ""
+            hit = self.store.resolve_listing(tenant_id, platform_item_id, store_id)
+            if hit:
+                product_id = hit[0]
+                if store is None:  # the listing tells us which store the chat is in
+                    store = self.store.get_store(hit[1])
+                    store_id = hit[1]
+        r.store = store
         product = self.store.get_product(product_id) if product_id else None
         if product and product["tenant_id"] != tenant_id:
             product = None  # never cross tenants, even with a guessed id
