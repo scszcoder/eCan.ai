@@ -383,4 +383,53 @@ count, ETA when known, and errors.
 
 ## 9. Execution log
 
-(updated as work lands)
+Status as of 2026-10-09, branch `rag-enterprise`.
+
+| Phase | Status | Commits / notes |
+|---|---|---|
+| 0. Fix & secure | **Done** | See defect table below. |
+| 1. Measure | **Done** | `rag_benchmark` branch `ecommerce-benchmark`: 30-question e-commerce set and `ecommerce/ks_adapter.py`. |
+| 2. KS core + path A | **Done** | `knowledge/ks/*`: models, import, cleaning, chunking, hybrid index, tiered retrieval, jobs. |
+| 3. Knowledge page GUI | **Done** | Product Knowledge tab: Overview, Products, Import, Store policies, Q&A test, Servers, Members & access, Jobs. |
+| 4. Agent integration | **Done** | `rag_query` uses product knowledge first. Scope comes from run state (task `store_id`, product card `商品ID`). Store linking picker and sync. `docs/RAG_QA_SKILL_GUIDE.md`. The planner prompt itself is skill data and is described in the guide. |
+| 5. Permissions & identity | **Done** | JWKS verification (Cognito / OIDC / CloudBase), local accounts, roles, grants, groups, confidential KBs, invites, domain auto-join, audit. |
+| 6. Planes | **Done (software)** | KS HTTP server, RemoteKS + PlaneRouter, private-data guard in the harness, `deploy/ks` (compose for the private GPU box and the cloud). **Not run on real hardware or in the cloud yet.** |
+| 7. Engine (path B, LightRAG) | **Not started** | LightRAG upgrade, PG backend, entity namespacing. Needs the desktop LightRAG server running for validation. |
+| 8. Enterprise extras | Not started | Directory sync (SCIM/LDAP), retention, dashboards. |
+
+Phase 0 defects:
+
+| # | Status |
+|---|---|
+| 1 | Fixed: scorer import, plus restored the ws111 off-topic gate that the 1.5 rewrite had lost. |
+| 2 | Fixed: loopback bind, API key, guest mode off. |
+| 3 | Not changed: the fast path is a deliberate latency choice and is superseded by path A. Rationale in commit `79bc0d74d`. |
+| 4 | Fixed: passthrough rerank scores ignored. |
+| 5 | Fixed: workspace scope for graph, history and clear. |
+| 6 | Fixed: workspace delete. |
+| 7 | Fixed: TLS verification on by default, with a toggle. |
+| 8 | Fixed: key prefix no longer logged. |
+| 9 | Fixed: misleading `ids` documentation. |
+| 10 | Fixed: the two workspace switches now stay in sync. |
+
+**Benchmark** (rag_benchmark/ecommerce, offline hashing embedder for both runs):
+
+| run | score | fatal |
+|---|---:|---:|
+| path A, scoped | 90.0 | 0 |
+| unscoped baseline (mimics the current fast path) | 36.7 | 12 |
+
+The remaining misses are paraphrases that need a neural embedding model.
+
+**Tests:**
+- `tests/ks`: 73 Python tests, covering retrieval, import, IPC, the agent bridge, permissions, the server, planes and
+  the guard.
+- `gui_v2/src/tests/components/ProductKnowledge.test.tsx`: 5 GUI tests.
+- RAG-related suites show no new failures against base `0253f4805`.
+
+**Open items:**
+- Validate `deploy/ks` on the 2 × RTX PRO 5500 box: vLLM flags, model fit, latency.
+- Deploy the public KS in AWS/TCB: the AWS CLI credentials on the dev machine are currently invalid, and this needs
+  owner approval.
+- Pick a neural embedding model for path A and re-run the benchmark.
+- Phase 7.
