@@ -759,10 +759,15 @@ def handle_run_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
                 "dev_mode": False,
                 "local_machine": socket.gethostname()
             }
+            # The task's prompt variables (e.g. part_vendor / docs_root): without
+            # them the cloud run renders {{...}} placeholders empty.
+            _task_vars = (getattr(task_obj, 'metadata', None) or {}).get('task_vars')
+            if isinstance(_task_vars, dict) and _task_vars:
+                metadata["task_vars"] = _task_vars
 
             session = requests.Session()
             endpoint = get_appsync_endpoint()
-            result = run_skill_in_cloud(session, access_token, skill_json, username, metadata, endpoint)
+            result = run_skill_in_cloud(session, token, skill_json, username, metadata, endpoint)
 
             if not result.get('success'):
                 return create_error_response(request, 'RUN_TASK_ERROR', str(result.get('error') or result.get('errors') or 'Cloud run failed'))

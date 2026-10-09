@@ -10,6 +10,18 @@ _Last updated: 2026-09-21_
 
 ## 🔴 Bugs (unfixed)
 
+### An orphaned Chromium from a killed app blocks every browser launch on its profile (2026-10-09)
+
+When the app is force-killed (or crashes), the Chromium it launched for a
+"new chromium" browser node can survive and keep `browser_profiles/<name>` in
+use. On the next start every launch on that profile fails after 30 s
+(`LocalBrowserWatchdog.on_BrowserLaunchEvent` TimeoutError) and a looping node
+retries forever. `ProfileLockCleaner` reported the profile "not locked" — it
+checks the lock file, not a live process using the directory. Fix idea: at
+startup (or on a launch timeout), find chrome.exe processes whose
+`--user-data-dir` is one of OUR profile dirs and whose parent is gone, and
+kill them. Repro 2026-10-09: chip-docs coordinator, orphan PID from 14:46.
+
 ### ✅ FIXED — two stores' browsers started on 9228 and closed each other (2026-10-04)
 
 Customer run 99r ("Chrome 闪退"): the 抖店 and 拼多多 front desks started together;

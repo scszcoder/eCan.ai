@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import re
 import threading
 import time
@@ -347,6 +348,23 @@ def _should_use_proxy(inputs: dict) -> bool:
     from agent.ec_skills.build_node import _should_use_proxy as _impl
 
     return _impl(inputs)
+
+
+def headless_browser_enabled() -> bool:
+    """True in a headless runtime that launches its own Chromium (the cloud
+    worker sets ``ECAN_HEADLESS_BROWSER=1``): a "new chromium" browser node may
+    run without a desktop main window (headed under Xvfb when a display exists,
+    headless only without one). The LLM then comes from the env-configured
+    llm-proxy (``ECAN_LLM_PROXY_*``)."""
+    return os.environ.get("ECAN_HEADLESS_BROWSER", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _no_display() -> bool:
+    """True on Linux without an X display. A runtime with a display (Windows,
+    or Linux under Xvfb as in the cloud worker image) runs a normal, headed
+    Chrome: vendor sites behind bot protection (Microchip/Akamai) answer
+    headless Chromium with "Access Denied" (2026-10-09)."""
+    return sys.platform.startswith("linux") and not os.environ.get("DISPLAY")
 
 
 def _get_proxy_config() -> dict | None:
@@ -5518,6 +5536,8 @@ class BrowserRunSession:
         _effective_headless = _run_identity.get("headless")
         if _effective_headless is None:
             _effective_headless = self.ctx.node_headless
+        if headless_browser_enabled() and _no_display():
+            _effective_headless = True  # nothing to draw on
         if _run_identity:
             logger.info(
                 f"[BrowserAutomation] Per-run browser identity overrides for "
@@ -6611,7 +6631,7 @@ class BrowserRunSession:
 
 
             # LOCAL EXECUTION MODES: Require mainwin
-            if not mainwin:
+            if not mainwin and not (headless_browser_enabled() and self.ctx.browser_type_setting == 'new chromium'):
                 raise ValueError("mainwin is required. Must use mainwin configuration for browser_use LLM.")
 
             # Build local LLM, attach token context, assemble agent_kwargs.

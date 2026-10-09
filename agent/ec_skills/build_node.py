@@ -12513,7 +12513,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         f"[build_browser_automation_node] AppContext fallback failed: {_ctx_err}"
                     )
 
-            if not mainwin and not is_cloud_mode:
+            # A headless runtime (cloud worker with its own Chromium) runs the
+            # local new-chromium path without a desktop window.
+            from agent.ec_skills.browser_node.runner import headless_browser_enabled
+            if not mainwin and not is_cloud_mode and not headless_browser_enabled():
                 err_msg = "Cannot create browser_use LLM: mainwin not available. Please ensure agent is properly initialized."
                 logger.error(f"[build_browser_automation_node] {err_msg}")
                 send_skill_editor_log("error", f"[build_browser_automation_node] {err_msg}")

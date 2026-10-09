@@ -570,6 +570,28 @@ def _parse_worker_message(raw: Any) -> WorkerMessage:
     )
 
 
+def _task_vars_from_run_message(msg_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """task_vars of a runSkill message: top level, or inside its meta_data
+    (the desktop sends them in runSkill metadata). JSON strings are accepted."""
+    for container in (msg_data, msg_data.get("meta_data") or msg_data.get("metaData") or {}):
+        if isinstance(container, str):
+            try:
+                container = json.loads(container)
+            except Exception:
+                continue
+        if not isinstance(container, dict):
+            continue
+        tv = container.get("task_vars") or container.get("taskVars")
+        if isinstance(tv, str):
+            try:
+                tv = json.loads(tv)
+            except Exception:
+                tv = None
+        if isinstance(tv, dict) and tv:
+            return tv
+    return None
+
+
 async def _publish_event(
     *,
     loader: S3SettingsLoader,
@@ -629,6 +651,35 @@ async def _publish_event(
             endpoints=cfg.endpoints,
             metadata=md,
         )
+
+
+RUN_OUTPUT_DIR_TOKEN = "$RUN_OUTPUT_DIR"
+
+
+def _bind_run_output_dir(task_vars: Optional[Dict[str, Any]], out_dir: Path) -> Optional[Dict[str, Any]]:
+    """Replace the ``$RUN_OUTPUT_DIR`` placeholder in task_vars with this run's
+    output folder. A cloud task names where its files go (e.g. the crawler's
+    docs_root) without knowing the container's paths; the folder is uploaded
+    to S3 after the run."""
+    if not isinstance(task_vars, dict):
+        return task_vars
+    out = out_dir.as_posix()
+    return {k: (v.replace(RUN_OUTPUT_DIR_TOKEN, out) if isinstance(v, str) else v)
+            for k, v in task_vars.items()}
+
+
+def _upload_dir_to_s3(*, bucket: str, prefix: str, src_dir: Path, region: str) -> int:
+    """Upload every file under *src_dir* to ``s3://bucket/prefix/<relative path>``."""
+    import boto3
+    from botocore.config import Config
+
+    client = boto3.client("s3", config=Config(region_name=region, retries={"max_attempts": 5, "mode": "standard"}))
+    uploaded = 0
+    for f in sorted(src_dir.rglob("*")):
+        if f.is_file():
+            client.upload_file(str(f), bucket, f"{prefix.rstrip('/')}/{f.relative_to(src_dir).as_posix()}")
+            uploaded += 1
+    return uploaded
 
 
 def _download_s3_prefix_to_dir(*, bucket: str, prefix: str, dest_dir: Path, region: str) -> int:
@@ -1338,23 +1389,38 @@ async def handle_skill_run_message(
                 skill_folder = _find_skill_folder(tmp_dir)
                 
                 # Create a compatible WorkerMessage for the skill runner
+                # Files the run writes into its output folder ($RUN_OUTPUT_DIR in
+                # task_vars) outlive the container only via S3.
+                out_dir = Path(tempfile.mkdtemp(prefix="ecan_run_out_"))
                 legacy_msg = WorkerMessage(
                     user_email=username,
                     chat_id=run_state.run_id,
                     sender_id=run_state.skill_id or "cloud_worker",
                     skill_name=skill_base_name,
-                    prompt=json.dumps(test_inputs) if test_inputs else "",
+                    prompt=msg_data.get("prompt") or (json.dumps(test_inputs) if test_inputs else ""),
+                    task_vars=_bind_run_output_dir(_task_vars_from_run_message(msg_data), out_dir),
                 )
                 
-                result = _run_skill_once(msg=legacy_msg, skill_root=skill_folder)
-                logger.info(f"[cloud_worker] Skill result: success={result.get('success', True)}")
-            finally:
-                # Cleanup temp directory
-                import shutil
                 try:
-                    shutil.rmtree(tmp_dir, ignore_errors=True)
-                except Exception:
-                    pass
+                    result = _run_skill_once(msg=legacy_msg, skill_root=skill_folder)
+                    logger.info(f"[cloud_worker] Skill result: success={result.get('success', True)}")
+                finally:
+                    if any(out_dir.rglob("*")):
+                        runs_prefix = skills_prefix.rsplit("/skills", 1)[0] + f"/runs/{run_state.run_id}"
+                        try:
+                            n = _upload_dir_to_s3(bucket=bucket, prefix=runs_prefix, src_dir=out_dir, region=region)
+                            logger.info(f"[cloud_worker] Uploaded {n} output file(s) to s3://{bucket}/{runs_prefix}/")
+                        except Exception as up_err:
+                            logger.error(f"[cloud_worker] Output upload to s3://{bucket}/{runs_prefix}/ failed: {up_err}")
+            finally:
+                # Cleanup temp directories
+                import shutil
+                for _d in (tmp_dir, locals().get("out_dir")):
+                    try:
+                        if _d:
+                            shutil.rmtree(_d, ignore_errors=True)
+                    except Exception:
+                        pass
     finally:
         # Always clear cloud prompt context
         clear_cloud_prompt_context()
