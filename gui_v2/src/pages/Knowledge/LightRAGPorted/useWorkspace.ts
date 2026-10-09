@@ -11,30 +11,13 @@ import { useCallback, useEffect, useState } from 'react';
  * pre-multi-tenant behavior). All callers should treat empty as "no
  * override" and omit the ``workspace`` field from outbound IPC payloads.
  */
-const STORAGE_KEY = 'lightrag-ported:workspace:active';
-const EVENT_NAME = 'lightrag-workspace-changed';
+import {
+  WORKSPACE_EVENT_NAME as EVENT_NAME,
+  getStoredWorkspace,
+  setStoredWorkspace,
+} from '@/services/ipc/lightragWorkspace';
 
-export function getStoredWorkspace(): string {
-  try {
-    return sessionStorage.getItem(STORAGE_KEY) || '';
-  } catch {
-    return '';
-  }
-}
-
-export function setStoredWorkspace(workspace: string): void {
-  const next = (workspace || '').trim();
-  try {
-    sessionStorage.setItem(STORAGE_KEY, next);
-  } catch {
-    /* ignore quota errors */
-  }
-  try {
-    window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: next }));
-  } catch {
-    /* ignore (non-browser env) */
-  }
-}
+export { getStoredWorkspace, setStoredWorkspace };
 
 /**
  * React hook returning ``[workspace, setWorkspace]``. The setter persists

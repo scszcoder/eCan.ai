@@ -14,6 +14,11 @@ from knowledge.lightrag_client import get_client
 from utils.logger_helper import logger_helper as logger
 
 
+def _workspace_param(params: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Workspace (knowledge base) the GUI selected; None means the server default."""
+    return (((params or {}).get('workspace')) or '').strip() or None
+
+
 @IPCHandlerRegistry.background_handler('lightrag.ingestFiles')
 def handle_ingest_files(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
@@ -577,132 +582,41 @@ def handle_query_stream(request: IPCRequest, params: Optional[Dict[str, Any]]) -
 @IPCHandlerRegistry.handler('lightrag.clearCache')
 def handle_clear_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
-    Handle clear cache request.
-    Clears LLM cache and deletes all storage data files (vector DB, graph DB, etc.).
-    After deletion, automatically recreates the necessary initialization files.
+    Clear ONE workspace: its LLM cache plus every document, chunk, entity and
+    relation in it. Other workspaces are untouched.
+
+    The workspace is the one selected in the GUI, or the server's configured
+    default. This used to wipe the whole WORKING_DIR (every knowledge base)
+    and restart the server.
     """
     try:
-        import shutil
-        import json
-        from pathlib import Path
         from knowledge.lightrag_config_manager import get_config_manager
-        
-        # Optional LightRAG workspace (tenant) for the API-side cache clear.
-        # The on-disk cleanup below targets the global WORKING_DIR; mixing
-        # workspace-scoped cache clears with full disk wipe is intentional
-        # because the latter is the user-visible behavior the UI expects.
-        workspace = ((params or {}).get('workspace') or '').strip() or None
-        # Get LightRAG client
-        client = get_client()
-        
-        # Step 1: Call clear_cache API to clear LLM cache
-        result = client.clear_cache(workspace=workspace)
-        
-        if result.get('status') == 'error':
-            logger.warning(f"Clear cache API returned error: {result.get('message')}")
-        
-        # Step 2: Delete all storage data files
+
         config_manager = get_config_manager()
-        working_dir = config_manager.get_value('WORKING_DIR')
-        
-        if working_dir and os.path.exists(working_dir):
-            logger.info(f"[ClearCache] Deleting all data in working directory: {working_dir}")
-            
-            deleted_items = []
-            errors = []
-            
-            # Delete all subdirectories and files in working_dir
-            for item in Path(working_dir).iterdir():
-                try:
-                    if item.is_dir():
-                        shutil.rmtree(item)
-                        deleted_items.append(f"Directory: {item.name}")
-                    else:
-                        item.unlink()
-                        deleted_items.append(f"File: {item.name}")
-                except Exception as e:
-                    error_msg = f"Failed to delete {item.name}: {str(e)}"
-                    errors.append(error_msg)
-                    logger.error(f"[ClearCache] {error_msg}")
-            
-            logger.info(f"[ClearCache] Deleted {len(deleted_items)} items")
-            
-            # Step 3: Recreate necessary initialization files for the working directory
-            try:
-                logger.info(f"[ClearCache] Recreating initialization files in: {working_dir}")
-                
-                # Create the working directory if it doesn't exist
-                os.makedirs(working_dir, exist_ok=True)
-                
-                # Create essential KV store files with empty JSON objects
-                kv_files = [
-                    'kv_store_doc_status.json',
-                    'kv_store_full_docs.json', 
-                    'kv_store_llm_response_cache.json'
-                ]
-                
-                for kv_file in kv_files:
-                    kv_path = os.path.join(working_dir, kv_file)
-                    with open(kv_path, 'w', encoding='utf-8') as f:
-                        json.dump({}, f)
-                    logger.info(f"[ClearCache] Created: {kv_file}")
-                
-                # Create graph database initialization file
-                graph_file = 'graph_chunk_entity_relation_table.json'
-                graph_path = os.path.join(working_dir, graph_file)
-                with open(graph_path, 'w', encoding='utf-8') as f:
-                    json.dump({}, f)
-                logger.info(f"[ClearCache] Created: {graph_file}")
-                
-                logger.info(f"[ClearCache] ✅ Initialization files recreated successfully")
-                logger.info(f"[ClearCache] Note: Vector database indexes will be recreated automatically on first document upload")
-                
-            except Exception as e:
-                error_msg = f"Failed to recreate initialization files: {str(e)}"
-                errors.append(error_msg)
-                logger.error(f"[ClearCache] {error_msg}")
-            
-            # Step 4: Restart LightRAG server to clear all in-memory state
-            try:
-                logger.info(f"[ClearCache] Restarting LightRAG server to clear in-memory state...")
-                from app_context import AppContext
-                main_window = AppContext.get_main_window()
-                
-                if main_window and hasattr(main_window, 'lightrag_server') and main_window.lightrag_server:
-                    # Stop the server
-                    main_window.lightrag_server.stop()
-                    logger.info(f"[ClearCache] LightRAG server stopped")
-                    
-                    # Start the server again (start() already waits for ready, no need for sleep)
-                    success = main_window.lightrag_server.start(wait_ready=True)
-                    if success:
-                        logger.info(f"[ClearCache] ✅ LightRAG server restarted successfully")
-                    else:
-                        error_msg = "Failed to restart LightRAG server"
-                        errors.append(error_msg)
-                        logger.error(f"[ClearCache] {error_msg}")
-                else:
-                    logger.warning(f"[ClearCache] LightRAG server not found, skipping restart")
-                    
-            except Exception as e:
-                error_msg = f"Failed to restart LightRAG server: {str(e)}"
-                errors.append(error_msg)
-                logger.error(f"[ClearCache] {error_msg}")
-            
-            return create_success_response(request, {
-                'status': 'success',
-                'message': f'Successfully cleared cache, deleted {len(deleted_items)} items, and recreated initialization files',
-                'deleted_items': deleted_items,
-                'errors': errors
-            })
-        else:
-            logger.warning(f"[ClearCache] Working directory not found or not configured: {working_dir}")
-            return create_success_response(request, {
-                'status': 'success',
-                'message': 'Cache cleared (no working directory to clean)',
-                'data': result.get('data', {})
-            })
-        
+        default_ws = (config_manager.get_value('WORKSPACE', 'default') or 'default').strip()
+        workspace = _workspace_param(params)
+        target = workspace or default_ws
+        client = get_client()
+
+        errors = []
+        docs_result = client.clear_documents(workspace=workspace)
+        if docs_result.get('status') == 'error':
+            errors.append(f"clear documents: {docs_result.get('message')}")
+        cache_result = client.clear_cache(workspace=workspace)
+        if cache_result.get('status') == 'error':
+            errors.append(f"clear LLM cache: {cache_result.get('message')}")
+
+        if errors:
+            logger.warning(f"[ClearCache] workspace={target}: {errors}")
+            return create_error_response(request, 'CLEAR_CACHE_ERROR', '; '.join(errors))
+
+        logger.info(f"[ClearCache] Cleared workspace {target}")
+        return create_success_response(request, {
+            'status': 'success',
+            'workspace': target,
+            'message': f"Cleared knowledge base '{target}'",
+            'data': docs_result.get('data', {}),
+        })
     except Exception as e:
         logger.error(f"Error in clear_cache handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'CLEAR_CACHE_ERROR', str(e))
@@ -1010,7 +924,8 @@ def handle_update_entity(request: IPCRequest, params: Optional[Dict[str, Any]]) 
             data['entity_name'],
             data['updated_data'],
             data.get('allow_rename', False),
-            data.get('allow_merge', False)
+            data.get('allow_merge', False),
+            workspace=_workspace_param(params),
         )
         
         if result.get('status') == 'error':
@@ -1032,7 +947,7 @@ def handle_check_entity_name_exists(request: IPCRequest, params: Optional[Dict[s
             return create_error_response(request, 'INVALID_PARAMS', error)
         
         client = get_client()
-        result = client.check_entity_name_exists(data['name'])
+        result = client.check_entity_name_exists(data['name'], workspace=_workspace_param(params))
         
         if result.get('status') == 'error':
             return create_error_response(request, 'CHECK_ENTITY_ERROR', result.get('message', 'Failed to check entity'))
@@ -1052,7 +967,7 @@ def handle_update_relation(request: IPCRequest, params: Optional[Dict[str, Any]]
             return create_error_response(request, 'INVALID_PARAMS', error)
         
         client = get_client()
-        result = client.update_relation(data['source_id'], data['target_id'], data['updated_data'])
+        result = client.update_relation(data['source_id'], data['target_id'], data['updated_data'], workspace=_workspace_param(params))
         
         if result.get('status') == 'error':
             return create_error_response(request, 'UPDATE_RELATION_ERROR', result.get('message', 'Failed to update relation'))
@@ -1069,7 +984,7 @@ def handle_get_graph_label_list(request: IPCRequest, params: Optional[Dict[str, 
     """Handle get graph label list request (runs in background thread to avoid blocking UI)."""
     try:
         client = get_client()
-        result = client.get_graph_label_list()
+        result = client.get_graph_label_list(workspace=_workspace_param(params))
         
         if result.get('status') == 'error':
             return create_error_response(request, 'GET_LABEL_LIST_ERROR', result.get('message', 'Failed to get label list'))
@@ -1093,7 +1008,7 @@ def handle_get_popular_labels(request: IPCRequest, params: Optional[Dict[str, An
         if not hasattr(client, 'get_popular_labels'):
              return create_error_response(request, 'NOT_IMPLEMENTED', 'get_popular_labels not implemented in client')
 
-        result = client.get_popular_labels(limit=limit)
+        result = client.get_popular_labels(limit=limit, workspace=_workspace_param(params))
         
         if result.get('status') == 'error':
             return create_error_response(request, 'GET_POPULAR_LABELS_ERROR', result.get('message', 'Failed to get popular labels'))
@@ -1121,7 +1036,7 @@ def handle_search_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         if not hasattr(client, 'search_labels'):
              return create_error_response(request, 'NOT_IMPLEMENTED', 'search_labels not implemented in client')
 
-        result = client.search_labels(q=query, limit=limit)
+        result = client.search_labels(q=query, limit=limit, workspace=_workspace_param(params))
         
         if result.get('status') == 'error':
             return create_error_response(request, 'SEARCH_LABELS_ERROR', result.get('message', 'Failed to search labels'))
@@ -1685,98 +1600,30 @@ def handle_get_startup_status(request: IPCRequest, params: Optional[Dict[str, An
 
 @IPCHandlerRegistry.handler('lightrag.getWorkspaces')
 def handle_get_workspaces(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Get list of available LightRAG workspaces by scanning rag_storage subdirectories.
-    
-    Workspaces are subdirectories under rag_storage (e.g., rag_storage/test2, rag_storage/test3)
-    Only actual workspace directories are included, not system directories like inputs.
-    """
+    """List LightRAG workspaces: the subdirectories of rag_storage, plus the
+    configured workspace even if it has no data yet."""
     try:
+        from knowledge.lightrag_workspaces import list_workspaces, rag_storage_root
+
         config_manager = get_config_manager()
-        
-        # Get base working directory from config
         base_working_dir = config_manager.get_value('WORKING_DIR')
-        
+        current_workspace = config_manager.get_value('WORKSPACE', 'default')
+
         if not base_working_dir:
             logger.warning("[LightRAG] WORKING_DIR not configured")
-            return create_success_response(request, {
-                'workspaces': [],
-                'current': config_manager.get_value('WORKSPACE', 'default')
-            })
-        
-        # Extract the rag_storage directory path
-        # WORKING_DIR format: /path/to/lightrag/rag_storage/workspace_name
-        # We need: /path/to/lightrag/rag_storage
-        
-        # First, check if WORKING_DIR already ends with rag_storage
-        if base_working_dir.endswith('rag_storage'):
-            rag_storage_dir = base_working_dir
-        elif 'rag_storage' in base_working_dir:
-            # Find the rag_storage directory
-            parts = base_working_dir.split('/')
-            rag_storage_index = -1
-            for i, part in enumerate(parts):
-                if part == 'rag_storage':
-                    rag_storage_index = i
-                    break
-            
-            if rag_storage_index >= 0:
-                # Reconstruct path up to and including rag_storage
-                rag_storage_dir = '/'.join(parts[:rag_storage_index + 1])
-            else:
-                # Fallback: remove last component
-                rag_storage_dir = base_working_dir.rsplit('/', 1)[0]
-        else:
-            # Fallback: remove last component
-            rag_storage_dir = base_working_dir.rsplit('/', 1)[0] if '/' in base_working_dir else base_working_dir
-        
-        logger.info(f"[LightRAG] Base WORKING_DIR: {base_working_dir}")
-        logger.info(f"[LightRAG] Extracted rag_storage_dir: {rag_storage_dir}")
-        
-        # Scan for workspace subdirectories in rag_storage
-        workspaces = []
-        if os.path.exists(rag_storage_dir):
-            logger.info(f"[LightRAG] Scanning workspaces in: {rag_storage_dir}")
-            for item in os.listdir(rag_storage_dir):
-                # Skip system directories and files
-                if item in ['inputs', 'outputs', 'logs', '.git', '__pycache__', 'rag_storage', 'tiktoken', 'cache']:
-                    logger.debug(f"[LightRAG] Skipping system directory: {item}")
-                    continue
-                
-                # Skip hidden files and directories
-                if item.startswith('.'):
-                    continue
-                    
-                item_path = os.path.join(rag_storage_dir, item)
-                if os.path.isdir(item_path):
-                    logger.debug(f"[LightRAG] Found workspace candidate: {item}")
-                    workspaces.append({
-                        'name': item,
-                        'is_valid': True
-                    })
-            logger.info(f"[LightRAG] Found {len(workspaces)} workspaces: {[w['name'] for w in workspaces]}")
-        else:
-            logger.warning(f"[LightRAG] rag_storage directory does not exist: {rag_storage_dir}")
-        
-        # Get current workspace from config
-        current_workspace = config_manager.get_value('WORKSPACE', 'default')
-        
-        # Always include the configured workspace. It may be new/empty and
-        # therefore not have a storage directory yet; omitting it makes the
-        # UI selector unable to display the workspace that is actually in
-        # use whenever other workspace directories already exist.
-        known_workspace_names = {item['name'] for item in workspaces}
-        if current_workspace and current_workspace not in known_workspace_names:
-            workspaces.append({
-                'name': current_workspace,
-                'is_valid': os.path.isdir(os.path.join(rag_storage_dir, current_workspace))
-            })
+            return create_success_response(request, {'workspaces': [], 'current': current_workspace})
 
+        names = list_workspaces(base_working_dir)
+        workspaces = [{'name': n, 'is_valid': True} for n in names]
+        # Always include the configured workspace. It may be new/empty and
+        # therefore not have a storage directory yet.
+        if current_workspace and current_workspace not in names:
+            root = rag_storage_root(base_working_dir)
+            workspaces.append({'name': current_workspace,
+                               'is_valid': (root / current_workspace).is_dir()})
         workspaces.sort(key=lambda item: item['name'].lower())
-        
-        return create_success_response(request, {
-            'workspaces': workspaces,
-            'current': current_workspace
-        })
+
+        return create_success_response(request, {'workspaces': workspaces, 'current': current_workspace})
     except Exception as e:
         logger.error(f"[LightRAG] Error getting workspaces: {e}", exc_info=True)
         return create_error_response(request, 'GET_WORKSPACES_ERROR', str(e))
@@ -1784,52 +1631,57 @@ def handle_get_workspaces(request: IPCRequest, params: Optional[Dict[str, Any]])
 
 @IPCHandlerRegistry.handler('lightrag.deleteWorkspace')
 def handle_delete_workspace(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Delete a workspace folder and its contents.
-    
-    This will delete the workspace-specific directory structure:
-    - {user_data_path}/lightrag_{workspace_name}/
+    """Delete a workspace (knowledge base) and its data.
+
+    Data lives in ``rag_storage/<workspace>`` (the folder getWorkspaces lists).
+    Older builds looked in ``<user data>/lightrag_<workspace>`` instead, so the
+    delete never found the real folder; that legacy path is still cleaned up.
     """
     try:
-        if not params or 'workspace_name' not in params:
-            return create_error_response(request, 'INVALID_PARAMS', 'workspace_name is required')
-        
-        workspace_name = params['workspace_name'].strip()
-        
-        if not workspace_name:
-            return create_error_response(request, 'INVALID_PARAMS', 'workspace_name cannot be empty')
-        
-        # Check if it's the current workspace
+        from knowledge.lightrag_workspaces import delete_workspace_files, validate_workspace_name
+
+        try:
+            workspace_name = validate_workspace_name((params or {}).get('workspace_name'))
+        except ValueError as ve:
+            return create_error_response(request, 'INVALID_PARAMS', str(ve))
+
         config_manager = get_config_manager()
-        current_workspace = config_manager.get_value('WORKSPACE', '')
-        
+        current_workspace = (config_manager.get_value('WORKSPACE', '') or '').strip()
         if current_workspace == workspace_name:
-            return create_error_response(request, 'WORKSPACE_IN_USE', 
+            return create_error_response(request, 'WORKSPACE_IN_USE',
                                         f"Cannot delete workspace '{workspace_name}' because it is currently in use. Please switch to another workspace first.")
-        
-        from utils.path_manager import get_user_data_path
-        from gui.ipc.context_bridge import get_handler_context
-        import shutil
-        
-        # Get current user from context
-        ctx = get_handler_context(request, params)
-        user = ctx.main_window.log_user if ctx and ctx.main_window else None
-        
-        # Build workspace folder path
-        user_data_path = get_user_data_path(user)
-        workspace_folder = os.path.join(user_data_path, f'lightrag_{workspace_name}')
-        
-        # Check if workspace folder exists
-        if not os.path.exists(workspace_folder):
-            return create_error_response(request, 'WORKSPACE_NOT_FOUND', 
+
+        working_dir = config_manager.get_value('WORKING_DIR')
+        if not working_dir:
+            return create_error_response(request, 'CONFIG_ERROR', 'Working directory not configured')
+
+        legacy_root = None
+        try:
+            from utils.path_manager import get_user_data_path
+            from gui.ipc.context_bridge import get_handler_context
+            ctx = get_handler_context(request, params)
+            user = ctx.main_window.log_user if ctx and ctx.main_window else None
+            legacy_root = get_user_data_path(user)
+        except Exception:
+            pass
+
+        # Release the server's in-memory copy first so it doesn't rewrite the
+        # files after they are removed.
+        client = get_client()
+        cleared = client.clear_documents(workspace=workspace_name)
+        if cleared.get('status') == 'error':
+            logger.warning(f"[LightRAG] clear_documents before delete failed: {cleared.get('message')}")
+
+        removed = delete_workspace_files(working_dir, workspace_name, legacy_root)
+        if not removed and cleared.get('status') == 'error':
+            return create_error_response(request, 'WORKSPACE_NOT_FOUND',
                                         f"Workspace folder '{workspace_name}' does not exist")
-        
-        # Delete the workspace folder
-        shutil.rmtree(workspace_folder)
-        logger.info(f"[LightRAG] ✅ Deleted workspace folder: {workspace_folder}")
-        
+
+        logger.info(f"[LightRAG] Deleted workspace {workspace_name}: {removed}")
         return create_success_response(request, {
             'success': True,
             'workspace_name': workspace_name,
+            'removed': removed,
             'message': f"Workspace '{workspace_name}' deleted successfully"
         })
     except Exception as e:
@@ -2201,7 +2053,7 @@ def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         client = get_client()
         # Call query_graphs method (assumed to be added to client)
         if hasattr(client, 'query_graphs'):
-            result = client.query_graphs(label, max_depth, max_nodes)
+            result = client.query_graphs(label, max_depth, max_nodes, workspace=_workspace_param(params))
         else:
             # Fallback mock if not implemented yet
             return create_success_response(request, {'nodes': [], 'edges': [], 'is_truncated': False})
@@ -2286,121 +2138,64 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
 
 @IPCHandlerRegistry.handler('lightrag.getInputHistory')
 def handle_get_input_history(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Get input history from storage."""
-    try:
-        config_manager = get_config_manager()
-        working_dir = config_manager.get_value('WORKING_DIR')
-        
-        if not working_dir or not os.path.exists(working_dir):
-            return create_success_response(request, [])
-            
-        history_file = os.path.join(working_dir, 'lightrag_input_history.json')
-        if not os.path.exists(history_file):
-            return create_success_response(request, [])
-            
-        with open(history_file, 'r', encoding='utf-8') as f:
-            try:
-                content = f.read().strip()
-                if not content:
-                    history = []
-                else:
-                    history = json.loads(content)
-            except json.JSONDecodeError:
-                logger.warning(f"Corrupted history file found at {history_file}, resetting to empty.")
-                history = []
-            
-        return create_success_response(request, history)
-    except Exception as e:
-        logger.error(f"Error getting input history: {e}")
-        # Return empty list on error to not break UI
-        return create_success_response(request, [])
+    """Get the selected workspace's query input history."""
+    return _get_history(request, params, 'input')
 
 
 @IPCHandlerRegistry.handler('lightrag.saveInputHistory')
 def handle_save_input_history(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Save input history to storage."""
-    try:
-        history = params.get('history', [])
-        if not isinstance(history, list):
-            return create_error_response(request, 'INVALID_PARAMS', 'History must be a list')
-            
-        config_manager = get_config_manager()
-        working_dir = config_manager.get_value('WORKING_DIR')
-        
-        if not working_dir:
-             return create_error_response(request, 'CONFIG_ERROR', 'Working directory not configured')
-             
-        if not os.path.exists(working_dir):
-            os.makedirs(working_dir, exist_ok=True)
-            
-        history_file = os.path.join(working_dir, 'lightrag_input_history.json')
-        
-        with open(history_file, 'w', encoding='utf-8') as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
-            
-        return create_success_response(request, {'success': True})
-    except Exception as e:
-        logger.error(f"Error saving input history: {e}")
-        return create_error_response(request, 'SAVE_HISTORY_ERROR', str(e))
+    """Save the selected workspace's query input history."""
+    return _save_history(request, params, 'input', 'history', 'SAVE_HISTORY_ERROR')
 
 
 @IPCHandlerRegistry.handler('lightrag.getConversationHistory')
 def handle_get_conversation_history(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Get conversation history (messages) from storage."""
-    try:
-        config_manager = get_config_manager()
-        working_dir = config_manager.get_value('WORKING_DIR')
-        
-        if not working_dir or not os.path.exists(working_dir):
-            return create_success_response(request, [])
-            
-        history_file = os.path.join(working_dir, 'lightrag_conversation_history.json')
-        if not os.path.exists(history_file):
-            return create_success_response(request, [])
-            
-        with open(history_file, 'r', encoding='utf-8') as f:
-            try:
-                content = f.read().strip()
-                if not content:
-                    history = []
-                else:
-                    history = json.loads(content)
-            except json.JSONDecodeError:
-                logger.warning(f"Corrupted conversation history file at {history_file}, resetting.")
-                history = []
-            
-        return create_success_response(request, history)
-    except Exception as e:
-        logger.error(f"Error getting conversation history: {e}")
-        return create_success_response(request, [])
+    """Get the selected workspace's conversation history (messages)."""
+    return _get_history(request, params, 'conversation')
 
 
 @IPCHandlerRegistry.handler('lightrag.saveConversationHistory')
 def handle_save_conversation_history(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Save conversation history (messages) to storage."""
+    """Save the selected workspace's conversation history (messages)."""
+    return _save_history(request, params, 'conversation', 'messages', 'SAVE_CONVERSATION_ERROR')
+
+
+def _history_scope(params: Optional[Dict[str, Any]]):
+    """(working_dir, workspace, default_workspace) for history storage."""
+    config_manager = get_config_manager()
+    working_dir = config_manager.get_value('WORKING_DIR')
+    default_ws = (config_manager.get_value('WORKSPACE', 'default') or 'default').strip()
+    return working_dir, (_workspace_param(params) or default_ws), default_ws
+
+
+def _get_history(request: IPCRequest, params: Optional[Dict[str, Any]], kind: str) -> IPCResponse:
+    from knowledge.lightrag_workspaces import read_history
     try:
-        messages = params.get('messages', [])
-        if not isinstance(messages, list):
-            return create_error_response(request, 'INVALID_PARAMS', 'Messages must be a list')
-            
-        config_manager = get_config_manager()
-        working_dir = config_manager.get_value('WORKING_DIR')
-        
+        working_dir, ws, default_ws = _history_scope(params)
         if not working_dir:
-             return create_error_response(request, 'CONFIG_ERROR', 'Working directory not configured')
-             
-        if not os.path.exists(working_dir):
-            os.makedirs(working_dir, exist_ok=True)
-            
-        history_file = os.path.join(working_dir, 'lightrag_conversation_history.json')
-        
-        with open(history_file, 'w', encoding='utf-8') as f:
-            json.dump(messages, f, ensure_ascii=False, indent=2)
-            
+            return create_success_response(request, [])
+        return create_success_response(request, read_history(working_dir, ws, kind, default_ws))
+    except Exception as e:
+        logger.error(f"Error getting {kind} history: {e}")
+        # Return empty list on error to not break UI
+        return create_success_response(request, [])
+
+
+def _save_history(request: IPCRequest, params: Optional[Dict[str, Any]], kind: str,
+                  field: str, error_code: str) -> IPCResponse:
+    from knowledge.lightrag_workspaces import write_history
+    try:
+        items = (params or {}).get(field, [])
+        if not isinstance(items, list):
+            return create_error_response(request, 'INVALID_PARAMS', f'{field} must be a list')
+        working_dir, ws, _ = _history_scope(params)
+        if not working_dir:
+            return create_error_response(request, 'CONFIG_ERROR', 'Working directory not configured')
+        write_history(working_dir, ws, kind, items)
         return create_success_response(request, {'success': True})
     except Exception as e:
-        logger.error(f"Error saving conversation history: {e}")
-        return create_error_response(request, 'SAVE_CONVERSATION_ERROR', str(e))
+        logger.error(f"Error saving {kind} history: {e}")
+        return create_error_response(request, error_code, str(e))
 
 
 @IPCHandlerRegistry.handler('lightrag.expandNode')
@@ -2432,7 +2227,7 @@ def handle_expand_node(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
             logger.warning("expand_node not implemented in client, using query_graphs fallback")
             if hasattr(client, 'query_graphs'):
                 # Try to get node label from node_id
-                result = client.query_graphs(node_id, max_depth, max_nodes)
+                result = client.query_graphs(node_id, max_depth, max_nodes, workspace=_workspace_param(params))
             else:
                 return create_success_response(request, {'nodes': [], 'edges': [], 'is_truncated': False})
         

@@ -4,12 +4,16 @@ import { useGraphStore, RawGraph } from '../stores/graph';
 import { useSettingsStore } from '../stores/settings';
 import { queryGraphs } from '../api/lightrag';
 import { maxNodeSize, minNodeSize, nodeColors } from '../lib/constants';
+import { useWorkspace } from '../../useWorkspace';
 
 export default function useLightragGraph() {
   const label = useSettingsStore(s => s.queryLabel);
   const maxDepth = useSettingsStore(s => s.graphQueryMaxDepth);
   const maxNodes = useSettingsStore(s => s.graphMaxNodes);
   const graphDataVersion = useGraphStore(s => s.graphDataVersion);
+  // Re-fetch when the selected knowledge base changes; the IPC layer scopes
+  // queryGraphs to it.
+  const [workspace] = useWorkspace();
   const lastFetchedVersion = useRef(-1);
 
   useEffect(() => {
@@ -21,6 +25,7 @@ export default function useLightragGraph() {
       // 记录当前版本
       lastFetchedVersion.current = graphDataVersion;
       useGraphStore.getState().setIsFetching(true);
+      useGraphStore.getState().clearSelection();
       try {
         const currentLabel = label || '*';
         const data = await queryGraphs(currentLabel, maxDepth, maxNodes);
@@ -162,7 +167,7 @@ export default function useLightragGraph() {
     };
     run();
     return () => { cancelled = true; };
-  }, [label, maxDepth, maxNodes, graphDataVersion]); // 移除 isFetching，添加 graphDataVersion
+  }, [label, maxDepth, maxNodes, graphDataVersion, workspace]); // 移除 isFetching，添加 graphDataVersion
 
   const getNode = (id: string | null) => {
     if (!id) return null;
