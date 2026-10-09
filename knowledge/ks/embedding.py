@@ -112,3 +112,36 @@ def from_blob(blob: Optional[bytes]) -> Optional[np.ndarray]:
     if not blob:
         return None
     return np.frombuffer(blob, dtype=np.float32)
+
+
+class OpenAICompatibleEmbedder:
+    """Embeddings from any OpenAI-compatible /v1/embeddings endpoint: vLLM or
+    TEI on the private GPU server, or a cloud provider (DashScope, OpenAI)."""
+
+    def __init__(self, base_url: str, model: str, api_key: str = "", batch_size: int = 32,
+                 timeout: float = 60.0, verify_tls: bool = True):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.api_key = api_key
+        self.batch_size = batch_size
+        self.timeout = timeout
+        self.verify_tls = verify_tls
+        self.id = f"openai-compatible:{model}"
+        self.dim = 0
+
+    def embed(self, texts: Sequence[str]) -> np.ndarray:
+        import httpx
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        url = self.base_url + ("/embeddings" if self.base_url.endswith("/v1") else "/v1/embeddings")
+        rows: List[List[float]] = []
+        with httpx.Client(timeout=self.timeout, verify=self.verify_tls) as client:
+            for i in range(0, len(texts), self.batch_size):
+                resp = client.post(url, headers=headers,
+                                   json={"model": self.model, "input": list(texts[i:i + self.batch_size])})
+                resp.raise_for_status()
+                data = sorted(resp.json()["data"], key=lambda d: d.get("index", 0))
+                rows.extend(d["embedding"] for d in data)
+        mat = _normalise(np.asarray(rows, dtype=np.float32)) if rows else np.zeros((0, self.dim), np.float32)
+        if mat.size:
+            self.dim = mat.shape[1]
+        return mat
