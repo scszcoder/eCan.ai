@@ -467,6 +467,16 @@ def _pin_belongs_to_other_host(mainwin, vehicle_id: str) -> bool:
     hijacked on a transient DB error.
     """
     try:
+        # A machine advertising on the LAN right now is a real other host,
+        # even with no vehicle row here: a Platoon never registers one, so a
+        # pin to it looked like an orphan and the Commander adopted it, running
+        # the agent on both machines (2026-10-09 platoon setup).
+        try:
+            from agent.a2a.discovery.directory import get_directory
+            if any(n.machine_id == vehicle_id for n in get_directory().list_nodes(exclude_self=True)):
+                return True
+        except Exception:
+            pass
         service = getattr(getattr(mainwin, "ec_db_mgr", None), "vehicle_service", None)
         if service is None:
             return True

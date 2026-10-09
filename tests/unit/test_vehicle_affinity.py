@@ -202,6 +202,19 @@ class TestGateSelfHealAndTransition:
             _agent(vehicle_id="other-host", mainwin=mainwin))
         assert not allowed
 
+    def test_pin_to_lan_advertised_platoon_is_skipped(self, monkeypatch):
+        """A Platoon registers no vehicle row, but it advertises on the LAN:
+        a pin to its machine id is another host, not an orphan to adopt."""
+        va._local_vehicle_id = "os-new"
+        va._legacy_vehicle_id = "legacy-old"
+        import agent.a2a.discovery.directory as d
+        monkeypatch.setattr(d, "get_directory", lambda: SimpleNamespace(
+            list_nodes=lambda exclude_self=True: [SimpleNamespace(machine_id="platoon-mid")]))
+        mainwin = self._mainwin(row_for_id=None)  # no vehicle row for it here
+        allowed, _ = va.agent_launch_allowed(
+            _agent(vehicle_id="platoon-mid", mainwin=mainwin))
+        assert not allowed
+
     def test_legacy_id_accepted_in_transition(self):
         """During the id transition, a pin matching the persisted-UUID id
         still counts as local."""
