@@ -126,7 +126,7 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
         from knowledge.ks.service import get_router, get_service
         svc = get_service(main_window)
         router = get_router(main_window)
-        has_remote = any(c.get("enabled", True) for c in router.connections.list())
+        has_remote = any(c.get("enabled", True) for c in router.all_connections())
         if not has_remote and not _has_product_knowledge(svc):
             return None
         if has_remote:

@@ -1,6 +1,4 @@
 """Agent bridge: rag_query answers from product knowledge, scoped by state."""
-import asyncio
-
 import pytest
 
 from knowledge.ks import agent_bridge as ab
@@ -59,14 +57,16 @@ def test_disabled_or_empty_catalog_falls_through(svc, monkeypatch):
     assert ab.try_product_answer(None, {"query": "这件是什么材质"}) is None
 
 
-def test_rag_query_tool_uses_product_knowledge_before_lightrag(wired, monkeypatch):
+async def test_rag_query_tool_uses_product_knowledge_before_lightrag(wired, monkeypatch):
     from agent.ec_skills.rag import local_rag_mcp
 
     def no_lightrag():
         raise AssertionError("LightRAG must not be called when product knowledge answers")
 
     monkeypatch.setattr(local_rag_mcp, "get_client", no_lightrag)
-    out = asyncio.run(local_rag_mcp.rag_query(None, {"input": {
-        "query": "身高170穿什么码", "_ks_scope": {"platform_item_id": "6600001"}}}))
+    # Awaited inside pytest-asyncio's loop: asyncio.run() would leave no current
+    # loop behind and break later tests that call get_event_loop().
+    out = await local_rag_mcp.rag_query(None, {"input": {
+        "query": "身高170穿什么码", "_ks_scope": {"platform_item_id": "6600001"}}})
     assert out[0].meta["data"]["source"] == "product_knowledge"
     assert "尺码表" in out[0].text

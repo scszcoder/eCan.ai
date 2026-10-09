@@ -9,7 +9,21 @@ from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 
 
-def _resolve_base_url() -> str:
+def _commander_source():
+    """The LAN source when this platoon uses the commander's knowledge, else None."""
+    try:
+        from app_context import AppContext
+        mw = AppContext.get_main_window()
+        if mw is None:  # tests, CLI, stand-alone server: always the local server
+            return None
+        from knowledge.ks.service import get_lan
+        src = get_lan(mw)["source"]
+        return src if src.use_commander() else None
+    except Exception:
+        return None
+
+
+def _resolve_base_url(local_only: bool = False) -> str:
     """Resolve LightRAG server base URL from the running server, env, or defaults.
 
     The server manager relocates to an alternative port when the default is
@@ -17,6 +31,10 @@ def _resolve_base_url() -> str:
     port the LIVE LightragServer instance actually bound — otherwise clients
     keep talking to whatever squats on 9621.
     """
+    if not local_only:
+        src = _commander_source()
+        if src is not None:
+            return f"{src.url()}/lightrag"
     host = os.environ.get("HOST", "127.0.0.1")
     if host in ("", "0.0.0.0", "::", "[::]"):
         host = "127.0.0.1"  # a wildcard bind address is not a connect address
@@ -92,9 +110,15 @@ class LightragClient:
         
         # The local server requires the per-process key published by
         # LightragServer (knowledge/lightrag_config_utils.ensure_local_api_key).
-        api_key = api_key or os.environ.get("LIGHTRAG_API_KEY", "").strip()
-        if api_key:
-            self.session.headers["X-API-Key"] = api_key
+        # A paired platoon talks to the commander's LAN gateway instead, with
+        # its device token.
+        src = _commander_source() if base_url is None else None
+        if src is not None:
+            self.session.headers["Authorization"] = f"Bearer {src.token()}"
+        else:
+            api_key = api_key or os.environ.get("LIGHTRAG_API_KEY", "").strip()
+            if api_key:
+                self.session.headers["X-API-Key"] = api_key
         if token:
             self.session.headers["Authorization"] = f"Bearer {token}"
         logger.info(f"[LightragClient] base_url={self.base_url}")

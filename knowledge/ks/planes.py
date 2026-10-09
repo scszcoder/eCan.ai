@@ -181,13 +181,28 @@ def app_token() -> str:
 # ---- routing ---------------------------------------------------------------------------
 class PlaneRouter:
     def __init__(self, local_service, connections: ConnectionStore,
-                 client_factory: Optional[Callable[[Dict[str, Any]], RemoteKS]] = None):
+                 client_factory: Optional[Callable[[Dict[str, Any]], RemoteKS]] = None,
+                 lan_source: Optional[Callable[[], Any]] = None):
         self.local = local_service
         self.connections = connections
+        self.lan_source = lan_source
         self.client_factory = client_factory or self._default_client
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ks-plane")
 
+    def all_connections(self) -> List[Dict[str, Any]]:
+        """Saved servers, plus the commander when this platoon is paired with it."""
+        conns = list(self.connections.list())
+        src = self.lan_source() if self.lan_source else None
+        if src is not None and src.use_commander():
+            conns.append({"id": "lan-commander", "name": src.get().get("commander") or "Commander", "plane": "lan",
+                          "base_url": src.url(), "tenant_id": "commander", "auth": "lan", "enabled": True,
+                          "verify_tls": True, "send_queries": True})
+        return conns
+
     def _default_client(self, conn: Dict[str, Any]) -> RemoteKS:
+        if conn.get("auth") == "lan":
+            src = self.lan_source()
+            return RemoteKS(conn["base_url"], src.token, conn["tenant_id"])
         token_fn = (lambda: self.connections.token(conn["id"])) if conn["auth"] == "local" else app_token
         return RemoteKS(conn["base_url"], token_fn, conn["tenant_id"], verify_tls=conn.get("verify_tls", True))
 
@@ -198,7 +213,7 @@ class PlaneRouter:
         jobs = {}
         if include_local:
             jobs["local"] = self._pool.submit(self._local_search, query, store, platform_item_id, product_id)
-        conns = [c for c in self.connections.list() if c.get("enabled", True) and c.get("send_queries", True)]
+        conns = [c for c in self.all_connections() if c.get("enabled", True) and c.get("send_queries", True)]
         for conn in conns:
             client = self.client_factory(conn)
             jobs[conn["id"]] = self._pool.submit(client.search, query, store, platform_item_id, product_id)

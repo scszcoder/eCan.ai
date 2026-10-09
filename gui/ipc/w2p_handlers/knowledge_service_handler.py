@@ -401,3 +401,90 @@ def handle_sync_app_stores(request: IPCRequest, params: Optional[Dict[str, Any]]
                 created.append(svc.save_store({'name': s['name'], 'platform': s['platform'], 'ecan_store_id': s['store_id']}))
         return {'created': created}
     return _call(request, 'KS_SYNC_APP_STORES_ERROR', run)
+
+
+# ---- LAN sharing: commander serves knowledge to platoon machines ---------------------------
+def _lan():
+    from knowledge.ks.service import get_lan
+    return get_lan()
+
+
+@IPCHandlerRegistry.background_handler('ks.lanStatus')
+def handle_lan_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    from knowledge.ks.service import lan_sharing_status
+    return _call(request, 'KS_LAN_STATUS_ERROR', lan_sharing_status)
+
+
+@IPCHandlerRegistry.background_handler('ks.lanSetSharing')
+def handle_lan_set_sharing(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    def run():
+        from knowledge.ks.service import apply_lan_sharing
+        p = _p(params)
+        _lan()['access'].set_config(enabled=p.get('enabled'), port=p.get('port'))
+        return apply_lan_sharing()
+    return _call(request, 'KS_LAN_SET_SHARING_ERROR', run)
+
+
+@IPCHandlerRegistry.handler('ks.lanNewCode')
+def handle_lan_new_code(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    return _call(request, 'KS_LAN_CODE_ERROR', lambda: _lan()['access'].new_code())
+
+
+@IPCHandlerRegistry.handler('ks.lanRevoke')
+def handle_lan_revoke(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    def run():
+        _require(_p(params), 'id')
+        _lan()['access'].revoke(params['id'])
+        return {'revoked': params['id']}
+    return _call(request, 'KS_LAN_REVOKE_ERROR', run)
+
+
+@IPCHandlerRegistry.background_handler('ks.lanDiscover')
+def handle_lan_discover(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    from knowledge.ks.lan import discover_commanders
+    return _call(request, 'KS_LAN_DISCOVER_ERROR', discover_commanders)
+
+
+@IPCHandlerRegistry.background_handler('ks.lanPair')
+def handle_lan_pair(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    def run():
+        import socket
+        p = _p(params)
+        _require(p, 'url', 'code')
+        try:
+            return _lan()['source'].pair(p['url'], p['code'], p.get('device_name') or socket.gethostname(),
+                                         p.get('commander', ''))
+        except PermissionError as e:
+            raise ValueError(str(e))
+    return _call(request, 'KS_LAN_PAIR_ERROR', run)
+
+
+@IPCHandlerRegistry.handler('ks.lanSetSource')
+def handle_lan_set_source(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    def run():
+        p = _p(params)
+        if p.get('forget'):
+            _lan()['source'].forget()
+            return _lan()['source'].get()
+        return _lan()['source'].set_mode(p.get('mode', 'local'))
+    return _call(request, 'KS_LAN_SOURCE_ERROR', run)
+
+
+@IPCHandlerRegistry.background_handler('ks.lanTestSource')
+def handle_lan_test_source(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Can this platoon reach the commander's gateway with its device token?"""
+    def run():
+        import time as _t
+        import httpx
+        src = _lan()['source']
+        if not src.url():
+            raise ValueError('not paired with a commander')
+        t0 = _t.perf_counter()
+        with httpx.Client(timeout=5) as c:
+            r = c.get(f"{src.url()}/v1/me", headers={'Authorization': f'Bearer {src.token()}'})
+        ms = round((_t.perf_counter() - t0) * 1000)
+        if r.status_code == 401:
+            return {'ok': False, 'ms': ms, 'detail': 'the commander no longer accepts this machine; pair again'}
+        r.raise_for_status()
+        return {'ok': True, 'ms': ms, 'detail': r.json()['tenants'][0]['name']}
+    return _call(request, 'KS_LAN_TEST_ERROR', run)

@@ -412,6 +412,19 @@ Phase 0 defects:
 | 9 | Fixed: misleading `ids` documentation. |
 | 10 | Fixed: the two workspace switches now stay in sync. |
 
+**LAN sharing (commander → platoons), added after review.** Merchants run one commander and several platoon
+machines on the same LAN, all serving stores from the commander's knowledge.
+
+- LightRAG stays on 127.0.0.1. The commander exposes only `knowledge/ks/lan.py`'s gateway (default port 9630), and
+  starts it automatically when its role is Commander.
+- Platoons find the commander through zeroconf discovery and pair once with a 6-digit code. Codes last 10 minutes,
+  are single-use, and pairing locks for a minute after 5 wrong codes.
+- Each platoon gets its own revocable device token; only its hash is stored.
+- Through the gateway, platoons get read-only product-knowledge search and the LightRAG query/graph routes. The
+  commander adds its local API key, and the device token never reaches LightRAG.
+- On a paired platoon, `LightragClient` and the plane router point at the commander.
+- GUI: a LAN card in Product Knowledge → Servers, and a banner on platoons.
+
 **Benchmark** (rag_benchmark/ecommerce, offline hashing embedder for both runs):
 
 | run | score | fatal |

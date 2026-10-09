@@ -7,7 +7,7 @@ import {
   HistoryOutlined, PlusOutlined, SafetyOutlined, ShopOutlined, SyncOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { ksApi, KSJob, KSOverview, KSProduct, KSStore } from '@/services/ipc/ksApi';
+import { ksApi, KSJob, KSLanStatus, KSOverview, KSProduct, KSStore } from '@/services/ipc/ksApi';
 import ProductsPanel from './ProductsPanel';
 import ImportPanel from './ImportPanel';
 import PoliciesPanel from './PoliciesPanel';
@@ -99,12 +99,14 @@ const ProductKnowledgeTab: React.FC = () => {
   const [editingStore, setEditingStore] = useState<Partial<KSStore> | null>(null);
   const [draft, setDraft] = useState<{ product: KSProduct; attachPath?: string } | null>(null);
   const [jobsKey, setJobsKey] = useState(0);
+  const [lan, setLan] = useState<KSLanStatus | null>(null);
   const reindexJob = useJob(job => {
     if (job.status === 'succeeded') message.success(job.message);
     refresh();
   });
 
   const refresh = useCallback(async () => {
+    ksApi.lanStatus().then(setLan).catch(() => setLan(null));
     try {
       setOverview(await ksApi.overview());
       setError(null);
@@ -226,6 +228,12 @@ const ProductKnowledgeTab: React.FC = () => {
 
   return (
     <div style={{ padding: '12px 24px' }}>
+      {lan?.source.mode === 'commander' && (
+        <Alert type="info" showIcon style={{ marginBottom: 8 }}
+               message={k('lan.usingCommanderBanner', { name: lan.source.commander || lan.source.url })}
+               description={k('lan.usingCommanderBannerHint')}
+               action={<Button size="small" onClick={() => setTab('servers')}>{k('lan.manage')}</Button>} />
+      )}
       <Tabs
         activeKey={tab}
         onChange={key => setTab(key as SubTab)}

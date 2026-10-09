@@ -186,6 +186,17 @@ export interface KSRouterResult extends KSSearchResult {
   router_ms: number;
 }
 
+export interface KSLanStatus {
+  role: string;
+  enabled: boolean;
+  port: number;
+  running: boolean;
+  error: string;
+  addresses: string[];
+  devices: { id: string; name: string; ip: string; paired_at: number; last_seen: number }[];
+  source: { mode: 'local' | 'commander'; url: string; commander: string; paired: boolean };
+}
+
 async function call<T>(method: string, params: Record<string, any> = {}, timeout?: number): Promise<T> {
   const resp = await get_ipc_api().executeRequest<T>(method, params, timeout);
   if (!resp.success) {
@@ -233,6 +244,17 @@ export const ksApi = {
 
   listAppStores: () => call<{ store_id: string; name: string; platform: string }[]>('ks.listAppStores'),
   syncAppStores: () => call<{ created: KSStore[] }>('ks.syncAppStores'),
+
+  lanStatus: () => call<KSLanStatus>('ks.lanStatus'),
+  lanSetSharing: (enabled: boolean, port?: number) => call<KSLanStatus>('ks.lanSetSharing', { enabled, port }, 30000),
+  lanNewCode: () => call<{ code: string; expires_in: number }>('ks.lanNewCode'),
+  lanRevoke: (id: string) => call('ks.lanRevoke', { id }),
+  lanDiscover: () => call<{ machine_name: string; host: string; url: string; sharing: boolean }[]>('ks.lanDiscover', {}, 30000),
+  lanPair: (url: string, code: string, commander?: string) =>
+    call<KSLanStatus['source']>('ks.lanPair', { url, code, commander }, 30000),
+  lanSetSource: (mode: 'local' | 'commander') => call<KSLanStatus['source']>('ks.lanSetSource', { mode }),
+  lanForget: () => call<KSLanStatus['source']>('ks.lanSetSource', { forget: true }),
+  lanTestSource: () => call<{ ok: boolean; ms: number; detail: string }>('ks.lanTestSource', {}, 30000),
 
   listConnections: () => call<KSConnection[]>('ks.listConnections'),
   saveConnection: (c: Partial<KSConnection>) => call<KSConnection>('ks.saveConnection', c),

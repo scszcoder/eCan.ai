@@ -7,6 +7,7 @@ import {
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ksApi, KSConnection, KSConnectionTest } from '@/services/ipc/ksApi';
+import LanPanel from './LanPanel';
 
 const { Text, Paragraph } = Typography;
 
@@ -83,6 +84,7 @@ const ConnectionsPanel: React.FC<{ onChanged?: () => void }> = ({ onChanged }) =
 
   return (
     <div>
+      <LanPanel onChanged={onChanged} />
       <Alert type="info" showIcon style={{ marginBottom: 12 }} message={k('intro')} description={k('introDetail')} />
       <Row gutter={16}>
         <Col xs={24} xl={16}>

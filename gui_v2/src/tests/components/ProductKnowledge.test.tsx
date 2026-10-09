@@ -58,6 +58,16 @@ const ksApi = {
     groups: [], grants: [], stores: [], me: { user_id: 'fae', email: 'fae@corp.cn' },
     kbs: [{ id: 'kb1', name: '产品资料', plane: 'private', sensitivity: 'confidential', kind: 'catalog' }],
   })),
+  lanStatus: jest.fn().mockResolvedValue({
+    role: 'Commander', enabled: true, port: 9630, running: true, error: '',
+    addresses: ['http://192.168.1.10:9630'],
+    devices: [{ id: 'dv1', name: 'PLATOON-1', ip: '192.168.1.21', paired_at: 0, last_seen: Math.floor(Date.now() / 1000) }],
+    source: { mode: 'local', url: '', commander: '', paired: false },
+  }),
+  lanNewCode: jest.fn().mockResolvedValue({ code: '123456', expires_in: 600 }),
+  lanDiscover: jest.fn().mockResolvedValue([{ machine_name: 'COMMANDER-PC', host: '192.168.1.10', url: 'http://192.168.1.10:9630', sharing: true }]),
+  lanPair: jest.fn().mockResolvedValue({ mode: 'commander', url: 'http://192.168.1.10:9630', commander: 'COMMANDER-PC', paired: true }),
+  lanTestSource: jest.fn().mockResolvedValue({ ok: true, ms: 4, detail: '我的店铺' }),
 };
 
 jest.mock('@/services/ipc/ksApi', () => ({ ksApi }));
@@ -104,6 +114,29 @@ describe('ProductKnowledgeTab', () => {
     fireEvent.click(screen.getByText('pages.knowledge.ks.connections.test'));
     expect(await screen.findByText('pages.knowledge.ks.connections.ready')).toBeInTheDocument();
     expect(screen.getByText(/设计公司 \(owner\)/)).toBeInTheDocument();
+  });
+
+  it('commander shows LAN addresses, paired machines and a pairing code', async () => {
+    renderTab();
+    await screen.findByText('天猫店');
+    fireEvent.click(screen.getByText('pages.knowledge.ks.tabs.servers'));
+    expect(await screen.findByText('PLATOON-1')).toBeInTheDocument();
+    expect(screen.getAllByText('http://192.168.1.10:9630').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText('pages.knowledge.ks.lan.addPlatoon'));
+    expect(await screen.findByText('123 456')).toBeInTheDocument();
+  });
+
+  it('platoon finds the commander and pairs with a code', async () => {
+    renderTab();
+    await screen.findByText('天猫店');
+    fireEvent.click(screen.getByText('pages.knowledge.ks.tabs.servers'));
+    fireEvent.click(await screen.findByText('pages.knowledge.ks.lan.findCommander'));
+    expect(await screen.findByText('COMMANDER-PC')).toBeInTheDocument();
+    fireEvent.click(screen.getAllByText('pages.knowledge.ks.lan.pair')[0]);
+    const input = await screen.findByPlaceholderText('123 456');
+    fireEvent.change(input, { target: { value: '654 321' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', charCode: 13 });
+    await waitFor(() => expect(ksApi.lanPair).toHaveBeenCalledWith('http://192.168.1.10:9630', '654321', 'COMMANDER-PC'));
   });
 
   it('shows members and the confidential warning in access management', async () => {

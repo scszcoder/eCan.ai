@@ -559,9 +559,94 @@ def get_router(main_window=None):
         router = _routers.get(key)
         if router is None:
             folder = os.path.dirname(svc.store.engine.url.database or "") or "."
-            router = PlaneRouter(svc, ConnectionStore(os.path.join(folder, "connections.json")))
+            router = PlaneRouter(svc, ConnectionStore(os.path.join(folder, "connections.json")),
+                                 lan_source=lambda: get_lan(main_window)["source"])
             _routers[key] = router
         return router
+
+
+_lan: Dict[str, Any] = {}
+
+
+def _ks_folder(main_window=None) -> str:
+    """The user's knowledge_service folder (same place get_service uses)."""
+    if main_window is None:
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+    base = getattr(main_window, "my_ecb_data_homepath", None) if main_window else None
+    if not base:
+        base = os.path.join(os.path.expanduser("~"), ".ecan")
+    return os.path.join(base, "knowledge_service")  # created on first write
+
+
+def get_lan(main_window=None) -> Dict[str, Any]:
+    """LAN sharing objects for this user: access (commander), source (platoon), runner."""
+    from knowledge.ks.lan import GatewayRunner, LanAccess, LanSource
+    folder = _ks_folder(main_window)
+    with _services_lock:
+        if _lan.get("folder") != folder:
+            old = _lan.get("runner")
+            if old is not None:
+                old.stop()
+            _lan.update(folder=folder, access=LanAccess(folder), source=LanSource(folder), runner=GatewayRunner())
+        return _lan
+
+
+def machine_role(main_window=None) -> str:
+    try:
+        if main_window is None:
+            from app_context import AppContext
+            main_window = AppContext.get_main_window()
+        return str(getattr(main_window, "machine_role", "") or "")
+    except Exception:
+        return ""
+
+
+def lan_sharing_status(main_window=None) -> Dict[str, Any]:
+    from knowledge.ks.lan import lan_addresses
+    lan = get_lan(main_window)
+    cfg = lan["access"].config()
+    runner = lan["runner"]
+    return {"role": machine_role(main_window), "enabled": cfg["enabled"], "port": cfg["port"],
+            "running": runner.running, "error": runner.error,
+            "addresses": [f"http://{ip}:{cfg['port']}" for ip in lan_addresses()],
+            "devices": lan["access"].devices(), "source": lan["source"].get()}
+
+
+def apply_lan_sharing(main_window=None) -> Dict[str, Any]:
+    """Start or stop the commander's LAN gateway to match the saved setting."""
+    lan = get_lan(main_window)
+    cfg = lan["access"].config()
+    runner = lan["runner"]
+    if not cfg["enabled"]:
+        runner.stop()
+        return lan_sharing_status(main_window)
+    if runner.running and runner.port == cfg["port"]:
+        return lan_sharing_status(main_window)
+    from knowledge.ks.lan import create_gateway_app
+    import socket as _socket
+
+    def _lightrag_base() -> str:
+        from knowledge.lightrag_client import _resolve_base_url
+        return _resolve_base_url(local_only=True)
+
+    app = create_gateway_app(get_service(main_window), lan["access"], _lightrag_base,
+                             lambda: os.environ.get("LIGHTRAG_API_KEY", ""), _socket.gethostname())
+    runner.start(app, cfg["port"])
+    logger.info(f"[KS-LAN] gateway {'listening on port ' + str(cfg['port']) if runner.running else 'failed: ' + runner.error}")
+    return lan_sharing_status(main_window)
+
+
+def init_lan_sharing(main_window=None) -> None:
+    """App startup: a Commander shares knowledge with its LAN machines by default."""
+    try:
+        lan = get_lan(main_window)
+        access = lan["access"]
+        if not os.path.exists(access.config_path) and "commander" in machine_role(main_window).lower():
+            access.set_config(enabled=True)
+        apply_lan_sharing(main_window)
+    except Exception as e:
+        logger.warning(f"[KS-LAN] LAN sharing not started: {e}")
 
 
 def reset_services() -> None:
