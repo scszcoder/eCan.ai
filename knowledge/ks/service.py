@@ -13,10 +13,13 @@ import threading
 from typing import Any, Callable, Dict, List, Optional
 
 from knowledge.ks import catalog_import, doc_extract
+from knowledge.ks.authz import Authorizer, PermissionDenied
 from knowledge.ks.chunking import document_chunks, policy_chunks, product_chunks
 from knowledge.ks.embedding import Embedder, HashingEmbedder
+from knowledge.ks.identity import Principal, local_principal
 from knowledge.ks.index import IndexCache
 from knowledge.ks.jobs import JobContext, JobRunner
+from knowledge.ks.members import MemberAdmin
 from knowledge.ks.retrieval import ProductRetriever
 from knowledge.ks.store import KSStore
 from knowledge.ks.text import POLICY_TOPIC_LABELS, POLICY_TOPICS, clean_text
@@ -44,6 +47,28 @@ class KnowledgeService:
         self.jobs = JobRunner(self.store, [job_listener] if job_listener else [])
         self._tenant_lock = threading.Lock()
         self._default_tenant: Optional[Dict[str, Any]] = None
+        self.authz = Authorizer(self.store)
+        self.members = MemberAdmin(self.store)
+        self.local = local_principal(owner)
+
+    # ---- authorisation ------------------------------------------------------
+    # principal=None means the trusted local caller (the desktop app acting
+    # for its signed-in user on their own database). A server always passes
+    # the verified principal of the request, and every rule applies.
+    def _check(self, principal: Optional[Principal], tenant_id: str, permission: str = "read") -> None:
+        if principal is None:
+            return
+        kb = self.catalog_kb(tenant_id)
+        self.authz.require_kb(principal, tenant_id, kb["id"], permission)
+
+    def _admin(self, principal: Optional[Principal], tenant_id: str) -> str:
+        """Require tenant admin; returns the actor's role."""
+        if principal is None:
+            return "owner"
+        return self.authz.require_role(principal, tenant_id, "admin").role
+
+    def _actor(self, principal: Optional[Principal]) -> str:
+        return (principal or self.local).user_id
 
     # ---- tenant / KB --------------------------------------------------------
     def default_tenant(self) -> Dict[str, Any]:
@@ -51,6 +76,7 @@ class KnowledgeService:
             if self._default_tenant is None:
                 t = self.store.ensure_tenant(DEFAULT_TENANT_NAME)
                 self.store.ensure_kb(t["id"], "商品知识库", kind="catalog", owner=self.owner)
+                self.members.ensure_owner(t["id"], self.local.user_id, self.local.email, self.local.name)
                 self._default_tenant = t
             return self._default_tenant
 
@@ -60,8 +86,9 @@ class KnowledgeService:
     def catalog_kb(self, tenant_id: str) -> Dict[str, Any]:
         return self.store.ensure_kb(tenant_id, "商品知识库", kind="catalog", owner=self.owner)
 
-    def overview(self, tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    def overview(self, tenant_id: Optional[str] = None, principal: Optional[Principal] = None) -> Dict[str, Any]:
         tid = self.tenant_id(tenant_id)
+        self._check(principal, tid, "read")
         stats = self.store.stats(tid)
         stale = [e for e in stats["embedders"] if e and e != self.embedder.id]
         return {
@@ -102,26 +129,36 @@ class KnowledgeService:
         return n
 
     # ---- stores -------------------------------------------------------------------
-    def save_store(self, data: Dict[str, Any], tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    def save_store(self, data: Dict[str, Any], tenant_id: Optional[str] = None,
+                   principal: Optional[Principal] = None) -> Dict[str, Any]:
         tid = self.tenant_id(tenant_id)
+        self._admin(principal, tid)
         name = clean_text(data.get("name"))
         if not name:
             raise ValueError("店铺名称不能为空 / store name is required")
         st = self.store.upsert_store(tid, name, data.get("platform", ""), data.get("id"),
                                      data.get("platform_store_id", ""), data.get("ecan_store_id", ""))
-        self.store.audit(self.owner, "store.save", st["id"], {"name": name})
+        self.store.audit(self.owner or "local", "store.save", st["id"], {"name": name})
         return st
 
-    def delete_store(self, store_id: str) -> None:
+    def delete_store(self, store_id: str, principal: Optional[Principal] = None) -> None:
         st = self.store.get_store(store_id)
+        if st:
+            self._admin(principal, st["tenant_id"])
         self.store.delete_store(store_id)
         if st:
             self.indexes.invalidate(st["tenant_id"])
-        self.store.audit(self.owner, "store.delete", store_id)
+        self.store.audit(self.owner or "local", "store.delete", store_id)
 
     # ---- products -----------------------------------------------------------------
-    def save_product(self, data: Dict[str, Any], tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    def save_product(self, data: Dict[str, Any], tenant_id: Optional[str] = None,
+                     principal: Optional[Principal] = None) -> Dict[str, Any]:
         tid = self.tenant_id(tenant_id)
+        self._check(principal, tid, "write")
+        if data.get("id"):
+            existing = self.store.get_product(data["id"])
+            if existing and existing["tenant_id"] != tid:
+                raise PermissionDenied("product belongs to another tenant")
         kb = self.catalog_kb(tid)
         rec = dict(data)
         rec["title"] = clean_text(rec.get("title"))
@@ -135,23 +172,30 @@ class KnowledgeService:
         product = self.store.get_product(product["id"])
         if changed:
             self._index_product(product)
-        self.store.audit(self.owner, "product.save", product["id"], {"code": product["code"], "changed": changed})
+        self.store.audit(self.owner or "local", "product.save", product["id"], {"code": product["code"], "changed": changed})
         return product
 
-    def get_product(self, product_id: str) -> Optional[Dict[str, Any]]:
+    def get_product(self, product_id: str, principal: Optional[Principal] = None) -> Optional[Dict[str, Any]]:
         p = self.store.get_product(product_id)
         if p:
+            self._check(principal, p["tenant_id"], "read")
             p["documents"] = self.store.list_documents(product_id)
         return p
 
-    def delete_product(self, product_id: str) -> None:
+    def delete_product(self, product_id: str, principal: Optional[Principal] = None) -> None:
+        p = self.store.get_product(product_id)
+        if p:
+            self._check(principal, p["tenant_id"], "write")
         tid = self.store.delete_product(product_id)
         if tid:
             self.indexes.invalidate(tid)
-        self.store.audit(self.owner, "product.delete", product_id)
+        self.store.audit(self.owner or "local", "product.delete", product_id)
 
-    def list_products(self, tenant_id: Optional[str] = None, **filters) -> Dict[str, Any]:
-        return self.store.list_products(self.tenant_id(tenant_id), **filters)
+    def list_products(self, tenant_id: Optional[str] = None, principal: Optional[Principal] = None,
+                      **filters) -> Dict[str, Any]:
+        tid = self.tenant_id(tenant_id)
+        self._check(principal, tid, "read")
+        return self.store.list_products(tid, **filters)
 
     # ---- catalog import -------------------------------------------------------------
     def preview_catalog(self, path: str) -> Dict[str, Any]:
@@ -172,8 +216,10 @@ class KnowledgeService:
         return {"report": report.to_dict(), "products_preview": products[:5]}
 
     def import_catalog(self, path: str, mapping: Dict[str, str], default_store_id: str = "",
-                       tenant_id: Optional[str] = None, run_inline: bool = False) -> Dict[str, Any]:
+                       tenant_id: Optional[str] = None, run_inline: bool = False,
+                       principal: Optional[Principal] = None) -> Dict[str, Any]:
         tid = self.tenant_id(tenant_id)
+        self._check(principal, tid, "write")
 
         def work(ctx: JobContext) -> Dict[str, Any]:
             ctx.progress("parse", 0, 1, "读取文件 / reading file", force=True)
@@ -212,7 +258,7 @@ class KnowledgeService:
                 except Exception as e:
                     ctx.error(f"{rec.get('code')}: {e}")
                 ctx.progress("index", i, total, f"{i}/{total} {rec.get('title', '')[:30]}")
-            self.store.audit(self.owner, "catalog.import", os.path.basename(path),
+            self.store.audit(self.owner or "local", "catalog.import", os.path.basename(path),
                              {"products": total, "warnings": len(report.warnings)})
             return {"report": report.to_dict(), "products": total, "changed": created + updated,
                     "unchanged": unchanged, "chunks": chunks, "stores_created": list(store_ids),
@@ -229,11 +275,12 @@ class KnowledgeService:
                           "faq": len(draft["faq"]), "has_size_chart": bool(draft["size_chart"])},
                 "text_preview": text[:1500]}
 
-    def attach_document(self, product_id: str, path: str) -> Dict[str, Any]:
+    def attach_document(self, product_id: str, path: str, principal: Optional[Principal] = None) -> Dict[str, Any]:
         """Store a source document's text as searchable chunks of the product."""
         product = self.store.get_product(product_id)
         if not product:
             raise ValueError("product not found")
+        self._check(principal, product["tenant_id"], "write")
         text, _ = doc_extract.extract_document(path)
         doc = self.store.add_document(product["kb_id"], product["tenant_id"], os.path.basename(path),
                                       _file_hash(path), "product_doc", product_id=product_id)
@@ -243,13 +290,14 @@ class KnowledgeService:
              "document_id": doc["id"], "category": product.get("category", "")},
             chunks, self._embed_chunks(chunks), self.embedder.id)
         self.indexes.invalidate(product["tenant_id"])
-        self.store.audit(self.owner, "document.attach", doc["id"], {"product_id": product_id, "chunks": n})
+        self.store.audit(self.owner or "local", "document.attach", doc["id"], {"product_id": product_id, "chunks": n})
         return {**doc, "chunk_count": n}
 
     def ingest_product_files(self, paths: List[str], store_id: str = "", tenant_id: Optional[str] = None,
-                             run_inline: bool = False) -> Dict[str, Any]:
+                             run_inline: bool = False, principal: Optional[Principal] = None) -> Dict[str, Any]:
         """Batch: one product per document, saved from its draft (review later)."""
         tid = self.tenant_id(tenant_id)
+        self._check(principal, tid, "write")
 
         def work(ctx: JobContext) -> Dict[str, Any]:
             saved = []
@@ -270,7 +318,13 @@ class KnowledgeService:
 
         return self.jobs.submit("product_docs", f"导入 {len(paths)} 个商品文档", work, tid, run_inline)
 
-    def delete_document(self, document_id: str) -> None:
+    def delete_document(self, document_id: str, principal: Optional[Principal] = None) -> None:
+        if principal is not None:
+            from knowledge.ks.models import Document
+            with self.store.session() as sess:
+                d = sess.get(Document, document_id)
+                if d:
+                    self._check(principal, d.tenant_id, "write")
         tid = self.store.delete_document(document_id)
         if tid:
             self.indexes.invalidate(tid)
@@ -280,23 +334,34 @@ class KnowledgeService:
         return [{"value": t, "label": POLICY_TOPIC_LABELS[t]} for t in list(POLICY_TOPICS) + ["other"]]
 
     def save_policy(self, topic: str, text: str, store_id: Optional[str] = None, title: str = "",
-                    tenant_id: Optional[str] = None) -> Dict[str, Any]:
+                    tenant_id: Optional[str] = None, principal: Optional[Principal] = None) -> Dict[str, Any]:
         tid = self.tenant_id(tenant_id)
+        self._check(principal, tid, "write")
+        if store_id:
+            st = self.store.get_store(store_id)
+            if not st or st["tenant_id"] != tid:
+                raise PermissionDenied("store belongs to another tenant")
         text = clean_text(text)
         if not text:
             raise ValueError("规则内容不能为空 / policy text is required")
         pol = self.store.upsert_policy(tid, topic, text, store_id or None, title)
         self._index_policy(pol)
-        self.store.audit(self.owner, "policy.save", pol["id"], {"topic": topic, "store_id": store_id})
+        self.store.audit(self.owner or "local", "policy.save", pol["id"], {"topic": topic, "store_id": store_id})
         return pol
 
-    def delete_policy(self, policy_id: str, tenant_id: Optional[str] = None) -> None:
+    def delete_policy(self, policy_id: str, tenant_id: Optional[str] = None,
+                      principal: Optional[Principal] = None) -> None:
+        tid = self.tenant_id(tenant_id)
+        self._check(principal, tid, "write")
+        if not any(p["id"] == policy_id for p in self.store.list_policies(tid)):
+            raise PermissionDenied("policy belongs to another tenant")
         self.store.delete_policy(policy_id)
-        self.indexes.invalidate(self.tenant_id(tenant_id))
+        self.indexes.invalidate(tid)
 
-    def policies_view(self, tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    def policies_view(self, tenant_id: Optional[str] = None, principal: Optional[Principal] = None) -> Dict[str, Any]:
         """Merchant defaults + each store's overrides, per topic."""
         tid = self.tenant_id(tenant_id)
+        self._check(principal, tid, "read")
         rows = self.store.list_policies(tid)
         defaults = {p["topic"]: p for p in rows if p["store_id"] is None}
         overrides: Dict[str, Dict[str, Any]] = {}
@@ -307,9 +372,11 @@ class KnowledgeService:
                 "stores": self.store.list_stores(tid)}
 
     # ---- re-index ---------------------------------------------------------------------
-    def reindex(self, tenant_id: Optional[str] = None, run_inline: bool = False) -> Dict[str, Any]:
+    def reindex(self, tenant_id: Optional[str] = None, run_inline: bool = False,
+                principal: Optional[Principal] = None) -> Dict[str, Any]:
         """Re-embed every chunk with the current embedder (after a model change)."""
         tid = self.tenant_id(tenant_id)
+        self._admin(principal, tid)
 
         def work(ctx: JobContext) -> Dict[str, Any]:
             items = self.store.chunk_texts_for_reindex(tid)
@@ -328,24 +395,122 @@ class KnowledgeService:
 
     # ---- retrieval -----------------------------------------------------------------------
     def search(self, query: str, store_ref: str = "", platform_item_id: str = "", product_id: str = "",
-               tenant_id: Optional[str] = None, k: int = 5) -> Dict[str, Any]:
+               tenant_id: Optional[str] = None, k: int = 5, principal: Optional[Principal] = None) -> Dict[str, Any]:
         query = clean_text(query)
         if not query:
             raise ValueError("query is required")
         tid = self.tenant_id(tenant_id)
+        allowed = None
+        if principal is not None:
+            # Hard partition: only KBs this principal may read are searched.
+            allowed = self.authz.readable_kbs(principal, tid)
+            if not allowed:
+                raise PermissionDenied(f"{principal.user_id} may not read this tenant's knowledge")
         r = self.retriever.retrieve(tid, query, store_ref=store_ref, platform_item_id=str(platform_item_id or ""),
-                                    product_id=product_id, k=k)
+                                    product_id=product_id, k=k, allowed_kbs=allowed)
         return r.to_dict()
 
     # ---- jobs ------------------------------------------------------------------------------
-    def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
-        return self.store.get_job(job_id)
+    def get_job(self, job_id: str, principal: Optional[Principal] = None) -> Optional[Dict[str, Any]]:
+        job = self.store.get_job(job_id)
+        if job and principal is not None:
+            self._check(principal, job["tenant_id"], "read")
+        return job
 
-    def list_jobs(self, tenant_id: Optional[str] = None, limit: int = 30) -> List[Dict[str, Any]]:
-        return self.store.list_jobs(self.tenant_id(tenant_id), limit)
+    def list_jobs(self, tenant_id: Optional[str] = None, limit: int = 30,
+                  principal: Optional[Principal] = None) -> List[Dict[str, Any]]:
+        tid = self.tenant_id(tenant_id)
+        self._check(principal, tid, "read")
+        return self.store.list_jobs(tid, limit)
 
-    def cancel_job(self, job_id: str) -> None:
+    def cancel_job(self, job_id: str, principal: Optional[Principal] = None) -> None:
+        job = self.store.get_job(job_id)
+        if job and principal is not None:
+            self._check(principal, job["tenant_id"], "write")
         self.jobs.cancel(job_id)
+
+    # ---- members & permissions ------------------------------------------------------
+    def access_view(self, tenant_id: Optional[str] = None, principal: Optional[Principal] = None) -> Dict[str, Any]:
+        tid = self.tenant_id(tenant_id)
+        self._admin(principal, tid)
+        return {"tenant": self.store.get_tenant(tid), "members": self.members.list_members(tid),
+                "groups": self.members.list_groups(tid), "grants": self.members.list_grants(tid),
+                "kbs": self.store.list_kbs(tid), "stores": self.store.list_stores(tid),
+                "me": (principal or self.local).to_dict()}
+
+    def save_member(self, email: str, role: str = "viewer", status: Optional[str] = None, member_id: Optional[str] = None,
+                    display_name: str = "", tenant_id: Optional[str] = None,
+                    principal: Optional[Principal] = None) -> Dict[str, Any]:
+        tid = self.tenant_id(tenant_id)
+        actor_role = self._admin(principal, tid)
+        m = self.members.save_member(tid, email, role, status, display_name, member_id, actor_role)
+        self.store.audit(self._actor(principal), "member.save", m["id"], {"email": m["email"], "role": role, "status": m["status"]})
+        return m
+
+    def remove_member(self, member_id: str, tenant_id: Optional[str] = None,
+                      principal: Optional[Principal] = None) -> None:
+        tid = self.tenant_id(tenant_id)
+        actor_role = self._admin(principal, tid)
+        self.members.remove_member(tid, member_id, actor_role)
+        self.store.audit(self._actor(principal), "member.remove", member_id)
+
+    def save_group(self, name: str, member_ids: List[str], description: str = "", group_id: Optional[str] = None,
+                   tenant_id: Optional[str] = None, principal: Optional[Principal] = None) -> Dict[str, Any]:
+        tid = self.tenant_id(tenant_id)
+        self._admin(principal, tid)
+        g = self.members.save_group(tid, name, member_ids, description, group_id)
+        self.store.audit(self._actor(principal), "group.save", g["id"], {"name": name, "members": len(g["member_ids"])})
+        return g
+
+    def delete_group(self, group_id: str, tenant_id: Optional[str] = None, principal: Optional[Principal] = None) -> None:
+        tid = self.tenant_id(tenant_id)
+        self._admin(principal, tid)
+        self.members.delete_group(tid, group_id)
+        self.store.audit(self._actor(principal), "group.delete", group_id)
+
+    def set_grant(self, kb_id: str, principal_type: str, principal_id: str, permission: str,
+                  tenant_id: Optional[str] = None, principal: Optional[Principal] = None) -> Dict[str, Any]:
+        tid = self.tenant_id(tenant_id)
+        self._admin(principal, tid)
+        g = self.members.set_grant(tid, kb_id, principal_type, principal_id, permission)
+        self.store.audit(self._actor(principal), "grant.set", kb_id, g)
+        return g
+
+    def remove_grant(self, grant_id: str, tenant_id: Optional[str] = None, principal: Optional[Principal] = None) -> None:
+        tid = self.tenant_id(tenant_id)
+        self._admin(principal, tid)
+        self.members.remove_grant(tid, grant_id)
+        self.store.audit(self._actor(principal), "grant.remove", grant_id)
+
+    def update_kb(self, kb_id: str, tenant_id: Optional[str] = None, principal: Optional[Principal] = None,
+                  **fields) -> Dict[str, Any]:
+        tid = self.tenant_id(tenant_id)
+        self._admin(principal, tid)
+        kb = self.store.get_kb(kb_id)
+        if not kb or kb["tenant_id"] != tid:
+            raise PermissionDenied("knowledge base belongs to another tenant")
+        allowed = {k: v for k, v in fields.items() if k in ("name", "description", "plane", "sensitivity")}
+        if allowed.get("plane") and allowed["plane"] not in ("local", "private", "public"):
+            raise ValueError("unknown plane")
+        if allowed.get("sensitivity") and allowed["sensitivity"] not in ("public", "internal", "confidential"):
+            raise ValueError("unknown sensitivity")
+        kb = self.store.update_kb(kb_id, **allowed)
+        self.store.audit(self._actor(principal), "kb.update", kb_id, allowed)
+        return kb
+
+    def set_email_domain(self, domain: str, tenant_id: Optional[str] = None,
+                         principal: Optional[Principal] = None) -> None:
+        tid = self.tenant_id(tenant_id)
+        actor_role = self._admin(principal, tid)
+        if actor_role != "owner":
+            raise PermissionDenied("only an owner can set the auto-join email domain")
+        self.members.set_email_domain(tid, domain)
+        self.store.audit(self._actor(principal), "tenant.email_domain", tid, {"domain": domain})
+
+    def list_audit(self, tenant_id: Optional[str] = None, limit: int = 100,
+                   principal: Optional[Principal] = None) -> List[Dict[str, Any]]:
+        self._admin(principal, self.tenant_id(tenant_id))
+        return self.store.list_audit(limit)
 
 
 # ---- per-user singleton for the desktop app ---------------------------------------------------

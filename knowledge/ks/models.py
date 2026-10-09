@@ -195,3 +195,38 @@ class AuditLog(Base):
     action = Column(String(60), nullable=False)
     target = Column(String(200), default="")
     detail = Column(JSON, default=dict)
+
+
+ROLES = ("owner", "admin", "editor", "viewer")
+
+
+class Membership(Base):
+    """A person in a tenant. Identity comes from the sign-in provider (Cognito,
+    CloudBase, enterprise OIDC); the role here decides what they may do."""
+    __tablename__ = "ks_membership"
+    id = Column(String(40), primary_key=True, default=lambda: new_id("mb"))
+    tenant_id = Column(String(40), ForeignKey("ks_tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(200), default="", index=True)   # provider subject, filled on first sign-in
+    email = Column(String(200), default="", index=True)     # lowercase
+    display_name = Column(String(200), default="")
+    role = Column(String(20), nullable=False, default="viewer")
+    status = Column(String(20), nullable=False, default="active")  # active | invited | disabled
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    __table_args__ = (UniqueConstraint("tenant_id", "email", name="uq_member_email"),)
+
+
+class Group(Base):
+    __tablename__ = "ks_group"
+    id = Column(String(40), primary_key=True, default=lambda: new_id("gp"))
+    tenant_id = Column(String(40), ForeignKey("ks_tenant.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, default="")
+    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_group_name"),)
+
+
+class GroupMember(Base):
+    __tablename__ = "ks_group_member"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(String(40), ForeignKey("ks_group.id", ondelete="CASCADE"), nullable=False, index=True)
+    membership_id = Column(String(40), ForeignKey("ks_membership.id", ondelete="CASCADE"), nullable=False, index=True)
+    __table_args__ = (UniqueConstraint("group_id", "membership_id", name="uq_group_member"),)

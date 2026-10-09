@@ -130,7 +130,7 @@ class ProductRetriever:
         self.embedder = embedder
 
     def retrieve(self, tenant_id: str, query: str, store_ref: str = "", platform_item_id: str = "",
-                 product_id: str = "", k: int = 5) -> Retrieval:
+                 product_id: str = "", k: int = 5, allowed_kbs: Optional[set] = None) -> Retrieval:
         t0 = time.perf_counter()
         r = Retrieval(query=query, tenant_id=tenant_id)
         fam = _family(getattr(self.embedder, "id", ""))
@@ -179,6 +179,8 @@ class ProductRetriever:
 
         def in_scope(c) -> bool:
             if c.tenant_id != tenant_id:
+                return False
+            if allowed_kbs is not None and c.kb_id not in allowed_kbs:
                 return False
             if c.doc_type == "policy":
                 return False  # policies come from the structured lookup above
