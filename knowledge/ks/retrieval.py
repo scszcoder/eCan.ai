@@ -102,10 +102,13 @@ def product_facts(product: Dict[str, Any], query: str) -> List[Dict[str, str]]:
     """Attributes relevant to the question, from the structured record."""
     families = set(detect_attribute_families(query))
     q = query.lower()
+    q_terms = set(signal_terms(tokenize(query)))
     facts: List[Dict[str, str]] = []
     for key, value in (product.get("attributes") or {}).items():
         fam = attribute_family(key)
-        if (fam and fam in families) or key.lower() in q:
+        # Merchant-defined keys (保温时长, 续航, 颗粒数) match on shared terms.
+        key_terms = set(signal_terms(tokenize(key)))
+        if (fam and fam in families) or key.lower() in q or (key_terms & q_terms):
             facts.append({"key": key, "value": str(value), "source": "attribute"})
     if "size" in families and product.get("size_chart", {}).get("rows"):
         from knowledge.ks.chunking import render_size_chart

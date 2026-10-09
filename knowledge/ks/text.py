@@ -92,7 +92,8 @@ POLICY_TOPIC_LABELS = {
 # Product attribute families and the words buyers use for them.
 ATTRIBUTE_SYNONYMS: Dict[str, List[str]] = {
     "material": ["材质", "面料", "成分", "材料", "布料", "含棉", "纯棉", "material", "fabric"],
-    "size": ["尺码", "码数", "尺寸", "大小", "多大", "身高", "体重", "偏大", "偏小", "size"],
+    "size": ["尺码", "码数", "尺寸", "大小", "多大", "身高", "体重", "偏大", "偏小", "什么码", "哪个码", "几码",
+             "腰围", "胸围", "臀围", "穿多大", "size"],
     "color": ["颜色", "色号", "配色", "color", "colour"],
     "weight": ["重量", "多重", "克重", "weight"],
     "origin": ["产地", "哪里产", "origin"],
