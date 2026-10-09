@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional
 
 import jwt
 
-from utils.logger_helper import logger_helper as logger
+from knowledge.ks._log import logger
 
 
 class AuthError(Exception):

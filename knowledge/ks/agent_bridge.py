@@ -19,7 +19,7 @@ import re
 import time
 from typing import Any, Dict, Optional
 
-from utils.logger_helper import logger_helper as logger
+from knowledge.ks._log import logger
 
 _ITEM_ID_RE = re.compile(r"商品ID[:：]\s*(\d{4,})")
 _STATE_KEYS = ("attributes", "messages", "input", "prompt_refs", "metadata")

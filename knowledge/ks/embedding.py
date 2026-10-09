@@ -19,7 +19,7 @@ from typing import List, Optional, Protocol, Sequence
 
 import numpy as np
 
-from utils.logger_helper import logger_helper as logger
+from knowledge.ks._log import logger
 
 
 class Embedder(Protocol):

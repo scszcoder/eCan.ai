@@ -13,7 +13,7 @@ import time
 import traceback
 from typing import Any, Callable, Dict, List, Optional
 
-from utils.logger_helper import logger_helper as logger
+from knowledge.ks._log import logger
 
 
 class JobCancelled(Exception):

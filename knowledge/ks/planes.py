@@ -22,7 +22,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional
 
-from utils.logger_helper import logger_helper as logger
+from knowledge.ks._log import logger
 
 SENSITIVITY_RANK = {"public": 0, "internal": 1, "private": 2}
 

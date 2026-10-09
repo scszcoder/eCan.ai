@@ -1,0 +1,129 @@
+# Private plane: everything on the customer's own server (reference box:
+# 2 x RTX PRO 5500, 84 GB each). Knowledge, prompts and answers never leave it.
+#
+#   GPU 0  main LLM (answers, planning, graph extraction)      -> llm
+#   GPU 1  embeddings + reranker (+ optional VLM profile)      -> embed, rerank, vlm
+#   CPU    PostgreSQL, Knowledge Service
+#
+# Model choices are starting points; benchmark them (rag_benchmark) before go-live.
+# Offline install: see README.md (docker save / load, pre-downloaded weights in ./models).
+name: ecan-private
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ecan_ks
+      POSTGRES_USER: ecan_ks
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecan_ks -d ecan_ks"]
+      interval: 10s
+      retries: 10
+
+  llm:
+    image: vllm/vllm-openai:${VLLM_TAG:-latest}
+    restart: unless-stopped
+    command: >
+      --model /models/${LLM_MODEL:-Qwen3-30B-A3B-Instruct-FP8}
+      --served-model-name ${LLM_SERVED_NAME:-ecan-llm}
+      --max-model-len ${LLM_MAX_LEN:-32768}
+      --gpu-memory-utilization 0.90
+      --enable-prefix-caching
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+    environment:
+      HF_HUB_OFFLINE: "1"
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, device_ids: ["0"], capabilities: [gpu]}]
+    ports: ["127.0.0.1:8000:8000"]
+
+  embed:
+    image: vllm/vllm-openai:${VLLM_TAG:-latest}
+    restart: unless-stopped
+    command: >
+      --model /models/${EMBED_MODEL:-Qwen3-Embedding-4B}
+      --served-model-name ${EMBED_SERVED_NAME:-ecan-embed}
+      --task embed
+      --gpu-memory-utilization 0.25
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+    environment:
+      HF_HUB_OFFLINE: "1"
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, device_ids: ["1"], capabilities: [gpu]}]
+
+  rerank:
+    image: vllm/vllm-openai:${VLLM_TAG:-latest}
+    restart: unless-stopped
+    command: >
+      --model /models/${RERANK_MODEL:-Qwen3-Reranker-4B}
+      --served-model-name ${RERANK_SERVED_NAME:-ecan-rerank}
+      --task score
+      --gpu-memory-utilization 0.25
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+    environment:
+      HF_HUB_OFFLINE: "1"
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, device_ids: ["1"], capabilities: [gpu]}]
+
+  vlm:
+    # Image / figure understanding at ingest time (LightRAG multimodal path).
+    profiles: ["multimodal"]
+    image: vllm/vllm-openai:${VLLM_TAG:-latest}
+    restart: unless-stopped
+    command: >
+      --model /models/${VLM_MODEL:-Qwen2.5-VL-32B-Instruct-AWQ}
+      --served-model-name ${VLM_SERVED_NAME:-ecan-vlm}
+      --max-model-len 16384
+      --gpu-memory-utilization 0.45
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+    environment:
+      HF_HUB_OFFLINE: "1"
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, device_ids: ["1"], capabilities: [gpu]}]
+
+  ks:
+    image: ecan/knowledge-service:${KS_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: deploy/ks/Dockerfile.ks
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+      embed: {condition: service_started}
+    environment:
+      KS_PLANE: private
+      KS_DB_URL: postgresql+psycopg://ecan_ks:${POSTGRES_PASSWORD}@postgres:5432/ecan_ks
+      KS_DATA_DIR: /data
+      KS_EMBED_BASE_URL: http://embed:8000/v1
+      KS_EMBED_MODEL: ${EMBED_SERVED_NAME:-ecan-embed}
+      # Sign-in: the app's cloud accounts (Cognito / CloudBase) and/or local accounts.
+      KS_COGNITO_REGION: ${KS_COGNITO_REGION:-}
+      KS_COGNITO_POOL_ID: ${KS_COGNITO_POOL_ID:-}
+      KS_COGNITO_CLIENT_ID: ${KS_COGNITO_CLIENT_ID:-}
+      KS_OIDC_ISSUER: ${KS_OIDC_ISSUER:-}
+      KS_OIDC_AUDIENCE: ${KS_OIDC_AUDIENCE:-}
+      KS_LOCAL_SECRET: ${KS_LOCAL_SECRET:?set KS_LOCAL_SECRET in .env}
+      KS_BOOTSTRAP_ADMIN: ${KS_BOOTSTRAP_ADMIN:-}
+      KS_BOOTSTRAP_TENANT: ${KS_BOOTSTRAP_TENANT:-我的企业}
+    volumes:
+      - ksdata:/data
+    ports: ["${KS_BIND:-0.0.0.0}:8790:8790"]
+
+volumes:
+  pgdata:
+  ksdata:

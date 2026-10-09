@@ -1,0 +1,31 @@
+# Public plane: multi-tenant Knowledge Service in our cloud (merchants).
+# Put it behind an HTTPS load balancer / gateway (clients refuse plain http
+# for cloud connections). Embeddings come from a cloud provider.
+name: ecan-cloud-ks
+
+services:
+  ks:
+    image: ecan/knowledge-service:${KS_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: deploy/ks/Dockerfile.ks
+    restart: unless-stopped
+    environment:
+      KS_PLANE: public
+      KS_DB_URL: ${KS_DB_URL:?managed PostgreSQL URL, postgresql+psycopg://...}
+      KS_DATA_DIR: /data
+      KS_ALLOW_TENANT_CREATE: "1"
+      KS_EMBED_BASE_URL: ${KS_EMBED_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      KS_EMBED_MODEL: ${KS_EMBED_MODEL:-text-embedding-v3}
+      KS_EMBED_API_KEY: ${KS_EMBED_API_KEY:?embedding API key}
+      KS_COGNITO_REGION: ${KS_COGNITO_REGION:-}
+      KS_COGNITO_POOL_ID: ${KS_COGNITO_POOL_ID:-}
+      KS_COGNITO_CLIENT_ID: ${KS_COGNITO_CLIENT_ID:-}
+      KS_OIDC_ISSUER: ${KS_OIDC_ISSUER:-}
+      KS_OIDC_AUDIENCE: ${KS_OIDC_AUDIENCE:-}
+    volumes:
+      - ksdata:/data
+    ports: ["127.0.0.1:8790:8790"]
+
+volumes:
+  ksdata:

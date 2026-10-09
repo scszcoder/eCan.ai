@@ -23,7 +23,7 @@ from knowledge.ks.members import MemberAdmin
 from knowledge.ks.retrieval import ProductRetriever
 from knowledge.ks.store import KSStore
 from knowledge.ks.text import POLICY_TOPIC_LABELS, POLICY_TOPICS, clean_text
-from utils.logger_helper import logger_helper as logger
+from knowledge.ks._log import logger
 
 DEFAULT_TENANT_NAME = "我的店铺"
 
