@@ -123,11 +123,16 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
     if not item_id:
         item_id = extract_item_id(" ".join(str(v) for v in input_data.values() if isinstance(v, str)))
     try:
-        from knowledge.ks.service import get_service
+        from knowledge.ks.service import get_router, get_service
         svc = get_service(main_window)
-        if not _has_product_knowledge(svc):
+        router = get_router(main_window)
+        has_remote = any(c.get("enabled", True) for c in router.connections.list())
+        if not has_remote and not _has_product_knowledge(svc):
             return None
-        result = svc.search(query, store_ref=store_ref, platform_item_id=item_id)
+        if has_remote:
+            result = router.search(query, store=store_ref, platform_item_id=item_id)
+        else:
+            result = svc.search(query, store_ref=store_ref, platform_item_id=item_id)
     except Exception as e:
         logger.warning(f"[KS] product knowledge lookup failed, using LightRAG: {e}")
         return None
@@ -144,6 +149,7 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
             "confidence": _confidence_payload(result),
             "source": "product_knowledge",
             "sensitivity": result.get("sensitivity", "internal"),
+            "plane": result.get("plane", "local"),
             "product_knowledge": {k: result.get(k) for k in ("tier", "product", "store", "facts", "faq", "policies",
                                                              "candidates", "timings_ms", "confidence")},
         },

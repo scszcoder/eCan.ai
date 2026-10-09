@@ -4631,6 +4631,11 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
 
+            # Private-data guard: a run that retrieved private knowledge may
+            # only call a model on this machine / the private network.
+            from knowledge.ks.taint import check_llm as _ks_check_llm
+            _ks_check_llm(state, llm, llm_provider, full_node_name)
+
             # Invoke the LLM and update the state
             try:
                 import time
@@ -8083,6 +8088,16 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         work_result['rag_answer'] = _answer_text
                         work_result['rag_references'] = _refs
                         work_result['rag_confidence'] = _conf
+                        # Private knowledge taints the run: later LLM nodes
+                        # must use a private model (knowledge/ks/taint.py).
+                        _sens = _data.get('sensitivity') if isinstance(_data, dict) else None
+                        if _sens:
+                            work_result['rag_sensitivity'] = _sens
+                            try:
+                                from knowledge.ks.taint import mark as _ks_mark
+                                _ks_mark(st, _sens)
+                            except Exception:
+                                pass
                         if isinstance(_conf, dict):
                             work_result['rag_confidence_score'] = _conf.get('overall_score', 0.0)
                             work_result['rag_confidence_level'] = _conf.get('confidence_level', 'unknown')

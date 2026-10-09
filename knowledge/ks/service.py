@@ -408,7 +408,12 @@ class KnowledgeService:
                 raise PermissionDenied(f"{principal.user_id} may not read this tenant's knowledge")
         r = self.retriever.retrieve(tid, query, store_ref=store_ref, platform_item_id=str(platform_item_id or ""),
                                     product_id=product_id, k=k, allowed_kbs=allowed)
-        return r.to_dict()
+        out = r.to_dict()
+        kb = self.catalog_kb(tid)
+        out["plane"] = kb["plane"]
+        # Knowledge from a private plane or a confidential KB must stay on private models.
+        out["sensitivity"] = "private" if kb["plane"] == "private" or kb["sensitivity"] == "confidential" else "internal"
+        return out
 
     # ---- jobs ------------------------------------------------------------------------------
     def get_job(self, job_id: str, principal: Optional[Principal] = None) -> Optional[Dict[str, Any]]:
@@ -542,10 +547,28 @@ def get_service(main_window=None) -> KnowledgeService:
         return svc
 
 
+_routers: Dict[str, Any] = {}
+
+
+def get_router(main_window=None):
+    """PlaneRouter over the user's local service and saved connections."""
+    from knowledge.ks.planes import ConnectionStore, PlaneRouter
+    svc = get_service(main_window)
+    key = str(id(svc))
+    with _services_lock:
+        router = _routers.get(key)
+        if router is None:
+            folder = os.path.dirname(svc.store.engine.url.database or "") or "."
+            router = PlaneRouter(svc, ConnectionStore(os.path.join(folder, "connections.json")))
+            _routers[key] = router
+        return router
+
+
 def reset_services() -> None:
     """Drop cached services (e.g. after the embedding provider changes)."""
     with _services_lock:
         _services.clear()
+        _routers.clear()
 
 
 def _broadcast_job(job: Dict[str, Any]) -> None:
