@@ -16,6 +16,33 @@ if TYPE_CHECKING:
 # Platform-specific imports are handled by hardware_detector module
 
 
+_CN_BACKEND_MARKS = ("tcloudbase.com",)
+_INTL_BACKEND_MARKS = ("appsync-api.", "appsync-realtime-api.")
+
+
+def _repair_foreign_endpoints(settings: dict) -> bool:
+    """Replace wan/ws endpoints that belong to the other region's backend with
+    this app's configured ones (ECAN_APP_ID). Returns True if anything changed."""
+    try:
+        from agent.cloud_api.endpoints import get_endpoint_config
+        cfg = get_endpoint_config()
+        foreign = _INTL_BACKEND_MARKS if cfg.is_cn else _CN_BACKEND_MARKS
+        wanted = {"wan_api_endpoint": cfg.graphql_endpoint, "ws_api_endpoint": cfg.ws_endpoint,
+                  "ws_api_host": cfg.host}
+    except Exception as e:
+        logger.debug(f"[settings] endpoint region check skipped: {e}")
+        return False
+    changed = False
+    for key, value in wanted.items():
+        current = str(settings.get(key) or "")
+        if value and current and any(m in current for m in foreign):
+            logger.warning(f"[settings] '{key}' pointed at the other region's backend ({current}); "
+                           f"using this app's endpoint {value}")
+            settings[key] = value
+            changed = True
+    return changed
+
+
 class GeneralSettings:
     """
     General settings entity class - corresponds to settings.json file
@@ -99,7 +126,16 @@ class GeneralSettings:
                     settings[key] = value
                     settings_updated = True
                     logger.info(f"Filled empty endpoint '{key}' with template default: {value}")
-        
+
+        # Migration 3: a saved cloud endpoint of the OTHER region's backend. The
+        # per-app endpoints are only written on an interactive login, so an account
+        # that last logged in on the CN app kept its Tencent URLs in the US app
+        # after a restored session -- prompt sync, the subscription client and the
+        # LLM proxy then talked to CN (2026-10-08, songc@yahoo.com). Same-region
+        # custom endpoints (e.g. a dev stack) are left alone.
+        if _repair_foreign_endpoints(settings):
+            settings_updated = True
+
         # Save updated settings back to file if any fields were added or migrated
         if settings_updated:
             self.config_manager.save_json(self.settings_file, settings)
