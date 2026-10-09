@@ -139,6 +139,53 @@ export interface KSDraft {
   text_preview: string;
 }
 
+export interface KSConnection {
+  id: string;
+  name: string;
+  plane: 'private' | 'public';
+  base_url: string;
+  tenant_id: string;
+  auth: 'app' | 'local';
+  enabled: boolean;
+  verify_tls: boolean;
+  send_queries: boolean;
+  signed_in?: boolean;
+}
+
+export interface KSConnectionTest {
+  ok: boolean;
+  steps: { step: string; ok: boolean; detail: string; ms?: number; tenants?: { id: string; name: string; role: string }[] }[];
+}
+
+export interface KSMember {
+  id: string;
+  email: string;
+  user_id: string;
+  display_name: string;
+  role: 'owner' | 'admin' | 'editor' | 'viewer';
+  status: 'active' | 'invited' | 'disabled';
+  groups?: string[];
+}
+
+export interface KSAccessView {
+  tenant: { id: string; name: string; email_domain?: string };
+  members: KSMember[];
+  groups: { id: string; name: string; description: string; member_ids: string[] }[];
+  grants: { id: string; kb_id: string; principal_type: string; principal_id: string; permission: string }[];
+  kbs: { id: string; name: string; plane: string; sensitivity: string; kind: string }[];
+  stores: KSStore[];
+  me: { user_id: string; email: string };
+}
+
+export interface KSRouterResult extends KSSearchResult {
+  plane: string;
+  sensitivity: string;
+  source?: string;
+  planes: { source: string; plane: string; confidence: number; should_answer: boolean; tier: number }[];
+  plane_errors: { source: string; plane: string; error: string }[];
+  router_ms: number;
+}
+
 async function call<T>(method: string, params: Record<string, any> = {}, timeout?: number): Promise<T> {
   const resp = await get_ipc_api().executeRequest<T>(method, params, timeout);
   if (!resp.success) {
@@ -183,6 +230,19 @@ export const ksApi = {
   listJobs: (limit = 30) => call<KSJob[]>('ks.listJobs', { limit }),
   cancelJob: (id: string) => call('ks.cancelJob', { id }),
   reindex: () => call<KSJob>('ks.reindex'),
+
+  listConnections: () => call<KSConnection[]>('ks.listConnections'),
+  saveConnection: (c: Partial<KSConnection>) => call<KSConnection>('ks.saveConnection', c),
+  deleteConnection: (id: string) => call('ks.deleteConnection', { id }),
+  testConnection: (id: string) => call<KSConnectionTest>('ks.testConnection', { id }, 60000),
+  loginConnection: (id: string, email: string, password: string) =>
+    call<{ signed_in: boolean }>('ks.loginConnection', { id, email, password }, 60000),
+  routerSearch: (p: { query: string; store_id?: string; platform_item_id?: string; product_id?: string }) =>
+    call<KSRouterResult>('ks.routerSearch', p, 60000),
+
+  /** Access admin on this computer (connection_id empty) or a connected server. */
+  access: <T = any>(op: string, params: Record<string, any> = {}, connection_id?: string) =>
+    call<T>('ks.access', { op, connection_id, ...params }, 60000),
 
   /** Native file picker (desktop). Returns absolute paths, or [] when cancelled. */
   pickFiles: async (extensions: string[], name: string, multiple = true): Promise<string[]> => {

@@ -237,3 +237,43 @@ class PlaneRouter:
         if not (stats["products"] or stats["policies"]):
             return None
         return self.local.search(query, store_ref=store, platform_item_id=platform_item_id, product_id=product_id)
+
+
+class RemoteAdmin:
+    """Access administration on a KS server, same shapes as the local service."""
+
+    def __init__(self, remote: RemoteKS):
+        self.r = remote
+
+    def _t(self, path: str = "") -> str:
+        return f"/v1/tenants/{self.r.tenant_id}{path}"
+
+    def access_view(self):
+        return self.r._request("GET", self._t("/access"))
+
+    def save_member(self, email, role="viewer", status=None, member_id=None, display_name=""):
+        return self.r._request("POST", self._t("/members"), json={
+            "email": email, "role": role, "status": status, "member_id": member_id, "display_name": display_name})
+
+    def remove_member(self, member_id):
+        return self.r._request("DELETE", self._t(f"/members/{member_id}"))
+
+    def save_group(self, name, member_ids, description="", group_id=None):
+        return self.r._request("POST", self._t("/groups"), json={
+            "name": name, "member_ids": member_ids, "description": description, "group_id": group_id})
+
+    def delete_group(self, group_id):
+        return self.r._request("DELETE", self._t(f"/groups/{group_id}"))
+
+    def set_grant(self, kb_id, principal_type, principal_id, permission):
+        return self.r._request("POST", self._t("/grants"), json={
+            "kb_id": kb_id, "principal_type": principal_type, "principal_id": principal_id, "permission": permission})
+
+    def remove_grant(self, grant_id):
+        return self.r._request("DELETE", self._t(f"/grants/{grant_id}"))
+
+    def update_kb(self, kb_id, **fields):
+        return self.r._request("PATCH", self._t(f"/kbs/{kb_id}"), json=fields)
+
+    def list_audit(self, limit=100):
+        return self.r._request("GET", self._t(f"/audit?limit={int(limit)}"))

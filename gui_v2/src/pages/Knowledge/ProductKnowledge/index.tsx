@@ -3,8 +3,8 @@ import {
   Alert, App, Button, Card, Col, Empty, Input, List, Modal, Popconfirm, Row, Select, Space, Statistic, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
 import {
-  AppstoreOutlined, CloudUploadOutlined, DeleteOutlined, EditOutlined, ExperimentOutlined, FileProtectOutlined,
-  HistoryOutlined, PlusOutlined, ShopOutlined, SyncOutlined,
+  ApiOutlined, AppstoreOutlined, CloudUploadOutlined, DeleteOutlined, EditOutlined, ExperimentOutlined, FileProtectOutlined,
+  HistoryOutlined, PlusOutlined, SafetyOutlined, ShopOutlined, SyncOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ksApi, KSJob, KSOverview, KSProduct, KSStore } from '@/services/ipc/ksApi';
@@ -12,6 +12,8 @@ import ProductsPanel from './ProductsPanel';
 import ImportPanel from './ImportPanel';
 import PoliciesPanel from './PoliciesPanel';
 import TestPanel from './TestPanel';
+import ConnectionsPanel from './ConnectionsPanel';
+import AccessPanel from './AccessPanel';
 import JobProgress from './JobProgress';
 import { useJob } from './useJob';
 
@@ -19,7 +21,7 @@ const { Text, Paragraph } = Typography;
 
 const PLATFORMS = ['taobao', 'tmall', 'douyin', 'pdd', 'jd', 'other'];
 
-type SubTab = 'overview' | 'products' | 'import' | 'policies' | 'test' | 'jobs';
+type SubTab = 'overview' | 'products' | 'import' | 'policies' | 'test' | 'servers' | 'access' | 'jobs';
 
 const StoreModal: React.FC<{ store: Partial<KSStore> | null; onClose: () => void; onSaved: () => void }> = ({ store, onClose, onSaved }) => {
   const { t } = useTranslation();
@@ -220,6 +222,8 @@ const ProductKnowledgeTab: React.FC = () => {
           },
           { key: 'policies', label: <span><FileProtectOutlined /> {k('tabs.policies')}</span>, children: <PoliciesPanel onChanged={changed} /> },
           { key: 'test', label: <span><ExperimentOutlined /> {k('tabs.test')}</span>, children: <TestPanel overview={overview} /> },
+          { key: 'servers', label: <span><ApiOutlined /> {k('tabs.servers')}</span>, children: <ConnectionsPanel onChanged={changed} /> },
+          { key: 'access', label: <span><SafetyOutlined /> {k('tabs.access')}</span>, children: <AccessPanel /> },
           { key: 'jobs', label: <span><HistoryOutlined /> {k('tabs.jobs')}</span>, children: <JobsList refreshKey={jobsKey} /> },
         ]}
       />

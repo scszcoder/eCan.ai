@@ -2798,7 +2798,9 @@
           "import": "导入",
           "policies": "店铺规则",
           "test": "问答测试",
-          "jobs": "任务"
+          "jobs": "任务",
+          "servers": "服务器",
+          "access": "成员与权限"
         },
         "stats": {
           "products": "商品",
@@ -3040,7 +3042,12 @@
             "size_chart": "尺码表",
             "faq": "常见问题",
             "policy": "规则"
-          }
+          },
+          "allPlanes": "同时检索本机和所有已连接的服务器",
+          "private": "私有",
+          "privateHint": "来自私有服务器或机密知识库：智能体只会用私有模型处理这个回答。",
+          "askedPlanes": "已查询以下来源（{{ms}} 毫秒）：",
+          "unreachable": "无法连接"
         },
         "jobs": {
           "empty": "还没有任务",
@@ -3057,6 +3064,119 @@
             "failed": "失败",
             "cancelled": "已取消"
           }
+        },
+        "connections": {
+          "intro": "知识存放在哪里",
+          "introDetail": "本机始终可以单独使用。添加公司的私有服务器（本地部署），工程师即可查询内部知识；也可以连接 eCan 云端，让你的所有电脑共享同一个知识库。",
+          "title": "知识服务器",
+          "add": "添加服务器",
+          "edit": "编辑服务器",
+          "save": "保存",
+          "empty": "还没有连接服务器",
+          "thisComputer": "本机",
+          "thisComputerHint": "保存在本应用中的知识",
+          "enabledHint": "回答问题时包含这个服务器",
+          "signIn": "登录",
+          "reSignIn": "重新登录",
+          "signedIn": "已登录",
+          "test": "测试",
+          "deleteConfirm": "移除与「{{name}}」的连接？服务器上的数据不受影响。",
+          "disabled": "已关闭",
+          "notSignedIn": "未登录",
+          "queriesNotSent": "不发送问题",
+          "tenant": "组织 ID",
+          "ready": "可以使用",
+          "step": {
+            "reach": "服务器可访问",
+            "plane": "服务器类型",
+            "identity": "登录身份",
+            "tenant": "组织权限"
+          },
+          "howTitle": "路由方式",
+          "howPrivate": "私有服务器：部署在公司自己的硬件上并使用自己的模型。它返回的任何内容都不会发送给云端模型，智能体会被阻止这样做。",
+          "howPublic": "云端：eCan 托管的知识服务，你的各台设备共享。你可以选择不向它发送问题。",
+          "howGuard": "每个问题都会发给本机和每个已开启的服务器，使用置信度最高的回答，并标明来源。",
+          "name": "名称",
+          "namePlaceholder": "例如：公司知识服务器",
+          "kind": "类型",
+          "kindPrivate": "私有（本地部署）",
+          "kindPublic": "云端",
+          "address": "服务器地址",
+          "addressHint": "云端服务器必须使用 https://。公司局域网内的私有服务器可以使用 http://。",
+          "tenantHint": "你的组织在该服务器上的 ID（由管理员提供，或在测试后显示）。",
+          "auth": "登录方式",
+          "authApp": "使用我的 eCan 登录",
+          "authLocal": "服务器账号（邮箱 + 密码）",
+          "verifyTls": "校验证书",
+          "verifyTlsHint": "仅当内部服务器使用自签名证书时才关闭。",
+          "sendQueries": "向云端发送问题",
+          "sendQueriesHint": "关闭后不会查询云端，问题文本不会离开本机。",
+          "signInTo": "登录 {{name}}",
+          "email": "邮箱",
+          "password": "密码",
+          "passwordHint": "密码只发送给服务器一次；只在内存中保留登录会话。"
+        },
+        "access": {
+          "manageOn": "管理以下位置的权限",
+          "thisComputer": "本机",
+          "localNote": "在本机上你是所有者。成员和用户组用于从服务器共享知识的场景；选择一个已连接的服务器来管理谁可以使用。",
+          "loadFailed": "无法加载权限设置（需要该服务器上的管理员角色）",
+          "members": "成员",
+          "member": "成员",
+          "role": "角色",
+          "status": "状态",
+          "you": "你",
+          "roles": {
+            "owner": "所有者",
+            "admin": "管理员",
+            "editor": "编辑",
+            "viewer": "只读"
+          },
+          "statuses": {
+            "active": "已启用",
+            "invited": "已邀请",
+            "disabled": "已停用"
+          },
+          "statusHint": {
+            "active": "可以登录，并按角色使用知识",
+            "invited": "首次用这个邮箱登录后自动启用",
+            "disabled": "无论授权如何都无法访问"
+          },
+          "enable": "启用",
+          "disable": "停用",
+          "removeConfirm": "将 {{name}} 移出该组织？",
+          "inviteEmail": "colleague@company.com",
+          "invite": "邀请",
+          "invited": "已保存邀请",
+          "inviteHint": "只读成员可以查询；编辑还能添加和修改商品与规则；管理员管理人员和权限。成员使用平时的 eCan 账号登录。",
+          "groups": "用户组",
+          "groupName": "用户组名称，如 FAE",
+          "addGroup": "添加用户组",
+          "noGroups": "还没有用户组",
+          "groupMembers": "该组成员",
+          "deleteGroupConfirm": "删除该用户组及其授权？",
+          "kbAccess": "知识库权限",
+          "rulesHint": "角色可以访问所有非机密知识库。机密知识库只有管理员以及下方授权的人员、用户组或店铺可见。",
+          "sensitivity": {
+            "public": "公开",
+            "internal": "内部",
+            "confidential": "机密"
+          },
+          "confidentialHint": "机密：仅管理员和明确授权者可见。其中的回答不会交给云端模型。",
+          "pickKb": "知识库",
+          "pickWho": "授权对象",
+          "user": "人员",
+          "group": "用户组",
+          "store": "店铺",
+          "agent": "智能体",
+          "perms": {
+            "read": "查看",
+            "write": "编辑",
+            "manage": "管理"
+          },
+          "grant": "授权",
+          "granted": "已授权",
+          "audit": "最近操作"
         }
       },
       "tabs": {

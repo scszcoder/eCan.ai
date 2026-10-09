@@ -2739,7 +2739,9 @@
           "import": "Import",
           "policies": "Store policies",
           "test": "Q&A test",
-          "jobs": "Jobs"
+          "jobs": "Jobs",
+          "servers": "Servers",
+          "access": "Members & access"
         },
         "stats": {
           "products": "Products",
@@ -2981,7 +2983,12 @@
             "size_chart": "Size chart",
             "faq": "FAQ",
             "policy": "Rule"
-          }
+          },
+          "allPlanes": "Search this computer and all connected servers",
+          "private": "Private",
+          "privateHint": "From a private server or confidential knowledge base: the agent will only use private models for this answer.",
+          "askedPlanes": "Asked these sources ({{ms}} ms):",
+          "unreachable": "unreachable"
         },
         "jobs": {
           "empty": "No jobs yet",
@@ -2998,6 +3005,119 @@
             "failed": "Failed",
             "cancelled": "Cancelled"
           }
+        },
+        "connections": {
+          "intro": "Where your knowledge lives",
+          "introDetail": "This computer always works on its own. Add your company's private server (on-prem) so engineers query in-house knowledge, and/or the eCan cloud so all your machines share one knowledge base.",
+          "title": "Knowledge servers",
+          "add": "Add server",
+          "edit": "Edit server",
+          "save": "Save",
+          "empty": "No servers connected",
+          "thisComputer": "This computer",
+          "thisComputerHint": "Knowledge stored in this app",
+          "enabledHint": "Include this server when answering questions",
+          "signIn": "Sign in",
+          "reSignIn": "Sign in again",
+          "signedIn": "Signed in",
+          "test": "Test",
+          "deleteConfirm": "Remove the connection to \"{{name}}\"? Its data stays on the server.",
+          "disabled": "Off",
+          "notSignedIn": "Not signed in",
+          "queriesNotSent": "Questions not sent",
+          "tenant": "Organisation ID",
+          "ready": "Ready to use",
+          "step": {
+            "reach": "Server reachable",
+            "plane": "Server type",
+            "identity": "Signed in as",
+            "tenant": "Organisation access"
+          },
+          "howTitle": "How routing works",
+          "howPrivate": "Private server: on your company's hardware with its own models. Nothing it returns is ever sent to a cloud model; the agent is blocked from doing so.",
+          "howPublic": "Cloud: eCan's hosted knowledge service, shared across your devices. You can stop sending questions to it.",
+          "howGuard": "Every question goes to this computer and each enabled server; the most confident answer is used and labelled with where it came from.",
+          "name": "Name",
+          "namePlaceholder": "e.g. Company knowledge server",
+          "kind": "Type",
+          "kindPrivate": "Private (on-prem)",
+          "kindPublic": "Cloud",
+          "address": "Server address",
+          "addressHint": "Cloud servers must use https://. A private server on your LAN may use http:// inside the company network.",
+          "tenantHint": "Your organisation's ID on that server (shown by your administrator, or after Test).",
+          "auth": "Sign-in",
+          "authApp": "Use my eCan sign-in",
+          "authLocal": "Server account (email + password)",
+          "verifyTls": "Verify certificate",
+          "verifyTlsHint": "Turn off only for an internal server with a self-signed certificate.",
+          "sendQueries": "Send questions to the cloud",
+          "sendQueriesHint": "Off: the cloud is not asked, so question text never leaves this computer.",
+          "signInTo": "Sign in to {{name}}",
+          "email": "Email",
+          "password": "Password",
+          "passwordHint": "The password is sent once to the server; only the session is kept, in memory."
+        },
+        "access": {
+          "manageOn": "Manage access on",
+          "thisComputer": "This computer",
+          "localNote": "On this computer you are the owner. Members and groups matter when this knowledge is shared from a server; pick a connected server to manage who can use it.",
+          "loadFailed": "Could not load access settings (you need the admin role on that server)",
+          "members": "Members",
+          "member": "Member",
+          "role": "Role",
+          "status": "Status",
+          "you": "you",
+          "roles": {
+            "owner": "Owner",
+            "admin": "Admin",
+            "editor": "Editor",
+            "viewer": "Viewer"
+          },
+          "statuses": {
+            "active": "Active",
+            "invited": "Invited",
+            "disabled": "Disabled"
+          },
+          "statusHint": {
+            "active": "Can sign in and use knowledge according to their role",
+            "invited": "Becomes active the first time they sign in with this email",
+            "disabled": "No access, whatever their grants say"
+          },
+          "enable": "Enable",
+          "disable": "Disable",
+          "removeConfirm": "Remove {{name}} from this organisation?",
+          "inviteEmail": "colleague@company.com",
+          "invite": "Invite",
+          "invited": "Invitation saved",
+          "inviteHint": "Viewers read, editors also add and change products and rules, admins manage people and access. People sign in with their usual eCan account.",
+          "groups": "Groups",
+          "groupName": "Group name, e.g. FAE",
+          "addGroup": "Add group",
+          "noGroups": "No groups yet",
+          "groupMembers": "Members of this group",
+          "deleteGroupConfirm": "Delete this group and its access grants?",
+          "kbAccess": "Knowledge base access",
+          "rulesHint": "Roles give access to every non-confidential knowledge base. Confidential ones are only visible to admins and to people, groups or stores granted below.",
+          "sensitivity": {
+            "public": "Public",
+            "internal": "Internal",
+            "confidential": "Confidential"
+          },
+          "confidentialHint": "Confidential: only admins and explicit grants. Answers from it are kept away from cloud models.",
+          "pickKb": "Knowledge base",
+          "pickWho": "Who",
+          "user": "Person",
+          "group": "Group",
+          "store": "Store",
+          "agent": "Agent",
+          "perms": {
+            "read": "Read",
+            "write": "Edit",
+            "manage": "Manage"
+          },
+          "grant": "Grant access",
+          "granted": "Access granted",
+          "audit": "Recent activity"
         }
       },
       "tabs": {

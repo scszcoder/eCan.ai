@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Alert, App, Button, Card, Col, Descriptions, Empty, Input, List, Progress, Row, Select, Space, Tag, Tooltip, Typography,
+  Alert, App, Button, Card, Col, Descriptions, Empty, Input, List, Progress, Row, Select, Space, Switch, Tag, Tooltip, Typography,
 } from 'antd';
 import { SendOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { ksApi, KSOverview, KSProduct, KSSearchResult } from '@/services/ipc/ksApi';
+import { ksApi, KSOverview, KSProduct, KSRouterResult, KSSearchResult } from '@/services/ipc/ksApi';
+import { PlaneTag } from './ConnectionsPanel';
 
 const { Text, Paragraph } = Typography;
 
@@ -24,7 +25,8 @@ const TestPanel: React.FC<{ overview: KSOverview | null }> = ({ overview }) => {
   const [itemId, setItemId] = useState('');
   const [query, setQuery] = useState('');
   const [products, setProducts] = useState<KSProduct[]>([]);
-  const [result, setResult] = useState<KSSearchResult | null>(null);
+  const [result, setResult] = useState<(KSSearchResult & Partial<KSRouterResult>) | null>(null);
+  const [allPlanes, setAllPlanes] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -37,7 +39,8 @@ const TestPanel: React.FC<{ overview: KSOverview | null }> = ({ overview }) => {
     setQuery(text);
     setLoading(true);
     try {
-      setResult(await ksApi.search({ query: text, store_id: storeId, product_id: productId, platform_item_id: itemId || undefined }));
+      const scope = { query: text, store_id: storeId, product_id: productId, platform_item_id: itemId || undefined };
+      setResult(allPlanes ? await ksApi.routerSearch(scope) : await ksApi.search(scope));
     } catch (e: any) {
       message.error(e.message);
     } finally {
@@ -67,6 +70,10 @@ const TestPanel: React.FC<{ overview: KSOverview | null }> = ({ overview }) => {
                  style={{ marginBottom: 12 }} />
           <Input.TextArea rows={3} value={query} placeholder={k('questionPlaceholder')} onChange={e => setQuery(e.target.value)}
                           onPressEnter={e => { if (!e.shiftKey) { e.preventDefault(); ask(); } }} />
+          <Space style={{ marginTop: 8 }}>
+            <Switch size="small" checked={allPlanes} onChange={setAllPlanes} />
+            <Text type="secondary" style={{ fontSize: 12 }}>{k('allPlanes')}</Text>
+          </Space>
           <Button type="primary" icon={<SendOutlined />} loading={loading} block style={{ marginTop: 8 }} onClick={() => ask()}>
             {k('ask')}
           </Button>
@@ -86,6 +93,8 @@ const TestPanel: React.FC<{ overview: KSOverview | null }> = ({ overview }) => {
               <Space wrap style={{ width: '100%', justifyContent: 'space-between' }}>
                 <Space wrap>
                   <Tag color={TIER_COLOR[result.tier]} icon={<ThunderboltOutlined />}>{k(`tier${result.tier}`)}</Tag>
+                  {result.plane && <PlaneTag plane={result.plane} />}
+                  {result.sensitivity === 'private' && <Tooltip title={k('privateHint')}><Tag color="red">{k('private')}</Tag></Tooltip>}
                   {result.product ? <Text>{k('resolved')}: <Text strong>{result.product.title}</Text></Text>
                     : <Text type="secondary">{k('noProductResolved')}</Text>}
                 </Space>
@@ -95,6 +104,19 @@ const TestPanel: React.FC<{ overview: KSOverview | null }> = ({ overview }) => {
                             status={result.should_answer ? 'success' : 'exception'} />
                 </Space>
               </Space>
+              {result.planes && result.planes.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{k('askedPlanes', { ms: result.router_ms })}</Text>
+                  <div><Space size={[4, 4]} wrap>
+                    {result.planes.map((p, i) => (
+                      <Tag key={i} color={p.should_answer ? 'green' : 'default'}>{p.source} · {Math.round((p.confidence || 0) * 100)}%</Tag>
+                    ))}
+                    {(result.plane_errors || []).map((e, i) => (
+                      <Tooltip key={`e${i}`} title={e.error}><Tag color="error">{e.source} · {k('unreachable')}</Tag></Tooltip>
+                    ))}
+                  </Space></div>
+                </div>
+              )}
               {!result.should_answer && (
                 <Alert style={{ marginTop: 8 }} type="warning" showIcon message={k('noKnowledge')} description={k('noKnowledgeHint')} />
               )}

@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { App } from 'antd';
@@ -48,6 +47,17 @@ const ksApi = {
     report: { rows_total: 1, products: 1, variants: 0, listings: 0, skipped: [], skipped_count: 0, warnings: [], warning_count: 0, errors: [], ignored_columns: ['一口价'] },
     products_preview: [], stores_in_file: [],
   }),
+  listConnections: jest.fn().mockResolvedValue([{ id: 'c1', name: '公司服务器', plane: 'private', base_url: 'http://10.0.0.5:8790',
+    tenant_id: 'tn_1', auth: 'local', enabled: true, verify_tls: true, send_queries: true, signed_in: false }]),
+  testConnection: jest.fn().mockResolvedValue({ ok: true, steps: [
+    { step: 'reach', ok: true, detail: 'plane=private', ms: 12 }, { step: 'identity', ok: true, detail: 'fae@corp.cn' },
+    { step: 'tenant', ok: true, detail: '设计公司 (owner)' }] }),
+  access: jest.fn().mockImplementation((op: string) => Promise.resolve(op === 'audit' ? [] : {
+    tenant: { id: 'tn_1', name: '设计公司' },
+    members: [{ id: 'm1', email: 'fae@corp.cn', user_id: 'fae', display_name: '', role: 'owner', status: 'active' }],
+    groups: [], grants: [], stores: [], me: { user_id: 'fae', email: 'fae@corp.cn' },
+    kbs: [{ id: 'kb1', name: '产品资料', plane: 'private', sensitivity: 'confidential', kind: 'catalog' }],
+  })),
 };
 
 jest.mock('@/services/ipc/ksApi', () => ({ ksApi }));
@@ -83,6 +93,25 @@ describe('ProductKnowledgeTab', () => {
     expect(await screen.findByText('catalog.csv')).toBeInTheDocument();
     expect(screen.getByText('宝贝标题')).toBeInTheDocument();
     expect(ksApi.previewCatalog).toHaveBeenCalledWith('C:/x/catalog.csv');
+  });
+
+  it('lists servers, shows sign-in state and runs a step-by-step connection test', async () => {
+    renderTab();
+    await screen.findByText('天猫店');
+    fireEvent.click(screen.getByText('pages.knowledge.ks.tabs.servers'));
+    expect(await screen.findByText('公司服务器')).toBeInTheDocument();
+    expect(screen.getByText('pages.knowledge.ks.connections.notSignedIn')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('pages.knowledge.ks.connections.test'));
+    expect(await screen.findByText('pages.knowledge.ks.connections.ready')).toBeInTheDocument();
+    expect(screen.getByText(/设计公司 \(owner\)/)).toBeInTheDocument();
+  });
+
+  it('shows members and the confidential warning in access management', async () => {
+    renderTab();
+    await screen.findByText('天猫店');
+    fireEvent.click(screen.getByText('pages.knowledge.ks.tabs.access'));
+    expect(await screen.findByText('pages.knowledge.ks.access.confidentialHint')).toBeInTheDocument();
+    expect(screen.getAllByText('fae@corp.cn').length).toBeGreaterThan(0);
   });
 
   it('asks a buyer question and shows tier, facts and context', async () => {
