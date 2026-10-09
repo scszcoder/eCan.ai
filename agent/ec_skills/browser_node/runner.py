@@ -2998,6 +2998,22 @@ async def acquire_or_reuse_local_agent(
             _bh._cached_bu_agents_insertion_order.remove(bu_scope_key)
         cached = None
 
+    # New-chromium mode without keep_alive: browser-use closed this agent's
+    # browser and event bus when its run ended, so the next loop round got a
+    # dead session ("Expected at least one handler to return a non-None
+    # result" x6 in 5 ms, 2026-10-09 chip-docs planner round 2). Build fresh.
+    if cached is not None and browser_session is None:
+        _cached_profile = getattr(getattr(cached, "browser_session", None), "browser_profile", None)
+        if not getattr(_cached_profile, "keep_alive", False):
+            logger.info(
+                f"[BrowserAutomation] Evicting cached agent: its browser was closed at the end "
+                f"of the last run (new chromium, keep_alive off, scope={bu_scope_key})"
+            )
+            _bh.cached_bu_agents.pop(bu_scope_key, None)
+            if bu_scope_key in _bh._cached_bu_agents_insertion_order:
+                _bh._cached_bu_agents_insertion_order.remove(bu_scope_key)
+            cached = None
+
     if cached is not None:
         reset_bu_agent_for_next_round(cached, loop_history_mode, task)
         # CDP mode: re-bind the (possibly recreated) session onto the
@@ -3760,6 +3776,11 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None):
     worker has its own progress reporting).
     """
     def _on_browser_step(browser_state_summary, model_output, step_number):
+        try:
+            from agent.ec_tasks.progress import note_task_progress
+            note_task_progress()
+        except Exception:
+            pass
         try:
             from agent.cloud_worker.cloud_logger import is_cloud_mode
 

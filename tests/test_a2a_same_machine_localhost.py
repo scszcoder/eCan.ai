@@ -93,3 +93,44 @@ async def test_router_same_machine_uses_localhost(monkeypatch):
     out = await router.send_to_agent("agent_x", {"hi": 1}, directory=_Dir())
     assert out.success is True
     assert posted["url"] == "http://127.0.0.1:3604/a2a/"
+
+
+class _FakeEndpoint:
+    def __init__(self, host, port, reachable=True):
+        self.lan_host, self.lan_port, self.is_lan_reachable = host, port, reachable
+
+
+class _FakeDirectory:
+    def __init__(self, entries):
+        self.entries = entries
+
+    def lookup(self, agent_id):
+        return self.entries.get(agent_id)
+
+
+class _CardAgent(_FakeAgent):
+    def __init__(self, vehicle_id, agent_id):
+        super().__init__(vehicle_id)
+        self.card = type("C", (), {"id": agent_id})()
+
+
+def test_remote_recipient_uses_live_lan_advert(monkeypatch):
+    # 2026-10-09 platoon setup: crawler created on machine 1 (card URL = machine 1
+    # IP) but pinned to machine 2 -> send must follow machine 2's zeroconf advert.
+    _pin_local(monkeypatch)
+    import agent.a2a.discovery.directory as d
+    monkeypatch.setattr(d, "get_directory", lambda: _FakeDirectory(
+        {"agent_x": _FakeEndpoint("192.168.1.20", 3601)}))
+    assert localize_a2a_url("http://192.168.1.5:3601/a2a/", _CardAgent("MID-OTHER", "agent_x")) == \
+        "http://192.168.1.20:3601/a2a/"
+
+
+def test_remote_recipient_without_fresh_advert_unchanged(monkeypatch):
+    _pin_local(monkeypatch)
+    import agent.a2a.discovery.directory as d
+    monkeypatch.setattr(d, "get_directory", lambda: _FakeDirectory(
+        {"agent_x": _FakeEndpoint("192.168.1.20", 3601, reachable=False)}))
+    assert localize_a2a_url("http://192.168.1.5:3601", _CardAgent("MID-OTHER", "agent_x")) == \
+        "http://192.168.1.5:3601"
+    assert localize_a2a_url("http://192.168.1.5:3601", _CardAgent("MID-OTHER", "agent_unknown")) == \
+        "http://192.168.1.5:3601"

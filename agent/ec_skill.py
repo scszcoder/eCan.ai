@@ -488,6 +488,8 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         _caller = ''.join(_tb.format_stack()[-4:-1]).replace('\n', ' | ')
         logger.info(f"[node_builder] ENTERING node={node_name}, skill={skill_name}, thread={_thr}, wrapper_id={_wrapper_id}, caller={_caller[-500:]}")
         runtime.context["this_node"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
+        from agent.ec_tasks.progress import note_task_progress
+        note_task_progress()
 
         node_t0 = time.perf_counter()
 

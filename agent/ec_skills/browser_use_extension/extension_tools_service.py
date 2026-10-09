@@ -195,6 +195,15 @@ custom_controller = Controller()
 # Global registry to track current agent instance for file path authorization
 _current_agent_instance = None
 _current_runtime_context: Dict[str, Any] = {}
+# Per-run copies. Several agents run browser nodes at once (coordinator + N
+# workers); with only the globals, the last agent to start won, and every
+# bu_send_chat went out under ITS id (2026-10-09: ChipCrawler3's report was
+# sent as ChipCrawler2). ContextVars follow each run's asyncio tasks, like the
+# log scope; the globals stay as the fallback for code outside a run.
+import contextvars as _contextvars
+_current_agent_var: "_contextvars.ContextVar[Any]" = _contextvars.ContextVar("ecan_bu_current_agent", default=None)
+_current_runtime_context_var: "_contextvars.ContextVar[Optional[Dict[str, Any]]]" = _contextvars.ContextVar(
+    "ecan_bu_runtime_context", default=None)
 
 # ── bu_send_chat dedup cache ──
 # Prevents the same message from being dispatched to the same recipient for the
@@ -241,11 +250,13 @@ def set_current_agent(agent):
     le path authorization."""
     global _current_agent_instance
     _current_agent_instance = agent
+    _current_agent_var.set(agent)
     logger.debug(f"[ExtensionTools] Set current agent instance: {type(agent).__name__}")
 
 def get_current_agent():
     """Get the current agent instance."""
-    return _current_agent_instance
+    agent = _current_agent_var.get()
+    return agent if agent is not None else _current_agent_instance
 
 
 def _authorize_output_files_for_upload(file_paths: list[str]) -> None:
@@ -510,6 +521,7 @@ def set_current_runtime_context(**kwargs):
     """Set runtime context for browser-use extension tools."""
     global _current_runtime_context
     _current_runtime_context = dict(kwargs or {})
+    _current_runtime_context_var.set(dict(_current_runtime_context))
     logger.debug(
         "[ExtensionTools] Set runtime context: "
         f"agent_id={_current_runtime_context.get('agent_id', '')}, "
@@ -521,7 +533,8 @@ def set_current_runtime_context(**kwargs):
 
 def get_current_runtime_context() -> Dict[str, Any]:
     """Get runtime context for browser-use extension tools."""
-    return dict(_current_runtime_context or {})
+    ctx = _current_runtime_context_var.get()
+    return dict(ctx if ctx is not None else (_current_runtime_context or {}))
 
 
 def _json_result(data: Any) -> ActionResult:

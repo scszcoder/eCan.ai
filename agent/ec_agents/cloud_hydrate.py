@@ -254,7 +254,12 @@ def hydrate_skill_files(ctx, wait_s: float = 45.0) -> Dict[str, Any]:
         return {"downloaded": []}
     deadline = _time.monotonic() + wait_s
     threads = [threading.Thread(target=download_skill_files_from_cloud,
-                                args=(sk,), kwargs={"trace_id": "hydrate", "wait_s": wait_s},
+                                args=(sk,),
+                                # The row's own owner is the namespace the zip lives in. Without
+                                # it the download asks as ctx["owner"] -- the login email -- which
+                                # the server reads as someone else's namespace (2026-10-06 incident).
+                                kwargs={"trace_id": "hydrate", "wait_s": wait_s,
+                                        "file_owner": str(sk.get("owner") or "").strip() or None},
                                 daemon=True) for sk in missing]
     for t in threads:
         t.start()

@@ -69,6 +69,52 @@ def _needs_tool_calling(model: str) -> bool:
     return any(marker in name for marker in _TOOL_CALLING_MODELS)
 
 
+def _summarize_validation_error(err: Exception, text: str) -> str:
+    """A short, model-readable reason why *text* did not fit the output schema.
+
+    The action list is a union of every registered action, so pydantic reports
+    each action model's complaint (127 errors for one wrong argument name).
+    Keep only the errors about the action(s) the model actually named, plus any
+    non-action field errors.
+    """
+    errors = err.errors() if hasattr(err, 'errors') else None
+    if not errors:
+        return f"Your last output did not match the required JSON schema: {str(err)[:400]}"
+    used: set[str] = set()
+    try:
+        for item in json.loads(text).get('action') or []:
+            if isinstance(item, dict):
+                used.update(item.keys())
+    except Exception:
+        pass
+    lines: list[str] = []
+    unknown = set(used)
+    for e in errors:
+        loc = [str(p) for p in e.get('loc', ())]
+        if loc == ['action'] and e.get('type') == 'missing':
+            lines.append("action: Field required -- every reply needs an `action` list; "
+                         "to finish, call the `done` action and put your result in its `text`")
+        elif loc and loc[0] == 'action':
+            hits = [k for k in used if k in loc]
+            if not hits:
+                continue
+            key = hits[0]
+            i = loc.index(key)
+            if i == len(loc) - 1 and e.get('type') == 'extra_forbidden':
+                continue  # another action's model rejecting this key
+            unknown.discard(key)
+            lines.append(f"{'.'.join(loc[i:])}: {e.get('msg')}")
+        else:
+            lines.append(f"{'.'.join(loc) or '(root)'}: {e.get('msg')}")
+    lines = list(dict.fromkeys(lines))[:6]
+    if unknown:
+        lines.insert(0, f"unknown action(s): {', '.join(sorted(unknown))}")
+    if not lines:
+        lines = [f"{'.'.join(str(p) for p in e.get('loc', ()))}: {e.get('msg')}" for e in errors[:3]]
+    return ("Your last output did not match the action schema, nothing was executed. "
+            "Fix these and retry: " + "; ".join(lines))
+
+
 @dataclass
 class ChatLambdaProxy(BaseChatModel):
     """Browser-use compatible LLM that proxies calls through an AWS Lambda.
@@ -395,8 +441,13 @@ class ChatLambdaProxy(BaseChatModel):
                         logger.warning(
                             f"[ChatLambdaProxy] Failed to parse output as {output_format.__name__}: {e}"
                         )
-                        # Return raw text — let browser-use handle the fallback
-                        completion = completion_text
+                        # Raise, don't return the raw text: browser-use does
+                        # `completion.action` on it and the model only ever saw
+                        # "'str' object has no attribute 'action'", so it
+                        # repeated the same bad call until the run died
+                        # (2026-10-09: search_page{query} instead of {pattern}
+                        # x6). This message is what the model sees next step.
+                        raise ValueError(_summarize_validation_error(e, completion_text)) from e
 
             usage = self._extract_usage(data)
 

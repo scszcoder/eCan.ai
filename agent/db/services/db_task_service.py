@@ -141,6 +141,10 @@ class DBTaskService(BaseService):
         """Update a task"""
         return self._update(DBAgentTask, task_id, fields)
 
+    def get_task_by_id(self, task_id):
+        """Get one task by id: {"success", "data": task dict, "error"}."""
+        return self.get_entity_by_id(DBAgentTask, task_id)
+
     def query_tasks(self, id=None, name=None, description=None):
         """Query tasks. Use deep=True to include task-skill relationships with skill names."""
         return {"success": True,

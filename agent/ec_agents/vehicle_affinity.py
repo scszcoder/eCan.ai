@@ -574,8 +574,10 @@ def localize_a2a_url(url: str, recipient_agent) -> str:
     try:
         if os.environ.get("ECAN_A2A_NO_LOCALHOST_REWRITE") == "1":
             return url
-        if not url or not agent_on_this_machine(recipient_agent):
+        if not url:
             return url
+        if not agent_on_this_machine(recipient_agent):
+            return _route_via_lan_discovery(url, recipient_agent)
         from urllib.parse import urlparse, urlunparse
 
         p = urlparse(url)
@@ -584,6 +586,36 @@ def localize_a2a_url(url: str, recipient_agent) -> str:
             return url
         netloc = "127.0.0.1" + (f":{p.port}" if p.port else "")
         return urlunparse((p.scheme or "http", netloc, p.path, p.params, p.query, p.fragment))
+    except Exception:
+        return url
+
+
+def _route_via_lan_discovery(url: str, recipient_agent) -> str:
+    """For a recipient running on ANOTHER machine, use the host:port its LAN
+    discovery advert reports now, keeping *url*'s path.
+
+    The card URL holds the IP of the machine the agent was CREATED on, so an
+    agent moved to a platoon machine (vehicle pin) stayed addressed at the old
+    machine. zeroconf advertises the live host + A2A port per agent. No fresh
+    advert (not on this LAN, or not seen for 3 min) -> *url* unchanged.
+    """
+    try:
+        card = getattr(recipient_agent, "card", None)
+        if card is None and hasattr(recipient_agent, "get_card"):
+            card = recipient_agent.get_card()
+        agent_id = str(getattr(card, "id", "") or "").strip()
+        if not agent_id:
+            return url
+        from agent.a2a.discovery.directory import get_directory
+        ep = get_directory().lookup(agent_id)
+        if ep is None or not ep.is_lan_reachable:
+            return url
+        from urllib.parse import urlparse, urlunparse
+        p = urlparse(url)
+        if p.hostname == ep.lan_host and p.port == ep.lan_port:
+            return url
+        return urlunparse((p.scheme or "http", f"{ep.lan_host}:{ep.lan_port}",
+                           p.path, p.params, p.query, p.fragment))
     except Exception:
         return url
 

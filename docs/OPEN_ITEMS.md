@@ -721,6 +721,17 @@ on the profile record. Both hardcode a policy, so decide deliberately.
 
 ## 🔵 Planned work
 
+### RAG work — starts after the chip-docs crawler runs on the cloud side (2026-10-09)
+
+The user has a batch of RAG work queued behind the chip-docs crawler; it will be
+done on the CN side. First item:
+
+- **Doc parser URL is hard-coded to the CN backend.** `ECANAI_PARSER_BASE_URL`
+  in `knowledge/lightrag_parser_config.py:55` is the CN tcloudbase llm-proxy
+  URL, and it is the default Docling/MinerU endpoint (`DEFAULT_DOCLING_ENDPOINT`,
+  the settings default/placeholder) in BOTH apps — the intl app sends document
+  parsing to the CN backend. It should come from the app's own endpoint config.
+
 ### ⚡ Fleet transfer: fetch logs + move a store with its login (2026-09-24)
 
 Client built (`agent/fleet/`, `fleet_handler.py`, Vehicles → Fetch logs, Stores →

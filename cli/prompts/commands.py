@@ -56,10 +56,10 @@ def _my_prompts_dir() -> Path:
       3. app_context fallback (in-process use) — note: with no user at all
          this lands in 'default_user/', a store the app never reads.
     """
-    from utils.user_path_helper import get_user_data_dir
+    from utils.user_path_helper import get_log_user_data_dir, get_user_data_dir
     log_user = os.environ.get("ECAN_LOG_USER")
     if log_user:
-        return Path(get_user_data_dir(user_email=log_user, subdir="my_prompts"))
+        return Path(get_log_user_data_dir(log_user, subdir="my_prompts"))
     username = None
     try:
         from ..base.context import get_context

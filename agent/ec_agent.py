@@ -706,8 +706,8 @@ class EC_Agent(Agent):
 				_localized = localize_a2a_url(a2a_end_point, recipient_agent)
 				if _localized != a2a_end_point:
 					logger.info(
-						f"[a2a] same-machine recipient {recipient_name}: "
-						f"{a2a_end_point} -> {_localized} (IP-change-proof localhost route)")
+						f"[a2a] rerouted recipient {recipient_name}: "
+						f"{a2a_end_point} -> {_localized} (same machine -> localhost; other machine -> live LAN advert)")
 					a2a_end_point = _localized
 			except Exception as _loc_e:
 				logger.debug(f"[a2a] localhost localize skipped (non-fatal): {_loc_e}")

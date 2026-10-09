@@ -7605,8 +7605,14 @@ class TaskRunner(Generic[Context]):
                 self._task_states[current_task.id] = {'justStarted': True}
             
             state = self._task_states[current_task.id]
-            if not state.get('auto_started'):
+            # The once-per-startup mark must outlive _task_states: that entry is
+            # dropped when a run completes, and then a finished auto task was
+            # kicked off again every loop pass (2026-10-09: the chip-docs
+            # coordinator re-ran its finished crawl every ~40 s).
+            _auto_kicked = self.__dict__.setdefault('_auto_kicked_task_ids', set())
+            if not state.get('auto_started') and current_task.id not in _auto_kicked:
                 state['auto_started'] = True
+                _auto_kicked.add(current_task.id)
                 return current_task, {"__auto_kickoff__": True, "__trigger_source__": "auto"}, False
         
         # --- Schedule check (non-blocking) ---
@@ -7670,6 +7676,11 @@ class TaskRunner(Generic[Context]):
                     )
                 else:
                     _blocked_elapsed = time.time() - _blocked_since
+                    # A task that reported progress recently is busy, not hung.
+                    from agent.ec_tasks.progress import seconds_since_progress
+                    _idle = seconds_since_progress(current_task.id)
+                    if _idle is not None:
+                        _blocked_elapsed = min(_blocked_elapsed, _idle)
                     # Force clear only after an extended period. A running
                     # future is not necessarily stuck: browser research can
                     # spend several minutes navigating, extracting, and

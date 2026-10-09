@@ -816,9 +816,22 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             )
 
         if not recipient_agent:
+            # Name the agents that do exist: with only "not found", a model that
+            # invented a recipient name kept resending to it (2026-10-09: a
+            # crawler reported to "ChipCoordinator" instead of ChipDocsCoordinator).
+            _known = []
+            try:
+                for _ag in (getattr(mainwin, "agents", None) or []):
+                    _card = getattr(_ag, "card", None)
+                    _nm = str(getattr(_card, "name", "") or "").strip()
+                    if _nm and str(getattr(_card, "id", "") or "") != str(sender_agent_id or ""):
+                        _known.append(_nm)
+            except Exception:
+                pass
+            _hint = f" Known agents: {', '.join(sorted(set(_known))[:20])}." if _known else ""
             return {
                 "success": False,
-                "error": f"Recipient agent not found: {recipient_agent_id or recipient_agent_name}",
+                "error": f"Recipient agent not found: {recipient_agent_id or recipient_agent_name}.{_hint}",
                 "timestamp": int(time.time() * 1000)
             }
 
