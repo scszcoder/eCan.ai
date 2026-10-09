@@ -371,3 +371,33 @@ def handle_access(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCR
         out = op(_admin_target(p), p)
         return {'ok': True} if out is None else out
     return _call(request, 'KS_ACCESS_ERROR', run)
+
+
+# ---- link to the app's own stores (agent DB) ---------------------------------------------
+def _app_stores():
+    from app_context import AppContext
+    mw = AppContext.get_main_window()
+    svc = getattr(getattr(mw, 'ec_db_mgr', None), 'store_service', None)
+    if svc is None:
+        return []
+    return [{'store_id': s.get('store_id'), 'name': s.get('name') or s.get('store_id'), 'platform': s.get('platform') or ''}
+            for s in svc.list_stores()]
+
+
+@IPCHandlerRegistry.handler('ks.listAppStores')
+def handle_list_app_stores(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    return _call(request, 'KS_APP_STORES_ERROR', _app_stores)
+
+
+@IPCHandlerRegistry.handler('ks.syncAppStores')
+def handle_sync_app_stores(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Create a knowledge store for every app store not linked yet."""
+    def run():
+        svc = _svc()
+        linked = {s['ecan_store_id'] for s in svc.store.list_stores(svc.tenant_id()) if s.get('ecan_store_id')}
+        created = []
+        for s in _app_stores():
+            if s['store_id'] and s['store_id'] not in linked:
+                created.append(svc.save_store({'name': s['name'], 'platform': s['platform'], 'ecan_store_id': s['store_id']}))
+        return {'created': created}
+    return _call(request, 'KS_SYNC_APP_STORES_ERROR', run)

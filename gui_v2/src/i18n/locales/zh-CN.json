@@ -2859,6 +2859,9 @@
           "empty": "还没有店铺",
           "products": "{{count}} 个商品",
           "overrides": "{{count}} 条规则覆盖",
+          "syncApp": "添加我的 eCan 店铺",
+          "syncAppHint": "为智能体已在服务的每个店铺创建知识店铺，并自动关联",
+          "syncDone": "已添加 {{count}} 个店铺",
           "overridesHint": "该店铺与默认规则不同的条目",
           "deleteConfirm": "删除店铺「{{name}}」？其上架关系和规则覆盖将被删除，商品保留。"
         },

@@ -28,7 +28,9 @@ const StoreModal: React.FC<{ store: Partial<KSStore> | null; onClose: () => void
   const { message } = App.useApp();
   const k = (key: string): string => String(t(`pages.knowledge.ks.stores.${key}`));
   const [value, setValue] = useState<Partial<KSStore>>({});
+  const [appStores, setAppStores] = useState<{ store_id: string; name: string; platform: string }[]>([]);
   useEffect(() => { setValue(store || {}); }, [store]);
+  useEffect(() => { if (store) ksApi.listAppStores().then(setAppStores).catch(() => setAppStores([])); }, [store]);
   const save = async () => {
     try {
       await ksApi.saveStore(value);
@@ -48,8 +50,15 @@ const StoreModal: React.FC<{ store: Partial<KSStore> | null; onClose: () => void
               options={PLATFORMS.map(p => ({ value: p, label: t(`pages.knowledge.ks.platforms.${p}`) }))}
               onChange={v => setValue({ ...value, platform: v })} />
       <Text type="secondary">{k('ecanStoreId')}</Text>
-      <Input value={value.ecan_store_id} placeholder={k('ecanStoreIdHint')}
-             onChange={e => setValue({ ...value, ecan_store_id: e.target.value })} />
+      <Select
+        style={{ width: '100%' }} allowClear showSearch optionFilterProp="label"
+        value={value.ecan_store_id || undefined} placeholder={k('ecanStoreIdHint')}
+        options={appStores.map(s => ({ value: s.store_id, label: `${s.name} · ${s.store_id}` }))}
+        onChange={v => {
+          const picked = appStores.find(s => s.store_id === v);
+          setValue({ ...value, ecan_store_id: v || '', name: value.name || picked?.name, platform: value.platform || picked?.platform });
+        }}
+      />
     </Modal>
   );
 };
@@ -157,7 +166,18 @@ const ProductKnowledgeTab: React.FC = () => {
       <Card
         size="small"
         title={<Space><ShopOutlined />{k('stores.title')}</Space>}
-        extra={<Button size="small" icon={<PlusOutlined />} onClick={() => setEditingStore({})}>{k('stores.add')}</Button>}
+        extra={<Space>
+          <Tooltip title={k('stores.syncAppHint')}>
+            <Button size="small" icon={<SyncOutlined />} onClick={async () => {
+              try {
+                const r = await ksApi.syncAppStores();
+                message.success(k('stores.syncDone', { count: r.created.length }));
+                changed();
+              } catch (e: any) { message.error(e.message); }
+            }}>{k('stores.syncApp')}</Button>
+          </Tooltip>
+          <Button size="small" icon={<PlusOutlined />} onClick={() => setEditingStore({})}>{k('stores.add')}</Button>
+        </Space>}
       >
         <Paragraph type="secondary" style={{ fontSize: 12 }}>{k('stores.hint')}</Paragraph>
         {(overview?.stores || []).length === 0 ? <Empty description={k('stores.empty')} /> : (

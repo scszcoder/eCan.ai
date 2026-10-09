@@ -231,6 +231,9 @@ export const ksApi = {
   cancelJob: (id: string) => call('ks.cancelJob', { id }),
   reindex: () => call<KSJob>('ks.reindex'),
 
+  listAppStores: () => call<{ store_id: string; name: string; platform: string }[]>('ks.listAppStores'),
+  syncAppStores: () => call<{ created: KSStore[] }>('ks.syncAppStores'),
+
   listConnections: () => call<KSConnection[]>('ks.listConnections'),
   saveConnection: (c: Partial<KSConnection>) => call<KSConnection>('ks.saveConnection', c),
   deleteConnection: (id: string) => call('ks.deleteConnection', { id }),

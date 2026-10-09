@@ -2800,6 +2800,9 @@
           "empty": "No stores yet",
           "products": "{{count}} products",
           "overrides": "{{count}} policy overrides",
+          "syncApp": "Add my eCan stores",
+          "syncAppHint": "Create a knowledge store for each store your agents already serve, linked automatically",
+          "syncDone": "{{count}} stores added",
           "overridesHint": "Rules this store changes from your default rules",
           "deleteConfirm": "Delete store \"{{name}}\"? Its listings and policy overrides are removed; products stay."
         },
