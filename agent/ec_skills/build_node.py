@@ -10232,8 +10232,9 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
             if rag_url and query:
                 url = rag_url.rstrip('/') + '/query'
                 payload = {"query": str(query)}
+                from knowledge.lightrag_config_utils import local_auth_headers
                 with httpx.Client(timeout=20.0) as client:
-                    resp = client.post(url, json=payload)
+                    resp = client.post(url, json=payload, headers=local_auth_headers())
                     if resp.status_code == 200:
                         data = resp.json()
                         # best-effort normalize

@@ -394,8 +394,17 @@ class LightragServer:
         
         self._ensure_utf8_locale(env)
 
-        if self.is_frozen and not env.get('HOST'):
-            env['HOST'] = '127.0.0.1'
+        # Access control: bind to loopback and require an API key, so other
+        # machines on the LAN can't read or delete the knowledge bases.
+        from knowledge.lightrag_config_utils import (
+            resolve_bind_host, ensure_local_api_key, ensure_local_auth_accounts,
+        )
+        env['HOST'] = resolve_bind_host(env)
+        env['LIGHTRAG_API_KEY'] = ensure_local_api_key(env)
+        ensure_local_auth_accounts(env)
+        # Only the liveness probe stays open; upstream's default also exempts
+        # the Ollama-compatible /api/* routes.
+        env['WHITELIST_PATHS'] = '/health'
 
         # 6. Map provider bindings to LightRAG-supported values
         # LightRAG server whitelist (from lightrag/api/lightrag_server.py):
@@ -1180,7 +1189,7 @@ class LightragServer:
 
         # Only mask if key ends with these sensitive suffixes
         # This avoids masking config parameters like MAX_TOKENS, TOKEN_LIMIT, etc.
-        sensitive_suffixes = ["_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_API_KEY"]
+        sensitive_suffixes = ["_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_API_KEY", "_ACCOUNTS"]
         upper_key = str(key).upper()
         if any(upper_key.endswith(suffix) for suffix in sensitive_suffixes):
             text = str(value)
@@ -1836,8 +1845,10 @@ class LightragServer:
                 # search, context builder).  ``only_need_context=True``
                 # skips the synthesis LLM — we just want the init paths
                 # warm; we don't need a real answer.
+                from knowledge.lightrag_config_utils import local_auth_headers
                 resp = _wr.post(
                     f"http://127.0.0.1:{port}/query",
+                    headers=local_auth_headers(),
                     json={
                         "query": "warmup",
                         "mode": "mix",

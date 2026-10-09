@@ -3063,7 +3063,7 @@
           "neo4jPassword": "Neo4j Password"
         },
         "tooltips": {
-          "host": "Server listening address, 0.0.0.0 means listen on all network interfaces",
+          "host": "Server listening address. eCan binds to 127.0.0.1 (this computer only) and protects the server with a per-session API key; LAN access needs ECAN_LIGHTRAG_ALLOW_LAN=1",
           "port": "Server listening port number",
           "workers": "Number of Gunicorn worker processes",
           "timeout": "Gunicorn worker timeout in seconds, also serves as default LLM request timeout",

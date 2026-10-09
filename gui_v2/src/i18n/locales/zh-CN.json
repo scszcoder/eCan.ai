@@ -3078,7 +3078,7 @@
           "high": "高"
         },
         "tooltips": {
-          "host": "服务器主机地址",
+          "host": "服务器监听地址。eCan 默认只监听 127.0.0.1（仅本机可访问），并使用每次会话生成的 API 密钥保护；如需局域网访问，请设置 ECAN_LIGHTRAG_ALLOW_LAN=1",
           "port": "服务器端口号",
           "workers": "工作进程数",
           "timeout": "请求超时（秒）",

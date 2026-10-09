@@ -255,3 +255,75 @@ def ensure_user_env_file() -> Optional[Path]:
     except Exception as e:
         logger.error(f"Failed to copy template env file: {e}")
         return user_env_path  # Return user path anyway, will be created on save
+
+
+# ---------------------------------------------------------------------------
+# Local server access control
+# ---------------------------------------------------------------------------
+
+_LOOPBACK = "127.0.0.1"
+_ANY_ADDR = {"", "0.0.0.0", "::", "[::]"}
+
+
+def _truthy(value: Optional[str]) -> bool:
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def resolve_bind_host(env: dict) -> str:
+    """Host the local LightRAG server binds to.
+
+    The env template used to ship ``HOST=0.0.0.0`` with no API key, which
+    exposed every knowledge base to the LAN. Wildcard hosts are now rewritten
+    to loopback unless ``ECAN_LIGHTRAG_ALLOW_LAN=1`` is set explicitly.
+    An explicit non-wildcard host (e.g. a specific LAN IP) is kept.
+    """
+    host = str(env.get("HOST") or "").strip()
+    if host in _ANY_ADDR and not _truthy(env.get("ECAN_LIGHTRAG_ALLOW_LAN")):
+        return _LOOPBACK
+    return host or _LOOPBACK
+
+
+def ensure_local_api_key(env: dict) -> str:
+    """Return the API key the local LightRAG server requires.
+
+    A key the user configured in lightrag.env wins. Otherwise one random key
+    is generated per app process and published in ``os.environ`` so every
+    in-process client (``LightragClient``, health probes) sends it.
+    """
+    import secrets
+
+    configured = str(env.get("LIGHTRAG_API_KEY") or "").strip()
+    if configured and configured != "your-secure-api-key-here":
+        key = configured
+    else:
+        key = os.environ.get("LIGHTRAG_API_KEY", "").strip() or secrets.token_urlsafe(32)
+    os.environ["LIGHTRAG_API_KEY"] = key
+    return key
+
+
+def ensure_local_auth_accounts(env: dict) -> None:
+    """Make LightRAG treat password auth as configured.
+
+    With no ``AUTH_ACCOUNTS`` LightRAG runs in "guest mode": the public
+    ``/auth-status`` route hands out a guest JWT (signed with a well-known
+    default secret) that every protected route accepts, so an API key alone
+    does not lock the server. A random, never-used account plus a random
+    ``TOKEN_SECRET`` turns guest mode off; in-process callers authenticate
+    with the X-API-Key header instead. User-configured values are kept.
+    """
+    import secrets
+
+    if not str(env.get("AUTH_ACCOUNTS") or "").strip():
+        env["AUTH_ACCOUNTS"] = f"ecan-local:{secrets.token_urlsafe(24)}"
+    secret = str(env.get("TOKEN_SECRET") or "").strip()
+    if not secret or secret == "lightrag-jwt-default-secret-key!":
+        env["TOKEN_SECRET"] = secrets.token_urlsafe(32)
+
+
+def local_auth_headers(base: Optional[dict] = None) -> dict:
+    """Headers for calls to the local LightRAG server (adds X-API-Key)."""
+    headers = dict(base or {})
+    key = os.environ.get("LIGHTRAG_API_KEY", "").strip()
+    if key:
+        headers["X-API-Key"] = key
+    return headers

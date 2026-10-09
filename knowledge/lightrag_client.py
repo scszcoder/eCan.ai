@@ -18,6 +18,8 @@ def _resolve_base_url() -> str:
     keep talking to whatever squats on 9621.
     """
     host = os.environ.get("HOST", "127.0.0.1")
+    if host in ("", "0.0.0.0", "::", "[::]"):
+        host = "127.0.0.1"  # a wildcard bind address is not a connect address
     port = os.environ.get("PORT", "9621")
     try:
         from app_context import AppContext
@@ -88,6 +90,9 @@ class LightragClient:
         from agent.ec_skills.system_proxy import configure_requests_session
         configure_requests_session(self.session, self.base_url)
         
+        # The local server requires the per-process key published by
+        # LightragServer (knowledge/lightrag_config_utils.ensure_local_api_key).
+        api_key = api_key or os.environ.get("LIGHTRAG_API_KEY", "").strip()
         if api_key:
             self.session.headers["X-API-Key"] = api_key
         if token:
