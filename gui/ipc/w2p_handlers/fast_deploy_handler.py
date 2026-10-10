@@ -3,7 +3,9 @@
 Backs the app's "Fast Deploy / 快速生成" panel: saves the scenario config to
 a JSON file, then invokes the CLI (`ecan deploy scenario`) to generate the
 related resources (agents, skills, tasks), and returns the structured result
-so the panel can show a success/failure conclusion.
+so the panel can show a success/failure conclusion. A store new to the
+catalog is created first with `ecan stores create` (an edited URL of an
+existing store is saved with `ecan stores update`).
 
 Requires a logged-in session — deliberately NOT in the IPC whitelist.
 """
@@ -77,6 +79,95 @@ def _tr(en: str, zh: str) -> str:
         return en
 
 
+def _cli_env() -> Dict[str, str]:
+    """Environment for a CLI child scoped to the logged-in user."""
+    # Scope the CLI subprocess to the logged-in user so real deployments
+    # land in that user's DB with the correct owner (the CLI has no session
+    # file of its own — it reads ECAN_CLI_USER; see CLIContext.username).
+    env = dict(os.environ)
+    uid = _current_user_id()
+    if uid:
+        env["ECAN_CLI_USER"] = uid
+        env["ECAN_DEPLOY_OWNER"] = uid
+    # Per-user data dirs (my_prompts etc.) are keyed by MainWindow.log_user,
+    # not the raw username — pass it so the CLI validates against the same
+    # system prompt/skill lists the running app loaded at initialization.
+    try:
+        from app_context import AppContext
+        log_user = getattr(AppContext.get_main_window(), "log_user", None)
+        if log_user:
+            env["ECAN_LOG_USER"] = str(log_user)
+    except Exception:
+        pass
+    # Auth token for the CLI's cloud fallbacks (e.g. prompt-visibility
+    # check for prompts not yet in the local stores).
+    try:
+        from app_context import AppContext
+        token = AppContext.get_main_window().get_auth_token()
+        if token:
+            env["ECAN_CLI_AUTH_TOKEN"] = str(token)
+    except Exception:
+        pass
+    return env
+
+
+def _run_cli(cli_args: list, runner_path: Path) -> subprocess.CompletedProcess:
+    """Run `ecan <cli_args>` in a child process."""
+    env = _cli_env()
+    frozen = getattr(sys, "frozen", False)
+    if frozen:
+        # Packaged app: sys.executable is the GUI exe, not Python —
+        # `-m cli.main` would just launch a second app instance that
+        # exits 0 having done nothing (v0.9.95o customer incident:
+        # panel showed success, nothing generated). Use the same
+        # ECAN_RUN_SCRIPT worker mechanism as the LightRAG server:
+        # the exe executes the script instead of booting the GUI.
+        runner_path.write_text(
+            "import sys\n"
+            f"sys.argv = {json.dumps(['ecan'] + cli_args)}\n"
+            "from cli.main import main\n"
+            "main()\n"
+            "sys.exit(0)\n",
+            encoding="utf-8",
+        )
+        cmd = [sys.executable]
+        env["ECAN_RUN_SCRIPT"] = str(runner_path)
+    else:
+        cmd = [sys.executable, "-m", "cli.main"] + cli_args
+    proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True,
+                          timeout=_CLI_TIMEOUT_S, env=env)
+    logger.info(
+        f"[FastDeploy] CLI {' '.join(cli_args[:2])} exited rc={proc.returncode} "
+        f"(mode={'frozen-run-script' if frozen else 'python -m'}); "
+        f"stderr tail: {(proc.stderr or '').strip()[-300:] or '(empty)'}"
+    )
+    return proc
+
+
+def _cli_error(proc: subprocess.CompletedProcess) -> str:
+    """'' when the CLI command succeeded, else its last error line."""
+    if proc.returncode == 0:
+        return ""
+    text = ((proc.stderr or "") + "\n" + (proc.stdout or "")).strip()
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return (lines[-1] if lines else f"exit code {proc.returncode}")[:300]
+
+
+def _create_store(store_id: Any, new_store: Dict[str, Any], runner_path: Path) -> str:
+    """Create a catalog store with `ecan stores create`; '' on success, else the error."""
+    sid = str(store_id or "").strip()
+    name = str(new_store.get("name") or "").strip()
+    platform = str(new_store.get("platform") or "").strip()
+    if not sid or not name or not platform:
+        return _tr("A new store needs a name and a platform", "新店铺需要名称和平台")
+    args = ["stores", "create", "--id", sid, "--name", name, "--platform", platform]
+    for url in new_store.get("urls") or []:
+        if str(url).strip():
+            args += ["--url", str(url).strip()]
+    err = _cli_error(_run_cli(args, runner_path))
+    return _tr(f"Could not create store {sid}: {err}", f"无法创建店铺 {sid}：{err}") if err else ""
+
+
 @IPCHandlerRegistry.handler("fast_deploy.generate")
 def handle_fast_deploy_generate(request: IPCRequest,
                                 params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -97,6 +188,27 @@ def handle_fast_deploy_generate(request: IPCRequest,
 
         out_dir = _fast_deploy_dir()
         ts = time.strftime("%Y%m%d-%H%M%S")
+
+        # The store: create it (new) or save its edited URL, then deploy into it.
+        new_store = config.pop("new_store", None)
+        store_url = str(config.pop("store_url", "") or "").strip()
+        store_log: list = []
+        store_created = store_url_saved = False
+        if isinstance(new_store, dict):
+            err = _create_store(config.get("store_id"), new_store, out_dir / f"store-{ts}.runner.py")
+            if err:
+                return create_success_response(request, {"status": "failure", "scenario": scenario,
+                                                         "log": [err], "message": err})
+            store_created = True
+            store_log.append(_tr(f"Store {config.get('store_id')} created", f"已创建店铺 {config.get('store_id')}"))
+        elif store_url and config.get("store_id"):
+            err = _cli_error(_run_cli(["stores", "update", str(config["store_id"]), "--url", store_url],
+                                      out_dir / f"store-{ts}.runner.py"))
+            if err:
+                store_log.append(_tr(f"Store URL not saved: {err}", f"店铺链接未保存：{err}"))
+            else:
+                store_url_saved = True
+                store_log.append(_tr("Store URL saved", "已保存店铺链接"))
         cfg_path = out_dir / f"{scenario}-{ts}.json"
         res_path = out_dir / f"{scenario}-{ts}.result.json"
 
@@ -105,65 +217,7 @@ def handle_fast_deploy_generate(request: IPCRequest,
         logger.info(f"[FastDeploy] wrote config {cfg_path}")
 
         cli_args = ["deploy", "scenario", "--config", str(cfg_path), "--output", str(res_path)]
-        if getattr(sys, "frozen", False):
-            # Packaged app: sys.executable is the GUI exe, not Python —
-            # `-m cli.main` would just launch a second app instance that
-            # exits 0 having done nothing (v0.9.95o customer incident:
-            # panel showed success, nothing generated). Use the same
-            # ECAN_RUN_SCRIPT worker mechanism as the LightRAG server:
-            # the exe executes the script instead of booting the GUI.
-            runner_path = out_dir / f"{scenario}-{ts}.runner.py"
-            runner_path.write_text(
-                "import sys\n"
-                f"sys.argv = {json.dumps(['ecan'] + cli_args)}\n"
-                "from cli.main import main\n"
-                "main()\n"
-                "sys.exit(0)\n",
-                encoding="utf-8",
-            )
-            cmd = [sys.executable]
-        else:
-            runner_path = None
-            cmd = [sys.executable, "-m", "cli.main"] + cli_args
-        # Scope the CLI subprocess to the logged-in user so real deployments
-        # land in that user's DB with the correct owner (the CLI has no session
-        # file of its own — it reads ECAN_CLI_USER; see CLIContext.username).
-        env = dict(os.environ)
-        uid = _current_user_id()
-        if uid:
-            env["ECAN_CLI_USER"] = uid
-            env["ECAN_DEPLOY_OWNER"] = uid
-        # Per-user data dirs (my_prompts etc.) are keyed by MainWindow.log_user,
-        # not the raw username — pass it so the CLI validates against the same
-        # system prompt/skill lists the running app loaded at initialization.
-        try:
-            from app_context import AppContext
-            log_user = getattr(AppContext.get_main_window(), "log_user", None)
-            if log_user:
-                env["ECAN_LOG_USER"] = str(log_user)
-        except Exception:
-            pass
-        # Auth token for the CLI's cloud fallbacks (e.g. prompt-visibility
-        # check for prompts not yet in the local stores).
-        try:
-            from app_context import AppContext
-            token = AppContext.get_main_window().get_auth_token()
-            if token:
-                env["ECAN_CLI_AUTH_TOKEN"] = str(token)
-        except Exception:
-            pass
-        if runner_path is not None:
-            env["ECAN_RUN_SCRIPT"] = str(runner_path)
-        proc = subprocess.run(
-            cmd, cwd=str(PROJECT_ROOT),
-            capture_output=True, text=True, timeout=_CLI_TIMEOUT_S,
-            env=env,
-        )
-        logger.info(
-            f"[FastDeploy] CLI exited rc={proc.returncode} "
-            f"(mode={'frozen-run-script' if runner_path else 'python -m'}); "
-            f"stderr tail: {(proc.stderr or '').strip()[-300:] or '(empty)'}"
-        )
+        proc = _run_cli(cli_args, out_dir / f"{scenario}-{ts}.runner.py")
 
         result: Dict[str, Any] = {}
         if res_path.exists():
@@ -187,6 +241,7 @@ def handle_fast_deploy_generate(request: IPCRequest,
         if not result and not log:
             log = [_tr("Resource generation did not produce a result — see eCan.log for the CLI error.",
                        "生成未产生结果，请查看 eCan.log 中的错误信息。")]
+        log = store_log + log
 
         return create_success_response(request, {
             "status": status,
@@ -198,6 +253,8 @@ def handle_fast_deploy_generate(request: IPCRequest,
             "stub": bool(result.get("stub")),
             "log": log,
             "message": result.get("message") or "",
+            "store_created": store_created,
+            "store_url_saved": store_url_saved,
         })
     except subprocess.TimeoutExpired:
         logger.error("[FastDeploy] CLI timed out")

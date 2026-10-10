@@ -826,7 +826,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
         raise RuntimeError(_tr("store_id is required -- pick a store (create it on the Stores page first)",
                                 "请选择店铺（请先在店铺页面创建）"))
     rec = _store_record(ctx, store_id, profile.platform)
-    store_urls = _store_urls_of(rec)
+    store_urls = _store_urls_of(rec, profile.platform)
     if not store_urls and not profile.native_desktop:
         raise RuntimeError(_tr(f"store {store_id!r} has no URL -- add it on the Stores page",
                                 f"店铺 {store_id} 没有设置链接，请在店铺页面添加"))
@@ -951,14 +951,33 @@ def _login_profile_id(store_id: str) -> str:
     return f"{base}-{digest}-login" if base else f"store-{digest}-login"
 
 
-def _store_urls_of(rec: dict) -> list:
+def _store_urls_of(rec: dict, platform: str = "") -> list:
+    """The store's URLs; with *platform*, a store without one gets that
+    platform's seller workspace. A store is told apart by its id and signs in
+    through its own browser profile, so the URL is optional (Fast Deploy,
+    2026-10-10)."""
     urls = rec.get("store_urls") or []
     if isinstance(urls, str):
         try:
             urls = json.loads(urls)
         except Exception:
             urls = [u for u in urls.split(",") if u.strip()]
-    return [str(u).strip() for u in urls if str(u).strip()]
+    urls = [str(u).strip() for u in urls if str(u).strip()]
+    if not urls and platform in _DEFAULT_STORE_URLS:
+        urls = [_DEFAULT_STORE_URLS[platform]]
+    return urls
+
+
+# Each platform's seller workspace: where a store without its own URL opens.
+_DEFAULT_STORE_URLS = {
+    "douyin": "https://im.jinritemai.com/pc_seller_v2/main/workspace",
+    "pinduoduo": "https://mms.pinduoduo.com/chat-merchant/index.html",
+    "amazon": "https://sellercentral.amazon.com/home",
+    "ebay": "https://www.ebay.com/sh/ovw",
+    "etsy": "https://www.etsy.com/your/shops/me/dashboard",
+    "shopify": "https://admin.shopify.com",
+    "tiktok": "https://seller-us.tiktok.com/homepage",
+}
 
 
 def _profile_registry():
@@ -1050,7 +1069,7 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
     for rec in recs:
         sid = rec["store_id"]
         name = str(rec.get("name") or sid)
-        urls = _store_urls_of(rec)
+        urls = _store_urls_of(rec, profile.platform)
         identity, needs = _ensure_store_login(ctx, rec, profile.login_domain, log)
         if needs:
             needs_login.append({"store_id": sid, "store_name": name,
@@ -1151,7 +1170,7 @@ def _deploy_operations(cfg: dict, ctx, owner: str, scenario_key: str):
         raise RuntimeError(_tr("store_id is required -- pick a store (create it on the Stores page first)",
                                 "请选择店铺（请先在店铺页面创建）"))
     rec = _store_record(ctx, store_id, platform)
-    store_urls = _store_urls_of(rec)
+    store_urls = _store_urls_of(rec, platform)
     if not store_urls:
         raise RuntimeError(_tr(f"store {store_id!r} has no URL -- add it on the Stores page",
                                 f"店铺 {store_id} 没有设置链接，请在店铺页面添加"))

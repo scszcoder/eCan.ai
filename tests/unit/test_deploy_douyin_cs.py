@@ -177,12 +177,15 @@ class TestDeployDouyinCs:
         with pytest.raises(RuntimeError, match="is a pinduoduo store"):
             dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
 
-    def test_a_store_without_a_url_is_refused(self):
+    def test_a_store_without_a_url_uses_the_seller_workspace(self):
+        # Fast Deploy 2026-10-10: the URL is optional -- the store id tells stores
+        # apart and each signs in through its own profile.
         ctx = _make_ctx()
         ctx.db.store_service.get_store.return_value = {"store_id": "shopA", "platform": "douyin",
                                                        "store_urls": []}
-        with pytest.raises(RuntimeError, match="has no URL"):
-            dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+        dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+        for c in ctx.db.task_service.add_task.call_args_list:
+            assert c.args[0]["settings"]["task_vars"]["store_url"] == dc._DEFAULT_STORE_URLS["douyin"]
 
     def test_a_store_without_a_login_profile_gets_one(self):
         ctx = _make_ctx()

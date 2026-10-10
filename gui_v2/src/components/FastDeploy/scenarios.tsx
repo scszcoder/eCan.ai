@@ -170,3 +170,64 @@ export function defaultConfig(s: BusinessScenario): ScenarioConfig {
         } : {}),
     };
 }
+
+/** A business function a store can be staffed for. */
+export interface FunctionArea { key: string; nameEn: string; nameZh: string }
+
+/** Function areas in picker order; 客服 first (the default). */
+export const FUNCTION_AREAS: FunctionArea[] = [
+    { key: 'cs', nameEn: 'Customer service', nameZh: '客服' },
+    { key: 'ops', nameEn: 'Operations', nameZh: '运营' },
+    { key: 'presales', nameEn: 'Pre-sales', nameZh: '售前' },
+    { key: 'aftersales', nameEn: 'After-sales', nameZh: '售后' },
+    { key: 'marketing', nameEn: 'Marketing', nameZh: '营销' },
+    { key: 'research', nameEn: 'Research', nameZh: '调研' },
+    { key: 'manager', nameEn: 'Manager', nameZh: '经理' },
+];
+
+/** One Fast Deploy button: a store platform and the scenario behind each of
+ *  its function areas (an area without a scenario is shown grayed out). */
+export interface PlatformDeploy {
+    platform: string;
+    nameEn: string;
+    nameZh: string;
+    region: Region;
+    icon: React.ReactNode;
+    areas: Partial<Record<string, string>>;
+}
+
+export const PLATFORM_DEPLOYS: PlatformDeploy[] = [
+    { platform: 'douyin', nameEn: 'Douyin Store', nameZh: '抖店', region: 'cn', icon: <TikTokOutlined />, areas: { cs: 'douyin_cs' } },
+    { platform: 'tmall', nameEn: 'Taobao / T-Mall', nameZh: '淘宝/天猫', region: 'cn', icon: <ShoppingOutlined />, areas: { cs: 'tmall_cs' } },
+    { platform: 'pinduoduo', nameEn: 'Pinduoduo', nameZh: '拼多多', region: 'cn', icon: <ShoppingCartOutlined />, areas: { cs: 'pdd_cs' } },
+    { platform: 'jd', nameEn: 'JD.com', nameZh: '京东', region: 'cn', icon: <ShopOutlined />, areas: {} },
+    { platform: 'amazon', nameEn: 'Amazon', nameZh: '亚马逊', region: 'intl', icon: <AmazonOutlined />, areas: { ops: 'amazon_ops' } },
+    { platform: 'ebay', nameEn: 'eBay', nameZh: 'eBay', region: 'intl', icon: <ShopOutlined />, areas: { ops: 'ebay_ops' } },
+    { platform: 'etsy', nameEn: 'Etsy', nameZh: 'Etsy', region: 'intl', icon: <ShoppingOutlined />, areas: { ops: 'etsy_ops' } },
+    { platform: 'shopify', nameEn: 'Shopify', nameZh: 'Shopify', region: 'intl', icon: <ShoppingCartOutlined />, areas: { ops: 'shopify_ops' } },
+    { platform: 'tiktok', nameEn: 'TikTok Shop', nameZh: 'TikTok 店铺', region: 'intl', icon: <TikTokOutlined />, areas: { ops: 'tiktok_ops' } },
+];
+
+/** The areas a platform's picker lists: the ones it can deploy first (客服 at
+ *  the top when available), then the rest grayed out. Operations is listed
+ *  only where a platform has it. */
+export function areasFor(p: PlatformDeploy): { area: FunctionArea; scenario?: BusinessScenario }[] {
+    const rows = FUNCTION_AREAS
+        .filter((a) => a.key !== 'ops' || p.areas.ops)
+        .map((a) => ({ area: a, scenario: getScenario(p.areas[a.key] || null) }));
+    return [...rows.filter((r) => r.scenario), ...rows.filter((r) => !r.scenario)];
+}
+
+export function areaName(a: FunctionArea, lang: string): string {
+    return lang && lang.startsWith('zh') ? a.nameZh : a.nameEn;
+}
+
+export function platformDeployName(p: PlatformDeploy, lang: string): string {
+    return lang && lang.startsWith('zh') ? p.nameZh : p.nameEn;
+}
+
+/** A new store's permanent id -- the Stores page's rule (platform-name). */
+export function newStoreId(platform: string, name: string): string {
+    const n = name.trim();
+    return n ? `${platform}-${n}` : '';
+}

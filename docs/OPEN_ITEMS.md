@@ -10,6 +10,20 @@ _Last updated: 2026-09-21_
 
 ## 🔴 Bugs (unfixed)
 
+### Left open after the rag-enterprise merge + Fast Deploy rework (2026-10-10)
+
+- **`tests/ks` breaks later suites in the same run.** `pytest tests/unit/test_deploy_douyin_cs.py tests/ks`
+  collects only 11 tests and 5 deploy tests fail on message-language regexes (also on master
+  before the Fast Deploy change). Likely a `tests/ks` fixture leaking app region/language state.
+  Run `tests/ks` in its own pytest invocation until fixed.
+- **Fast Deploy no longer offers the "several stores" tiles** (`douyin_cs_multi`, `pdd_cs_multi`).
+  Each store is deployed on its own from its platform button, so a second store gets its own
+  Q&A agents instead of sharing one pool. The CLI scenarios still exist; add a "share Q&A agents
+  with this platform's other stores" option under 客服 if merchants need it.
+- **Fast Deploy areas 售前/售后/营销/调研/经理 are placeholders** (grayed). 京东 has no 客服 recipe yet.
+- KS server security fixes: brief handed to the server side (authz headers, audit tenant, verified
+  email, cross-tenant store checks, deploy/ks move to eCan_lambda).
+
 ### Left open after the chip-docs crawler / platoon / cloud work (2026-10-09)
 
 - **An offline pinned host's agents are adopted elsewhere.** `agent_launch_allowed`
