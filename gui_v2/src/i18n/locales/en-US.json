@@ -2768,6 +2768,7 @@
         "retry": "Retry",
         "plane": {
           "local": "Local · this computer",
+          "lan": "Commander (LAN)",
           "private": "Private server",
           "public": "Cloud",
           "localHint": "Stored only on this computer.",
@@ -3164,6 +3165,7 @@
         },
         "embedder": {
           "change": "Change",
+          "save": "Save",
           "choose": "Choose a model",
           "title": "Embedding model for product knowledge",
           "intro": "Turns questions and product text into vectors so paraphrased questions still find the right answer. Qwen3-Embedding-8B is recommended; it understands Chinese customer questions well.",
