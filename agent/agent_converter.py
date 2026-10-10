@@ -814,6 +814,11 @@ def convert_agent_dict_to_ec_agent(
         # (the user closed the app 1s after the response finally arrived).
         browser_use_llm = _get_cached_browser_use_llm(main_window)
         if not browser_use_llm:
+            # Key-less install whose provider is the llm-proxy ('ecanai'):
+            # use the proxy on the session token (same as gen_new_agent).
+            from agent.ec_agents.agent_utils import _session_proxy_browser_llm
+            browser_use_llm = _session_proxy_browser_llm()
+        if not browser_use_llm:
             raise ValueError("Failed to create browser_use LLM from main_window. Please configure LLM provider API key in Settings.")
         
         avatar = agent_data.get('avatar') or DBAvatarService.generate_default_avatar(agent_data.get('id'))

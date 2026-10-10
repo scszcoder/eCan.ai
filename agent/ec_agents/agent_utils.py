@@ -1375,10 +1375,10 @@ def gen_new_knowledge(mainwin, kjs):
         logger.info("knowledge created:", agent_card.name, agent_card.url)
         # Use unified function to create browser_use LLM from mainwin configuration (no fallback)
         from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm
-        browser_use_llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+        browser_use_llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True) or _session_proxy_browser_llm()
         if not browser_use_llm:
             raise ValueError("Failed to create browser_use LLM from mainwin. Please configure LLM provider API key in Settings.")
-        new_knowledge = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
+        new_knowledge =EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_knowledge
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
