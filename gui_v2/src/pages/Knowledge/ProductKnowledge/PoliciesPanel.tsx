@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, App, Button, Card, Col, Empty, Input, Popconfirm, Row, Segmented, Space, Spin, Tag, Typography } from 'antd';
-import { BranchesOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, App, Button, Card, Col, Empty, Input, Row, Segmented, Space, Spin, Tag, Typography } from 'antd';
+import { BranchesOutlined, SaveOutlined, UndoOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ksApi, KSPoliciesView } from '@/services/ipc/ksApi';
+import { buildPolicyDoc, parsePolicyDoc, policyChanges } from './policyDoc';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -10,9 +11,11 @@ const { TextArea } = Input;
 const DEFAULT_SCOPE = '__merchant__';
 
 /**
- * Store policies: one merchant-wide default per topic, plus per-store
- * overrides that only need to state what is different. Each topic shows
- * which text a store actually uses.
+ * Store policies as one markdown document per scope: a "## topic" section per
+ * topic, with an example hint, that the user scrolls through and fills in;
+ * one Save writes every changed section. The merchant default is written once;
+ * a store's document holds only what differs (an empty section = use the
+ * default, which its hint shows).
  */
 const PoliciesPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
   const { t } = useTranslation();
@@ -20,8 +23,8 @@ const PoliciesPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
   const k = (key: string, o?: Record<string, unknown>): string => String(t(`pages.knowledge.ks.policies.${key}`, o as any));
   const [view, setView] = useState<KSPoliciesView | null>(null);
   const [scope, setScope] = useState<string>(DEFAULT_SCOPE);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState<string | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -32,47 +35,84 @@ const PoliciesPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
   }, [message]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { setDrafts({}); }, [scope]);
+
+  const isDefault = scope === DEFAULT_SCOPE;
+  const own = useMemo(() => (view ? (isDefault ? view.defaults : view.overrides[scope] || {}) : {}), [view, isDefault, scope]);
+
+  // The document as saved: own text per section; hints show an example or,
+  // for a store, the default it inherits.
+  const savedDoc = useMemo(() => {
+    if (!view) return '';
+    return buildPolicyDoc(view.topics, (topic) => own[topic]?.text || '', (topic) => {
+      if (!isDefault && !own[topic]) {
+        const inherited = view.defaults[topic]?.text;
+        return inherited ? `${k('usingDefault')}${inherited}` : k('overridePlaceholder');
+      }
+      return String(t(`pages.knowledge.ks.policies.hints.${topic}`, { defaultValue: k('defaultPlaceholder') }));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, own, isDefault, t]);
 
   if (!view) return <Spin />;
 
-  const isDefault = scope === DEFAULT_SCOPE;
-  const overrides = isDefault ? {} : view.overrides[scope] || {};
-  const current = (topic: string) => (isDefault ? view.defaults[topic] : overrides[topic]);
+  const doc = draft ?? savedDoc;
+  const dirty = draft !== null && draft !== savedDoc;
+  const parsed = parsePolicyDoc(doc, view.topics);
 
-  const save = async (topic: string) => {
-    const text = (drafts[topic] ?? current(topic)?.text ?? '').trim();
-    if (!text) {
-      message.warning(k('textRequired'));
+  const switchScope = (v: string) => {
+    if (dirty) {
+      message.warning(k('unsavedSwitch'));
       return;
     }
-    setSaving(topic);
+    setDraft(null);
+    setScope(v);
+  };
+
+  const save = async () => {
+    const { save: toSave, remove } = policyChanges(parsed, own);
+    if (parsed.unknown.length) {
+      message.warning(k('unknownSections', { names: parsed.unknown.join('、') }));
+    }
+    if (!toSave.length && !remove.length) {
+      message.info(k('nothingChanged'));
+      setDraft(null);
+      return;
+    }
+    setSaving(true);
     try {
-      await ksApi.savePolicy({ topic, text, store_id: isDefault ? null : scope });
-      message.success(k('saved'));
-      setDrafts(d => { const n = { ...d }; delete n[topic]; return n; });
+      for (const p of toSave) {
+        await ksApi.savePolicy({ topic: p.topic, text: p.text, store_id: isDefault ? null : scope });
+      }
+      for (const r of remove) {
+        await ksApi.deletePolicy(r.id);
+      }
+      message.success(k('savedCount', { saved: toSave.length, removed: remove.length }));
+      setDraft(null);
       await load();
       onChanged();
     } catch (e: any) {
       message.error(e.message);
+      await load();
     } finally {
-      setSaving(null);
+      setSaving(false);
     }
   };
 
-  const remove = async (id: string) => {
-    await ksApi.deletePolicy(id);
-    await load();
-    onChanged();
+  const statusTag = (topic: string) => {
+    const text = parsed.texts[topic];
+    const filled = text !== undefined ? !!text : !!own[topic];
+    if (isDefault) return filled ? <Tag color="green">{k('set')}</Tag> : <Tag>{k('notSet')}</Tag>;
+    if (filled) return <Tag color="orange" icon={<BranchesOutlined />}>{k('overridden')}</Tag>;
+    return view.defaults[topic] ? <Tag color="blue">{k('inherits')}</Tag> : <Tag>{k('notSet')}</Tag>;
   };
 
   return (
     <div>
-      <Alert type="info" showIcon style={{ marginBottom: 12 }} message={k('intro')} />
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} message={k('intro')} description={k('docHint')} />
       <Segmented
         style={{ marginBottom: 16 }}
         value={scope}
-        onChange={v => setScope(String(v))}
+        onChange={v => switchScope(String(v))}
         options={[
           { value: DEFAULT_SCOPE, label: k('merchantDefault') },
           ...view.stores.map(s => ({
@@ -82,51 +122,33 @@ const PoliciesPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
         ]}
       />
       {view.stores.length === 0 && !isDefault && <Empty description={k('noStores')} />}
-      <Row gutter={[16, 16]}>
-        {view.topics.map(({ value: topic, label }) => {
-          const own = current(topic);
-          const inherited = !isDefault && !own ? view.defaults[topic] : undefined;
-          const text = drafts[topic] ?? own?.text ?? '';
-          const dirty = drafts[topic] !== undefined && drafts[topic] !== (own?.text ?? '');
-          return (
-            <Col xs={24} lg={12} key={topic}>
-              <Card
-                size="small"
-                title={<Space>{label}
-                  {isDefault ? (own ? <Tag color="green">{k('set')}</Tag> : <Tag>{k('notSet')}</Tag>)
-                    : own ? <Tag color="orange" icon={<BranchesOutlined />}>{k('overridden')}</Tag>
-                      : inherited ? <Tag color="blue">{k('inherits')}</Tag> : <Tag>{k('notSet')}</Tag>}
-                </Space>}
-                extra={
-                  <Space>
-                    {own && (
-                      <Popconfirm title={isDefault ? k('deleteDefaultConfirm') : k('deleteOverrideConfirm')} onConfirm={() => remove(own.id)}>
-                        <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-                      </Popconfirm>
-                    )}
-                    <Button size="small" type="primary" icon={<SaveOutlined />} disabled={!dirty} loading={saving === topic}
-                            onClick={() => save(topic)}>{k('save')}</Button>
-                  </Space>
-                }
-              >
-                {inherited && !own && drafts[topic] === undefined && (
-                  <div style={{ marginBottom: 8 }}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>{k('usingDefault')}</Text>
-                    <div style={{ background: 'rgba(22,119,255,0.06)', padding: 8, borderRadius: 6, marginTop: 4 }}>
-                      <Text style={{ fontSize: 12 }}>{inherited.text}</Text>
-                    </div>
-                  </div>
-                )}
-                <TextArea
-                  rows={4}
-                  value={text}
-                  placeholder={isDefault ? k('defaultPlaceholder') : k('overridePlaceholder')}
-                  onChange={e => setDrafts(d => ({ ...d, [topic]: e.target.value }))}
-                />
-              </Card>
-            </Col>
-          );
-        })}
+      <Row gutter={16}>
+        <Col xs={24} lg={17}>
+          <TextArea
+            data-testid="policy-doc"
+            value={doc}
+            onChange={e => setDraft(e.target.value)}
+            autoSize={{ minRows: 22, maxRows: 40 }}
+            spellCheck={false}
+            style={{ fontFamily: 'Consolas, "Courier New", monospace', fontSize: 13, lineHeight: 1.6 }}
+          />
+          <Space style={{ marginTop: 12 }}>
+            <Button type="primary" icon={<SaveOutlined />} disabled={!dirty} loading={saving} onClick={save}
+                    data-testid="policy-save">{k('save')}</Button>
+            <Button icon={<UndoOutlined />} disabled={!dirty || saving} onClick={() => setDraft(null)}>{k('discard')}</Button>
+            {dirty && <Text type="warning">{k('unsaved')}</Text>}
+          </Space>
+        </Col>
+        <Col xs={24} lg={7}>
+          <Card size="small" title={k('sections')}>
+            {view.topics.map(({ value, label }) => (
+              <div key={value} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+                <Text>{label}</Text>
+                {statusTag(value)}
+              </div>
+            ))}
+          </Card>
+        </Col>
       </Row>
     </div>
   );

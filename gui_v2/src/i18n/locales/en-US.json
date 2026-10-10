@@ -2962,6 +2962,23 @@
         },
         "policies": {
           "intro": "Write each rule once as your default. A store only needs an override where it differs; everything else is inherited.",
+          "docHint": "Fill in each section below (scroll down for all of them) and click Save once. Lines in <!-- --> are hints and are not saved. Leave a section empty if it does not apply.",
+          "unsavedSwitch": "Save or discard your changes first",
+          "unknownSections": "Not saved — not a rule section: {{names}}",
+          "nothingChanged": "Nothing changed",
+          "savedCount": "Saved {{saved}} section(s), cleared {{removed}}",
+          "discard": "Discard changes",
+          "unsaved": "Unsaved changes",
+          "sections": "Sections",
+          "hints": {
+            "returns": "e.g. 7-day no-reason returns if tags are intact; buyer pays return shipping unless the item is faulty.",
+            "shipping": "e.g. ships within 48 h of payment via ZTO/YTO; free shipping except remote areas; 2-4 days to arrive.",
+            "invoice": "e.g. electronic invoices on request; put the title and tax id in the order note.",
+            "after_sales": "e.g. quality problems replaced within 30 days; 1-year warranty; send photos to customer service.",
+            "payment": "e.g. Alipay, Huabei installments and credit cards accepted.",
+            "promotion": "e.g. 20 off orders over 199; coupons cannot be combined.",
+            "other": "Anything else customer service should know about this store."
+          },
           "merchantDefault": "Default (all stores)",
           "noStores": "Add stores on the Overview tab to override rules per store.",
           "set": "Set",
