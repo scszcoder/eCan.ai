@@ -7,6 +7,7 @@ import {
     ShoppingOutlined,
     ShoppingCartOutlined,
     ClusterOutlined,
+    AppstoreAddOutlined,
 } from '@ant-design/icons';
 
 export type Region = 'cn' | 'intl';
@@ -194,6 +195,8 @@ export interface PlatformDeploy {
     region: Region;
     icon: React.ReactNode;
     areas: Partial<Record<string, string>>;
+    /** "Other platform": the user types the platform name. */
+    custom?: boolean;
 }
 
 export const PLATFORM_DEPLOYS: PlatformDeploy[] = [
@@ -207,6 +210,12 @@ export const PLATFORM_DEPLOYS: PlatformDeploy[] = [
     { platform: 'shopify', nameEn: 'Shopify', nameZh: 'Shopify', region: 'intl', icon: <ShoppingCartOutlined />, areas: { ops: 'shopify_ops' } },
     { platform: 'tiktok', nameEn: 'TikTok Shop', nameZh: 'TikTok 店铺', region: 'intl', icon: <TikTokOutlined />, areas: { ops: 'tiktok_ops' } },
 ];
+
+/** The last button: a platform not on the list, named by the user (stores
+ *  only for now -- no function area deploys to an arbitrary platform). */
+export const CUSTOM_PLATFORM_DEPLOY: PlatformDeploy = {
+    platform: '', nameEn: 'Other platform', nameZh: '其他平台', region: 'cn', icon: <AppstoreAddOutlined />, areas: {}, custom: true,
+};
 
 /** The areas a platform's picker lists: the ones it can deploy first (客服 at
  *  the top when available), then the rest grayed out. Operations is listed

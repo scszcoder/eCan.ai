@@ -168,6 +168,29 @@ def _create_store(store_id: Any, new_store: Dict[str, Any], runner_path: Path) -
     return _tr(f"Could not create store {sid}: {err}", f"无法创建店铺 {sid}：{err}") if err else ""
 
 
+@IPCHandlerRegistry.handler("fast_deploy.create_store")
+def handle_fast_deploy_create_store(request: IPCRequest,
+                                    params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Create a store only (a platform with nothing to deploy yet, e.g. one the
+    user named), with `ecan stores create`."""
+    try:
+        params = params or {}
+        sid = str(params.get("store_id") or "").strip()
+        out_dir = _fast_deploy_dir()
+        err = _create_store(sid, params, out_dir / f"store-{time.strftime('%Y%m%d-%H%M%S')}.runner.py")
+        if err:
+            return create_success_response(request, {"status": "failure", "store_created": False,
+                                                     "log": [err], "message": err})
+        msg = _tr(f"Store {sid} created", f"已创建店铺 {sid}")
+        return create_success_response(request, {"status": "success", "store_created": True,
+                                                 "log": [msg], "message": msg})
+    except subprocess.TimeoutExpired:
+        return create_error_response(request, "TIMEOUT", _tr("Store creation timed out", "创建店铺超时"))
+    except Exception as e:
+        logger.error(f"[FastDeploy] create_store error: {e}")
+        return create_error_response(request, "FAST_DEPLOY_ERROR", str(e))
+
+
 @IPCHandlerRegistry.handler("fast_deploy.generate")
 def handle_fast_deploy_generate(request: IPCRequest,
                                 params: Optional[Dict[str, Any]]) -> IPCResponse:

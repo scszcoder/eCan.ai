@@ -13,6 +13,7 @@ import { get_ipc_api } from '../../services/ipc_api';
 import {
     FUNCTION_AREAS,
     PLATFORM_DEPLOYS,
+    CUSTOM_PLATFORM_DEPLOY,
     platformValue,
     areasFor,
     areaName,
@@ -81,6 +82,8 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
     const [catalog, setCatalog] = useState<CatalogStore[]>([]);
     const [storeChoice, setStoreChoice] = useState<string>('');
     const [newName, setNewName] = useState('');
+    // "Other platform": the platform name as the user typed it.
+    const [customPlatform, setCustomPlatform] = useState('');
     const [storeUrl, setStoreUrl] = useState('');
     // Function areas: the picker's current pick and the ones added so far.
     const [areaPick, setAreaPick] = useState<string | undefined>(undefined);
@@ -109,6 +112,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
 
     const openPlatform = (p: PlatformDeploy, sid = '') => {
         setPlatform(p);
+        setCustomPlatform('');
         setAdded([]);
         setAreaPick(firstOpenArea(areasFor(p), []));
         setStoreChoice(sid);
@@ -141,13 +145,20 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
     const setAreaConfig = (key: string, patch: Partial<ScenarioConfig>) =>
         setAdded((list) => list.map((a) => (a.key === key ? { ...a, config: { ...a.config, ...patch } } : a)));
 
+    // The platform key stores are saved under: a listed platform's key, or what
+    // the user typed (a listed platform's name typed here maps to its key).
+    const platKey = platform?.custom ? platformValue(customPlatform) : (platform?.platform || '');
     const isNew = storeChoice === NEW_STORE;
-    const storeId = isNew ? newStoreId(platform?.platform || '', newName) : storeChoice;
+    const storeId = isNew ? newStoreId(platKey, newName) : storeChoice;
 
     const cancelConfig = () => { setPlatform(null); setAdded([]); resetRun(); };
 
     const handleCreate = async () => {
         if (!platform) return;
+        if (!platKey) {
+            message.warning(t('pages.agents.fast_deploy_need_platform', 'Enter the platform name'));
+            return;
+        }
         if (!storeChoice || (isNew && !newName.trim())) {
             message.warning(isNew
                 ? t('pages.agents.fast_deploy_need_store_name', 'Enter the new store\'s name')
@@ -160,6 +171,10 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
             return;
         }
         if (!added.length) {
+            if (isNew) {
+                await createStoreOnly();
+                return;
+            }
             message.warning(t('pages.agents.fast_deploy_need_area', 'Add at least one function area'));
             return;
         }
@@ -189,7 +204,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                 scenario: a.scenario.key,
                 config: {
                     store_id: storeId,
-                    ...(!storeReady ? { new_store: { name: newName.trim(), platform: platform.platform, urls: url ? [url] : [] } } : {}),
+                    ...(!storeReady ? { new_store: { name: newName.trim(), platform: platKey, urls: url ? [url] : [] } } : {}),
                     ...(storeReady && !urlSaved ? { store_url: url } : {}),
                     ...(a.scenario.schema.schedule ? { schedule: {
                         start: c.scheduleStart, every: c.scheduleEvery, unit: c.scheduleUnit,
@@ -244,6 +259,36 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
             } catch (refreshErr) {
                 setStatusLines((l) => [...l, String(refreshErr)]);
             }
+        }
+        setResult(ok ? 'success' : 'failure');
+        setCreating(false);
+    };
+
+    // No function area to deploy (a custom platform, or one whose areas are all
+    // still to come): Generate creates just the store, with the CLI.
+    const createStoreOnly = async () => {
+        const url = storeUrl.trim();
+        setCreating(true);
+        setStatusCollapsed(false);
+        setResult(null);
+        setStatusLines([t('pages.agents.fast_deploy_creating_store', { defaultValue: 'Creating store {{id}}…', id: storeId })]);
+        let ok = false;
+        try {
+            const resp = await get_ipc_api().executeRequest<any>('fast_deploy.create_store', {
+                store_id: storeId, name: newName.trim(), platform: platKey, urls: url ? [url] : [],
+            }, 120_000);
+            const data = (resp?.data as any) || {};
+            ok = !!(resp?.success && data.store_created);
+            const lines = (Array.isArray(data.log) ? data.log : []).map((x: any) => String(x));
+            if (resp?.error?.message) lines.push(String(resp.error.message));
+            setStatusLines((l) => [...l, ...lines]);
+        } catch (err) {
+            setStatusLines((l) => [...l, String(err)]);
+        }
+        if (ok) {
+            await loadCatalog();
+            setStoreChoice(storeId);
+            setNewName('');
         }
         setResult(ok ? 'success' : 'failure');
         setCreating(false);
@@ -375,13 +420,13 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                     alignContent: 'start',
                 }}
             >
-                {PLATFORM_DEPLOYS.map((p) => {
-                    const isSel = p.platform === platform?.platform;
+                {[...PLATFORM_DEPLOYS, CUSTOM_PLATFORM_DEPLOY].map((p) => {
+                    const isSel = p.custom ? !!platform?.custom : (!platform?.custom && p.platform === platform?.platform);
                     return (
                         <button
-                            key={p.platform}
+                            key={p.custom ? '__custom__' : p.platform}
                             type="button"
-                            data-testid={`fd-platform-${p.platform}`}
+                            data-testid={`fd-platform-${p.custom ? 'custom' : p.platform}`}
                             onClick={() => openPlatform(p)}
                             style={{
                                 display: 'flex',
@@ -400,8 +445,8 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                         >
                             <span style={{ fontSize: 28, color: isSel ? '#38bdf8' : '#cbd5e1' }}>{p.icon}</span>
                             <span style={{ textAlign: 'center', fontSize: 12, lineHeight: 1.3 }}>
-                                {platformDeployName(p, lang)}{' '}
-                                <span style={{ color: '#64748b' }}>({p.region})</span>
+                                {platformDeployName(p, lang)}
+                                {!p.custom && <>{' '}<span style={{ color: '#64748b' }}>({p.region})</span></>}
                             </span>
                         </button>
                     );
@@ -425,9 +470,24 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                         {/* Left: config fields */}
                         <div style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 16 }}>
                             <Text strong style={{ color: '#e2e8f0' }}>
-                                {platformDeployName(platform, lang)}{' '}
-                                <span style={{ color: '#64748b', fontWeight: 400 }}>({platform.region})</span>
+                                {platformDeployName(platform, lang)}
+                                {!platform.custom && <>{' '}<span style={{ color: '#64748b', fontWeight: 400 }}>({platform.region})</span></>}
                             </Text>
+
+                            {platform.custom && (
+                                <div style={{ marginTop: 16 }}>
+                                    {fieldLabel(t('pages.agents.fast_deploy_platform_name', 'Platform'))}
+                                    <div style={{ marginTop: 8 }}>
+                                        <Input
+                                            data-testid="fd-platform-name"
+                                            value={customPlatform}
+                                            onChange={(e) => { setCustomPlatform(e.target.value); setStoreChoice(''); setNewName(''); }}
+                                            placeholder={t('pages.agents.fast_deploy_platform_name_ph', 'Platform name, e.g. 微店')}
+                                        />
+                                    </div>
+                                    {hint(t('pages.agents.fast_deploy_platform_custom_hint', 'Any platform not on the list. Agents cannot be generated for it yet — Generate creates the store.'))}
+                                </div>
+                            )}
 
                             {/* store: one of this platform's stores, or a new one. The id,
                                 not the URL, identifies a store (every 飞鸽 seller shares one
@@ -443,7 +503,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                         onChange={(v) => pickStore(v)}
                                         options={[
                                             ...catalog
-                                                .filter((x) => platformValue(x.platform) === platform.platform)
+                                                .filter((x) => !!platKey && platformValue(x.platform) === platKey)
                                                 .map((x) => ({ value: x.store_id,
                                                     label: x.name && x.name !== x.store_id ? `${x.name} (${x.store_id})` : x.store_id })),
                                             { value: NEW_STORE, label: `＋ ${t('pages.agents.fast_deploy_store_new', 'New store')}` },

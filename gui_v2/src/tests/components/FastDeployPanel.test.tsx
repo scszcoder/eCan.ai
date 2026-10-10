@@ -87,6 +87,23 @@ describe('FastDeployPanel', () => {
     await waitFor(() => expect(screen.getByText('pages.agents.fast_deploy_success')).toBeInTheDocument());
   });
 
+  it('a custom platform creates just the store, under the typed platform', async () => {
+    executeRequest.mockResolvedValue({ success: true, data: { status: 'success', store_created: true, log: ['created'] } });
+    render(<FastDeployPanel open onClose={() => {}} />);
+    await waitFor(() => expect(getStoreCatalog).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId('fd-platform-custom'));
+    fireEvent.change(screen.getByTestId('fd-platform-name'), { target: { value: '微店' } });
+    openSelect('fd-store');
+    await pickOption('＋ pages.agents.fast_deploy_store_new');
+    fireEvent.change(screen.getByTestId('fd-store-name'), { target: { value: '小铺' } });
+    expect(screen.getByTestId('fd-area-add')).toBeDisabled();       // nothing deploys to 微店 yet
+    fireEvent.click(screen.getByTestId('fd-generate'));
+    await waitFor(() => expect(executeRequest).toHaveBeenCalledTimes(1));
+    expect(executeRequest.mock.calls[0][0]).toBe('fast_deploy.create_store');
+    expect(executeRequest.mock.calls[0][1]).toEqual({ store_id: '微店-小铺', name: '小铺', platform: '微店', urls: [] });
+    await waitFor(() => expect(screen.getByText('pages.agents.fast_deploy_success')).toBeInTheDocument());
+  });
+
   it('removing an area takes it out of the deploy; nothing added is refused', async () => {
     render(<FastDeployPanel open onClose={() => {}} />);
     await waitFor(() => expect(getStoreCatalog).toHaveBeenCalled());

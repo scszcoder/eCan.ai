@@ -145,3 +145,22 @@ class TestNewStoreViaCli:
         out, calls = self._call(tmp_path, {"store_id": "douyin-a", "store_url": "https://x.example"})
         assert calls[0][-5:] == ["stores", "update", "douyin-a", "--url", "https://x.example"]
         assert out["store_url_saved"] is True
+
+
+def test_create_store_only_runs_stores_create(tmp_path):
+    """A platform with nothing to deploy (e.g. one the user named) creates just the store."""
+    calls, out = [], {}
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    with patch.object(fd, "_fast_deploy_dir", return_value=tmp_path), \
+         patch.object(fd, "_current_user_id", return_value="u@x"), \
+         patch.object(fd.subprocess, "run", side_effect=fake_run), \
+         patch.object(fd.sys, "frozen", False, create=True), \
+         patch.object(fd, "create_success_response", side_effect=lambda req, data: out.update(data) or out):
+        fd.handle_fast_deploy_create_store(MagicMock(), {"store_id": "微店-小铺", "name": "小铺",
+                                                         "platform": "微店", "urls": []})
+    assert calls[0][-8:] == ["stores", "create", "--id", "微店-小铺", "--name", "小铺", "--platform", "微店"]
+    assert out["store_created"] is True and len(calls) == 1

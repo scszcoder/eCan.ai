@@ -20,7 +20,8 @@ _Last updated: 2026-09-21_
   Each store is deployed on its own from its platform button, so a second store gets its own
   Q&A agents instead of sharing one pool. The CLI scenarios still exist; add a "share Q&A agents
   with this platform's other stores" option under 客服 if merchants need it.
-- **Fast Deploy areas 售前/售后/营销/调研/经理 are placeholders** (grayed). 京东 has no 客服 recipe yet.
+- **Fast Deploy areas 售前/售后/营销/调研/经理 are placeholders** (grayed). 京东 has no 客服 recipe yet; for 京东
+  and 其他平台 (custom platform name) Generate only creates the store.
 - KS server security fixes: brief handed to the server side (authz headers, audit tenant, verified
   email, cross-tenant store checks, deploy/ks move to eCan_lambda).
 
