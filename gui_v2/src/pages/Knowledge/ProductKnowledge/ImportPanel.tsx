@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Alert, App, Button, Card, Col, Collapse, Descriptions, Empty, Result, Row, Select, Space, Statistic, Steps, Table, Tag, Typography,
 } from 'antd';
-import { FileExcelOutlined, FileTextOutlined, InboxOutlined } from '@ant-design/icons';
+import { DownloadOutlined, FileExcelOutlined, FileTextOutlined, InboxOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ksApi, KSCatalogPreview, KSImportReport, KSOverview, KSProduct } from '@/services/ipc/ksApi';
 import JobProgress from './JobProgress';
@@ -117,6 +117,17 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
     }
   };
 
+  const downloadTemplate = async () => {
+    try {
+      const dir = await ksApi.pickFolder();
+      if (!dir) return;
+      const { path } = await ksApi.writeCatalogTemplate(dir);
+      message.success(k('templateSaved', { path }), 6);
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
   const restart = () => {
     setStep(0);
     setPreview(null);
@@ -169,7 +180,9 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
   return (
     <Row gutter={16}>
       <Col xs={24} xl={16}>
-        <Card title={<Space><FileExcelOutlined />{k('catalogTitle')}</Space>} size="small">
+        <Card title={<Space><FileExcelOutlined />{k('catalogTitle')}</Space>} size="small"
+              extra={<Button size="small" icon={<DownloadOutlined />} onClick={downloadTemplate}
+                             data-testid="ks-download-template">{k('downloadTemplate')}</Button>}>
           <Paragraph type="secondary" style={{ marginBottom: 12 }}>{k('catalogIntro')}</Paragraph>
           <Steps size="small" current={step} style={{ marginBottom: 16 }}
                  items={[{ title: k('stepChoose') }, { title: k('stepMap') }, { title: k('stepReview') }, { title: k('stepImport') }]} />
@@ -178,7 +191,11 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
             <div style={{ textAlign: 'center', padding: 24, border: '1px dashed #d9d9d9', borderRadius: 8 }}>
               <InboxOutlined style={{ fontSize: 40, color: '#1677ff' }} />
               <Paragraph style={{ marginTop: 8 }}>{k('chooseHint')}</Paragraph>
-              <Button type="primary" loading={busy} onClick={pickCatalog}>{k('chooseFile')}</Button>
+              <Space>
+                <Button type="primary" loading={busy} onClick={pickCatalog}>{k('chooseFile')}</Button>
+                <Button icon={<DownloadOutlined />} onClick={downloadTemplate}>{k('downloadTemplate')}</Button>
+              </Space>
+              <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }}>{k('templateHint')}</Paragraph>
             </div>
           )}
 

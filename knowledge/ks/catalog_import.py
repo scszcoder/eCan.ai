@@ -309,3 +309,72 @@ def build_products(rows: List[Dict[str, Any]], mapping: Dict[str, str]) -> Tuple
 
 def preview_rows(rows: List[Dict[str, Any]], n: int = 5) -> List[Dict[str, str]]:
     return [{k: _cell(v)[:120] for k, v in r.items() if k != ROW_KEY} for r in rows[:n]]
+
+
+# Downloadable fill-in template. Headers are names suggest_mapping() maps on
+# its own; price/stock are left out because they are never stored. 店铺 and
+# 平台商品ID stay empty in the samples: a store name here would create that
+# store on import.
+TEMPLATE_COLUMNS: List[Tuple[str, str]] = [
+    ("商品编码", "code"), ("商品标题", "title"), ("平台商品ID", "platform_item_id"), ("店铺", "store"),
+    ("类目", "category"), ("品牌", "brand"), ("描述", "description"), ("卖点", "selling_points"),
+    ("洗涤说明", "care"), ("问题", "faq_q"), ("回答", "faq_a"), ("SKU编码", "variant_sku"),
+    ("颜色", "color"), ("尺码", "size"), ("材质", "material"), ("图片", "image"), ("适用季节", "attribute"),
+]
+
+_TEMPLATE_ROWS: List[List[str]] = [
+    ["DRS-001", "法式碎花连衣裙", "", "", "女装/连衣裙", "示例品牌", "法式复古碎花，收腰显瘦，长度及膝。",
+     "收腰显瘦；透气不闷；可机洗", "30℃以下手洗或机洗，不可漂白，阴干。", "会起球吗？", "面料为高支棉，正常穿着不易起球。",
+     "DRS-001-WH-S", "白色", "S", "棉100%", "https://example.com/drs-001.jpg", "春夏"],
+    ["DRS-001", "法式碎花连衣裙", "", "", "", "", "", "", "", "偏大还是偏小？", "版型标准，按平时尺码购买即可。",
+     "DRS-001-WH-M", "白色", "M", "", "", ""],
+    ["DRS-001", "法式碎花连衣裙", "", "", "", "", "", "", "", "", "",
+     "DRS-001-BL-M", "蓝色", "M", "", "", ""],
+    ["TSH-002", "纯棉圆领短袖T恤", "", "", "男装/T恤", "示例品牌", "基础款纯棉T恤，不易变形。",
+     "纯棉亲肤；领口不易变形", "可机洗，反面晾晒。", "会缩水吗？", "已做预缩处理，正常洗涤基本不缩水。",
+     "TSH-002-BK-L", "黑色", "L", "棉100%", "", "四季"],
+]
+
+_TEMPLATE_NOTES: List[Tuple[str, str]] = [
+    ("商品编码", "同一商品的多行（不同颜色/尺码）填相同编码，导入时合并为一个商品。没有编码时按标题合并。"),
+    ("商品标题", "必填。"),
+    ("平台商品ID", "可选。商品在店铺平台上的ID，填写后与店铺关联。"),
+    ("店铺", "可选。填写店铺名称；不存在的店铺会自动创建。也可以留空，导入时统一选择店铺。"),
+    ("描述 / 卖点 / 洗涤说明 / 材质", "可选。卖点、图片可在一格内用分号或换行分隔多条。"),
+    ("问题 / 回答", "可选。每行一组常见问题，同一商品可写多行。"),
+    ("SKU编码 / 颜色 / 尺码", "可选。每行一个规格。"),
+    ("其他列", "任何其他列名（如“适用季节”）都会作为商品属性导入。"),
+    ("价格 / 库存", "不需要填写：会从商品卡片或平台实时读取。"),
+    ("示例", "第一张表中的示例行请删除或替换为您的商品。"),
+]
+
+
+def write_template(path: str) -> str:
+    """Write the fill-in catalog template (.xlsx): the product sheet first
+    (the only sheet read on import), then a sheet of instructions."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "商品"
+    ws.append([h for h, _ in TEMPLATE_COLUMNS])
+    for row in _TEMPLATE_ROWS:
+        ws.append(row)
+    for c in ws[1]:
+        c.font = Font(bold=True)
+        c.fill = PatternFill("solid", fgColor="DDEBF7")
+    for col, (h, _) in zip(ws.columns, TEMPLATE_COLUMNS):
+        ws.column_dimensions[col[0].column_letter].width = 30 if h in ("描述", "卖点", "洗涤说明", "回答", "图片") else 14
+    ws.freeze_panes = "A2"
+    notes = wb.create_sheet("填写说明")
+    notes.append(["列", "说明"])
+    for row in _TEMPLATE_NOTES:
+        notes.append(list(row))
+    notes["A1"].font = notes["B1"].font = Font(bold=True)
+    notes.column_dimensions["A"].width = 26
+    notes.column_dimensions["B"].width = 80
+    for (cell,) in notes.iter_rows(min_col=2, max_col=2):
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+    wb.save(path)
+    return path

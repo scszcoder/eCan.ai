@@ -69,3 +69,11 @@ def test_policies_view(wired):
     view = _ok(h.handle_get_policies(_req("ks.getPolicies"), {}))
     assert view["defaults"]["shipping"]["text"] == "24小时发货"
     assert view["overrides"][st["id"]]["shipping"]["text"] == "当天发货"
+
+
+def test_catalog_template_is_written_without_overwriting(tmp_path):
+    first = _ok(h.handle_write_catalog_template(_req("ks.writeCatalogTemplate"), {"dir": str(tmp_path)}))["path"]
+    second = _ok(h.handle_write_catalog_template(_req("ks.writeCatalogTemplate"), {"dir": str(tmp_path)}))["path"]
+    assert first.endswith("商品资料导入模板.xlsx") and second.endswith("商品资料导入模板 (2).xlsx")
+    resp = h.handle_write_catalog_template(_req("ks.writeCatalogTemplate"), {"dir": str(tmp_path / "missing")})
+    assert resp["error"]["code"] == "FILE_NOT_FOUND"

@@ -224,6 +224,8 @@ export const ksApi = {
   importCatalog: (path: string, mapping: Record<string, string>, default_store_id?: string) =>
     call<KSJob>('ks.importCatalog', { path, mapping, default_store_id }),
 
+  writeCatalogTemplate: (dir: string) => call<{ path: string }>('ks.writeCatalogTemplate', { dir }),
+
   draftFromDocument: (path: string) => call<KSDraft>('ks.draftFromDocument', { path }, 120000),
   ingestProductFiles: (paths: string[], store_id?: string) => call<KSJob>('ks.ingestProductFiles', { paths, store_id }),
   attachDocument: (product_id: string, path: string) => call('ks.attachDocument', { product_id, path }, 120000),
@@ -285,5 +287,11 @@ export const ksApi = {
     }, 300000);
     if (!resp.success) throw new Error(resp.error?.message || 'file picker failed');
     return (resp.data?.paths as string[]) || [];
+  },
+  /** Native folder picker (desktop). Returns '' when cancelled. */
+  pickFolder: async (): Promise<string> => {
+    const resp = await get_ipc_api().executeRequest<any>('fs.selectDirectory', {}, 300000);
+    if (!resp.success) throw new Error(resp.error?.message || 'folder picker failed');
+    return (resp.data?.path as string) || '';
   },
 };

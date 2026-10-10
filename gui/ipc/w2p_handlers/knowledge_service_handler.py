@@ -126,6 +126,25 @@ def handle_recheck_catalog(request: IPCRequest, params: Optional[Dict[str, Any]]
     return _call(request, 'KS_RECHECK_CATALOG_ERROR', run)
 
 
+@IPCHandlerRegistry.handler('ks.writeCatalogTemplate')
+def handle_write_catalog_template(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Write the fill-in catalog template into the chosen folder (never
+    overwrites: an existing file gets a (2), (3)... suffix)."""
+    def run():
+        import os
+        from knowledge.ks.catalog_import import write_template
+        _require(_p(params), 'dir')
+        folder = params['dir']
+        if not os.path.isdir(folder):
+            raise FileNotFoundError(folder)
+        base = params.get('filename') or '商品资料导入模板'
+        path, n = os.path.join(folder, f'{base}.xlsx'), 2
+        while os.path.exists(path):
+            path, n = os.path.join(folder, f'{base} ({n}).xlsx'), n + 1
+        return {'path': write_template(path)}
+    return _call(request, 'KS_WRITE_TEMPLATE_ERROR', run)
+
+
 @IPCHandlerRegistry.handler('ks.importCatalog')
 def handle_import_catalog(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     def run():

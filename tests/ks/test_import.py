@@ -201,3 +201,20 @@ def test_embedder_change_is_detected_and_reindex_fixes_it(svc, shop):
     assert not svc.overview()["embedder"]["needs_reindex"]
     r = svc.search("会缩水吗", store_ref=shop["tmall"]["id"], platform_item_id="6600001")
     assert r["faq"] and "1-2%" in r["faq"][0]["answer"]
+
+
+def test_template_imports_cleanly_with_its_own_mapping(tmp_path):
+    path = ci.write_template(str(tmp_path / "模板.xlsx"))
+    headers, rows = ci.read_table(path)
+    mapping = ci.suggest_mapping(headers)
+    assert mapping == {h: f for h, f in ci.TEMPLATE_COLUMNS}  # no manual mapping needed
+    products, report = ci.build_products(rows, mapping)
+    assert report.errors == [] and report.skipped == [] and report.warnings == []
+    by_code = {p["code"]: p for p in products}
+    assert set(by_code) == {"DRS-001", "TSH-002"}
+    dress = by_code["DRS-001"]
+    assert len(dress["variants"]) == 3 and len(dress["faq"]) == 2
+    assert dress["selling_points"] == ["收腰显瘦", "透气不闷", "可机洗"]
+    assert dress["attributes"]["适用季节"] == "春夏"
+    assert all(not p["listings"] for p in products)  # sample rows never create stores
+
