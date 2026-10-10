@@ -440,9 +440,26 @@ The remaining misses are paraphrases that need a neural embedding model.
 - `gui_v2/src/tests/components/ProductKnowledge.test.tsx`: 5 GUI tests.
 - RAG-related suites show no new failures against base `0253f4805`.
 
+**Embedding (2026-10-09):** product knowledge has its own model setting. With Qwen3-Embedding-8B (Q4_K_M in
+LM Studio for testing; full precision on the private server):
+
+| set | Qwen3-Embedding-8B | offline matcher | unscoped baseline |
+|---|---|---|---|
+| main (30) | 100.0 | 90.0 | 31.7, 11 fatal |
+| held-out (10) | 90.0, first clean run 70.0 | 40.0 | 40.0, 2 fatal |
+
+The held-out set has since been used for diagnosis, so it is no longer clean. Margins between related and unrelated
+similarities are thin (around 0.6–0.7), so a reranker is the next accuracy step.
+
 **Open items:**
-- Validate `deploy/ks` on the 2 × RTX PRO 5500 box: vLLM flags, model fit, latency.
-- Deploy the public KS in AWS/TCB: the AWS CLI credentials on the dev machine are currently invalid, and this needs
-  owner approval.
-- Pick a neural embedding model for path A and re-run the benchmark.
-- Phase 7.
+- **LAN commander/platoon test on two machines.** Deferred by the owner, since the second machine is busy.
+- **TCB deployment (owner choice: TCB first, then AWS).** The package and runbook are in `deploy/ks/tcb`. Still
+  needed:
+  - a CloudBase CLI sign-in by the owner;
+  - a PostgreSQL database `ecan_ks`;
+  - a DashScope key;
+  - approval to create the 云托管 service.
+- **Reranker** (Qwen3-Reranker) in path A.
+- **A held-out set from real merchant chats.**
+- **Validate `deploy/ks` on the 2 × RTX PRO 5500 box.**
+- **Phase 7.**
