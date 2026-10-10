@@ -4631,13 +4631,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
 
-            # Private-data guard: a run that retrieved private knowledge may
-            # only call a model on this machine / the private network.
-            from knowledge.ks.taint import check_llm as _ks_check_llm
-            _ks_check_llm(state, llm, llm_provider, full_node_name)
-
             # Invoke the LLM and update the state
             try:
+                # Private-data guard: a run that retrieved private knowledge may
+                # only call a model on this machine / the private network. Inside
+                # the try so a block takes the node's normal error path.
+                from knowledge.ks.taint import check_llm as _ks_check_llm
+                _ks_check_llm(state, llm, llm_provider, full_node_name)
+
                 import time
                 import threading
                 import queue

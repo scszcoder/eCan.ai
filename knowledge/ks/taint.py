@@ -27,16 +27,35 @@ def enabled() -> bool:
     return (os.getenv("ECAN_KS_TAINT_GUARD") or "1").strip().lower() not in ("0", "false", "no", "off")
 
 
+def _attrs(state: Any) -> Optional[dict]:
+    if not isinstance(state, dict):
+        return None
+    attrs = state.get("attributes")
+    if not isinstance(attrs, dict):
+        attrs = {}
+        state["attributes"] = attrs
+    return attrs
+
+
 def mark(state: Any, sensitivity: str) -> None:
-    """Record the most sensitive knowledge a run has seen."""
-    if not isinstance(state, dict) or not sensitivity:
+    """Record the most sensitive knowledge a run has seen.
+
+    Kept in ``state["attributes"]``: skills run as a typed LangGraph StateGraph
+    (NodeState), which DROPS top-level keys it does not declare between nodes
+    -- a top-level mark never reached the next LLM node, so the guard never
+    fired (rag-enterprise review, 2026-10-10)."""
+    attrs = _attrs(state)
+    if attrs is None or not sensitivity:
         return
-    if sensitivity == "private" or state.get(TAINT_KEY) != "private":
-        state[TAINT_KEY] = sensitivity
+    if sensitivity == "private" or attrs.get(TAINT_KEY) != "private":
+        attrs[TAINT_KEY] = sensitivity
 
 
 def is_tainted(state: Any) -> bool:
-    return isinstance(state, dict) and state.get(TAINT_KEY) == "private"
+    if not isinstance(state, dict):
+        return False
+    attrs = state.get("attributes")
+    return (isinstance(attrs, dict) and attrs.get(TAINT_KEY) == "private") or state.get(TAINT_KEY) == "private"
 
 
 def _extra_hosts() -> set:
@@ -69,7 +88,9 @@ def llm_endpoint(llm: Any) -> Optional[str]:
         val = getattr(client, "base_url", None) if client is not None else None
         if val:
             return str(val)
-        obj = getattr(obj, "bound", None)
+        # bind_tools -> .bound; with_fallbacks -> .runnable; other wrappers -> .llm / .model
+        obj = next((getattr(obj, a) for a in ("bound", "runnable", "llm", "model")
+                    if getattr(obj, a, None) is not None and not isinstance(getattr(obj, a), str)), None)
         seen += 1
     return None
 
