@@ -72,9 +72,9 @@ def test_database_url_conventions(monkeypatch):
     monkeypatch.setenv("PGSSL", "false")
     url, schema, args = db_from_env("sqlite:///x.db")
     assert url == "postgresql+psycopg://ecanai:pw@172.17.0.16:5432/appdb"
-    assert schema == "knowledge" and args == {"sslmode": "disable"}
+    assert schema == "knowledge" and args == {"sslmode": "disable", "connect_timeout": 10}
     monkeypatch.delenv("PGSSL")
-    assert db_from_env("sqlite:///x.db")[2] == {"sslmode": "require"}
+    assert db_from_env("sqlite:///x.db")[2]["sslmode"] == "require"
 
 
 def test_llm_proxy_embedder_request_and_billing_owner(svc, shop, monkeypatch):

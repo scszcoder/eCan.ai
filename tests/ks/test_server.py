@@ -95,3 +95,15 @@ def test_self_service_tenant_creation(env):
     t = client.post("/v1/tenants", headers=h, json={"name": "新商家"}).json()
     me = client.get("/v1/me", headers=h).json()
     assert [x["id"] for x in me["tenants"]] == [t["id"]] and me["tenants"][0]["role"] == "owner"
+
+
+def test_unreachable_database_serves_a_degraded_health_report(monkeypatch, tmp_path):
+    from knowledge.ks import server as srv
+    monkeypatch.setenv("KS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("KS_DB_URL", "postgresql+psycopg://u:secretpw@127.0.0.1:1/db")
+    monkeypatch.setenv("KS_DB_CONNECT_TIMEOUT", "2")
+    client = TestClient(srv.build_from_env())
+    assert client.get("/healthz").status_code == 200
+    r = client.get("/v1/health")
+    assert r.status_code == 503 and r.json()["status"] == "degraded"
+    assert "secretpw" not in r.text

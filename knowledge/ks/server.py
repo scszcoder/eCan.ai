@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import time
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -58,10 +59,12 @@ class ServerConfig(BaseModel):
 
     @classmethod
     def from_env(cls) -> "ServerConfig":
+        data_dir = os.getenv("KS_DATA_DIR", "ks_data")
         return cls(
-            db_url=os.getenv("KS_DB_URL", "sqlite:///ks_server.db"),
+            # Default SQLite file lives in the (writable) data dir, not the cwd.
+            db_url=os.getenv("KS_DB_URL", "sqlite:///" + os.path.join(os.path.abspath(data_dir), "ks.db").replace("\\", "/")),
             plane=os.getenv("KS_PLANE", "private"),
-            data_dir=os.getenv("KS_DATA_DIR", "ks_data"),
+            data_dir=data_dir,
             allow_tenant_create=os.getenv("KS_ALLOW_TENANT_CREATE", "0") in ("1", "true", "yes"),
             bootstrap_admin=os.getenv("KS_BOOTSTRAP_ADMIN", ""),
             bootstrap_tenant=os.getenv("KS_BOOTSTRAP_TENANT", "我的企业"),
@@ -416,6 +419,7 @@ def db_from_env(default_url: str) -> tuple:
         # Same SSL behaviour as the Node services: PGSSL=false disables it,
         # otherwise encrypt without verifying the server certificate.
         connect_args["sslmode"] = "disable" if os.getenv("PGSSL", "").lower() == "false" else "require"
+        connect_args["connect_timeout"] = int(os.getenv("KS_DB_CONNECT_TIMEOUT", "10"))
     return (url or default_url), os.getenv("KS_DB_SCHEMA", ""), connect_args
 
 
@@ -424,9 +428,34 @@ def build_from_env() -> FastAPI:
     os.makedirs(config.data_dir, exist_ok=True)
     registry, local = registry_from_env(config.data_dir)
     url, schema, connect_args = db_from_env(config.db_url)
-    service = KnowledgeService(url, embedder=embedder_from_env(), owner="server", db_schema=schema,
-                               db_connect_args=connect_args)
+    from sqlalchemy.engine import make_url
+    safe = make_url(url).render_as_string(hide_password=True)
+    print(f"[KS] starting: plane={config.plane} db={safe} schema={schema or '-'}", flush=True)
+    t0 = time.time()
+    try:
+        service = KnowledgeService(url, embedder=embedder_from_env(), owner="server", db_schema=schema,
+                                   db_connect_args=connect_args)
+    except Exception as e:  # keep serving so the reason is visible instead of a restart loop
+        reason = f"{type(e).__name__}: {str(e).splitlines()[0][:300]}"
+        print(f"[KS] database unavailable after {time.time() - t0:.1f}s: {reason}", flush=True)
+        return degraded_app(config, reason)
+    print(f"[KS] database ready in {time.time() - t0:.1f}s; embedder={service.embedder.id}", flush=True)
     return create_app(service, registry, config, local)
+
+
+def degraded_app(config: ServerConfig, reason: str) -> FastAPI:
+    """Health endpoints only, reporting why the service cannot start (no secrets)."""
+    app = FastAPI(title="eCan Knowledge Service (degraded)")
+
+    @app.get("/healthz")
+    def healthz():
+        return {"status": "degraded"}
+
+    @app.get(f"{API}/health")
+    def health():
+        return JSONResponse({"status": "degraded", "plane": config.plane, "db_error": reason}, status_code=503)
+
+    return app
 
 
 def main() -> None:
