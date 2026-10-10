@@ -14,6 +14,12 @@ CN only for now: ``ocrImage`` is on the CN schema (the AWS AppSync schema does
 not have it), so intl builds use local OCR. ``ECAN_QIANNIU_REMOTE_OCR=0`` turns
 the remote path off.
 
+Images normally go inline (base64 in the GraphQL body). The CloudBase HTTP
+gateway in front of GraphQL caps request bodies at ~1 MB (HTTP 413), so an
+image that can't be made small enough -- or a 413 -- goes by URL instead: a
+presigned COS upload through the llm-proxy (``POST /v1/files``), then
+``ocrImage(input: {url})``; the server fetches it (cap ``_MAX_URL_BYTES``).
+
 Results come back as RapidOCR-shaped lines ``(quad, text, confidence)`` in the
 pixels of the image sent, so the caller's normalize/scale/offset chain is the
 same for both engines.
@@ -39,6 +45,8 @@ _TIMEOUT_S = 15.0
 # coordinates stay valid) and must stay under this many raw bytes.
 _MAX_SEND_BYTES = 700 * 1024
 _JPEG_QUALITIES = (85, 70, 55)
+# Server-side cap on an image fetched by URL (llm_proxy OCR_MAX_IMAGE_BYTES).
+_MAX_URL_BYTES = 4 * 1024 * 1024
 
 _MUTATION = """
 mutation OcrImage($input: OcrInput!) {
@@ -57,6 +65,10 @@ _local_until = [0.0]
 
 class RemoteOcrError(RuntimeError):
     pass
+
+
+class _BodyTooLarge(RemoteOcrError):
+    """The GraphQL gateway refused the inline image (HTTP 413)."""
 
 
 def _server_lacks_ocr(msg: str) -> bool:
@@ -93,16 +105,19 @@ def _auth():
     return token, endpoint
 
 
-def _call(image_bytes: bytes) -> dict:
+def _call(image_bytes: Optional[bytes] = None, url: Optional[str] = None) -> dict:
+    """One ocrImage call with the image inline (*image_bytes*) or by *url*."""
     import requests
     from agent.cloud_api.cloud_api import _http_auth_header
     token, endpoint = _auth()
-    payload = {"query": _MUTATION,
-               "variables": {"input": {"image": base64.b64encode(image_bytes).decode("ascii"),
-                                       "type": "general"}}}
+    ocr_input = {"url": url} if url else {"image": base64.b64encode(image_bytes).decode("ascii")}
+    ocr_input["type"] = "general"
+    payload = {"query": _MUTATION, "variables": {"input": ocr_input}}
     resp = requests.post(endpoint, json=payload, timeout=_TIMEOUT_S, headers={
         "Content-Type": "application/json", "Authorization": _http_auth_header(token),
         "cache-control": "no-cache"})
+    if resp.status_code == 413:
+        raise _BodyTooLarge(f"HTTP 413: {len(image_bytes or b'') // 1024} KB image over the gateway body limit")
     try:
         data = resp.json()
     except Exception:
@@ -128,36 +143,82 @@ def to_rapidocr_lines(result: dict) -> List[Tuple[list, str, Optional[float]]]:
     return lines
 
 
-def _jpeg_bytes(path: str) -> bytes:
-    """The image at *path* as JPEG (same pixel size) under _MAX_SEND_BYTES."""
+def _jpeg_bytes(path: str) -> Tuple[Optional[bytes], bytes]:
+    """The image at *path* as JPEG (same pixel size, so bbox coordinates stay
+    valid): (bytes under _MAX_SEND_BYTES or None, smallest JPEG made)."""
     import io
     from PIL import Image
     with Image.open(path) as im:
         rgb = im.convert("RGB")
+    data = b""
     for q in _JPEG_QUALITIES:
         buf = io.BytesIO()
         rgb.save(buf, format="JPEG", quality=q)
-        if buf.tell() <= _MAX_SEND_BYTES:
-            return buf.getvalue()
-    raise RemoteOcrError(f"image is {buf.tell() // 1024} KB as JPEG q{_JPEG_QUALITIES[-1]}, "
-                         f"over the {_MAX_SEND_BYTES // 1024} KB inline limit")
+        data = buf.getvalue()
+        if len(data) <= _MAX_SEND_BYTES:
+            return data, data
+    return None, data
+
+
+def _upload_for_url(path: str, smallest_jpeg: bytes) -> str:
+    """Upload the image to COS (presigned PUT via the llm-proxy) and return the
+    URL the server fetches. The original file when it fits the server's URL cap
+    (no JPEG loss), else the smallest JPEG."""
+    import tempfile
+    from agent.ec_skills.media.proxy_media_client import ProxyMediaClient
+    tmp = None
+    try:
+        if os.path.getsize(path) <= _MAX_URL_BYTES:
+            src = path
+        elif len(smallest_jpeg) <= _MAX_URL_BYTES:
+            fd, tmp = tempfile.mkstemp(suffix=".jpg")
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(smallest_jpeg)
+            src = tmp
+        else:
+            raise RemoteOcrError(f"image is {len(smallest_jpeg) // 1024} KB even as JPEG, "
+                                 f"over the {_MAX_URL_BYTES // 1024} KB server limit")
+        client = ProxyMediaClient.from_ecanai()
+        try:
+            return client.upload_file(src)
+        finally:
+            client.close()
+    except RemoteOcrError:
+        raise
+    except Exception as exc:
+        raise RemoteOcrError(f"COS upload failed: {exc}") from exc
+    finally:
+        if tmp:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def ocr_png(path: str) -> Tuple[List[Tuple[list, str, Optional[float]]], str]:
     """OCR the image at *path* on the server. Returns (lines, engine label).
     Raises RemoteOcrError when every try failed; the caller then reads locally."""
     try:
-        image = _jpeg_bytes(path)
-    except RemoteOcrError as exc:
+        image, smallest = _jpeg_bytes(path)
+    except Exception as exc:
         _note_failed_read(exc)
-        raise
+        raise RemoteOcrError(f"could not read image: {exc}") from exc
+    url: Optional[str] = None
     last: Optional[Exception] = None
     for attempt in range(1, _TRIES_PER_READ + 1):
         try:
-            result = _call(image)
+            if image is None and url is None:
+                url = _upload_for_url(path, smallest)
+            result = _call(image, url=url)
             with _state_lock:
                 _failed_reads[0] = 0
-            return to_rapidocr_lines(result), f"remote:{result.get('provider') or '?'}/{result.get('model') or '?'}"
+            via = "/url" if url else ""
+            return (to_rapidocr_lines(result),
+                    f"remote{via}:{result.get('provider') or '?'}/{result.get('model') or '?'}")
+        except _BodyTooLarge as exc:
+            # The gateway's body limit is lower than we assumed: go by URL.
+            last, image = exc, None
+            logger.info(f"[qianniu] server OCR: {exc}; sending by COS URL")
         except Exception as exc:
             last = exc
             if _server_lacks_ocr(str(exc)):

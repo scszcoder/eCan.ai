@@ -20,7 +20,7 @@ def test_backs_off_to_local_after_repeated_failed_reads(monkeypatch, tmp_path):
     monkeypatch.setattr("utils.app_env.is_cn", lambda: True)
     img = tmp_path / "s.png"; __import__("PIL.Image", fromlist=["Image"]).new("RGB", (40, 20), "white").save(img)
     calls = []
-    def boom(_b):
+    def boom(_b, url=None):
         calls.append(1); raise ro.RemoteOcrError("upstream 502")
     monkeypatch.setattr(ro, "_call", boom)
     for _ in range(ro._FAILED_READS_TO_BACK_OFF):
@@ -38,7 +38,7 @@ def test_not_enabled_backs_off_immediately(monkeypatch, tmp_path):
     _reset()
     monkeypatch.setattr("utils.app_env.is_cn", lambda: True)
     img = tmp_path / "s.png"; __import__("PIL.Image", fromlist=["Image"]).new("RGB", (40, 20), "white").save(img)
-    monkeypatch.setattr(ro, "_call", lambda b: (_ for _ in ()).throw(ro.RemoteOcrError("OCR is not enabled on this server")))
+    monkeypatch.setattr(ro, "_call", lambda b, url=None: (_ for _ in ()).throw(ro.RemoteOcrError("OCR is not enabled on this server")))
     try:
         ro.ocr_png(str(img))
     except ro.RemoteOcrError:
@@ -58,7 +58,7 @@ def test_screens_are_sent_as_small_jpeg_at_same_size(tmp_path):
     import io
     p = tmp_path / "shot.png"
     Image.new("RGB", (1500, 900), "white").save(p)
-    data = ro._jpeg_bytes(str(p))
+    data, _ = ro._jpeg_bytes(str(p))
     assert data[:2] == b"\xff\xd8" and len(data) <= ro._MAX_SEND_BYTES
     assert Image.open(io.BytesIO(data)).size == (1500, 900)   # bbox coords stay valid
 
@@ -68,7 +68,7 @@ def test_backend_without_ocr_schema_backs_off_immediately(monkeypatch, tmp_path)
     monkeypatch.setattr("utils.app_env.is_cn", lambda: True)
     img = tmp_path / "s.png"; __import__("PIL.Image", fromlist=["Image"]).new("RGB", (40, 20), "white").save(img)
     calls = []
-    def missing(_b):
+    def missing(_b, url=None):
         calls.append(1)
         raise ro.RemoteOcrError('Unknown type "OcrInput"; Cannot query field "ocrImage" on type "Mutation".')
     monkeypatch.setattr(ro, "_call", missing)
@@ -78,3 +78,52 @@ def test_backend_without_ocr_schema_backs_off_immediately(monkeypatch, tmp_path)
         pass
     assert len(calls) == 1 and not ro.remote_ocr_enabled()
     _reset()
+
+
+def _ok(provider="aihub"):
+    return {"blocks": [{"text": "在吗", "confidence": 0.9, "bbox": [1, 2, 3, 4]}], "provider": provider, "model": "pp"}
+
+
+def test_oversize_image_goes_by_cos_url(monkeypatch, tmp_path):
+    """Too big to inline under the ~1 MB gateway cap -> COS upload + ocrImage(url)."""
+    _reset()
+    img = tmp_path / "s.png"; __import__("PIL.Image", fromlist=["Image"]).new("RGB", (40, 20), "white").save(img)
+    monkeypatch.setattr(ro, "_MAX_SEND_BYTES", 10)                 # nothing fits inline
+    uploads, calls = [], []
+    monkeypatch.setattr(ro, "_upload_for_url", lambda path, jpg: uploads.append(path) or "https://cos/x.png")
+    monkeypatch.setattr(ro, "_call", lambda b, url=None: calls.append((b, url)) or _ok())
+    lines, engine = ro.ocr_png(str(img))
+    assert uploads == [str(img)] and calls == [(None, "https://cos/x.png")]
+    assert lines[0][1] == "在吗" and engine.startswith("remote/url:")
+
+
+def test_gateway_413_switches_to_cos_url(monkeypatch, tmp_path):
+    _reset()
+    img = tmp_path / "s.png"; __import__("PIL.Image", fromlist=["Image"]).new("RGB", (40, 20), "white").save(img)
+    calls = []
+    def call(b, url=None):
+        calls.append(url)
+        if url is None:
+            raise ro._BodyTooLarge("HTTP 413")
+        return _ok()
+    monkeypatch.setattr(ro, "_call", call)
+    monkeypatch.setattr(ro, "_upload_for_url", lambda path, jpg: "https://cos/y.png")
+    lines, engine = ro.ocr_png(str(img))
+    assert calls == [None, "https://cos/y.png"] and engine.startswith("remote/url:")
+    assert ro._failed_reads[0] == 0
+
+
+def test_upload_uses_original_when_under_url_cap(monkeypatch, tmp_path):
+    img = tmp_path / "s.png"; img.write_bytes(b"png")
+    seen = []
+    class FakeClient:
+        def upload_file(self, path):
+            seen.append(path); return "https://cos/z"
+        def close(self):
+            pass
+    import agent.ec_skills.media.proxy_media_client as pmc
+    monkeypatch.setattr(pmc.ProxyMediaClient, "from_ecanai", classmethod(lambda cls: FakeClient()))
+    assert ro._upload_for_url(str(img), b"jpg") == "https://cos/z" and seen == [str(img)]
+    monkeypatch.setattr(ro, "_MAX_URL_BYTES", 2)                   # original too big -> temp JPEG
+    assert ro._upload_for_url(str(img), b"j") == "https://cos/z" and seen[-1].endswith(".jpg")
+    assert not __import__("os").path.exists(seen[-1])               # temp removed
