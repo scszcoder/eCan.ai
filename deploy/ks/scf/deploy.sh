@@ -58,9 +58,42 @@ JSON
 
 # ---- 2. deploy (HTTP function, uploaded through COS: the package is large) ----------
 cd "$STAGE"
-tcb fn deploy "$FN" --httpFn --dir "$STAGE" --force --deployMode cos --path "$ROUTE" --install-dependency false 2>&1 \
+tcb fn deploy "$FN" --httpFn --dir "$STAGE" --force --deployMode cos --install-dependency false 2>&1 \
   | grep -vE 'Loading|Try the tcb ai' | tail -8
 cd "$HERE"
+
+# ---- 2b. HTTP route. An HTTP function needs upstream type WEB_SCF: `fn deploy
+#      --path` creates an SCF-type route (answers FUNCTIONS_PARAM_INVALID) and
+#      fails when the route already exists. Create or correct it here; the
+#      CLI asks for confirmation on a TTY, so it runs under expect.
+route_cmd() {  # $1 = add|edit
+  local data exp
+  data="$(mktemp)"; exp="$(mktemp)"
+  printf '{"domain":"*","routes":[{"path":"%s","upstreamResourceType":"WEB_SCF","upstreamResourceName":"%s","enablePathTransmission":true}]}' \
+    "$ROUTE" "$FN" > "$data"
+  {
+    echo '#!/usr/bin/expect -f'
+    echo 'set timeout 120'
+    echo "set data [exec cat \"$data\"]"
+    echo "spawn tcb routes $1 -e $NS --data \$data"
+    echo 'expect {'
+    echo '  -re {\(y/N\)|\(Y/n\)|onfirm|\? } { send "y\r"; exp_continue }'
+    echo '  eof {}'
+    echo '  timeout { exit 2 }'
+    echo '}'
+    echo 'catch wait result'
+    echo 'exit [lindex $result 3]'
+  } > "$exp"
+  chmod +x "$exp"; "$exp" >/tmp/ks_route.log 2>&1 || true
+  rm -f "$exp" "$data"
+}
+current="$(tcb routes list -e "$NS" 2>/dev/null | grep -- " $ROUTE " | head -1 || true)"
+if [ -z "$current" ]; then route_cmd add; elif ! echo "$current" | grep -q WEB_SCF; then route_cmd edit; fi
+if tcb routes list -e "$NS" 2>/dev/null | grep -- " $ROUTE " | grep -q WEB_SCF; then
+  echo "route: $ROUTE -> $FN (WEB_SCF)"
+else
+  echo "route not set; see /tmp/ks_route.log"; exit 1
+fi
 
 # ---- 3. restore env + VpcConfig (copied from llm_proxy, verified) ----------------------
 FN="$FN" NS="$NS" SRC="$SRC_FN" SCHEMA="$SCHEMA" ROUTE="$ROUTE" BUILD_VERSION="$BUILD_VERSION" python3 - <<'PY'

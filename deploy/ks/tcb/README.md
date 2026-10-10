@@ -1,3 +1,7 @@
+> **Superseded (2026-10-10):** 云托管 containers cannot reach the CloudBase PostgreSQL. The Knowledge Service
+> runs as an HTTP cloud function instead; see `deploy/ks/scf/README.md`. This folder still provides
+> `make_context.py`, which builds `dist/`, and the 云托管 package if that network path is ever fixed.
+
 # Knowledge Service on Tencent CloudBase (public plane, CN)
 
 Target: CloudBase environment `sccb0-d0gc5398xf028be6a` (ap-shanghai), 云托管 service `ecan-knowledge`. The
