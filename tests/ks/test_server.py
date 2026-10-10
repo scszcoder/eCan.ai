@@ -160,3 +160,43 @@ def test_catalog_import_accepts_the_file_again(env):
     assert job["status"] == "succeeded", job
     r = client.post(f"/v1/tenants/{tid}/search", headers=h, json={"query": "什么材质", "platform_item_id": "770001"})
     assert r.json()["product"]["code"] == "P9"
+
+
+def test_forged_store_header_and_audit_are_tenant_bound(env):
+    client, svc, local = env
+    h = _login(client)
+    tid = client.get("/v1/me", headers=h).json()["tenants"][0]["id"]
+    store = client.post(f"/v1/tenants/{tid}/stores", headers=h, json={"name": "受害店"}).json()
+    kb = svc.catalog_kb(tid)
+    svc.update_kb(kb["id"], sensitivity="confidential")
+    svc.set_grant(kb["id"], "store", store["id"], "read")
+
+    # Another signed-in user, with their own tenant, names the victim's store.
+    eve = {"Authorization": f"Bearer {local.issue('eve-sub', 'eve@evil.cn')}"}
+    own = client.post("/v1/tenants", headers=eve, json={"name": "Eve Co"}).json()
+    forged = dict(eve, **{"X-Ecan-Store": store["id"], "X-Ecan-Agent": "qa"})
+    assert client.post(f"/v1/tenants/{tid}/search", headers=forged, json={"query": "材质"}).status_code == 403
+    assert client.get(f"/v1/tenants/{tid}/products", headers=forged).status_code == 403
+    assert client.get(f"/v1/tenants/{tid}/policies", headers=forged).status_code == 403
+
+    # Eve administers her own tenant, and its audit log shows only her tenant.
+    audit = client.get(f"/v1/tenants/{own['id']}/audit", headers=eve)
+    assert audit.status_code == 200
+    rows = audit.json() if isinstance(audit.json(), list) else audit.json().get("entries", audit.json().get("audit", []))
+    assert rows and all("受害店" not in json.dumps(r, ensure_ascii=False) for r in rows)
+    assert client.get(f"/v1/tenants/{tid}/audit", headers=eve).status_code == 403
+
+
+def test_old_database_gets_the_audit_tenant_column(tmp_path):
+    import sqlite3
+    db = tmp_path / "old.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE ks_audit (id INTEGER PRIMARY KEY, ts DATETIME, actor VARCHAR(200), "
+                "action VARCHAR(60) NOT NULL, target VARCHAR(200), detail JSON)")
+    con.execute("INSERT INTO ks_audit (action) VALUES ('old.row')")
+    con.commit()
+    con.close()
+    svc = KnowledgeService(f"sqlite:///{db.as_posix()}", embedder=HashingEmbedder())
+    svc.store.audit("a", "new.row", tenant_id="t1")
+    assert [r["action"] for r in svc.store.list_audit("t1")] == ["new.row"]
+    assert svc.store.list_audit("") and svc.store.list_audit("")[0]["action"] == "old.row"

@@ -152,7 +152,8 @@ class ProductRetriever:
         self.embedder = embedder
 
     def retrieve(self, tenant_id: str, query: str, store_ref: str = "", platform_item_id: str = "",
-                 product_id: str = "", k: int = 5, allowed_kbs: Optional[set] = None) -> Retrieval:
+                 product_id: str = "", k: int = 5, allowed_kbs: Optional[set] = None,
+                 policy_kb: Optional[str] = None) -> Retrieval:
         t0 = time.perf_counter()
         r = Retrieval(query=query, tenant_id=tenant_id)
         fam = _family(getattr(self.embedder, "id", ""))
@@ -176,6 +177,12 @@ class ProductRetriever:
         product = self.store.get_product(product_id) if product_id else None
         if product and product["tenant_id"] != tenant_id:
             product = None  # never cross tenants, even with a guessed id
+        # Records (facts, rules, candidate titles) obey the same KB permissions as
+        # the index: nothing comes from a KB this caller may not read.
+        def readable(kb_id) -> bool:
+            return allowed_kbs is None or kb_id in allowed_kbs
+        if product and not readable(product.get("kb_id")):
+            product = None
         r.product = product
         r.scope = {"tenant_id": tenant_id, "store_id": store_id, "product_id": product["id"] if product else None,
                    "platform_item_id": platform_item_id or None, "sensitivity": "internal"}
@@ -183,7 +190,7 @@ class ProductRetriever:
 
         # ---- tier 0: facts + policies ---------------------------------------
         topics = detect_topics(query)
-        policies = self.store.effective_policies(tenant_id, store_id)
+        policies = self.store.effective_policies(tenant_id, store_id)             if allowed_kbs is None or (policy_kb and readable(policy_kb)) else {}
         r.policies = [policies[tp] for tp in topics if tp in policies]
         if product:
             r.facts = product_facts(product, query)
@@ -259,7 +266,7 @@ class ProductRetriever:
                     best[h.chunk.product_id] = max(best.get(h.chunk.product_id, 0.0), h.relevance)
             for p_id in sorted(best, key=lambda x: -best[x])[:5]:
                 p = self.store.get_product(p_id)
-                if p:
+                if p and p["tenant_id"] == tenant_id and readable(p.get("kb_id")):
                     r.candidates.append({"id": p["id"], "title": p["title"], "code": p["code"],
                                          "score": round(best[p_id], 3)})
         mark("candidates", t)

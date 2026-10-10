@@ -175,7 +175,7 @@ def create_app(service: KnowledgeService, registry: IdentityRegistry, config: Se
     boot_email, _, boot_password = config.bootstrap_admin.partition(":")
     boot_email = boot_email.strip().lower()
     if boot_email and boot_password:
-        tenants = service.authz.tenants_for(Principal(user_id=boot_email, email=boot_email))
+        tenants = service.authz.tenants_for(Principal(user_id=boot_email, email=boot_email, email_verified=True))
         if not tenants:
             t = service.store.ensure_tenant(config.bootstrap_tenant, "enterprise", tenant_id=new_id("tn"))
             service.catalog_kb(t["id"])
@@ -245,7 +245,7 @@ def create_app(service: KnowledgeService, registry: IdentityRegistry, config: Se
         kb = service.catalog_kb(t["id"])
         service.store.update_kb(kb["id"], plane=config.plane)
         service.members.ensure_owner(t["id"], p.user_id, p.email_lc, p.name)
-        service.store.audit(p.user_id, "tenant.create", t["id"], {"name": t["name"]})
+        service.store.audit(p.user_id, "tenant.create", t["id"], {"name": t["name"]}, tenant_id=t["id"])
         return t
 
     T = API + "/tenants/{tid}"

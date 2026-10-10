@@ -453,9 +453,20 @@ similarities are thin (around 0.6–0.7), so a reranker is the next accuracy ste
 
 **Open items:**
 - **LAN commander/platoon test on two machines.** Deferred by the owner, since the second machine is busy.
-- **TCB deployment.** The test twin `ecan-knowledge-test` is live as an HTTP cloud function and passes the
-  end-to-end check (see `deploy/ks/scf/README.md`). The production schema `knowledge` exists. Deploying the
-  production function `ecan-knowledge` needs the owner's go-ahead. AWS comes after the CN cut-over (§10).
+- **TCB deployment.** The Knowledge Service runs as a CloudBase HTTP cloud function, as a test twin and in
+  production. Its deploy scripts and runbook are in the private backend repo, not here. AWS comes after the CN
+  cut-over (§10).
+- **Security review (2026-10-10).** The server-side fixes are in, with tests:
+  - store/agent headers count only for members;
+  - the audit log is per tenant;
+  - only verified emails match invites;
+  - user ids are separated by provider;
+  - stores and listings stay within their tenant;
+  - product records obey knowledge-base permissions;
+  - JWKS refetches are rate-limited.
+
+  Still open: a database role for the service alone, and session-token checking that doesn't need the signing
+  secret.
 - **Reranker** (Qwen3-Reranker) in path A.
 - **A held-out set from real merchant chats.**
 - **Validate `deploy/ks` on the 2 × RTX PRO 5500 box.**

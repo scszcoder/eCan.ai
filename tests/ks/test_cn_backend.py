@@ -19,14 +19,19 @@ def _session(sub="wx_openid_AbC", **extra):
 def test_session_token_identity_is_case_sensitive_sub():
     reg = IdentityRegistry([EcanSessionVerifier(SECRET)])
     p = reg.verify(_session())
-    assert p.user_id == "wx_openid_AbC" and p.source == "ecan-session"
-    assert reg.verify(_session("Shop@Example.com")).email_lc == "shop@example.com"
+    assert p.user_id == "ecan:wx_openid_AbC" and p.source == "ecan-session"
+    # sub is an account key, never read as an email (userIdentifier is client-supplied).
+    assert reg.verify(_session("Shop@Example.com")).verified_email == ""
+    assert reg.verify(_session("Shop@Example.com")).user_id == "ecan:Shop@Example.com"
+    p = reg.verify(_session("u1", email="Shop@Example.com", email_verified=True))
+    assert p.verified_email == "shop@example.com"
+    assert reg.verify(_session("u1", email="Shop@Example.com")).verified_email == ""
 
 
 def test_session_token_prefixes_are_stripped():
     tok = _session()
     assert strip_bearer(f"Bearer tenant1/@@/{tok}") == tok
-    assert IdentityRegistry([EcanSessionVerifier(SECRET)]).verify(f"Bearer t/@@/{tok}").user_id == "wx_openid_AbC"
+    assert IdentityRegistry([EcanSessionVerifier(SECRET)]).verify(f"Bearer t/@@/{tok}").user_id == "ecan:wx_openid_AbC"
 
 
 @pytest.mark.parametrize("token,msg", [
@@ -61,17 +66,17 @@ def test_cloudbase_identity_field_order(monkeypatch):
             return {"sub": "cb-sub", "customUserId": "custom-1", "uid": "u"}
 
     monkeypatch.setattr(httpx, "get", lambda *a, **k: R())
-    assert CloudBaseVerifier("sccb0-test").verify("opaque").user_id == "custom-1"
+    assert CloudBaseVerifier("sccb0-test").verify("opaque").user_id == "tcb:custom-1"
 
 
 def test_database_url_conventions(monkeypatch):
     from knowledge.ks.server import db_from_env
     monkeypatch.delenv("KS_DB_URL", raising=False)
-    monkeypatch.setenv("DATABASE_URL", "postgres://ecanai:pw@172.17.0.16:5432/appdb")
+    monkeypatch.setenv("DATABASE_URL", "postgres://appuser:pw@db.internal:5432/appdb")
     monkeypatch.setenv("KS_DB_SCHEMA", "knowledge")
     monkeypatch.setenv("PGSSL", "false")
     url, schema, args = db_from_env("sqlite:///x.db")
-    assert url == "postgresql+psycopg://ecanai:pw@172.17.0.16:5432/appdb"
+    assert url == "postgresql+psycopg://appuser:pw@db.internal:5432/appdb"
     assert schema == "knowledge" and args == {"sslmode": "disable", "connect_timeout": 10}
     monkeypatch.delenv("PGSSL")
     assert db_from_env("sqlite:///x.db")[2]["sslmode"] == "require"

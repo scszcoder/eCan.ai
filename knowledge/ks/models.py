@@ -190,6 +190,7 @@ class Job(Base):
 class AuditLog(Base):
     __tablename__ = "ks_audit"
     id = Column(Integer, primary_key=True, autoincrement=True)
+    tenant_id = Column(String(40), default="", index=True)
     ts = Column(DateTime(timezone=True), default=utcnow, index=True)
     actor = Column(String(200), default="")
     action = Column(String(60), nullable=False)
