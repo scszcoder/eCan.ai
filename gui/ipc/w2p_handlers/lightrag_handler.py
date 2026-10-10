@@ -1690,6 +1690,18 @@ def handle_delete_workspace(request: IPCRequest, params: Optional[Dict[str, Any]
 
 
 @IPCHandlerRegistry.handler('lightrag.getSettings')
+def _configured_ssl_verify() -> str:
+    """SSL_VERIFY as the LightRAG runtime will see it: lightrag.env, else 'true'."""
+    try:
+        from dotenv import dotenv_values
+        from knowledge.lightrag_config_utils import get_user_env_path
+        path = get_user_env_path()
+        value = str((dotenv_values(path) if path and path.exists() else {}).get('SSL_VERIFY') or '').strip()
+        return value or 'true'
+    except Exception:
+        return 'true'
+
+
 def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Get LightRAG settings from .env file."""
     try:
@@ -1960,7 +1972,9 @@ def handle_test_model_service_config(request: IPCRequest, params: Optional[Dict[
                 if api_key:
                     break
             resolved_settings[f'{prefix}_BINDING_API_KEY'] = api_key
-        resolved_settings.setdefault('SSL_VERIFY', False)
+        # Probe with the TLS setting the runtime will use (default on): a
+        # probe that skipped verification passed, then ingest/query failed.
+        resolved_settings.setdefault('SSL_VERIFY', _configured_ssl_verify())
         from knowledge.lightrag_service_probe import probe_model_service
         return create_success_response(request, probe_model_service(kind, resolved_settings))
     except Exception as e:
@@ -2019,9 +2033,9 @@ def handle_test_system_provider(request: IPCRequest, params: Optional[Dict[str, 
             f'{prefix}_BINDING_HOST': host,
             f'{prefix}_MODEL': model,
             f'{prefix}_BINDING_API_KEY': api_key,
-            # System provider custom endpoints commonly use private/self-
-            # signed certificates. Match the LightRAG runtime default.
-            'SSL_VERIFY': False,
+            # Match the LightRAG runtime: verify unless the user turned
+            # SSL_VERIFY off (Settings > SSL) for a self-signed service.
+            'SSL_VERIFY': _configured_ssl_verify(),
         })
         return create_success_response(request, result)
     except Exception as e:

@@ -79,3 +79,15 @@ def test_probe_requires_selected_model():
             "EMBEDDING_BINDING_HOST": "https://example.test/v1",
         })
     assert exc.value.category == "missing_config"
+
+
+def test_certificate_failure_says_how_to_fix(monkeypatch):
+    import pytest
+    import requests
+    from knowledge import lightrag_service_probe as sp
+    def boom(*a, **k):
+        raise requests.exceptions.SSLError("CERTIFICATE_VERIFY_FAILED")
+    monkeypatch.setattr(sp.requests, "post", boom)
+    with pytest.raises(sp.ServiceProbeError) as exc:
+        sp._post("https://10.0.0.5:8000/v1/chat/completions", {}, verify_ssl=True)
+    assert exc.value.category == "tls" and "SSL_VERIFY" in str(exc.value)

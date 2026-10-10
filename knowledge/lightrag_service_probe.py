@@ -35,6 +35,11 @@ def _post(url: str, payload: Dict[str, Any], api_key: str = "", verify_ssl: bool
         )
     except requests.Timeout as exc:
         raise ServiceProbeError("timeout", f"连接服务超时：{url}") from exc
+    except requests.exceptions.SSLError as exc:
+        # Before ConnectionError (its parent): say what to change, not just "unreachable".
+        raise ServiceProbeError(
+            "tls", f"证书校验失败：{url}。如果这是使用自签名证书的私有服务，请在设置 > SSL 中把 "
+                   f"SSL_VERIFY 设为 false（{exc}）") from exc
     except requests.ConnectionError as exc:
         raise ServiceProbeError("connection", f"无法连接到服务：{url}（{exc}）") from exc
     except requests.RequestException as exc:
