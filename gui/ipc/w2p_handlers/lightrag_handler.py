@@ -61,7 +61,7 @@ def handle_ingest_files(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             )
         
         # Get LightRAG client
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call ingest_files method
         result = client.ingest_files(paths, options, workspace=workspace)
@@ -99,7 +99,7 @@ def handle_scan_directory(request: IPCRequest, params: Optional[Dict[str, Any]])
             return create_error_response(request, 'INVALID_PARAMS', 'dirPath must be a non-empty string')
         
         # Get LightRAG client
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call scan_directory method
         result = client.scan_directory(dir_path)
@@ -141,7 +141,7 @@ def handle_ingest_directory(request: IPCRequest, params: Optional[Dict[str, Any]
             return create_error_response(request, 'INVALID_PARAMS', 'dirPath must be a non-empty string')
         
         # Get LightRAG client
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call ingest_directory method. ingest_directory internally calls
         # ingest_files, which now accepts `workspace`; stash it into options so
@@ -200,7 +200,7 @@ def handle_query(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         if not isinstance(text, str) or not text.strip():
             return create_error_response(request, 'INVALID_PARAMS', 'text must be a non-empty string')
         
-        client = get_client()
+        client = get_client(local_only=True)
         result = client.query(text, options, workspace=workspace)
         
         if result.get('status') == 'error':
@@ -239,7 +239,7 @@ def handle_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCR
             return create_error_response(request, 'INVALID_PARAMS', 'jobId must be a non-empty string')
         
         # Get LightRAG client
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call status method (uses track_status internally)
         result = client.track_status(job_id, workspace=workspace)
@@ -271,7 +271,7 @@ def handle_scan(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRes
         # Optional LightRAG workspace (tenant).
         workspace = ((params or {}).get('workspace') or '').strip() or None
         # Get LightRAG client
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call scan method
         result = client.scan(workspace=workspace)
@@ -304,7 +304,7 @@ def handle_list_documents(request: IPCRequest, params: Optional[Dict[str, Any]])
         # Optional LightRAG workspace (tenant).
         workspace = ((params or {}).get('workspace') or '').strip() or None
         # Get LightRAG client
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call list_documents method
         result = client.list_documents(workspace=workspace)
@@ -344,7 +344,7 @@ def handle_delete_document(request: IPCRequest, params: Optional[Dict[str, Any]]
             return create_error_response(request, 'INVALID_PARAMS', 'id must be a non-empty string')
         
         # Get LightRAG client
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call delete_document method
         result = client.delete_document(doc_id, workspace=workspace)
@@ -389,7 +389,7 @@ def handle_replace_document(request: IPCRequest, params: Optional[Dict[str, Any]
         if not isinstance(path, str) or not path.strip():
             return create_error_response(request, 'INVALID_PARAMS', 'path must be a non-empty string')
 
-        client = get_client()
+        client = get_client(local_only=True)
         result = client.replace_document(path, workspace=workspace, match_basename=match_basename)
 
         if result.get('status') == 'error':
@@ -434,7 +434,7 @@ def handle_abort_document(request: IPCRequest, params: Optional[Dict[str, Any]])
         logger.info(f"[lightrag_handler] Aborting document immediately: {doc_id} (workspace={workspace!r})")
         
         # Get LightRAG client
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call abort_document method (which calls cancel_pipeline - now with immediate task cancellation)
         result = client.abort_document(doc_id, workspace=workspace)
@@ -476,7 +476,7 @@ def handle_insert_text(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
             return create_error_response(request, 'INVALID_PARAMS', 'text must be a non-empty string')
         
         # Get LightRAG client
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call insert_text method
         result = client.insert_text(text, metadata, workspace=workspace)
@@ -533,7 +533,7 @@ def handle_query_stream(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         
         def stream_worker():
             try:
-                client = get_client()
+                client = get_client(local_only=True)
                 # Use captured request_id
                 stream_id = request_id
                 
@@ -596,7 +596,7 @@ def handle_clear_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         default_ws = (config_manager.get_value('WORKSPACE', 'default') or 'default').strip()
         workspace = _workspace_param(params)
         target = workspace or default_ws
-        client = get_client()
+        client = get_client(local_only=True)
 
         errors = []
         docs_result = client.clear_documents(workspace=workspace)
@@ -636,7 +636,7 @@ def handle_get_status_counts(request: IPCRequest, params: Optional[Dict[str, Any
         # Optional LightRAG workspace (tenant).
         workspace = ((params or {}).get('workspace') or '').strip() or None
         # Get LightRAG client
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call get_status_counts method
         result = client.get_status_counts(workspace=workspace)
@@ -666,7 +666,7 @@ def handle_health(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCR
     """
     try:
         # Get LightRAG client
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call health method
         result = client.health()
@@ -919,7 +919,7 @@ def handle_update_entity(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
         
-        client = get_client()
+        client = get_client(local_only=True)
         result = client.update_entity(
             data['entity_name'],
             data['updated_data'],
@@ -946,7 +946,7 @@ def handle_check_entity_name_exists(request: IPCRequest, params: Optional[Dict[s
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
         
-        client = get_client()
+        client = get_client(local_only=True)
         result = client.check_entity_name_exists(data['name'], workspace=_workspace_param(params))
         
         if result.get('status') == 'error':
@@ -966,7 +966,7 @@ def handle_update_relation(request: IPCRequest, params: Optional[Dict[str, Any]]
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
         
-        client = get_client()
+        client = get_client(local_only=True)
         result = client.update_relation(data['source_id'], data['target_id'], data['updated_data'], workspace=_workspace_param(params))
         
         if result.get('status') == 'error':
@@ -983,7 +983,7 @@ def handle_update_relation(request: IPCRequest, params: Optional[Dict[str, Any]]
 def handle_get_graph_label_list(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handle get graph label list request (runs in background thread to avoid blocking UI)."""
     try:
-        client = get_client()
+        client = get_client(local_only=True)
         result = client.get_graph_label_list(workspace=_workspace_param(params))
         
         if result.get('status') == 'error':
@@ -1003,7 +1003,7 @@ def handle_get_popular_labels(request: IPCRequest, params: Optional[Dict[str, An
         params = params or {}
         limit = params.get('limit', 300)
         
-        client = get_client()
+        client = get_client(local_only=True)
         # Check if client has the method (for backward compatibility)
         if not hasattr(client, 'get_popular_labels'):
              return create_error_response(request, 'NOT_IMPLEMENTED', 'get_popular_labels not implemented in client')
@@ -1031,7 +1031,7 @@ def handle_search_labels(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         if not query:
              return create_error_response(request, 'INVALID_PARAMS', 'query must be provided')
 
-        client = get_client()
+        client = get_client(local_only=True)
         # Check if client has the method (for backward compatibility)
         if not hasattr(client, 'search_labels'):
              return create_error_response(request, 'NOT_IMPLEMENTED', 'search_labels not implemented in client')
@@ -1067,7 +1067,7 @@ def handle_get_documents_paginated(request: IPCRequest, params: Optional[Dict[st
         
         logger.info(f"[lightrag_handler] get_documents_paginated called with params: {request_params} (workspace={workspace!r})")
         
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call synchronously (this runs in a background thread via registry)
         result = client.get_documents_paginated(request_params, workspace=workspace)
@@ -1137,7 +1137,7 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
         workspace = ((params or {}).get('workspace') or '').strip() or None
         
         # Get LightRAG client
-        client = get_client()
+        client = get_client(local_only=True)
         
         if track_id:
             # Get detailed progress for specific track_id
@@ -1667,7 +1667,7 @@ def handle_delete_workspace(request: IPCRequest, params: Optional[Dict[str, Any]
 
         # Release the server's in-memory copy first so it doesn't rewrite the
         # files after they are removed.
-        client = get_client()
+        client = get_client(local_only=True)
         cleared = client.clear_documents(workspace=workspace_name)
         if cleared.get('status') == 'error':
             logger.warning(f"[LightRAG] clear_documents before delete failed: {cleared.get('message')}")
@@ -2064,7 +2064,7 @@ def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         max_depth = params.get('maxDepth', 1)
         max_nodes = params.get('maxNodes', 400)
         
-        client = get_client()
+        client = get_client(local_only=True)
         # Call query_graphs method (assumed to be added to client)
         if hasattr(client, 'query_graphs'):
             result = client.query_graphs(label, max_depth, max_nodes, workspace=_workspace_param(params))
@@ -2231,7 +2231,7 @@ def handle_expand_node(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         max_depth = data.get('maxDepth', 1)
         max_nodes = data.get('maxNodes', 50)
         
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call expand_node method
         if hasattr(client, 'expand_node'):
@@ -2271,7 +2271,7 @@ def handle_prune_node(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
         
         node_id = data['nodeId']
         
-        client = get_client()
+        client = get_client(local_only=True)
         
         # Call prune_node method
         if hasattr(client, 'prune_node'):

@@ -23,6 +23,11 @@ def _commander_source():
         return None
 
 
+def _is_loopback_base(url: str) -> bool:
+    from urllib.parse import urlparse
+    return (urlparse(url or "").hostname or "") in ("127.0.0.1", "localhost", "::1")
+
+
 def _resolve_base_url(local_only: bool = False) -> str:
     """Resolve LightRAG server base URL from the running server, env, or defaults.
 
@@ -99,8 +104,12 @@ def _shutdown_abort_result(text: str, workspace: Optional[str] = None) -> Dict[s
 class LightragClient:
     """Backend adapter to proxy LightRAG WebGUI API calls from frontend IPC."""
 
-    def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None, token: Optional[str] = None):
-        self.base_url = base_url or _resolve_base_url()
+    def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None, token: Optional[str] = None,
+                 local_only: bool = False):
+        # local_only: this machine's own LightRAG even when paired with a
+        # commander -- the Knowledge page manages the local knowledge base; the
+        # commander's LAN gateway only serves reads (uploads/deletes got 403).
+        self.base_url = base_url or _resolve_base_url(local_only)
         self.session = requests.Session()
         self.session.headers.update({"Content-Type": "application/json"})
         
@@ -112,11 +121,14 @@ class LightragClient:
         # LightragServer (knowledge/lightrag_config_utils.ensure_local_api_key).
         # A paired platoon talks to the commander's LAN gateway instead, with
         # its device token.
-        src = _commander_source() if base_url is None else None
+        src = _commander_source() if (base_url is None and not local_only) else None
         if src is not None:
             self.session.headers["Authorization"] = f"Bearer {src.token()}"
         else:
-            api_key = api_key or os.environ.get("LIGHTRAG_API_KEY", "").strip()
+            # The local server's key never goes to another host (a base_url
+            # pointing elsewhere would otherwise receive it).
+            if not api_key and _is_loopback_base(self.base_url):
+                api_key = os.environ.get("LIGHTRAG_API_KEY", "").strip()
             if api_key:
                 self.session.headers["X-API-Key"] = api_key
         if token:
@@ -1614,8 +1626,9 @@ class LightragClient:
 
 
 # Convenience factory
-def get_client(api_key: Optional[str] = None, token: Optional[str] = None) -> LightragClient:
-    return LightragClient(api_key=api_key, token=token)
+def get_client(api_key: Optional[str] = None, token: Optional[str] = None,
+               local_only: bool = False) -> LightragClient:
+    return LightragClient(api_key=api_key, token=token, local_only=local_only)
 
 
 # ============================================================================

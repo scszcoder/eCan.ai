@@ -100,3 +100,18 @@ def test_lightrag_auth_rejects_guest_token_and_accepts_key():
     assert no_auth in ("401", "403")
     assert guest == "401"
     assert key == "200"
+
+
+def test_local_only_client_ignores_commander_and_key_stays_local(monkeypatch):
+    """Review 2026-10-10: a paired platoon routed admin calls (upload/delete)
+    to the commander; and the local key went to any LIGHTRAG_API_URL host."""
+    from types import SimpleNamespace
+    from knowledge import lightrag_client as lc
+    monkeypatch.setenv("LIGHTRAG_API_KEY", "LOCAL-KEY")
+    src = SimpleNamespace(url=lambda: "http://192.168.1.10:9630", token=lambda: "DEV")
+    monkeypatch.setattr(lc, "_commander_source", lambda: src)
+    assert lc.get_client().base_url.startswith("http://192.168.1.10:9630")
+    local = lc.get_client(local_only=True)
+    assert "192.168.1.10" not in local.base_url and local.session.headers.get("X-API-Key") == "LOCAL-KEY"
+    remote = lc.LightragClient(base_url="https://rag.example.com")
+    assert "X-API-Key" not in remote.session.headers
