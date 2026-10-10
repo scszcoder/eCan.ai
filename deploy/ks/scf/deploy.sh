@@ -66,11 +66,11 @@ cd "$HERE"
 #      --path` creates an SCF-type route (answers FUNCTIONS_PARAM_INVALID) and
 #      fails when the route already exists. Create or correct it here; the
 #      CLI asks for confirmation on a TTY, so it runs under expect.
-route_cmd() {  # $1 = add|edit
+route_cmd() {  # $1 = add|edit, $2 = domain (a new route needs a real domain; `*` is rejected)
   local data exp
   data="$(mktemp)"; exp="$(mktemp)"
-  printf '{"domain":"*","routes":[{"path":"%s","upstreamResourceType":"WEB_SCF","upstreamResourceName":"%s","enablePathTransmission":true}]}' \
-    "$ROUTE" "$FN" > "$data"
+  printf '{"domain":"%s","routes":[{"path":"%s","upstreamResourceType":"WEB_SCF","upstreamResourceName":"%s","enablePathTransmission":true}]}' \
+    "$2" "$ROUTE" "$FN" > "$data"
   {
     echo '#!/usr/bin/expect -f'
     echo 'set timeout 120'
@@ -88,7 +88,11 @@ route_cmd() {  # $1 = add|edit
   rm -f "$exp" "$data"
 }
 current="$(tcb routes list -e "$NS" 2>/dev/null | grep -- " $ROUTE " | head -1 || true)"
-if [ -z "$current" ]; then route_cmd add; elif ! echo "$current" | grep -q WEB_SCF; then route_cmd edit; fi
+if [ -z "$current" ]; then
+  route_cmd add "$NS.service.tcloudbase.com"
+elif ! echo "$current" | grep -q WEB_SCF; then
+  route_cmd edit "$(echo "$current" | awk -F'│' '{gsub(/ /,"",$2); print $2}')"
+fi
 if tcb routes list -e "$NS" 2>/dev/null | grep -- " $ROUTE " | grep -q WEB_SCF; then
   echo "route: $ROUTE -> $FN (WEB_SCF)"
 else

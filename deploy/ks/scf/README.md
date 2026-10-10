@@ -48,3 +48,13 @@ owned by `cloudbase_postgres` with USAGE and CREATE for `ecanai`.
 - Embeddings via `llm_proxy`.
 - Product-fact, paraphrased-FAQ and store-rule searches, about 0.5 s each.
 - Cold start about 1.3 s.
+
+## Production (2026-10-10, `ecan-knowledge`)
+
+- **URL:** `https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/knowledge`, schema `knowledge`.
+- **Checks:** health ok in 0.56 s; requests without a token or with a bad token get 401; 15 tables created in
+  `knowledge`; the other routes (graphql, llm-proxy, ws, publish) are unchanged.
+- **Not run on production:** the full `e2e_check.py`, because it writes a synthetic organisation. Run it against
+  the test twin instead.
+- **Routes:** a new route must name a real domain. `tcb routes add` rejects `*`, so the script uses
+  `<env>.service.tcloudbase.com`, and CloudBase mirrors the route to the `app.tcloudbase.com` domain.
