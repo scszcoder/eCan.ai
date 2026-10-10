@@ -138,3 +138,25 @@ def test_guard_extra_hosts_and_disable(monkeypatch):
     taint.check_llm(state, FakeLLM("https://llm.mycompany.com/v1"))
     monkeypatch.setenv("ECAN_KS_TAINT_GUARD", "0")
     taint.check_llm(state, FakeLLM("https://api.openai.com/v1"))
+
+
+def test_app_token_never_goes_to_plain_http(tmp_path, monkeypatch):
+    """rag-enterprise review 2026-10-10: a private http:// connection defaulted
+    to auth='app' and sent the CN 30-day session token in cleartext."""
+    import pytest
+    from knowledge.ks import planes as pl
+    cs = pl.ConnectionStore(str(tmp_path / "conns.json"))
+    with pytest.raises(ValueError):
+        cs.save({"plane": "private", "base_url": "http://192.168.1.50:8790", "auth": "app"})
+    assert cs.save({"plane": "private", "base_url": "http://192.168.1.50:8790"})["auth"] == "local"
+    assert cs.save({"plane": "private", "base_url": "https://ks.corp.cn", "auth": "app"})["auth"] == "app"
+    assert cs.save({"plane": "private", "base_url": "http://127.0.0.1:8790", "auth": "app"})["auth"] == "app"
+    # A connection saved before the rule: the router sends no account token to it.
+    monkeypatch.setattr(pl, "app_token", lambda: "ACCOUNT-TOKEN")
+    router = pl.PlaneRouter.__new__(pl.PlaneRouter)
+    router.connections, router.lan_source = cs, None
+    legacy = {"id": "old", "name": "old", "plane": "private", "base_url": "http://10.0.0.5:8790",
+              "tenant_id": "t", "auth": "app"}
+    https = dict(legacy, id="new", base_url="https://ks.corp.cn")
+    assert router._default_client(legacy).token_provider() == ""
+    assert router._default_client(https).token_provider() == "ACCOUNT-TOKEN"

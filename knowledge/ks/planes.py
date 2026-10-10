@@ -129,9 +129,15 @@ class ConnectionStore:
             raise ValueError("server address must start with http:// or https://")
         if plane == "public" and url.startswith("http://") and not _is_loopback_url(url):
             raise ValueError("cloud connections must use https://")
-        auth = conn.get("auth", "app")
+        # A private server authenticates with its own key by default: the app
+        # sign-in token is the account's key to the eCan cloud (CN: a 30-day
+        # session token) and must not go to arbitrary servers.
+        auth = conn.get("auth") or ("local" if plane == "private" else "app")
         if auth not in ("app", "local"):
             raise ValueError("auth must be app or local")
+        if auth == "app" and not _token_safe_url(url):
+            raise ValueError("signing in with the app account needs an https:// server address "
+                             "(or this machine); use the server's own key for http://")
         with self._lock:
             items = self.list()
             cid = conn.get("id") or f"cn_{uuid.uuid4().hex[:10]}"
@@ -158,6 +164,14 @@ class ConnectionStore:
 def _is_loopback_url(url: str) -> bool:
     from urllib.parse import urlparse
     return (urlparse(url).hostname or "") in ("127.0.0.1", "localhost", "::1")
+
+
+def _token_safe_url(url: str) -> bool:
+    """The app account token may only travel over https, or stay on this machine."""
+    return str(url or "").lower().startswith("https://") or _is_loopback_url(url)
+
+
+_warned_unsafe: set = set()
 
 
 def app_token() -> str:
@@ -210,7 +224,18 @@ class PlaneRouter:
         if conn.get("auth") == "lan":
             src = self.lan_source()
             return RemoteKS(conn["base_url"], src.token, conn["tenant_id"])
-        token_fn = (lambda: self.connections.token(conn["id"])) if conn["auth"] == "local" else app_token
+        if conn["auth"] == "local":
+            token_fn = lambda: self.connections.token(conn["id"])
+        elif _token_safe_url(conn["base_url"]):
+            token_fn = app_token
+        else:
+            # A connection saved before the https rule: never send the account
+            # token in cleartext (anyone on the network could replay it).
+            if conn["id"] not in _warned_unsafe:
+                _warned_unsafe.add(conn["id"])
+                logger.warning(f"[KS] connection {conn.get('name')!r} is plain http; the app sign-in token "
+                               f"is not sent to it -- use the server's own key or https")
+            token_fn = lambda: ""
         return RemoteKS(conn["base_url"], token_fn, conn["tenant_id"], verify_tls=conn.get("verify_tls", True))
 
     def search(self, query: str, store: str = "", platform_item_id: str = "", product_id: str = "",
@@ -225,11 +250,12 @@ class PlaneRouter:
             client = self.client_factory(conn)
             jobs[conn["id"]] = self._pool.submit(client.search, query, store, platform_item_id, product_id)
         results, errors = [], []
+        deadline = time.perf_counter() + timeout_s     # one budget for all planes, not N x timeout_s
         for key, fut in jobs.items():
             conn = next((c for c in conns if c["id"] == key), None)
             plane = conn["plane"] if conn else "local"
             try:
-                r = fut.result(timeout=timeout_s)
+                r = fut.result(timeout=max(0.0, deadline - time.perf_counter()))
             except Exception as e:
                 errors.append({"source": conn["name"] if conn else "local", "plane": plane, "error": str(e)})
                 logger.warning(f"[KS] plane {plane} ({key}) search failed: {e}")

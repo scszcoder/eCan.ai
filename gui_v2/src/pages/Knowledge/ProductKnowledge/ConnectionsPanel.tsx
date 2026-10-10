@@ -90,7 +90,7 @@ const ConnectionsPanel: React.FC<{ onChanged?: () => void }> = ({ onChanged }) =
         <Col xs={24} xl={16}>
           <Card size="small" title={<Space><ApiOutlined />{k('title')}</Space>}
                 extra={<Button size="small" type="primary" icon={<PlusOutlined />}
-                               onClick={() => { form.resetFields(); form.setFieldsValue({ plane: 'private', auth: 'app', verify_tls: true }); setEditing({}); }}>
+                               onClick={() => { form.resetFields(); form.setFieldsValue({ plane: 'private', auth: 'local', verify_tls: true }); setEditing({}); }}>
                   {k('add')}
                 </Button>}>
             <List
