@@ -42,14 +42,22 @@ class Principal:
     agent_id: str = ""             # set when an agent acts for this principal
     store_id: str = ""             # store the agent is serving, when known
     claims: Dict[str, Any] = field(default_factory=dict)
+    # Only an email the sign-in provider vouches for may match an invite,
+    # an email grant or a domain auto-join.
+    email_verified: bool = False
 
     @property
     def email_lc(self) -> str:
         return (self.email or "").strip().lower()
 
     @property
+    def verified_email(self) -> str:
+        return self.email_lc if self.email_verified else ""
+
+    @property
     def domain(self) -> str:
-        return self.email_lc.split("@", 1)[1] if "@" in self.email_lc else ""
+        e = self.verified_email
+        return e.split("@", 1)[1] if "@" in e else ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {"user_id": self.user_id, "email": self.email, "name": self.name, "source": self.source,
@@ -59,13 +67,36 @@ class Principal:
 def local_principal(user: str) -> Principal:
     """The signed-in desktop user (the app already authenticated them)."""
     user = (user or "local-user").strip()
-    return Principal(user_id=user, email=user if "@" in user else "", name=user, source="local")
+    return Principal(user_id=user, email=user if "@" in user else "", name=user, source="local",
+                     email_verified=True)
+
+
+# User ids from different sign-in systems live in one table, so each external
+# provider's subject is prefixed with its namespace ("tcb:<uid>", "ecan:<sub>",
+# "cognito:<sub>"); a subject from one provider can never collide with another's.
+# Server-managed local accounts keep bare ids.
+NAMESPACES = ("cognito", "oidc", "tcb", "ecan")
+
+
+def namespaced(ns: str, subject: str) -> str:
+    return f"{ns}:{subject}"
+
+
+def subject_of(user_id: str) -> str:
+    """The provider's own subject (what billing and the CN backend know)."""
+    ns, sep, rest = (user_id or "").partition(":")
+    return rest if sep and ns in NAMESPACES else (user_id or "")
+
+
+def _truthy(v: Any) -> bool:
+    return v is True or str(v).strip().lower() in ("true", "1", "yes")
 
 
 class JWKSVerifier:
     def __init__(self, name: str, issuer: str, jwks_url: Optional[str] = None, audience: Optional[str] = None,
                  user_claim: str = "sub", email_claim: str = "email", name_claim: str = "name",
                  algorithms: Optional[List[str]] = None, cache_path: Optional[str] = None, leeway: int = 60):
+        self._forced_at = 0.0
         self.name = name
         self.issuer = issuer.rstrip("/")
         self.jwks_url = jwks_url or f"{self.issuer}/.well-known/jwks.json"
@@ -130,7 +161,12 @@ class JWKSVerifier:
             raise AuthError(f"malformed token: {e}")
         kid = header.get("kid")
         if kid not in self._keys:
-            self._load_jwks(force=bool(self._keys))
+            # A new kid means key rotation, but unauthenticated callers can send
+            # any kid: refetch at most once a minute.
+            force = bool(self._keys) and time.time() - self._forced_at >= 60
+            if force:
+                self._forced_at = time.time()
+            self._load_jwks(force=force)
         key = self._keys.get(kid)
         if key is None:
             raise AuthError("token signed with an unknown key")
@@ -150,9 +186,9 @@ class JWKSVerifier:
         user = str(claims.get(self.user_claim) or "")
         if not user:
             raise AuthError(f"token has no {self.user_claim}")
-        return Principal(user_id=user, email=str(claims.get(self.email_claim) or ""),
+        return Principal(user_id=namespaced(self.name, user), email=str(claims.get(self.email_claim) or ""),
                          name=str(claims.get(self.name_claim) or claims.get("username") or ""),
-                         source=self.name, claims=claims)
+                         source=self.name, claims=claims, email_verified=_truthy(claims.get("email_verified")))
 
 
 class LocalVerifier:
@@ -176,8 +212,9 @@ class LocalVerifier:
             raise AuthError("token expired")
         except jwt.PyJWTError as e:
             raise AuthError(f"invalid token: {e}")
+        # Accounts this server manages itself: the admin set the email.
         return Principal(user_id=claims["sub"], email=claims.get("email", ""), name=claims.get("name", ""),
-                         source="local", claims=claims)
+                         source="local", claims=claims, email_verified=True)
 
 
 class CloudBaseVerifier:
@@ -228,9 +265,10 @@ class CloudBaseVerifier:
                   or u.get("uid") or u.get("uuid") or "")
         if not uid:
             raise AuthError("CloudBase did not return a user id")
-        p = Principal(user_id=uid, email=str(u.get("email") or ""),
+        p = Principal(user_id=namespaced("tcb", uid), email=str(u.get("email") or ""),
                       name=str(u.get("name") or u.get("nickname") or u.get("username") or u.get("phone_number") or ""),
-                      source="cloudbase", claims=u)
+                      source="cloudbase", claims=u,
+                      email_verified=_truthy(u.get("email_verified") or u.get("emailVerified")))
         with self._lock:
             if len(self._cache) > 5000:
                 self._cache.clear()
@@ -273,8 +311,11 @@ class EcanSessionVerifier:
         if claims.get("typ") == "end_user":
             raise AuthError("end-user tokens cannot access the knowledge service")
         sub = str(claims["sub"])
-        return Principal(user_id=sub, email=sub if "@" in sub else "", name=sub, source="ecan-session",
-                         claims=claims)
+        # sub is an account key, not a verified email (and userIdentifier comes
+        # from the client), so the token only carries an email if it says so.
+        email = str(claims.get("email") or "") if _truthy(claims.get("email_verified")) else ""
+        return Principal(user_id=namespaced("ecan", sub), email=email, name=sub, source="ecan-session",
+                         claims=claims, email_verified=bool(email))
 
 
 class IdentityRegistry:

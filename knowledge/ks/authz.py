@@ -40,8 +40,9 @@ class Authorizer:
         with self.store.session() as s:
             q = select(Membership).where(Membership.tenant_id == tenant_id)
             rows = s.scalars(q.where(Membership.user_id == principal.user_id)).all()
-            if not rows and principal.email_lc:
-                rows = s.scalars(q.where(Membership.email == principal.email_lc)).all()
+            if not rows and principal.verified_email:
+                rows = s.scalars(q.where(Membership.email == principal.verified_email,
+                                         Membership.user_id.in_(["", principal.user_id]))).all()
             m = rows[0] if rows else None
             if m is not None and m.status == "active":
                 return m
@@ -54,12 +55,16 @@ class Authorizer:
         with self.store.session(write=True) as s:
             q = select(Membership).where(Membership.tenant_id == tenant_id)
             m = s.scalars(q.where(Membership.user_id == principal.user_id)).first()
-            if m is None and principal.email_lc:
-                m = s.scalars(q.where(Membership.email == principal.email_lc)).first()
+            if m is None and principal.verified_email:
+                # An invite binds once: a row already linked to another account stays theirs.
+                m = s.scalars(q.where(Membership.email == principal.verified_email,
+                                      Membership.user_id.in_(["", principal.user_id]))).first()
             if m is None:
                 t = s.get(Tenant, tenant_id)
-                if t and t.email_domain and principal.domain == t.email_domain.lower():
-                    m = Membership(tenant_id=tenant_id, email=principal.email_lc, role="viewer", status="active")
+                exists = principal.verified_email and s.scalars(
+                    q.where(Membership.email == principal.verified_email)).first()
+                if t and t.email_domain and principal.domain == t.email_domain.lower() and not exists:
+                    m = Membership(tenant_id=tenant_id, email=principal.verified_email, role="viewer", status="active")
                     s.add(m)
                 else:
                     return None
@@ -92,22 +97,21 @@ class Authorizer:
                     elif kb.sensitivity != "confidential":
                         lvl = role_level
                 levels[kb.id] = lvl
+            # Every grant needs an active membership in this tenant. The agent and
+            # store a request names come from client headers, so they only add a
+            # member's own store/agent grants; they never let a non-member in.
             principals = []
             if m:
                 principals.append(("user", principal.user_id))
-                if principal.email_lc:
-                    principals.append(("user", principal.email_lc))
+                if principal.verified_email:
+                    principals.append(("user", principal.verified_email))
                 principals += [("group", g) for g in self.group_ids(m.id)]
-            if principal.agent_id:
-                principals.append(("agent", principal.agent_id))
-            if principal.store_id:
-                principals.append(("store", principal.store_id))
-            if principals and (m or principal.agent_id or principal.store_id):
+                if principal.agent_id:
+                    principals.append(("agent", principal.agent_id))
+                if principal.store_id:
+                    principals.append(("store", principal.store_id))
                 for g in s.scalars(select(Grant).where(Grant.kb_id.in_(list(levels)))):
                     if (g.principal_type, g.principal_id) in principals:
-                        # Grants to users/groups need an active membership.
-                        if g.principal_type in ("user", "group") and not m:
-                            continue
                         levels[g.kb_id] = max(levels[g.kb_id], LEVEL.get(g.permission, 0))
         return levels
 
@@ -129,6 +133,7 @@ class Authorizer:
         with self.store.session() as s:
             q = select(Membership.tenant_id).where(Membership.status == "active")
             ids = set(s.scalars(q.where(Membership.user_id == principal.user_id)))
-            if principal.email_lc:
-                ids |= set(s.scalars(q.where(Membership.email == principal.email_lc)))
+            if principal.verified_email:
+                ids |= set(s.scalars(q.where(Membership.email == principal.verified_email,
+                                             Membership.user_id.in_(["", principal.user_id]))))
             return sorted(ids)

@@ -16,7 +16,7 @@ from knowledge.ks import catalog_import, doc_extract
 from knowledge.ks.authz import Authorizer, PermissionDenied
 from knowledge.ks.chunking import document_chunks, embed_text, policy_chunks, product_chunks
 from knowledge.ks.embedding import Embedder, HashingEmbedder
-from knowledge.ks.identity import Principal, local_principal
+from knowledge.ks.identity import Principal, local_principal, subject_of
 from knowledge.ks.index import IndexCache
 from knowledge.ks.jobs import JobContext, JobRunner
 from knowledge.ks.members import MemberAdmin
@@ -72,6 +72,11 @@ class KnowledgeService:
     def _actor(self, principal: Optional[Principal]) -> str:
         return (principal or self.local).user_id
 
+    def _audit(self, principal: Optional[Principal], tenant_id: str, action: str, target: str = "",
+               detail: Optional[dict] = None) -> None:
+        actor = principal.user_id if principal is not None else (self.owner or "local")
+        self.store.audit(actor, action, target, detail, tenant_id=tenant_id)
+
     # ---- tenant / KB --------------------------------------------------------
     def default_tenant(self) -> Dict[str, Any]:
         with self._tenant_lock:
@@ -109,7 +114,8 @@ class KnowledgeService:
     def _tenant_owner(self, tenant_id: str) -> str:
         for m in self.members.list_members(tenant_id):
             if m["role"] == "owner" and m["status"] == "active":
-                return m["user_id"] or m["email"]
+                # Billing knows the provider's own subject, not our namespaced id.
+                return subject_of(m["user_id"]) or m["email"]
         return tenant_id
 
     def _billing(self, tenant_id: str):
@@ -156,7 +162,7 @@ class KnowledgeService:
             raise ValueError("店铺名称不能为空 / store name is required")
         st = self.store.upsert_store(tid, name, data.get("platform", ""), data.get("id"),
                                      data.get("platform_store_id", ""), data.get("ecan_store_id", ""))
-        self.store.audit(self.owner or "local", "store.save", st["id"], {"name": name})
+        self._audit(principal, tid, "store.save", st["id"], {"name": name})
         return st
 
     def delete_store(self, store_id: str, principal: Optional[Principal] = None) -> None:
@@ -166,7 +172,7 @@ class KnowledgeService:
         self.store.delete_store(store_id)
         if st:
             self.indexes.invalidate(st["tenant_id"])
-        self.store.audit(self.owner or "local", "store.delete", store_id)
+        self._audit(principal, st["tenant_id"] if st else "", "store.delete", store_id)
 
     # ---- products -----------------------------------------------------------------
     def save_product(self, data: Dict[str, Any], tenant_id: Optional[str] = None,
@@ -177,6 +183,8 @@ class KnowledgeService:
             existing = self.store.get_product(data["id"])
             if existing and existing["tenant_id"] != tid:
                 raise PermissionDenied("product belongs to another tenant")
+        if "listings" in data:
+            self.store.stores_belong(tid, [l.get("store_id") for l in data.get("listings") or []])
         kb = self.catalog_kb(tid)
         rec = dict(data)
         rec["title"] = clean_text(rec.get("title"))
@@ -190,7 +198,7 @@ class KnowledgeService:
         product = self.store.get_product(product["id"])
         if changed:
             self._index_product(product)
-        self.store.audit(self.owner or "local", "product.save", product["id"], {"code": product["code"], "changed": changed})
+        self._audit(principal, tid, "product.save", product["id"], {"code": product["code"], "changed": changed})
         return product
 
     def get_product(self, product_id: str, principal: Optional[Principal] = None) -> Optional[Dict[str, Any]]:
@@ -207,7 +215,7 @@ class KnowledgeService:
         tid = self.store.delete_product(product_id)
         if tid:
             self.indexes.invalidate(tid)
-        self.store.audit(self.owner or "local", "product.delete", product_id)
+        self._audit(principal, p["tenant_id"] if p else "", "product.delete", product_id)
 
     def list_products(self, tenant_id: Optional[str] = None, principal: Optional[Principal] = None,
                       **filters) -> Dict[str, Any]:
@@ -238,6 +246,7 @@ class KnowledgeService:
                        principal: Optional[Principal] = None) -> Dict[str, Any]:
         tid = self.tenant_id(tenant_id)
         self._check(principal, tid, "write")
+        self.store.stores_belong(tid, [default_store_id])
 
         def work(ctx: JobContext) -> Dict[str, Any]:
             ctx.progress("parse", 0, 1, "读取文件 / reading file", force=True)
@@ -276,8 +285,8 @@ class KnowledgeService:
                 except Exception as e:
                     ctx.error(f"{rec.get('code')}: {e}")
                 ctx.progress("index", i, total, f"{i}/{total} {rec.get('title', '')[:30]}")
-            self.store.audit(self.owner or "local", "catalog.import", os.path.basename(path),
-                             {"products": total, "warnings": len(report.warnings)})
+            self._audit(principal, tid, "catalog.import", os.path.basename(path),
+                        {"products": total, "warnings": len(report.warnings)})
             return {"report": report.to_dict(), "products": total, "changed": created + updated,
                     "unchanged": unchanged, "chunks": chunks, "stores_created": list(store_ids),
                     "_message": f"导入完成：{total} 个商品，{created + updated} 个已更新，{unchanged} 个无变化"}
@@ -308,7 +317,7 @@ class KnowledgeService:
              "document_id": doc["id"], "category": product.get("category", "")},
             chunks, self._embed_chunks(chunks, product["tenant_id"]), self.embedder.id)
         self.indexes.invalidate(product["tenant_id"])
-        self.store.audit(self.owner or "local", "document.attach", doc["id"], {"product_id": product_id, "chunks": n})
+        self._audit(principal, product["tenant_id"], "document.attach", doc["id"], {"product_id": product_id, "chunks": n})
         return {**doc, "chunk_count": n}
 
     def ingest_product_files(self, paths: List[str], store_id: str = "", tenant_id: Optional[str] = None,
@@ -364,7 +373,7 @@ class KnowledgeService:
             raise ValueError("规则内容不能为空 / policy text is required")
         pol = self.store.upsert_policy(tid, topic, text, store_id or None, title)
         self._index_policy(pol)
-        self.store.audit(self.owner or "local", "policy.save", pol["id"], {"topic": topic, "store_id": store_id})
+        self._audit(principal, tid, "policy.save", pol["id"], {"topic": topic, "store_id": store_id})
         return pol
 
     def delete_policy(self, policy_id: str, tenant_id: Optional[str] = None,
@@ -433,7 +442,8 @@ class KnowledgeService:
         tok = self._billing(tid)
         try:
             r = self.retriever.retrieve(tid, query, store_ref=store_ref, platform_item_id=str(platform_item_id or ""),
-                                        product_id=product_id, k=k, allowed_kbs=allowed)
+                                        product_id=product_id, k=k, allowed_kbs=allowed,
+                                        policy_kb=self.catalog_kb(tid)["id"])
         finally:
             billing_owner.reset(tok)
         out = r.to_dict()
@@ -477,7 +487,7 @@ class KnowledgeService:
         tid = self.tenant_id(tenant_id)
         actor_role = self._admin(principal, tid)
         m = self.members.save_member(tid, email, role, status, display_name, member_id, actor_role)
-        self.store.audit(self._actor(principal), "member.save", m["id"], {"email": m["email"], "role": role, "status": m["status"]})
+        self._audit(principal, tid, "member.save", m["id"], {"email": m["email"], "role": role, "status": m["status"]})
         return m
 
     def remove_member(self, member_id: str, tenant_id: Optional[str] = None,
@@ -485,35 +495,35 @@ class KnowledgeService:
         tid = self.tenant_id(tenant_id)
         actor_role = self._admin(principal, tid)
         self.members.remove_member(tid, member_id, actor_role)
-        self.store.audit(self._actor(principal), "member.remove", member_id)
+        self._audit(principal, tid, "member.remove", member_id)
 
     def save_group(self, name: str, member_ids: List[str], description: str = "", group_id: Optional[str] = None,
                    tenant_id: Optional[str] = None, principal: Optional[Principal] = None) -> Dict[str, Any]:
         tid = self.tenant_id(tenant_id)
         self._admin(principal, tid)
         g = self.members.save_group(tid, name, member_ids, description, group_id)
-        self.store.audit(self._actor(principal), "group.save", g["id"], {"name": name, "members": len(g["member_ids"])})
+        self._audit(principal, tid, "group.save", g["id"], {"name": name, "members": len(g["member_ids"])})
         return g
 
     def delete_group(self, group_id: str, tenant_id: Optional[str] = None, principal: Optional[Principal] = None) -> None:
         tid = self.tenant_id(tenant_id)
         self._admin(principal, tid)
         self.members.delete_group(tid, group_id)
-        self.store.audit(self._actor(principal), "group.delete", group_id)
+        self._audit(principal, tid, "group.delete", group_id)
 
     def set_grant(self, kb_id: str, principal_type: str, principal_id: str, permission: str,
                   tenant_id: Optional[str] = None, principal: Optional[Principal] = None) -> Dict[str, Any]:
         tid = self.tenant_id(tenant_id)
         self._admin(principal, tid)
         g = self.members.set_grant(tid, kb_id, principal_type, principal_id, permission)
-        self.store.audit(self._actor(principal), "grant.set", kb_id, g)
+        self._audit(principal, tid, "grant.set", kb_id, g)
         return g
 
     def remove_grant(self, grant_id: str, tenant_id: Optional[str] = None, principal: Optional[Principal] = None) -> None:
         tid = self.tenant_id(tenant_id)
         self._admin(principal, tid)
         self.members.remove_grant(tid, grant_id)
-        self.store.audit(self._actor(principal), "grant.remove", grant_id)
+        self._audit(principal, tid, "grant.remove", grant_id)
 
     def update_kb(self, kb_id: str, tenant_id: Optional[str] = None, principal: Optional[Principal] = None,
                   **fields) -> Dict[str, Any]:
@@ -528,7 +538,7 @@ class KnowledgeService:
         if allowed.get("sensitivity") and allowed["sensitivity"] not in ("public", "internal", "confidential"):
             raise ValueError("unknown sensitivity")
         kb = self.store.update_kb(kb_id, **allowed)
-        self.store.audit(self._actor(principal), "kb.update", kb_id, allowed)
+        self._audit(principal, tid, "kb.update", kb_id, allowed)
         return kb
 
     def set_email_domain(self, domain: str, tenant_id: Optional[str] = None,
@@ -538,12 +548,13 @@ class KnowledgeService:
         if actor_role != "owner":
             raise PermissionDenied("only an owner can set the auto-join email domain")
         self.members.set_email_domain(tid, domain)
-        self.store.audit(self._actor(principal), "tenant.email_domain", tid, {"domain": domain})
+        self._audit(principal, tid, "tenant.email_domain", tid, {"domain": domain})
 
     def list_audit(self, tenant_id: Optional[str] = None, limit: int = 100,
                    principal: Optional[Principal] = None) -> List[Dict[str, Any]]:
-        self._admin(principal, self.tenant_id(tenant_id))
-        return self.store.list_audit(limit)
+        tid = self.tenant_id(tenant_id)
+        self._admin(principal, tid)
+        return self.store.list_audit(tid, limit)
 
 
 # ---- per-user singleton for the desktop app ---------------------------------------------------

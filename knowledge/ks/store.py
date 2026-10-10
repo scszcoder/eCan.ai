@@ -54,8 +54,23 @@ class KSStore:
                 cur.execute("PRAGMA synchronous=NORMAL")
                 cur.close()
         Base.metadata.create_all(self.engine)
+        self._migrate()
         self._Session = sessionmaker(self.engine, expire_on_commit=False, future=True)
         self._write_lock = threading.RLock()  # SQLite: one writer at a time
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a table was first created (create_all
+        never alters existing tables)."""
+        from sqlalchemy import inspect, text
+        added = {"ks_audit": [("tenant_id", "VARCHAR(40) DEFAULT ''")]}
+        insp = inspect(self.engine)
+        with self.engine.begin() as conn:
+            for table, cols in added.items():
+                have = {c["name"] for c in insp.get_columns(table)}
+                for name, ddl in cols:
+                    if name not in have:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                        conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_{name} ON {table} ({name})"))
 
     @contextmanager
     def session(self, write: bool = False):
@@ -185,6 +200,8 @@ class KSStore:
                      platform_store_id: str = "", ecan_store_id: str = "") -> Dict[str, Any]:
         with self.session(write=True) as s:
             st = s.get(Store, store_id) if store_id else None
+            if st is not None and st.tenant_id != tenant_id:
+                raise ValueError("store belongs to another tenant")
             if st is None:
                 st = s.scalars(select(Store).where(Store.tenant_id == tenant_id, Store.name == name)).first()
             if st is None:
@@ -213,6 +230,8 @@ class KSStore:
             return None
         with self.session() as s:
             st = s.get(Store, ref)
+            if st is not None and st.tenant_id != tenant_id:
+                st = None
             if st is None:
                 st = s.scalars(select(Store).where(Store.tenant_id == tenant_id, or_(
                     Store.ecan_store_id == ref, Store.platform_store_id == ref, Store.name == ref))).first()
@@ -292,6 +311,7 @@ class KSStore:
             for l in listings:
                 if l.get("store_id"):
                     wanted[l["store_id"]] = l
+            self._require_stores(s, p.tenant_id, wanted)
             for existing in list(p.listings):
                 if existing.store_id not in wanted:
                     s.delete(existing)
@@ -303,8 +323,23 @@ class KSStore:
                 if sid not in have:
                     s.add(row)
 
+    @staticmethod
+    def _require_stores(s, tenant_id: str, store_ids) -> None:
+        ids = set(store_ids)
+        if not ids:
+            return
+        ok = set(s.scalars(select(Store.id).where(Store.id.in_(ids), Store.tenant_id == tenant_id)))
+        if ok != ids:
+            raise ValueError("unknown store for this tenant: " + ", ".join(sorted(ids - ok)))
+
+    def stores_belong(self, tenant_id: str, store_ids) -> None:
+        with self.session() as s:
+            self._require_stores(s, tenant_id, [i for i in store_ids if i])
+
     def add_listing(self, product_id: str, store_id: str, platform_item_id: str = "") -> None:
         with self.session(write=True) as s:
+            p = s.get(Product, product_id)
+            self._require_stores(s, p.tenant_id, [store_id])
             row = s.scalars(select(Listing).where(Listing.product_id == product_id,
                                                   Listing.store_id == store_id)).first()
             if row is None:
@@ -517,11 +552,14 @@ class KSStore:
             return [self._job(j) for j in s.scalars(stmt)]
 
     # ---- audit -----------------------------------------------------------------
-    def audit(self, actor: str, action: str, target: str = "", detail: Optional[dict] = None) -> None:
+    def audit(self, actor: str, action: str, target: str = "", detail: Optional[dict] = None,
+              tenant_id: str = "") -> None:
         with self.session(write=True) as s:
-            s.add(AuditLog(actor=actor or "", action=action, target=target, detail=detail or {}))
+            s.add(AuditLog(tenant_id=tenant_id or "", actor=actor or "", action=action, target=target,
+                           detail=detail or {}))
 
-    def list_audit(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def list_audit(self, tenant_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         with self.session() as s:
+            q = select(AuditLog).where(AuditLog.tenant_id == tenant_id).order_by(AuditLog.id.desc()).limit(limit)
             return [{"ts": _iso(a.ts), "actor": a.actor, "action": a.action, "target": a.target, "detail": a.detail}
-                    for a in s.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(limit))]
+                    for a in s.scalars(q)]

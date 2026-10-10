@@ -38,12 +38,12 @@ def _token(key, **claims):
 # ---- identity ---------------------------------------------------------------------
 def test_valid_token_uses_cached_jwks_when_offline(verifier, rsa_key):
     p = verifier.verify(_token(rsa_key))
-    assert p.user_id == "user-1" and p.email_lc == "alice@shop.com" and p.source == "cognito"
+    assert p.user_id == "cognito:user-1" and p.email_lc == "alice@shop.com" and p.source == "cognito"
 
 
 def test_access_token_client_id_is_accepted(verifier, rsa_key):
     tok = _token(rsa_key, aud=None, client_id="client-123")
-    assert verifier.verify(tok).user_id == "user-1"
+    assert verifier.verify(tok).user_id == "cognito:user-1"
 
 
 @pytest.mark.parametrize("claims,msg", [
@@ -82,8 +82,8 @@ def test_registry_routes_by_issuer(verifier, rsa_key):
 
 
 # ---- authorisation ------------------------------------------------------------------
-def P(email, uid=None, **kw):
-    return Principal(user_id=uid or email, email=email, **kw)
+def P(email, uid=None, verified=True, **kw):
+    return Principal(user_id=uid or email, email=email, email_verified=verified, **kw)
 
 
 @pytest.fixture
@@ -144,16 +144,21 @@ def test_group_grant(svc, team):
         svc.search("材质", platform_item_id="6600001", principal=P("view@shop.com"))
 
 
-def test_store_agent_grant_without_membership(svc, team, shop):
-    # The customer-service agent of a store reads the catalog through a store grant.
+def test_store_grant_needs_a_member_and_a_forged_store_header_gets_nothing(svc, team, shop):
+    # The store / agent a request names comes from client headers: it adds a
+    # member's store grant (confidential KB) but never lets a non-member in.
     kb = svc.catalog_kb(team)
-    agent = Principal(user_id="agent:qa-1", source="agent", agent_id="qa-1", store_id=shop["tmall"]["id"])
-    with pytest.raises(PermissionDenied):
-        svc.search("材质", platform_item_id="6600001", principal=agent)
+    svc.update_kb(kb["id"], sensitivity="confidential")
     svc.set_grant(kb["id"], "store", shop["tmall"]["id"], "read")
-    assert svc.search("材质", platform_item_id="6600001", principal=agent)["product"]
+    outsider = Principal(user_id="tcb:attacker", source="cloudbase", agent_id="qa-1", store_id=shop["tmall"]["id"])
     with pytest.raises(PermissionDenied):
-        svc.save_product({"code": "Z", "title": "z"}, principal=agent)
+        svc.search("材质", platform_item_id="6600001", principal=outsider)
+    member_agent = P("view@shop.com", agent_id="qa-1", store_id=shop["tmall"]["id"])
+    assert svc.search("材质", platform_item_id="6600001", principal=member_agent)["product"]
+    with pytest.raises(PermissionDenied):  # without the store, the confidential KB stays closed
+        svc.search("材质", platform_item_id="6600001", principal=P("view@shop.com"))
+    with pytest.raises(PermissionDenied):
+        svc.save_product({"code": "Z", "title": "z"}, principal=member_agent)
 
 
 def test_disabled_member_loses_access_despite_grant(svc, team):
@@ -176,6 +181,64 @@ def test_invite_links_on_first_sign_in_and_domain_auto_join(svc, team):
     assert svc.authz.link_user(stranger, team) is None
     svc.set_email_domain("corp.cn")
     assert svc.authz.link_user(stranger, team)["role"] == "viewer"
+
+
+def test_unverified_email_never_inherits_an_invite_or_domain(svc, team):
+    svc.save_member("invitee@shop.com", "editor")
+    fake = P("invitee@shop.com", uid="tcb:attacker", verified=False)
+    assert svc.authz.link_user(fake, team) is None
+    assert svc.authz.membership(fake, team) is None
+    svc.set_email_domain("corp.cn")
+    assert svc.authz.link_user(P("eve@corp.cn", uid="tcb:eve", verified=False), team) is None
+    # An invite bound to one account is not taken over by another with the same email.
+    real = P("invitee@shop.com", uid="cognito:real")
+    assert svc.authz.link_user(real, team)["status"] == "active"
+    other = P("invitee@shop.com", uid="tcb:someone-else")
+    assert svc.authz.membership(other, team) is None and svc.authz.link_user(other, team) is None
+
+
+def test_same_subject_from_two_providers_is_two_people(svc, team):
+    from knowledge.ks.identity import subject_of
+    svc.save_member("x@shop.com", "editor", status="active")
+    m = next(m for m in svc.access_view()["members"] if m["email"] == "x@shop.com")
+    svc.authz.link_user(P("x@shop.com", uid="cognito:abc"), team)
+    assert svc.authz.membership(Principal(user_id="tcb:abc"), team) is None
+    assert subject_of("tcb:abc") == "abc" and subject_of("ecan:wx:1") == "wx:1" and subject_of("local-user") == "local-user"
+    assert m["email"] == "x@shop.com"
+
+
+def test_audit_log_is_per_tenant(svc, team, shop):
+    svc.save_product({"code": "A1", "title": "甲"}, principal=P("admin@shop.com"))
+    svc.save_store({"name": "别人的店"}, tenant_id=shop["other_tid"])
+    mine = svc.list_audit(principal=P("admin@shop.com"))
+    assert mine and all("别人的店" not in str(a["detail"]) for a in mine)
+    assert any(a["action"] == "product.save" and a["actor"] == "admin@shop.com" for a in mine)
+
+
+def test_stores_and_listings_stay_inside_their_tenant(svc, team, shop):
+    a = P("admin@shop.com")
+    other = shop["other_store"]
+    with pytest.raises(ValueError):  # rename / re-point another tenant's store
+        svc.save_store({"id": other["id"], "name": "抢来的"}, principal=a)
+    with pytest.raises(ValueError):  # list a product in another tenant's store
+        svc.save_product({"code": "L1", "title": "乙", "listings": [{"store_id": other["id"], "platform_item_id": "1"}]},
+                         principal=a)
+    with pytest.raises(ValueError):
+        svc.import_catalog("unused.csv", {}, default_store_id=other["id"], principal=a)
+    assert svc.store.find_store(team, other["id"]) is None
+    assert svc.store.get_store(other["id"])["name"] != "抢来的"
+
+
+def test_records_obey_kb_permissions(svc, team, shop):
+    # Facts, rules and candidates come from records, not the index: they must
+    # be hidden when the caller cannot read the catalog KB.
+    kb = svc.catalog_kb(team)
+    r = svc.retriever.retrieve(team, "这件是什么材质", platform_item_id="6600001", allowed_kbs={"kb_other"},
+                               policy_kb=kb["id"])
+    assert r.product is None and not r.facts and not r.policies and not r.candidates
+    r = svc.retriever.retrieve(team, "这件是什么材质", platform_item_id="6600001", allowed_kbs={kb["id"]},
+                               policy_kb=kb["id"])
+    assert r.product and r.facts
 
 
 def test_last_owner_is_protected_and_admins_cannot_create_owners(svc, team):
@@ -228,8 +291,26 @@ def test_cloudbase_tokens_are_checked_with_cloudbase_and_cached(monkeypatch):
     v = CloudBaseVerifier("sccb0-test")
     reg = IdentityRegistry([v])
     p = reg.verify("opaque-good")  # not even a JWT: still checked with CloudBase
-    assert p.user_id == "cb-user-1" and p.email_lc == "shop@qq.com" and p.source == "cloudbase"
+    assert p.user_id == "tcb:cb-user-1" and p.email_lc == "shop@qq.com" and p.source == "cloudbase"
     reg.verify("opaque-good")
     assert len(calls) == 1  # cached
     with pytest.raises(AuthError):
         reg.verify("opaque-bad")
+
+
+def test_email_verified_claim_is_respected(verifier, rsa_key):
+    assert verifier.verify(_token(rsa_key)).verified_email == ""
+    assert verifier.verify(_token(rsa_key, email_verified=True)).verified_email == "alice@shop.com"
+    assert verifier.verify(_token(rsa_key, email_verified="true")).verified_email == "alice@shop.com"
+
+
+def test_unknown_kid_refetches_keys_at_most_once_a_minute(verifier, rsa_key, monkeypatch):
+    verifier.verify(_token(rsa_key))  # keys loaded
+    calls = []
+    real = verifier._load_jwks
+    monkeypatch.setattr(verifier, "_load_jwks", lambda force=False: (calls.append(force), real(force=False))[1])
+    bogus = jwt.encode({"iss": ISS, "sub": "x"}, rsa_key, algorithm="RS256", headers={"kid": "nope"})
+    for _ in range(5):
+        with pytest.raises(AuthError):
+            verifier.verify(bogus)
+    assert calls.count(True) == 1
