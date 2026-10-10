@@ -70,3 +70,16 @@ async def test_rag_query_tool_uses_product_knowledge_before_lightrag(wired, monk
         "query": "身高170穿什么码", "_ks_scope": {"platform_item_id": "6600001"}}})
     assert out[0].meta["data"]["source"] == "product_knowledge"
     assert "尺码表" in out[0].text
+
+
+def test_workspace_pinned_query_skips_product_knowledge(wired):
+    """A rag_query pinned to a LightRAG workspace keeps its tenant isolation."""
+    assert ab.try_product_answer(None, {"query": "这件是什么材质", "workspace": "storeB",
+                                        "_ks_scope": {"platform_item_id": "3500009"}}) is None
+
+
+def test_run_scope_wins_over_llm_supplied_ids(wired):
+    """The LLM's tool args can't override the run's own product scope."""
+    meta = ab.try_product_answer(None, {"query": "这件是什么材质", "platform_item_id": "999999999",
+                                        "_ks_scope": {"platform_item_id": "3500009"}})
+    assert meta["data"]["product_knowledge"]["product"]["code"] == "TS-001"

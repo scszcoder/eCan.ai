@@ -8225,7 +8225,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         try:
                             from knowledge.ks.agent_bridge import scope_from_state
                             if isinstance(_actual_tool_input, dict) and isinstance(_actual_tool_input.get('input'), dict):
-                                _actual_tool_input['input'].setdefault('_ks_scope', scope_from_state(state))
+                                # Overwrite, never setdefault: an LLM-supplied _ks_scope
+                                # would otherwise win (prompt injection of another store).
+                                _actual_tool_input['input']['_ks_scope'] = scope_from_state(state)
                         except Exception as _scope_err:
                             logger.debug(f"[MCP_DIRECT] product scope unavailable: {_scope_err}")
                         content_blocks = await _rag_func(_rag_mainwin, _actual_tool_input)

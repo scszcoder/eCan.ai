@@ -117,9 +117,15 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
     query = str(input_data.get("query") or "").strip()
     if not query:
         return None
+    # A query pinned to a LightRAG workspace keeps that tenant isolation: the
+    # merchant-wide product catalog must not answer it (review 2026-10-10).
+    if str(input_data.get("workspace") or "").strip():
+        return None
+    # The run's own scope (task store + the buyer's product card) wins over
+    # anything in the LLM's tool arguments, which a buyer can steer.
     scope = input_data.get("_ks_scope") or {}
-    store_ref = str(input_data.get("store_id") or scope.get("store_id") or "").strip()
-    item_id = str(input_data.get("platform_item_id") or scope.get("platform_item_id") or "").strip()
+    store_ref = str(scope.get("store_id") or input_data.get("store_id") or "").strip()
+    item_id = str(scope.get("platform_item_id") or input_data.get("platform_item_id") or "").strip()
     if not item_id:
         item_id = extract_item_id(" ".join(str(v) for v in input_data.values() if isinstance(v, str)))
     try:
