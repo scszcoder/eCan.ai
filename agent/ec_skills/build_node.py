@@ -4631,6 +4631,11 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
 
+            # Private-data guard: a run that retrieved private knowledge may
+            # only call a model on this machine / the private network.
+            from knowledge.ks.taint import check_llm as _ks_check_llm
+            _ks_check_llm(state, llm, llm_provider, full_node_name)
+
             # Invoke the LLM and update the state
             try:
                 import time
@@ -8083,6 +8088,16 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         work_result['rag_answer'] = _answer_text
                         work_result['rag_references'] = _refs
                         work_result['rag_confidence'] = _conf
+                        # Private knowledge taints the run: later LLM nodes
+                        # must use a private model (knowledge/ks/taint.py).
+                        _sens = _data.get('sensitivity') if isinstance(_data, dict) else None
+                        if _sens:
+                            work_result['rag_sensitivity'] = _sens
+                            try:
+                                from knowledge.ks.taint import mark as _ks_mark
+                                _ks_mark(st, _sens)
+                            except Exception:
+                                pass
                         if isinstance(_conf, dict):
                             work_result['rag_confidence_score'] = _conf.get('overall_score', 0.0)
                             work_result['rag_confidence_level'] = _conf.get('confidence_level', 'unknown')
@@ -8203,6 +8218,15 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         logger.info(log_msg)
                         send_skill_editor_log("log", log_msg)
                         _rag_mainwin = AppContext.get_main_window()
+                        # Scope for product knowledge comes from the run state
+                        # (task store_id + the buyer's product card), never from
+                        # the LLM's tool arguments.
+                        try:
+                            from knowledge.ks.agent_bridge import scope_from_state
+                            if isinstance(_actual_tool_input, dict) and isinstance(_actual_tool_input.get('input'), dict):
+                                _actual_tool_input['input'].setdefault('_ks_scope', scope_from_state(state))
+                        except Exception as _scope_err:
+                            logger.debug(f"[MCP_DIRECT] product scope unavailable: {_scope_err}")
                         content_blocks = await _rag_func(_rag_mainwin, _actual_tool_input)
                         return CallToolResult(content=content_blocks, isError=False)
                 except Exception as _direct_rag_err:
@@ -10232,8 +10256,9 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
             if rag_url and query:
                 url = rag_url.rstrip('/') + '/query'
                 payload = {"query": str(query)}
+                from knowledge.lightrag_config_utils import local_auth_headers
                 with httpx.Client(timeout=20.0) as client:
-                    resp = client.post(url, json=payload)
+                    resp = client.post(url, json=payload, headers=local_auth_headers())
                     if resp.status_code == 200:
                         data = resp.json()
                         # best-effort normalize

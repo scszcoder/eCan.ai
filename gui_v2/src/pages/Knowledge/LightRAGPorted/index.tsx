@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import Tabs, { TabKey } from './Tabs';
 import SettingsTab from './SettingsTab';
 import DocumentsTab from './DocumentsTab';
+import ProductKnowledgeTab from '../ProductKnowledge';
 import RetrievalTab from './RetrievalTab';
 import GraphTab from './GraphTab';
 import { validateLightRAGConfig } from './configValidator';
@@ -153,6 +154,8 @@ const KnowledgePortedPage: React.FC = () => {
   
   const renderTab = (key: TabKey) => {
     switch (key) {
+      case 'products':
+        return <ProductKnowledgeTab />;
       case 'documents':
         return <DocumentsTab />;
       case 'knowledge-graph':

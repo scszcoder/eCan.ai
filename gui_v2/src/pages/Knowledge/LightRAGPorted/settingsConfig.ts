@@ -61,7 +61,7 @@ export const SETTINGS_TABS: TabConfig[] = [
 // Basic Configuration Fields (Server, SSL, Directories, Logging, Auth)
 export const BASIC_FIELDS: FieldConfig[] = [
   // Server Settings (all disabled)
-  { key: 'HOST', type: 'text', defaultValue: '0.0.0.0', section: 'server', tooltip: 'tooltips.host', disabled: true },
+  { key: 'HOST', type: 'text', defaultValue: '127.0.0.1', section: 'server', tooltip: 'tooltips.host', disabled: true },
   { key: 'PORT', type: 'number', defaultValue: '9621', section: 'server', tooltip: 'tooltips.port', disabled: true },
   { key: 'WEBUI_TITLE', type: 'text', defaultValue: 'eCan.ai Graph KB', section: 'server', disabled: true },
   { key: 'WEBUI_DESCRIPTION', type: 'text', defaultValue: 'eCan.ai RAG System', section: 'server', disabled: true },
@@ -71,6 +71,7 @@ export const BASIC_FIELDS: FieldConfig[] = [
   
   // SSL Configuration
   { key: 'SSL', type: 'boolean', placeholder: 'false', section: 'ssl', tooltip: 'tooltips.ssl' },
+  { key: 'SSL_VERIFY', type: 'boolean', defaultValue: 'true', section: 'ssl', tooltip: 'tooltips.sslVerify' },
   { key: 'SSL_CERTFILE', type: 'text', placeholder: '/path/to/cert.pem', section: 'ssl' },
   { key: 'SSL_KEYFILE', type: 'text', placeholder: '/path/to/key.pem', section: 'ssl' },
   
@@ -98,7 +99,7 @@ export const BASIC_FIELDS: FieldConfig[] = [
   { key: 'GUEST_TOKEN_EXPIRE_HOURS', type: 'number', placeholder: '24', section: 'auth', disabled: true },
   { key: 'JWT_ALGORITHM', type: 'text', placeholder: 'HS256', section: 'auth', disabled: true },
   { key: 'LIGHTRAG_API_KEY', type: 'password', placeholder: 'your-secure-api-key-here', section: 'auth', tooltip: 'tooltips.apiKey', disabled: true },
-  { key: 'WHITELIST_PATHS', type: 'text', placeholder: '/health,/api/*', section: 'auth', disabled: true }
+  { key: 'WHITELIST_PATHS', type: 'text', placeholder: '/health', section: 'auth', disabled: true }
 ];
 
 // RAG Parameters (Query, Document Processing, Concurrency, Other)

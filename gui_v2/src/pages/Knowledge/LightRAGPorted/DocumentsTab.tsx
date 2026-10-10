@@ -989,8 +989,9 @@ const DocumentsTab: React.FC = () => {
   const handleClearCache = () => {
     modal.confirm({
       title: t('pages.knowledge.documents.clearCache'),
-      content: t('pages.knowledge.documents.clearCacheConfirm'),
+      content: t('pages.knowledge.documents.clearCacheConfirm', { name: workspace || 'default' }),
       okText: t('common.confirm'),
+      okButtonProps: { danger: true },
       cancelText: t('common.cancel'),
       onOk: async () => {
         try {

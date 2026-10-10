@@ -2444,6 +2444,11 @@ class MainWindow:
 
             if success:
                 logger.info("[MainWindow] ✅ LightRAG server initialization completed!")
+                try:
+                    from knowledge.ks.service import init_lan_sharing
+                    await asyncio.get_event_loop().run_in_executor(None, init_lan_sharing, self)
+                except Exception as lan_err:
+                    logger.warning(f"[MainWindow] LAN knowledge sharing not started: {lan_err}")
             else:
                 logger.error("[MainWindow] LightRAG server initialization failed - check logs for details")
 

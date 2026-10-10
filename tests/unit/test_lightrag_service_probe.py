@@ -33,6 +33,19 @@ def test_openai_compatible_service_probe(monkeypatch, kind, path):
     assert result["url"].endswith(path)
     assert request.call_args.kwargs["headers"]["Authorization"] == "Bearer secret"
     assert request.call_args.kwargs["timeout"] == (3, 7)
+    # TLS verification is on by default.
+    assert request.call_args.kwargs["verify"] is True
+
+
+def test_probe_can_disable_ssl_verification(monkeypatch):
+    request = Mock(return_value=_response())
+    monkeypatch.setattr("knowledge.lightrag_service_probe.requests.post", request)
+    probe_model_service("llm", {
+        "LLM_BINDING": "openai",
+        "LLM_BINDING_HOST": "https://vllm.local/v1",
+        "LLM_MODEL": "test-model",
+        "SSL_VERIFY": "false",
+    })
     assert request.call_args.kwargs["verify"] is False
 
 

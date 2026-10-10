@@ -275,7 +275,7 @@ const SettingsTab: React.FC = () => {
           settings[field.key] ?? field.defaultValue ?? '',
         ])
       );
-      parserSettings.SSL_VERIFY = settings.SSL_VERIFY ?? 'false';
+      parserSettings.SSL_VERIFY = settings.SSL_VERIFY ?? 'true';
       const response = await get_ipc_api().lightragApi.testParserConfig<{
         available?: boolean;
         category?: string;

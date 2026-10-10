@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { theme } from 'antd';
-import { FileTextOutlined, ShareAltOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons';
+import { FileTextOutlined, ShareAltOutlined, SearchOutlined, SettingOutlined, ShopOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import WorkspacePicker from './WorkspacePicker';
@@ -10,7 +10,10 @@ import { useWorkspace } from './useWorkspace';
 // Minimal tabs component for the ported LightRAG UI.
 // Does not depend on Radix or Tailwind; no routing changes.
 
-export type TabKey = 'documents' | 'knowledge-graph' | 'retrieval' | 'settings' | 'api';
+export type TabKey = 'products' | 'documents' | 'knowledge-graph' | 'retrieval' | 'settings' | 'api';
+
+const TAB_KEYS: TabKey[] = ['products', 'documents', 'knowledge-graph', 'retrieval', 'settings', 'api'];
+const isTabKey = (k: unknown): k is TabKey => TAB_KEYS.includes(k as TabKey);
 
 interface TabsProps {
   defaultActive?: TabKey;
@@ -31,9 +34,8 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
 
   const readActiveFromStorage = (): TabKey => {
     const raw = sessionStorage.getItem(`${storagePrefix}:active`);
-    const key = raw as TabKey | null;
-    if (key === 'documents' || key === 'knowledge-graph' || key === 'retrieval' || key === 'settings' || key === 'api') {
-      return key;
+    if (isTabKey(raw)) {
+      return raw;
     }
     return defaultActive;
   };
@@ -43,7 +45,7 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
       const raw = sessionStorage.getItem(`${storagePrefix}:visited`);
       if (!raw) return new Set([activeKey]);
       const arr = JSON.parse(raw) as TabKey[];
-      const valid = arr.filter((k) => k === 'documents' || k === 'knowledge-graph' || k === 'retrieval' || k === 'settings' || k === 'api');
+      const valid = arr.filter(isTabKey);
       const set = new Set<TabKey>(valid);
       set.add(activeKey);
       return set;
@@ -75,7 +77,7 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
   const tabRefs = useRef<Map<TabKey, HTMLDivElement>>(new Map());
 
   const isOuterScrollable = (key: TabKey) => {
-    return key === 'documents' || key === 'knowledge-graph' || key === 'api';
+    return key === 'products' || key === 'documents' || key === 'knowledge-graph' || key === 'api';
   };
 
   const saveScrollPosition = (key: TabKey, scrollTop: number) => {
@@ -193,7 +195,7 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
   const tabBarBg = token.colorBgContainer;
   const contentBg = token.colorBgLayout;
   
-  const tabKeys: TabKey[] = ['documents', 'knowledge-graph', 'retrieval', 'settings', 'api'];
+  const tabKeys: TabKey[] = TAB_KEYS;
 
   return (
     <div data-ec-scope="lightrag-ported" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -207,6 +209,10 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
         borderBottom: `1px solid ${token.colorBorderSecondary}`
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0, overflowX: 'auto' }}>
+          <button className={`ec-tab ${active === 'products' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('products')}>
+            <ShopOutlined style={{ marginRight: 8 }} />
+            {t('pages.knowledge.tabs.products')}
+          </button>
           <button className={`ec-tab ${active === 'documents' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('documents')}>
             <FileTextOutlined style={{ marginRight: 8 }} />
             {t('pages.knowledge.tabs.documents')}
@@ -226,7 +232,8 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
           {/* API tab is present but invisible per requirement */}
           <button className={`ec-tab ${active === 'api' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('api')} style={{ visibility: 'hidden' }}>API</button>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+        {/* The workspace picker and server status belong to the LightRAG document tabs. */}
+        <div style={{ display: active === 'products' ? 'none' : 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           <WorkspacePicker
             value={workspace}
             onChange={setWorkspace}

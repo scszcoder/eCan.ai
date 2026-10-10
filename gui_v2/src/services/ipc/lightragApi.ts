@@ -2,6 +2,7 @@
 // NOTE: Methods expect backend to register matching IPC handlers.
 
 import { IPCAPI, APIResponse } from './api';
+import { withWorkspace } from './lightragWorkspace';
 
 export type IngestFilesPayload = {
   paths: string[];
@@ -188,27 +189,27 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
     },
 
     async updateEntity<T>(payload: UpdateEntityPayload): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.updateEntity', payload);
+      return apiInstance.executeRequest<T>('lightrag.updateEntity', withWorkspace(payload));
     },
 
     async updateRelation<T>(payload: UpdateRelationPayload): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.updateRelation', payload);
+      return apiInstance.executeRequest<T>('lightrag.updateRelation', withWorkspace(payload));
     },
 
     async checkEntityNameExists(payload: CheckEntityExistsPayload): Promise<APIResponse<{ exists: boolean }>> {
-      return apiInstance.executeRequest<{ exists: boolean }>('lightrag.checkEntityNameExists', payload);
+      return apiInstance.executeRequest<{ exists: boolean }>('lightrag.checkEntityNameExists', withWorkspace(payload));
     },
 
     async getGraphLabelList<T>(): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.getGraphLabelList', {});
+      return apiInstance.executeRequest<T>('lightrag.getGraphLabelList', withWorkspace({}));
     },
 
     async getPopularLabels<T>(payload: { limit: number }): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.getPopularLabels', payload);
+      return apiInstance.executeRequest<T>('lightrag.getPopularLabels', withWorkspace(payload));
     },
 
     async searchLabels<T>(payload: { query: string; limit: number }): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.searchLabels', payload);
+      return apiInstance.executeRequest<T>('lightrag.searchLabels', withWorkspace(payload));
     },
 
     async saveSettings<T>(settings: Record<string, any>): Promise<APIResponse<T>> {
@@ -236,31 +237,31 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
     },
 
     async queryGraphs<T>(payload: { label: string; maxDepth: number; maxNodes: number }): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.queryGraphs', payload);
+      return apiInstance.executeRequest<T>('lightrag.queryGraphs', withWorkspace(payload));
     },
 
     async getInputHistory<T>(): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.getInputHistory', {});
+      return apiInstance.executeRequest<T>('lightrag.getInputHistory', withWorkspace({}));
     },
 
     async saveInputHistory<T>(history: string[]): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.saveInputHistory', { history });
+      return apiInstance.executeRequest<T>('lightrag.saveInputHistory', withWorkspace({ history }));
     },
 
     async getConversationHistory<T>(): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.getConversationHistory', {});
+      return apiInstance.executeRequest<T>('lightrag.getConversationHistory', withWorkspace({}));
     },
 
     async saveConversationHistory<T>(messages: any[]): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.saveConversationHistory', { messages });
+      return apiInstance.executeRequest<T>('lightrag.saveConversationHistory', withWorkspace({ messages }));
     },
 
     async expandNode<T>(payload: { nodeId: string; maxDepth: number; maxNodes: number }): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.expandNode', payload);
+      return apiInstance.executeRequest<T>('lightrag.expandNode', withWorkspace(payload));
     },
 
     async pruneNode<T>(payload: { nodeId: string }): Promise<APIResponse<T>> {
-      return apiInstance.executeRequest<T>('lightrag.pruneNode', payload);
+      return apiInstance.executeRequest<T>('lightrag.pruneNode', withWorkspace(payload));
     },
 
     async downloadFile<T>(payload: { fileName: string }): Promise<APIResponse<T>> {

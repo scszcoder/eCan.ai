@@ -26,7 +26,9 @@ LightRAG Query Response Confidence Scorer (v2 - 2026-08-24)
 from __future__ import annotations
 
 import math
+import os
 import re
+import statistics
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -102,6 +104,8 @@ class LightRAGConfidenceScorer:
     MIN_RESPONSE_LENGTH = 30    # 有意义回答的最小长度
     REFUSAL_THRESHOLD = 0.20  # 低于此值认为是拒绝回答
     OFFTOPIC_MIN_QUERY_KW = 2  # 查询关键词最小数量，低于此值跳过离题检测
+    OFFTOPIC_RELEVANCE_MAX = 0.12   # query↔chunk keyword overlap at/below this = off-topic
+    OFFTOPIC_SCORE_CAP = 0.30       # cap overall to "low" so the prompt distrusts it
 
     def score(
         self,
@@ -279,6 +283,12 @@ class LightRAGConfidenceScorer:
             s = self._extract_normalized_score(chunk, prefer_rerank=True)
             if s is not None:
                 scores.append(s)
+        # A disabled reranker is served by a passthrough that stamps every chunk
+        # with relevance_score=1.0 (gui/lightrag_rerank_proxy.py). Identical
+        # perfect scores carry no signal; ignore them instead of reading them as
+        # a flawless rerank.
+        if len(scores) >= 2 and all(s >= 0.9999 for s in scores):
+            scores = []
         if scores:
             score_source = "rerank"
 
@@ -670,6 +680,19 @@ class LightRAGConfidenceScorer:
         if query_relevance is not None and query_relevance < 0.15 and has_R and retrieval_score and retrieval_score < 0.3:
             score = min(score, 0.35)  # 降低置信度
             formula = f"{formula}_low_relevance"
+
+        # Off-topic gate (ws111): with NO retrieval/rerank signal (the fast-path),
+        # an off-topic-but-well-formed chunk can still score high. If query↔chunk
+        # keyword overlap is near-zero, cap below the prompt's distrust gate.
+        # Env-disable: ECAN_RAG_RELEVANCE_GATE=0.
+        if (not has_R
+                and query_relevance is not None
+                and query_relevance <= self.OFFTOPIC_RELEVANCE_MAX
+                and self._clamp(score) > self.OFFTOPIC_SCORE_CAP
+                and (os.getenv("ECAN_RAG_RELEVANCE_GATE") or "1").strip().lower()
+                     in ("1", "true", "yes", "on")):
+            score = self.OFFTOPIC_SCORE_CAP
+            formula = f"{formula}_offtopic_cap{int(self.OFFTOPIC_SCORE_CAP * 100)}"
 
         return self._clamp(score), formula
 

@@ -71,3 +71,33 @@ def test_env_disable_switch():
         assert "offtopic_cap" not in c.retrieval.get("formula", "")
     finally:
         del os.environ["ECAN_RAG_RELEVANCE_GATE"]
+
+
+def _score_with(query, refs, chunks=None):
+    data = {"response": "本店支持七天无理由退货，签收后七天内可申请。" * 2,
+            "references": refs, "data": {"chunks": chunks or []}}
+    return LightRAGConfidenceScorer().score(query=query, response_data=data)
+
+
+def test_multiple_scored_references_do_not_crash_the_scorer():
+    # Regression: statistics.pstdev was used without importing statistics, so
+    # any response with >=2 scored chunks fell into the scoring_error branch
+    # and was replaced by the no-answer message.
+    refs = [{"reference_id": "1", "content": POLICY, "score": 0.82},
+            {"reference_id": "2", "content": POLICY, "score": 0.64}]
+    c = _score_with("七天无理由退货吗", refs)
+    assert c.decision.get("no_answer_reason") != "scoring_error"
+    assert c.decision.get("should_answer") is True
+    assert c.retrieval.get("score_source") == "reference"
+
+
+def test_passthrough_rerank_scores_are_ignored():
+    # A disabled reranker returns relevance_score=1.0 for every chunk; that must
+    # not be read as a perfect rerank signal.
+    chunks = [{"content": POLICY, "rerank_score": 1.0},
+              {"content": POLICY, "rerank_score": 1.0}]
+    refs = [{"reference_id": "1", "content": POLICY, "score": 0.41},
+            {"reference_id": "2", "content": POLICY, "score": 0.38}]
+    c = _score_with("七天无理由退货吗", refs, chunks)
+    assert c.retrieval.get("score_source") == "reference"
+    assert c.retrieval.get("top1") < 0.5

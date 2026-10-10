@@ -74,7 +74,7 @@ def _probe_health(
 
 def probe_mineru(settings: Dict[str, Any]) -> Dict[str, Any]:
     mode = str(settings.get("MINERU_API_MODE") or "local").strip().lower()
-    ssl_value = str(settings.get("SSL_VERIFY", "false")).strip().lower()
+    ssl_value = str(settings.get("SSL_VERIFY", "true")).strip().lower()
     verify_ssl = ssl_value in {"1", "true", "yes", "on"}
     if mode in ("local", "ecanai"):
         # ``ecanai`` is an eCan convenience alias; at runtime it is rewritten
@@ -157,7 +157,7 @@ def probe_mineru(settings: Dict[str, Any]) -> Dict[str, Any]:
 
 def probe_docling(settings: Dict[str, Any]) -> Dict[str, Any]:
     provider = str(settings.get("DOCLING_PROVIDER") or "ecanai").strip().lower()
-    ssl_value = str(settings.get("SSL_VERIFY", "false")).strip().lower()
+    ssl_value = str(settings.get("SSL_VERIFY", "true")).strip().lower()
     verify_ssl = ssl_value in {"1", "true", "yes", "on"}
 
     if provider == "local":

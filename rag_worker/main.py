@@ -214,7 +214,7 @@ def build_rag(working_dir: str):
     logger.info(f"build_rag: initializing RAGAnything in {working_dir}")
     logger.info(f"  LLM_MODEL={LLM_MODEL}, VISION_MODEL={VISION_MODEL}, "
                 f"EMBEDDING_MODEL={EMBEDDING_MODEL}, EMBEDDING_DIM={EMBEDDING_DIM}")
-    logger.info(f"  OPENAI_API_KEY={'set (' + OPENAI_API_KEY[:8] + '...)' if OPENAI_API_KEY else 'NOT SET'}")
+    logger.info(f"  OPENAI_API_KEY={'set' if OPENAI_API_KEY else 'NOT SET'}")
     logger.info(f"  OPENAI_BASE_URL={OPENAI_BASE_URL or '(default)'}")
     from raganything import RAGAnything, RAGAnythingConfig
     from lightrag.llm.openai import openai_complete_if_cache, openai_embed
@@ -453,7 +453,7 @@ def main():
     logger.info(f"  RAG_BUCKET     = {RAG_BUCKET}")
     logger.info(f"  RAG_USER_DIR   = {RAG_USER_DIR}")
     logger.info(f"  RAG_PID        = {RAG_PID}")
-    logger.info(f"  OPENAI_API_KEY = {'set (' + OPENAI_API_KEY[:8] + '...)' if OPENAI_API_KEY else 'NOT SET'}")
+    logger.info(f"  OPENAI_API_KEY = {'set' if OPENAI_API_KEY else 'NOT SET'}")
     logger.info(f"  LLM_MODEL      = {LLM_MODEL}")
     logger.info(f"  EMBEDDING_MODEL= {EMBEDDING_MODEL}")
     logger.info(f"  Python         = {sys.version}")

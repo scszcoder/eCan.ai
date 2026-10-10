@@ -9,7 +9,21 @@ from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 
 
-def _resolve_base_url() -> str:
+def _commander_source():
+    """The LAN source when this platoon uses the commander's knowledge, else None."""
+    try:
+        from app_context import AppContext
+        mw = AppContext.get_main_window()
+        if mw is None:  # tests, CLI, stand-alone server: always the local server
+            return None
+        from knowledge.ks.service import get_lan
+        src = get_lan(mw)["source"]
+        return src if src.use_commander() else None
+    except Exception:
+        return None
+
+
+def _resolve_base_url(local_only: bool = False) -> str:
     """Resolve LightRAG server base URL from the running server, env, or defaults.
 
     The server manager relocates to an alternative port when the default is
@@ -17,7 +31,13 @@ def _resolve_base_url() -> str:
     port the LIVE LightragServer instance actually bound — otherwise clients
     keep talking to whatever squats on 9621.
     """
+    if not local_only:
+        src = _commander_source()
+        if src is not None:
+            return f"{src.url()}/lightrag"
     host = os.environ.get("HOST", "127.0.0.1")
+    if host in ("", "0.0.0.0", "::", "[::]"):
+        host = "127.0.0.1"  # a wildcard bind address is not a connect address
     port = os.environ.get("PORT", "9621")
     try:
         from app_context import AppContext
@@ -88,8 +108,17 @@ class LightragClient:
         from agent.ec_skills.system_proxy import configure_requests_session
         configure_requests_session(self.session, self.base_url)
         
-        if api_key:
-            self.session.headers["X-API-Key"] = api_key
+        # The local server requires the per-process key published by
+        # LightragServer (knowledge/lightrag_config_utils.ensure_local_api_key).
+        # A paired platoon talks to the commander's LAN gateway instead, with
+        # its device token.
+        src = _commander_source() if base_url is None else None
+        if src is not None:
+            self.session.headers["Authorization"] = f"Bearer {src.token()}"
+        else:
+            api_key = api_key or os.environ.get("LIGHTRAG_API_KEY", "").strip()
+            if api_key:
+                self.session.headers["X-API-Key"] = api_key
         if token:
             self.session.headers["Authorization"] = f"Bearer {token}"
         logger.info(f"[LightragClient] base_url={self.base_url}")
@@ -343,7 +372,8 @@ class LightragClient:
                 - response_type: Response type
                 - user_prompt: Custom user prompt
                 - conversation_history: List of previous messages
-                - ids: List of document IDs to search in
+                (Document-id filtering is not supported by the LightRAG
+                query API; scope retrieval with ``workspace`` instead.)
                 
         Returns:
             Dict with query response
@@ -1067,6 +1097,35 @@ class LightragClient:
             logger.error(f"Error clearing cache: {e}")
             return {"status": "error", "message": str(e)}
     
+    def clear_documents(self, workspace: Optional[str] = None) -> Dict[str, Any]:
+        """Delete every document, chunk, entity and relation in one workspace.
+
+        Uses LightRAG's ``DELETE /documents``, which is scoped by the
+        ``LIGHTRAG-WORKSPACE`` header, so other workspaces are untouched.
+        """
+        try:
+            r = self.session.delete(
+                f"{self.base_url}/documents",
+                headers=_ws_headers(workspace),
+                timeout=120,
+            )
+            if r.status_code >= 400:
+                logger.error(f"Clear documents failed with status {r.status_code}: {r.text}")
+            r.raise_for_status()
+            data = r.json()
+            # LightRAG answers 200 with status busy/fail when the pipeline is
+            # running or the clear failed.
+            if isinstance(data, dict) and data.get("status") in ("busy", "fail"):
+                return {"status": "error", "message": data.get("message") or data["status"], "data": data}
+            return {"status": "success", "data": data}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response is not None else str(e)
+            logger.error(f"LightragClient.clear_documents HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error clearing documents: {e}")
+            return {"status": "error", "message": str(e)}
+
     def get_status_counts(self, workspace: Optional[str] = None) -> Dict[str, Any]:
         """
         Get document status counts.
@@ -1099,7 +1158,7 @@ class LightragClient:
             return {"status": "error", "message": str(e)}
 
     # ---- Graph Editing ----
-    def update_entity(self, entity_name: str, updated_data: Dict[str, Any], allow_rename: bool = False, allow_merge: bool = False) -> Dict[str, Any]:
+    def update_entity(self, entity_name: str, updated_data: Dict[str, Any], allow_rename: bool = False, allow_merge: bool = False, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Update an entity's properties in the knowledge graph."""
         try:
             payload = {
@@ -1108,7 +1167,7 @@ class LightragClient:
                 "allow_rename": allow_rename,
                 "allow_merge": allow_merge
             }
-            r = self.session.post(f"{self.base_url}/graph/entity/edit", json=payload, timeout=30)
+            r = self.session.post(f"{self.base_url}/graph/entity/edit", json=payload, headers=_ws_headers(workspace), timeout=30)
             
             if r.status_code >= 400:
                 logger.error(f"Update entity failed with status {r.status_code}: {r.text}")
@@ -1125,12 +1184,13 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
-    def check_entity_name_exists(self, name: str) -> Dict[str, Any]:
+    def check_entity_name_exists(self, name: str, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Check if an entity name already exists in the knowledge graph."""
         try:
             r = self.session.get(
                 f"{self.base_url}/graph/entity/exists",
                 params={"name": name},
+                headers=_ws_headers(workspace),
                 timeout=10
             )
             
@@ -1149,7 +1209,7 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
-    def update_relation(self, source_id: str, target_id: str, updated_data: Dict[str, Any]) -> Dict[str, Any]:
+    def update_relation(self, source_id: str, target_id: str, updated_data: Dict[str, Any], workspace: Optional[str] = None) -> Dict[str, Any]:
         """Update a relation's properties in the knowledge graph."""
         try:
             payload = {
@@ -1157,7 +1217,7 @@ class LightragClient:
                 "target_id": target_id,
                 "updated_data": updated_data
             }
-            r = self.session.post(f"{self.base_url}/graph/relation/edit", json=payload, timeout=30)
+            r = self.session.post(f"{self.base_url}/graph/relation/edit", json=payload, headers=_ws_headers(workspace), timeout=30)
             
             if r.status_code >= 400:
                 logger.error(f"Update relation failed with status {r.status_code}: {r.text}")
@@ -1174,10 +1234,10 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
-    def get_graph_label_list(self) -> Dict[str, Any]:
+    def get_graph_label_list(self, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Get list of all labels in the graph."""
         try:
-            r = self.session.get(f"{self.base_url}/graph/label/list", timeout=10)
+            r = self.session.get(f"{self.base_url}/graph/label/list", headers=_ws_headers(workspace), timeout=10)
             
             if r.status_code >= 400:
                 logger.error(f"Get graph label list failed with status {r.status_code}: {r.text}")
@@ -1266,11 +1326,11 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
-    def get_popular_labels(self, limit: int = 300) -> Dict[str, Any]:
+    def get_popular_labels(self, limit: int = 300, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Get popular labels by node degree."""
         try:
             params = {"limit": limit}
-            r = self.session.get(f"{self.base_url}/graph/label/popular", params=params, timeout=10)
+            r = self.session.get(f"{self.base_url}/graph/label/popular", params=params, headers=_ws_headers(workspace), timeout=10)
             
             if r.status_code >= 400:
                 logger.error(f"Get popular labels failed with status {r.status_code}: {r.text}")
@@ -1287,11 +1347,11 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
-    def search_labels(self, q: str, limit: int = 50) -> Dict[str, Any]:
+    def search_labels(self, q: str, limit: int = 50, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Search labels with fuzzy matching."""
         try:
             params = {"q": q, "limit": limit}
-            r = self.session.get(f"{self.base_url}/graph/label/search", params=params, timeout=10)
+            r = self.session.get(f"{self.base_url}/graph/label/search", params=params, headers=_ws_headers(workspace), timeout=10)
             
             if r.status_code >= 400:
                 logger.error(f"Search labels failed with status {r.status_code}: {r.text}")
@@ -1308,7 +1368,7 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
-    def query_graphs(self, label: str, max_depth: int, max_nodes: int) -> Dict[str, Any]:
+    def query_graphs(self, label: str, max_depth: int, max_nodes: int, workspace: Optional[str] = None) -> Dict[str, Any]:
         """Query graph nodes and edges via GET /graphs.
 
         This aligns with LightRAG's OpenAPI where:
@@ -1321,7 +1381,7 @@ class LightragClient:
                 "max_depth": max_depth,
                 "max_nodes": max_nodes,
             }
-            r = self.session.get(f"{self.base_url}/graphs", params=params, timeout=60)
+            r = self.session.get(f"{self.base_url}/graphs", params=params, headers=_ws_headers(workspace), timeout=60)
             
             if r.status_code >= 400:
                 logger.error(f"Query graphs failed with status {r.status_code}: {r.text}")
