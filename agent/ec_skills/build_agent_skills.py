@@ -264,6 +264,15 @@ def _create_skill_from_workflow(
         if source == "code":
             from agent.ec_skill import _generate_stable_id
             sk.id = _generate_stable_id(sk.name, sk.source)
+        else:
+            # A diagram skill's file carries its canonical id (the one the DB,
+            # the cloud and task->skill links use). Without it a skill loaded
+            # from a folder alone (fresh machine, no DB row) kept a random id,
+            # tasks could not bind to it by id, and the name heuristics bound
+            # chip_docs_crawl_1 to chip_docs_crawl_manager_00 (2026-10-09).
+            file_id = str(core_dict.get("skillId") or "").strip()
+            if file_id:
+                sk.id = file_id
 
         return sk
     except Exception as e:
