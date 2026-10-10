@@ -339,13 +339,20 @@ def create_app(service: KnowledgeService, registry: IdentityRegistry, config: Se
         return out
 
     @app.post(T + "/catalog/import")
-    def catalog_import(tid: str, upload_id: str = Form(...), mapping: str = Form(...),
-                       default_store_id: str = Form(""), p: Principal = Depends(principal)):
+    def catalog_import(tid: str, mapping: str = Form(...), upload_id: str = Form(""),
+                       default_store_id: str = Form(""), file: Optional[UploadFile] = File(None),
+                       p: Principal = Depends(principal)):
+        # Preview and import are separate requests. On cloud functions they can
+        # land on different instances with separate /tmp, so a client may send
+        # the file again here instead of (or as well as) the preview's upload_id.
         import json
         tid = tenant_for(tid, p)
-        path = os.path.join(config.data_dir, "uploads", tid, os.path.basename(upload_id))
-        if not os.path.exists(path):
-            raise HTTPException(404, "upload not found; preview the file first")
+        service._check(p, tid, "write")
+        path = os.path.join(config.data_dir, "uploads", tid, os.path.basename(upload_id)) if upload_id else ""
+        if not path or not os.path.exists(path):
+            if file is None:
+                raise HTTPException(404, "upload not found; preview the file first or send it again")
+            path = _save_upload(tid, file)
         return service.import_catalog(path, json.loads(mapping), default_store_id, tenant_id=tid, principal=p)
 
     @app.get(API + "/jobs/{job_id}")

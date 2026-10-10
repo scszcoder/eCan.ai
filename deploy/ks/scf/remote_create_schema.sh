@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Additive: a schema for the Knowledge Service test twin, like `langgraph`.
+# Additive: a schema for the Knowledge Service (knowledge or knowledge_test), like `langgraph`.
 set -euo pipefail
 export PATH=$HOME/.local/bin:$PATH
 ENV=sccb0-d0gc5398xf028be6a

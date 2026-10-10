@@ -453,13 +453,65 @@ similarities are thin (around 0.6–0.7), so a reranker is the next accuracy ste
 
 **Open items:**
 - **LAN commander/platoon test on two machines.** Deferred by the owner, since the second machine is busy.
-- **TCB deployment (owner choice: TCB first, then AWS).** The package and runbook are in `deploy/ks/tcb`. Still
-  needed:
-  - a CloudBase CLI sign-in by the owner;
-  - a PostgreSQL database `ecan_ks`;
-  - a DashScope key;
-  - approval to create the 云托管 service.
+- **TCB deployment.** The test twin `ecan-knowledge-test` is live as an HTTP cloud function and passes the
+  end-to-end check (see `deploy/ks/scf/README.md`). The production schema `knowledge` exists. Deploying the
+  production function `ecan-knowledge` needs the owner's go-ahead. AWS comes after the CN cut-over (§10).
 - **Reranker** (Qwen3-Reranker) in path A.
 - **A held-out set from real merchant chats.**
 - **Validate `deploy/ks` on the 2 × RTX PRO 5500 box.**
 - **Phase 7.**
+
+## 10. CN cut-over: from `rag_*` functions to the Knowledge Service
+
+Status 2026-10-10: plan only. Nothing in the app points at the new service yet.
+
+### 10.1 What the CN web app does today
+
+The web build's documents page (`pages/RAG/RAGDocuments.tsx`) and its store (`stores/ragStore.ts`, through
+`services/web/presignedFileOps.ts`) make these calls:
+
+| step | call | backend |
+|---|---|---|
+| upload | `rag_upload_signer_event` returns a COS URL, and the PHP relay uploads to `ecan-rags-1251680599/<owner>/<pid>/docs/<file>` | Event function + COS |
+| register | GraphQL `reqRAGStore` | `ecan-graphql-api` |
+| list | `rag_upload_signer_event` `listDocuments` | COS listing |
+| index | `rag_index_event` `startIndex` / `getIndexStatus` over the whole pid | Event function, `vectors.jsonl` in COS |
+| ask | `rag_index_event` `queryIndex`: cosine top-k, then a `qwen-plus` answer | Event function |
+| delete | GraphQL `ragDeleteDocs` | `ecan-graphql-api` |
+
+### 10.2 Gaps in the Knowledge Service before it can replace that
+
+| # | gap | plan |
+|---|---|---|
+| 1 | **No general document route over HTTP.** Documents can only be attached to a product, from the desktop. | Add `POST/GET/DELETE /v1/tenants/{tid}/kbs/{kb}/documents` for knowledge-base documents that aren't tied to a product. Chunking and extraction are reused. |
+| 2 | **Large uploads.** The HTTP gateway for functions limits the request body to a few MB, and the KS upload limit is 50 MB. | Keep the existing COS upload (`rag_upload_signer_event` and the relay). KS takes a COS key and reads the object itself, using the function role's COS access scoped to `ecan-rags`. A direct upload is used only for small files. |
+| 3 | **No answer synthesis.** KS returns facts and chunks; the desktop agent writes the answer. | Add an `/answer` endpoint: KS search, then a chat call through `llm_proxy` (same internal token, `source=lightrag`, billed to the tenant owner). Public plane only. |
+| 4 | **Browser access.** No CORS handling, and `ksApi.ts` only speaks desktop IPC. | Add CORS for the app origins (`KS_CORS_ORIGINS`) and a small HTTP client `services/web/ksHttp.ts`. It sends the CloudBase access token, which KS already verifies through `/auth/v1/user/me`. |
+| 5 | **Multi-request flows on functions.** Instances don't share `/tmp`. | Done for catalog import, which can now re-send the file. The COS-key route (#2) removes the issue for documents. |
+| 6 | **Index per instance.** Each instance rebuilds a tenant's index from the database on first use; the shared version keeps instances consistent. | Fine at current sizes. Move vectors to pgvector when a tenant passes ~50k chunks or a cold rebuild passes ~2 s. |
+
+### 10.3 Steps
+
+1. **Server parity** (gaps 1–4), with tests, then redeploy `ecan-knowledge-test` and extend `e2e_check.py` to
+   cover upload by COS key, list, delete and `/answer`.
+2. **Production function** `ecan-knowledge`, with the same script and the `knowledge` schema.
+3. **Web client behind a switch.** `ragStore` picks the backend from app config, `knowledge.backend: legacy | ks`
+   (default `legacy`). The old calls stay untouched while the switch is off.
+4. **Migration per owner.** A one-off job run from the CVM:
+   - for each `<owner>/<pid>/docs/*` in `ecan-rags`, create the owner's tenant if needed;
+   - create one knowledge base per pid;
+   - ingest the documents from COS.
+
+   The old `vectors.jsonl` isn't reused, because chunking and models differ. The job is re-runnable, matching on
+   file hash, and reports per owner.
+5. **Staged rollout.** Turn the switch on for internal accounts, then everyone. Compare answers on a sample of real
+   questions against the old function before the full switch.
+6. **Desktop.** The CN build gets a built-in connection to `/api/knowledge` with "Use my eCan sign-in", so desktop
+   agents can also search cloud knowledge (public plane; the private-data guard applies).
+7. **Retire** `rag_index_event` and `rag_upload_signer_event`'s list action after 30 days without traffic. Keep
+   the COS objects. Removing the functions is a separate, explicit decision.
+
+### 10.4 Rollback
+
+Set `knowledge.backend` back to `legacy`. The old functions and COS data are untouched until step 7.
+

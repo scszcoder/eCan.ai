@@ -137,3 +137,26 @@ def test_path_prefix_is_stripped():
     c = TestClient(StripPrefix(inner, "/api/knowledge"))
     assert c.get("/api/knowledge/v1/health").json() == {"ok": True}
     assert c.get("/v1/health").json() == {"ok": True}
+
+
+
+def test_catalog_import_accepts_the_file_again(env):
+    # Cloud functions: the import request may reach an instance that never saw the preview.
+    client, *_ = env
+    h = _login(client)
+    tid = client.get("/v1/me", headers=h).json()["tenants"][0]["id"]
+    store = client.post(f"/v1/tenants/{tid}/stores", headers=h, json={"name": "店"}).json()
+    data = "货号,商品名称,商品ID,材质\nP9,羊毛衫,770001,100%羊毛\n".encode("utf-8-sig")
+    pv = client.post(f"/v1/tenants/{tid}/catalog/preview", headers=h, files={"file": ("c.csv", data, "text/csv")}).json()
+    form = {"upload_id": "gone.csv", "mapping": json.dumps(pv["mapping"]), "default_store_id": store["id"]}
+    assert client.post(f"/v1/tenants/{tid}/catalog/import", headers=h, data=form).status_code == 404
+    job = client.post(f"/v1/tenants/{tid}/catalog/import", headers=h, data=form,
+                      files={"file": ("c.csv", data, "text/csv")}).json()
+    for _ in range(100):
+        job = client.get(f"/v1/jobs/{job['id']}", headers=h).json()
+        if job["status"] in ("succeeded", "failed"):
+            break
+        time.sleep(0.05)
+    assert job["status"] == "succeeded", job
+    r = client.post(f"/v1/tenants/{tid}/search", headers=h, json={"query": "什么材质", "platform_item_id": "770001"})
+    assert r.json()["product"]["code"] == "P9"
