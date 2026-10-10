@@ -34,6 +34,13 @@ _NOBODY_RETRY_S = 120.0   # keep re-dispatching a message no runner took (startu
 _PRODUCT_TTL_MS = 3 * 3600 * 1000   # a product card older than this no longer frames the chat
 _COLD_SWEEP_DELAY_S = 20.0          # let the front desk register before reading waiting chats
 
+def _backstop_interval_s() -> float:
+    """Seconds between list-only backstop passes (ECAN_QIANNIU_BACKSTOP_S, 0 = off)."""
+    try:
+        return max(0.0, float(os.environ.get("ECAN_QIANNIU_BACKSTOP_S", "90")))
+    except ValueError:
+        return 90.0
+
 # 千牛 platform notices that arrive as ordinary-looking message objects in the
 # buyer's conversation (alpha 2026-10-07: "【即将超时】您即将超超20分钟未回复买家，
 # 请您尽快妥善处理买家问题。若消极接待行为属实…" was dispatched as a buyer
@@ -83,6 +90,22 @@ def _is_our_send(text: str) -> bool:
     with _sent_lock:
         ts = _sent_texts.get(key)
         return ts is not None and now - ts <= _SENT_TTL_S
+
+
+def _preview_core(text: str) -> str:
+    """A list preview without the ellipsis 千牛 adds when it truncates."""
+    return _norm_text(text).rstrip(".…。")
+
+
+def _is_our_send_preview(preview: str) -> bool:
+    """True when a (possibly truncated) list preview is the start of a text we
+    sent recently -- the store spoke last, nothing to check."""
+    core = _preview_core(preview)
+    if len(core) < 4:
+        return False
+    now = time.monotonic()
+    with _sent_lock:
+        return any(k.startswith(core) and now - ts <= _SENT_TTL_S for k, ts in _sent_texts.items())
 
 
 def _qianniu_pids() -> list:
@@ -575,6 +598,19 @@ class QianniuMemObserver:
             if not self._first_time(item["identity_key"]):
                 continue
             if _is_system_notice(cand.text):
+                # 「当前用户来自 商品详情页」 carries the product the buyer is
+                # looking at; keep it for their next question (yp alpha: the
+                # notice was dropped whole, the question went out product=None,
+                # and Q&A asked for a card the buyer had already sent).
+                notice_product = mem_locator.extract_product(cand.raw or {})
+                if notice_product:
+                    self._note_product({"product": notice_product, "sender": item["customer_id"],
+                                        "sendTime": cand.send_time}, seller)
+                    logger.info(f"[QIANNIU-MEM] product from notice for buyer={item['customer_name']!r}: "
+                                f"{notice_product[:60]!r}")
+                elif "当前用户来自" in (cand.text or ""):
+                    logger.info(f"[QIANNIU-MEM] notice without a readable product; raw keys="
+                                f"{sorted((cand.raw or {}).keys())[:20]}")
                 self.stats["system_notice_skipped"] = self.stats.get("system_notice_skipped", 0) + 1
                 logger.info(f"[QIANNIU-MEM] skip 千牛 system notice msg={item['msg_id']!r} "
                             f"msgType={(cand.raw or {}).get('msgType')!r}: {item['last_message'][:30]!r}")
@@ -672,7 +708,7 @@ class QianniuMemObserver:
     def _already_handled(self, _name: str, text: str) -> bool:
         """True if the memory path dispatched this text (same 6-char prefix)
         in the last 30 min -- the sweep must not answer it a second time."""
-        probe, cutoff = _norm_text(text)[:6], time.time() - 1800
+        probe, cutoff = _preview_core(text)[:6], time.time() - 1800
         return bool(probe) and any(t.startswith(probe) or probe.startswith(t[:6])
                                    for t, ts in self._dispatched_texts if ts >= cutoff and t)
 
@@ -722,9 +758,31 @@ class QianniuMemObserver:
                 cold_start_sweep(self._cold_dispatch, self._already_handled)
             except Exception as exc:
                 logger.warning(f"[QIANNIU-COLD] sweep failed: {exc}")
+            self._backstop_loop()
         threading.Thread(target=run, name="qianniu-coldstart", daemon=True).start()
         logger.info(f"[QIANNIU-COLD] cold-start sweep in {_COLD_SWEEP_DELAY_S:.0f}s: chats that were "
                     f"already waiting are read from the screen")
+
+    def _backstop_loop(self) -> None:
+        """List-only OCR every ECAN_QIANNIU_BACKSTOP_S: answers a buyer message
+        the memory observer never saw (see qianniu_tools.backstop_sweep)."""
+        interval = _backstop_interval_s()
+        if interval <= 0:
+            logger.info("[QIANNIU-BACKSTOP] off (ECAN_QIANNIU_BACKSTOP_S=0)")
+            return
+        logger.info(f"[QIANNIU-BACKSTOP] on: 正在接待 list checked every {interval:.0f}s")
+        from agent.mcp.server.qianniu.qianniu_tools import backstop_sweep
+        checked: set = set()
+        while not self._stop.wait(interval):
+            if not route_ready():
+                continue
+            try:
+                backstop_sweep(self._cold_dispatch, self._already_handled,
+                               _is_our_send_preview, checked)
+            except Exception as exc:
+                logger.warning(f"[QIANNIU-BACKSTOP] pass failed: {exc}")
+            if len(checked) > 500:
+                checked.clear()
 
     def _heartbeat(self) -> None:
         now = time.monotonic()

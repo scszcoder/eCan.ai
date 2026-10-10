@@ -641,6 +641,69 @@ def cold_start_sweep(dispatch, already_handled, max_rows: int = 8) -> dict:
     return stats
 
 
+def backstop_sweep(dispatch, already_handled, is_ours, checked: set, max_rows: int = 8) -> dict:
+    """Periodic safety net for buyer messages the memory observer missed
+    (yp alpha 2026-10-09: 大作战panda's 「这个质量怎么样」 never appeared in 千牛's
+    memory and stayed unanswered -- the cold sweep runs only at startup).
+
+    One list-only OCR of the 正在接待 list; a row is opened only when its
+    preview is a message we neither sent (``is_ours``) nor dispatched
+    (``already_handled``) and the (name, preview) pair was not checked before
+    (``checked``, kept by the caller) -- so the seller's open chat is not
+    switched on every pass. An opened row whose last turn is the buyer's is
+    dispatched like a cold-start row. Returns counts."""
+    stats = {"rows": 0, "opened": 0, "dispatched": 0, "skipped": 0}
+    lock = _lock()
+    holder = "backstop"
+    if not lock.try_acquire(holder):
+        return stats
+    try:
+        with _no_corner_failsafe():
+            if not _foreground():
+                return stats
+            _on_tab, ocr_data = _ensure_reception_tab(_read_qianniu())
+            rows = conversation_rows(ocr_data, limit=max_rows)
+    finally:
+        lock.release(holder)
+    stats["rows"] = len(rows)
+    store = _store_label()
+    for name, preview, pt in rows:
+        key = (name, preview)
+        if key in checked:
+            continue
+        checked.add(key)
+        if not preview or is_ours(preview) or already_handled(name, preview):
+            continue
+        if not lock.try_acquire(holder):
+            checked.discard(key)              # look again next pass
+            stats["skipped"] += 1
+            continue
+        try:
+            with _no_corner_failsafe():
+                _foreground()
+                _click(pt[0], pt[1])
+                _humanize(_SETTLE_AFTER_OPEN)
+                side, text = last_turn(_read_qianniu(), name, store)
+        except Exception as exc:
+            stats["skipped"] += 1
+            logger.warning(f"[QIANNIU-BACKSTOP] row {name!r}: open/read failed: {exc}")
+            continue
+        finally:
+            lock.release(holder)
+        stats["opened"] += 1
+        if side == "buyer" and text and not already_handled(name, text):
+            stats["dispatched"] += 1
+            logger.info(f"[QIANNIU-BACKSTOP] row {name!r}: buyer message missed by the memory "
+                        f"observer {text[:30]!r} -> dispatching")
+            dispatch(name, text)
+        else:
+            logger.info(f"[QIANNIU-BACKSTOP] row {name!r} (preview {preview[:16]!r}): "
+                        f"last turn {side or 'unreadable'}; nothing to answer")
+    if stats["opened"] or stats["dispatched"]:
+        logger.info(f"[QIANNIU-BACKSTOP] pass done: {stats}")
+    return stats
+
+
 def add_qianniu_send_tool_schema(tool_schemas):
     import mcp.types as types
     tool_schemas.append(types.Tool(
