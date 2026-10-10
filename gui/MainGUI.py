@@ -600,6 +600,15 @@ class MainWindow:
                 card = getattr(ag, "card", None)
                 if card is None:
                     continue
+                # Only agents that run HERE: an agent pinned to another machine
+                # is loaded but skipped, and advertising it with this host's IP
+                # would point the LAN at a machine where it does not listen.
+                try:
+                    from agent.ec_agents.vehicle_affinity import agent_launch_allowed
+                    if not agent_launch_allowed(ag)[0]:
+                        continue
+                except Exception:
+                    pass
                 agent_id = getattr(card, "id", "") or ""
                 if not agent_id:
                     continue
@@ -1419,6 +1428,14 @@ class MainWindow:
             # Mark initialization as fully ready - frontend will stop polling
             self._initialization_status['fully_ready'] = True
             logger.info("[MainWindow] ✅ fully_ready set to True - frontend will update")
+
+            # Agents (and their A2A ports) exist only now: the earlier advert
+            # ran before they loaded and published "0 agent(s)", so no agent was
+            # ever reachable from another machine on the LAN.
+            try:
+                self._refresh_lan_agent_advertising()
+            except Exception as adv_err:
+                logger.debug(f"[MainWindow] LAN agent advertising skipped: {adv_err}")
             
             # Update agent-related pages
             from app_context import AppContext
