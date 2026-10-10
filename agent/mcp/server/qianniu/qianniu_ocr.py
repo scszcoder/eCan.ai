@@ -162,13 +162,23 @@ def ocr_qianniu_window() -> list:
              screen_img.width, screen_img.height], fill="white")
     screen_img.save(_TMP_SHOT)
 
-    try:
-        # use_cls=False: 千牛 text is never rotated. A per-call option -- the
-        # shared engine's settings (WeChat OCR) are not changed.
-        raw, elapsed = _get_ocr()(_TMP_SHOT, use_cls=False)
-    except Exception as exc:
-        logger.error(f"[qianniu] local OCR failed: {exc}")
-        return []
+    # Server GPU OCR first (CN; ~6-7 s per read locally on the alpha PC); local
+    # CPU OCR only when it keeps failing -- see remote_ocr.
+    from agent.mcp.server.qianniu import remote_ocr
+    raw, elapsed, engine = None, None, "local"
+    if remote_ocr.remote_ocr_enabled():
+        try:
+            raw, engine = remote_ocr.ocr_png(_TMP_SHOT)
+        except Exception:
+            raw = None              # logged by remote_ocr; read locally below
+    if raw is None:
+        try:
+            # use_cls=False: 千牛 text is never rotated. A per-call option -- the
+            # shared engine's settings (WeChat OCR) are not changed.
+            raw, elapsed = _get_ocr()(_TMP_SHOT, use_cls=False)
+        except Exception as exc:
+            logger.error(f"[qianniu] local OCR failed: {exc}")
+            return []
     result = normalize_to_remote_format(raw)
     if scale_x != 1.0 or scale_y != 1.0:
         result = scale_ocr_coordinates(result, scale_x, scale_y)
@@ -183,7 +193,7 @@ def ocr_qianniu_window() -> list:
             _panel_cal.pop((orig_w, orig_h), None)
     result = _apply_window_offset(result, window_rect)
     split = "/".join(f"{x:.1f}" for x in (elapsed or [])) if isinstance(elapsed, (list, tuple)) else "?"
-    logger.info(f"[qianniu] OCR window={keyword!r} rect={window_rect} img={orig_w}x{orig_h} "
+    logger.info(f"[qianniu] OCR {engine} window={keyword!r} rect={window_rect} img={orig_w}x{orig_h} "
                 f"lines={len(result)} {'panel-blanked' if blank else 'full'} det/cls/rec={split}s "
                 f"in {int((time.monotonic() - t0) * 1000)}ms")
     return result
