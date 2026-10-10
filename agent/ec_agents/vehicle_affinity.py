@@ -606,8 +606,8 @@ def _route_via_lan_discovery(url: str, recipient_agent) -> str:
 
     The card URL holds the IP of the machine the agent was CREATED on, so an
     agent moved to a platoon machine (vehicle pin) stayed addressed at the old
-    machine. zeroconf advertises the live host + A2A port per agent. No fresh
-    advert (not on this LAN, or not seen for 3 min) -> *url* unchanged.
+    machine. zeroconf advertises the live host + A2A port per agent. No advert
+    for it (not on this LAN, or it said goodbye) -> *url* unchanged.
     """
     try:
         card = getattr(recipient_agent, "card", None)
@@ -618,7 +618,11 @@ def _route_via_lan_discovery(url: str, recipient_agent) -> str:
             return url
         from agent.a2a.discovery.directory import get_directory
         ep = get_directory().lookup(agent_id)
-        if ep is None or not ep.is_lan_reachable:
+        # Presence, not recency: zeroconf only re-announces on change, so a
+        # live agent's last_seen goes "stale" after 3 min (a batch sent 202 s
+        # after the advert went to the old host, 2026-10-09); a departing
+        # agent's goodbye removes the entry instead.
+        if ep is None or not (ep.lan_host and ep.lan_port):
             return url
         from urllib.parse import urlparse, urlunparse
         p = urlparse(url)

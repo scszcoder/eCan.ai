@@ -125,12 +125,22 @@ def test_remote_recipient_uses_live_lan_advert(monkeypatch):
         "http://192.168.1.20:3601/a2a/"
 
 
-def test_remote_recipient_without_fresh_advert_unchanged(monkeypatch):
+def test_remote_recipient_without_lan_endpoint_unchanged(monkeypatch):
     _pin_local(monkeypatch)
     import agent.a2a.discovery.directory as d
     monkeypatch.setattr(d, "get_directory", lambda: _FakeDirectory(
-        {"agent_x": _FakeEndpoint("192.168.1.20", 3601, reachable=False)}))
+        {"agent_x": _FakeEndpoint(None, None)}))  # entry without a LAN endpoint
     assert localize_a2a_url("http://192.168.1.5:3601", _CardAgent("MID-OTHER", "agent_x")) == \
         "http://192.168.1.5:3601"
     assert localize_a2a_url("http://192.168.1.5:3601", _CardAgent("MID-OTHER", "agent_unknown")) == \
         "http://192.168.1.5:3601"
+
+
+def test_remote_recipient_routes_even_when_advert_is_old(monkeypatch):
+    # zeroconf does not re-announce an unchanged service; an old last_seen is
+    # not a dead agent (goodbye removes the entry).
+    _pin_local(monkeypatch)
+    import agent.a2a.discovery.directory as d
+    monkeypatch.setattr(d, "get_directory", lambda: _FakeDirectory(
+        {"agent_x": _FakeEndpoint("192.168.1.149", 3604, reachable=False)}))
+    assert localize_a2a_url("http://192.168.1.5:3623", _CardAgent("MID-OTHER", "agent_x")) ==         "http://192.168.1.149:3604"
