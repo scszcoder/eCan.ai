@@ -10,6 +10,35 @@ _Last updated: 2026-09-21_
 
 ## 🔴 Bugs (unfixed)
 
+### Left open after the chip-docs crawler / platoon / cloud work (2026-10-09)
+
+- **An offline pinned host's agents are adopted elsewhere.** `agent_launch_allowed`
+  adopts a pin that no *known* host owns; a host is "known" by a local vehicle row
+  or (since 2026-10-09) a live LAN advert. If the Commander is off when a Platoon
+  starts, the Platoon adopts and runs the Commander's agents (seen: the coordinator
+  started on the Platoon). Start order avoids it today. Fix idea: also treat any id
+  in the cloud vehicles list as a known host (`vehicle_affinity._pin_belongs_to_other_host`).
+- **Merged agents are not saved locally on a fresh machine:** `DBAgent(**agent_dict)`
+  in `gui/MainGUI.py` (merge step) fails with "'card' is an invalid keyword argument".
+- **Task→skill fallback matching is fragile:** when the id does not match,
+  `agent_converter` falls back to name prefix / shared words and can pick the wrong
+  skill (`chip_docs_crawl_1` → `chip_docs_crawl_manager_00`). Ids now match for file
+  skills; the heuristics remain.
+- **llm-proxy does not enforce the action schema** for `gpt-5.6-sol`: the model
+  invents argument names (`search_page.query`, `evaluate.expression`) and wastes steps.
+  Server-side (llm-proxy repo).
+- **Fresh intl installs:** no llm-proxy default endpoint and empty `wan/ws_api_endpoint`
+  until an interactive login writes them; the app now falls back to the session-token
+  llm-proxy for LLMs once an endpoint exists. Decide whether intl ships a default
+  like CN does.
+- **Cloud worker (AWS):** proof works with one hand-launched Fargate task
+  (`ecan-cloud-worker-proof:1`). Missing for production: a service credential for the
+  llm-proxy (proof used the user's IdToken), cloud-to-cloud messaging for a cloud
+  coordinator, launching N workers, the runCloudTasks resolver forwarding task_vars.
+  Live worker image `:latest` is from 2026-02; its task env holds direct provider keys.
+- **Dev venv drift:** a venv with PySide6 6.9.1 hid the bu_run_code crash that the
+  pinned 6.10.1 triggers — keep dev venvs on requirements-base.txt.
+
 ### An orphaned Chromium from a killed app blocks every browser launch on its profile (2026-10-09)
 
 When the app is force-killed (or crashes), the Chromium it launched for a
