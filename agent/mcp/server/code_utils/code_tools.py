@@ -115,6 +115,14 @@ def create_safe_globals() -> Dict[str, Any]:
         "__name__": "__main__",
         "__doc__": None,
     }
+    # PySide6/shiboken6 >= 6.10 replaces builtins.__import__ with a hook that
+    # calls builtins.__orig_import__, looked up in the RUNNING code's builtins.
+    # Missing here, any `import` in user code killed the whole app with
+    # "Fatal Python error: libshiboken: builtins has no __orig_import__"
+    # (2026-10-09, platoon machine on the pinned PySide6 6.10.1).
+    import builtins as _real_builtins
+    if hasattr(_real_builtins, "__orig_import__"):
+        safe_globals["__builtins__"]["__orig_import__"] = _real_builtins.__orig_import__
     
     # Add safe standard library modules
     try:
