@@ -1,4 +1,18 @@
 {
+  "subscriptionUpdates": {
+    "title": "Updates for subscribed skills",
+    "tooltip": "Subscribed skills have updates",
+    "newSkill": "New skill version",
+    "newPrompts": "{{n}} prompt(s) changed",
+    "inUse": "In use ({{why}}) — updates when idle",
+    "error": "Last try failed: {{e}}",
+    "update": "Update",
+    "updateAll": "Update all",
+    "hint": "Running tasks switch to the new version.",
+    "done": "Updated",
+    "failed": "Update failed: {{names}}",
+    "autoApplied": "Updated to the author's latest: {{names}}"
+  },
   "common": {
     "wechat_user": "WeChat user",
     "dismiss": "Dismiss",

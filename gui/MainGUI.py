@@ -3432,6 +3432,20 @@ class MainWindow:
                 logger.warning("[MainWindow] Subscribed-skill refresh timed out — building with local copies")
             except Exception as _refresh_err:
                 logger.warning(f"[MainWindow] Subscribed-skill refresh skipped: {_refresh_err}")
+            # ...and their prompts (an author's republished prompt used to arrive
+            # only on a manual Update click). Then the 30-min background check.
+            try:
+                from gui.ipc.w2p_handlers.subscription_update_handler import (
+                    refresh_subscribed_prompts, schedule_first_check)
+                schedule_first_check()
+                touched = await asyncio.wait_for(
+                    asyncio.to_thread(refresh_subscribed_prompts, self), timeout=30.0)
+                if touched:
+                    logger.info(f"[MainWindow] Refreshed prompts of {touched} subscribed skill(s) from cloud")
+            except asyncio.TimeoutError:
+                logger.warning("[MainWindow] Subscribed-prompt refresh timed out -- using local copies")
+            except Exception as _prompt_err:
+                logger.warning(f"[MainWindow] Subscribed-prompt refresh skipped: {_prompt_err}")
 
             # Use the async build_agent_skills function directly
             from agent.ec_skills.build_agent_skills import build_agent_skills
@@ -6208,6 +6222,15 @@ class MainWindow:
                         for _v in self_report:
                             _v.update(_local_vehicle_report_fields(self))
                         await self._cloud_heartbeat_and_placement(self_report)
+
+                # Subscribed skills/prompts: background update check (30 min);
+                # idle skills update, the rest show in the header update icon.
+                if ticks % 60 == 30:
+                    from gui.ipc.w2p_handlers.subscription_update_handler import (
+                        background_check_due, run_background_check)
+                    if background_check_due():
+                        asyncio.get_running_loop().create_task(
+                            asyncio.to_thread(run_background_check, self))
 
                 if not monitor_msg_queue.empty():
                     message = await monitor_msg_queue.get()

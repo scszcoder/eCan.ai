@@ -1,4 +1,18 @@
 {
+  "subscriptionUpdates": {
+    "title": "订阅技能有更新",
+    "tooltip": "订阅的技能有新版本",
+    "newSkill": "技能有新版本",
+    "newPrompts": "{{n}} 个提示词有更新",
+    "inUse": "正在使用中（{{why}}），空闲时自动更新",
+    "error": "上次更新失败：{{e}}",
+    "update": "更新",
+    "updateAll": "全部更新",
+    "hint": "正在运行的任务会切换到新版本。",
+    "done": "已更新",
+    "failed": "更新失败：{{names}}",
+    "autoApplied": "已自动更新到作者最新版本：{{names}}"
+  },
   "common": {
     "wechat_user": "微信用户",
     "dismiss": "关闭",

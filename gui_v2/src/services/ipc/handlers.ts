@@ -20,6 +20,7 @@ import { avatarSceneOrchestrator } from '../avatarSceneOrchestrator';
 import type { SceneClip } from '@/types/avatarScene';
 import { useAdStore } from '../../stores/adStore';
 import { useAccountStore } from '../../stores/accountStore';
+import { useSubscriptionUpdateStore } from '../../stores/subscriptionUpdateStore';
 import { unifiedEventHandler, createStandardizedEvent } from '@/services/events/unifiedEventHandler';
 import { initWebSocketEventListeners } from '../web/wsEventListeners';
 
@@ -81,6 +82,8 @@ export class IPCHandlers {
         this.registerHandler('push_account_info', this.pushAccountInfo);
         // Balance changed (server push after each settlement / credit)
         this.registerHandler('push_balance_changed', this.pushBalanceChanged);
+        // Subscribed skills/prompts with a newer author version (30-min check)
+        this.registerHandler('push_subscription_updates', this.pushSubscriptionUpdates);
         
         // Skill editor events from backend (canvas commands, etc.)
         this.registerHandler('skill_editor.event', this.handleSkillEditorEvent.bind(this));
@@ -794,6 +797,12 @@ export class IPCHandlers {
         const { useFleetFeedStore } = await import('@/stores/fleetFeedStore');
         const body = (request.params as { body?: any })?.body;
         if (body) useFleetFeedStore.getState().ingest(body);
+        return { success: true };
+    }
+
+    async pushSubscriptionUpdates(request: IPCRequest): Promise<{ success: boolean }> {
+        const params = (request.params || {}) as { items?: any[]; applied?: any[]; checked_at?: number };
+        useSubscriptionUpdateStore.getState().setFromPush(params.items || [], params.applied || [], params.checked_at);
         return { success: true };
     }
 
