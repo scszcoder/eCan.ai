@@ -833,6 +833,36 @@ class MainWindow:
             import traceback
             logger.debug(f"[MainWindow] Vehicle metrics error traceback: {traceback.format_exc()}")
 
+    def _fallback_to_session_llm_proxy(self):
+        """Fill a missing self.llm / self.browser_use_llm from the llm-proxy,
+        authenticated with the login session (no provider API key needed)."""
+        try:
+            endpoint = (self.config_manager.general_settings.lambda_proxy_endpoint or "").strip()
+            token = self.get_auth_token() or ""
+            if not endpoint or not token:
+                logger.warning("[MainWindow] llm-proxy fallback unavailable (no endpoint or not signed in)")
+                return
+            from agent.ec_skills.build_node import _normalize_proxy_user
+            user_id = _normalize_proxy_user(getattr(self, "user", "") or "")
+            if not self.llm:
+                from agent.ec_skills.lambda_proxy_langchain import create_lambda_proxy_langchain
+                self.llm = create_lambda_proxy_langchain(
+                    provider="openai", model="gpt-4o-mini", user_id=user_id,
+                    lambda_endpoint=endpoint, auth_token=token,
+                    token_refresh_fn=lambda: self.get_auth_token() or "",
+                )
+                logger.warning(f"[MainWindow] No local LLM key for the default provider; using the llm-proxy ({endpoint})")
+            if not self.browser_use_llm:
+                from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
+                self.browser_use_llm = ChatLambdaProxy(
+                    provider_name="openai", model="gpt-4o-mini", user_id=user_id,
+                    lambda_endpoint=endpoint, auth_token=token,
+                )
+                self.browser_use_llm._token_refresh_fn = lambda: self.get_auth_token() or ""
+                logger.warning("[MainWindow] Browser-use LLM from the llm-proxy (session token)")
+        except Exception as e:
+            logger.warning(f"[MainWindow] llm-proxy fallback failed: {e}")
+
     def _validate_and_fix_default_llm_model(self):
         """
         Validate that default_llm_model belongs to the current default_llm provider.
@@ -2090,7 +2120,14 @@ class MainWindow:
                 logger.info(f"[MainWindow] Cloud LLM Browser-use LLM initialized successfully - Type: {type(self.browser_use_llm).__name__}")
             else:
                 logger.warning(f"[MainWindow]  Browser-use LLM initialization failed - browser_use_llm is None")
-                
+
+            # No local key for the default provider (e.g. 'ecanai' before key
+            # onboarding): use the llm-proxy on the login session instead of
+            # running with no LLM — which skipped every skill build and dropped
+            # every agent on a fresh platoon machine (2026-10-09).
+            if not self.llm or not self.browser_use_llm:
+                self._fallback_to_session_llm_proxy()
+
         except Exception as e:
             logger.error(f"[MainWindow] Failed to initialize LLM: {e}")
             self.llm = None

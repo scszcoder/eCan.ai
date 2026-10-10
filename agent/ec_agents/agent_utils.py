@@ -468,13 +468,15 @@ def _session_proxy_browser_llm():
             return None
         from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
         logger.warning("[gen_new_agent] no local browser-use LLM; using the llm-proxy for the agent")
-        return ChatLambdaProxy(
+        llm = ChatLambdaProxy(
             provider_name="openai",
             model="gpt-4o-mini",
             user_id=proxy.get("user_id", ""),
             lambda_endpoint=proxy["endpoint"],
             auth_token=proxy.get("auth_token", ""),
         )
+        llm._token_refresh_fn = lambda: (_get_proxy_config() or {}).get("auth_token", "")
+        return llm
     except Exception as e:
         logger.warning(f"[gen_new_agent] llm-proxy fallback unavailable: {e}")
         return None
