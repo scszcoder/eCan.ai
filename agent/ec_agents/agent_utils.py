@@ -443,7 +443,7 @@ def gen_agent_from_cloud_data(mainwin, ajs):
         logger.info("agent card created:", agent_card.name, agent_card.url)
 
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
-        browser_use_llm = mainwin.browser_use_llm
+        browser_use_llm = mainwin.browser_use_llm or _session_proxy_browser_llm()
 
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
@@ -456,6 +456,27 @@ def gen_agent_from_cloud_data(mainwin, ajs):
             ex_stat = "ErrorNewAgent: traceback information not available:" + str(e)
         # log3(ex_stat)
         logger.error(ex_stat)
+        return None
+
+
+def _session_proxy_browser_llm():
+    """A browser-use chat model on the llm-proxy (session token), or None."""
+    try:
+        from agent.ec_skills.build_node import _get_proxy_config
+        proxy = _get_proxy_config()
+        if not proxy or not proxy.get("endpoint"):
+            return None
+        from agent.ec_skills.browser_use_extension.lambda_proxy_llm import ChatLambdaProxy
+        logger.warning("[gen_new_agent] no local browser-use LLM; using the llm-proxy for the agent")
+        return ChatLambdaProxy(
+            provider_name="openai",
+            model="gpt-4o-mini",
+            user_id=proxy.get("user_id", ""),
+            lambda_endpoint=proxy["endpoint"],
+            auth_token=proxy.get("auth_token", ""),
+        )
+    except Exception as e:
+        logger.warning(f"[gen_new_agent] llm-proxy fallback unavailable: {e}")
         return None
 
 
@@ -495,7 +516,7 @@ def gen_new_agent(mainwin, ajs):
         logger.info("agent card created:", agent_card.name, agent_card.url)
 
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
-        browser_use_llm = mainwin.browser_use_llm
+        browser_use_llm = mainwin.browser_use_llm or _session_proxy_browser_llm()
 
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
@@ -709,7 +730,7 @@ def gen_agent_skill_from_cloud_data(mainwin, askjs):
         logger.info("agent card created:", agent_card.name, agent_card.url)
 
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
-        browser_use_llm = mainwin.browser_use_llm
+        browser_use_llm = mainwin.browser_use_llm or _session_proxy_browser_llm()
 
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
@@ -939,7 +960,7 @@ def gen_agent_tools_from_cloud_data(mainwin, taskjs):
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
-        browser_use_llm = mainwin.browser_use_llm
+        browser_use_llm = mainwin.browser_use_llm or _session_proxy_browser_llm()
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
@@ -1131,7 +1152,7 @@ def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
-        browser_use_llm = mainwin.browser_use_llm
+        browser_use_llm = mainwin.browser_use_llm or _session_proxy_browser_llm()
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
@@ -1305,7 +1326,7 @@ def gen_knowledge_from_cloud_data(mainwin, kjs):
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
-        browser_use_llm = mainwin.browser_use_llm
+        browser_use_llm = mainwin.browser_use_llm or _session_proxy_browser_llm()
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
