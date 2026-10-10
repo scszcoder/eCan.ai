@@ -172,3 +172,52 @@ class OpenAICompatibleEmbedder:
         if self.query_instruction:
             text = f"Instruct: {self.query_instruction}\nQuery:{text}"
         return self.embed([text])[0]
+
+
+# Billing owner for the current request (the tenant owner's account key), set
+# by the service around embedding calls so llm_proxy bills the right merchant.
+import contextvars as _cv
+
+billing_owner: "_cv.ContextVar[str]" = _cv.ContextVar("ks_billing_owner", default="")
+
+
+class LlmProxyEmbedder:
+    """Embeddings through the CN backend's llm_proxy (eCan_lambda/cn/tencent/llm_proxy),
+    the only component that holds vendor keys. Usage is billed to the tenant
+    owner under the knowledge-base line (source='lightrag')."""
+
+    def __init__(self, url: str, internal_token: str, model: str = "text-embedding-v3", dimensions: int = 1024,
+                 provider: str = "qwen", batch_size: int = 10, timeout: float = 60.0, source: str = "lightrag"):
+        if not internal_token:
+            raise ValueError("LLM_PROXY_INTERNAL_TOKEN is required")
+        self.url = url.rstrip("/")
+        if not self.url.endswith("/embeddings"):
+            self.url += "/v1/embeddings" if not self.url.endswith("/v1") else "/embeddings"
+        self._token = internal_token
+        self.model, self.dimensions, self.provider = model, dimensions, provider
+        self.batch_size, self.timeout, self.source = batch_size, timeout, source
+        self.query_instruction = QUERY_INSTRUCTION if wants_instruction(model) else ""
+        self.id = f"llm-proxy:{provider}:{model}:{dimensions}"
+        self.dim = dimensions
+
+    def embed(self, texts: Sequence[str]) -> np.ndarray:
+        import httpx
+        rows: List[List[float]] = []
+        owner = billing_owner.get() or "ecan-knowledge"
+        with httpx.Client(timeout=self.timeout) as client:
+            for i in range(0, len(texts), self.batch_size):
+                body = {"action": "embeddings", "internalToken": self._token, "owner": owner,
+                        "provider": self.provider, "model": self.model, "input": list(texts[i:i + self.batch_size]),
+                        "dimensions": self.dimensions, "source": self.source}
+                resp = client.post(self.url, json=body, headers={"x-ecan-source": self.source})
+                if resp.status_code >= 400:
+                    raise RuntimeError(f"llm_proxy embeddings failed: HTTP {resp.status_code} {resp.text[:200]}")
+                data = sorted(resp.json()["data"], key=lambda d: d.get("index", 0))
+                rows.extend(d["embedding"] for d in data)
+        return _normalise(np.asarray(rows, dtype=np.float32)) if rows else np.zeros((0, self.dim), np.float32)
+
+    def embed_query(self, text: str) -> np.ndarray:
+        if self.query_instruction:
+            text = f"Instruct: {self.query_instruction}\nQuery:{text}"
+        return self.embed([text])[0]
+

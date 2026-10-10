@@ -106,6 +106,10 @@ class HybridIndex:
                 return []
             q_tokens = tokenize(query)
             bm25 = self._bm25(q_tokens, rows)
+            if query_vec is not None and self._vecs is not None                     and np.asarray(query_vec).reshape(-1).shape[0] != self._vecs.shape[1]:
+                # Embedding model changed and the KB is not re-indexed yet:
+                # keyword search only, instead of failing.
+                query_vec = None
             if query_vec is not None and self._vecs is not None:
                 cos = self._vecs[rows] @ np.asarray(query_vec, dtype=np.float32).reshape(-1)
             else:

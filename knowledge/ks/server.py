@@ -36,9 +36,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from knowledge.ks.authz import PermissionDenied
-from knowledge.ks.embedding import HashingEmbedder, OpenAICompatibleEmbedder
+from knowledge.ks.embedding import HashingEmbedder, LlmProxyEmbedder, OpenAICompatibleEmbedder
 from knowledge.ks.identity import (
-    AuthError, CloudBaseVerifier, IdentityRegistry, JWKSVerifier, LocalVerifier, Principal,
+    AuthError, CloudBaseVerifier, EcanSessionVerifier, IdentityRegistry, JWKSVerifier, LocalVerifier, Principal,
 )
 from knowledge.ks.models import new_id
 from knowledge.ks.service import KnowledgeService
@@ -80,6 +80,8 @@ def registry_from_env(data_dir: str) -> tuple:
                              cache_path=os.path.join(data_dir, "jwks_oidc.json")))
     if os.getenv("KS_CLOUDBASE_ENV_ID"):
         reg.add(CloudBaseVerifier(os.environ["KS_CLOUDBASE_ENV_ID"]))
+    if os.getenv("ECAN_JWT_SECRET"):
+        reg.add(EcanSessionVerifier(os.environ["ECAN_JWT_SECRET"]))
     if os.getenv("KS_LOCAL_SECRET") or os.getenv("KS_BOOTSTRAP_ADMIN"):
         local = LocalVerifier(secret=os.getenv("KS_LOCAL_SECRET") or None)
         reg.add(local)
@@ -87,6 +89,11 @@ def registry_from_env(data_dir: str) -> tuple:
 
 
 def embedder_from_env():
+    if os.getenv("LLM_PROXY_URL") and os.getenv("LLM_PROXY_INTERNAL_TOKEN"):
+        return LlmProxyEmbedder(os.environ["LLM_PROXY_URL"], os.environ["LLM_PROXY_INTERNAL_TOKEN"],
+                                os.getenv("RAG_EMBEDDING_MODEL", "text-embedding-v3"),
+                                int(os.getenv("RAG_EMBEDDING_DIM", "1024")),
+                                batch_size=int(os.getenv("RAG_EMBEDDING_BATCH_SIZE", "10")))
     if os.getenv("KS_EMBED_BASE_URL") and os.getenv("KS_EMBED_MODEL"):
         return OpenAICompatibleEmbedder(os.environ["KS_EMBED_BASE_URL"], os.environ["KS_EMBED_MODEL"],
                                         os.getenv("KS_EMBED_API_KEY", ""))
@@ -198,6 +205,10 @@ def create_app(service: KnowledgeService, registry: IdentityRegistry, config: Se
             raise HTTPException(404, "tenant not found")
         service.authz.link_user(p, tid)  # invited email / domain auto-join on first use
         return tid
+
+    @app.get("/healthz")
+    def healthz():
+        return {"status": "ok"}
 
     @app.get(f"{API}/health")
     def health():
@@ -392,11 +403,29 @@ def create_app(service: KnowledgeService, registry: IdentityRegistry, config: Se
     return app
 
 
+def db_from_env(default_url: str) -> tuple:
+    """(SQLAlchemy URL, schema, connect_args). KS_DB_URL wins; otherwise the CN
+    backend's DATABASE_URL (postgres://...) + PGSSL, in schema KS_DB_SCHEMA."""
+    url = os.getenv("KS_DB_URL") or ""
+    connect_args: Dict[str, Any] = {}
+    if not url and os.getenv("DATABASE_URL"):
+        url = os.environ["DATABASE_URL"]
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                url = "postgresql+psycopg://" + url[len(prefix):]
+        # Same SSL behaviour as the Node services: PGSSL=false disables it,
+        # otherwise encrypt without verifying the server certificate.
+        connect_args["sslmode"] = "disable" if os.getenv("PGSSL", "").lower() == "false" else "require"
+    return (url or default_url), os.getenv("KS_DB_SCHEMA", ""), connect_args
+
+
 def build_from_env() -> FastAPI:
     config = ServerConfig.from_env()
     os.makedirs(config.data_dir, exist_ok=True)
     registry, local = registry_from_env(config.data_dir)
-    service = KnowledgeService(config.db_url, embedder=embedder_from_env(), owner="server")
+    url, schema, connect_args = db_from_env(config.db_url)
+    service = KnowledgeService(url, embedder=embedder_from_env(), owner="server", db_schema=schema,
+                               db_connect_args=connect_args)
     return create_app(service, registry, config, local)
 
 

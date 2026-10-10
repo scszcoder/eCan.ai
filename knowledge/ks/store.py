@@ -34,10 +34,16 @@ def _iso(dt) -> Optional[str]:
 
 
 class KSStore:
-    def __init__(self, url: str):
+    def __init__(self, url: str, schema: str = "", connect_args: Optional[Dict[str, Any]] = None):
         kwargs: Dict[str, Any] = {"future": True}
         if url.startswith("sqlite"):
             kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
+        else:
+            kwargs["pool_pre_ping"] = True
+            kwargs["connect_args"] = dict(connect_args or {})
+            if schema:
+                # Keep KS tables in their own schema (like the backend's `langgraph`).
+                kwargs["connect_args"]["options"] = f"-csearch_path={schema}"
         self.engine = create_engine(url, **kwargs)
         if url.startswith("sqlite"):
             @event.listens_for(self.engine, "connect")

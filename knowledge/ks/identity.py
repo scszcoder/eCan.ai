@@ -223,7 +223,9 @@ class CloudBaseVerifier:
         if r.status_code >= 400:
             raise AuthError(f"CloudBase sign-in check failed (HTTP {r.status_code})")
         u = r.json() or {}
-        uid = str(u.get("sub") or u.get("uid") or u.get("user_id") or u.get("id") or "")
+        # Same order as the CN backend (eCan_lambda ws/index.js, ecbAccountManager).
+        uid = str(u.get("customUserId") or u.get("custom_user_id") or u.get("sub") or u.get("user_id")
+                  or u.get("uid") or u.get("uuid") or "")
         if not uid:
             raise AuthError("CloudBase did not return a user id")
         p = Principal(user_id=uid, email=str(u.get("email") or ""),
@@ -236,6 +238,45 @@ class CloudBaseVerifier:
         return p
 
 
+def strip_bearer(token: str) -> str:
+    """'Bearer x' -> 'x', and drop a '<tenant>/@@/' prefix the CN gateway may add."""
+    t = (token or "").strip()
+    if t.lower().startswith("bearer "):
+        t = t[7:].strip()
+    if "/@@/" in t:
+        t = t.split("/@@/", 1)[1]
+    return t
+
+
+class EcanSessionVerifier:
+    """The CN backend's 30-day HTTP session token (HS256, ECAN_JWT_SECRET),
+    minted by mintHttpSessionToken / registerWeChatSession. ``sub`` is the
+    account key the GraphQL backend and rag_* use (openid or user identifier);
+    it is case-sensitive."""
+    name = "ecan-session"
+    issuer = ""  # these tokens carry no iss
+
+    def __init__(self, secret: str, leeway: int = 60):
+        if not secret:
+            raise ValueError("ECAN_JWT_SECRET is required")
+        self._secret = secret
+        self.leeway = leeway
+
+    def verify(self, token: str) -> Principal:
+        try:
+            claims = jwt.decode(token, self._secret, algorithms=["HS256"], leeway=self.leeway,
+                                options={"require": ["sub", "exp"]})
+        except jwt.ExpiredSignatureError:
+            raise AuthError("eCan session expired; sign in again")
+        except jwt.PyJWTError as e:
+            raise AuthError(f"invalid eCan session token: {e}")
+        if claims.get("typ") == "end_user":
+            raise AuthError("end-user tokens cannot access the knowledge service")
+        sub = str(claims["sub"])
+        return Principal(user_id=sub, email=sub if "@" in sub else "", name=sub, source="ecan-session",
+                         claims=claims)
+
+
 class IdentityRegistry:
     """Routes a bearer token to the verifier for its issuer."""
 
@@ -245,17 +286,27 @@ class IdentityRegistry:
             self.add(v)
 
     def add(self, verifier) -> None:
+        if isinstance(verifier, EcanSessionVerifier):
+            self._session = verifier
+            return
         if isinstance(verifier, CloudBaseVerifier):
             self._introspect = getattr(self, "_introspect", []) + [verifier]
         self._by_issuer[verifier.issuer.rstrip("/")] = verifier
 
     def verify(self, token: str) -> Principal:
+        token = strip_bearer(token)
         if not token:
             raise AuthError("missing bearer token")
         try:
             iss = str(jwt.decode(token, options={"verify_signature": False}).get("iss") or "").rstrip("/")
+            alg = str(jwt.get_unverified_header(token).get("alg") or "")
         except jwt.PyJWTError:
-            iss = ""  # not a JWT we can route; an introspecting issuer may still know it
+            iss, alg = "", ""  # not a JWT we can route; an introspecting issuer may still know it
+        # An HS256 token without an issuer is an eCan session token. If it fails
+        # verification it is rejected; it never falls through to other checks.
+        session = getattr(self, "_session", None)
+        if session is not None and alg == "HS256" and not iss:
+            return session.verify(token)
         verifier = self._by_issuer.get(iss)
         if verifier is None:
             # CloudBase tokens are checked with CloudBase itself, whatever iss says.

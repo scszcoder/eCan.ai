@@ -38,8 +38,9 @@ def _file_hash(path: str) -> str:
 
 class KnowledgeService:
     def __init__(self, db_url: str, embedder: Optional[Embedder] = None, owner: str = "",
-                 job_listener: Optional[Callable[[Dict[str, Any]], None]] = None):
-        self.store = KSStore(db_url)
+                 job_listener: Optional[Callable[[Dict[str, Any]], None]] = None,
+                 db_schema: str = "", db_connect_args: Optional[Dict[str, Any]] = None):
+        self.store = KSStore(db_url, schema=db_schema, connect_args=db_connect_args)
         self.embedder: Embedder = embedder or HashingEmbedder()
         self.owner = owner
         self.indexes = IndexCache(lambda tid: self.store.load_index(tid)[:2])
@@ -104,17 +105,33 @@ class KnowledgeService:
         }
 
     # ---- embedding helpers ------------------------------------------------------
-    def _embed_chunks(self, chunks: List[Dict[str, Any]]):
+    def _tenant_owner(self, tenant_id: str) -> str:
+        for m in self.members.list_members(tenant_id):
+            if m["role"] == "owner" and m["status"] == "active":
+                return m["user_id"] or m["email"]
+        return tenant_id
+
+    def _billing(self, tenant_id: str):
+        from knowledge.ks.embedding import billing_owner
+        return billing_owner.set(self._tenant_owner(tenant_id))
+
+    def _embed_chunks(self, chunks: List[Dict[str, Any]], tenant_id: str = ""):
         if not chunks:
             return None
-        return self.embedder.embed([embed_text(c["doc_type"], c["text"], c.get("answer", "")) for c in chunks])
+        from knowledge.ks.embedding import billing_owner
+        token = self._billing(tenant_id) if tenant_id else None
+        try:
+            return self.embedder.embed([embed_text(c["doc_type"], c["text"], c.get("answer", "")) for c in chunks])
+        finally:
+            if token is not None:
+                billing_owner.reset(token)
 
     def _index_product(self, product: Dict[str, Any]) -> int:
         chunks = product_chunks(product)
         n = self.store.replace_chunks(
             {"kb_id": product["kb_id"], "tenant_id": product["tenant_id"], "product_id": product["id"],
              "category": product.get("category", "")},
-            chunks, self._embed_chunks(chunks), self.embedder.id)
+            chunks, self._embed_chunks(chunks, product["tenant_id"]), self.embedder.id)
         self.indexes.invalidate(product["tenant_id"])
         return n
 
@@ -124,7 +141,7 @@ class KnowledgeService:
         n = self.store.replace_chunks(
             {"kb_id": kb["id"], "tenant_id": policy["tenant_id"], "policy_id": policy["id"],
              "store_id": policy.get("store_id")},
-            chunks, self._embed_chunks(chunks), self.embedder.id)
+            chunks, self._embed_chunks(chunks, policy["tenant_id"]), self.embedder.id)
         self.indexes.invalidate(policy["tenant_id"])
         return n
 
@@ -288,7 +305,7 @@ class KnowledgeService:
         n = self.store.replace_chunks(
             {"kb_id": product["kb_id"], "tenant_id": product["tenant_id"], "product_id": product_id,
              "document_id": doc["id"], "category": product.get("category", "")},
-            chunks, self._embed_chunks(chunks), self.embedder.id)
+            chunks, self._embed_chunks(chunks, product["tenant_id"]), self.embedder.id)
         self.indexes.invalidate(product["tenant_id"])
         self.store.audit(self.owner or "local", "document.attach", doc["id"], {"product_id": product_id, "chunks": n})
         return {**doc, "chunk_count": n}
@@ -383,7 +400,12 @@ class KnowledgeService:
             total, batch = len(items), 64
             for i in range(0, total, batch):
                 part = items[i:i + batch]
-                vecs = self.embedder.embed([t for _, t in part])
+                from knowledge.ks.embedding import billing_owner
+                tok = self._billing(tid)
+                try:
+                    vecs = self.embedder.embed([t for _, t in part])
+                finally:
+                    billing_owner.reset(tok)
                 self.store.set_chunk_vectors([cid for cid, _ in part], vecs, self.embedder.id)
                 ctx.progress("embed", min(total, i + batch), total, "重新向量化 / re-embedding")
             for kb in self.store.list_kbs(tid):
@@ -406,8 +428,13 @@ class KnowledgeService:
             allowed = self.authz.readable_kbs(principal, tid)
             if not allowed:
                 raise PermissionDenied(f"{principal.user_id} may not read this tenant's knowledge")
-        r = self.retriever.retrieve(tid, query, store_ref=store_ref, platform_item_id=str(platform_item_id or ""),
-                                    product_id=product_id, k=k, allowed_kbs=allowed)
+        from knowledge.ks.embedding import billing_owner
+        tok = self._billing(tid)
+        try:
+            r = self.retriever.retrieve(tid, query, store_ref=store_ref, platform_item_id=str(platform_item_id or ""),
+                                        product_id=product_id, k=k, allowed_kbs=allowed)
+        finally:
+            billing_owner.reset(tok)
         out = r.to_dict()
         kb = self.catalog_kb(tid)
         out["plane"] = kb["plane"]

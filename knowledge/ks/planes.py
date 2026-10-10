@@ -168,6 +168,13 @@ def app_token() -> str:
         am = getattr(mw, "auth_manager", None)
         if am is None or not getattr(am, "signed_in", False):
             return ""
+        # CN: the 30-day eCan session token, the account key the CN backend uses.
+        if getattr(am, "_is_cn", False):
+            get_session = getattr(am, "_get_wechat_session_token", None)
+            if callable(get_session):
+                ok, session = get_session()
+                if ok and session:
+                    return session
         best = getattr(am, "_get_best_id_token", None)
         tok = best() if callable(best) else None
         if not tok:
