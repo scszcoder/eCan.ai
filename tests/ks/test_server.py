@@ -107,3 +107,33 @@ def test_unreachable_database_serves_a_degraded_health_report(monkeypatch, tmp_p
     r = client.get("/v1/health")
     assert r.status_code == 503 and r.json()["status"] == "degraded"
     assert "secretpw" not in r.text
+
+
+def test_two_instances_share_writes_through_the_index_version(tmp_path):
+    # Cloud functions run several instances, each with its own in-memory index.
+    url = f"sqlite:///{(tmp_path / 'shared.db').as_posix()}"
+    a = KnowledgeService(url, embedder=HashingEmbedder())
+    b = KnowledgeService(url, embedder=HashingEmbedder())
+    tid = a.tenant_id()
+    st = a.save_store({"name": "店"})
+    a.save_product({"code": "P1", "title": "纯棉T恤", "attributes": {"材质": "100%棉"},
+                    "listings": [{"store_id": st["id"], "platform_item_id": "1001"}]})
+    assert b.search("什么材质", platform_item_id="1001", tenant_id=tid)["product"]["code"] == "P1"
+    a.save_product({"code": "P1", "title": "纯棉T恤", "attributes": {"材质": "95%棉 5%氨纶"},
+                    "listings": [{"store_id": st["id"], "platform_item_id": "1001"}]})
+    facts = b.search("什么材质", platform_item_id="1001", tenant_id=tid)["facts"]
+    assert any(f["value"] == "95%棉 5%氨纶" for f in facts)
+
+
+def test_path_prefix_is_stripped():
+    from fastapi import FastAPI
+    from knowledge.ks.server import StripPrefix
+    inner = FastAPI()
+
+    @inner.get("/v1/health")
+    def h():
+        return {"ok": True}
+
+    c = TestClient(StripPrefix(inner, "/api/knowledge"))
+    assert c.get("/api/knowledge/v1/health").json() == {"ok": True}
+    assert c.get("/v1/health").json() == {"ok": True}

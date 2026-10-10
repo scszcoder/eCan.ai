@@ -423,6 +423,21 @@ def db_from_env(default_url: str) -> tuple:
     return (url or default_url), os.getenv("KS_DB_SCHEMA", ""), connect_args
 
 
+class StripPrefix:
+    """ASGI middleware: serve the app under KS_PATH_PREFIX (e.g. /api/knowledge)
+    when a gateway forwards the full path."""
+
+    def __init__(self, app, prefix: str):
+        self.app, self.prefix = app, prefix.rstrip("/")
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") in ("http", "websocket") and self.prefix:
+            path = scope.get("path", "")
+            if path == self.prefix or path.startswith(self.prefix + "/"):
+                scope = dict(scope, path=path[len(self.prefix):] or "/")
+        await self.app(scope, receive, send)
+
+
 def build_from_env() -> FastAPI:
     config = ServerConfig.from_env()
     os.makedirs(config.data_dir, exist_ok=True)
@@ -465,7 +480,9 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8790)
     args = ap.parse_args()
-    uvicorn.run(build_from_env(), host=args.host, port=args.port)
+    app = build_from_env()
+    prefix = os.getenv("KS_PATH_PREFIX", "")
+    uvicorn.run(StripPrefix(app, prefix) if prefix else app, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

@@ -95,7 +95,10 @@ class JobRunner:
                 with self._lock:
                     self._cancel.discard(job_id)
 
-        if run_inline:
+        # Cloud functions freeze between requests, so a background thread would
+        # stall: KS_INLINE_JOBS=1 runs the job inside the request instead.
+        import os
+        if run_inline or os.getenv("KS_INLINE_JOBS", "") in ("1", "true", "yes"):
             _run()
         else:
             threading.Thread(target=_run, name=f"ks-job-{job_id}", daemon=True).start()

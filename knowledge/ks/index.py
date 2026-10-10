@@ -140,27 +140,38 @@ class HybridIndex:
 
 
 class IndexCache:
-    """One HybridIndex per tenant, rebuilt lazily after writes."""
+    """One HybridIndex per tenant, rebuilt lazily after writes.
 
-    def __init__(self, loader: Callable[[str], tuple]):
+    With ``version``/``bump`` (backed by the database) a write in one process
+    makes every other process rebuild on its next search, so several server
+    instances never answer from a stale index."""
+
+    def __init__(self, loader: Callable[[str], tuple], version: Optional[Callable[[str], int]] = None,
+                 bump: Optional[Callable[[str], int]] = None):
         self._loader = loader
+        self._version, self._bump = version, bump
         self._lock = threading.Lock()
         self._indexes: Dict[str, HybridIndex] = {}
+        self._built_at: Dict[str, int] = {}
         self._dirty: set = set()
 
     def invalidate(self, tenant_id: str) -> None:
         with self._lock:
             self._dirty.add(tenant_id)
+        if self._bump is not None:
+            self._bump(tenant_id)
 
     def get(self, tenant_id: str) -> HybridIndex:
+        current = self._version(tenant_id) if self._version is not None else 0
         with self._lock:
             idx = self._indexes.get(tenant_id)
-            if idx is not None and tenant_id not in self._dirty:
+            if idx is not None and tenant_id not in self._dirty and self._built_at.get(tenant_id) == current:
                 return idx
         chunks, vectors = self._loader(tenant_id)
         idx = HybridIndex()
         idx.build(chunks, vectors)
         with self._lock:
             self._indexes[tenant_id] = idx
+            self._built_at[tenant_id] = current
             self._dirty.discard(tenant_id)
         return idx

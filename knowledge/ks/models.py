@@ -230,3 +230,13 @@ class GroupMember(Base):
     group_id = Column(String(40), ForeignKey("ks_group.id", ondelete="CASCADE"), nullable=False, index=True)
     membership_id = Column(String(40), ForeignKey("ks_membership.id", ondelete="CASCADE"), nullable=False, index=True)
     __table_args__ = (UniqueConstraint("group_id", "membership_id", name="uq_group_member"),)
+
+
+class IndexVersion(Base):
+    """Bumped on every write that changes a tenant's chunks. Each process keeps
+    its own in-memory index and rebuilds when the stored version moves, so
+    several server instances (cloud functions, replicas) stay consistent."""
+    __tablename__ = "ks_index_version"
+    tenant_id = Column(String(40), primary_key=True)
+    version = Column(Integer, nullable=False, default=0)
+

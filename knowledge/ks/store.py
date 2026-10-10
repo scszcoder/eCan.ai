@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from knowledge.ks.embedding import from_blob, to_blob
 from knowledge.ks.index import IndexedChunk
 from knowledge.ks.models import (
-    AuditLog, Base, Chunk, Document, Grant, Job, KnowledgeBase, Listing, Policy, Product, Store, Tenant,
+    AuditLog, Base, Chunk, Document, Grant, IndexVersion, Job, KnowledgeBase, Listing, Policy, Product, Store, Tenant,
 )
 
 PRODUCT_FIELDS = ("code", "title", "category", "brand", "attributes", "variants", "size_chart",
@@ -455,6 +455,22 @@ class KSStore:
                 c = s.get(Chunk, cid)
                 if c:
                     c.embedding, c.embedder_id = to_blob(v), embedder_id
+
+    # ---- index version (cross-process cache invalidation) -----------------------
+    def index_version(self, tenant_id: str) -> int:
+        with self.session() as s:
+            row = s.get(IndexVersion, tenant_id)
+            return row.version if row else 0
+
+    def bump_index_version(self, tenant_id: str) -> int:
+        with self.session(write=True) as s:
+            row = s.get(IndexVersion, tenant_id)
+            if row is None:
+                row = IndexVersion(tenant_id=tenant_id, version=0)
+                s.add(row)
+            row.version = (row.version or 0) + 1
+            s.flush()
+            return row.version
 
     # ---- stats -----------------------------------------------------------------
     def stats(self, tenant_id: str) -> Dict[str, Any]:

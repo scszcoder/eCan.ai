@@ -43,7 +43,8 @@ class KnowledgeService:
         self.store = KSStore(db_url, schema=db_schema, connect_args=db_connect_args)
         self.embedder: Embedder = embedder or HashingEmbedder()
         self.owner = owner
-        self.indexes = IndexCache(lambda tid: self.store.load_index(tid)[:2])
+        self.indexes = IndexCache(lambda tid: self.store.load_index(tid)[:2],
+                                  version=self.store.index_version, bump=self.store.bump_index_version)
         self.retriever = ProductRetriever(self.store, self.indexes, self.embedder)
         self.jobs = JobRunner(self.store, [job_listener] if job_listener else [])
         self._tenant_lock = threading.Lock()
