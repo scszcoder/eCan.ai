@@ -390,13 +390,13 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
               30px matches the visual baseline of a size="small" antd
               control; we override the size="default" controls too so a
               row of mixed-size fields aligns. */
-        [data-ec-scope="lightrag-ported"] .ant-input,
+        [data-ec-scope="lightrag-ported"] .ant-input:not(textarea),
         [data-ec-scope="lightrag-ported"] .ant-input-affix-wrapper,
         [data-ec-scope="lightrag-ported"] .ant-input-password,
         [data-ec-scope="lightrag-ported"] .ant-input-number,
         [data-ec-scope="lightrag-ported"] .ant-select-selector,
         [data-ec-scope="lightrag-ported"] .ant-picker,
-        [data-ec-scope="lightrag-ported"] .ec-input {
+        [data-ec-scope="lightrag-ported"] .ec-input:not(textarea) {
           /* height (not min-height) is needed: antd's default
              .ant-select-selector sets height: 40px which would
              inflate every control when min-height alone is used. */
