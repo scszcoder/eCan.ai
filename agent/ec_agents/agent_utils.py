@@ -519,6 +519,10 @@ def gen_new_agent(mainwin, ajs):
         browser_use_llm = mainwin.browser_use_llm or _session_proxy_browser_llm()
 
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=agent_skills, tasks=agent_tasks)
+        # Keep the machine pin: to_dict() reads it back, and the startup merge
+        # lets the cloud dict overwrite the local row -- without this every
+        # restart reset the pin to None and the agent started on every host.
+        new_agent.vehicle_id = ajs.get('vehicle_id') or None
         return new_agent
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
