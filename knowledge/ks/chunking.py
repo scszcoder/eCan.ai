@@ -62,6 +62,15 @@ def render_size_chart(size_chart: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def embed_text(doc_type: str, text: str, answer: str = "") -> str:
+    """What gets embedded for a chunk. FAQ entries embed question + answer
+    without the product title, so a paraphrased question still matches; the
+    product scope comes from the filter, not from the vector."""
+    if doc_type in ("faq", "attribute"):
+        return f"{text.split('】', 1)[-1]}\n{answer}".strip()
+    return text
+
+
 def product_header(p: Dict[str, Any]) -> str:
     return f"【{p.get('title', '')}】"
 
@@ -78,6 +87,11 @@ def product_chunks(p: Dict[str, Any]) -> List[Dict[str, Any]]:
         "卖点:" + "；".join(p.get("selling_points") or []) if p.get("selling_points") else "",
     ])
     out = [{"doc_type": "summary", "text": summary}]
+    # One chunk per attribute so a question can match a fact by meaning
+    # ("几岁能玩" -> 适用年龄), not only by the attribute's name.
+    for k, v in attrs.items():
+        if str(v).strip():
+            out.append({"doc_type": "attribute", "text": f"{head}{k}:{v}", "answer": ""})
     for qa in p.get("faq") or []:
         q, a = clean_text(qa.get("q")), clean_text(qa.get("a"))
         if q and a:

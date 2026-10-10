@@ -30,6 +30,26 @@ class Embedder(Protocol):
         ...
 
 
+def embed_query(embedder, text: str) -> np.ndarray:
+    """Query vector: some models (Qwen3-Embedding) want an instruction on
+    queries but not on documents. Trailing punctuation (？ ! 。) is dropped:
+    it carries no meaning but measurably shifts neural similarities."""
+    text = (text or "").strip().rstrip("?？!！。.~～ ") or text
+    fn = getattr(embedder, "embed_query", None)
+    return fn(text) if callable(fn) else embedder.embed([text])[0]
+
+
+# Retrieval instruction for instruction-tuned embedding models (Qwen3-Embedding,
+# gte-Qwen, e5-instruct): the query is prefixed, documents are not.
+QUERY_INSTRUCTION = ("Given a customer's question to an online store, retrieve the product facts, FAQ answers "
+                     "and store policies that answer it")
+
+
+def wants_instruction(model: str) -> bool:
+    m = (model or "").lower()
+    return any(x in m for x in ("qwen3-embedding", "gte-qwen", "e5-mistral", "instruct"))
+
+
 def _normalise(mat: np.ndarray) -> np.ndarray:
     mat = np.asarray(mat, dtype=np.float32)
     if mat.ndim == 1:
@@ -119,9 +139,11 @@ class OpenAICompatibleEmbedder:
     TEI on the private GPU server, or a cloud provider (DashScope, OpenAI)."""
 
     def __init__(self, base_url: str, model: str, api_key: str = "", batch_size: int = 32,
-                 timeout: float = 60.0, verify_tls: bool = True):
+                 timeout: float = 60.0, verify_tls: bool = True, query_instruction: Optional[str] = None):
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.query_instruction = QUERY_INSTRUCTION if query_instruction is None and wants_instruction(model) \
+            else (query_instruction or "")
         self.api_key = api_key
         self.batch_size = batch_size
         self.timeout = timeout
@@ -145,3 +167,8 @@ class OpenAICompatibleEmbedder:
         if mat.size:
             self.dim = mat.shape[1]
         return mat
+
+    def embed_query(self, text: str) -> np.ndarray:
+        if self.query_instruction:
+            text = f"Instruct: {self.query_instruction}\nQuery:{text}"
+        return self.embed([text])[0]

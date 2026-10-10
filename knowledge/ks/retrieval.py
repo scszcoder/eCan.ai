@@ -24,21 +24,42 @@ from knowledge.ks.text import (
 # Cosine thresholds differ by embedder family: the hashing embedder's scores
 # are lexical and run lower than a neural model's.
 FAQ_DIRECT = {"hashing": 0.62, "neural": 0.80}
+# Below FAQ_DIRECT a FAQ is only "related": measured on Qwen3-Embedding-8B, true
+# paraphrases (泡茶 ~ 装热茶 0.69) and unrelated questions (放冰箱 ~ 装热茶 0.69)
+# overlap in 0.65-0.80, so the answering LLM gets it labelled as a reference
+# and decides. A reranker would separate them better.
+FAQ_RELATED = {"hashing": 0.45, "neural": 0.65}
 RELEVANT = {"hashing": 0.18, "neural": 0.45}
+# Semantic matches for attribute facts and store rules when keyword detection
+# finds none (measured on Qwen3-Embedding-8B; the hashing embedder relies on
+# shared words instead).
+ATTR_SEMANTIC = {"hashing": 0.99, "neural": 0.63}
+POLICY_SEMANTIC = {"hashing": 0.99, "neural": 0.60}
 
 
 def _faq_question(h: Hit) -> str:
     return h.chunk.text.split("】", 1)[-1]
 
 
-def _faq_relevance(h: Hit, q_terms: List[str]) -> float:
+def _faq_relevance(h: Hit, q_terms: List[str], family: str = "hashing") -> float:
     """FAQ relevance judged on the question only: the chunk text also carries
-    the product title, which must not make every FAQ of that product match."""
+    the product title, which must not make every FAQ of that product match.
+    A neural embedder already embeds question + answer without the title, so
+    its similarity is used as is (it is what catches paraphrases)."""
+    if family == "neural":
+        return max(h.cosine, 0.7 * _question_coverage(h, q_terms))
     if not q_terms:
         return h.cosine
     q_tokens = set(tokenize(_faq_question(h)))
     coverage = sum(1 for t in q_terms if t in q_tokens) / len(q_terms)
     return max(h.cosine, 0.7 * coverage) if coverage > 0 else min(h.cosine, 0.3)
+
+
+def _question_coverage(h: Hit, q_terms: List[str]) -> float:
+    if not q_terms:
+        return 0.0
+    q_tokens = set(tokenize(_faq_question(h)))
+    return sum(1 for t in q_terms if t in q_tokens) / len(q_terms)
 
 
 def _family(embedder_id: str) -> str:
@@ -83,7 +104,8 @@ class Retrieval:
             if self.facts:
                 parts.append("[商品信息] " + "；".join(f"{f['key']}:{f['value']}" for f in self.facts))
         for faq in self.faq[:2]:
-            parts.append(f"[常见问题] 问:{faq['question']} 答:{faq['answer']}")
+            label = "常见问题" if faq.get("match") == "direct" else "相关问题·仅供参考，确认与顾客问题一致再使用"
+            parts.append(f"[{label}] 问:{faq['question']} 答:{faq['answer']}")
         for pol in self.policies:
             scope = "店铺规则" if not pol.get("inherited") else "商家通用规则"
             parts.append(f"[{scope}·{POLICY_TOPIC_LABELS.get(pol['topic'], pol['topic'])}] {pol['text']}")
@@ -171,7 +193,8 @@ class ProductRetriever:
         index = self.indexes.get(tenant_id)
         qvec = None
         if len(index):
-            qvec = self.embedder.embed([query])[0]
+            from knowledge.ks.embedding import embed_query
+            qvec = embed_query(self.embedder, query)
         t = mark("embed_query", t)
 
         pid = product["id"] if product else None
@@ -183,20 +206,45 @@ class ProductRetriever:
             if allowed_kbs is not None and c.kb_id not in allowed_kbs:
                 return False
             if c.doc_type == "policy":
-                return False  # policies come from the structured lookup above
+                # Only the store's effective rules (override, else default),
+                # searched by meaning when no topic keyword matched and there
+                # is no product card: with a card, product questions ("支持降噪
+                # 吗") resemble rule text ("支持七天无理由退货") too closely.
+                return not topics and not pid and c.policy_id in effective_policy_ids
             if pid:
                 return c.product_id == pid or c.product_id is None
             if store_products is not None and c.product_id is not None:
                 return c.product_id in store_products
             return True
 
+        effective_policy_ids = {p["id"] for p in policies.values()}
         hits: List[Hit] = index.search(query, qvec, in_scope, k=20) if len(index) else []
+        # Attribute facts matched by meaning (the record stays the source).
+        if product:
+            have = {f["key"] for f in r.facts}
+            for h in hits:
+                if h.chunk.doc_type == "attribute" and h.chunk.product_id == product["id"] \
+                        and h.cosine >= ATTR_SEMANTIC[fam]:
+                    key, _, value = h.chunk.text.split("】", 1)[-1].partition(":")
+                    if key not in have and key in (product.get("attributes") or {}):
+                        r.facts.append({"key": key, "value": str(product["attributes"][key]), "source": "attribute"})
+                        have.add(key)
+        # Store rules matched by meaning ("退回去邮费谁出" -> returns).
+        if not topics and not product:
+            by_id = {p["id"]: p for p in policies.values()}
+            for h in hits:
+                if h.chunk.doc_type == "policy" and h.cosine >= POLICY_SEMANTIC[fam]:
+                    pol = by_id.get(h.chunk.policy_id)
+                    if pol and pol not in r.policies:
+                        r.policies.append(pol)
+        hits = [h for h in hits if h.chunk.doc_type not in ("attribute", "policy")]
         faq_hits = [h for h in hits if h.chunk.doc_type == "faq"]
         q_terms = signal_terms(tokenize(query))
-        faq_scored = sorted(((h, _faq_relevance(h, q_terms)) for h in faq_hits), key=lambda x: -x[1])
-        faq_scored = [(h, sc) for h, sc in faq_scored if sc >= RELEVANT[fam]]
-        r.faq = [{"question": _faq_question(h), "answer": h.chunk.answer,
-                  "score": round(sc, 3), "product_id": h.chunk.product_id} for h, sc in faq_scored[:3]]
+        faq_scored = sorted(((h, _faq_relevance(h, q_terms, fam)) for h in faq_hits), key=lambda x: -x[1])
+        faq_scored = [(h, sc) for h, sc in faq_scored if sc >= FAQ_RELATED[fam]]
+        r.faq = [{"question": _faq_question(h), "answer": h.chunk.answer, "score": round(sc, 3),
+                  "match": "direct" if sc >= FAQ_DIRECT[fam] else "related",
+                  "product_id": h.chunk.product_id} for h, sc in faq_scored[:3]]
         other = [h for h in hits if h.chunk.doc_type != "faq"]
         r.chunks = [{"text": h.chunk.text, "doc_type": h.chunk.doc_type, "product_id": h.chunk.product_id,
                      "score": round(h.relevance, 3), "keyword_score": round(h.bm25, 2),
@@ -218,7 +266,11 @@ class ProductRetriever:
 
         # ---- decide tier + confidence ------------------------------------------
         top_faq = faq_scored[0][1] if faq_scored else 0.0
-        top_chunk = max((h.relevance for h in other), default=0.0)
+        # With a product card, the product's summary vector resembles every
+        # question about that product, so it only counts through the words the
+        # question shares with it (an attribute or selling point it names).
+        top_chunk = max((0.7 * h.coverage if product and h.chunk.doc_type == "summary" else h.relevance
+                         for h in other), default=0.0)
         if product and r.facts:
             r.tier, r.confidence = 0, 0.9
         elif top_faq >= FAQ_DIRECT[fam]:
@@ -226,6 +278,9 @@ class ProductRetriever:
         elif top_chunk >= RELEVANT[fam] or r.policies:
             r.tier = 2 if product else 3
             r.confidence = max(0.75 if r.policies else 0.0, min(0.85, 0.35 + top_chunk))
+        elif top_faq >= FAQ_RELATED[fam]:
+            r.tier = 1
+            r.confidence = 0.55  # a related FAQ only; the answering LLM judges whether it applies
         else:
             r.tier = 2 if product else 3
             r.confidence = min(0.4, top_chunk)

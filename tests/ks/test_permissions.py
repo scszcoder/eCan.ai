@@ -202,3 +202,34 @@ def test_cross_tenant_ids_are_rejected(svc, team, shop):
 def test_audit_records_admin_actions(svc, team):
     actions = [a["action"] for a in svc.list_audit()]
     assert "member.save" in actions
+
+
+# ---- CloudBase (CN app sign-in) ------------------------------------------------------
+class _Resp:
+    def __init__(self, code, body=None):
+        self.status_code, self._body = code, body or {}
+
+    def json(self):
+        return self._body
+
+
+def test_cloudbase_tokens_are_checked_with_cloudbase_and_cached(monkeypatch):
+    from knowledge.ks.identity import CloudBaseVerifier
+    calls = []
+
+    def fake_get(url, timeout=None, headers=None):
+        calls.append(headers["Authorization"])
+        if headers["Authorization"].endswith("good"):
+            return _Resp(200, {"sub": "cb-user-1", "email": "Shop@QQ.com", "name": "店主"})
+        return _Resp(401)
+
+    import httpx
+    monkeypatch.setattr(httpx, "get", fake_get)
+    v = CloudBaseVerifier("sccb0-test")
+    reg = IdentityRegistry([v])
+    p = reg.verify("opaque-good")  # not even a JWT: still checked with CloudBase
+    assert p.user_id == "cb-user-1" and p.email_lc == "shop@qq.com" and p.source == "cloudbase"
+    reg.verify("opaque-good")
+    assert len(calls) == 1  # cached
+    with pytest.raises(AuthError):
+        reg.verify("opaque-bad")

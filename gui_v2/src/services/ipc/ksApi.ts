@@ -245,6 +245,14 @@ export const ksApi = {
   listAppStores: () => call<{ store_id: string; name: string; platform: string }[]>('ks.listAppStores'),
   syncAppStores: () => call<{ created: KSStore[] }>('ks.syncAppStores'),
 
+  getEmbedder: () => call<{ mode: 'app' | 'openai'; base_url: string; model: string; verify_tls: boolean;
+    has_api_key: boolean; active_id: string }>('ks.getEmbedder'),
+  testEmbedder: (p: { base_url: string; model: string; api_key?: string; verify_tls?: boolean }) =>
+    call<{ dim: number; ms: number; related: number; unrelated: number; separates: boolean; instruction: boolean }>(
+      'ks.testEmbedder', p, 120000),
+  setEmbedder: (p: { mode: 'app' | 'openai'; base_url?: string; model?: string; api_key?: string; verify_tls?: boolean }) =>
+    call('ks.setEmbedder', p),
+
   lanStatus: () => call<KSLanStatus>('ks.lanStatus'),
   lanSetSharing: (enabled: boolean, port?: number) => call<KSLanStatus>('ks.lanSetSharing', { enabled, port }, 30000),
   lanNewCode: () => call<{ code: string; expires_in: number }>('ks.lanNewCode'),

@@ -14,6 +14,7 @@ import PoliciesPanel from './PoliciesPanel';
 import TestPanel from './TestPanel';
 import ConnectionsPanel from './ConnectionsPanel';
 import AccessPanel from './AccessPanel';
+import EmbedderModal from './EmbedderModal';
 import JobProgress from './JobProgress';
 import { useJob } from './useJob';
 
@@ -100,6 +101,7 @@ const ProductKnowledgeTab: React.FC = () => {
   const [draft, setDraft] = useState<{ product: KSProduct; attachPath?: string } | null>(null);
   const [jobsKey, setJobsKey] = useState(0);
   const [lan, setLan] = useState<KSLanStatus | null>(null);
+  const [embedderOpen, setEmbedderOpen] = useState(false);
   const reindexJob = useJob(job => {
     if (job.status === 'succeeded') message.success(job.message);
     refresh();
@@ -134,7 +136,8 @@ const ProductKnowledgeTab: React.FC = () => {
         />
       )}
       {emb?.is_fallback && (
-        <Alert type="info" showIcon style={{ marginBottom: 12 }} message={k('fallbackEmbedder')} description={k('fallbackEmbedderHint')} />
+        <Alert type="info" showIcon style={{ marginBottom: 12 }} message={k('fallbackEmbedder')} description={k('fallbackEmbedderHint')}
+               action={<Button size="small" onClick={() => setEmbedderOpen(true)}>{k('embedder.choose')}</Button>} />
       )}
       {reindexJob.job && <Card size="small" style={{ marginBottom: 12 }}><JobProgress job={reindexJob.job} /></Card>}
 
@@ -215,6 +218,7 @@ const ProductKnowledgeTab: React.FC = () => {
             <Tooltip title={k(`plane.${kb.plane}Hint`)}><Tag color={kb.plane === 'private' ? 'red' : kb.plane === 'public' ? 'blue' : 'green'}>{k(`plane.${kb.plane}`)}</Tag></Tooltip>
             <Tag>{k(`profile.${kb.index_profile}`, { defaultValue: kb.index_profile })}</Tag>
             <Text type="secondary" style={{ fontSize: 12 }}>{k('embedderLabel')}: {emb?.id}</Text>
+            <Button size="small" type="link" onClick={() => setEmbedderOpen(true)}>{k('embedder.change')}</Button>
           </Space>
         ))}
       </Card>
@@ -256,6 +260,7 @@ const ProductKnowledgeTab: React.FC = () => {
         ]}
       />
       <StoreModal store={editingStore} onClose={() => setEditingStore(null)} onSaved={changed} />
+      <EmbedderModal open={embedderOpen} onClose={() => setEmbedderOpen(false)} onSaved={changed} />
     </div>
   );
 };

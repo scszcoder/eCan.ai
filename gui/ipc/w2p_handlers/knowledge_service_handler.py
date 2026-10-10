@@ -488,3 +488,45 @@ def handle_lan_test_source(request: IPCRequest, params: Optional[Dict[str, Any]]
         r.raise_for_status()
         return {'ok': True, 'ms': ms, 'detail': r.json()['tenants'][0]['name']}
     return _call(request, 'KS_LAN_TEST_ERROR', run)
+
+
+# ---- product-knowledge embedding model ---------------------------------------------------
+@IPCHandlerRegistry.handler('ks.getEmbedder')
+def handle_get_embedder(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    def run():
+        from knowledge.ks.service import embedder_config
+        cfg = embedder_config()
+        cfg['active_id'] = _svc().embedder.id
+        return cfg
+    return _call(request, 'KS_GET_EMBEDDER_ERROR', run)
+
+
+@IPCHandlerRegistry.background_handler('ks.testEmbedder')
+def handle_test_embedder(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Embed two related and one unrelated sentence; report dimension, latency, separation."""
+    def run():
+        import time as _t
+        from knowledge.ks.embedding import OpenAICompatibleEmbedder, embed_query
+        from knowledge.ks.service import _embed_key
+        p = _p(params)
+        _require(p, 'base_url', 'model')
+        key = p.get('api_key') if p.get('api_key') is not None else _embed_key()
+        e = OpenAICompatibleEmbedder(p['base_url'], p['model'], key or '', verify_tls=p.get('verify_tls', True))
+        t0 = _t.perf_counter()
+        docs = e.embed(['会缩水吗\n首次洗涤可能轻微缩水约1-2%', '下单后48小时内发货，默认中通快递'])
+        q = embed_query(e, '洗完会变小吗')
+        ms = round((_t.perf_counter() - t0) * 1000)
+        related, unrelated = float(docs[0] @ q), float(docs[1] @ q)
+        return {'dim': int(docs.shape[1]), 'ms': ms, 'related': round(related, 3), 'unrelated': round(unrelated, 3),
+                'separates': related > unrelated + 0.1, 'instruction': bool(e.query_instruction)}
+    return _call(request, 'KS_TEST_EMBEDDER_ERROR', run)
+
+
+@IPCHandlerRegistry.handler('ks.setEmbedder')
+def handle_set_embedder(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    def run():
+        from knowledge.ks.service import save_embedder_config
+        p = _p(params)
+        return save_embedder_config(p.get('mode', 'app'), p.get('base_url', ''), p.get('model', ''),
+                                    p.get('api_key'), p.get('verify_tls', True))
+    return _call(request, 'KS_SET_EMBEDDER_ERROR', run)

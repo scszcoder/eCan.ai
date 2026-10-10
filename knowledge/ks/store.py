@@ -427,7 +427,7 @@ class KSStore:
             for c in rows:
                 v = from_blob(c.embedding)
                 chunks.append(IndexedChunk(c.id, c.tenant_id, c.kb_id, c.product_id, c.store_id, c.doc_type,
-                                           c.text, c.answer or "", c.category or ""))
+                                           c.text, c.answer or "", c.category or "", c.policy_id))
                 embedders.add(c.embedder_id or "")
                 if v is not None and dim is None:
                     dim = v.shape[0]
@@ -438,9 +438,10 @@ class KSStore:
                 return chunks, None, embedders  # mixed/missing vectors: keyword-only until re-indexed
             return chunks, np.vstack(vecs), embedders
 
-    def chunk_texts_for_reindex(self, tenant_id: str) -> List[Tuple[str, str]]:
+    def chunk_texts_for_reindex(self, tenant_id: str) -> List[Tuple[str, str, str, str]]:
         with self.session() as s:
-            return [(c.id, c.text) for c in s.scalars(select(Chunk).where(Chunk.tenant_id == tenant_id))]
+            return [(c.id, c.doc_type, c.text, c.answer or "")
+                    for c in s.scalars(select(Chunk).where(Chunk.tenant_id == tenant_id))]
 
     def set_chunk_vectors(self, ids: Sequence[str], vectors: np.ndarray, embedder_id: str) -> None:
         with self.session(write=True) as s:

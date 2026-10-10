@@ -13,8 +13,8 @@ Configuration (environment):
   KS_PLANE                private | public            (reported to clients; tags results)
   KS_DATA_DIR             uploads and JWKS cache        (default ./ks_data)
   KS_COGNITO_REGION / KS_COGNITO_POOL_ID / KS_COGNITO_CLIENT_ID   accept Cognito tokens
-  KS_OIDC_ISSUER / KS_OIDC_AUDIENCE / KS_OIDC_JWKS_URL            accept an OIDC provider
-                                                                   (CloudBase, Azure AD, Keycloak...)
+  KS_OIDC_ISSUER / KS_OIDC_AUDIENCE / KS_OIDC_JWKS_URL            accept an OIDC provider (Azure AD, Keycloak...)
+  KS_CLOUDBASE_ENV_ID     accept the CN app's CloudBase sign-in (checked with CloudBase)
   KS_LOCAL_SECRET         enables local accounts (signing secret)
   KS_BOOTSTRAP_ADMIN      email:password of the first owner (local login), on-prem bootstrap
   KS_BOOTSTRAP_TENANT     name of the tenant created for the bootstrap admin
@@ -37,7 +37,9 @@ from pydantic import BaseModel
 
 from knowledge.ks.authz import PermissionDenied
 from knowledge.ks.embedding import HashingEmbedder, OpenAICompatibleEmbedder
-from knowledge.ks.identity import AuthError, IdentityRegistry, JWKSVerifier, LocalVerifier, Principal
+from knowledge.ks.identity import (
+    AuthError, CloudBaseVerifier, IdentityRegistry, JWKSVerifier, LocalVerifier, Principal,
+)
 from knowledge.ks.models import new_id
 from knowledge.ks.service import KnowledgeService
 
@@ -76,6 +78,8 @@ def registry_from_env(data_dir: str) -> tuple:
         reg.add(JWKSVerifier("oidc", os.environ["KS_OIDC_ISSUER"], jwks_url=os.getenv("KS_OIDC_JWKS_URL"),
                              audience=os.getenv("KS_OIDC_AUDIENCE"),
                              cache_path=os.path.join(data_dir, "jwks_oidc.json")))
+    if os.getenv("KS_CLOUDBASE_ENV_ID"):
+        reg.add(CloudBaseVerifier(os.environ["KS_CLOUDBASE_ENV_ID"]))
     if os.getenv("KS_LOCAL_SECRET") or os.getenv("KS_BOOTSTRAP_ADMIN"):
         local = LocalVerifier(secret=os.getenv("KS_LOCAL_SECRET") or None)
         reg.add(local)

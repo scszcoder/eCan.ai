@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from knowledge.ks import catalog_import, doc_extract
 from knowledge.ks.authz import Authorizer, PermissionDenied
-from knowledge.ks.chunking import document_chunks, policy_chunks, product_chunks
+from knowledge.ks.chunking import document_chunks, embed_text, policy_chunks, product_chunks
 from knowledge.ks.embedding import Embedder, HashingEmbedder
 from knowledge.ks.identity import Principal, local_principal
 from knowledge.ks.index import IndexCache
@@ -107,7 +107,7 @@ class KnowledgeService:
     def _embed_chunks(self, chunks: List[Dict[str, Any]]):
         if not chunks:
             return None
-        return self.embedder.embed([c["text"] for c in chunks])
+        return self.embedder.embed([embed_text(c["doc_type"], c["text"], c.get("answer", "")) for c in chunks])
 
     def _index_product(self, product: Dict[str, Any]) -> int:
         chunks = product_chunks(product)
@@ -379,7 +379,7 @@ class KnowledgeService:
         self._admin(principal, tid)
 
         def work(ctx: JobContext) -> Dict[str, Any]:
-            items = self.store.chunk_texts_for_reindex(tid)
+            items = [(cid, embed_text(dt, text, ans)) for cid, dt, text, ans in self.store.chunk_texts_for_reindex(tid)]
             total, batch = len(items), 64
             for i in range(0, total, batch):
                 part = items[i:i + batch]
@@ -523,9 +523,67 @@ _services: Dict[str, KnowledgeService] = {}
 _services_lock = threading.Lock()
 
 
+EMBEDDER_KEY = "ks_embedding_api_key"
+
+
+def embedder_config(main_window=None) -> Dict[str, Any]:
+    """The product-knowledge embedding model: the app default, or an
+    OpenAI-compatible endpoint (LM Studio, vLLM on the private server, cloud)."""
+    import json
+    path = os.path.join(_ks_folder(main_window), "embedder.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        cfg = {}
+    return {"mode": cfg.get("mode", "app"), "base_url": cfg.get("base_url", ""), "model": cfg.get("model", ""),
+            "verify_tls": bool(cfg.get("verify_tls", True)), "has_api_key": bool(_embed_key(main_window))}
+
+
+def _embed_key(main_window=None) -> str:
+    try:
+        from utils.env.secure_store import secure_store
+        return secure_store.get(EMBEDDER_KEY) or ""
+    except Exception:
+        return ""
+
+
+def save_embedder_config(mode: str, base_url: str = "", model: str = "", api_key: Optional[str] = None,
+                         verify_tls: bool = True, main_window=None) -> Dict[str, Any]:
+    import json
+    if mode not in ("app", "openai"):
+        raise ValueError("mode must be app or openai")
+    if mode == "openai":
+        if not base_url.startswith(("http://", "https://")) or not model.strip():
+            raise ValueError("an http(s) address and a model name are required")
+    folder = _ks_folder(main_window)
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "embedder.json"), "w", encoding="utf-8") as f:
+        json.dump({"mode": mode, "base_url": base_url.strip(), "model": model.strip(), "verify_tls": verify_tls}, f)
+    if api_key is not None:
+        try:
+            from utils.env.secure_store import secure_store
+            if api_key:
+                secure_store.set(EMBEDDER_KEY, api_key)
+            else:
+                secure_store.delete(EMBEDDER_KEY)
+        except Exception as e:
+            logger.warning(f"[KS] could not store the embedding API key securely: {e}")
+    reset_services()  # next get_service() uses the new model; the KS shows "re-index needed"
+    return embedder_config(main_window)
+
+
+def _configured_embedder(main_window=None):
+    from knowledge.ks.embedding import OpenAICompatibleEmbedder, resolve_app_embedder
+    cfg = embedder_config(main_window)
+    if cfg["mode"] == "openai" and cfg["base_url"] and cfg["model"]:
+        return OpenAICompatibleEmbedder(cfg["base_url"], cfg["model"], _embed_key(main_window),
+                                        verify_tls=cfg["verify_tls"])
+    return resolve_app_embedder(main_window)
+
+
 def get_service(main_window=None) -> KnowledgeService:
     """The signed-in user's KnowledgeService (SQLite in their data dir)."""
-    from knowledge.ks.embedding import resolve_app_embedder
     if main_window is None:
         from app_context import AppContext
         main_window = AppContext.get_main_window()
@@ -540,7 +598,7 @@ def get_service(main_window=None) -> KnowledgeService:
             folder = os.path.join(base, "knowledge_service")
             os.makedirs(folder, exist_ok=True)
             url = "sqlite:///" + os.path.join(folder, "ks.db").replace("\\", "/")
-            svc = KnowledgeService(url, embedder=resolve_app_embedder(main_window), owner=user,
+            svc = KnowledgeService(url, embedder=_configured_embedder(main_window), owner=user,
                                    job_listener=_broadcast_job)
             _services[key] = svc
             logger.info(f"[KS] Knowledge Service ready at {url} (embedder={svc.embedder.id})")

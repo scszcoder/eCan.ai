@@ -33,6 +33,7 @@ class IndexedChunk:
     text: str
     answer: str = ""
     category: str = ""
+    policy_id: Optional[str] = None
 
 
 @dataclass

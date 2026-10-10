@@ -18,7 +18,7 @@ Reference hardware: 2 × RTX PRO 5500 (84 GB each), a strong CPU, NVIDIA driver 
 | GPU | service | default model (benchmark before go-live) |
 |---|---|---|
 | 0 | `llm` | 30B-class instruct, FP8 (about 32 GB of weights, the rest is KV cache for concurrency) |
-| 1 | `embed`, `rerank`, optional `vlm` | 4B-class embedding and reranker, about 25 % of the card each; VLM on the remainder |
+| 1 | `embed`, `rerank`, optional `vlm` | Qwen3-Embedding-8B (about 30 % of the card), a 4B-class reranker (20 %), VLM on the remainder |
 
 ### Offline install (no internet on the server)
 

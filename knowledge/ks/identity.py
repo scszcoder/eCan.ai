@@ -180,6 +180,62 @@ class LocalVerifier:
                          source="local", claims=claims)
 
 
+class CloudBaseVerifier:
+    """Tencent CloudBase sign-in (CN app). CloudBase does not publish a JWKS
+    for its access tokens, so each token is introspected with the issuer
+    (GET /auth/v1/user/me) and the result is cached until the token expires
+    (at most ``cache_s``)."""
+    name = "cloudbase"
+
+    def __init__(self, env_id: str, cache_s: int = 300, timeout: float = 8.0, base_url: Optional[str] = None):
+        self.env_id = env_id
+        self.base_url = (base_url or f"https://{env_id}.api.tcloudbasegateway.com").rstrip("/")
+        self.issuer = self.base_url
+        self.cache_s = cache_s
+        self.timeout = timeout
+        self._cache: Dict[str, Any] = {}
+        self._lock = threading.Lock()
+
+    def _expiry(self, token: str) -> float:
+        try:
+            exp = jwt.decode(token, options={"verify_signature": False}).get("exp")
+            exp = float(exp) / (1000 if exp and float(exp) > 1e11 else 1) if exp else 0
+        except Exception:
+            exp = 0
+        cap = time.time() + self.cache_s
+        return min(exp, cap) if exp else cap
+
+    def verify(self, token: str) -> Principal:
+        import hashlib
+        key = hashlib.sha256(token.encode()).hexdigest()
+        with self._lock:
+            hit = self._cache.get(key)
+            if hit and hit[1] > time.time():
+                return hit[0]
+        import httpx
+        try:
+            r = httpx.get(f"{self.base_url}/auth/v1/user/me", timeout=self.timeout,
+                          headers={"Authorization": f"Bearer {token}"})
+        except Exception as e:
+            raise AuthError(f"cannot reach CloudBase to check the sign-in: {e}")
+        if r.status_code in (401, 403):
+            raise AuthError("CloudBase sign-in is invalid or expired")
+        if r.status_code >= 400:
+            raise AuthError(f"CloudBase sign-in check failed (HTTP {r.status_code})")
+        u = r.json() or {}
+        uid = str(u.get("sub") or u.get("uid") or u.get("user_id") or u.get("id") or "")
+        if not uid:
+            raise AuthError("CloudBase did not return a user id")
+        p = Principal(user_id=uid, email=str(u.get("email") or ""),
+                      name=str(u.get("name") or u.get("nickname") or u.get("username") or u.get("phone_number") or ""),
+                      source="cloudbase", claims=u)
+        with self._lock:
+            if len(self._cache) > 5000:
+                self._cache.clear()
+            self._cache[key] = (p, self._expiry(token))
+        return p
+
+
 class IdentityRegistry:
     """Routes a bearer token to the verifier for its issuer."""
 
@@ -189,6 +245,8 @@ class IdentityRegistry:
             self.add(v)
 
     def add(self, verifier) -> None:
+        if isinstance(verifier, CloudBaseVerifier):
+            self._introspect = getattr(self, "_introspect", []) + [verifier]
         self._by_issuer[verifier.issuer.rstrip("/")] = verifier
 
     def verify(self, token: str) -> Principal:
@@ -196,9 +254,12 @@ class IdentityRegistry:
             raise AuthError("missing bearer token")
         try:
             iss = str(jwt.decode(token, options={"verify_signature": False}).get("iss") or "").rstrip("/")
-        except jwt.PyJWTError as e:
-            raise AuthError(f"malformed token: {e}")
+        except jwt.PyJWTError:
+            iss = ""  # not a JWT we can route; an introspecting issuer may still know it
         verifier = self._by_issuer.get(iss)
         if verifier is None:
+            # CloudBase tokens are checked with CloudBase itself, whatever iss says.
+            for v in getattr(self, "_introspect", []):
+                return v.verify(token)
             raise AuthError(f"tokens from {iss or 'unknown issuer'} are not accepted by this server")
         return verifier.verify(token)
