@@ -91,3 +91,12 @@ def test_certificate_failure_says_how_to_fix(monkeypatch):
     with pytest.raises(sp.ServiceProbeError) as exc:
         sp._post("https://10.0.0.5:8000/v1/chat/completions", {}, verify_ssl=True)
     assert exc.value.category == "tls" and "SSL_VERIFY" in str(exc.value)
+
+
+def test_get_settings_is_registered_to_its_handler():
+    """2026-10-10: a helper inserted under the decorator became the
+    lightrag.getSettings handler ('takes 0 positional arguments')."""
+    from gui.ipc.registry import IPCHandlerRegistry
+    import gui.ipc.w2p_handlers.lightrag_handler   # noqa: F401 -- registers the handlers
+    handler, _kind = IPCHandlerRegistry.get_handler("lightrag.getSettings")
+    assert getattr(handler, "__name__", "") == "handle_get_settings"

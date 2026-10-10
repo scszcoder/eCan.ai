@@ -651,15 +651,23 @@ class MainWindow:
                 logger.debug(f"[MainWindow] could not advertise agent: {e}")
                 continue
 
-        # LAN zeroconf
+        # LAN zeroconf. Off the GUI thread: register_service probes the network
+        # (~1.6 s per agent), so 30 agents froze the whole app for ~50 s at
+        # startup (2026-10-10). update_agents holds its own lock; each thread
+        # publishes the NEWEST list, so overlapping refreshes can't leave an
+        # older one in place.
         if svc is not None:
-            try:
-                svc.update_agents(lan_regs)
-                logger.info(
-                    f"[MainWindow] 🌐 LAN discovery advertising {len(lan_regs)} agent(s)"
-                )
-            except Exception as e:
-                logger.warning(f"[MainWindow] LAN update_agents failed: {e}")
+            self._lan_adv_latest = lan_regs
+
+            def _advertise():
+                try:
+                    regs = self._lan_adv_latest
+                    svc.update_agents(regs)
+                    logger.info(f"[MainWindow] 🌐 LAN discovery advertising {len(regs)} agent(s)")
+                except Exception as e:
+                    logger.warning(f"[MainWindow] LAN update_agents failed: {e}")
+            import threading
+            threading.Thread(target=_advertise, name="ecan-lan-advertise", daemon=True).start()
 
         # WAN cloud directory (Phase 2). Lazily start it the first time we
         # have agents to advertise; this also configures the router.

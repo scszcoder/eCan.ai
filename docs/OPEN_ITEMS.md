@@ -22,6 +22,10 @@ _Last updated: 2026-09-21_
   with this platform's other stores" option under 客服 if merchants need it.
 - **Fast Deploy areas 售前/售后/营销/调研/经理 are placeholders** (grayed). 京东 has no 客服 recipe yet; for 京东
   and 其他平台 (custom platform name) Generate only creates the store.
+- **Desktop memory footprint ~1.7-1.9 GB, ~300 threads** (memory.log, 2026-10-10). Not a leak: it
+  plateaus (14:08 run flat at 1.63-1.70 GB for 40 min). Startup ramps 0.57 -> 1.25 GB in 30 s; opening
+  the Knowledge page adds ~200 MB and ~150 threads (likely the KS embedder and its thread pools).
+  Worth slimming: lazy-load the embedder, cap onnx/torch threads.
 - KS server security fixes: brief handed to the server side (authz headers, audit tenant, verified
   email, cross-tenant store checks, deploy/ks move to eCan_lambda).
 

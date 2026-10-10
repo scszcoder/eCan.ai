@@ -1689,7 +1689,6 @@ def handle_delete_workspace(request: IPCRequest, params: Optional[Dict[str, Any]
         return create_error_response(request, 'DELETE_WORKSPACE_ERROR', str(e))
 
 
-@IPCHandlerRegistry.handler('lightrag.getSettings')
 def _configured_ssl_verify() -> str:
     """SSL_VERIFY as the LightRAG runtime will see it: lightrag.env, else 'true'."""
     try:
@@ -1702,6 +1701,7 @@ def _configured_ssl_verify() -> str:
         return 'true'
 
 
+@IPCHandlerRegistry.handler('lightrag.getSettings')
 def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Get LightRAG settings from .env file."""
     try:
