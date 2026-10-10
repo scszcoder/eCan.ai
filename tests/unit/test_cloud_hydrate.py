@@ -159,3 +159,13 @@ class TestFilesAFreshMachineNeeds:
              patch("gui.ipc.w2p_handlers.skill_file_sync.download_skill_files_from_cloud", side_effect=download):
             out = ch.hydrate_skill_files(("s", "t", "e"), wait_s=5)
         assert fetched == ["缺"] and out == {"downloaded": ["缺"], "missing": []}
+
+
+def test_from_cloud_keeps_required_fields():
+    """cloud_required_fields are defaults for to_cloud; from_cloud must keep
+    them (2026-10-09: task `name` was dropped, so hydrate stored no tasks)."""
+    from agent.cloud_api.schema_registry import get_schema_registry
+    from agent.cloud_api.constants import DataType
+    t = get_schema_registry().get_schema(DataType.TASK).from_cloud(
+        {"id": "task_1", "name": "chip_docs_crawl_1", "trigger_type": "message"})
+    assert t["id"] == "task_1" and t["name"] == "chip_docs_crawl_1"

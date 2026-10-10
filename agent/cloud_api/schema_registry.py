@@ -168,10 +168,14 @@ class SchemaVersion:
             if cloud_field in transformed_cloud_data:
                 local_data[local_field] = transformed_cloud_data[cloud_field]
         
-        # 4. Auto-mapping: directly copy fields with same name
+        # 4. Auto-mapping: directly copy fields with same name.
+        # Required fields are kept: cloud_required_fields only supplies defaults
+        # on the way TO the cloud. Excluding them here dropped every task's,
+        # skill's and tool's `name` (and relations' ids), so cloud_hydrate
+        # stored no tasks on a fresh platoon machine (2026-10-09).
         mapped_cloud_fields = set(reverse_mapping.keys())
         for cloud_field, value in transformed_cloud_data.items():
-            if cloud_field not in mapped_cloud_fields and cloud_field not in self.required_fields:
+            if cloud_field not in mapped_cloud_fields:
                 # Same field name, direct mapping
                 local_data[cloud_field] = value
         
