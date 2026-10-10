@@ -75,7 +75,10 @@ def _save(data: Dict[str, str]) -> None:
 # the real name "sctisz") was the longest line, so it was learned instead.
 _NOT_NAME_PUNCT = "，。！？、：；!?%％元¥￥"   # "0.00元" learned as a name (ym)
 _NOT_NAME_WORDS = ("客服", "接待", "升级", "助力", "活动", "报名", "智能", "千牛", "工作台", "店铺", "通知",
-                   "好评", "超级", "会员", "粉丝", "新客")
+                   "好评", "超级", "会员", "粉丝", "新客",
+                   # The 「AI咨询摘要 … 展开 ▼」 bar above the chat (yp alpha 2026-10-09:
+                   # xuboz71 was learned as "展开").
+                   "展开", "收起", "摘要")
 
 
 # A chat timestamp like "2026-10-714:51:37" (learned as a name, alpha 2026-10-07).

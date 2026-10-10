@@ -53,3 +53,10 @@ def test_backstop_answers_a_missed_buyer_message_and_skips_our_own(monkeypatch):
     stats2 = qt.backstop_sweep(lambda n, t: dispatched.append((n, t)), lambda n, t: False,
                                lambda p: False, checked)
     assert stats2["opened"] == 0 and len(dispatched) == 1
+
+
+def test_ai_summary_toggle_is_not_a_buyer_name():
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import name_map
+    assert not name_map.looks_like_buyer_name("展开")
+    assert name_map.looks_like_buyer_name("xuboz71")
+    assert name_map.looks_like_buyer_name("大作战panda")
