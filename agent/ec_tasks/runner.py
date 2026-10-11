@@ -54,6 +54,7 @@ from .executor import TaskExecutor, _create_message
 from .terminal_status_utils import task_is_blocked
 from .ser_consts import TASK_SERIALIZATION_EXCLUDE
 from .timer_service import get_timer_service, TimerService
+from . import resource_gate as _resource_gate
 from utils.sleep_inhibitor import get_sleep_inhibitor
 
 if TYPE_CHECKING:
@@ -2413,7 +2414,14 @@ class TaskRunner(Generic[Context]):
             
             # Stop all ManagedTask instances
             self._stop_managed_tasks()
-            
+
+            # Runs still waiting for a resource will never start now.
+            for _t in getattr(self.agent, "tasks", None) or []:
+                try:
+                    _resource_gate.get_gate().drop_waiters(_t.id)
+                except Exception:
+                    pass
+
             # Notify agent tasks' queues
             self._notify_task_queues_shutdown()
             
@@ -8047,6 +8055,32 @@ class TaskRunner(Generic[Context]):
         
         return True
     
+    def _gate_agent_id(self) -> str:
+        card = getattr(self.agent, "card", None)
+        return str(getattr(card, "id", "") or "") or f"obj{id(self.agent)}"
+
+    def _gate_tiebreak(self, task: ManagedTask) -> int:
+        """Position in the agent's task list: breaks exact ties in the wait line."""
+        for i, t in enumerate(getattr(self.agent, "tasks", None) or []):
+            if t is task:
+                return i
+        return 1_000_000
+
+    def _submit_after_grant(self, task: ManagedTask, msg: Any, trigger_type: str,
+                            dev_init_state: Optional[dict], keys: tuple) -> None:
+        """A waiting run got its resources (held for it): submit it, then drop
+        that hold -- the run itself took its own, released when it completes."""
+        try:
+            cancelled = getattr(task, "cancellation_event", None)
+            if self._stop_event.is_set() or (cancelled is not None and cancelled.is_set()):
+                logger.info(f"[resource-gate] '{task.name}' was stopped while waiting; not running it")
+                return
+            self._submit_task_execution(task, msg, trigger_type, dev_init_state)
+        except Exception as e:
+            logger.error(f"[resource-gate] re-submit of '{task.name}' failed: {e}")
+        finally:
+            _resource_gate.get_gate().release(task.id, keys)
+
     def _submit_task_execution(
         self,
         task: ManagedTask,
@@ -8480,7 +8514,12 @@ class TaskRunner(Generic[Context]):
                 task.future = None
                 if task.id in self._task_states:
                     self._task_states[task.id]["_done"] = True
-        
+            finally:
+                if _gate_keys:
+                    _resource_gate.get_gate().release(task.id, _gate_keys)
+
+        _gate_keys: tuple = ()
+
         # Prevent idle sleep while task is running
         try:
             get_sleep_inhibitor().acquire()
@@ -8533,8 +8572,43 @@ class TaskRunner(Generic[Context]):
                 )
                 return
 
+            # Exclusive resources (resource_gate): a run whose browser/resources
+            # another task is using waits in line and is re-submitted when they
+            # free up. Released when this run's future completes.
+            if not is_hybrid and not is_pure_cloud and _resource_gate.gate_enabled():
+                try:
+                    _gate_keys = _resource_gate.resource_keys(task, self._gate_agent_id())
+                except Exception as _gk_err:
+                    logger.warning(f"[resource-gate] keys for '{task.name}' unreadable: {_gk_err}")
+                    _gate_keys = ()
+                if _gate_keys:
+                    _keys = _gate_keys
+                    _outcome = _resource_gate.get_gate().acquire_or_wait(
+                        task.id, _keys, _resource_gate.priority_class(task, trigger_type),
+                        self._gate_tiebreak(task),
+                        on_grant=lambda: self._submit_after_grant(task, msg, trigger_type, dev_init_state, _keys),
+                        label=task.name, trigger=str(trigger_type or ""),
+                        dedupe_trigger=not _has_real_message,
+                    )
+                    if _outcome != "granted":
+                        if _outcome == "duplicate":
+                            logger.info(f"[resource-gate] '{task.name}' already waiting for a "
+                                        f"{trigger_type} run; skipping this one")
+                        _gate_keys = ()
+                        try:
+                            get_sleep_inhibitor().release()
+                        except Exception:
+                            pass
+                        return
+
             # Executor threads don't inherit ContextVars — carry the run scope over.
-            future = self._skill_executor.submit(_wrap_log_context(_execute))
+            try:
+                future = self._skill_executor.submit(_wrap_log_context(_execute))
+            except Exception:
+                if _gate_keys:
+                    _resource_gate.get_gate().release(task.id, _gate_keys)
+                    _gate_keys = ()
+                raise
 
             # CRITICAL: Save Future reference to task so cancel() can work, and
             # so the queue loop can serialize subsequent messages for this task.
