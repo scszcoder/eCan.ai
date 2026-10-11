@@ -56,6 +56,7 @@ from .terminal_status_utils import task_is_blocked
 from .ser_consts import TASK_SERIALIZATION_EXCLUDE
 from .timer_service import get_timer_service, TimerService
 from . import resource_gate as _resource_gate
+from . import task_deps as _task_deps
 from utils.sleep_inhibitor import get_sleep_inhibitor
 
 if TYPE_CHECKING:
@@ -8095,7 +8096,8 @@ class TaskRunner(Generic[Context]):
     def _scheduled_run_handled(self, task: ManagedTask, msg: Any, trigger_type: str) -> bool:
         """Scheduling rules for a due scheduled run. True = handled here (missed,
         queued behind its own run, or deferred); the caller must not submit."""
-        if str(trigger_type or "") != "schedule":
+        trigger_type = str(trigger_type or "")
+        if trigger_type not in ("schedule", "after"):
             return False
         meta = task.metadata if isinstance(task.metadata, dict) else {}
         now = time.time()
@@ -8108,12 +8110,23 @@ class TaskRunner(Generic[Context]):
                                              f"(max {float(lateness):g} min)")
             return True
 
+        # "10:30, but not before A is done": a scheduled run of a task with
+        # prerequisites is held until they have finished (task_deps).
+        if trigger_type == "schedule" and _task_deps.has_after_trigger(task):
+            ready, missing = self._after_tracker().status(task)
+            if not ready:
+                self.__dict__.setdefault("_after_held", {})[task.id] = msg
+                logger.info(f"[task-after] '{task.name}' is due but waits for {missing}")
+                return True
+            if isinstance(msg, dict):
+                msg["upstream"] = self._after_tracker().consume(task)
+
         # Due again while its previous run is still going.
         if _task_execution_future_running(task) or getattr(task.status, "state", None) == TaskState.working:
             if str(meta.get("overlap_policy") or "skip") == "queue_one":
                 slots = self.__dict__.setdefault("_queued_schedule_runs", {})
                 if task.id not in slots:
-                    slots[task.id] = msg
+                    slots[task.id] = (msg, trigger_type)
                     logger.info(f"[task-schedule] '{task.name}' is still running; "
                                 f"its next run starts when this one ends")
                     return True
@@ -8148,15 +8161,69 @@ class TaskRunner(Generic[Context]):
                                 f"retrying in {retry / 60:.0f} min")
                     deferred.add(task.id)
 
-                    def _retry(t=task, m=msg):
+                    def _retry(t=task, m=msg, tt=trigger_type):
                         deferred.discard(t.id)
                         if not self._stop_event.is_set():
-                            self._submit_task_execution(t, m, "schedule", None)
+                            self._submit_task_execution(t, m, tt, None)
                     timer = threading.Timer(retry, _retry)
                     timer.daemon = True
                     timer.start()
                     return True
         return False
+
+    def _after_tracker(self) -> "_task_deps.AfterTracker":
+        return self.__dict__.setdefault("_after_tracker_obj", _task_deps.AfterTracker())
+
+    def _on_run_finished(self, task: ManagedTask, future: Any) -> None:
+        """A run ended: record it and start the tasks waiting for it ("after" trigger)."""
+        state = getattr(getattr(task, "status", None), "state", None)
+        if state == TaskState.input_required:
+            return   # parked mid-run (pend_event / human): not finished
+        try:
+            exc = future.exception()
+        except BaseException as e:   # cancelled
+            exc = e
+        ok = exc is None and state not in (TaskState.failed, TaskState.canceled)
+        summary = ""
+        if exc is None:
+            try:
+                res = future.result()
+                summary = "" if res is None else str(res)[:500]
+            except BaseException:
+                pass
+        else:
+            summary = f"error: {exc}"[:500]
+        self._after_tracker().record(task.id, ok, summary, getattr(task, "name", ""))
+        for dep in getattr(self.agent, "tasks", None) or []:
+            if dep is not task and _task_deps.has_after_trigger(dep) and task.id in _task_deps.after_config(dep)[0]:
+                self._fire_if_ready(dep)
+
+    def _fire_if_ready(self, dep: ManagedTask) -> None:
+        by_id = {t.id: t for t in (getattr(self.agent, "tasks", None) or [])}
+        cycle = _task_deps.find_cycle(
+            dep.id, lambda i: _task_deps.after_config(by_id[i])[0] if i in by_id else [])
+        if cycle:
+            names = " -> ".join(getattr(by_id.get(i), "name", i) for i in cycle)
+            logger.error(f"[task-after] '{dep.name}' not started: its dependencies form a cycle ({names})")
+            return
+        ready, missing = self._after_tracker().status(dep)
+        if not ready:
+            failed = [m for m in missing if m.endswith("(failed)")]
+            if failed:
+                logger.info(f"[task-after] '{dep.name}' not started: prerequisite {failed} did not succeed")
+            return
+        if "schedule" in (getattr(dep, "trigger", None) or []):
+            held = self.__dict__.get("_after_held", {}).pop(dep.id, None)
+            if held is None:
+                return   # not due yet: its schedule starts it (prerequisites are done)
+            msg, trigger = held, "schedule"   # the schedule rules consume the prerequisites
+        else:
+            msg = {"__trigger_source__": "after", "upstream": self._after_tracker().consume(dep)}
+            trigger = "after"
+        logger.info(f"[task-after] starting '{dep.name}' (prerequisites done)")
+        if not self._stop_event.is_set():
+            threading.Thread(target=self._submit_task_execution, args=(dep, msg, trigger, None),
+                             name="AfterTaskRun", daemon=True).start()
 
     def _submit_after_grant(self, task: ManagedTask, msg: Any, trigger_type: str,
                             dev_init_state: Optional[dict], keys: tuple) -> None:
@@ -8629,8 +8696,12 @@ class TaskRunner(Generic[Context]):
                 _next = self.__dict__.get("_queued_schedule_runs", {}).pop(task.id, None)
                 if _next is not None and not self._stop_event.is_set():
                     threading.Thread(
-                        target=self._submit_task_execution, args=(task, _next, "schedule", None),
+                        target=self._submit_task_execution, args=(task, _next[0], _next[1], None),
                         name="QueuedScheduleRun", daemon=True).start()
+                try:
+                    self._on_run_finished(task, future)
+                except Exception as _af_err:
+                    logger.warning(f"[task-after] finish of '{task.name}' not processed: {_af_err}")
 
         _gate_keys: tuple = ()
 

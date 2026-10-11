@@ -572,6 +572,8 @@ class EC_Agent(Agent):
 				"schedule": "schedule",
 				"message": "message",
 				"auto": "auto",
+				# Started by the runner when its prerequisite tasks finish (task_deps).
+				"after": "after",
 				# Legacy backward-compat aliases
 				"interaction": "message",
 				"human chat": "message",
