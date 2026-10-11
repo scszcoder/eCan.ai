@@ -75,6 +75,7 @@ def test_scanning_all_agents_does_not_build_it():
     ag, built = _lazy()
     # what the launcher / runtime-status poll / advertising / reconciler read
     assert ag.card.id == "agent_x" and ag.card.url == "http://10.0.0.2:3999/a2a/agent_x/"
+    assert ag.get_card() is ag.card                               # startup inventory log
     assert ag.tasks == [] and ag.status == "active" and ag._running is False
     with ag.task_lock:
         assert len(ag.active_tasks) == 0
@@ -89,6 +90,7 @@ def test_first_real_use_builds_once_and_then_forwards():
     ag.status = "busy"
     assert ag.runner is built[0].runner                           # builds
     assert ag.tasks == ["t"] and ag.card is built[0].card         # now the real agent's
+    assert ag.get_card() is built[0].card
     assert built[0].status == "busy"                              # carried over
     ag.some_flag = 1
     assert built[0].some_flag == 1 and len(built) == 1 and not ag.lazy_is_cold

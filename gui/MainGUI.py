@@ -3691,6 +3691,9 @@ class MainWindow:
             logger.info("[AGENT_INVENTORY] ========== Agent Skills Inventory ==========")
             for idx, agent in enumerate(self.agents):
                 try:
+                    if getattr(type(agent), 'lazy_is_cold', None) is not None and agent.lazy_is_cold:
+                        logger.info(f"[AGENT_INVENTORY] Agent {idx}: {agent.card.name} (no tasks; built on first use)")
+                        continue
                     agent_name = agent.get_card().name if hasattr(agent, 'get_card') and agent.get_card() else f"Agent_{idx}"
                     logger.info(f"[AGENT_INVENTORY] Agent {idx}: {agent_name}")
                     

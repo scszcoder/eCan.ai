@@ -29,9 +29,9 @@ from utils.logger_helper import logger_helper as logger
 
 # Read by code that scans every agent (launcher, runtime-status poll, LAN/cloud
 # advertising, store reconciler); answered without building the agent.
-_CHEAP = ("card", "tasks", "skills", "active_tasks", "task_lock", "is_task_running", "status",
+_CHEAP = ("card", "get_card", "tasks", "skills", "active_tasks", "task_lock", "is_task_running", "status",
           "_running", "_stopped", "_starting", "_lazy_cold", "owner", "org_id", "description",
-          "vehicle_id", "vehicle", "mainwin", "extra_data", "avatar")
+          "vehicle_id", "vehicle", "mainwin", "extra_data", "avatar", "role")
 # Values set on a cold agent that the real agent should keep.
 _CARRY = ("status", "owner", "description", "extra_data")
 
@@ -101,6 +101,7 @@ class LazyAgent:
             skills.append(SimpleNamespace(id=sid, name=(s.get("name") if isinstance(s, dict) else None) or sid))
         d.update({
             "card": _card_for(agent_data, mainwin),
+            "get_card": lambda: self.__dict__.get("card"),
             "tasks": [],
             "skills": skills,
             "active_tasks": {},
@@ -119,6 +120,7 @@ class LazyAgent:
             "mainwin": mainwin,
             "extra_data": agent_data.get("extra_data", ""),
             "avatar": agent_data.get("avatar"),
+            "role": agent_data.get("role") or "",
         })
 
     def __repr__(self):
