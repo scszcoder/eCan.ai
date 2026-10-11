@@ -1858,6 +1858,19 @@ def handle_get_agent_runtime_status(request: IPCRequest, params: Optional[Dict[s
 _batch_status_db_cache = {'data': {}, 'timestamp': 0.0, 'ttl': 30.0}  # 30s TTL
 
 
+@IPCHandlerRegistry.handler('get_agent_pool')
+def handle_get_agent_pool(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """The Q&A pool a front-desk agent dispatches to: members (active/parked,
+    load), sizing, recent waits. ``pool: null`` for an agent without one."""
+    try:
+        from agent.ec_agents.agent_pool import pool_view
+        agent_id = str((params or {}).get('agent_id') or '')
+        return create_success_response(request, {'pool': pool_view(agent_id) if agent_id else None})
+    except Exception as e:
+        logger.warning(f"[agent_handler] get_agent_pool failed: {e}")
+        return create_error_response(request, 'SERVICE_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('get_all_agents_runtime_status')
 def handle_get_all_agents_runtime_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Get runtime status for ALL agents in one call (efficient batch endpoint for polling).

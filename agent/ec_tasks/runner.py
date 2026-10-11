@@ -496,9 +496,17 @@ _WS118_QA_SEM_LOCK = threading.Lock()
 
 
 def _ws118_qa_cap() -> int:
+    raw = _live_chat_env("ECAN_LIVE_CHAT_QA_MAX_CONCURRENCY")
+    if raw not in (None, ""):
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 5
+    # Not set: 5, or the pools' active members when demand has grown them past
+    # that (agent_pool) -- otherwise a bigger active set couldn't run more turns.
     try:
-        return int((_live_chat_env("ECAN_LIVE_CHAT_QA_MAX_CONCURRENCY") or "5") or 5)
-    except (TypeError, ValueError):
+        return max(5, _agent_pool.total_active())
+    except Exception:
         return 5
 
 

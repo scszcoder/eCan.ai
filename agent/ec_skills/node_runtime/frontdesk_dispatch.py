@@ -2362,6 +2362,7 @@ async def _dispatch_one_item(
     recipient_agent_id = _agent_pool.pick(
         service_agent_ids, dispatch_state,
         prefer_id=str((_prior or {}).get("recipient_agent_id") or "") if isinstance(_prior, dict) else "",
+        pool_id=sender_agent_id,   # only this front desk's active members (6c)
     )
 
     assignment_payload = _build_assignment_payload(item, tab_id, cfg)

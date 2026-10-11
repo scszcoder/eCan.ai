@@ -200,3 +200,115 @@ def test_hourly_traffic_counts_quiet_hours_and_persists(monkeypatch, tmp_path):
     assert saved[ap._slot(base)] == 3
     assert saved[ap._slot(base + 3600)] == 0 and saved[ap._slot(base + 7200)] == 0
     assert ap.expected_turns("fd", base) == 3
+
+
+# ── 6c: the active set ──
+
+@pytest.fixture
+def pool6(monkeypatch):
+    ap._active.clear()
+    ap._changed_at.clear()
+    monkeypatch.setattr(ap, "_ensure_controller", lambda: None)
+    monkeypatch.delenv("ECAN_POOL_SCALING", raising=False)
+    agents = {k: _agent() for k in ("q1", "q2", "q3", "q4")}
+    ap.register_pool("fd", list(agents), {"min": 2, "max": 4, "idle_minutes": 10})
+    return agents
+
+
+def _turn(member, wait, at):
+    ap._turns.setdefault(member, __import__("collections").deque()).append((at, wait))
+
+
+def test_starts_at_min_with_the_busiest_members(pool6):
+    pool6["q3"] = _agent(executing=True)
+    act = ap.tick(now=1000.0, lookup=pool6.get)["fd"]
+    assert len(act) == 2 and "q3" in act
+
+
+def test_grows_on_demand_after_a_cooldown_and_stops_at_max(pool6):
+    t = 1000.0
+    act = ap.tick(now=t, lookup=pool6.get)["fd"]
+    for m in act:
+        pool6[m] = _agent(queued=2, executing=True)       # 3 turns each on 2 members
+    assert len(ap.tick(now=t + 5, lookup=pool6.get)["fd"]) == 2          # cooldown
+    assert len(ap.tick(now=t + 31, lookup=pool6.get)["fd"]) == 3
+    assert len(ap.tick(now=t + 45, lookup=pool6.get)["fd"]) == 3          # cooldown again
+    assert len(ap.tick(now=t + 62, lookup=pool6.get)["fd"]) == 4          # still 6 waiting on 3
+    assert len(ap.tick(now=t + 93, lookup=pool6.get)["fd"]) == 4          # max
+
+
+def test_grows_when_turns_waited(pool6):
+    t = 1000.0
+    act = ap.tick(now=t, lookup=pool6.get)["fd"]
+    _turn(act[0], 9.0, t + 40)                          # waited 9 s > 5 s
+    assert len(ap.tick(now=t + 41, lookup=pool6.get)["fd"]) == 3
+
+
+def test_shrinks_after_idle_but_not_below_min_or_while_busy(pool6):
+    t = 1000.0
+    ap.tick(now=t, lookup=pool6.get)
+    for m in ap.active_members("fd"):
+        pool6[m] = _agent(queued=3)
+    ap.tick(now=t + 31, lookup=pool6.get)
+    ap.tick(now=t + 62, lookup=pool6.get)
+    assert len(ap.active_members("fd")) == 4
+    for k in pool6:
+        pool6[k] = _agent()
+    later = t + 62 + 599
+    assert len(ap.tick(now=later, lookup=pool6.get)["fd"]) == 4          # not idle long enough
+    act = ap.active_members("fd")
+    _turn(act[0], 0.1, later)                           # one member was used recently
+    pool6[act[1]] = _agent(executing=True)
+    assert len(ap.tick(now=t + 62 + 601, lookup=pool6.get)["fd"]) == 4    # someone busy
+    pool6[act[1]] = _agent()
+    after = ap.tick(now=t + 62 + 602, lookup=pool6.get)["fd"]
+    assert len(after) == 3 and act[0] in after                           # parked one used least recently
+    t2 = t + 62 + 602
+    for i in range(1, 4):
+        ap.tick(now=t2 + i * 601, lookup=pool6.get)
+    assert len(ap.active_members("fd")) == 2                             # min
+
+
+def test_prewarm_raises_the_floor(pool6, monkeypatch):
+    monkeypatch.setattr(ap, "expected_turns", lambda pid, ts=None: 150.0)   # 150/h at 60 per member
+    assert len(ap.tick(now=1000.0, lookup=pool6.get)["fd"]) == 3
+
+
+def test_pick_uses_only_active_members(pool6, monkeypatch):
+    ap.tick(now=1000.0, lookup=pool6.get)
+    act = ap.active_members("fd")
+    parked = [m for m in pool6 if m not in act]
+    for _ in range(6):
+        c = ap.pick(list(pool6), {}, lookup=pool6.get, pool_id="fd")
+        ap.release(c)
+        assert c in act
+    c = ap.pick(parked, {}, lookup=pool6.get, pool_id="fd")
+    ap.release(c)
+    assert c in parked                                  # nothing active offered
+    monkeypatch.setenv("ECAN_POOL_SCALING", "0")
+    got, state = set(), {}
+    for _ in range(8):
+        c = ap.pick(list(pool6), state, lookup=pool6.get, pool_id="fd")
+        ap.release(c)
+        got.add(c)
+    assert got == set(pool6)
+
+
+def test_concurrency_cap_follows_the_active_set(pool6, monkeypatch):
+    from agent.ec_tasks import runner
+    monkeypatch.delenv("ECAN_LIVE_CHAT_QA_MAX_CONCURRENCY", raising=False)
+    monkeypatch.setattr(runner, "_live_chat_env", lambda n: None)
+    ap._active["fd"] = ["q1", "q2"]
+    assert runner._ws118_qa_cap() == 5
+    ap._active["fd2"] = ["a", "b", "c", "d", "q1"]
+    assert ap.total_active() == 6 and runner._ws118_qa_cap() == 6
+    monkeypatch.setattr(runner, "_live_chat_env", lambda n: "3")
+    assert runner._ws118_qa_cap() == 3                   # explicit setting wins
+
+
+def test_pool_view(pool6):
+    ap.tick(now=1000.0, lookup=pool6.get)
+    v = ap.pool_view("fd", lookup=pool6.get)
+    assert v["active_count"] == 2 and len(v["members"]) == 4 and v["settings"]["max"] == 4
+    assert {r["id"] for r in v["members"] if r["active"]} == set(ap.active_members("fd"))
+    assert ap.pool_view("nope") is None

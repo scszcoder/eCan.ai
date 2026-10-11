@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import collections
 import json as _json
+import math
 import os
 import threading
 import time
@@ -69,13 +70,18 @@ def _reservations(agent_id: str, now: float) -> int:
 
 
 def pick(candidate_ids: List[str], state: dict, prefer_id: str = "",
-         lookup: Optional[Callable[[str], Any]] = None) -> str:
-    """The member that should get the next turn; reserves it (call ``release``)."""
+         lookup: Optional[Callable[[str], Any]] = None, pool_id: str = "") -> str:
+    """The member that should get the next turn; reserves it (call ``release``).
+    With ``pool_id``, only that pool's active members are considered (parked
+    ones only when no active member is a candidate)."""
     ids = [i for i in candidate_ids if i]
     if not ids:
         return ""
     lookup = lookup or _default_lookup
     with _LOCK:
+        if pool_id and scaling_enabled():
+            active = set(_active.get(pool_id) or ())
+            ids = [i for i in ids if i in active] or ids
         rr = state.get("rr_index", 0)
         state["rr_index"] = rr + 1
         if not enabled():
@@ -165,6 +171,7 @@ def register_pool(front_desk_id: str, members: List[str], raw_settings: Any = No
     with _LOCK:
         _pools[front_desk_id] = {"members": list(members), "seen": time.time(),
                                  "settings": pool_settings(raw_settings, len(members))}
+    _ensure_controller()
 
 
 def pools() -> Dict[str, Dict[str, Any]]:
@@ -285,3 +292,159 @@ def expected_turns(front_desk_id: str, ts: Optional[float] = None) -> Optional[f
     """Typical turns in this weekday-hour, or None until there is history."""
     with _LOCK:
         return _load_traffic().get(front_desk_id, {}).get(_slot(ts if ts is not None else time.time()))
+
+
+# ── the active set (Phase 6c) ────────────────────────────────────────────────
+#
+# Each pool has an ACTIVE subset of its members; ``pick`` only chooses among
+# them.  A controller tick (every TICK_S) sizes it between min and max:
+#   * at least min -- raised ahead of the usual traffic for this weekday-hour
+#     (pre-warm: expected turns / TURNS_PER_MEMBER_HOUR, looking 10 min ahead);
+#   * grow by one when the active members have more turns than members, or
+#     turns started since the last change waited (p90) > ECAN_POOL_SCALE_UP_WAIT_S;
+#   * shrink by one when nothing is queued or running, the last change is
+#     idle_minutes old and the turns of that period fit on one member fewer.
+# Shrinking PARKS a member: it is no longer picked, finishes what it already
+# has (that is the drain) and stays running, so it can come back instantly.
+# ECAN_POOL_SCALING=0: no controller, every member is picked.
+
+TICK_S = 15.0
+_UP_COOLDOWN_S = 30.0
+
+_active: Dict[str, List[str]] = {}
+_changed_at: Dict[str, float] = {}
+_controller: Optional[threading.Thread] = None
+
+
+def scaling_enabled() -> bool:
+    return enabled() and os.environ.get("ECAN_POOL_SCALING", "1") != "0"
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def active_members(pool_id: str) -> List[str]:
+    with _LOCK:
+        return list(_active.get(pool_id) or [])
+
+
+def total_active() -> int:
+    """Members picked from across all pools (one shared by pools counts once)."""
+    with _LOCK:
+        return len({m for act in _active.values() for m in act})
+
+
+def _waits_since(members: List[str], since: float, now: float) -> List[float]:
+    return [w for m in members for t, w in _turns.get(m, ()) if t >= since and now - t <= _WAIT_WINDOW_S]
+
+
+def _last_turn(member: str) -> float:
+    dq = _turns.get(member)
+    return dq[-1][0] if dq else 0.0
+
+
+def _target_min(pool_id: str, settings: Dict[str, int], now: float) -> int:
+    per_member = _env_float("ECAN_POOL_TURNS_PER_MEMBER_HOUR", 60.0)
+    expected = max(expected_turns(pool_id, now) or 0.0, expected_turns(pool_id, now + 600) or 0.0)
+    warm = math.ceil(expected / per_member) if per_member > 0 else 0
+    return min(settings["max"], max(settings["min"], warm))
+
+
+def tick(now: Optional[float] = None, lookup: Optional[Callable[[str], Any]] = None) -> Dict[str, List[str]]:
+    """One controller pass over every pool. Returns {pool: active members}."""
+    lookup = lookup or _default_lookup
+    now = time.time() if now is None else now
+    out = {}
+    for pool_id, pool in pools().items():
+        try:
+            out[pool_id] = _tick_pool(pool_id, pool, now, lookup)
+        except Exception as e:
+            logger.warning(f"[agent-pool] controller failed for pool {pool_id[-6:]}: {e}")
+    return out
+
+
+def _tick_pool(pool_id: str, pool: Dict[str, Any], now: float, lookup) -> List[str]:
+    settings = pool["settings"]
+    members = [m for m in pool["members"] if getattr(lookup(m), "_running", False)] or list(pool["members"])
+    if settings["max"] <= 0 or not members:
+        with _LOCK:
+            _active[pool_id] = list(members)
+        return list(members)
+    loads = {m: agent_load(lookup(m)) if lookup(m) is not None else 0 for m in members}
+    floor = _target_min(pool_id, settings, now)
+    ceiling = min(settings["max"], len(members))
+    up_wait = _env_float("ECAN_POOL_SCALE_UP_WAIT_S", 5.0)
+    per_member_hour = _env_float("ECAN_POOL_TURNS_PER_MEMBER_HOUR", 60.0)
+    with _LOCK:
+        act = [m for m in (_active.get(pool_id) or []) if m in members]
+        changed = _changed_at.get(pool_id, 0.0)
+        before = list(act)
+        reason = ""
+        if not act:
+            # Start with the busiest members, so nobody mid-turn gets parked.
+            act = sorted(members, key=lambda m: -loads[m])[:max(1, floor)]
+            reason = "start"
+        parked = [m for m in members if m not in act]
+        busy = sum(loads[m] for m in act)
+        p90 = _percentile(_waits_since(act, changed, now), 0.9)
+        if len(act) < floor and parked:
+            act.append(min(parked, key=lambda m: loads[m]))
+            reason = reason or ("pre-warm" if floor > settings["min"] else "minimum")
+        elif (len(act) < ceiling and parked and now - changed >= _UP_COOLDOWN_S
+              and (busy > len(act) or p90 > up_wait)):
+            act.append(min(parked, key=lambda m: loads[m]))
+            reason = f"demand: {busy} queued/running on {len(before)}, p90 wait {p90:.1f}s"
+        elif len(act) > max(1, floor) and busy == 0 and now - changed >= settings["idle_minutes"] * 60:
+            idle_s = settings["idle_minutes"] * 60
+            recent = sum(1 for m in act for t, _ in _turns.get(m, ()) if now - t <= idle_s)
+            fits = per_member_hour * idle_s / 3600
+            if fits <= 0 or recent <= (len(act) - 1) * fits:
+                act.remove(min(act, key=_last_turn))   # the one used least recently
+                reason = f"idle: {recent} turn(s) in {settings['idle_minutes']} min"
+        _active[pool_id] = act
+        if act != before:
+            _changed_at[pool_id] = now
+    if act != before:
+        logger.info(f"[agent-pool] pool ...{pool_id[-6:]} active {len(before)} -> {len(act)} ({reason}); "
+                    f"active={[m[-6:] for m in act]} parked={[m[-6:] for m in members if m not in act]}")
+    return act
+
+
+def _controller_loop() -> None:
+    while True:
+        time.sleep(TICK_S)
+        tick()
+
+
+def _ensure_controller() -> None:
+    global _controller
+    if _controller is not None or not scaling_enabled():
+        return
+    with _LOCK:
+        if _controller is None:
+            _controller = threading.Thread(target=_controller_loop, name="AgentPoolController", daemon=True)
+            _controller.start()
+
+
+def pool_view(front_desk_id: str, lookup: Optional[Callable[[str], Any]] = None) -> Optional[Dict[str, Any]]:
+    """What the front desk's agent page shows about its pool, or None."""
+    lookup = lookup or _default_lookup
+    stats = pool_stats(front_desk_id, lookup)
+    if not stats:
+        return None
+    active = set(active_members(front_desk_id)) if scaling_enabled() else set(stats["members"])
+    rows = []
+    for m in stats["members"]:
+        ag = lookup(m)
+        rows.append({"id": m, "name": getattr(getattr(ag, "card", None), "name", "") or m,
+                     "active": m in active or not active, "running": bool(getattr(ag, "_running", False)),
+                     "load": stats["load"].get(m, 0), "last_turn": _last_turn(m) or None})
+    return {"settings": stats["settings"], "members": rows, "scaling": scaling_enabled(),
+            "active_count": sum(1 for r in rows if r["active"]),
+            "wait_p50_s": stats["wait_p50_s"], "wait_p90_s": stats["wait_p90_s"],
+            "turns_last_hour": stats["turns_last_hour"],
+            "expected_turns_this_hour": stats["expected_turns_this_hour"]}

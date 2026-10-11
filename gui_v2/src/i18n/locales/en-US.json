@@ -707,6 +707,16 @@
       }
     },
     "agents": {
+      "pool": {
+        "title": "Q&A pool",
+        "summary": "{{active}} of {{total}} answering (min {{min}}, max {{max}})",
+        "notRunning": "Not running on this computer",
+        "activeTip": "Answering; {{n}} turn(s) queued or running",
+        "parkedTip": "Parked: gets no new customers, finishes what it has",
+        "stats": "Wait p50 {{p50}}s · p90 {{p90}}s · {{turns}} turn(s) in the last hour",
+        "expected": "usually {{n}} this hour",
+        "fixed": "scaling off"
+      },
       "departments": {
         "org_agent_resource_001": "Agent Resource",
         "org_accounting_001": "Accounting",

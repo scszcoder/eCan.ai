@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import AgentPoolPanel from './AgentPoolPanel';
 import { App, Badge, Button, Card, Col, DatePicker, Form, Input, Popconfirm, Radio, Row, Select, Spin, Tag, Tooltip, TreeSelect, Modal } from 'antd';
 import { EditOutlined, SaveOutlined, InfoCircleOutlined, DeleteOutlined, CloseOutlined, PoweroffOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
@@ -2019,6 +2020,7 @@ const AgentDetails: React.FC = () => {
               background: 'linear-gradient(to right, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.1))',
               margin: '12px 0'
             }} />
+            {!isNew && <AgentPoolPanel agentId={watchedFormId || id} />}
             <Row gutter={[8, 4]} style={{ margin: 0 }}>
               {/* 第一行：Owner 和 Gender */}
               <Col span={12}>
