@@ -463,9 +463,9 @@ def _sync_created_to_cloud(ctx, created: dict, links: dict, log: list) -> None:
         return
     counts = {"synced": 0, "queued": 0, "failed": 0}
 
-    def push(dtype, data):
+    def push(dtype, data, op=Operation.ADD):
         try:
-            r = manager.sync_to_cloud(dtype, data, Operation.ADD) or {}
+            r = manager.sync_to_cloud(dtype, data, op) or {}
         except Exception:
             r = {}
         counts["synced" if r.get("synced") else "queued" if r.get("cached") else "failed"] += 1
@@ -478,6 +478,8 @@ def _sync_created_to_cloud(ctx, created: dict, links: dict, log: list) -> None:
 
     for tid in created.get("tasks", []):
         push(DataType.TASK, row(ctx.db.task_service, tid))
+    for tid in created.get("updated_tasks", []):   # e.g. a shared pool taking a new front desk
+        push(DataType.TASK, row(ctx.db.task_service, tid), Operation.UPDATE)
     for aid in created.get("agents", []):
         push(DataType.AGENT, row(ctx.db.agent_service, aid))
     for aid, tid in links.get("agent_task", []):
@@ -845,6 +847,19 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
 
     qa_n = int(cfg.get("qa_agents") or 8)  # matches the panel default
     log = []
+    # Share another store's Q&A pool (front desk agent id of that store), adding
+    # qa_agents_extra more Q&A agents to it.
+    share_with = str(cfg.get("share_with") or "").strip()
+    if share_with and profile.native_desktop:
+        raise RuntimeError(_tr("a 千牛 store runs alone on its machine; its Q&A agents can't be shared",
+                                "千牛店铺在本机单独运行，问答客服不能与其他店铺共享"))
+    if share_with:
+        share_group = next((g for g in cs_pools(ctx, profile.scenario)
+                            if any(d["agent_id"] == share_with for d in g["front_desks"])), None)
+        if share_group is None:
+            raise RuntimeError(_tr(f"the Q&A agents to share (front desk {share_with}) were not found",
+                                    f"找不到要共享的问答客服（前台 {share_with}）"))
+        qa_n = max(0, int(cfg.get("qa_agents_extra") or 0))
 
     # ── Store identity. NOT derivable from the URL: every seller of a platform
     #    shares one workstation URL, so resolve_store_id's URL fallback returns
@@ -934,7 +949,8 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     #    agent's id in task_vars -- the shared Q&A skill's pend_event filters on
     #    {{front_desk_agent_id}}, resolved from task_vars at task launch.
     fd_name = f"{profile.fd_task_prefix}001"
-    fd_task_id = _add_task(fd_name, fd_skill_id, extra_settings={"pool": _qa_pool_settings(qa_n)})
+    pool_n = qa_n + (share_group["qa_count"] if share_with else 0)
+    fd_task_id = _add_task(fd_name, fd_skill_id, extra_settings={"pool": _qa_pool_settings(pool_n)})
     extra_tasks = ()
     if cfg.get("fetch_catalog") and profile.catalog_skill_name:
         # The store's products for 商品知识: the front desk exports them once (its
@@ -953,6 +969,26 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     fd_agent_id = b.agent("前台小张", fd_skill_id, fd_task_id, vehicle_id, extra_tasks=extra_tasks)
     log.append(f"Created task {fd_name} → {profile.fd_skill_name}")
     log.append(f"Created front-desk agent 前台小张 ({fd_agent_id}, org=Sales)")
+
+    if share_with:
+        fd_ids = [d["agent_id"] for d in share_group["front_desks"]] + [fd_agent_id]
+        _share_pool(ctx, share_group, fd_ids, pool_n, b, log)
+        shared_vars = {"front_desk_agent_id": ",".join(fd_ids)}
+        start = share_group["qa_count"]
+        qa_task_ids = [b.task(f"{profile.qa_task_prefix}共享{start + i:03d}", qa_skill_id, shared_vars, None)
+                       for i in range(1, qa_n + 1)]
+        qa_agent_ids = [b.agent(f"客服小{name}", qa_skill_id, tid, vehicle_id)
+                        for name, tid in zip(_draw_qa_names(qa_n), qa_task_ids)]
+        log.append(_tr(f"Q&A agents shared with {', '.join(d['store_name'] for d in share_group['front_desks'])}: "
+                       f"{share_group['qa_count']} existing + {qa_n} new",
+                       f"与 {'、'.join(d['store_name'] for d in share_group['front_desks'])} 共享问答客服："
+                       f"原有 {share_group['qa_count']} 个，新增 {qa_n} 个"))
+        plan = {"agents": len(b.created["agents"]), "skills": 0, "tasks": len(b.created["tasks"]),
+                "needs_login": needs_login, "shared_pool": True}
+        logger.info(f"[FastDeploy][{profile.scenario}] SUCCESS (shared pool): {plan['agents']} agent(s), "
+                    f"{plan['tasks']} task(s); pool of {pool_n} serves {len(fd_ids)} front desk(s)")
+        _sync_created_to_cloud(ctx, b.created, b.links, log)
+        return plan, log, b.created
 
     qa_task_ids = []
     for i in range(1, qa_n + 1):
@@ -987,6 +1023,40 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
 
 
 # ── Several stores on this machine, one shared Q&A pool ─────────────────────
+
+def _share_pool(ctx, group: dict, fd_ids: list, pool_n: int, b, log: list) -> None:
+    """Make an existing Q&A pool serve one more front desk: every Q&A task
+    accepts all the front desks, and drops its own store -- each turn names the
+    store that asked (the dispatch JSON's store_id); every front desk's pool
+    size covers all the members."""
+    svc = ctx.db.task_service
+    changed = b.created.setdefault("updated_tasks", [])
+
+    def update(tid: str, fn) -> None:
+        row = ((svc.query_tasks(id=tid) or {}).get("data") or [{}])[0]
+        md = dict(row.get("metadata") or {}) if isinstance(row.get("metadata"), dict) else {}
+        fn(md)
+        r = svc.update_task(tid, {"settings": md})
+        if not (isinstance(r, dict) and r.get("success")):
+            raise RuntimeError(_tr(f"update task {tid} failed: {(r or {}).get('error')}",
+                                    f"更新任务 {tid} 失败：{(r or {}).get('error')}"))
+        changed.append(tid)
+
+    def qa(md: dict) -> None:
+        tv = dict(md.get("task_vars") or {})
+        for k in ("store_id", "store_url", "store_urls"):
+            tv.pop(k, None)
+        tv["front_desk_agent_id"] = ",".join(fd_ids)
+        md["task_vars"] = tv
+
+    for tid in group["qa_task_ids"]:
+        update(tid, qa)
+    for d in group["front_desks"]:
+        update(d["task_id"], lambda md: md.update(pool=_qa_pool_settings(pool_n)))
+    log.append(f"Shared pool: {len(group['qa_task_ids'])} Q&A task(s) now serve {len(fd_ids)} front desk(s); "
+               f"each turn answers for the store that asked")
+    log.append(_tr("Restart eCan to apply the shared Q&A agents", "重启 eCan 后共享的问答客服生效"))
+
 
 def cs_pools(ctx, scenario: str) -> list:
     """This platform's existing 客服 deployments, one entry per group of front

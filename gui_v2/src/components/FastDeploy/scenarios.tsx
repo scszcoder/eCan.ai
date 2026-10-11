@@ -32,6 +32,9 @@ export interface ScenarioSchema {
     schedule?: boolean;
     /** Offer to export the store's products into 商品知识 once (front desk task). */
     fetchCatalog?: boolean;
+    /** Offer to share the Q&A agents of this platform's other stores (on by
+     *  default when there are some): the new store's front desk joins them. */
+    sharePool?: boolean;
 }
 
 export interface BusinessScenario {
@@ -58,6 +61,18 @@ export interface ScenarioConfig {
     scheduleUnit?: 'minutes' | 'hours' | 'days';
     /** Export the store's products once for review in 商品知识 → 导入. */
     fetchCatalog?: boolean;
+    /** Share another store's Q&A agents: that store's front desk agent id
+     *  ('' = this store gets its own; undefined = not decided yet). */
+    shareWith?: string;
+    /** With shareWith: Q&A agents to add to the shared pool. */
+    qaExtra?: number;
+}
+
+/** A platform's existing 客服 deployment (front desks sharing Q&A agents). */
+export interface CsPool {
+    front_desks: { agent_id: string; task_id: string; store_id: string; store_name: string }[];
+    qa_task_ids: string[];
+    qa_count: number;
 }
 
 const CS_SCHEMA: ScenarioSchema = { storeId: true, qaAgents: { default: 6, min: 1, max: 16 } };
@@ -66,11 +81,13 @@ const DOUYIN_CS_SCHEMA: ScenarioSchema = {
     replaceMode: true,
     storeId: true,
     fetchCatalog: true,
+    sharePool: true,
 };
 const PDD_CS_SCHEMA: ScenarioSchema = {
     qaAgents: { default: 4, min: 1, max: 16 },
     replaceMode: true,
     storeId: true,
+    sharePool: true,
 };
 // Several stores on this machine: each gets its own login profile + front desk;
 // the Q&A agents are one pool shared by all of them.

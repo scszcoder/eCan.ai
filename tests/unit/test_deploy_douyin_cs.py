@@ -396,3 +396,69 @@ class TestProductExportOption:
         ctx = _make_ctx()
         dc._deploy_douyin_cs({"store_id": "shopA", "qa_agents": 2}, ctx, "buyer@x")
         ctx.db.skill_service.query_skills.assert_not_called()
+
+
+class TestSharedQaPool:
+    """A second store's 客服 joins the Q&A agents of a store already deployed."""
+
+    @staticmethod
+    def _existing(ctx):
+        rows = {
+            "fdtA": {"id": "fdtA", "name": "飞鸽客服前台001",
+                     "metadata": {"task_vars": {"store_id": "shopA"}, "pool": {"min": 2, "max": 2}}},
+            "qa1": {"id": "qa1", "name": "飞鸽客服应答001", "metadata": {"task_vars": {
+                "store_id": "shopA", "store_url": "u", "front_desk_agent_id": "fdA"}}},
+            "qa2": {"id": "qa2", "name": "飞鸽客服应答002", "metadata": {"task_vars": {
+                "store_id": "shopA", "front_desk_agent_id": "fdA"}}},
+        }
+        saved = {}
+
+        def query_tasks(id=None, **kw):
+            if id:
+                return {"success": True, "data": [rows[id]] if id in rows else []}
+            return {"success": True, "data": list(rows.values())}
+
+        def update_task(tid, data):
+            saved[tid] = data["settings"]
+            rows[tid] = dict(rows[tid], metadata=data["settings"])
+            return {"success": True}
+        ctx.db.task_service.query_tasks.side_effect = query_tasks
+        ctx.db.task_service.update_task.side_effect = update_task
+        ctx.db.agent_service.get_agent_task_associations.side_effect = (
+            lambda aid: {"data": [{"task_id": "fdtA"}] if aid == "fdA" else []})
+        return saved
+
+    def test_cs_pools_groups_front_desks_by_shared_qa(self):
+        ctx = _make_ctx()
+        self._existing(ctx)
+        pools = dc.cs_pools(ctx, "douyin_cs")
+        assert len(pools) == 1
+        assert pools[0]["qa_count"] == 2 and pools[0]["front_desks"][0]["agent_id"] == "fdA"
+        assert pools[0]["front_desks"][0]["store_id"] == "shopA"
+
+    def test_second_store_joins_the_pool(self):
+        ctx = _make_ctx()
+        saved = self._existing(ctx)
+        ctx.db.store_service.get_store.return_value = {
+            "store_id": "shopB", "name": "shopB", "platform": "douyin", "store_urls": ["https://shopB.example.com"]}
+        plan, log, created = dc._deploy_douyin_cs(
+            {"store_id": "shopB", "share_with": "fdA", "qa_agents_extra": 1}, ctx, "buyer@x")
+        assert plan["shared_pool"] is True
+        names = [c.args[0]["name"] for c in ctx.db.task_service.add_task.call_args_list]
+        assert names == ["飞鸽客服前台001", "飞鸽客服应答共享003"]      # front desk B + 1 extra Q&A
+        new_fd = ctx.db.agent_service.create_agent_from_data.call_args_list[0].args  # agent_1
+        assert new_fd[0]["name"] == "前台小张"
+        for tid in ("qa1", "qa2"):
+            tv = saved[tid]["task_vars"]
+            assert tv["front_desk_agent_id"] == "fdA,agent_1"
+            assert "store_id" not in tv and "store_url" not in tv     # each turn names its store
+        assert saved["fdtA"]["pool"]["max"] == 3                        # 2 existing + 1 new
+        extra = ctx.db.task_service.add_task.call_args_list[1].args[0]["settings"]["task_vars"]
+        assert extra == {"front_desk_agent_id": "fdA,agent_1"}
+        assert set(created["updated_tasks"]) == {"qa1", "qa2", "fdtA"}
+
+    def test_unknown_pool_fails_clearly(self):
+        ctx = _make_ctx()
+        self._existing(ctx)
+        with pytest.raises(RuntimeError):
+            dc._deploy_douyin_cs({"store_id": "shopA", "share_with": "nope"}, ctx, "buyer@x")

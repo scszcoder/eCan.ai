@@ -23,6 +23,7 @@ import {
     type PlatformDeploy,
     type BusinessScenario,
     type ScenarioConfig,
+    type CsPool,
 } from './scenarios';
 import { useFastDeployStore } from '../../stores/fastDeployStore';
 
@@ -88,6 +89,8 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
     // Function areas: the picker's current pick and the ones added so far.
     const [areaPick, setAreaPick] = useState<string | undefined>(undefined);
     const [added, setAdded] = useState<AddedArea[]>([]);
+    // This platform's existing 客服 deployments, per scenario (for sharing Q&A agents).
+    const [csPools, setCsPools] = useState<Record<string, CsPool[]>>({});
 
     const loadCatalog = () => get_ipc_api().getStoreCatalog<{ stores: CatalogStore[] }>().then((res) => {
         if (res.success && res.data) setCatalog(res.data.stores || []);
@@ -145,11 +148,40 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
     const setAreaConfig = (key: string, patch: Partial<ScenarioConfig>) =>
         setAdded((list) => list.map((a) => (a.key === key ? { ...a, config: { ...a.config, ...patch } } : a)));
 
+    // Areas that can share Q&A agents: load the platform's existing 客服
+    // deployments once per scenario.
+    const shareKeys = added.filter((a) => a.scenario.schema.sharePool).map((a) => a.scenario.key).join(',');
+    useEffect(() => {
+        for (const key of shareKeys ? shareKeys.split(',') : []) {
+            if (csPools[key]) continue;
+            get_ipc_api().executeRequest<{ pools: CsPool[] }>('fast_deploy.cs_pools', { scenario: key })
+                .then((res: any) => {
+                    const pools = (res?.success && res.data?.pools) || [];
+                    setCsPools((m) => ({ ...m, [key]: pools }));
+                })
+                .catch(() => setCsPools((m) => ({ ...m, [key]: [] })));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [shareKeys]);
+
     // The platform key stores are saved under: a listed platform's key, or what
     // the user typed (a listed platform's name typed here maps to its key).
     const platKey = platform?.custom ? platformValue(customPlatform) : (platform?.platform || '');
     const isNew = storeChoice === NEW_STORE;
     const storeId = isNew ? newStoreId(platKey, newName) : storeChoice;
+
+    // Other stores' Q&A pools this store can join (not one it is already in).
+    const shareablePools = (a: AddedArea): CsPool[] =>
+        (csPools[a.scenario.key] || []).filter((g) => !g.front_desks.some((d) => d.store_id === storeId));
+    // Sharing is on by default when there is a pool to share: pick the first.
+    useEffect(() => {
+        for (const a of added) {
+            if (!a.scenario.schema.sharePool || a.config.shareWith !== undefined) continue;
+            const pools = shareablePools(a);
+            if (pools.length) setAreaConfig(a.key, { shareWith: pools[0].front_desks[0].agent_id, qaExtra: 0 });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [csPools, added.length, storeId]);
 
     const cancelConfig = () => { setPlatform(null); setAdded([]); resetRun(); };
 
@@ -209,7 +241,9 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                     ...(a.scenario.schema.schedule ? { schedule: {
                         start: c.scheduleStart, every: c.scheduleEvery, unit: c.scheduleUnit,
                     } } : {}),
-                    ...(a.scenario.schema.qaAgents ? { qa_agents: c.qaAgents } : {}),
+                    ...(c.shareWith
+                        ? { share_with: c.shareWith, qa_agents_extra: c.qaExtra || 0 }
+                        : a.scenario.schema.qaAgents ? { qa_agents: c.qaAgents } : {}),
                     ...(a.scenario.schema.replaceMode ? { mode: c.mode || 'add' } : {}),
                     ...(a.scenario.schema.fetchCatalog ? { fetch_catalog: !!c.fetchCatalog } : {}),
                 },
@@ -338,7 +372,48 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                         {hint(t('pages.agents.fast_deploy_schedule_hint', 'Deploys one agent per role (after-sales, pre-sales, sales, marketing, procurement, research, manager). After-sales runs on this schedule; the others start when the manager (or you) sends them a message.'))}
                     </div>
                 )}
-                {schema.qaAgents && (
+                {schema.sharePool && shareablePools(a).length > 0 && (
+                    <div style={{ marginTop: 10 }} data-testid="fd-share-pool">
+                        <Checkbox checked={!!c.shareWith}
+                            onChange={(e) => setAreaConfig(a.key, {
+                                shareWith: e.target.checked ? shareablePools(a)[0].front_desks[0].agent_id : '',
+                            })}>
+                            {t('pages.agents.fast_deploy_share_pool', 'Share Q&A agents with this platform\'s other stores')}
+                        </Checkbox>
+                        {c.shareWith && (
+                            <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                {shareablePools(a).length > 1 && (
+                                    <Select
+                                        value={c.shareWith}
+                                        onChange={(v) => setAreaConfig(a.key, { shareWith: v })}
+                                        style={{ minWidth: 220 }}
+                                        options={shareablePools(a).map((g) => ({
+                                            value: g.front_desks[0].agent_id,
+                                            label: t('pages.agents.fast_deploy_share_pool_option', {
+                                                defaultValue: '{{stores}} ({{n}} Q&A agents)',
+                                                stores: g.front_desks.map((d) => d.store_name || d.store_id).join(lang.startsWith('zh') ? '、' : ', '),
+                                                n: g.qa_count,
+                                            }),
+                                        }))}
+                                    />
+                                )}
+                                <Text style={{ color: '#94a3b8' }}>{t('pages.agents.fast_deploy_share_pool_extra', 'Add Q&A agents')}</Text>
+                                <InputNumber min={0} max={16} value={c.qaExtra ?? 0}
+                                    onChange={(v) => setAreaConfig(a.key, { qaExtra: typeof v === 'number' ? v : 0 })}
+                                    style={{ width: 90 }} />
+                            </div>
+                        )}
+                        {hint(c.shareWith
+                            ? t('pages.agents.fast_deploy_share_pool_hint', {
+                                defaultValue: 'This store gets its own front desk; it shares the {{n}} Q&A agents of {{stores}}. Each answer uses the asking store\'s products and policies. Restart eCan afterwards.',
+                                n: (shareablePools(a).find((g) => g.front_desks[0].agent_id === c.shareWith) || shareablePools(a)[0]).qa_count,
+                                stores: (shareablePools(a).find((g) => g.front_desks[0].agent_id === c.shareWith) || shareablePools(a)[0])
+                                    .front_desks.map((d) => d.store_name || d.store_id).join(lang.startsWith('zh') ? '、' : ', '),
+                            })
+                            : t('pages.agents.fast_deploy_share_pool_off_hint', 'This store gets its own Q&A agents.'))}
+                    </div>
+                )}
+                {schema.qaAgents && !c.shareWith && (
                     <div style={{ marginTop: 10 }}>
                         {fieldLabel(t('pages.agents.fast_deploy_qa_agents', '# of Q&A agents'))}
                         <div style={{ marginTop: 8 }}>
