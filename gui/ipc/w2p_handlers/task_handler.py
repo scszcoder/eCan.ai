@@ -667,6 +667,20 @@ def _create_clean_agent_task_response(agent_task_id: str, agent_task_data: Dict[
     }
 
 
+@IPCHandlerRegistry.handler('get_task_run_states')
+def handle_get_task_run_states(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Per-task run state for the task list: waiting for a resource (behind
+    whom), held for prerequisites, last missed run. Only tasks with one appear."""
+    try:
+        from agent.ec_tasks.run_state import task_run_states
+        ctx = get_handler_context(request, params)
+        agents = ctx.get_agents() if ctx else []
+        return create_success_response(request, {'states': task_run_states(agents)})
+    except Exception as e:
+        logger.warning(f"[task_handler] get_task_run_states failed: {e}")
+        return create_error_response(request, 'SERVICE_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('refresh_agent_task_status')
 def handle_refresh_agent_task_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Refresh a single task status from database and return latest data."""

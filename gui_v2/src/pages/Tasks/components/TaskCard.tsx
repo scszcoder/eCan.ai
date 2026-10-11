@@ -27,6 +27,7 @@ import styled from '@emotion/styled';
 import { keyframes, css } from '@emotion/react';
 import { useTranslation } from 'react-i18next';
 import { Task } from '../types';
+import RunStateTag from './RunStateTag';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
@@ -1003,6 +1004,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(
               {statusConfig.icon}
               {statusConfig.text}
             </GridStatusBadge>
+            <RunStateTag taskId={task.id} />
 
             {priority !== 'NONE' && priority !== 'none' && (
               <GridPriorityBadge
@@ -1138,6 +1140,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(
               >
                 {statusConfig.text}
               </StyledTag>
+              <RunStateTag taskId={task.id} />
 
               {/* Priority Tag */}
               {priority !== 'NONE' && (

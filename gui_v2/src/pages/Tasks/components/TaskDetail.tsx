@@ -34,6 +34,8 @@ import {
 } from '@/components/Common/StyledForm';
 import styled from '@emotion/styled';
 import { keyframes } from '@emotion/react';
+import RunRulesFields from './RunRulesFields';
+import { applyRunRules, findAfterCycle, readRunRules } from '../runRules';
 
 const pulseAnimation = keyframes`
   0%, 100% { opacity: 1; }
@@ -83,6 +85,7 @@ const TRIGGER_OPTIONS = [
   'schedule',
   'message',
   'auto',
+  'after',
 ];
 const REPEAT_OPTIONS = [
   'none',
@@ -641,6 +644,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         // the skill: a skill can be published or rented, and a logged-in
         // seller session must not travel with it.
         browser_profile_id: metadata?.browser_identity?.browser_profile_id || undefined,
+        // Run rules (priority class, lateness, overlap, prerequisites, exclusive resources).
+        ...readRunRules(metadata),
         schedule: {
           repeat_type: t.schedule?.repeat_type || 'none',
           repeat_number: t.schedule?.repeat_number || 1,
@@ -709,6 +714,12 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       // mounted ones — saving from the Metadata tab sent no id, name, skills or
       // schedule. The store still holds every tab's values.
       const values = form.getFieldsValue(true);
+      const cycle = findAfterCycle(String((values as any).id || ''), (values as any).name || '',
+        (values as any).after_tasks || [], allTasks);
+      if (cycle) {
+        message.error(t('pages.tasks.runRules.cycle', { defaultValue: 'Task dependencies form a cycle: {{path}}', path: cycle.join(' -> ') }));
+        return;
+      }
       const skillIds = ((values as any).skills || []).map((s: string) => String(s || '').trim()).filter(Boolean);
 
       const payload: any = {
@@ -754,7 +765,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
             delete baseIdentity.browser_profile_id;
           }
           return {
-            ...baseMeta,
+            ...applyRunRules(baseMeta, values as any),
             ...(Object.keys(baseIdentity).length > 0
               ? { browser_identity: baseIdentity }
               : {}),
@@ -1457,6 +1468,10 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                       </Col>
                     </Row>
                   </div>
+                </Col>
+
+                <Col span={24}>
+                  <RunRulesFields currentTaskId={(task as any)?.id} allTasks={allTasks} />
                 </Col>
               </Row>
             </StyledCard>
