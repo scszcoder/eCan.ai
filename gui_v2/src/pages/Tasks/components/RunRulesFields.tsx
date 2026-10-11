@@ -61,6 +61,17 @@ const RunRulesFields: React.FC<Props> = ({ currentTaskId, allTasks }) => {
             <Checkbox disabled={!afterTasks.length}>{k('requireSuccess', 'Only if they succeeded')}</Checkbox>
           </StyledFormItem>
         </Col>
+        <Col span={12}>
+          <StyledFormItem label=" " name="run_once" valuePropName="checked">
+            <Checkbox data-testid="run-once">{k('runOnce', 'Run only once')}</Checkbox>
+          </StyledFormItem>
+        </Col>
+        <Col span={12}>
+          <StyledFormItem label={k('idleStart', 'Start after the browser is idle (min)')} tooltip={k('idleStartTip', '')}
+            name="start_after_idle_min">
+            <InputNumber min={0} style={{ width: '100%' }} placeholder={k('unlimited', 'No limit')} data-testid="idle-start" />
+          </StyledFormItem>
+        </Col>
         <Col span={24}>
           <StyledFormItem label={k('exclusive', 'Exclusive resources')} tooltip={k('exclusiveTip', '')} name="exclusive_resources"
             extra={browserProfile ? k('browserAuto', '', { id: browserProfile }) : undefined}>

@@ -18,9 +18,11 @@ describe('run rules <-> task metadata', () => {
     expect(readRunRules({})).toEqual({
       run_class: 'normal', max_lateness_min: null, overlap_policy: 'skip',
       after_tasks: [], after_require_success: false, exclusive_resources: [],
+      run_once: false, start_after_idle_min: null,
     });
     const meta = { task_vars: { store_id: 's3' }, run_class: 'background', max_lateness_min: 30,
-      overlap_policy: 'queue_one', after: { tasks: ['a'], require_success: true }, exclusive_resources: ['printer'] };
+      overlap_policy: 'queue_one', after: { tasks: ['a'], require_success: true }, exclusive_resources: ['printer'],
+      run_once: true, start_after_idle_min: 5 };
     expect(applyRunRules({ task_vars: { store_id: 's3' } }, readRunRules(meta))).toEqual(meta);
   });
 
