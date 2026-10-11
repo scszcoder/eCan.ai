@@ -41,6 +41,9 @@ class SharedA2AServer:
         self._host_ip = host_ip
         self._server = None
         self._thread: Optional[threading.Thread] = None
+        # agent id -> True when it could make that agent register (a deferred
+        # agent built and started on first request).
+        self.resolver: Optional[Callable[[str], bool]] = None
 
     # ── addressing ──
     def port(self) -> int:
@@ -79,6 +82,12 @@ class SharedA2AServer:
                     return
         m = _PATH.match(scope.get("path") or "")
         app = self._apps.get(m.group(1)) if m else None
+        if app is None and m and self.resolver is not None and scope["type"] == "http":
+            try:
+                if await asyncio.to_thread(self.resolver, m.group(1)):
+                    app = self._apps.get(m.group(1))
+            except Exception as e:
+                logger.warning(f"[a2a-shared] waking agent {m.group(1)} failed: {e}")
         if app is None:
             if scope["type"] == "http":
                 body = json.dumps({"error": "unknown agent", "path": scope.get("path")}).encode()
@@ -143,4 +152,13 @@ def get_shared_server(mainwin: Any = None) -> SharedA2AServer:
                 from agent.a2a.langgraph_agent.utils import get_lan_ip
                 return get_lan_ip()
             _shared = SharedA2AServer(port_allocator=_alloc, host_ip=_ip)
+
+            def _wake(agent_id: str) -> bool:
+                from agent.ec_agents.lazy_agent import find_agent, wake
+                ag = find_agent(mainwin, agent_id) if mainwin is not None else None
+                if ag is None or not getattr(type(ag), "lazy_is_cold", None) or not ag.lazy_is_cold:
+                    return False
+                wake(ag, "A2A request")
+                return True
+            _shared.resolver = _wake
         return _shared

@@ -3850,6 +3850,9 @@ class MainWindow:
                     agent_name = getattr(getattr(agent, 'card', None), 'name', '?')
                     logger.info(f"[MainWindow] Skipping disabled agent: {agent_name}")
                     continue
+                if getattr(type(agent), 'lazy_is_cold', None) is not None and agent.lazy_is_cold:
+                    agent.lazy_defer_start()   # built and started on first use
+                    continue
                 if hasattr(agent, 'launch') or hasattr(agent, 'start'):
                     launchable_agents.append((f"Agent_{i}", agent))
             
@@ -4205,10 +4208,22 @@ class MainWindow:
             # Step 2: Convert DB/Cloud agents (dicts) to EC_Agent objects
             converted_count = 0
             failed_count = 0
-            
+            deferred_count = 0
+            from agent.ec_agents import lazy_agent as _lazy
+            lazy_on = _lazy.lazy_enabled()
+
             for agent_data in db_cloud_agents:
                 agent_name = agent_data.get('name', '')
-                
+
+                # ECAN_LAZY_AGENTS=1: an agent with no tasks is built on first use.
+                if (lazy_on and agent_name not in code_built_names and agent_data.get('id')
+                        and not _lazy.agent_task_ids(agent_data, self)):
+                    unified_agents.append(_lazy.LazyAgent(
+                        agent_data, self,
+                        lambda d=agent_data: convert_agent_dict_to_ec_agent(d, self)))
+                    deferred_count += 1
+                    continue
+
                 # Only keep DB/Cloud agent if no code-built agent with same name
                 if agent_name not in code_built_names:
                     # Convert dict to EC_Agent object
@@ -4226,6 +4241,8 @@ class MainWindow:
             logger.info(f"[MainWindow] Cloud LLM Merged all sources into unified list:")
             logger.info(f"[MainWindow]    - Code-built agents: {len(code_built_names)}")
             logger.info(f"[MainWindow]    - DB/Cloud agents converted: {converted_count}")
+            if deferred_count:
+                logger.info(f"[MainWindow]    - Deferred until first use (no tasks): {deferred_count}")
             if failed_count > 0:
                 logger.warning(f"[MainWindow]    - Conversion failed: {failed_count}")
             logger.info(f"[MainWindow]    - Total EC_Agent objects: {len(unified_agents)}")

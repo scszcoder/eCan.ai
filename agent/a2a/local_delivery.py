@@ -31,7 +31,15 @@ def enabled() -> bool:
 
 def local_runner_for(recipient: Any):
     """The recipient's runner if it is a running agent of this process, else None."""
-    if recipient is None or not getattr(recipient, "_running", False):
+    if recipient is None:
+        return None
+    try:
+        from agent.ec_agents.lazy_agent import wake
+        wake(recipient, "chat sent to it")
+    except Exception as e:
+        logger.warning(f"[a2a_local] could not wake deferred agent: {e}")
+        return None
+    if not getattr(recipient, "_running", False):
         return None
     try:
         from agent.agent_service import get_agent_by_id
