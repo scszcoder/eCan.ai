@@ -126,6 +126,7 @@ class TestSeveralStoresOneMachine:
         senders = pool[0]["settings"]["task_vars"]["front_desk_agent_id"].split(",")
         assert len(senders) == 2
         assert "store_id" not in pool[0]["settings"]["task_vars"]
+        assert all(f["settings"]["pool"] == {"min": 2, "max": 3, "idle_minutes": 10} for f in fds)
         # front desks go to their store's vehicle (unassigned -> this machine)
         assert all(a["vehicle_id"] == "veh-local" for a in fd_agents)
         qa_agents = [a for a in _agents(ctx) if a["name"].startswith("客服小")]

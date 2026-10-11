@@ -57,6 +57,7 @@ from .ser_consts import TASK_SERIALIZATION_EXCLUDE
 from .timer_service import get_timer_service, TimerService
 from . import resource_gate as _resource_gate
 from . import task_deps as _task_deps
+from agent.ec_agents import agent_pool as _agent_pool
 from utils.sleep_inhibitor import get_sleep_inhibitor
 
 if TYPE_CHECKING:
@@ -977,6 +978,10 @@ def _snapshot_queue(q: Queue, limit: int = 10) -> str:
         return f"depth={depth} [{' | '.join(summaries)}]{more}"
     except Exception as _e:
         return f"snapshot_error={_e}"
+
+
+# Turns a pool member waits on (agent_pool metrics).
+_POOL_TURN_EVENTS = ("chat_message", "task_request", "a2a", "human_chat", "channel_message")
 
 
 def _task_execution_future_running(task: Any) -> bool:
@@ -4371,6 +4376,8 @@ class TaskRunner(Generic[Context]):
                             return
                     
                     target_task.queue.put_nowait(request)
+                    if event_type in _POOL_TURN_EVENTS:
+                        _agent_pool.note_enqueued(request)   # pool wait metric (agent_pool)
                     # [QUEUE-TRACE] Dump full queue state right after enqueue so we can
                     # tell whether a subsequently-"lost" chat_message ever actually
                     # landed in the task queue. Include task state so we can correlate
@@ -4456,6 +4463,7 @@ class TaskRunner(Generic[Context]):
                                     )
                             _tag_queue_event_type(request, event_type)
                             fallback_task.queue.put_nowait(request)
+                            _agent_pool.note_enqueued(request)
                             logger.info(f"[QUEUE] Message queued for fallback task={fallback_task.name}")
                             try:
                                 _log_live_chat_runner_stage(
@@ -8573,6 +8581,10 @@ class TaskRunner(Generic[Context]):
 
         def _execute():
             _exec_start = time_module.time()
+            try:
+                _agent_pool.note_started(self._gate_agent_id(), msg)   # how long the turn waited
+            except Exception:
+                pass
             # ws118: cap concurrent QA-turn executions (exclude the persistent
             # front-desk monitor — it must keep detecting). Acquire BEFORE the
             # LLM/tool work; released in the finally below.

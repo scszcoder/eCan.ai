@@ -34,8 +34,14 @@ def _agent(queued=0, executing=False, running=True):
 
 
 @pytest.fixture(autouse=True)
-def clean(monkeypatch):
+def clean(monkeypatch, tmp_path):
     ap._reserved.clear()
+    ap._pools.clear()
+    ap._turns.clear()
+    ap._enqueued.clear()
+    monkeypatch.setattr(ap, "_traffic", None)
+    monkeypatch.setattr(ap, "_traffic_hour", None)
+    monkeypatch.setattr(ap, "_traffic_path", lambda: str(tmp_path / "pool_traffic.json"))
     monkeypatch.delenv("ECAN_POOL_PICK", raising=False)
     yield
     ap._reserved.clear()
@@ -137,3 +143,60 @@ def test_front_desk_pool_is_refreshed(monkeypatch):
     assert fd._resolve_recipient_agents(cfg, ctx, "fd", state) == ["qa1"]          # cached
     clock[0] += fd._POOL_REFRESH_S + 1
     assert fd._resolve_recipient_agents(cfg, ctx, "fd", state) == ["qa1", "qa2"]   # sees the new member
+    assert ap.pools()["fd"]["members"] == ["qa1", "qa2"]                          # registered as a pool
+
+
+# ── 6b: settings and metrics ──
+
+def test_pool_settings_defaults_and_clamping():
+    assert ap.pool_settings(None, 8) == {"min": 2, "max": 8, "idle_minutes": 10}
+    assert ap.pool_settings({"min": 5, "max": 20, "idle_minutes": 3}, 8) == {"min": 5, "max": 8, "idle_minutes": 3}
+    assert ap.pool_settings({"min": 9, "max": 4}, 8) == {"min": 4, "max": 4, "idle_minutes": 10}
+    assert ap.pool_settings({"min": "x"}, 1) == {"min": 1, "max": 1, "idle_minutes": 10}
+    assert ap.pool_settings({}, 0)["max"] == 0
+
+
+def test_settings_come_from_the_front_desk_task():
+    fd = SimpleNamespace(tasks=[SimpleNamespace(metadata={}), SimpleNamespace(metadata={"pool": {"max": 3}})])
+    assert ap.settings_of(fd) == {"max": 3}
+    assert ap.settings_of(SimpleNamespace(tasks=[])) is None
+
+
+def test_waits_and_turns(monkeypatch):
+    t = [10_000.0]
+    monkeypatch.setattr(ap.time, "time", lambda: t[0])
+    ap.register_pool("fd", ["a", "b"], {"min": 1})
+    for wait, member in ((0.5, "a"), (4.0, "b"), (1.0, "a")):
+        req = {"turn": wait}
+        ap.note_enqueued(req)
+        t[0] += wait
+        ap.note_started(member, req)
+    ap.note_started("a", {"never": "queued"})            # unknown request: ignored
+    st = ap.pool_stats("fd", lookup=lambda i: _agent())
+    assert st["turns_10min"] == 3 and st["turns_last_hour"] == 3
+    assert st["wait_p50_s"] == 1.0 and st["wait_p90_s"] == 4.0
+    assert st["settings"] == {"min": 1, "max": 2, "idle_minutes": 10}
+    assert st["load"] == {"a": 0, "b": 0}
+    assert ap.pool_stats("nope") == {}
+
+
+def test_hourly_traffic_counts_quiet_hours_and_persists(monkeypatch, tmp_path):
+    base = 3600 * 500_000.0
+    t = [base + 60]
+    monkeypatch.setattr(ap.time, "time", lambda: t[0])
+    ap.register_pool("fd", ["a"])
+
+    def turn():
+        r = object()
+        ap.note_enqueued(r)
+        ap.note_started("a", r)
+    turn()                       # first turn: starts the hour clock
+    turn()
+    turn()
+    t[0] = base + 3 * 3600 + 5   # two quiet hours pass
+    turn()
+    import json
+    saved = json.loads((tmp_path / "pool_traffic.json").read_text(encoding="utf-8"))["fd"]
+    assert saved[ap._slot(base)] == 3
+    assert saved[ap._slot(base + 3600)] == 0 and saved[ap._slot(base + 7200)] == 0
+    assert ap.expected_turns("fd", base) == 3

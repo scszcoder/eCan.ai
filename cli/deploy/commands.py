@@ -749,6 +749,12 @@ def _store_vehicle(store_id: str, owner: str, log: list):
     return vid
 
 
+def _qa_pool_settings(qa_n: int) -> dict:
+    """A front desk's Q&A pool sizing (agent/ec_agents/agent_pool.py): at least
+    2 answering, up to all of them, shrink after 10 idle minutes."""
+    return {"min": min(2, qa_n), "max": qa_n, "idle_minutes": 10}
+
+
 class _Builder:
     """Creates tasks and agents for one deployment and remembers what it made."""
 
@@ -758,10 +764,12 @@ class _Builder:
         self.links = {"task_skill": [], "agent_task": []}
 
     def task(self, name: str, skill_id: str, task_vars: dict, identity: dict | None = None,
-             trigger: str = "auto", schedule: dict | None = None) -> str:
+             trigger: str = "auto", schedule: dict | None = None, extra_settings: dict | None = None) -> str:
         settings = {"task_vars": dict(task_vars)}
         if identity:
             settings["browser_identity"] = dict(identity)
+        if extra_settings:
+            settings.update(extra_settings)
         row = {
             "name": name, "owner": self.owner, "source": "fast_deploy",
             "description": f"{self.label} — Fast Deploy (shared skill)",
@@ -885,14 +893,16 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
                        f"{identity['browser_profile_id']}")
     b = _Builder(ctx, owner, org_id, profile.label)
 
-    def _add_task(name: str, skill_id: str, extra_vars: dict | None = None) -> str:
+    def _add_task(name: str, skill_id: str, extra_vars: dict | None = None,
+                  extra_settings: dict | None = None) -> str:
         tvars = dict(task_vars)
         if extra_vars:
             tvars.update(extra_vars)
         settings = {"task_vars": tvars}
         if identity:
             settings["browser_identity"] = dict(identity)
-        return b.task(name, skill_id, settings["task_vars"], settings.get("browser_identity"))
+        return b.task(name, skill_id, settings["task_vars"], settings.get("browser_identity"),
+                      extra_settings=extra_settings)
 
     # ── Runtime env → <appdata>/run.env (applied on next app start).
     if profile.env_append:
@@ -903,7 +913,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     #    agent's id in task_vars -- the shared Q&A skill's pend_event filters on
     #    {{front_desk_agent_id}}, resolved from task_vars at task launch.
     fd_name = f"{profile.fd_task_prefix}001"
-    fd_task_id = _add_task(fd_name, fd_skill_id)
+    fd_task_id = _add_task(fd_name, fd_skill_id, extra_settings={"pool": _qa_pool_settings(qa_n)})
     fd_agent_id = b.agent("前台小张", fd_skill_id, fd_task_id, vehicle_id)
     log.append(f"Created task {fd_name} → {profile.fd_skill_name}")
     log.append(f"Created front-desk agent 前台小张 ({fd_agent_id}, org=Sales)")
@@ -917,7 +927,8 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     if profile.native_desktop:
         # No browser node injects the Q&A pool into this front desk's prompt
         # (Feige's actionable_items hook does); hand it the ids as a task var.
-        fd_settings = {"task_vars": {**task_vars, "qa_agent_ids": ",".join(qa_agent_ids)}}
+        fd_settings = {"task_vars": {**task_vars, "qa_agent_ids": ",".join(qa_agent_ids)},
+                       "pool": _qa_pool_settings(qa_n)}
         ur = ctx.db.task_service.update_task(fd_task_id, {"settings": fd_settings})
         if not (isinstance(ur, dict) and ur.get("success")):
             raise RuntimeError(_tr(f"update task {fd_name} failed: {(ur or {}).get('error')}",
@@ -1077,7 +1088,8 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
         tvars = {"store_id": sid}
         if urls:
             tvars.update(store_url=urls[0], store_urls=",".join(urls))
-        tid = b.task(f"{profile.fd_task_prefix}-{name}", fd_skill_id, tvars, identity)
+        tid = b.task(f"{profile.fd_task_prefix}-{name}", fd_skill_id, tvars, identity,
+                     extra_settings={"pool": _qa_pool_settings(qa_n)})
         # A store's agent goes to the vehicle the store is assigned to.
         aid = b.agent(f"前台-{name}", fd_skill_id, tid, _store_vehicle(sid, owner, log))
         fd_ids.append(aid)

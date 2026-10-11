@@ -243,6 +243,9 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
             # overlap_policy.
             if isinstance(db_settings.get('after'), dict):
                 runtime_metadata['after'] = dict(db_settings['after'])
+            if isinstance(db_settings.get('pool'), dict):
+                # A front desk's pool sizing (agent/ec_agents/agent_pool.py).
+                runtime_metadata['pool'] = dict(db_settings['pool'])
             if isinstance(db_settings.get('exclusive_resources'), list):
                 runtime_metadata['exclusive_resources'] = [
                     str(x) for x in db_settings['exclusive_resources'] if str(x).strip()]

@@ -130,6 +130,10 @@ class TestDeployDouyinCs:
         assert "front_desk_agent_id" not in fd_call.args[0]["settings"]["task_vars"]
         for c in qa_calls:
             assert c.args[0]["settings"]["task_vars"]["front_desk_agent_id"] == "agent_1"
+        # the front desk carries its Q&A pool's sizing; Q&A tasks don't
+        n = len(qa_calls)
+        assert fd_call.args[0]["settings"]["pool"] == {"min": min(2, n), "max": n, "idle_minutes": 10}
+        assert all("pool" not in c.args[0]["settings"] for c in qa_calls)
 
     def test_agents_names_org_and_vehicle(self):
         ctx = _make_ctx()

@@ -1634,6 +1634,11 @@ def _resolve_recipient_agents(
 
     ids = [a["id"] for a in service]
     changed = ids != cached
+    try:
+        _agent_pool.register_pool(
+            sender_agent_id, ids, _agent_pool.settings_of(_agent_pool._default_lookup(sender_agent_id)))
+    except Exception as exc:
+        logger.debug(f"[BrowserAutomation] {cfg.log_tag} pool registration failed: {exc}")
     dispatch_state["service_agents"] = ids
     dispatch_state["service_agents_at"] = time.monotonic()
     dispatch_state.setdefault("rr_index", 0)
