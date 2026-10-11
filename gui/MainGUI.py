@@ -3660,8 +3660,10 @@ class MainWindow:
             # Update local database with merged data
             await self._update_local_db_agents(merged_db_cloud)
             
-            # Merge code-built agents with DB/Cloud agents (Priority: Code-built > Cloud > Local DB)
-            self.agents = self._merge_all_agent_sources(
+            # Merge code-built agents with DB/Cloud agents (Priority: Code-built > Cloud > Local DB).
+            # Off the GUI thread: building ~0.5 s per EC_Agent froze the UI ~20 s for 33 agents.
+            self.agents = await asyncio.to_thread(
+                self._merge_all_agent_sources,
                 code_built_agents=built_agents,
                 db_cloud_agents=merged_db_cloud
             )
