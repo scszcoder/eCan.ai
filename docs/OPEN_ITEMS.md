@@ -53,9 +53,8 @@ the agent scheduler/pool memory and the commit messages.
   store inside a run). 千牛 excluded (one store per machine). Open:
   - **Live test with two stores** (two 抖店 logins, one shared pool): answers use each store's
     policies/products; `[agent-pool]` shows one group.
-  - **Usage/metering of a shared turn has no store**: the run scope's `store_id` is set per
-    task loop (runner `launch_unified_run`), not per turn; token cost of shared turns is
-    account-wide. Fix: re-publish the scope's store per resumed turn.
+  - Usage/metering of a shared turn carries the asking store (runner `_scope_turn_store`,
+    per turn, in the turn's own context copy) -- unit-tested, not live.
   - Takes effect after an app restart (running Q&A tasks keep their old front desk list).
   - The pool panel shows `shared_with` ids only in data, not in the UI yet.
   - `douyin_cs_multi`/`pdd_cs_multi` (CLI only) still create the old shape (shared Q&A tasks

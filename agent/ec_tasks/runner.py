@@ -7221,6 +7221,23 @@ class TaskRunner(Generic[Context]):
     
     # ==================== Resume Payload Building ====================
     
+    def _scope_turn_store(self, msg: Any) -> None:
+        """A task with no store of its own (a Q&A agent shared by several stores'
+        front desks) runs each turn for the store that dispatched it: put that
+        store on this run's scope, so usage, metering and logs carry it. Runs
+        inside the turn's own context copy, so it never outlives the turn."""
+        try:
+            from utils.log_scope import get_scope, update_scope
+            if (get_scope() or {}).get("store_id"):
+                return
+            from agent.ec_skills.prompt_variable_providers import _dispatched_store_id
+            message = getattr(msg, "message", None) or (msg.get("message") if isinstance(msg, dict) else None) or msg
+            store = _dispatched_store_id({"input": self._extract_text_from_message(message)})
+            if store:
+                update_scope(store_id=store)
+        except Exception:
+            pass
+
     def _extract_text_from_message(self, message) -> str:
         """Extract text from a Message object."""
         try:
@@ -8673,6 +8690,7 @@ class TaskRunner(Generic[Context]):
                 _agent_pool.note_started(self._gate_agent_id(), msg)   # how long the turn waited
             except Exception:
                 pass
+            self._scope_turn_store(msg)
             # ws118: cap concurrent QA-turn executions (exclude the persistent
             # front-desk monitor — it must keep detecting). Acquire BEFORE the
             # LLM/tool work; released in the finally below.

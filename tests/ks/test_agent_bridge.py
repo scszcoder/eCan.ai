@@ -113,3 +113,22 @@ def test_inside_a_run_the_llm_cannot_name_the_store(wired, monkeypatch):
     ab.try_product_answer(None, {"query": "这件是什么材质", "store_id": "别人的店",
                                  "_ks_scope": {"store_id": "", "platform_item_id": "3500009"}})
     assert not seen.get("store_ref")
+
+
+def test_a_shared_turn_puts_its_store_on_the_run_scope():
+    """Usage / metering of a shared Q&A turn is attributed to the asking store."""
+    import contextvars
+    import json
+    from types import SimpleNamespace
+    from agent.ec_tasks.runner import TaskRunner
+    from utils.log_scope import get_scope, set_scope
+    r = TaskRunner.__new__(TaskRunner)
+    text = json.dumps({"customer_id": "c1", "session_id": "s1", "store_id": "店B"}, ensure_ascii=False)
+    msg = SimpleNamespace(message=SimpleNamespace(parts=[{"type": "text", "text": text}]))
+
+    def turn(scope_fields):
+        set_scope(**scope_fields)
+        r._scope_turn_store(msg)
+        return get_scope().get("store_id")
+    assert contextvars.copy_context().run(turn, {"agent_id": "qa1"}) == "店B"
+    assert contextvars.copy_context().run(turn, {"store_id": "自己的店"}) == "自己的店"   # the task's own wins
