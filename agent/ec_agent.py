@@ -34,6 +34,7 @@ from agent.a2a.langgraph_agent.a2a_client_wrapper import A2AClientWrapper
 # Routed through a standalone module (not defined here) to avoid the ws062 circular import — the
 # live-chat hook registers during ec_tasks/build_node init and cannot import ec_agent then.
 from agent.a2a import local_delivery as _a2a_local
+from agent.a2a import shared_server as _a2a_shared
 from agent.chats.unified_messenger import UnifiedMessenger, create_unified_messenger
 
 from browser_use.agent.service import Agent
@@ -143,6 +144,16 @@ class EC_Agent(Agent):
 		# 	mask_openai_api_key = "Not set"
 		# logger.info("OPENAI API KEY IS::::::::", mask_openai_api_key)
 
+
+		# One A2A server serves every agent of this process at /a2a/<agent id>/
+		# (agent/a2a/shared_server.py); the card advertises that address.
+		self._a2a_shared = _a2a_shared.enabled() and bool(getattr(card, "id", ""))
+		if self._a2a_shared:
+			card.url = _a2a_shared.get_shared_server(mainwin).url_for(card.id)
+		elif _a2a_shared.is_shared_url(card.url):
+			# Stored while the shared server was on: this agent needs its own port.
+			from agent.a2a.langgraph_agent.utils import get_a2a_server_url
+			card.url = get_a2a_server_url(mainwin)
 
 		# Extract port from Card URL (already allocated during card creation)
 		# This avoids duplicate port allocation
@@ -442,6 +453,8 @@ class EC_Agent(Agent):
 				self.unsubscribe_from_wan_channel(group_id)
 		except Exception as e:
 			logger.warning(f"[AGENT_STOP] '{name}' WAN unsubscribe failed: {e}")
+		if getattr(self, "_a2a_shared", False):
+			_a2a_shared.get_shared_server(self.mainwin).unregister(self.card.id)
 		server = getattr(self, "_a2a_uvicorn", None)
 		if server is not None:
 			server.should_exit = True
@@ -453,7 +466,7 @@ class EC_Agent(Agent):
 		logger.info(f"[AGENT_STOP] '{name}' stopped")
 
 	def exit_a2a_server_in_thread(self):
-		if self.a2a_server_thread and self.a2a_server_thread.is_alive():
+		if getattr(self, "a2a_server_thread", None) and self.a2a_server_thread.is_alive():
 			self.a2a_server_thread.join(timeout=5)
 
 	def new_thread(self,tid):
@@ -550,8 +563,11 @@ class EC_Agent(Agent):
 		except Exception as _wp_err:
 			logger.warning(f"[AGENT_START] Worker placement gate error (fail-open): {_wp_err}")
 
-		# Start A2A server in daemon thread
-		self.start_a2a_server_in_thread(self.a2a_server)
+		# Start A2A server in daemon thread (or join the process-wide one)
+		if getattr(self, "_a2a_shared", False):
+			_a2a_shared.get_shared_server(self.mainwin).register(self.card.id, self.a2a_server)
+		else:
+			self.start_a2a_server_in_thread(self.a2a_server)
 
 		# kick off memory manager in background.
 		self.mem_manager.start()

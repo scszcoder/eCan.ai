@@ -616,6 +616,10 @@ class MainWindow:
                 a2a_port = self._parse_port_from_url(url)
                 if not a2a_port:
                     continue
+                # The path the agent actually serves at: /a2a/<id>/ on the shared
+                # A2A server, / on a per-agent server (agent/a2a/shared_server.py).
+                from urllib.parse import urlparse
+                a2a_path = urlparse(url).path or "/"
                 skills = tuple(
                     (getattr(s, "name", None) or getattr(s, "id", "") or "")
                     for s in (getattr(ag, "skills", None) or [])
@@ -633,7 +637,7 @@ class MainWindow:
                     name=name,
                     role=role,
                     a2a_port=int(a2a_port),
-                    a2a_path="/a2a/",
+                    a2a_path=a2a_path,
                     skills=tuple(s for s in skills if s),
                     tasks=tuple(t for t in tasks if t),
                 ))
@@ -645,7 +649,7 @@ class MainWindow:
                     skills=tuple(s for s in skills if s),
                     lan_host=primary_ip,
                     lan_port=int(a2a_port),
-                    lan_path="/a2a/",
+                    lan_path=a2a_path,
                 ))
             except Exception as e:
                 logger.debug(f"[MainWindow] could not advertise agent: {e}")

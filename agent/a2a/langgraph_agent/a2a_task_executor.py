@@ -127,22 +127,27 @@ class A2ATaskExecutor(AgentExecutor):
             # Record task start time
             self._task_start_times[task_id] = time.time()
             
-            # Route to TaskRunner based on message type
+            # Route to TaskRunner based on message type. Off the event loop:
+            # one A2A server serves every agent (shared_server), so a slow
+            # enqueue here must not stall the other agents' requests.
             if mtype == "send_task":
                 logger.info("[A2A] Task wait in line")
-                self._agent.runner.sync_task_wait_in_line(
-                    "task_request", request, async_response=async_response
+                await asyncio.to_thread(
+                    self._agent.runner.sync_task_wait_in_line,
+                    "task_request", request, async_response=async_response,
                 )
             elif "send_chat" in mtype:
                 logger.info("[A2A] Chat wait in line")
                 if mtype == "send_chat":
-                    self._agent.runner.sync_task_wait_in_line(
-                        "chat_message", request, async_response=async_response
+                    await asyncio.to_thread(
+                        self._agent.runner.sync_task_wait_in_line,
+                        "chat_message", request, async_response=async_response,
                     )
                 elif mtype == "dev_send_chat":
                     logger.debug("[A2A] Human chat for development task")
-                    self._agent.runner.sync_task_wait_in_line(
-                        "dev_human_chat", request, async_response=async_response
+                    await asyncio.to_thread(
+                        self._agent.runner.sync_task_wait_in_line,
+                        "dev_human_chat", request, async_response=async_response,
                     )
             else:
                 logger.warning(f"[A2A] Unknown message type: {mtype}")
