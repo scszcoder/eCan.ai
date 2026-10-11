@@ -711,12 +711,17 @@ def _task_skill_ids(ctx, task_id):
         return []
 
 
-def _set_task_vars(ctx, out, task_id, new_vars):
-    """Merge new_vars into a task's task_vars and persist (mirrors `tasks update --var`)."""
+def _set_task_vars(ctx, out, task_id, new_vars, identity=None):
+    """Merge new_vars into a task's task_vars (and identity into its
+    browser_identity) and persist (mirrors `tasks update --var/--browser`)."""
     settings, _name, _trig = _existing_settings(ctx, task_id)
     merged = dict(settings.get("task_vars") or {})
     merged.update(new_vars)
     settings["task_vars"] = merged
+    if identity:
+        bi = dict(settings.get("browser_identity") or {})
+        bi.update(identity)
+        settings["browser_identity"] = bi
     result = ctx.db.task_service.update_task(task_id, {"settings": settings})
     if not (isinstance(result, dict) and result.get("success")):
         out.error(f"Failed to set vars on task {task_id}: {(result or {}).get('error')}")
@@ -731,7 +736,7 @@ def _set_task_vars(ctx, out, task_id, new_vars):
 @click.option("--vendor", default="Microchip", show_default=True, help="part_vendor")
 @click.option("--home-url", default="https://www.microchip.com", show_default=True, help="vendor_home_url")
 @click.option("--category", default="PIC10", show_default=True, help="category_filter (empty = whole catalog)")
-@click.option("--docs-root", default="D:/chip_docs", show_default=True, help="Local docs root (also mirrored to NAS)")
+@click.option("--docs-root", default="C:/chip_docs", show_default=True, help="Local docs root (also mirrored to NAS)")
 @click.option("--worker-filter", default="ChipCrawler", show_default=True, help="bu_select_agents filter for workers")
 @click.option("--batch-size", default="3", show_default=True, help="parts per batch")
 @click.option("--coordinator", "coordinator_name", default="ChipDocsCoordinator", show_default=True,
@@ -754,7 +759,7 @@ def chip_pilot(vendor, home_url, category, docs_root, worker_filter, batch_size,
     After running this, (re)start the app to launch the crawl.
 
     Example:
-      ecan tasks chip-pilot --category PIC10 --docs-root D:/chip_docs
+      ecan tasks chip-pilot --category PIC10 --docs-root C:/chip_docs
     """
     ctx = get_context()
     out = get_output()
@@ -786,6 +791,9 @@ def chip_pilot(vendor, home_url, category, docs_root, worker_filter, batch_size,
         out.warning("No worker tasks (chip_docs_crawler_00) found — the coordinator "
                     "will have no workers to dispatch batches to.")
 
+    # Each task gets its own browser profile (a bare name resolves under this
+    # machine's browser_profiles/): tasks sharing one skill would otherwise all
+    # launch on "default", and Chrome lets only one process own a profile.
     _set_task_vars(ctx, out, coord_id, {
         "part_vendor": vendor,
         "vendor_home_url": home_url,
@@ -793,15 +801,15 @@ def chip_pilot(vendor, home_url, category, docs_root, worker_filter, batch_size,
         "docs_root": docs_root,
         "worker_filter": worker_filter,
         "batch_size": batch_size,
-    })
+    }, identity={"user_data_dir": "chipcrawl_coordinator"})
     out.info(f"Coordinator task {coord_id}: vars set (category_filter={category or 'ALL'}, docs_root={docs_root}).")
 
-    for wid in worker_ids:
+    for n, wid in enumerate(worker_ids, 1):
         _set_task_vars(ctx, out, wid, {
             "part_vendor": vendor,
             "docs_root": docs_root,
             "manager": coordinator_name,
-        })
+        }, identity={"user_data_dir": f"chipcrawl_worker_{n}"})
     if worker_ids:
         out.info(f"{len(worker_ids)} worker task(s): part_vendor / docs_root / manager set.")
 

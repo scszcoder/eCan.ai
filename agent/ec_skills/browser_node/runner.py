@@ -3130,6 +3130,16 @@ def build_browser_profile(
     use_pc_chrome = settings.get("use_pc_chrome", False)
     user_data_dir = settings.get("user_data_dir", "")
 
+    if user_data_dir and not os.path.isabs(str(user_data_dir)):
+        # A bare name (e.g. a task's browser_identity user_data_dir) is a profile
+        # under THIS machine's browser_profiles/, so a task synced from another
+        # machine does not carry that machine's absolute path. Lets tasks that
+        # share one skill (coordinator + workers) each own a profile instead of
+        # all colliding on "default".
+        safe_name = re.sub(r"[^\w\-]", "_", str(user_data_dir))
+        user_data_dir = ensure_user_data_dir(subdir=os.path.join("browser_profiles", safe_name))
+        logger.info(f"[BrowserAutomation] Resolved user_data_dir name to: {user_data_dir}")
+
     if not user_data_dir:
         # Auto-assign profile directory based on task/session id
         ident = settings.get("id") or settings.get("name") or node_profile or "default"
