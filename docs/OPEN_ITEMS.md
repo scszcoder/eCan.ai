@@ -4,11 +4,59 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-09-21_
+_Last updated: 2026-10-11_
 
 ---
 
 ## 🔴 Bugs (unfixed)
+
+### Left open after multi-task agents, agent pools and lazy agents (2026-10-11)
+
+Shipped 2026-10-10/11 (all on master): resource gate + scheduling rules + "after task" trigger +
+task-editor run rules (Phases 1-4); in-process A2A delivery in core, one shared A2A server,
+agents with no tasks built on first use (5a-5c); least-busy Q&A pick, pool sizing/metrics,
+demand-sized active set + 问答客服池 panel, `pick_for_customer` for 千牛 (6a-6d); staged catalog
+imports + run_once / start_after_idle_min + 快速生成 product-export option (7b). Design notes:
+the agent scheduler/pool memory and the commit messages.
+
+- **Not exercised by live chat yet** (no LLM balance on the dev machine): in-process A2A delivery
+  (`[a2a_local] in-process ->`), the shared A2A server under real traffic, pool picks and the
+  controller (`[agent-pool]`). Before a customer build: one Feige/千牛 session with 3+ customers.
+  Kill switches: `ECAN_A2A_LOCAL_FASTPATH=0`, `ECAN_A2A_SHARED_SERVER=0`, `ECAN_LAZY_AGENTS=0`,
+  `ECAN_POOL_PICK=0`, `ECAN_POOL_SCALING=0`, `ECAN_TASK_RESOURCE_GATE=0`.
+- **Pools park, they don't stop.** An agent can't be stopped and started again in-process (see the
+  store-move item), so scale-down only stops routing to a member; an idle member still holds its
+  task-loop thread and memory worker. Revisit only if measurements show that matters.
+- **Lazy agents: any new loop over ALL agents must read only `LazyAgent._CHEAP` attributes**, or it
+  builds every deferred agent (three such scans were found live; the audit list is in the 5c
+  commits). Symptom: `[lazy-agent] building '<name>' on first use (... from <file:line>)` for many
+  agents at once.
+- **`抖店商品导出` skill (data, my_skills) is unverified on a real 抖店 backend** — permission of the
+  store login for 商品管理, the real button labels, where the download lands. Its owner is split:
+  the file says `wechat_b603…`, the DB/cloud record is `wechat_o3YB…` (created while logged in as
+  o3YB). Fix: log in as b603, give the file a new `skillId`, save in the Skill Editor, delete the
+  o3YB copy (Fast Deploy finds the skill by exact name).
+- **抖店 export column mapping untuned** (7a): needs one real export file.
+- **Staged import copies are kept after import** (`knowledge_service/staged_imports/`): the import
+  job reads the file after the review list drops it. Prune old copies later.
+- **"after task" finishes are in memory**: a prerequisite that finished before a restart doesn't
+  count after it. A `queue_one` scheduled run due while its task is parked on input is dropped by
+  the existing parked-task guard.
+- **A Q&A agent with no chat skill can't answer a direct chat** (客服小晴: `No chat skill found …
+  cannot auto-create chatter task`) — setup question, not lazy-agent related.
+- **Full suite, 2026-10-11** (every file under tests/, tests/unit, tests/ks, one pytest per file,
+  skipping the known aborter test_ota_path_safety and the hanging inflight-race test): 428 files,
+  155 failing tests in 69 files. 9 are environment (async tests: pytest-asyncio not active on the
+  Python 3.14 dev env, "async def functions are not natively supported"); the other 146 fail the
+  same on the commit before this work (9ad66e8a1, compared test by test; untracked test files
+  copied in) — mostly release/CI workflow, Feige source-structure and setup-prereq tests.
+  None was introduced by the work above. Notable ones:
+  `test_submit_task_execution_race::test_submit_allows_feige_response_when_input_required_future_running`;
+  `test_frontdesk_dispatch_inflight_race.py` hangs > 300 s; `test_direct_feige_delivery_worker`
+  (5); `test_mt038_attachment_marker_rescue` (5); `test_dom_echo_text_baseline` (1);
+  `test_feige_turn_metadata` (1); `test_phase_c_store_dimension` (migration chain 3.1.8 vs 3.1.7);
+  `SearchFilter.test.tsx` (1); collection errors in `tests/integration/test_a2a_skill_execution.py`
+  and `tests/test_product_listing_orchestrator_skill.py`.
 
 ### Left open after the rag-enterprise merge + Fast Deploy rework (2026-10-10)
 
