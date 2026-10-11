@@ -42,7 +42,7 @@ the agent scheduler/pool memory and the commit messages.
      stop a member parked >= 30 min when the hourly forecast says it won't be needed in the next
      30-60 min; always keep min active + 1 warm spare; never stop one with a turn running/queued or
      active in another front desk's pool; rebuild cold members ~10 min before a forecast peak.
-- **Shared Q&A pool across stores (done 2026-10-11, not live-tested).** 快速生成 → 客服 for a store
+- **Shared Q&A pool across stores (done 2026-10-11, not live-tested; docs/SHARED_QA_POOL.md).** 快速生成 → 客服 for a store
   of 抖店/拼多多 when another store of the platform already has Q&A agents: "与本平台其他店铺共享问答客服"
   is on by default (pool picker when several, "新增问答客服" count); the new store gets its own
   front desk, the existing Q&A tasks accept it (`front_desk_agent_id` list) and drop their own
