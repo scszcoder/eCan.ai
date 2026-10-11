@@ -333,8 +333,29 @@ def _carry_cloud_relations(local_agent, cloud_agent):
     return local_agent
 
 
-def load_agents_from_cloud(mainwin):
-    """Load Agents from cloud"""
+def _cloud_agent_dict(local_agent):
+    """A cloud agent row as the dict the startup merge and the converter take.
+
+    Relations arrive as comma-joined id strings (_carry_cloud_relations); the
+    converter wants a list of {id, name} stubs (it resolves them against the
+    compiled skill/task pools).
+    """
+    d = dict(local_agent)
+    for key in ('skills', 'tasks'):
+        ids = d.get(key)
+        if isinstance(ids, str):
+            d[key] = [{'id': i.strip(), 'name': i.strip()} for i in ids.split(',') if i.strip()]
+    return d
+
+
+def load_agent_dicts_from_cloud(mainwin):
+    """The account's agents from the cloud, as dicts (nothing is built here).
+
+    It used to build a full EC_Agent per row (port, memory manager, runner, A2A
+    app -- ~1 s each) only for the caller to turn it straight back into a dict
+    with to_dict(), which also replaced the cloud's description/title/org/...
+    with EC_Agent defaults.
+    """
     cloud_agents = []
     try:
         from agent.cloud_api.cloud_api import send_get_agents_request_to_cloud
@@ -381,19 +402,12 @@ def load_agents_from_cloud(mainwin):
             # as comma-separated strings, so without this every cloud agent dies
             # on KeyError('skills') and is silently dropped by the outer except.
             _carry_cloud_relations(local_agent, cloud_agent)
-            new_agent = gen_new_agent(mainwin, local_agent)
-            if new_agent:
-                cloud_agents.append(new_agent)
-            else:
-                logger.warning(
-                    f"[load_agents_from_cloud] dropped cloud agent "
-                    f"{local_agent.get('id')} ({local_agent.get('name')}) — "
-                    f"gen_new_agent returned nothing"
-                )
+            if not local_agent.get('id') or not local_agent.get('name'):
+                logger.warning(f"[load_agents_from_cloud] dropped cloud agent without id/name: "
+                               f"{str(local_agent)[:120]}")
+                continue
+            cloud_agents.append(_cloud_agent_dict(local_agent))
 
-        if cloud_agents:
-            mainwin.agents = cloud_agents
-        
         return cloud_agents
 
     except Exception as e:

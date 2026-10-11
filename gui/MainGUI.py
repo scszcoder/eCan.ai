@@ -4093,47 +4093,20 @@ class MainWindow:
         try:
             logger.info("[MainWindow] ðŸŒ Fetching agents from cloud...")
             
-            # Use load_agents_from_cloud to fetch agents from cloud
-            from agent.ec_agents.agent_utils import load_agents_from_cloud
-            
+            from agent.ec_agents.agent_utils import load_agent_dicts_from_cloud
+
             # Run in executor to avoid blocking the event loop
-            # Note: load_agents_from_cloud returns EC_Agent objects, not dicts
-            cloud_agent_objects = await asyncio.get_event_loop().run_in_executor(
+            cloud_agent_dicts = await asyncio.get_event_loop().run_in_executor(
                 None,
-                load_agents_from_cloud,
+                load_agent_dicts_from_cloud,
                 self
             )
-            
-            if not cloud_agent_objects:
-                logger.info("[MainWindow] â„¹ï¸  No agents returned from cloud")
+
+            if not cloud_agent_dicts:
+                logger.info("[MainWindow] No agents returned from cloud")
                 return []
-            
-            logger.info(f"[MainWindow] Cloud LLM Fetched {len(cloud_agent_objects)} agents from cloud")
-            
-            # Convert EC_Agent objects to dicts for merging
-            cloud_agent_dicts = []
-            for agent_obj in cloud_agent_objects:
-                try:
-                    if hasattr(agent_obj, 'to_dict'):
-                        agent_dict = agent_obj.to_dict(owner=self.user)
-                    elif hasattr(agent_obj, 'card'):
-                        # Extract basic info from agent card
-                        agent_dict = {
-                            'id': agent_obj.card.id if hasattr(agent_obj.card, 'id') else None,
-                            'name': agent_obj.card.name if hasattr(agent_obj.card, 'name') else 'Unknown',
-                            'description': agent_obj.card.description if hasattr(agent_obj.card, 'description') else '',
-                            'owner': getattr(agent_obj, 'owner', 'unknown'),
-                        }
-                    else:
-                        logger.warning(f"[MainWindow] Cannot convert agent object to dict: {agent_obj}")
-                        continue
-                    
-                    cloud_agent_dicts.append(agent_dict)
-                except Exception as e:
-                    logger.warning(f"[MainWindow] Failed to convert agent to dict: {e}")
-                    continue
-            
-            logger.info(f"[MainWindow] ðŸ”„ Converted {len(cloud_agent_dicts)} cloud agents to dicts")
+
+            logger.info(f"[MainWindow] Cloud LLM Fetched {len(cloud_agent_dicts)} agents from cloud")
             return cloud_agent_dicts
             
         except Exception as e:
@@ -4277,51 +4250,56 @@ class MainWindow:
             
             # Run database update in executor
             def update_db():
-                try:
-                    with agent_service.session_scope() as session:
-                        from agent.db.models.agent_model import DBAgent
-                        
-                        updated_count = 0
-                        for agent_data in merged_agents:
-                            agent_id = agent_data.get('id')
-                            if not agent_id:
-                                continue
-                            
-                            # Check if agent exists
-                            # IMPORTANT: Use self.user (original email) not self.log_user (sanitized)
-                            existing = session.query(DBAgent).filter(
-                                DBAgent.id == agent_id,
-                                DBAgent.owner == self.user
-                            ).first()
-                            
-                            if existing:
-                                # Update existing agent
-                                for key, value in agent_data.items():
-                                    if hasattr(existing, key):
-                                        # Convert timestamp to datetime for SQLite
-                                        if key in ('created_at', 'updated_at') and isinstance(value, (int, float)):
-                                            from datetime import datetime
-                                            value = datetime.fromtimestamp(value / 1000.0)  # Convert ms to seconds
+                from datetime import datetime
+                from sqlalchemy import inspect as sa_inspect
+                from agent.db.models.agent_model import DBAgent
+                # Only real columns: the merged dicts also carry relation stubs
+                # (skills/tasks) and, before, a 'card' -- DBAgent(**dict) then
+                # raised and the whole batch rolled back on every startup.
+                columns = {c.key for c in sa_inspect(DBAgent).column_attrs}
+
+                def _row(agent_data):
+                    row = {}
+                    for key, value in agent_data.items():
+                        if key not in columns or value is None:
+                            continue   # a field the cloud row doesn't have keeps its local value
+                        if key in ('created_at', 'updated_at') and isinstance(value, (int, float)):
+                            value = datetime.fromtimestamp(value / 1000.0)  # ms -> datetime
+                        row[key] = value
+                    return row
+
+                updated = inserted = skipped = failed = 0
+                with agent_service.session_scope() as session:
+                    for agent_data in merged_agents:
+                        agent_id = agent_data.get('id')
+                        if not agent_id:
+                            continue
+                        try:
+                            # One savepoint per agent: a bad row can't undo the rest.
+                            with session.begin_nested():
+                                existing = session.query(DBAgent).filter(DBAgent.id == agent_id).first()
+                                row = _row(agent_data)
+                                if existing is None:
+                                    row['id'] = agent_id
+                                    # The account's own agent: local rows are keyed by this login
+                                    # (the cloud row carries the bare openid on WeChat logins).
+                                    row['owner'] = self.user
+                                    session.add(DBAgent(**row))
+                                    inserted += 1
+                                elif existing.owner != self.user:
+                                    skipped += 1   # another login's row: not ours to rewrite
+                                else:
+                                    row.pop('owner', None)
+                                    for key, value in row.items():
                                         setattr(existing, key, value)
-                                updated_count += 1
-                            else:
-                                # Create new agent - convert timestamps
-                                agent_dict = agent_data.copy()
-                                for key in ('created_at', 'updated_at'):
-                                    if key in agent_dict and isinstance(agent_dict[key], (int, float)):
-                                        from datetime import datetime
-                                        agent_dict[key] = datetime.fromtimestamp(agent_dict[key] / 1000.0)
-                                new_agent = DBAgent(**agent_dict)
-                                session.add(new_agent)
-                                updated_count += 1
-                        
-                        session.commit()
-                        logger.info(f"[MainWindow] Cloud LLM Updated {updated_count} agents in database")
-                        
-                except Exception as e:
-                    logger.error(f"[MainWindow] âŒ Database update failed: {e}")
-                    session.rollback()
-            
+                                    updated += 1
+                        except Exception as e:
+                            failed += 1
+                            logger.warning(f"[MainWindow] DB update of agent {agent_id} failed: {e}")
+                    session.commit()
+                logger.info(f"[MainWindow] Cloud LLM agents in local DB: {updated} updated, {inserted} added, "
+                            f"{skipped} skipped (other owner), {failed} failed")
+
             await asyncio.get_event_loop().run_in_executor(None, update_db)
             
         except Exception as e:

@@ -84,23 +84,24 @@ class _MainWin:
 
 @pytest.fixture
 def loaded(monkeypatch):
-    """Run load_agents_from_cloud against a canned queryAgents response."""
+    """Run load_agent_dicts_from_cloud against a canned queryAgents response.
 
-    def _run(response, mainwin=None, agent_factory=None):
+    It returns dicts: building an EC_Agent per row (only to to_dict() it back)
+    cost ~1 s each at startup and replaced the cloud's fields with defaults.
+    """
+
+    def _run(response, mainwin=None):
         mainwin = mainwin or _MainWin()
         monkeypatch.setattr(
             "agent.cloud_api.cloud_api.send_get_agents_request_to_cloud",
             lambda session, token, endpoint: response,
         )
-        if agent_factory is None:
-            # Stand in for EC_Agent construction, which needs a real app.
-            def agent_factory(mainwin, ajs):
-                return types.SimpleNamespace(
-                    id=ajs["id"], name=ajs["name"],
-                    skills=ajs.get("skills"), tasks=ajs.get("tasks"),
-                )
-        monkeypatch.setattr(agent_utils, "gen_new_agent", agent_factory)
-        return agent_utils.load_agents_from_cloud(mainwin), mainwin
+
+        def _no_build(*a, **k):
+            raise AssertionError("the cloud loader must not build agents")
+        monkeypatch.setattr(agent_utils, "gen_new_agent", _no_build)
+        dicts = agent_utils.load_agent_dicts_from_cloud(mainwin)
+        return [types.SimpleNamespace(**d) for d in dicts], mainwin
 
     return _run
 
@@ -113,7 +114,7 @@ def test_a_plain_list_of_agents_is_loaded(loaded):
     """This is what the server actually returns, and it produced zero agents."""
     agents, mainwin = loaded([CLOUD_AGENT])
     assert [a.name for a in agents] == ["李四"]
-    assert mainwin.agents == agents
+    assert mainwin.agents == []          # the running agent list is the merge's job
 
 
 def test_three_agents_arrive_as_three(loaded):
@@ -144,17 +145,23 @@ def test_an_error_object_yields_no_agents(loaded):
 # ===========================================================================
 
 def test_skill_and_task_ids_survive_the_conversion(loaded):
-    """gen_new_agent reads them as comma-separated strings, or raises KeyError."""
+    """As {id, name} stubs: the converter resolves them against the compiled pools."""
     agents, _ = loaded([CLOUD_AGENT])
-    assert agents[0].skills == "skill_71209937ed7449bf"
-    assert agents[0].tasks == "task_a83668efa3a64e56"
+    assert agents[0].skills == [{"id": "skill_71209937ed7449bf", "name": "skill_71209937ed7449bf"}]
+    assert agents[0].tasks == [{"id": "task_a83668efa3a64e56", "name": "task_a83668efa3a64e56"}]
+
+
+def test_the_cloud_fields_are_kept(loaded):
+    """to_dict() of a throwaway EC_Agent replaced these with defaults."""
+    agents, _ = loaded([CLOUD_AGENT])
+    assert agents[0].birthday == "2026-08-17" and agents[0].vehicle_id == "1"
 
 
 def test_an_agent_with_unreadable_extra_data_still_appears(loaded):
     """Better to list an agent with no skills than to lose the agent."""
     agents, _ = loaded([dict(CLOUD_AGENT, extra_data="{not json at all")])
     assert [a.name for a in agents] == ["李四"]
-    assert agents[0].skills == ""
+    assert agents[0].skills == []
 
 
 def test_an_agent_with_no_extra_data_still_appears(loaded):
