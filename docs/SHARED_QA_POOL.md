@@ -69,10 +69,10 @@ members overlap as **one group**:
 - traffic forecast = the group's (all front desks count the same members' turns);
 - every front desk in the group gets the same active set;
 - a pin (`ecan agents pool <front desk> --pin N`) on any front desk sizes the group;
-- `pool_view` (the pool panel's data) lists the other front desks in `shared_with`.
+- the pool panel (问答客服池, a front desk's agent page) says which stores share the pool:
+  "与 店B（前台小王） 共享 ..." (`pool_view.shared_desks`, store names filled in by `get_agent_pool`).
 
 ## Open
 
 - Live test with two 抖店 stores sharing one pool: each store's answers use its
   own policies and products; `[agent-pool]` log lines show one group.
-- The pool panel doesn't show which stores share the pool yet (data only).

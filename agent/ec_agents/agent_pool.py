@@ -563,10 +563,23 @@ def pool_view(front_desk_id: str, lookup: Optional[Callable[[str], Any]] = None)
                      "active": m in active or not active, "running": bool(getattr(ag, "_running", False)),
                      "load": stats["load"].get(m, 0), "last_turn": _last_turn(m) or None})
     shared = [fd for fd in group_of(front_desk_id) if fd != front_desk_id]
+    shared_desks = []
+    for fd in shared:
+        ag = lookup(fd)
+        store = ""
+        for task in list(getattr(ag, "tasks", None) or []):
+            tv = (getattr(task, "metadata", None) or {}).get("task_vars") if isinstance(
+                getattr(task, "metadata", None), dict) else None
+            if isinstance(tv, dict) and tv.get("store_id"):
+                store = str(tv["store_id"])
+                break
+        shared_desks.append({"id": fd, "name": getattr(getattr(ag, "card", None), "name", "") or fd,
+                             "store_id": store})
     return {"settings": stats["settings"], "members": rows, "scaling": scaling_enabled(),
             "pinned": _pins.get(front_desk_id),
             # other front desks this pool is shared with (sized together with them)
             "shared_with": shared,
+            "shared_desks": shared_desks,
             "active_count": sum(1 for r in rows if r["active"]),
             "wait_p50_s": stats["wait_p50_s"], "wait_p90_s": stats["wait_p90_s"],
             "turns_last_hour": stats["turns_last_hour"],

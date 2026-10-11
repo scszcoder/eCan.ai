@@ -1900,7 +1900,17 @@ def handle_get_agent_pool(request: IPCRequest, params: Optional[Dict[str, Any]])
     try:
         from agent.ec_agents.agent_pool import pool_view
         agent_id = str((params or {}).get('agent_id') or '')
-        return create_success_response(request, {'pool': pool_view(agent_id) if agent_id else None})
+        view = pool_view(agent_id) if agent_id else None
+        if view and view.get('shared_desks'):
+            # Stores by their display name (the Stores page), for "shared with ...".
+            try:
+                svc = getattr(AppContext.get_ec_db_mgr(), 'store_service', None)
+                for d in view['shared_desks']:
+                    rec = svc.get_store(d['store_id']) if (svc and d.get('store_id')) else None
+                    d['store_name'] = (rec or {}).get('name') or d.get('store_id') or ''
+            except Exception:
+                pass
+        return create_success_response(request, {'pool': view})
     except Exception as e:
         logger.warning(f"[agent_handler] get_agent_pool failed: {e}")
         return create_error_response(request, 'SERVICE_ERROR', str(e))

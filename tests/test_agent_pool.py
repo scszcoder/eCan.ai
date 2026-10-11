@@ -386,6 +386,10 @@ def test_front_desks_sharing_members_are_sized_as_one_group(monkeypatch):
     assert len(out["fdC"]) == 1                                    # unrelated pool on its own
     assert ap.group_of("fdA") == ["fdA", "fdB"] and ap.group_of("fdC") == ["fdC"]
     assert ap.pool_view("fdA", lookup=agents.get)["shared_with"] == ["fdB"]
+    agents["fdB"] = SimpleNamespace(card=SimpleNamespace(name="前台小王"),
+                                    tasks=[SimpleNamespace(metadata={"task_vars": {"store_id": "douyin-店B"}})])
+    assert ap.pool_view("fdA", lookup=agents.get)["shared_desks"] == [
+        {"id": "fdB", "name": "前台小王", "store_id": "douyin-店B"}]
 
 
 def test_a_pin_on_one_front_desk_sizes_the_shared_group(monkeypatch):

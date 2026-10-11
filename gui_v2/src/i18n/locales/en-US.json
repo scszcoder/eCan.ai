@@ -710,6 +710,8 @@
       "pool": {
         "title": "Q&A pool",
         "summary": "{{active}} of {{total}} answering (min {{min}}, max {{max}})",
+        "summaryPinned": "{{active}} of {{total}} answering (fixed at {{n}})",
+        "sharedWith": "Shared with {{stores}}: these Q&A agents also answer for them; the counts and sizing cover all of them.",
         "notRunning": "Not running on this computer",
         "activeTip": "Answering; {{n}} turn(s) queued or running",
         "parkedTip": "Parked: gets no new customers, finishes what it has",

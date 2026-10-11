@@ -56,7 +56,6 @@ the agent scheduler/pool memory and the commit messages.
   - Usage/metering of a shared turn carries the asking store (runner `_scope_turn_store`,
     per turn, in the turn's own context copy) -- unit-tested, not live.
   - Takes effect after an app restart (running Q&A tasks keep their old front desk list).
-  - The pool panel shows `shared_with` ids only in data, not in the UI yet.
   - `douyin_cs_multi`/`pdd_cs_multi` (CLI only) still create the old shape (shared Q&A tasks
     with no store, several stores in one deploy); same result, different entry point.
 - ~~"after task" finishes survive a restart~~ done 2026-10-11: a prerequisite saves `last_finish`,

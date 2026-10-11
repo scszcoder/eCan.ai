@@ -742,6 +742,8 @@
       "pool": {
         "title": "问答客服池",
         "summary": "{{active}}/{{total}} 位在接待（最少 {{min}}，最多 {{max}}）",
+        "summaryPinned": "{{active}}/{{total}} 个在接待（固定为 {{n}} 个）",
+        "sharedWith": "与 {{stores}} 共享：这些问答客服也为这些店铺回答，人数和自动增减按这些店铺合计。",
         "notRunning": "未在本机运行",
         "activeTip": "接待中；{{n}} 个对话排队或处理中",
         "parkedTip": "待命：不再分配新客户，处理完手上的对话",
