@@ -33,7 +33,7 @@ from agent.a2a.langgraph_agent.a2a_client_wrapper import A2AClientWrapper
 # The core stays agnostic of who delivers locally; the live-chat hot-path registers via this module.
 # Routed through a standalone module (not defined here) to avoid the ws062 circular import — the
 # live-chat hook registers during ec_tasks/build_node init and cannot import ec_agent then.
-from agent.a2a.local_delivery_hook import get_a2a_local_delivery_hook
+from agent.a2a import local_delivery as _a2a_local
 from agent.chats.unified_messenger import UnifiedMessenger, create_unified_messenger
 
 from browser_use.agent.service import Agent
@@ -766,27 +766,13 @@ class EC_Agent(Agent):
 				}
 			}
 
-			# ws062: give a registered in-process local-delivery hook the chance to handle this
-			# send before the HTTP round-trip. Core stays general — it knows nothing about the
-			# live-chat site or co-located runners; the hook decides. Non-None result => delivered
-			# locally, skip HTTP.
-			_local_hook = get_a2a_local_delivery_hook()
-			if _local_hook is not None:
-				try:
-					_ld = _local_hook({
-						"sender_agent": self,
-						"recipient_agent": recipient_agent,
-						"recipient_name": recipient_name,
-						"message": message,
-						"mtype": mtype,
-						"chat_msg": chat_msg,
-						"task_id": trace_task_id,
-						"session_id": sess_id,
-					})
-					if _ld is not None:
-						return _ld
-				except Exception as _ld_err:
-					logger.warning(f"[a2a] local-delivery hook failed -> HTTP fallback: {_ld_err}")
+			# Recipient running in this process: hand the chat to its runner
+			# directly instead of an HTTP round-trip to its A2A server
+			# (agent/a2a/local_delivery.py; None -> HTTP).
+			_ld = _a2a_local.deliver_chat(recipient_agent, recipient_name, mtype, chat_msg,
+			                              message['attributes']["params"])
+			if _ld is not None:
+				return _ld
 			logger.info(f"[a2a_send] -> {recipient_name} @ {a2a_end_point}, task={trace_task_id}, sess={sess_id}")
 			logger.debug("[a2a_send] payload=%s", payload)
 			response = self.a2a_client.sync_send_task(payload)
