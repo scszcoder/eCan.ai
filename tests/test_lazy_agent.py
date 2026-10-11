@@ -35,6 +35,7 @@ class _Real:
         self.card = SimpleNamespace(id="agent_x", name="客服小晴")
         self.tasks = ["t"]
         self.runner = MagicMock()
+        self.mem_manager = object()
         self.started = 0
         self._running = False
 
@@ -85,13 +86,32 @@ def test_scanning_all_agents_does_not_build_it():
     d = ag.to_dict(owner="u2")                                    # agent list page
     assert d["id"] == "agent_x" and d["name"] == "客服小晴" and d["owner"] == "u2" and d["tasks"] == []
     assert d["skills"] == [{"id": "sk1", "name": "问答"}] and d["card"]["url"].endswith("/a2a/agent_x/")
+    # periodic/broadcast scans: heartbeat, timer + browser events, 千牛 inject, LLM change, OS wake
+    assert ag.get_vehicle() is None and ag.is_busy() is False
+    r = ag.runner
+    assert r.tasks == {} and r._global_event_routing == {} and r._find_task("t") is None
+    assert r.sync_task_wait_in_line("browser_event", {}) is None
+    assert r.sync_task_wait_in_line("timer", {}) is None
+    ag.set_skill_llm(object())
+    ag.llm = object()
+    ag._start_wan_subscriptions()
     assert built == []
+
+
+def test_a_chat_through_its_runner_wakes_it():
+    ag, built = _lazy()
+    ag.lazy_defer_start()
+    ag.runner.sync_task_wait_in_line("chat_message", {"m": 1}, async_response=True)
+    assert built[0].started == 1
+    built[0].runner.sync_task_wait_in_line.assert_called_once_with("chat_message", {"m": 1}, async_response=True)
+    assert ag.runner is built[0].runner
 
 
 def test_first_real_use_builds_once_and_then_forwards():
     ag, built = _lazy()
     ag.status = "busy"
-    assert ag.runner is built[0].runner                           # builds
+    ag.mem_manager                                                # any other attribute builds
+    assert ag.runner is built[0].runner
     assert ag.tasks == ["t"] and ag.card is built[0].card         # now the real agent's
     assert ag.get_card() is built[0].card
     assert built[0].status == "busy"                              # carried over
@@ -111,7 +131,7 @@ def test_deferred_start_runs_when_built():
 
 def test_concurrent_first_use_builds_once():
     ag, built = _lazy()
-    ts = [threading.Thread(target=lambda: ag.runner) for _ in range(8)]
+    ts = [threading.Thread(target=lambda: ag.mem_manager) for _ in range(8)]
     [t.start() for t in ts]
     [t.join() for t in ts]
     assert len(built) == 1

@@ -30,7 +30,8 @@ from utils.logger_helper import logger_helper as logger
 
 # Read by code that scans every agent (launcher, runtime-status poll, LAN/cloud
 # advertising, store reconciler); answered without building the agent.
-_CHEAP = ("card", "get_card", "to_dict", "tasks", "skills", "active_tasks", "task_lock", "is_task_running", "status",
+_CHEAP = ("card", "get_card", "to_dict", "get_vehicle", "is_busy", "runner", "set_skill_llm", "llm",
+          "_start_wan_subscriptions", "title", "rank", "tasks", "skills", "active_tasks", "task_lock", "is_task_running", "status",
           "_running", "_stopped", "_starting", "_lazy_cold", "owner", "org_id", "description",
           "vehicle_id", "vehicle", "mainwin", "extra_data", "avatar", "role")
 # Values set on a cold agent that the real agent should keep.
@@ -112,6 +113,42 @@ def _agent_dict(agent_data: Dict[str, Any], card: Any, skills: list, owner: Opti
     }
 
 
+# Events a task-less runner turns into work (its fallback chatter task,
+# runner._ensure_chatter_task); it drops everything else (browser/timer
+# broadcasts) for want of a route -- so may a deferred one, without waking.
+_WAKE_EVENTS = {"chat_message", "human_chat", "task_request", "a2a", "channel_message", "dev_human_chat"}
+
+
+class _ColdRunner:
+    """A deferred agent's runner: answers the runner scans (broadcasts, task and
+    routing lookups) the way a task-less runner would, and wakes the agent for
+    anything that is real work."""
+
+    def __init__(self, agent: "LazyAgent"):
+        self.__dict__["_agent"] = agent
+        self.__dict__["tasks"] = {}
+        self.__dict__["_global_event_routing"] = {}
+
+    def _real(self, why: str):
+        return self.__dict__["_agent"].lazy_materialize(why).runner
+
+    def _find_task(self, task_id):
+        return None
+
+    def sync_task_wait_in_line(self, event_type, request, *args, **kwargs):
+        if event_type in _WAKE_EVENTS:
+            return self._real(f"runner {event_type}").sync_task_wait_in_line(event_type, request, *args, **kwargs)
+        return None
+
+    def __getattr__(self, name):
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
+        return getattr(self._real(f"runner.{name}"), name)
+
+    def __setattr__(self, name, value):
+        setattr(self._real(f"set runner.{name}"), name, value)
+
+
 def _first_caller() -> str:
     for fr in reversed(traceback.extract_stack()[:-3]):
         if "lazy_agent.py" not in fr.filename:
@@ -138,6 +175,14 @@ class LazyAgent:
         d.update({
             "card": _card_for(agent_data, mainwin),
             "get_card": lambda: self.__dict__.get("card"),
+            "get_vehicle": lambda: self.__dict__.get("vehicle"),   # MainWindow.getAgentsOnThisVehicle
+            "is_busy": lambda: False,
+            "runner": _ColdRunner(self),
+            "set_skill_llm": lambda llm: None,          # built later with mainwin's current LLMs
+            "llm": None,
+            "_start_wan_subscriptions": lambda: None,  # none yet (wake_recovery after OS sleep)
+            "title": _json_list(agent_data.get("title") or ""),
+            "rank": agent_data.get("rank", "member"),
             "to_dict": lambda owner=None: dict(_agent_dict(agent_data, self.__dict__["card"], skills, owner),
                                                status=self.__dict__.get("status") or "active"),
             "tasks": [],
