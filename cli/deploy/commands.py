@@ -988,6 +988,53 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
 
 # ── Several stores on this machine, one shared Q&A pool ─────────────────────
 
+def cs_pools(ctx, scenario: str) -> list:
+    """This platform's existing 客服 deployments, one entry per group of front
+    desks that share Q&A agents:
+    ``[{"front_desks": [{"agent_id", "task_id", "store_id", "store_name"}],
+        "qa_task_ids": [...], "qa_count": n}]``.  Read-only (the 快速生成 panel
+    offers to share one of them with a new store)."""
+    profile = _LIVE_CHAT_PROFILES.get(str(scenario or "").replace(_MULTI_SUFFIX, ""))
+    if not profile:
+        return []
+    rows = (ctx.db.task_service.query_tasks() or {}).get("data") or []
+    fd_tasks = {r["id"]: r for r in rows if str(r.get("name") or "").startswith(profile.fd_task_prefix)}
+    qa_by_fd: dict = {}
+    for r in rows:
+        if not str(r.get("name") or "").startswith(profile.qa_task_prefix):
+            continue
+        md = r.get("metadata") if isinstance(r.get("metadata"), dict) else {}
+        tv = md.get("task_vars") if isinstance(md.get("task_vars"), dict) else {}
+        for fd in str(tv.get("front_desk_agent_id") or "").split(","):
+            if fd.strip():
+                qa_by_fd.setdefault(fd.strip(), set()).add(r["id"])
+    desks = {}
+    for fd_agent, qa_ids in qa_by_fd.items():
+        rels = (ctx.db.agent_service.get_agent_task_associations(fd_agent) or {}).get("data") or []
+        fd_task = next((fd_tasks[x["task_id"]] for x in rels if x.get("task_id") in fd_tasks), None)
+        if fd_task is None:
+            continue   # the front desk agent is gone
+        sid = _task_store_id(fd_task)
+        name = sid
+        try:
+            name = (ctx.db.store_service.get_store(sid) or {}).get("name") or sid if sid else ""
+        except Exception:
+            pass
+        desks[fd_agent] = ({"agent_id": fd_agent, "task_id": fd_task["id"], "store_id": sid,
+                            "store_name": name}, qa_ids)
+    groups: list = []   # front desks sharing any Q&A task end up in one group
+    for fd_agent, (desk, qa_ids) in desks.items():
+        hit = [g for g in groups if g["qa"] & qa_ids]
+        merged = {"desks": [desk], "qa": set(qa_ids)}
+        for g in hit:
+            merged["desks"] += g["desks"]
+            merged["qa"] |= g["qa"]
+            groups.remove(g)
+        groups.append(merged)
+    return [{"front_desks": sorted(g["desks"], key=lambda d: d["store_name"]),
+             "qa_task_ids": sorted(g["qa"]), "qa_count": len(g["qa"])} for g in groups]
+
+
 def _login_profile_id(store_id: str) -> str:
     """A profile id for a store's login: the registry allows [A-Za-z0-9_-] only,
     and store ids are often Chinese, so keep what fits plus a short hash."""

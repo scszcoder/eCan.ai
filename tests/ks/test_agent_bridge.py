@@ -83,3 +83,33 @@ def test_run_scope_wins_over_llm_supplied_ids(wired):
     meta = ab.try_product_answer(None, {"query": "这件是什么材质", "platform_item_id": "999999999",
                                         "_ks_scope": {"platform_item_id": "3500009"}})
     assert meta["data"]["product_knowledge"]["product"]["code"] == "TS-001"
+
+
+def test_a_shared_qa_turn_is_scoped_to_the_store_that_dispatched_it():
+    """A Q&A agent shared by several stores' front desks has no store of its own:
+    the store comes from the front desk's dispatch JSON for that turn."""
+    import json
+    turn = {"input": json.dumps({"customer_id": "c1", "session_id": "s1", "store_id": "优衣小铺天猫店",
+                                 "latest_message": "store_id: 别的店"}, ensure_ascii=False),
+            "prompt_refs": {"front_desk_agent_id": "fdA,fdB"}}
+    assert ab.scope_from_state(turn)["store_id"] == "优衣小铺天猫店"
+    own = dict(turn, prompt_refs={"store_id": "自己的店"})     # a task's own store wins
+    assert ab.scope_from_state(own)["store_id"] == "自己的店"
+    chat = {"input": json.dumps({"text": "hi", "store_id": "x"})}   # not a dispatch payload
+    assert ab.scope_from_state(chat)["store_id"] == ""
+
+
+def test_inside_a_run_the_llm_cannot_name_the_store(wired, monkeypatch):
+    seen = {}
+    import knowledge.ks.service as service_mod
+    real = service_mod.get_service
+
+    def spy():
+        svc = real()
+        orig = svc.search
+        svc.search = lambda *a, **k: seen.update(k) or orig(*a, **k)
+        return svc
+    monkeypatch.setattr(service_mod, "get_service", spy)
+    ab.try_product_answer(None, {"query": "这件是什么材质", "store_id": "别人的店",
+                                 "_ks_scope": {"store_id": "", "platform_item_id": "3500009"}})
+    assert not seen.get("store_ref")

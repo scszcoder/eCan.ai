@@ -386,6 +386,7 @@ def resolve_store_id(refs: Any) -> str:
     """
     if not isinstance(refs, dict):
         return ""
+    state = refs
     refs = refs.get("prompt_refs") if isinstance(refs.get("prompt_refs"), dict) else refs
     explicit = str(refs.get(STORE_ID_VAR) or "").strip()
     if explicit:
@@ -395,7 +396,32 @@ def resolve_store_id(refs: Any) -> str:
         urls = refs.get("store_urls")
         if isinstance(urls, (list, tuple)) and urls:
             url = urls[0]
-    return store_id_from_url(url)
+    return store_id_from_url(url) or _dispatched_store_id(state)
+
+
+def _dispatched_store_id(state: dict) -> str:
+    """The store of the turn a front desk dispatched (``store_id`` in the
+    dispatch JSON in ``state["input"]``, frontdesk_dispatch._build_assignment_payload).
+    Only used when the task itself names no store: a Q&A agent shared by
+    several stores' front desks answers each turn for the store that asked.
+    Top-level key of the JSON our dispatcher builds -- the buyer's text is a
+    string inside it and can't set it."""
+    raw = state.get("input") if isinstance(state, dict) else None
+    if isinstance(raw, list) and raw:
+        raw = raw[-1]
+    if isinstance(raw, dict):
+        payload = raw
+    elif isinstance(raw, str) and raw.lstrip().startswith("{"):
+        try:
+            import json
+            payload = json.loads(raw)
+        except ValueError:
+            return ""
+    else:
+        return ""
+    if not isinstance(payload, dict) or "customer_id" not in payload:
+        return ""
+    return str(payload.get("store_id") or "").strip()
 
 
 def _provide_store_id(state: dict, mainwin: Any) -> str:
