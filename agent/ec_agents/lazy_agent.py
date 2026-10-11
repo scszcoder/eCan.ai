@@ -14,7 +14,7 @@ From then on it forwards everything to the real agent, so identity checks
 Wake points that don't go through attribute access: the shared A2A server
 (a request for a deferred agent's id) and in-process delivery.
 
-Switch: ``ECAN_LAZY_AGENTS=1`` (default off).  Needs the shared A2A server
+On by default; ``ECAN_LAZY_AGENTS=0`` builds every agent at startup again.  Needs the shared A2A server
 (a deferred agent has no server of its own).  Log grep: ``[lazy-agent]``.
 """
 from __future__ import annotations
@@ -40,7 +40,7 @@ _CARRY = ("status", "owner", "description", "extra_data")
 
 def lazy_enabled() -> bool:
     from agent.a2a import shared_server
-    return os.environ.get("ECAN_LAZY_AGENTS", "") == "1" and shared_server.enabled()
+    return os.environ.get("ECAN_LAZY_AGENTS", "1") != "0" and shared_server.enabled()
 
 
 def agent_task_ids(agent_data: Dict[str, Any], mainwin: Any) -> List[str]:

@@ -180,11 +180,12 @@ def test_shared_server_request_wakes_it(monkeypatch):
     srv.stop()
 
 
-def test_enabled_only_with_the_shared_server(monkeypatch):
-    monkeypatch.setenv("ECAN_LAZY_AGENTS", "1")
+def test_on_by_default_and_only_with_the_shared_server(monkeypatch):
+    monkeypatch.delenv("ECAN_LAZY_AGENTS", raising=False)
+    monkeypatch.delenv("ECAN_A2A_SHARED_SERVER", raising=False)
     assert la.lazy_enabled()
     monkeypatch.setenv("ECAN_A2A_SHARED_SERVER", "0")
     assert not la.lazy_enabled()
     monkeypatch.delenv("ECAN_A2A_SHARED_SERVER")
-    monkeypatch.delenv("ECAN_LAZY_AGENTS")
+    monkeypatch.setenv("ECAN_LAZY_AGENTS", "0")
     assert not la.lazy_enabled()

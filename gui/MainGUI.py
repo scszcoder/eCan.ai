@@ -4191,7 +4191,7 @@ class MainWindow:
             for agent_data in db_cloud_agents:
                 agent_name = agent_data.get('name', '')
 
-                # ECAN_LAZY_AGENTS=1: an agent with no tasks is built on first use.
+                # An agent with no tasks is built on first use (lazy_agent.py; ECAN_LAZY_AGENTS=0 = off).
                 if (lazy_on and agent_name not in code_built_names and agent_data.get('id')
                         and not _lazy.agent_task_ids(agent_data, self)):
                     unified_agents.append(_lazy.LazyAgent(
