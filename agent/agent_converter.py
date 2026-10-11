@@ -238,6 +238,21 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
             exec_path = db_settings.get('execution_path')
             if isinstance(exec_path, str) and exec_path.strip():
                 runtime_metadata['execution_path'] = exec_path.strip().lower()
+            # Run scheduling (agent/ec_tasks/resource_gate.py + runner):
+            # exclusive_resources, run_class, max_lateness_min, overlap_policy.
+            if isinstance(db_settings.get('exclusive_resources'), list):
+                runtime_metadata['exclusive_resources'] = [
+                    str(x) for x in db_settings['exclusive_resources'] if str(x).strip()]
+            for scalar_key in ('run_class', 'overlap_policy'):
+                val = db_settings.get(scalar_key)
+                if isinstance(val, str) and val.strip():
+                    runtime_metadata[scalar_key] = val.strip().lower()
+            try:
+                lateness = db_settings.get('max_lateness_min')
+                if lateness not in (None, '') and float(lateness) >= 0:
+                    runtime_metadata['max_lateness_min'] = float(lateness)
+            except (TypeError, ValueError):
+                pass
 
         task_obj = ManagedTask(
             id=task_id,

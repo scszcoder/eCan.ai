@@ -21,6 +21,7 @@ import threading
 import time
 import traceback
 import uuid
+from datetime import datetime
 from pathlib import Path
 from queue import Queue, Empty
 from typing import Any, Dict, Generic, List, Optional, Set, Tuple, TypeVar, TYPE_CHECKING
@@ -47,7 +48,7 @@ from utils.logger_helper import get_traceback
 from utils.log_scope import scope as _log_scope, wrap_context as _wrap_log_context
 
 from .models import ManagedTask, PriorityType
-from .scheduler import find_tasks_ready_to_run
+from .scheduler import find_tasks_ready_to_run, get_runtime_bounds, get_next_runtime
 from .message_sender import ChatMessageSender, MessageType
 from .dev_runner import DevRunner
 from .executor import TaskExecutor, _create_message
@@ -7629,9 +7630,17 @@ class TaskRunner(Generic[Context]):
         # to avoid re-executing with empty input every cycle.
         is_pure_schedule = has_schedule and not has_message
         if is_pure_schedule:
-            sched_task = find_tasks_ready_to_run(self.agent.tasks)
+            # Each task's loop fires only its own schedule. Scanning all the
+            # agent's tasks here let one loop launch another task and fire just
+            # one due task per pass (the rest waited a pass, or were skipped).
+            sched_task = find_tasks_ready_to_run([current_task] if current_task else self.agent.tasks)
             if sched_task:
-                return sched_task, {"__trigger_source__": "schedule"}, False
+                _sched_msg = {"__trigger_source__": "schedule"}
+                try:
+                    _sched_msg["__due_at__"] = get_runtime_bounds(sched_task.schedule)[0].timestamp()
+                except Exception:
+                    pass
+                return sched_task, _sched_msg, False
         
         # --- Message queue triggers ---
         if has_queue and current_task:
@@ -8066,6 +8075,89 @@ class TaskRunner(Generic[Context]):
                 return i
         return 1_000_000
 
+    def _note_missed_run(self, task: ManagedTask, msg: Any, why: str) -> None:
+        """A scheduled run that will not happen: say so, and keep it on the task."""
+        due = msg.get("__due_at__") if isinstance(msg, dict) else None
+        due_s = datetime.fromtimestamp(due).strftime("%Y-%m-%d %H:%M") if due else "?"
+        logger.warning(f"[task-schedule] '{task.name}' MISSED its {due_s} run: {why}")
+        try:
+            if isinstance(task.metadata, dict):
+                task.metadata["last_missed"] = {"at": datetime.now().isoformat(timespec="seconds"),
+                                                "due": due_s, "why": why}
+        except Exception:
+            pass
+
+    def _expected_run_seconds(self, task: ManagedTask) -> float:
+        runs = (task.metadata or {}).get("run_durations") if isinstance(task.metadata, dict) else None
+        runs = [float(x) for x in (runs or []) if isinstance(x, (int, float))]
+        return sum(runs) / len(runs) if runs else 300.0
+
+    def _scheduled_run_handled(self, task: ManagedTask, msg: Any, trigger_type: str) -> bool:
+        """Scheduling rules for a due scheduled run. True = handled here (missed,
+        queued behind its own run, or deferred); the caller must not submit."""
+        if str(trigger_type or "") != "schedule":
+            return False
+        meta = task.metadata if isinstance(task.metadata, dict) else {}
+        now = time.time()
+
+        # Too late to be useful?
+        due = msg.get("__due_at__") if isinstance(msg, dict) else None
+        lateness = meta.get("max_lateness_min")
+        if due and lateness not in (None, "") and now - float(due) > float(lateness) * 60:
+            self._note_missed_run(task, msg, f"{(now - float(due)) / 60:.0f} min late "
+                                             f"(max {float(lateness):g} min)")
+            return True
+
+        # Due again while its previous run is still going.
+        if _task_execution_future_running(task) or getattr(task.status, "state", None) == TaskState.working:
+            if str(meta.get("overlap_policy") or "skip") == "queue_one":
+                slots = self.__dict__.setdefault("_queued_schedule_runs", {})
+                if task.id not in slots:
+                    slots[task.id] = msg
+                    logger.info(f"[task-schedule] '{task.name}' is still running; "
+                                f"its next run starts when this one ends")
+                    return True
+                self._note_missed_run(task, msg, "still running and one run is already queued")
+                return True
+            self._note_missed_run(task, msg, "the previous run was still going")
+            return True
+
+        # Background: don't start into a scheduled run that needs the same resources.
+        if _resource_gate.priority_class(task, trigger_type) == _resource_gate.BACKGROUND and _resource_gate.gate_enabled():
+            deferred = self.__dict__.setdefault("_deferred_background", set())
+            if task.id in deferred:
+                return True
+            aid = self._gate_agent_id()
+            keys = set(_resource_gate.resource_keys(task, aid))
+            horizon = self._expected_run_seconds(task)
+            for other in getattr(self.agent, "tasks", None) or []:
+                if other is task or not keys.intersection(_resource_gate.resource_keys(other, aid)):
+                    continue
+                sched = getattr(other, "schedule", None)
+                if not sched or "schedule" not in (getattr(other, "trigger", None) or []):
+                    continue
+                try:
+                    next_rt, _ = get_next_runtime(sched)
+                    secs = (next_rt - datetime.now()).total_seconds()
+                except Exception:
+                    continue
+                if 0 <= secs <= horizon:
+                    retry = min(max(secs + 60, 60), 900)
+                    logger.info(f"[task-schedule] background '{task.name}' waits: '{other.name}' is due "
+                                f"in {secs / 60:.0f} min on the same resources (runs ~{horizon / 60:.0f} min); "
+                                f"retrying in {retry / 60:.0f} min")
+                    deferred.add(task.id)
+
+                    def _retry(t=task, m=msg):
+                        deferred.discard(t.id)
+                        if not self._stop_event.is_set():
+                            self._submit_task_execution(t, m, "schedule", None)
+                    timer = threading.Timer(retry, _retry)
+                    timer.daemon = True
+                    timer.start()
+                    return True
+        return False
+
     def _submit_after_grant(self, task: ManagedTask, msg: Any, trigger_type: str,
                             dev_init_state: Optional[dict], keys: tuple) -> None:
         """A waiting run got its resources (held for it): submit it, then drop
@@ -8112,7 +8204,15 @@ class TaskRunner(Generic[Context]):
                 )
         except Exception:
             pass
-        
+
+        # Scheduled runs: too late (missed), due again while still running
+        # (overlap_policy), or a background run about to collide.
+        try:
+            if self._scheduled_run_handled(task, msg, trigger_type):
+                return
+        except Exception as _sched_err:
+            logger.warning(f"[task-schedule] rules for '{task.name}' failed (running anyway): {_sched_err}")
+
         # ── Interrupt guard: do NOT re-submit a task that is parked waiting for human input ──
         # When a skill hits a pend_event / __interrupt__, it is parked and emits status="paused".
         # The execution thread completes and the queue poll loop continues running.
@@ -8478,6 +8578,14 @@ class TaskRunner(Generic[Context]):
                 # Mark task done in state tracker
                 if task.id in self._task_states:
                     self._task_states[task.id]["_done"] = True
+                # Typical run length (last 5) -- background runs use it to stay
+                # out of the way of scheduled runs on the same resources.
+                try:
+                    if isinstance(task.metadata, dict):
+                        _durs = list(task.metadata.get("run_durations") or [])[-4:]
+                        task.metadata["run_durations"] = _durs + [round(time_module.time() - _exec_start, 1)]
+                except Exception:
+                    pass
 
         def _on_complete(future):
             try:
@@ -8517,6 +8625,12 @@ class TaskRunner(Generic[Context]):
             finally:
                 if _gate_keys:
                     _resource_gate.get_gate().release(task.id, _gate_keys)
+                # overlap_policy=queue_one: the run that came due meanwhile starts now.
+                _next = self.__dict__.get("_queued_schedule_runs", {}).pop(task.id, None)
+                if _next is not None and not self._stop_event.is_set():
+                    threading.Thread(
+                        target=self._submit_task_execution, args=(task, _next, "schedule", None),
+                        name="QueuedScheduleRun", daemon=True).start()
 
         _gate_keys: tuple = ()
 
