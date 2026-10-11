@@ -681,15 +681,23 @@ def handle_launch_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
         if not (task_id or task_name):
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_id or task_name')
         agent_id = str(p.get('agent_id') or '')
-        if not agent_id:
-            for ag in (ctx.get_agents() if ctx else []):
-                if any((task_id and getattr(t, 'id', None) == task_id) or (not task_id and getattr(t, 'name', None) == task_name)
-                       for t in list(getattr(ag, 'tasks', None) or [])):
-                    agent_id = getattr(getattr(ag, 'card', None), 'id', '') or ''
-                    break
-        if not agent_id:
+        owner, task_obj = None, None
+        for ag in (ctx.get_agents() if ctx else []):
+            if agent_id and getattr(getattr(ag, 'card', None), 'id', '') != agent_id:
+                continue
+            task_obj = next((t for t in list(getattr(ag, 'tasks', None) or [])
+                             if (task_id and getattr(t, 'id', None) == task_id)
+                             or (not task_id and getattr(t, 'name', None) == task_name)), None)
+            if task_obj is not None:
+                owner = ag
+                break
+        if owner is None:
             return create_error_response(request, 'TASK_NOT_FOUND',
-                                         f'No running agent has task {task_id or task_name}')
+                                         f'No agent in the app has task {task_id or task_name}')
+        agent_id = getattr(getattr(owner, 'card', None), 'id', '') or ''
+        pool = getattr(owner, 'thread_pool_executor', None) or getattr(getattr(ctx, 'main_window', None), 'threadPoolExecutor', None)
+        if pool is not None and getattr(owner, 'runner', None) is not None:
+            _ensure_task_loop(owner, task_obj, pool)
         result = launch_agent_task(getattr(ctx, 'main_window', None),
                                    {'agent_id': agent_id, 'task_id': task_id, 'task_name': task_name,
                                     'task_inputs': p.get('task_inputs') or {}})
@@ -778,6 +786,24 @@ def _task_loop_running(agent, task_obj) -> bool:
     run_id = getattr(task_obj, 'run_id', None)
     future = (getattr(agent, 'active_tasks', None) or {}).get(run_id) if run_id else None
     return bool(future is not None and not future.done())
+
+
+def _ensure_task_loop(agent, task_obj, thread_pool) -> None:
+    """Start the task's execution loop if it has none (e.g. its agent was never
+    started), so a queued run is picked up.  Never a second loop."""
+    if _task_loop_running(agent, task_obj):
+        return
+    if not getattr(task_obj, 'run_id', None):
+        import uuid
+        task_obj.run_id = str(uuid.uuid4())
+    from agent.ec_agent import TASK_TRIGGER_MAP
+    triggers = [TASK_TRIGGER_MAP.get(t, t) for t in (task_obj.trigger or [])]
+    # 'auto' would kick a run of its own on top of the queued one.
+    triggers = [t for t in dict.fromkeys(triggers + ['message']) if t != 'auto']
+    future = thread_pool.submit(agent.runner.launch_unified_run, task_obj, triggers)
+    if hasattr(agent, 'active_tasks') and hasattr(agent, 'task_lock'):
+        with agent.task_lock:
+            agent.active_tasks[task_obj.run_id] = future
 
 
 @IPCHandlerRegistry.handler('run_agent_task')
@@ -887,18 +913,7 @@ def handle_run_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
 
         # One run, on the task's own loop. Starting launch_unified_run again
         # would put a second long-lived loop on the same queue.
-        if not _task_loop_running(agent, task_obj):
-            if not getattr(task_obj, 'run_id', None):
-                import uuid
-                task_obj.run_id = str(uuid.uuid4())
-            from agent.ec_agent import TASK_TRIGGER_MAP
-            triggers = [TASK_TRIGGER_MAP.get(t, t) for t in (task_obj.trigger or [])]
-            # 'auto' would kick a run of its own on top of the one queued below.
-            triggers = [t for t in dict.fromkeys(triggers + ['message']) if t != 'auto']
-            future = thread_pool.submit(runner.launch_unified_run, task_obj, triggers)
-            if hasattr(agent, 'active_tasks') and hasattr(agent, 'task_lock'):
-                with agent.task_lock:
-                    agent.active_tasks[task_obj.run_id] = future
+        _ensure_task_loop(agent, task_obj, thread_pool)
         from agent.ec_tasks.task_mcp_tools import launch_agent_task
         launched = launch_agent_task(getattr(ctx, 'main_window', None), {
             'agent_id': getattr(getattr(agent, 'card', None), 'id', '') or '', 'task_id': task_id})

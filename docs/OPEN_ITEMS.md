@@ -36,13 +36,12 @@ the agent scheduler/pool memory and the commit messages.
   the file says `wechat_b603…`, the DB/cloud record is `wechat_o3YB…` (created while logged in as
   o3YB). Fix: log in as b603, give the file a new `skillId`, save in the Skill Editor, delete the
   o3YB copy (Fast Deploy finds the skill by exact name).
-- **CLI → running app (docs/LOCAL_API.md)**: verified live on 2026-10-11 for the bridge and the
-  read commands (`agents monitor`, `agents pool`, `tasks state`, `tasks locks`). **Not yet live:**
-  edits through the app (`tasks add/update/remove`, `agents update/remove`), `agents pool --pin`,
-  `tasks execute`, `agents run/stop`. They only take the app path when the CLI is signed in as the
-  app's user, and the dev machine's CLI is `songc@yahoo.com` while the app is WeChat. `ecan agents
-  add` still writes the database directly (the app's `new_agent` path is unchecked with the CLI's
-  minimal record).
+- **CLI → running app (docs/LOCAL_API.md)**: verified live on 2026-10-11 with a throwaway agent
+  测试 (CLI run as the app's user via `ECAN_CLI_USER`): read commands, tasks add/update/remove and
+  agents update/remove through the app, `agents run` (chat delivered), `agents stop`, pin error path.
+  **Not yet live:** `tasks execute` starting the loop of a never-started agent (fixed after the run,
+  unit-tested), and `agents pool --pin` on a real front desk (needs a front desk that has
+  dispatched). `ecan agents add` still writes the database directly.
 - **Saving a running agent now restarts it** (`_swap_agent`): a turn in progress at that moment is
   cut off. Before, the rebuilt copy never started and the old one kept running out of sight.
 - **抖店 export column mapping untuned** (7a): needs one real export file.

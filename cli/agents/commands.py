@@ -193,11 +193,22 @@ def add(name, description, agent_type, config):
         'description': description,
         **extra_config,
         'name': name,
-        'agent_type': agent_type,
         'owner': ctx.username,
         'status': 'active',
     }
     agent_data.pop('id', None)
+    # Agents have no type column: keep a non-default type in extra_data.
+    agent_data.pop('agent_type', None)
+    if agent_type and agent_type != 'custom':
+        extra = agent_data.get('extra_data')
+        if isinstance(extra, str):
+            try:
+                extra = json_module.loads(extra) if extra.strip() else {}
+            except ValueError:
+                extra = {}
+        extra = dict(extra) if isinstance(extra, dict) else {}
+        extra['agent_type'] = agent_type
+        agent_data['extra_data'] = json_module.dumps(extra, ensure_ascii=False)
 
     try:
         result = ctx.db.agent_service.add_agent(agent_data)
@@ -395,11 +406,18 @@ def run(agent_id, task):
     ctx = get_context()
     out = get_output()
     agent_id = _resolve_agent(ctx, out, agent_id)
+    try:
+        found = (ctx.db.agent_service.query_agents(id=agent_id) or {}).get('data') or []
+        agent_name = (found[0] if found else {}).get('name') or agent_id
+    except Exception:
+        agent_name = agent_id
     now_ms = int(time.time() * 1000)
+    # A new chat is named after the agent (send_chat creates it on first use).
     result = call_or_exit(out, 'send_chat', {
         'chatId': f'cli-{agent_id}', 'id': uuid.uuid4().hex, 'role': 'user', 'content': task,
         'senderId': ctx.username or 'cli', 'senderName': ctx.username or 'cli',
-        'receiverId': agent_id, 'status': 'sent', 'createAt': now_ms, 'time': now_ms,
+        'receiverId': agent_id, 'receiverName': agent_name,
+        'status': 'sent', 'createAt': now_ms, 'time': now_ms,
     }, timeout=60)
     out.success("Sent. The reply appears in the app's chat with this agent.")
     if isinstance(result, dict) and result.get('realChatId'):
@@ -453,7 +471,14 @@ def monitor(agent_id, watch, interval, format):
         agent_id = _resolve_agent(ctx, out, agent_id)
     while True:
         if agent_id:
-            rows = [call_or_exit(out, 'get_agent_runtime_status', {'agent_id': agent_id}) or {}]
+            one = dict(call_or_exit(out, 'get_agent_runtime_status', {'agent_id': agent_id}) or {})
+            if not one.get('agent_name'):
+                try:
+                    rows_ = (ctx.db.agent_service.query_agents(id=agent_id) or {}).get('data') or []
+                    one['agent_name'] = (rows_[0] if rows_ else {}).get('name') or ''
+                except Exception:
+                    pass
+            rows = [one]
         else:
             rows = (call_or_exit(out, 'get_all_agents_runtime_status') or {}).get('agents') or []
         if format == 'json':

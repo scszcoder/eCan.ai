@@ -74,6 +74,14 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from starlette.requests import Request
 import uvicorn
 
+
+class RedactedToken(str):
+    """A login token / local CLI key: compares and hashes as the real value,
+    but repr() is '***', so a logged request dict doesn't leak it."""
+    def __repr__(self):
+        return "'***'"
+
+
 from agent.mcp.server.server import (
         handle_sse, sse_handle_messages, meca_mcp_server,
         meca_sse, meca_streamable_http, handle_streamable_http,
@@ -591,7 +599,9 @@ class RequestHandlers:
                 'method': method,
                 'params': request_params,
                 'source': 'graphql',
-                'token': extracted_token  # Token for validation only, not in params
+                # Token for validation only, not in params; prints as '***' so
+                # handlers that log the request don't write it to the log.
+                'token': RedactedToken(extracted_token) if extracted_token else extracted_token
             }
 
             # IPCHandlerRegistry now automatically handles background handlers in thread pool

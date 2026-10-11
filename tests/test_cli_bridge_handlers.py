@@ -180,3 +180,13 @@ def test_stop_skips_agents_that_never_started():
     b = _Agent(True)
     ah._stop_running_agent(b, "x")
     assert b.events == ["stop"]
+
+
+def test_execute_starts_the_loop_of_a_task_whose_agent_never_started(monkeypatch):
+    agent, submitted, launched = _run_ctx(monkeypatch, loop_running=False)
+    monkeypatch.setattr(th, "get_handler_context", lambda *a, **k: __import__("gui.ipc.context_bridge", fromlist=["x"]).get_handler_context())
+    resp = th.handle_launch_agent_task(_req("launch_agent_task"), {"task_id": "t1"})
+    assert resp["status"] == "success", resp
+    assert len(submitted) == 1 and submitted[0][1] == ["schedule", "message"]
+    resp = th.handle_launch_agent_task(_req("launch_agent_task"), {"task_id": "t1"})
+    assert len(submitted) == 1                                # loop now running: queue only

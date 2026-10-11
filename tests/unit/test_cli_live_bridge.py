@@ -286,3 +286,15 @@ def test_agent_update_and_remove_through_app(cli, monkeypatch):
     assert calls[-1] == ("delete_agent", {"username": "me@x.com", "agent_id": "a1"})
     ctx.db.agent_service.update_agent.assert_not_called()
     ctx.db.agent_service.delete_agent.assert_not_called()
+
+
+def test_token_is_redacted_in_logged_requests(api_dir):
+    # LocalServer imports the whole server stack; the class is tiny, so check it in isolation.
+    src = open("gui/LocalServer.py", encoding="utf-8").read()
+    start = src.index("class RedactedToken(str):")
+    ns = {}
+    exec(src[start:src.index("\n\n\n", start)], ns)
+    secret = local_api.publish(5123)
+    tok = ns["RedactedToken"](secret)
+    assert secret not in repr({"token": tok}) and "***" in f"{ {'token': tok} }"
+    assert tok == secret and local_api.is_local_secret(tok)
