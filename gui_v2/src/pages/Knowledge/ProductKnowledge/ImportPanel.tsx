@@ -180,9 +180,7 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
   return (
     <Row gutter={16}>
       <Col xs={24} xl={16}>
-        <Card title={<Space><FileExcelOutlined />{k('catalogTitle')}</Space>} size="small"
-              extra={<Button size="small" icon={<DownloadOutlined />} onClick={downloadTemplate}
-                             data-testid="ks-download-template">{k('downloadTemplate')}</Button>}>
+        <Card title={<Space><FileExcelOutlined />{k('catalogTitle')}</Space>} size="small">
           <Paragraph type="secondary" style={{ marginBottom: 12 }}>{k('catalogIntro')}</Paragraph>
           <Steps size="small" current={step} style={{ marginBottom: 16 }}
                  items={[{ title: k('stepChoose') }, { title: k('stepMap') }, { title: k('stepReview') }, { title: k('stepImport') }]} />
@@ -193,7 +191,7 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
               <Paragraph style={{ marginTop: 8 }}>{k('chooseHint')}</Paragraph>
               <Space>
                 <Button type="primary" loading={busy} onClick={pickCatalog}>{k('chooseFile')}</Button>
-                <Button icon={<DownloadOutlined />} onClick={downloadTemplate}>{k('downloadTemplate')}</Button>
+                <Button icon={<DownloadOutlined />} onClick={downloadTemplate} data-testid="ks-download-template">{k('downloadTemplate')}</Button>
               </Space>
               <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }}>{k('templateHint')}</Paragraph>
             </div>

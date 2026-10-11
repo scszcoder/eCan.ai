@@ -279,7 +279,28 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
         })}
       </div>
       <style>{`
-        @import url('./styles/lightragTheme.css');
+        /* Base .ec-btn colors for every tab. (An @import of styles/lightragTheme.css here
+           never loaded — inline <style> resolves it against the page URL — so buttons only
+           got theme colors once SettingsTab had mounted, and showed browser-default light
+           buttons with inherited light-gray text before that.) */
+        [data-ec-scope="lightrag-ported"] .ec-btn {
+          background: ${token.colorBgContainer};
+          color: ${token.colorText};
+          border: 1px solid ${token.colorBorder};
+          border-radius: 8px;
+          padding: 6px 14px;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          white-space: nowrap;
+        }
+        [data-ec-scope="lightrag-ported"] .ec-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
 
         [data-ec-scope="lightrag-ported"] .ec-tab {
           background: transparent;
