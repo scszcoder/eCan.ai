@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from utils.logger_helper import logger_helper as logger
@@ -204,54 +205,182 @@ def _persist_links(session, model, rows: List[dict], a: str, b: str, extra: dict
 
 # ── prompts and skill files (they live as files, not rows) ────────────────
 
+def _prompt_content_ts(last_modified: Any) -> float:
+    """A prompt's own lastModified as a comparable epoch; 0.0 when absent.
+
+    Reads the CONTENT timestamp the prompt carries, NOT a file mtime.
+    prompt_handler._load_all_prompts() normalizes lastModified to the file's
+    mtime (the write time of the last local sync), which says nothing about
+    whether the cloud copy is newer -- so comparisons must read the raw field.
+    """
+    s = str(last_modified or "").strip()
+    if not s:
+        return 0.0
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+
+def _local_prompt_content_times() -> Dict[str, str]:
+    """{prompt_id: raw lastModified string} read straight from the writable
+    prompt files on disk (my_prompts + subscribed_prompts)."""
+    out: Dict[str, str] = {}
+    try:
+        from gui.ipc.w2p_handlers import prompt_handler
+        dirs = [prompt_handler._get_my_prompts_dir(),
+                prompt_handler._get_subscribed_prompts_dir()]
+    except Exception:
+        return out
+    for d in dirs:
+        try:
+            if not d or not Path(d).is_dir():
+                continue
+            for fp in Path(d).glob("*.json"):
+                try:
+                    data = json.loads(fp.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                pid = data.get("id") if isinstance(data, dict) else None
+                if pid:
+                    out[pid] = str(data.get("lastModified") or "")
+        except Exception:
+            continue
+    return out
+
+
+def _restore_prompt_last_modified(pid: str, last_modified: Any) -> None:
+    """prompt_handler._write_prompt_to_file stamps lastModified=now(); put the
+    cloud copy's real edit time back so the NEXT sync compares content times,
+    not this machine's write time (otherwise newer-wins breaks after one cycle)."""
+    if not last_modified:
+        return
+    try:
+        from gui.ipc.w2p_handlers import prompt_handler
+        path = prompt_handler._find_prompt_file_by_id(pid)
+        if not path or not Path(path).exists():
+            return
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            data["lastModified"] = last_modified
+            Path(path).write_text(json.dumps(data, indent=2, ensure_ascii=False),
+                                  encoding="utf-8")
+    except Exception as e:
+        logger.debug(f"[cloud_hydrate] could not restore lastModified for {pid}: {e}")
+
+
 def hydrate_prompts() -> Dict[str, Any]:
-    """Write every cloud prompt this machine has no file for (a node reads its
-    prompt from the local file; without it the node runs on its inline stub)."""
+    """Bring local prompt files up to date with the cloud.
+
+    Writes prompts this machine has no file for, AND refreshes an existing
+    local prompt when the cloud copy is strictly NEWER (by its own
+    lastModified). An older, equal, or undated cloud copy never overwrites a
+    local edit -- the same newer-wins rule the task sync uses. (Previously this
+    only filled missing prompts and never refreshed existing ones, so a cloud
+    edit to an already-present prompt was silently ignored.)
+    """
     try:
         from gui.ipc.w2p_handlers.prompt_cloud_sync import fetch_cloud_prompts
         from gui.ipc.w2p_handlers import prompt_handler
     except Exception as e:
         return {"skipped": f"prompt sync unavailable: {e}"}
     try:
-        have = {p.get("id") for p in prompt_handler._load_all_prompts() if p.get("id")}
-        added = []
+        local_times = _local_prompt_content_times()
+        added: List[str] = []
+        updated: List[str] = []
         for cp in fetch_cloud_prompts() or []:
             pid = cp.get("id")
-            if pid and pid not in have:
+            if not pid:
+                continue
+            if pid not in local_times:
                 prompt_handler._write_prompt_to_file(cp)
-                have.add(pid)
+                _restore_prompt_last_modified(pid, cp.get("lastModified"))
+                local_times[pid] = str(cp.get("lastModified") or "")
                 added.append(pid)
-        return {"added": added}
+            elif _prompt_content_ts(cp.get("lastModified")) > _prompt_content_ts(local_times[pid]):
+                prompt_handler._write_prompt_to_file(cp)
+                _restore_prompt_last_modified(pid, cp.get("lastModified"))
+                local_times[pid] = str(cp.get("lastModified") or "")
+                updated.append(pid)
+        return {"added": added, "updated": updated}
     except Exception as e:
         logger.warning(f"[cloud_hydrate] cloud prompts unavailable ({e}) -- using the local copies")
         return {"error": str(e)}
 
 
+def _local_skill_version(skill_dir: Path) -> Optional[str]:
+    """Read a skill folder's own version from its workflow JSON (the bundle
+    file is a compiled artifact, so it's skipped)."""
+    try:
+        for sub in (skill_dir / "diagram_dir", skill_dir):
+            if not sub.is_dir():
+                continue
+            for fp in sub.glob("*.json"):
+                if fp.name.endswith("_bundle.json"):
+                    continue
+                try:
+                    data = json.loads(fp.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if isinstance(data, dict) and data.get("version"):
+                    return str(data.get("version"))
+    except Exception:
+        pass
+    return None
+
+
 def hydrate_skill_files(ctx, wait_s: float = 45.0) -> Dict[str, Any]:
-    """Download the files of this user's own cloud skills that have no folder here
-    (subscribed skills are refreshed by refresh_subscribed_skills_from_cloud).
+    """Download the files of this user's own cloud skills that have no folder
+    here, AND refresh a folder whose cloud copy is strictly NEWER (by version).
+    Before overwriting an existing folder its contents are copied to a sibling
+    '<name>_skill.bak-<ts>' so local edits are never lost -- and if that backup
+    fails the refresh is skipped rather than risk clobbering local work. An
+    equal/older/unknown cloud version never overwrites a local folder.
+    (Subscribed skills are handled by refresh_subscribed_skills_from_cloud.)
     A skill compiles from its folder -- workflow, data_mapping, bundle, code."""
     import threading
     import time as _time
+    import shutil
     try:
         from agent.cloud_api.cloud_api import send_get_agent_skills_request_to_cloud
         from gui.ipc.w2p_handlers.skill_file_sync import _resolve_skill_dir, download_skill_files_from_cloud
+        from utils.skill_version import compare_skill_versions, is_timestamp_version, CLOUD_NEWER
     except Exception as e:
         return {"skipped": f"skill file sync unavailable: {e}"}
     rows = _as_rows(send_get_agent_skills_request_to_cloud(*ctx))
     if rows is None:
         logger.warning("[cloud_hydrate] cloud skill list unavailable -- using the local skill folders")
         return {"error": "cloud skill list unavailable"}
-    missing = []
+    to_fetch: List[tuple] = []   # (skill_row, reason)  reason in {"missing","cloud-newer"}
+    backed_up: List[str] = []
     for sk in rows:
         src = str(sk.get("source") or "").strip().lower()
         if src in ("external", "subscribed") or not sk.get("name"):
             continue
         d = _resolve_skill_dir(sk)
         if d is None or not d.is_dir():
-            missing.append(sk)
-    if not missing:
-        return {"downloaded": []}
+            to_fetch.append((sk, "missing"))
+            continue
+        # Folder present: refresh only when the cloud version is strictly newer
+        # AND the local folder is already on the save-timestamp versioning
+        # scheme. A legacy/placeholder local version (e.g. "1.0.0", or a brand
+        # new skill still being written here) sorts older than ANY timestamp
+        # version, so without this guard an actively-edited local skill would be
+        # overwritten by its cloud copy on every startup. Those are left alone.
+        local_v = _local_skill_version(d)
+        if (local_v and is_timestamp_version(local_v)
+                and compare_skill_versions(local_v, sk.get("version")) == CLOUD_NEWER):
+            try:
+                bak = d.parent / f"{d.name}.bak-{_time.strftime('%Y%m%d-%H%M%S')}"
+                shutil.copytree(d, bak)
+                backed_up.append(str(bak))
+            except Exception as e:
+                logger.warning(f"[cloud_hydrate] could not back up '{d.name}' before refresh "
+                               f"({e}) -- skipping to protect local edits")
+                continue
+            to_fetch.append((sk, "cloud-newer"))
+    if not to_fetch:
+        return {"downloaded": [], "updated": [], "backed_up": []}
     deadline = _time.monotonic() + wait_s
     threads = [threading.Thread(target=download_skill_files_from_cloud,
                                 args=(sk,),
@@ -260,18 +389,20 @@ def hydrate_skill_files(ctx, wait_s: float = 45.0) -> Dict[str, Any]:
                                 # the server reads as someone else's namespace (2026-10-06 incident).
                                 kwargs={"trace_id": "hydrate", "wait_s": wait_s,
                                         "file_owner": str(sk.get("owner") or "").strip() or None},
-                                daemon=True) for sk in missing]
+                                daemon=True) for sk, _r in to_fetch]
     for t in threads:
         t.start()
     for t in threads:
         t.join(max(0.0, deadline - _time.monotonic()))
-    got = [sk["name"] for sk in missing if (_resolve_skill_dir(sk) or None) is not None
-           and _resolve_skill_dir(sk).is_dir()]
-    late = [sk["name"] for sk in missing if sk["name"] not in got]
+    got = {sk["name"] for sk, _r in to_fetch
+           if (_resolve_skill_dir(sk) or None) is not None and _resolve_skill_dir(sk).is_dir()}
+    downloaded = [sk["name"] for sk, r in to_fetch if r == "missing" and sk["name"] in got]
+    updated = [sk["name"] for sk, r in to_fetch if r == "cloud-newer" and sk["name"] in got]
+    late = [sk["name"] for sk, _r in to_fetch if sk["name"] not in got]
     if late:
         logger.warning(f"[cloud_hydrate] skill files still downloading / unavailable: {late} "
                        f"-- they compile on the next start")
-    return {"downloaded": got, "missing": late}
+    return {"downloaded": downloaded, "updated": updated, "backed_up": backed_up, "missing": late}
 
 
 # ── the pass ─────────────────────────────────────────────────────────────
