@@ -362,3 +362,37 @@ class TestErrorsInTheAppsLanguage:
         with patch.dict(_os.environ, {"ECAN_APP_ID": "intl"}):
             with pytest.raises(RuntimeError, match="create it on the Stores page"):
                 dc._deploy_douyin_cs(TestDeployDouyinCs.CFG, ctx, "buyer@x")
+
+
+class TestProductExportOption:
+    """fetch_catalog: a one-time background export task on the front desk."""
+
+    CFG = {"store_id": "shopA", "qa_agents": 2, "fetch_catalog": True}
+
+    def test_adds_the_export_task_to_the_front_desk(self):
+        ctx = _make_ctx()
+        ctx.db.skill_service.query_skills.return_value = {"success": True, "data": [
+            {"id": "skill_export", "name": "抖店商品导出"}, {"id": "x", "name": "抖店商品导出 旧"}]}
+        plan, log, created = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+        tasks = [c.args[0] for c in ctx.db.task_service.add_task.call_args_list]
+        export = [t for t in tasks if t["name"].endswith("商品导出")]
+        assert len(export) == 1
+        s = export[0]["settings"]
+        assert s["run_once"] is True and s["run_class"] == "background" and s["start_after_idle_min"] == 5
+        assert s["task_vars"]["store_id"] == "shopA" and s["browser_identity"]   # the store's own browser
+        fd = ctx.db.agent_service.create_agent_from_data.call_args_list[0].args[0]
+        assert fd["name"] == "前台小张" and len(fd["tasks"]) == 2 and "skill_export" in fd["skills"]
+        assert any("商品导出" in line or "Product export" in line for line in log)
+
+    def test_missing_skill_is_reported_not_fatal(self):
+        ctx = _make_ctx()
+        ctx.db.skill_service.query_skills.return_value = {"success": True, "data": []}
+        plan, log, created = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+        tasks = [c.args[0]["name"] for c in ctx.db.task_service.add_task.call_args_list]
+        assert not any(n.endswith("商品导出") for n in tasks)
+        assert any("抖店商品导出" in line for line in log)
+
+    def test_off_by_request(self):
+        ctx = _make_ctx()
+        dc._deploy_douyin_cs({"store_id": "shopA", "qa_agents": 2}, ctx, "buyer@x")
+        ctx.db.skill_service.query_skills.assert_not_called()

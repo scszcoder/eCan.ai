@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert, App, Button, Card, Col, Collapse, Descriptions, Empty, Result, Row, Select, Space, Statistic, Steps, Table, Tag, Typography,
 } from 'antd';
-import { DownloadOutlined, FileExcelOutlined, FileTextOutlined, InboxOutlined } from '@ant-design/icons';
+import { CloudDownloadOutlined, DownloadOutlined, FileExcelOutlined, FileTextOutlined, InboxOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { ksApi, KSCatalogPreview, KSImportReport, KSOverview, KSProduct } from '@/services/ipc/ksApi';
+import { ksApi, KSCatalogPreview, KSImportReport, KSOverview, KSPendingImport, KSProduct } from '@/services/ipc/ksApi';
 import JobProgress from './JobProgress';
 import { useJob } from './useJob';
 
@@ -64,6 +64,9 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
   const [sample, setSample] = useState<KSProduct[]>([]);
   const [defaultStore, setDefaultStore] = useState<string>();
   const [busy, setBusy] = useState(false);
+  // Catalog files an agent fetched (e.g. the store's product export) for review.
+  const [pending, setPending] = useState<KSPendingImport[]>([]);
+  const [pendingId, setPendingId] = useState<string>();
   const catalogJob = useJob(job => {
     if (job.status === 'succeeded') message.success(job.message || k('done'));
     onChanged();
@@ -73,12 +76,25 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
     onChanged();
   });
 
-  const pickCatalog = async () => {
+  const loadPending = useCallback(async () => {
     try {
-      const paths = await ksApi.pickFiles(CATALOG_EXTS, k('catalogFiles'), false);
-      if (!paths.length) return;
-      setBusy(true);
-      const pv = await ksApi.previewCatalog(paths[0]);
+      setPending((await ksApi.listPendingImports()).items || []);
+    } catch {
+      /* older backend: no staged imports */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (step !== 0) return undefined;
+    loadPending();
+    const timer = setInterval(loadPending, 15000);
+    return () => clearInterval(timer);
+  }, [step, loadPending]);
+
+  const loadCatalog = async (path: string) => {
+    setBusy(true);
+    try {
+      const pv = await ksApi.previewCatalog(path);
       setPreview(pv);
       setMapping(pv.mapping);
       setReport(pv.report);
@@ -89,6 +105,32 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
       message.error(e.message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const pickCatalog = async () => {
+    try {
+      const paths = await ksApi.pickFiles(CATALOG_EXTS, k('catalogFiles'), false);
+      if (!paths.length) return;
+      setPendingId(undefined);
+      await loadCatalog(paths[0]);
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
+  const reviewPending = async (item: KSPendingImport) => {
+    setPendingId(item.id);
+    if (item.store_id) setDefaultStore(item.store_id);
+    await loadCatalog(item.path);
+  };
+
+  const dismissPending = async (item: KSPendingImport) => {
+    try {
+      await ksApi.dismissPendingImport(item.id);
+      loadPending();
+    } catch (e: any) {
+      message.error(e.message);
     }
   };
 
@@ -110,7 +152,8 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
   const startImport = async () => {
     if (!preview) return;
     try {
-      catalogJob.track(await ksApi.importCatalog(preview.path, mapping, defaultStore));
+      catalogJob.track(await ksApi.importCatalog(preview.path, mapping, defaultStore, pendingId));
+      setPendingId(undefined);
       setStep(3);
     } catch (e: any) {
       message.error(e.message);
@@ -129,6 +172,7 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
   };
 
   const restart = () => {
+    setPendingId(undefined);
     setStep(0);
     setPreview(null);
     setReport(null);
@@ -184,6 +228,20 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
           <Paragraph type="secondary" style={{ marginBottom: 12 }}>{k('catalogIntro')}</Paragraph>
           <Steps size="small" current={step} style={{ marginBottom: 16 }}
                  items={[{ title: k('stepChoose') }, { title: k('stepMap') }, { title: k('stepReview') }, { title: k('stepImport') }]} />
+
+          {step === 0 && pending.map(item => (
+            <Alert key={item.id} type="info" showIcon icon={<CloudDownloadOutlined />} style={{ marginBottom: 12 }}
+                   data-testid={`ks-pending-${item.id}`}
+                   message={k('pendingTitle', { file: item.file_name, rows: item.rows })}
+                   description={[item.source, stores.find(s => s.id === item.store_id)?.name, new Date(item.created_at * 1000).toLocaleString()]
+                     .filter(Boolean).join(' · ')}
+                   action={
+                     <Space direction="vertical">
+                       <Button size="small" type="primary" loading={busy} onClick={() => reviewPending(item)}>{k('pendingReview')}</Button>
+                       <Button size="small" onClick={() => dismissPending(item)}>{k('pendingDismiss')}</Button>
+                     </Space>
+                   } />
+          ))}
 
           {step === 0 && (
             <div style={{ textAlign: 'center', padding: 24, border: '1px dashed #d9d9d9', borderRadius: 8 }}>

@@ -236,6 +236,24 @@ class KnowledgeService:
             "stores_in_file": sorted({l["store"] for p in products for l in p["listings"] if l.get("store")}),
         }
 
+    # ---- catalog files an agent staged for review (pending_imports.py) ----
+    def _pending(self):
+        from knowledge.ks.pending_imports import PendingImports
+        folder = getattr(self, "data_dir", None)
+        if not folder:
+            raise ValueError("Knowledge Service has no data folder")
+        return PendingImports(folder)
+
+    def stage_catalog(self, path: str, store_id: str = "", source: str = "", note: str = "") -> Dict[str, Any]:
+        """List an agent-fetched catalog file for the merchant to review and import."""
+        return self._pending().stage(path, store_id=store_id, source=source, note=note)
+
+    def pending_imports(self) -> List[Dict[str, Any]]:
+        return self._pending().list()
+
+    def dismiss_pending_import(self, pending_id: str) -> bool:
+        return self._pending().remove(pending_id)
+
     def recheck_catalog(self, path: str, mapping: Dict[str, str]) -> Dict[str, Any]:
         headers, rows = catalog_import.read_table(path)
         products, report = catalog_import.build_products(rows, mapping)
@@ -639,6 +657,7 @@ def get_service(main_window=None) -> KnowledgeService:
             url = "sqlite:///" + os.path.join(folder, "ks.db").replace("\\", "/")
             svc = KnowledgeService(url, embedder=_configured_embedder(main_window), owner=user,
                                    job_listener=_broadcast_job)
+            svc.data_dir = folder
             _services[key] = svc
             logger.info(f"[KS] Knowledge Service ready at {url} (embedder={svc.embedder.id})")
         return svc

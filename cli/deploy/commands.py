@@ -531,6 +531,7 @@ class _LiveChatProfile(NamedTuple):
     find_skill_by_name: bool      # not yet published: local ids differ per machine
     fd_legacy_skill_ids: tuple = ()   # earlier front-desk skills: replace mode clears their tasks too
     native_desktop: bool = False      # native client (千牛): no browser login profile, no Chrome pre-check, store URL optional
+    catalog_skill_name: str = ""      # optional: skill that exports the store's products for 商品知识 (found by name)
 
 
 _DDCS_PROFILE = _LiveChatProfile(
@@ -544,6 +545,7 @@ _DDCS_PROFILE = _LiveChatProfile(
     fd_task_prefix="飞鸽客服前台", qa_task_prefix="飞鸽客服应答",
     env_append=_DDCS_FEIGE_ENV, env_set={}, find_skill_by_name=False,
     fd_legacy_skill_ids=(_DDCS_FD_LEGACY_SKILL_ID,),
+    catalog_skill_name="抖店商品导出",
 )
 
 # Pinduoduo (pdd_chat bundle). The bundle registers only when the process serves
@@ -755,6 +757,20 @@ def _qa_pool_settings(qa_n: int) -> dict:
     return {"min": min(2, qa_n), "max": qa_n, "idle_minutes": 10}
 
 
+# The one-time product export on the front desk (cfg fetch_catalog): runs once,
+# in the background, only after the store's browser has been quiet for 5 min.
+_CATALOG_TASK_SETTINGS = {"run_once": True, "run_class": "background", "start_after_idle_min": 5}
+
+
+def _find_skill_named(ctx, name: str):
+    try:
+        rows = (ctx.db.skill_service.query_skills(name=name) or {}).get("data") or []
+    except Exception:
+        rows = []
+    exact = [x for x in rows if str(x.get("name") or "").strip() == name]
+    return exact[0] if exact else None
+
+
 class _Builder:
     """Creates tasks and agents for one deployment and remembers what it made."""
 
@@ -791,13 +807,18 @@ class _Builder:
                                     f"将任务 {name} 关联到技能 {skill_id} 失败：{(link or {}).get('error')}"))
         return tid
 
-    def agent(self, name: str, skill_id: str, task_id: str, vehicle_id=None) -> str:
+    def agent(self, name: str, skill_id: str, task_id: str, vehicle_id=None,
+              extra_tasks: tuple = ()) -> str:
         adata = {"name": name, "description": f"{self.label} — Fast Deploy (shared skill)",
                  "skills": [skill_id], "org_id": self.org_id}
         # Task links must not depend on vehicle resolution: without them the
         # agents exist but never run their tasks.
-        if task_id:
-            adata["tasks"] = [task_id]
+        task_ids = [t for t in (task_id, *[x[0] for x in extra_tasks]) if t]
+        if task_ids:
+            adata["tasks"] = task_ids
+        for _tid, extra_skill in extra_tasks:
+            if extra_skill and extra_skill not in adata["skills"]:
+                adata["skills"].append(extra_skill)
         if vehicle_id:
             adata["vehicle_id"] = vehicle_id
         ar = self.ctx.db.agent_service.create_agent_from_data(adata, self.owner)
@@ -806,8 +827,8 @@ class _Builder:
                                     f"创建智能体 {name} 失败：{ar.get('error')}"))
         aid = ar.get("id")
         self.created["agents"].append(aid)
-        if task_id:
-            self.links["agent_task"].append((aid, task_id))
+        for tid in task_ids:
+            self.links["agent_task"].append((aid, tid))
         return aid
 
 
@@ -914,7 +935,22 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     #    {{front_desk_agent_id}}, resolved from task_vars at task launch.
     fd_name = f"{profile.fd_task_prefix}001"
     fd_task_id = _add_task(fd_name, fd_skill_id, extra_settings={"pool": _qa_pool_settings(qa_n)})
-    fd_agent_id = b.agent("前台小张", fd_skill_id, fd_task_id, vehicle_id)
+    extra_tasks = ()
+    if cfg.get("fetch_catalog") and profile.catalog_skill_name:
+        # The store's products for 商品知识: the front desk exports them once (its
+        # browser is signed in to the store) and stages the file for review.
+        cat_row = _find_skill_named(ctx, profile.catalog_skill_name)
+        if cat_row:
+            cat_task = _add_task(f"{profile.fd_task_prefix}商品导出", cat_row["id"],
+                                 extra_settings=dict(_CATALOG_TASK_SETTINGS))
+            extra_tasks = ((cat_task, cat_row["id"]),)
+            log.append(_tr(f"Product export: the front desk will export this store's products once "
+                           f"(when its browser has been quiet for 5 min) for review in 商品知识 → 导入",
+                           f"商品导出：前台会在浏览器空闲 5 分钟后导出一次本店商品，导出结果在 商品知识 → 导入 中待你确认"))
+        else:
+            log.append(_tr(f"Product export skipped: skill {profile.catalog_skill_name!r} not found",
+                           f"未添加商品导出：找不到技能「{profile.catalog_skill_name}」"))
+    fd_agent_id = b.agent("前台小张", fd_skill_id, fd_task_id, vehicle_id, extra_tasks=extra_tasks)
     log.append(f"Created task {fd_name} → {profile.fd_skill_name}")
     log.append(f"Created front-desk agent 前台小张 ({fd_agent_id}, org=Sales)")
 

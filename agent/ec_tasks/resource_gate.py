@@ -129,6 +129,8 @@ class ResourceGate:
         self._waiters: List[_Waiter] = []
         self._seq = itertools.count()
         self._spawn = spawn or _spawn_thread
+        self._started = time.time()
+        self._released_at: Dict[str, float] = {}   # key -> when it was last freed
 
     # Every "granted" (including the hold handed to ``on_grant``) is released
     # exactly once with ``release(holder, keys)``.
@@ -166,6 +168,7 @@ class ResourceGate:
                     continue
                 if h[1] <= 1:
                     del self._held[k]
+                    self._released_at[k] = time.time()
                 else:
                     self._held[k] = (holder, h[1] - 1)
             granted = self._grant_waiters()
@@ -173,6 +176,15 @@ class ResourceGate:
             logger.info(f"[resource-gate] '{w.label}' gets {list(w.keys)} "
                         f"after {time.time() - w.since:.1f}s")
             self._spawn(w.on_grant)
+
+    def idle_for(self, keys: Tuple[str, ...]) -> float:
+        """Seconds since any of ``keys`` was last in use (0 while one is held).
+        A key not used since the gate started counts from the start."""
+        now = time.time()
+        with self._lock:
+            if any(k in self._held for k in keys):
+                return 0.0
+            return min((now - self._released_at.get(k, self._started) for k in keys), default=now - self._started)
 
     def drop_waiters(self, holder: str) -> int:
         with self._lock:

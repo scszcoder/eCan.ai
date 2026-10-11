@@ -30,6 +30,8 @@ export interface ScenarioSchema {
     /** Store operations: when the after-sales task first runs and how often it
      *  processes orders and messages (the other roles start on a chat message). */
     schedule?: boolean;
+    /** Offer to export the store's products into 商品知识 once (front desk task). */
+    fetchCatalog?: boolean;
 }
 
 export interface BusinessScenario {
@@ -54,6 +56,8 @@ export interface ScenarioConfig {
     scheduleStart?: string;
     scheduleEvery?: number;
     scheduleUnit?: 'minutes' | 'hours' | 'days';
+    /** Export the store's products once for review in 商品知识 → 导入. */
+    fetchCatalog?: boolean;
 }
 
 const CS_SCHEMA: ScenarioSchema = { storeId: true, qaAgents: { default: 6, min: 1, max: 16 } };
@@ -61,6 +65,7 @@ const DOUYIN_CS_SCHEMA: ScenarioSchema = {
     qaAgents: { default: 8, min: 1, max: 16 },
     replaceMode: true,
     storeId: true,
+    fetchCatalog: true,
 };
 const PDD_CS_SCHEMA: ScenarioSchema = {
     qaAgents: { default: 4, min: 1, max: 16 },
@@ -161,6 +166,7 @@ export function defaultConfig(s: BusinessScenario): ScenarioConfig {
     return {
         ...(s.schema.qaAgents ? { qaAgents: s.schema.qaAgents.default } : {}),
         ...(s.schema.replaceMode ? { mode: 'add' as const } : {}),
+        ...(s.schema.fetchCatalog ? { fetchCatalog: true } : {}),
         ...(s.schema.storeId ? { storeId: '' } : {}),
         ...(s.schema.stores ? { stores: [] } : {}),
         // First after-sales run: the next full hour; then every 30 minutes.

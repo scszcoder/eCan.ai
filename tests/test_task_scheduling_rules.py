@@ -167,3 +167,61 @@ def test_scheduling_settings_are_carried_from_the_db_row():
     assert t.metadata["overlap_policy"] == "queue_one"
     assert t.metadata["max_lateness_min"] == 30.0
     assert t.metadata["exclusive_resources"] == ["printer"]
+
+
+# ── run_once / start_after_idle_min (7b: a one-time background job on a busy browser) ──
+
+def test_gate_idle_for(monkeypatch):
+    t = [1000.0]
+    monkeypatch.setattr(rg.time, "time", lambda: t[0])
+    g = rg.ResourceGate(spawn=lambda fn: fn())
+    t[0] = 1100.0
+    assert g.idle_for(("k",)) == 100.0                  # unused since the gate started
+    g.acquire_or_wait("A", ("k",), rg.REACTIVE, 0, on_grant=lambda: None)
+    assert g.idle_for(("k",)) == 0.0
+    t[0] = 1200.0
+    g.release("A", ("k",))
+    t[0] = 1260.0
+    assert g.idle_for(("k",)) == 60.0
+
+
+def test_run_once_never_runs_again():
+    t = _task("export", run_once=True)
+    r = _runner([t])
+    saved = []
+    r._persist_task_settings = lambda task, **v: (task.metadata.update(v), saved.append(v))
+    r._submit_task_execution(t, {"__trigger_source__": "auto"}, "auto", None)
+    assert len(r.futures) == 1
+    r.futures[0].set_result({"rows": 12})
+    assert saved and "completed_once_at" in saved[0]
+    r._submit_task_execution(t, {"__trigger_source__": "auto"}, "auto", None)
+    assert len(r.futures) == 1
+
+
+def test_start_after_idle_waits_for_the_browser_to_go_quiet(monkeypatch, inline_gate):
+    timers = []
+
+    class _T:
+        def __init__(self, secs, fn):
+            timers.append((secs, fn))
+            self.daemon = False
+
+        def start(self):
+            pass
+    monkeypatch.setattr(threading, "Timer", _T)
+    clock = [5000.0]
+    monkeypatch.setattr(rg.time, "time", lambda: clock[0])
+    inline_gate._started = 5000.0
+    chat = _task("前台")
+    export = _task("导出商品", start_after_idle_min=5, run_class="background")
+    r = _runner([chat, export])
+    r._submit_task_execution(chat, {"__trigger_source__": "message"}, "message", None)
+    r.futures[0].set_result(None)                       # a chat turn just used the browser
+    clock[0] = 5060.0
+    r._submit_task_execution(export, {"__trigger_source__": "auto"}, "auto", None)
+    assert len(r.futures) == 1 and len(timers) == 1 and timers[0][0] == pytest.approx(240.0)
+    r._submit_task_execution(export, {"__trigger_source__": "auto"}, "auto", None)
+    assert len(timers) == 1                              # one retry pending, not two
+    clock[0] = 5000.0 + 301
+    timers[0][1]()                                       # the retry: quiet for 5 min now
+    assert len(r.futures) == 2

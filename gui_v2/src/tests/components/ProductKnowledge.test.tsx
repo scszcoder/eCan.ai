@@ -68,6 +68,8 @@ const ksApi = {
   lanDiscover: jest.fn().mockResolvedValue([{ machine_name: 'COMMANDER-PC', host: '192.168.1.10', url: 'http://192.168.1.10:9630', sharing: true }]),
   lanPair: jest.fn().mockResolvedValue({ mode: 'commander', url: 'http://192.168.1.10:9630', commander: 'COMMANDER-PC', paired: true }),
   lanTestSource: jest.fn().mockResolvedValue({ ok: true, ms: 4, detail: '我的店铺' }),
+  listPendingImports: jest.fn().mockResolvedValue({ items: [] }),
+  dismissPendingImport: jest.fn().mockResolvedValue({ dismissed: true }),
 };
 
 jest.mock('@/services/ipc/ksApi', () => ({ ksApi }));
@@ -108,6 +110,18 @@ describe('ProductKnowledgeTab', () => {
     expect(await screen.findByText('catalog.csv')).toBeInTheDocument();
     expect(screen.getByText('宝贝标题')).toBeInTheDocument();
     expect(ksApi.previewCatalog).toHaveBeenCalledWith('C:/x/catalog.csv');
+  });
+
+  it('offers a staged store export for one-click review', async () => {
+    ksApi.listPendingImports.mockResolvedValueOnce({ items: [{
+      id: 'p1', path: 'C:/ks/staged_imports/p1_商品导出.xlsx', file_name: '商品导出.xlsx', store_id: 's1',
+      source: '抖店商品导出', note: '', rows: 42, created_at: 1791700000 }] });
+    renderTab();
+    await screen.findByText('天猫店');
+    fireEvent.click(screen.getByText('pages.knowledge.ks.tabs.import'));
+    expect(await screen.findByTestId('ks-pending-p1')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('pages.knowledge.ks.import.pendingReview'));
+    await waitFor(() => expect(ksApi.previewCatalog).toHaveBeenCalledWith('C:/ks/staged_imports/p1_商品导出.xlsx'));
   });
 
   it('lists servers, shows sign-in state and runs a step-by-step connection test', async () => {

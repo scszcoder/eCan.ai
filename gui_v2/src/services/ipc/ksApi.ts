@@ -75,6 +75,17 @@ export interface KSImportReport {
   ignored_columns: string[];
 }
 
+export interface KSPendingImport {
+  id: string;
+  path: string;
+  file_name: string;
+  store_id: string;
+  source: string;
+  note: string;
+  rows: number;
+  created_at: number;
+}
+
 export interface KSCatalogPreview {
   path: string;
   filename: string;
@@ -221,8 +232,11 @@ export const ksApi = {
   previewCatalog: (path: string) => call<KSCatalogPreview>('ks.previewCatalog', { path }, 120000),
   recheckCatalog: (path: string, mapping: Record<string, string>) =>
     call<{ report: KSImportReport; products_preview: KSProduct[] }>('ks.recheckCatalog', { path, mapping }, 120000),
-  importCatalog: (path: string, mapping: Record<string, string>, default_store_id?: string) =>
-    call<KSJob>('ks.importCatalog', { path, mapping, default_store_id }),
+  importCatalog: (path: string, mapping: Record<string, string>, default_store_id?: string, pending_id?: string) =>
+    call<KSJob>('ks.importCatalog', { path, mapping, default_store_id, ...(pending_id ? { pending_id } : {}) }),
+  /** Catalog files an agent fetched (e.g. a store's product export), awaiting review. */
+  listPendingImports: () => call<{ items: KSPendingImport[] }>('ks.listPendingImports', {}),
+  dismissPendingImport: (id: string) => call<{ dismissed: boolean }>('ks.dismissPendingImport', { id }),
 
   writeCatalogTemplate: (dir: string) => call<{ path: string }>('ks.writeCatalogTemplate', { dir }),
 

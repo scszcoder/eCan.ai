@@ -249,6 +249,12 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
             if isinstance(db_settings.get('exclusive_resources'), list):
                 runtime_metadata['exclusive_resources'] = [
                     str(x) for x in db_settings['exclusive_resources'] if str(x).strip()]
+            for flag_key in ('run_once',):
+                if db_settings.get(flag_key):
+                    runtime_metadata[flag_key] = True
+            for scalar_key in ('completed_once_at', 'start_after_idle_min'):
+                if db_settings.get(scalar_key) not in (None, ''):
+                    runtime_metadata[scalar_key] = db_settings[scalar_key]
             for scalar_key in ('run_class', 'overlap_policy'):
                 val = db_settings.get(scalar_key)
                 if isinstance(val, str) and val.strip():

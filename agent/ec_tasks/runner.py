@@ -8210,6 +8210,10 @@ class TaskRunner(Generic[Context]):
         else:
             summary = f"error: {exc}"[:500]
         self._after_tracker().record(task.id, ok, summary, getattr(task, "name", ""))
+        meta = task.metadata if isinstance(task.metadata, dict) else {}
+        if ok and meta.get("run_once") and not meta.get("completed_once_at"):
+            self._persist_task_settings(task, completed_once_at=datetime.now().isoformat(timespec="seconds"))
+            logger.info(f"[task-schedule] '{task.name}' finished its one run")
         for dep in getattr(self.agent, "tasks", None) or []:
             if dep is not task and _task_deps.has_after_trigger(dep) and task.id in _task_deps.after_config(dep)[0]:
                 self._fire_if_ready(dep)
@@ -8240,6 +8244,62 @@ class TaskRunner(Generic[Context]):
         if not self._stop_event.is_set():
             threading.Thread(target=self._submit_task_execution, args=(dep, msg, trigger, None),
                              name="AfterTaskRun", daemon=True).start()
+
+    def _unprompted_run_held(self, task: ManagedTask, msg: Any, trigger_type: str) -> bool:
+        """Settings for runs nobody asked for (auto / schedule / after):
+        ``run_once`` -- done once, never again; ``start_after_idle_min`` -- wait
+        until the task's resources (e.g. the store's browser) have been unused
+        that long, so it doesn't cut into live work. True = not now."""
+        if str(trigger_type or "") not in ("auto", "schedule", "after"):
+            return False
+        meta = task.metadata if isinstance(task.metadata, dict) else {}
+        if meta.get("run_once") and meta.get("completed_once_at"):
+            logger.info(f"[task-schedule] '{task.name}' already ran once ({meta['completed_once_at']}); not again")
+            return True
+        try:
+            idle_min = float(meta.get("start_after_idle_min") or 0)
+        except (TypeError, ValueError):
+            idle_min = 0.0
+        if idle_min <= 0 or not _resource_gate.gate_enabled():
+            return False
+        keys = _resource_gate.resource_keys(task, self._gate_agent_id())
+        if not keys:
+            return False
+        idle = _resource_gate.get_gate().idle_for(keys)
+        if idle >= idle_min * 60:
+            return False
+        held = self.__dict__.setdefault("_idle_held", set())
+        if task.id in held:
+            return True
+        held.add(task.id)
+        wait = max(30.0, idle_min * 60 - idle)
+        logger.info(f"[task-schedule] '{task.name}' waits until {list(keys)} have been unused for "
+                    f"{idle_min:g} min (now {idle / 60:.1f} min); checking again in {wait / 60:.1f} min")
+
+        def _retry(t=task, m=msg, tt=trigger_type):
+            held.discard(t.id)
+            if not self._stop_event.is_set():
+                self._submit_task_execution(t, m, tt, None)
+        timer = threading.Timer(wait, _retry)
+        timer.daemon = True
+        timer.start()
+        return True
+
+    def _persist_task_settings(self, task: ManagedTask, **values) -> None:
+        """Write keys into the task's stored settings (survive restarts)."""
+        try:
+            if isinstance(task.metadata, dict):
+                task.metadata.update(values)
+            svc = getattr(getattr(getattr(self.agent, "mainwin", None), "ec_db_mgr", None), "task_service", None)
+            if svc is None:
+                return
+            row = (svc.get_task_by_id(task.id) or {}).get("data") or {}
+            settings = row.get("metadata", row.get("settings")) or {}
+            if isinstance(settings, str):
+                settings = json.loads(settings) if settings.strip() else {}
+            svc.update_task(task.id, {"settings": {**settings, **values}})
+        except Exception as e:
+            logger.warning(f"[task-schedule] could not save {list(values)} for '{task.name}': {e}")
 
     def _submit_after_grant(self, task: ManagedTask, msg: Any, trigger_type: str,
                             dev_init_state: Optional[dict], keys: tuple) -> None:
@@ -8292,6 +8352,8 @@ class TaskRunner(Generic[Context]):
         # (overlap_policy), or a background run about to collide.
         try:
             if self._scheduled_run_handled(task, msg, trigger_type):
+                return
+            if self._unprompted_run_held(task, msg, trigger_type):
                 return
         except Exception as _sched_err:
             logger.warning(f"[task-schedule] rules for '{task.name}' failed (running anyway): {_sched_err}")

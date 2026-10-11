@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, DatePicker, Input, InputNumber, Radio, Select, Typography, message } from 'antd';
+import { Button, Checkbox, DatePicker, Input, InputNumber, Radio, Select, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import {
     CloseOutlined,
@@ -211,6 +211,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                     } } : {}),
                     ...(a.scenario.schema.qaAgents ? { qa_agents: c.qaAgents } : {}),
                     ...(a.scenario.schema.replaceMode ? { mode: c.mode || 'add' } : {}),
+                    ...(a.scenario.schema.fetchCatalog ? { fetch_catalog: !!c.fetchCatalog } : {}),
                 },
             };
             try {
@@ -352,6 +353,15 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                 {t('pages.agents.fast_deploy_qa_hint', { defaultValue: 'default {{d}}, max {{m}}', d: schema.qaAgents.default, m: schema.qaAgents.max })}
                             </Text>
                         </div>
+                    </div>
+                )}
+                {schema.fetchCatalog && (
+                    <div style={{ marginTop: 10 }}>
+                        <Checkbox checked={!!c.fetchCatalog} data-testid="fd-fetch-catalog"
+                            onChange={(e) => setAreaConfig(a.key, { fetchCatalog: e.target.checked })}>
+                            {t('pages.agents.fast_deploy_fetch_catalog', 'Import the store\'s products into 商品知识')}
+                        </Checkbox>
+                        {hint(t('pages.agents.fast_deploy_fetch_catalog_hint', 'Once, after deploy: the front desk exports the product list from the store backend when its browser is quiet; you review it in 商品知识 → 导入.'))}
                     </div>
                 )}
                 {schema.replaceMode && (

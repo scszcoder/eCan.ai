@@ -150,8 +150,28 @@ def handle_import_catalog(request: IPCRequest, params: Optional[Dict[str, Any]])
     def run():
         p = _p(params)
         _require(p, 'path', 'mapping')
-        return _svc().import_catalog(p['path'], p['mapping'], default_store_id=p.get('default_store_id', ''))
+        result = _svc().import_catalog(p['path'], p['mapping'], default_store_id=p.get('default_store_id', ''))
+        if p.get('pending_id'):
+            # A staged file (agent-fetched) is imported now: off the review list.
+            # The import job reads the file later, so the copy stays on disk.
+            from knowledge.ks.pending_imports import PendingImports
+            PendingImports(_svc().data_dir).remove(p['pending_id'], delete_file=False)
+        return result
     return _call(request, 'KS_IMPORT_CATALOG_ERROR', run)
+
+
+@IPCHandlerRegistry.handler('ks.listPendingImports')
+def handle_list_pending_imports(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Catalog files agents fetched (e.g. a store's product export), awaiting review."""
+    return _call(request, 'KS_PENDING_IMPORTS_ERROR', lambda: {'items': _svc().pending_imports()})
+
+
+@IPCHandlerRegistry.handler('ks.dismissPendingImport')
+def handle_dismiss_pending_import(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    def run():
+        _require(_p(params), 'id')
+        return {'dismissed': _svc().dismiss_pending_import(params['id'])}
+    return _call(request, 'KS_PENDING_IMPORTS_ERROR', run)
 
 
 # ---- product documents ------------------------------------------------------------------
