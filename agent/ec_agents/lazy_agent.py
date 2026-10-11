@@ -19,6 +19,7 @@ Switch: ``ECAN_LAZY_AGENTS=1`` (default off).  Needs the shared A2A server
 """
 from __future__ import annotations
 
+import json
 import os
 import threading
 import traceback
@@ -29,7 +30,7 @@ from utils.logger_helper import logger_helper as logger
 
 # Read by code that scans every agent (launcher, runtime-status poll, LAN/cloud
 # advertising, store reconciler); answered without building the agent.
-_CHEAP = ("card", "get_card", "tasks", "skills", "active_tasks", "task_lock", "is_task_running", "status",
+_CHEAP = ("card", "get_card", "to_dict", "tasks", "skills", "active_tasks", "task_lock", "is_task_running", "status",
           "_running", "_stopped", "_starting", "_lazy_cold", "owner", "org_id", "description",
           "vehicle_id", "vehicle", "mainwin", "extra_data", "avatar", "role")
 # Values set on a cold agent that the real agent should keep.
@@ -76,6 +77,41 @@ def _card_for(agent_data: Dict[str, Any], mainwin: Any):
     )
 
 
+def _json_list(v):
+    if isinstance(v, str) and v.startswith("["):
+        try:
+            return json.loads(v)
+        except ValueError:
+            return v
+    return v
+
+
+def _agent_dict(agent_data: Dict[str, Any], card: Any, skills: list, owner: Optional[str]) -> Dict[str, Any]:
+    """What EC_Agent.to_dict returns, from the stored definition (agent list page)."""
+    from agent.db.services.db_avatar_service import DBAvatarService
+    from agent.ec_agent import EC_Agent
+    return {
+        "card": EC_Agent.card_to_dict(None, card),
+        "id": card.id,
+        "name": card.name,
+        "description": agent_data.get("description") or "",
+        "owner": owner or agent_data.get("owner"),
+        "gender": agent_data.get("gender", "male"),
+        "birthday": agent_data.get("birthday"),
+        "org_id": agent_data.get("org_id"),
+        "supervisor_id": agent_data.get("supervisor_id"),
+        "rank": agent_data.get("rank", "member"),
+        "title": _json_list(agent_data.get("title") or ""),
+        "personalities": _json_list(agent_data.get("personalities") or []) or [],
+        "skills": [{"id": s.id, "name": s.name} for s in skills],
+        "tasks": [],
+        "vehicle_id": agent_data.get("vehicle_id"),
+        "status": agent_data.get("status") or "active",
+        "avatar": agent_data.get("avatar") or DBAvatarService.generate_default_avatar(agent_data.get("id")),
+        "extra_data": agent_data.get("extra_data", ""),
+    }
+
+
 def _first_caller() -> str:
     for fr in reversed(traceback.extract_stack()[:-3]):
         if "lazy_agent.py" not in fr.filename:
@@ -102,6 +138,8 @@ class LazyAgent:
         d.update({
             "card": _card_for(agent_data, mainwin),
             "get_card": lambda: self.__dict__.get("card"),
+            "to_dict": lambda owner=None: dict(_agent_dict(agent_data, self.__dict__["card"], skills, owner),
+                                               status=self.__dict__.get("status") or "active"),
             "tasks": [],
             "skills": skills,
             "active_tasks": {},

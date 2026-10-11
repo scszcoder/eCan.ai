@@ -82,6 +82,9 @@ def test_scanning_all_agents_does_not_build_it():
     assert ag.is_task_running("r") is False and [s.name for s in ag.skills] == ["问答"]
     assert getattr(ag, "vehicle_id", None) is None and ag.lazy_is_cold
     ag.status = "active"                                          # _sync_agent_db_status_active
+    d = ag.to_dict(owner="u2")                                    # agent list page
+    assert d["id"] == "agent_x" and d["name"] == "客服小晴" and d["owner"] == "u2" and d["tasks"] == []
+    assert d["skills"] == [{"id": "sk1", "name": "问答"}] and d["card"]["url"].endswith("/a2a/agent_x/")
     assert built == []
 
 
