@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { theme } from 'antd';
-import { FileTextOutlined, ShareAltOutlined, SearchOutlined, SettingOutlined, ShopOutlined } from '@ant-design/icons';
+import { FileTextOutlined, HistoryOutlined, ShareAltOutlined, SearchOutlined, SettingOutlined, ShopOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import WorkspacePicker from './WorkspacePicker';
@@ -10,9 +10,9 @@ import { useWorkspace } from './useWorkspace';
 // Minimal tabs component for the ported LightRAG UI.
 // Does not depend on Radix or Tailwind; no routing changes.
 
-export type TabKey = 'products' | 'documents' | 'knowledge-graph' | 'retrieval' | 'settings' | 'api';
+export type TabKey = 'products' | 'documents' | 'knowledge-graph' | 'retrieval' | 'settings' | 'jobs' | 'api';
 
-const TAB_KEYS: TabKey[] = ['products', 'documents', 'knowledge-graph', 'retrieval', 'settings', 'api'];
+const TAB_KEYS: TabKey[] = ['products', 'documents', 'knowledge-graph', 'retrieval', 'settings', 'jobs', 'api'];
 const isTabKey = (k: unknown): k is TabKey => TAB_KEYS.includes(k as TabKey);
 
 interface TabsProps {
@@ -77,7 +77,7 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
   const tabRefs = useRef<Map<TabKey, HTMLDivElement>>(new Map());
 
   const isOuterScrollable = (key: TabKey) => {
-    return key === 'products' || key === 'documents' || key === 'knowledge-graph' || key === 'api';
+    return key === 'products' || key === 'jobs' || key === 'documents' || key === 'knowledge-graph' || key === 'api';
   };
 
   const saveScrollPosition = (key: TabKey, scrollTop: number) => {
@@ -229,11 +229,15 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
             <SettingOutlined style={{ marginRight: 8 }} />
             {t('pages.knowledge.tabs.settings')}
           </button>
+          <button className={`ec-tab ${active === 'jobs' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('jobs')}>
+            <HistoryOutlined style={{ marginRight: 8 }} />
+            {t('pages.knowledge.tabs.jobs')}
+          </button>
           {/* API tab is present but invisible per requirement */}
           <button className={`ec-tab ${active === 'api' ? 'ec-tab-active' : ''}`} onClick={() => handleClick('api')} style={{ visibility: 'hidden' }}>API</button>
         </div>
         {/* The workspace picker and server status belong to the LightRAG document tabs. */}
-        <div style={{ display: active === 'products' ? 'none' : 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+        <div style={{ display: active === 'products' || active === 'jobs' ? 'none' : 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           <WorkspacePicker
             value={workspace}
             onChange={setWorkspace}

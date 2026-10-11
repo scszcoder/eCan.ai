@@ -3253,7 +3253,8 @@
         "products": "Product Knowledge",
         "knowledgeGraph": "Knowledge Graph",
         "retrieval": "Retrieval",
-        "settings": "Settings"
+        "settings": "Settings",
+        "jobs": "Jobs"
       },
       "lightrag": {
         "dimension_conflict_title": "Vector Dimension Conflict",

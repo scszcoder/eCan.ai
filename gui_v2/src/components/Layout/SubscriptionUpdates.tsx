@@ -24,9 +24,22 @@ const SubscriptionUpdates: React.FC = () => {
 
   // A check may have finished before this header mounted.
   useEffect(() => {
-    get_ipc_api().executeRequest<{ items: SubscriptionUpdate[] }>('subscription_updates.list', {})
-      .then((res) => { if (res?.success && res.data?.items) setItems(res.data.items); })
-      .catch(() => { /* no reminder until the next push */ });
+    // The header can mount before IPC is initialised (fresh page load): wait for it
+    // instead of throwing, which unmounted the whole app.
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      const api = get_ipc_api();
+      if (!api) {
+        if (++tries < 60) timer = setTimeout(load, 1000);
+        return;
+      }
+      api.executeRequest<{ items: SubscriptionUpdate[] }>('subscription_updates.list', {})
+        .then((res) => { if (res?.success && res.data?.items) setItems(res.data.items); })
+        .catch(() => { /* no reminder until the next push */ });
+    };
+    load();
+    return () => { if (timer) clearTimeout(timer); };
   }, [setItems]);
 
   // Updates applied in the background (idle skills): say so once.

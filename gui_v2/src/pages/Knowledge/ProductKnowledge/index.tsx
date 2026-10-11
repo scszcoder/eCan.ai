@@ -3,17 +3,16 @@ import {
   Alert, App, Button, Card, Col, Empty, Input, List, Modal, Popconfirm, Row, Select, Space, Statistic, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
 import {
-  ApiOutlined, AppstoreOutlined, CloudUploadOutlined, DeleteOutlined, EditOutlined, ExperimentOutlined, FileProtectOutlined,
-  HistoryOutlined, PlusOutlined, SafetyOutlined, ShopOutlined, SyncOutlined,
+  AppstoreOutlined, CloudUploadOutlined, DeleteOutlined, EditOutlined, ExperimentOutlined, FileProtectOutlined,
+  PlusOutlined, ShopOutlined, SyncOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { ksApi, KSJob, KSLanStatus, KSOverview, KSProduct, KSStore } from '@/services/ipc/ksApi';
+import { eventBus } from '@/utils/eventBus';
+import { ksApi, KSLanStatus, KSOverview, KSProduct, KSStore } from '@/services/ipc/ksApi';
 import ProductsPanel from './ProductsPanel';
 import ImportPanel from './ImportPanel';
 import PoliciesPanel from './PoliciesPanel';
 import TestPanel from './TestPanel';
-import ConnectionsPanel from './ConnectionsPanel';
-import AccessPanel from './AccessPanel';
 import EmbedderModal from './EmbedderModal';
 import JobProgress from './JobProgress';
 import { useJob } from './useJob';
@@ -22,7 +21,7 @@ const { Text, Paragraph } = Typography;
 
 const PLATFORMS = ['taobao', 'tmall', 'douyin', 'pdd', 'jd', 'other'];
 
-type SubTab = 'overview' | 'products' | 'import' | 'policies' | 'test' | 'servers' | 'access' | 'jobs';
+type SubTab = 'overview' | 'products' | 'import' | 'policies' | 'test';
 
 const StoreModal: React.FC<{ store: Partial<KSStore> | null; onClose: () => void; onSaved: () => void }> = ({ store, onClose, onSaved }) => {
   const { t } = useTranslation();
@@ -64,32 +63,6 @@ const StoreModal: React.FC<{ store: Partial<KSStore> | null; onClose: () => void
   );
 };
 
-const JobsList: React.FC<{ refreshKey: number }> = ({ refreshKey }) => {
-  const { t } = useTranslation();
-  const [jobs, setJobs] = useState<KSJob[]>([]);
-  useEffect(() => {
-    let alive = true;
-    const load = () => ksApi.listJobs(30).then(j => alive && setJobs(j)).catch(() => undefined);
-    load();
-    const timer = setInterval(load, 2000);
-    return () => { alive = false; clearInterval(timer); };
-  }, [refreshKey]);
-  if (!jobs.length) return <Empty description={t('pages.knowledge.ks.jobs.empty')} />;
-  return (
-    <List
-      dataSource={jobs}
-      renderItem={job => (
-        <List.Item>
-          <div style={{ width: '100%' }}>
-            <JobProgress job={job} />
-            <Text type="secondary" style={{ fontSize: 11 }}>{new Date(job.created_at).toLocaleString()}</Text>
-          </div>
-        </List.Item>
-      )}
-    />
-  );
-};
-
 const ProductKnowledgeTab: React.FC = () => {
   const { t } = useTranslation();
   const { message } = App.useApp();
@@ -99,7 +72,6 @@ const ProductKnowledgeTab: React.FC = () => {
   const [tab, setTab] = useState<SubTab>('overview');
   const [editingStore, setEditingStore] = useState<Partial<KSStore> | null>(null);
   const [draft, setDraft] = useState<{ product: KSProduct; attachPath?: string } | null>(null);
-  const [jobsKey, setJobsKey] = useState(0);
   const [lan, setLan] = useState<KSLanStatus | null>(null);
   const [embedderOpen, setEmbedderOpen] = useState(false);
   const reindexJob = useJob(job => {
@@ -119,7 +91,7 @@ const ProductKnowledgeTab: React.FC = () => {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const changed = () => { refresh(); setJobsKey(x => x + 1); };
+  const changed = () => { refresh(); };
 
   const stats = overview?.stats;
   const emb = overview?.embedder;
@@ -236,7 +208,7 @@ const ProductKnowledgeTab: React.FC = () => {
         <Alert type="info" showIcon style={{ marginBottom: 8 }}
                message={k('lan.usingCommanderBanner', { name: lan.source.commander || lan.source.url })}
                description={k('lan.usingCommanderBannerHint')}
-               action={<Button size="small" onClick={() => setTab('servers')}>{k('lan.manage')}</Button>} />
+               action={<Button size="small" onClick={() => eventBus.emit('knowledge:openSettings', { sub: 'servers' })}>{k('lan.manage')}</Button>} />
       )}
       <Tabs
         activeKey={tab}
@@ -254,9 +226,6 @@ const ProductKnowledgeTab: React.FC = () => {
           },
           { key: 'policies', label: <span><FileProtectOutlined /> {k('tabs.policies')}</span>, children: <PoliciesPanel onChanged={changed} /> },
           { key: 'test', label: <span><ExperimentOutlined /> {k('tabs.test')}</span>, children: <TestPanel overview={overview} /> },
-          { key: 'servers', label: <span><ApiOutlined /> {k('tabs.servers')}</span>, children: <ConnectionsPanel onChanged={changed} /> },
-          { key: 'access', label: <span><SafetyOutlined /> {k('tabs.access')}</span>, children: <AccessPanel /> },
-          { key: 'jobs', label: <span><HistoryOutlined /> {k('tabs.jobs')}</span>, children: <JobsList refreshKey={jobsKey} /> },
         ]}
       />
       <StoreModal store={editingStore} onClose={() => setEditingStore(null)} onSaved={changed} />

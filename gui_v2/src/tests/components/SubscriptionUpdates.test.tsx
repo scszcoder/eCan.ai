@@ -7,8 +7,9 @@ jest.mock('react-i18next', () => ({
 }));
 
 const executeRequest = jest.fn();
-jest.mock('../../services/ipc_api', () => ({ get_ipc_api: () => ({ executeRequest }) }));
-jest.mock('@/services/ipc_api', () => ({ get_ipc_api: () => ({ executeRequest }) }));
+const ipc = { ready: true };
+jest.mock('../../services/ipc_api', () => ({ get_ipc_api: () => (ipc.ready ? { executeRequest } : undefined) }));
+jest.mock('@/services/ipc_api', () => ({ get_ipc_api: () => (ipc.ready ? { executeRequest } : undefined) }));
 
 import SubscriptionUpdates from '@/components/Layout/SubscriptionUpdates';
 import { useSubscriptionUpdateStore } from '@/stores/subscriptionUpdateStore';
@@ -17,6 +18,7 @@ const item = (id: string, extra = {}) => ({ skill_id: id, name: `skill ${id}`, a
 
 beforeEach(() => {
   executeRequest.mockReset();
+  ipc.ready = true;
   useSubscriptionUpdateStore.setState({ items: [], applied: [], checkedAt: 0 });
 });
 
@@ -43,4 +45,19 @@ it('Update applies one skill and refreshes the list', async () => {
   fireEvent.click(row.querySelector('button') as Element);
   await waitFor(() => expect(executeRequest).toHaveBeenCalledWith('subscription_updates.apply', { skill_ids: ['s1'] }, 300000));
   await waitFor(() => expect(useSubscriptionUpdateStore.getState().items.map((i) => i.skill_id)).toEqual(['s2']));
+});
+
+it('waits for IPC instead of crashing when it mounts before IPC is ready', async () => {
+  jest.useFakeTimers();
+  try {
+    ipc.ready = false;
+    executeRequest.mockResolvedValue({ success: true, data: { items: [item('s1')] } });
+    renderIt();  // used to throw "reading 'executeRequest'" and unmount the whole app
+    expect(executeRequest).not.toHaveBeenCalled();
+    ipc.ready = true;
+    await act(async () => { jest.advanceTimersByTime(1000); });
+    expect(executeRequest).toHaveBeenCalledWith('subscription_updates.list', {});
+  } finally {
+    jest.useRealTimers();
+  }
 });

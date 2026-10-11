@@ -7,6 +7,7 @@ import Tabs, { TabKey } from './Tabs';
 import SettingsTab from './SettingsTab';
 import DocumentsTab from './DocumentsTab';
 import ProductKnowledgeTab from '../ProductKnowledge';
+import JobsList from '../ProductKnowledge/JobsList';
 import RetrievalTab from './RetrievalTab';
 import GraphTab from './GraphTab';
 import { validateLightRAGConfig } from './configValidator';
@@ -31,6 +32,13 @@ const KnowledgePortedPage: React.FC = () => {
     eventBus.on('localws:lightrag.providersUpdated', handler);
     return () => { eventBus.off('localws:lightrag.providersUpdated', handler); };
   }, [bumpProviderVersion]);
+
+  // "Manage servers" etc. from 商品知识 opens the 设置 tab (SettingsTab picks the sub-tab).
+  useEffect(() => {
+    const open = () => setActiveTab('settings');
+    eventBus.on('knowledge:openSettings', open);
+    return () => { eventBus.off('knowledge:openSettings', open); };
+  }, []);
 
   
   // Validate LightRAG configuration on page activation
@@ -164,6 +172,8 @@ const KnowledgePortedPage: React.FC = () => {
         return <RetrievalTab />;
       case 'settings':
         return <SettingsTab />;
+      case 'jobs':
+        return <JobsList />;
       case 'api':
         return null; // hidden
       default:

@@ -3312,7 +3312,8 @@
         "products": "商品知识",
         "knowledgeGraph": "知识图谱",
         "retrieval": "检索",
-        "settings": "设置"
+        "settings": "设置",
+        "jobs": "任务"
       },
       "lightrag": {
         "dimension_conflict_title": "向量维度冲突",

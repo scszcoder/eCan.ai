@@ -14,7 +14,8 @@ import {
   ExperimentOutlined,
   FileTextOutlined,
   QuestionCircleOutlined,
-  ExclamationCircleOutlined
+  ExclamationCircleOutlined,
+  SafetyOutlined
 } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { FIELDS_BY_TAB, FieldConfig, PROVIDER_BASED_TABS } from './settingsConfig';
@@ -36,6 +37,11 @@ import { Card } from 'antd';
 import HelpDialog from './HelpDialog';
 import { useLightRAGSettingsStore } from '@/stores/ragStore';
 import { useWorkspace } from './useWorkspace';
+import ConnectionsPanel from '../ProductKnowledge/ConnectionsPanel';
+import AccessPanel from '../ProductKnowledge/AccessPanel';
+import { eventBus } from '@/utils/eventBus';
+
+const KS_SETTINGS_TABS = ['servers', 'access'];
 
 // Helper to build ProviderConfig from raw backend data
 // (defined in buildProviderFields.ts)
@@ -106,6 +112,12 @@ const SYSTEM_MANAGED_KEYS: readonly string[] = [
 
 const SettingsTab: React.FC = () => {
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [settingsTab, setSettingsTab] = useState<string>('basic');
+  useEffect(() => {
+    const open = (p?: { sub?: string }) => { if (p?.sub) setSettingsTab(p.sub); };
+    eventBus.on('knowledge:openSettings', open);
+    return () => { eventBus.off('knowledge:openSettings', open); };
+  }, []);
   const [loading, setLoading] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
@@ -2083,7 +2095,21 @@ const SettingsTab: React.FC = () => {
     children: PROVIDER_BASED_TABS.includes(tabKey) 
       ? renderProviderTab(tabKey)
       : renderFieldsBySection(fields, tabKey === 'basic')
-  }));
+  })).concat([
+    // Knowledge-service connections and members (moved here from 商品知识); they save
+    // themselves, so the header's 保存设置 (LightRAG fields only) is hidden on them.
+    {
+      key: 'servers',
+      label: <span><ApiOutlined /> {t('pages.knowledge.ks.tabs.servers')}</span>,
+      children: <div style={{ padding: '12px 0' }}><ConnectionsPanel onChanged={() => {}} /></div>,
+    },
+    {
+      key: 'access',
+      label: <span><SafetyOutlined /> {t('pages.knowledge.ks.tabs.access')}</span>,
+      children: <div style={{ padding: '12px 0' }}><AccessPanel /></div>,
+    },
+  ]);
+  const onKsTab = KS_SETTINGS_TABS.includes(settingsTab);
 
   // Don't render until i18n is ready
   if (!ready) {
@@ -2144,9 +2170,11 @@ const SettingsTab: React.FC = () => {
                 <QuestionCircleOutlined /> {t('pages.knowledge.help.button')}
               </button>
             </Tooltip>
-            <button className="ec-btn ec-btn-primary" onClick={handleSave} disabled={loading}>
-              <CheckOutlined /> {loading ? t('pages.knowledge.settings.saving') : t('pages.knowledge.settings.saveSettings')}
-            </button>
+            {!onKsTab && (
+              <button className="ec-btn ec-btn-primary" onClick={handleSave} disabled={loading}>
+                <CheckOutlined /> {loading ? t('pages.knowledge.settings.saving') : t('pages.knowledge.settings.saveSettings')}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -2171,7 +2199,8 @@ const SettingsTab: React.FC = () => {
           minHeight: 0
         }}>
           <Tabs
-            defaultActiveKey="basic"
+            activeKey={settingsTab}
+            onChange={setSettingsTab}
             items={tabItems}
             style={{ 
               height: '100%',

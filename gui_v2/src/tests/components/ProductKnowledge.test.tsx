@@ -73,8 +73,13 @@ const ksApi = {
 jest.mock('@/services/ipc/ksApi', () => ({ ksApi }));
 
 import ProductKnowledgeTab from '../../pages/Knowledge/ProductKnowledge';
+import ConnectionsPanel from '../../pages/Knowledge/ProductKnowledge/ConnectionsPanel';
+import AccessPanel from '../../pages/Knowledge/ProductKnowledge/AccessPanel';
 
 const renderTab = () => render(<App><ProductKnowledgeTab /></App>);
+// 服务器 / 成员与权限 live under 知识库 → 设置 now.
+const renderServers = () => render(<App><ConnectionsPanel onChanged={() => {}} /></App>);
+const renderAccess = () => render(<App><AccessPanel /></App>);
 
 describe('ProductKnowledgeTab', () => {
   beforeAll(() => {
@@ -106,9 +111,7 @@ describe('ProductKnowledgeTab', () => {
   });
 
   it('lists servers, shows sign-in state and runs a step-by-step connection test', async () => {
-    renderTab();
-    await screen.findByText('天猫店');
-    fireEvent.click(screen.getByText('pages.knowledge.ks.tabs.servers'));
+    renderServers();
     expect(await screen.findByText('公司服务器')).toBeInTheDocument();
     expect(screen.getByText('pages.knowledge.ks.connections.notSignedIn')).toBeInTheDocument();
     fireEvent.click(screen.getByText('pages.knowledge.ks.connections.test'));
@@ -117,9 +120,7 @@ describe('ProductKnowledgeTab', () => {
   });
 
   it('commander shows LAN addresses, paired machines and a pairing code', async () => {
-    renderTab();
-    await screen.findByText('天猫店');
-    fireEvent.click(screen.getByText('pages.knowledge.ks.tabs.servers'));
+    renderServers();
     expect(await screen.findByText('PLATOON-1')).toBeInTheDocument();
     expect(screen.getAllByText('http://192.168.1.10:9630').length).toBeGreaterThan(0);
     fireEvent.click(screen.getByText('pages.knowledge.ks.lan.addPlatoon'));
@@ -127,9 +128,7 @@ describe('ProductKnowledgeTab', () => {
   });
 
   it('platoon finds the commander and pairs with a code', async () => {
-    renderTab();
-    await screen.findByText('天猫店');
-    fireEvent.click(screen.getByText('pages.knowledge.ks.tabs.servers'));
+    renderServers();
     fireEvent.click(await screen.findByText('pages.knowledge.ks.lan.findCommander'));
     expect(await screen.findByText('COMMANDER-PC')).toBeInTheDocument();
     fireEvent.click(screen.getAllByText('pages.knowledge.ks.lan.pair')[0]);
@@ -140,11 +139,17 @@ describe('ProductKnowledgeTab', () => {
   });
 
   it('shows members and the confidential warning in access management', async () => {
-    renderTab();
-    await screen.findByText('天猫店');
-    fireEvent.click(screen.getByText('pages.knowledge.ks.tabs.access'));
+    renderAccess();
     expect(await screen.findByText('pages.knowledge.ks.access.confidentialHint')).toBeInTheDocument();
     expect(screen.getAllByText('fae@corp.cn').length).toBeGreaterThan(0);
+  });
+
+  it('no longer has servers / access / jobs sub-tabs (moved to 设置 and 任务)', async () => {
+    renderTab();
+    await screen.findByText('天猫店');
+    for (const key of ['servers', 'access', 'jobs']) {
+      expect(screen.queryByText(`pages.knowledge.ks.tabs.${key}`)).not.toBeInTheDocument();
+    }
   });
 
   it('asks a buyer question and shows tier, facts and context', async () => {
