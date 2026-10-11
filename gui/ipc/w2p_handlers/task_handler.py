@@ -156,33 +156,8 @@ def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, age
     return agent_task_data
 
 
-def _after_cycle_error(task_id: str, task_data: Dict[str, Any], task_service) -> str:
-    """'' or why the task's "after" prerequisites would form a cycle."""
-    from agent.ec_tasks.task_deps import find_cycle
-    settings = task_data.get('settings') if isinstance(task_data, dict) else None
-    cfg = settings.get('after') if isinstance(settings, dict) else None
-    own = [str(x) for x in (cfg.get('tasks') or [])] if isinstance(cfg, dict) else []
-    if not own:
-        return ''
-    names = {task_id: task_data.get('name') or task_id}
-
-    def prereqs(tid: str) -> list:
-        if tid == task_id:
-            return own
-        try:
-            res = task_service.query_tasks(id=tid)
-            row = (res.get('data') or [{}])[0] if res.get('success') else {}
-        except Exception:
-            return []
-        names[tid] = row.get('name') or tid
-        st = _safe_parse_json(row.get('metadata', row.get('settings')), {})
-        after = st.get('after') if isinstance(st, dict) else None
-        return [str(x) for x in (after.get('tasks') or [])] if isinstance(after, dict) else []
-
-    cycle = find_cycle(task_id, prereqs)
-    if not cycle:
-        return ''
-    return 'Task dependencies form a cycle: ' + ' -> '.join(names.get(i, i) for i in cycle)
+# Shared with the CLI (ecan tasks add/update --after).
+from agent.ec_tasks.task_deps import after_cycle_error as _after_cycle_error  # noqa: E402
 
 
 def _skill_binding_changed(task_id: str, incoming_skill_ids: list, request=None, params=None) -> bool:

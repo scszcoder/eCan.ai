@@ -131,3 +131,62 @@ def search(query, kb, limit):
     out.info(f"Searching for: {query}")
     out.warning("Knowledge search not yet implemented")
     raise SystemExit(1)
+
+
+# ---- product files an agent fetched for review (knowledge/ks/pending_imports.py) ----
+
+def _pending_store():
+    """The signed-in user's staged imports (same folder the app uses)."""
+    import os
+    from utils.user_path_helper import get_user_data_dir
+    from knowledge.ks.pending_imports import PendingImports
+    ctx = get_context()
+    return PendingImports(os.path.join(get_user_data_dir(user_email=ctx.username), "knowledge_service"))
+
+
+@knowledge.group()
+def pending():
+    """
+    Product files waiting for review.
+
+    An agent (e.g. the product-export skill) downloads the store's product list and leaves
+    it here; review and import it in the app (Product Knowledge > Import).
+
+    Examples:
+      ecan knowledge pending list
+      ecan knowledge pending dismiss 3f2a9c81b0d4
+    """
+    pass
+
+
+@pending.command('list')
+@requires_auth
+@click.option('--format', '-f', type=click.Choice(['table', 'json']), default='table',
+              help='Output format (default: table)')
+def list_pending(format):
+    """List the product files waiting for review."""
+    import time
+    out = get_output()
+    items = _pending_store().list()
+    if format == 'json':
+        out.json({'items': items, 'count': len(items)})
+        return
+    if not items:
+        out.info("Nothing waiting for review")
+        return
+    rows = [[e.get('id', ''), e.get('file_name', ''), str(e.get('rows', '')), e.get('source', ''),
+             e.get('store_id', ''), time.strftime('%Y-%m-%d %H:%M', time.localtime(e.get('created_at') or 0))]
+            for e in items]
+    out.table("Waiting for review", ["ID", "File", "Rows", "From", "Store", "Fetched"], rows)
+
+
+@pending.command('dismiss')
+@requires_auth
+@click.argument('pending_id')
+def dismiss_pending(pending_id):
+    """Drop a waiting product file without importing it."""
+    out = get_output()
+    if not _pending_store().remove(pending_id):
+        out.error(f"No waiting file with id {pending_id}")
+        raise SystemExit(1)
+    out.success("Dismissed")
