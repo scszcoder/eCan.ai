@@ -683,3 +683,143 @@ def execute(task_id):
     out = get_output()
     out.info(f"Executing task {task_id}...")
     out.warning("Task execution not yet implemented")
+
+
+# ── chip-docs crawl pilot launcher ──────────────────────────────────────────
+def _chip_skill_ids():
+    """{'manager': <skillId>, 'crawler': <skillId>} read from the local skill
+    folders (the DB's agent_skills table is file-backed, often empty)."""
+    import json as _json, pathlib
+    root = pathlib.Path(__file__).resolve().parents[2]
+    ids = {}
+    for folder, key in (("chip_docs_crawl_manager_00_skill", "manager"),
+                        ("chip_docs_crawler_00_skill", "crawler")):
+        p = root / "my_skills" / folder / "diagram_dir" / f"{folder}.json"
+        try:
+            if p.is_file():
+                ids[key] = _json.loads(p.read_text(encoding="utf-8")).get("skillId")
+        except Exception:
+            pass
+    return ids
+
+
+def _task_skill_ids(ctx, task_id):
+    try:
+        sk = ctx.db.task_service.get_task_skills(task_id)
+        return [a.get("skill_id") for a in (sk.get("data") or [])]
+    except Exception:
+        return []
+
+
+def _set_task_vars(ctx, out, task_id, new_vars):
+    """Merge new_vars into a task's task_vars and persist (mirrors `tasks update --var`)."""
+    settings, _name, _trig = _existing_settings(ctx, task_id)
+    merged = dict(settings.get("task_vars") or {})
+    merged.update(new_vars)
+    settings["task_vars"] = merged
+    result = ctx.db.task_service.update_task(task_id, {"settings": settings})
+    if not (isinstance(result, dict) and result.get("success")):
+        out.error(f"Failed to set vars on task {task_id}: {(result or {}).get('error')}")
+        raise SystemExit(1)
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+    cloud_sync(DataType.TASK, result.get("data") or {"id": task_id, "settings": settings}, Operation.UPDATE)
+
+
+@tasks.command("chip-pilot")
+@requires_auth
+@click.option("--vendor", default="Microchip", show_default=True, help="part_vendor")
+@click.option("--home-url", default="https://www.microchip.com", show_default=True, help="vendor_home_url")
+@click.option("--category", default="PIC10", show_default=True, help="category_filter (empty = whole catalog)")
+@click.option("--docs-root", default="D:/chip_docs", show_default=True, help="Local docs root (also mirrored to NAS)")
+@click.option("--worker-filter", default="ChipCrawler", show_default=True, help="bu_select_agents filter for workers")
+@click.option("--batch-size", default="3", show_default=True, help="parts per batch")
+@click.option("--coordinator", "coordinator_name", default="ChipDocsCoordinator", show_default=True,
+              help="Coordinator agent name (workers report to it)")
+@click.option("--arm/--no-arm", default=True, show_default=True,
+              help="Arm the coordinator task to auto-run on the next app start")
+@click.option("--run-once/--keep-running", default=True, show_default=True,
+              help="With --arm: run once then stop auto-running")
+def chip_pilot(vendor, home_url, category, docs_root, worker_filter, batch_size,
+               coordinator_name, arm, run_once):
+    """
+    Configure (and optionally arm) the chip-docs crawl pilot.
+
+    Sets the crawl variables on the EXISTING coordinator + worker tasks
+    (chip_docs_crawl_manager_00 / chip_docs_crawler_00) and, with --arm, flips
+    the coordinator task to auto-run on the next app start. Each downloaded
+    document is saved locally under <docs-root>/<vendor> AND mirrored to the NAS.
+
+    Requires authentication (ecan auth login) and the crawl fleet to exist.
+    After running this, (re)start the app to launch the crawl.
+
+    Example:
+      ecan tasks chip-pilot --category PIC10 --docs-root D:/chip_docs
+    """
+    ctx = get_context()
+    out = get_output()
+
+    ids = _chip_skill_ids()
+    mgr_skill, wrk_skill = ids.get("manager"), ids.get("crawler")
+
+    res = ctx.db.task_service.query_tasks()
+    all_tasks = res.get("data", []) if isinstance(res, dict) else (res or [])
+    coord_id, worker_ids = None, []
+    for t in all_tasks:
+        tid = t.get("id")
+        if not tid:
+            continue
+        sids = _task_skill_ids(ctx, tid)
+        name = (t.get("name") or "").lower()
+        is_coord = (mgr_skill and mgr_skill in sids) or ("coordinat" in name)
+        is_worker = (wrk_skill and wrk_skill in sids) or ("crawl" in name and "coordinat" not in name)
+        if is_coord:
+            coord_id = tid
+        elif is_worker:
+            worker_ids.append(tid)
+
+    if not coord_id:
+        out.error("No coordinator task (chip_docs_crawl_manager_00) found. "
+                  "Create the crawl fleet first (coordinator + worker agents).")
+        raise SystemExit(1)
+    if not worker_ids:
+        out.warning("No worker tasks (chip_docs_crawler_00) found — the coordinator "
+                    "will have no workers to dispatch batches to.")
+
+    _set_task_vars(ctx, out, coord_id, {
+        "part_vendor": vendor,
+        "vendor_home_url": home_url,
+        "category_filter": category,
+        "docs_root": docs_root,
+        "worker_filter": worker_filter,
+        "batch_size": batch_size,
+    })
+    out.info(f"Coordinator task {coord_id}: vars set (category_filter={category or 'ALL'}, docs_root={docs_root}).")
+
+    for wid in worker_ids:
+        _set_task_vars(ctx, out, wid, {
+            "part_vendor": vendor,
+            "docs_root": docs_root,
+            "manager": coordinator_name,
+        })
+    if worker_ids:
+        out.info(f"{len(worker_ids)} worker task(s): part_vendor / docs_root / manager set.")
+
+    if arm:
+        settings, _name, _trig = _existing_settings(ctx, coord_id)
+        if run_once:
+            settings["run_once"] = True
+        else:
+            settings.pop("run_once", None)
+        result = ctx.db.task_service.update_task(coord_id, {"trigger": "auto", "settings": settings})
+        if not (isinstance(result, dict) and result.get("success")):
+            out.error(f"Failed to arm coordinator: {(result or {}).get('error')}")
+            raise SystemExit(1)
+        from ..base.sync import cloud_sync
+        from agent.cloud_api.constants import DataType, Operation
+        cloud_sync(DataType.TASK, result.get("data") or {"id": coord_id}, Operation.UPDATE)
+        out.success(f"Armed coordinator (trigger=auto{', run-once' if run_once else ''}). "
+                    f"Restart the app to launch the PIC pilot crawl.")
+    else:
+        out.success("Vars set. Trigger the coordinator task from the app to launch "
+                    "(coordinator trigger left unchanged).")
