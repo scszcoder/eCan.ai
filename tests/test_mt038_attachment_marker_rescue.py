@@ -5538,17 +5538,9 @@ class Mt052D_Day1SourceTests(unittest.TestCase):
         self.assertIn("mt052D Day 1", FD_SRC_052D)
 
     def test_rr_pick_uses_lock(self) -> None:
-        self.assertIn("_RR_LOCK = threading.Lock()", FD_SRC_052D)
-        self.assertIn(
-            "def _atomic_rr_pick(dispatch_state: dict, n_recipients: int) -> int:",
-            FD_SRC_052D,
-        )
-        self.assertIn(
-            "rr_idx = _atomic_rr_pick(dispatch_state, len(service_agent_ids))",
-            FD_SRC_052D,
-        )
-        # Old unguarded read-modify-write must be gone from the dispatch
-        # site.
+        # The pick moved to agent_pool.pick (least-loaded, locked there);
+        # the unguarded read-modify-write must stay gone.
+        self.assertIn("recipient_agent_id = _agent_pool.pick(", FD_SRC_052D)
         self.assertNotIn(
             'rr_idx = dispatch_state.get("rr_index", 0) % len(service_agent_ids)',
             FD_SRC_052D,
@@ -5638,20 +5630,6 @@ class Mt052D_Day1BehaviourTests(unittest.TestCase):
     def test_release_ignores_unknown_customers(self) -> None:
         # No-op when releasing customers we never acquired.
         self.fd.release_customers({"never_in_flight"})  # must not raise
-
-    def test_atomic_rr_pick_increments(self) -> None:
-        state: dict = {}
-        # First call returns 0, sets state["rr_index"]=1.
-        self.assertEqual(self.fd._atomic_rr_pick(state, 3), 0)
-        self.assertEqual(self.fd._atomic_rr_pick(state, 3), 1)
-        self.assertEqual(self.fd._atomic_rr_pick(state, 3), 2)
-        # Wraps around at n_recipients.
-        self.assertEqual(self.fd._atomic_rr_pick(state, 3), 0)
-
-    def test_atomic_rr_pick_handles_zero_recipients(self) -> None:
-        # max(1, 0) inside the helper avoids ZeroDivisionError.
-        state: dict = {}
-        self.fd._atomic_rr_pick(state, 0)  # must not raise
 
     def test_is_oob_enabled_respects_env(self) -> None:
         import os

@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from utils.logger_helper import logger_helper as logger  # CN app logger is "eCan.cn"
+from agent.ec_agents import agent_pool as _agent_pool
 
 # ws050: system_message_filter reasons that signal a 转人工 handover (customer
 # transferred to human + the site's auto-greeting/接入) and so should trigger our
@@ -67,11 +68,13 @@ _HANDOVER_ACK_REASONS = frozenset({
 # (default off) and currently only emits diagnostics about what WOULD fire.
 # Day 2 wires it into the runner.py dequeue gate.  Day 3 enables in prod.
 
-# Round-robin counter protection.  Pre-mt052D, dispatch_state["rr_index"]
-# was read-modify-written without a lock — safe under single-task serial
-# execution but a race under parallel dispatch (two cycles could read the
-# same value and send to the same recipient, skipping one).
-_RR_LOCK = threading.Lock()
+# Recipient picking (and its round-robin counter, dispatch_state["rr_index"])
+# lives in agent/ec_agents/agent_pool.py, under its own lock (mt052D: the
+# OOB parallel path must not race in-band dispatch on that counter).
+
+# How long a front desk's discovered recipient pool is reused before it is
+# looked up again (members added/stopped/disabled show up within this).
+_POOL_REFRESH_S = float(os.environ.get("ECAN_POOL_REFRESH_S", "30") or 30)
 
 
 def _atomic_rr_pick(dispatch_state: dict, n_recipients: int) -> int:
@@ -1569,8 +1572,10 @@ def _resolve_recipient_agents(
     and an empty result aborts dispatch rather than silently falling
     back to "all live agents".
     """
+    # Refreshed every _POOL_REFRESH_S: cached for good, a pool member added,
+    # stopped or disabled after the first dispatch was never seen.
     cached = dispatch_state.get("service_agents")
-    if cached:
+    if cached and time.monotonic() - dispatch_state.get("service_agents_at", 0.0) < _POOL_REFRESH_S:
         return list(cached)
 
     try:
@@ -1628,12 +1633,15 @@ def _resolve_recipient_agents(
         service = list(live)
 
     ids = [a["id"] for a in service]
+    changed = ids != cached
     dispatch_state["service_agents"] = ids
+    dispatch_state["service_agents_at"] = time.monotonic()
     dispatch_state.setdefault("rr_index", 0)
-    logger.info(
-        f"[BrowserAutomation] {cfg.log_tag} discovered {len(service)} "
-        f"recipient agents: {[a['id'][-8:] for a in service]}"
-    )
+    if changed:
+        logger.info(
+            f"[BrowserAutomation] {cfg.log_tag} discovered {len(service)} "
+            f"recipient agents: {[a['id'][-8:] for a in service]}"
+        )
     return ids
 
 
@@ -2342,11 +2350,14 @@ async def _dispatch_one_item(
         if enrich.should_clear_stale_assignment:
             assigned_sessions.pop(session_id, None)
 
-    # Round-robin recipient pick.
-    # mt052D Day 1: route through the atomic helper so the OOB parallel
-    # path (Day 2) can't race with in-band dispatch on this counter.
-    rr_idx = _atomic_rr_pick(dispatch_state, len(service_agent_ids))
-    recipient_agent_id = service_agent_ids[rr_idx]
+    # Recipient pick: the least-loaded pool member, sticky on ties
+    # (agent_pool.py; ECAN_POOL_PICK=0 = the old round-robin). Reserved
+    # until send_chat returns, i.e. until the recipient has queued the turn.
+    _prior = assigned_sessions.get(session_id)
+    recipient_agent_id = _agent_pool.pick(
+        service_agent_ids, dispatch_state,
+        prefer_id=str((_prior or {}).get("recipient_agent_id") or "") if isinstance(_prior, dict) else "",
+    )
 
     assignment_payload = _build_assignment_payload(item, tab_id, cfg)
 
@@ -2370,6 +2381,7 @@ async def _dispatch_one_item(
         logger.warning(
             f"[BrowserAutomation] {log_tag} send_chat import failed: {exc}"
         )
+        _agent_pool.release(recipient_agent_id)
         try:
             ctx.clear_dispatch_inflight(customer_key)
         except Exception:
@@ -2415,6 +2427,7 @@ async def _dispatch_one_item(
             None, send_chat, ctx.mainwin, _send_payload,
         )
     finally:
+        _agent_pool.release(recipient_agent_id)
         if _lock_dropped:
             # ws175: THE cold-start freeze root cause (proven by the 2026-07-13
             # 09:43:34 STALL-DIAG live dump — innermost frame was THIS line).
