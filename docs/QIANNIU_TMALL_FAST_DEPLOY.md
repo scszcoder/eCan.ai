@@ -212,6 +212,20 @@ memory in `state.attributes.qianniu_fd`.
 - **Q&A agent choice:** `task_vars.qa_agent_ids` (from the deploy).
   - **Sticky** per buyer; new buyers go round-robin.
   - Empty list → `qa_agent_id=""` and the prompt falls back to `list_chat_agents`.
+  - **Pool-aware choice (recommended, app ≥ 2026-10-10):** the code node can
+    pick the way 飞鸽's PreDispatch does -- the buyer's agent from the last
+    30 min if it is not busier than the others, else the least-loaded *active*
+    member -- and the pool then gets the min/max sizing, controller and panel
+    (agent/ec_agents/agent_pool.py):
+
+    ```python
+    from agent.ec_agents.agent_pool import pick_for_customer
+    qa_agent_id = pick_for_customer(front_desk_agent_id, customer_id,
+                                    candidate_ids=task_vars.get("qa_agent_ids", ""))
+    ```
+
+    It returns `""` for an empty pool (keep the `list_chat_agents` fallback).
+    The skill is data: this change goes into the cloud skill's code node.
 - **Display name:**
   - order: the observer's `customer_display_name` → `name_map.name_for(id)`
     (names the observer learned by matching message text on screen) → the name

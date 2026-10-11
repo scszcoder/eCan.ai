@@ -312,3 +312,32 @@ def test_pool_view(pool6):
     assert v["active_count"] == 2 and len(v["members"]) == 4 and v["settings"]["max"] == 4
     assert {r["id"] for r in v["members"] if r["active"]} == set(ap.active_members("fd"))
     assert ap.pool_view("nope") is None
+
+
+# ── 6d: picking from a skill's code node (千牛) ──
+
+def test_pick_for_customer_sticky_least_loaded_and_registered(monkeypatch):
+    monkeypatch.setattr(ap, "_ensure_controller", lambda: None)
+    monkeypatch.setattr(ap, "_HOLD_S", 0.01)
+    ap._sticky.clear()
+    ap._pick_state.clear()
+    agents = {"q1": _agent(), "q2": _agent(), "fd": SimpleNamespace(tasks=[SimpleNamespace(metadata={"pool": {"min": 1}})])}
+    first = ap.pick_for_customer("fd", "buyerA", "q1, q2", lookup=agents.get)
+    assert first in ("q1", "q2")
+    assert ap.pools()["fd"]["members"] == ["q1", "q2"] and ap.pools()["fd"]["settings"]["min"] == 1
+    import time as _t
+    _t.sleep(0.05)                                        # reservation released
+    assert ap.pick_for_customer("fd", "buyerA", ["q1", "q2"], lookup=agents.get) == first   # sticky
+    other = "q2" if first == "q1" else "q1"
+    agents[first] = _agent(executing=True)                # its agent got busy
+    _t.sleep(0.05)
+    assert ap.pick_for_customer("fd", "buyerA", ["q1", "q2"], lookup=agents.get) == other
+    assert ap.pick_for_customer("fd", "x", [], lookup=agents.get) in ("", "q1", "q2")
+
+
+def test_pick_for_customer_defaults_to_the_listeners(monkeypatch):
+    monkeypatch.setattr(ap, "_ensure_controller", lambda: None)
+    monkeypatch.setattr(ap, "_listeners_of", lambda fd: ["q9"])
+    assert ap.pick_for_customer("fd2", "b", lookup={"q9": _agent()}.get) == "q9"
+    monkeypatch.setattr(ap, "_listeners_of", lambda fd: [])
+    assert ap.pick_for_customer("fd3", "b", lookup=lambda i: None) == ""

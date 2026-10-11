@@ -448,3 +448,66 @@ def pool_view(front_desk_id: str, lookup: Optional[Callable[[str], Any]] = None)
             "wait_p50_s": stats["wait_p50_s"], "wait_p90_s": stats["wait_p90_s"],
             "turns_last_hour": stats["turns_last_hour"],
             "expected_turns_this_hour": stats["expected_turns_this_hour"]}
+
+
+# ── picking from a skill's own code (Phase 6d) ───────────────────────────────
+#
+# A front desk without PreDispatch (千牛: no browser node) picks its Q&A agent
+# in its skill's code node. It can call this instead of its own round-robin:
+#
+#     from agent.ec_agents.agent_pool import pick_for_customer
+#     qa_agent_id = pick_for_customer(front_desk_agent_id, customer_id,
+#                                     candidate_ids=qa_agent_ids)
+#
+# Same choice as PreDispatch: the buyer's agent from the last 30 min if it is
+# among the least loaded, else the least-loaded active member; the pool is
+# registered, so the controller sizes it and its waits are measured.
+
+_STICKY_TTL_S = 1800.0
+_sticky: Dict[tuple, tuple] = {}         # (front desk, customer) -> (member, t)
+_pick_state: Dict[str, dict] = {}         # front desk -> round-robin state
+_HOLD_S = 10.0                            # reservation until the turn is (surely) queued
+
+
+def _listeners_of(front_desk_id: str) -> List[str]:
+    try:
+        from agent.ec_tasks.runner import find_my_listeners
+        return list(find_my_listeners(front_desk_id) or [])
+    except Exception:
+        return []
+
+
+def pick_for_customer(front_desk_id: str, customer_id: str, candidate_ids: Any = None,
+                      lookup: Optional[Callable[[str], Any]] = None) -> str:
+    """The Q&A agent for this customer's turn ('' if the pool is empty).
+
+    ``candidate_ids``: list or comma-separated ids (e.g. task_vars.qa_agent_ids);
+    omitted -> the agents listening to this front desk."""
+    lookup = lookup or _default_lookup
+    if isinstance(candidate_ids, str):
+        candidate_ids = [c.strip() for c in candidate_ids.split(",")]
+    ids = [str(c) for c in (candidate_ids or _listeners_of(front_desk_id)) if c]
+    if not ids:
+        return ""
+    with _LOCK:
+        registered = (_pools.get(front_desk_id) or {}).get("members")
+    if registered != ids:
+        register_pool(front_desk_id, ids, settings_of(lookup(front_desk_id)))
+    now = time.time()
+    key = (front_desk_id, str(customer_id or ""))
+    with _LOCK:
+        prior = _sticky.get(key)
+        prefer = prior[0] if prior and now - prior[1] < _STICKY_TTL_S else ""
+        state = _pick_state.setdefault(front_desk_id, {})
+    choice = pick(ids, state, prefer_id=prefer, lookup=lookup, pool_id=front_desk_id)
+    if choice:
+        with _LOCK:
+            _sticky[key] = (choice, now)
+            if len(_sticky) > 5000:
+                for k in [k for k, (_, t) in _sticky.items() if now - t >= _STICKY_TTL_S]:
+                    _sticky.pop(k, None)
+        # The code node sends right after picking; hold the reservation that long.
+        timer = threading.Timer(_HOLD_S, release, args=(choice,))
+        timer.daemon = True
+        timer.start()
+    return choice
