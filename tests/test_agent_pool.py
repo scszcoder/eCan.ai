@@ -366,3 +366,39 @@ def test_pin_needs_scaling(pool6, monkeypatch):
     with pytest.raises(ValueError):
         ap.set_pin("fd", 2)
     ap._pins.clear()
+
+
+# -- shared pools: front desks of several stores sharing Q&A agents --
+
+def test_front_desks_sharing_members_are_sized_as_one_group(monkeypatch):
+    ap._active.clear()
+    ap._changed_at.clear()
+    ap._pins.clear()
+    monkeypatch.setattr(ap, "_ensure_controller", lambda: None)
+    monkeypatch.delenv("ECAN_POOL_SCALING", raising=False)
+    agents = {k: _agent() for k in ("q1", "q2", "q3", "q4", "solo1", "solo2")}
+    ap.register_pool("fdA", ["q1", "q2", "q3", "q4"], {"min": 1, "max": 4})
+    ap.register_pool("fdB", ["q1", "q2", "q3", "q4"], {"min": 3, "max": 4})
+    ap.register_pool("fdC", ["solo1", "solo2"], {"min": 1, "max": 2})
+    out = ap.tick(now=1000.0, lookup=agents.get)
+    assert out["fdA"] == out["fdB"] and len(out["fdA"]) == 3      # group min = largest min
+    assert ap.active_members("fdA") == ap.active_members("fdB")
+    assert len(out["fdC"]) == 1                                    # unrelated pool on its own
+    assert ap.group_of("fdA") == ["fdA", "fdB"] and ap.group_of("fdC") == ["fdC"]
+    assert ap.pool_view("fdA", lookup=agents.get)["shared_with"] == ["fdB"]
+
+
+def test_a_pin_on_one_front_desk_sizes_the_shared_group(monkeypatch):
+    ap._active.clear()
+    ap._changed_at.clear()
+    ap._pins.clear()
+    monkeypatch.setattr(ap, "_ensure_controller", lambda: None)
+    monkeypatch.delenv("ECAN_POOL_SCALING", raising=False)
+    agents = {k: _agent() for k in ("q1", "q2", "q3")}
+    monkeypatch.setattr(ap, "_default_lookup", agents.get)
+    ap.register_pool("fdA", ["q1", "q2", "q3"], {"min": 1, "max": 3})
+    ap.register_pool("fdB", ["q2", "q3"], {"min": 1, "max": 2})      # overlapping, not identical
+    assert len(ap.set_pin("fdB", 3)) == 3
+    assert ap.active_members("fdA") == ap.active_members("fdB")
+    ap.set_pin("fdB", None)
+    ap._pins.clear()

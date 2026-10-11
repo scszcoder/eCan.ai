@@ -202,3 +202,18 @@ def test_save_rejects_a_cycle():
     assert err == "Task dependencies form a cycle: 抓取 -> 日报 -> 抓取"
     assert _after_cycle_error("A", {"name": "抓取", "settings": {"after": {"tasks": ["C"]}}}, svc) == ""
     assert _after_cycle_error("A", {"name": "抓取", "settings": {}}, svc) == ""
+
+
+def test_a_finish_before_a_restart_still_counts():
+    a = _t("A", trigger=("auto",))
+    b = _t("B", trigger=("schedule", "after"), after={"tasks": ["A"]})
+    r1 = _runner([a, b])
+    _run_and_finish(r1, a)
+    assert a.metadata["last_finish"]["ok"] is True          # saved with the task's settings
+    assert "last_finish" not in b.metadata                    # only prerequisites save their finish
+    r2 = _runner([a, b])                                      # the app restarted: fresh runner
+    r2._submit_task_execution(b, {"__trigger_source__": "schedule"}, "schedule", None)
+    assert r2.submitted[-1][0] == "B" and len(r2.runs) == 1   # not held: A's finish counts
+    assert b.metadata["after_consumed_at"] > 0                # used up, also across a restart
+    r3 = _runner([a, b])
+    assert r3._after_tracker().status(b)[0] is False          # same finish doesn't count twice

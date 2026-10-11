@@ -32,18 +32,27 @@ the agent scheduler/pool memory and the commit messages.
      start after 10 s, stop after 3 s + gc, with the thread families added/removed). Read the
      median per Q&A agent from a normal startup, plus one isolated restart (`ecan agents update
      <qa agent> -d <same text>` stops and rebuilds it).
+     **Measured 2026-10-11 (idle agents, no chat yet):** build 2-4 MB each (sequential, clean);
+     isolated restart of 客服小敏: start +0.1 MB, +2 threads (`MemoryMgr-<agent>`, task-loop pool
+     thread), a `SkillExec` thread appears on its first run; stop freed those threads, RSS moved
+     within GC noise (+-20 MB). **Decision: parking is enough for idle members.** Re-measure
+     after a live chat session (an agent that has answered turns may hold LLM clients / caches):
+     restart one Q&A agent the same way and read its `[agent-cost] stop` line.
   2. **Then decide:** worth it if a Q&A agent costs ~30-50 MB+ and a few threads. Proposed rules:
      stop a member parked >= 30 min when the hourly forecast says it won't be needed in the next
      30-60 min; always keep min active + 1 warm spare; never stop one with a turn running/queued or
      active in another front desk's pool; rebuild cold members ~10 min before a forecast peak.
 - **TODO (agreed 2026-10-11): shared Q&A pool across stores in 快速生成.** The backend recipe
   exists (`douyin_cs_multi` / `pdd_cs_multi`, `_deploy_live_chat_multi`); the tile was dropped
-  2026-10-10. Needed: (1) pool sizing per shared group, not per front desk (front desks sharing
-  members are sized together from their combined traffic); (2) verify the asking store reaches
+  2026-10-10. Needed: (1) ~~pool sizing per shared group~~ done 2026-10-11 (`agent_pool`:
+  front desks with overlapping members are sized as one group, same active set, a pin on one
+  sizes the group, pool panel data has `shared_with`); (2) verify the asking store reaches
   the Q&A prompt and the knowledge search on every turn (a shared Q&A task has no store id);
   (3) 快速生成: picking 客服 for a second store of a platform turns sharing on, with its options.
-- **TODO (agreed 2026-10-11): "after task" finishes survive a restart** (persist each task's last
-  finish time; today only in memory, see below).
+- ~~"after task" finishes survive a restart~~ done 2026-10-11: a prerequisite saves `last_finish`,
+  a dependent saves `after_consumed_at` (task settings); the runner's tracker is seeded from them.
+  A dependent that should have started when its prerequisite finished, but the app died in that
+  instant, is not started at the next launch (it runs at the prerequisite's next finish).
 - **Lazy agents: any new loop over ALL agents must read only `LazyAgent._CHEAP` attributes**, or it
   builds every deferred agent (three such scans were found live; the audit list is in the 5c
   commits). Symptom: `[lazy-agent] building '<name>' on first use (... from <file:line>)` for many
@@ -65,9 +74,8 @@ the agent scheduler/pool memory and the commit messages.
 - **抖店 export column mapping untuned** (7a): needs one real export file.
 - **Staged import copies are kept after import** (`knowledge_service/staged_imports/`): the import
   job reads the file after the review list drops it. Prune old copies later.
-- **"after task" finishes are in memory**: a prerequisite that finished before a restart doesn't
-  count after it. A `queue_one` scheduled run due while its task is parked on input is dropped by
-  the existing parked-task guard.
+- A `queue_one` scheduled run due while its task is parked on input is dropped by the existing
+  parked-task guard.
 - **A Q&A agent with no chat skill can't answer a direct chat** (客服小晴: `No chat skill found …
   cannot auto-create chatter task`) — setup question, not lazy-agent related.
 - **Full suite, 2026-10-11** (every file under tests/, tests/unit, tests/ks, one pytest per file,

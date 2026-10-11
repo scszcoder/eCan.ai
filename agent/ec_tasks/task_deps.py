@@ -8,8 +8,9 @@ Task config (task metadata/settings JSON)::
 The task fires when ALL listed tasks have finished since its own last
 after-run (and, with ``require_success``, finished successfully).  With a
 ``schedule`` trigger as well, its scheduled run waits until they are done
-("10:30, but not before A").  Finish records live in memory: a finish that
-happened before an app restart does not count after it.
+("10:30, but not before A").  Finish records are kept in the tasks' settings
+(``last_finish`` on a prerequisite, ``after_consumed_at`` on a dependent; the
+runner saves them), so a finish before an app restart still counts after it.
 """
 from __future__ import annotations
 
@@ -97,9 +98,30 @@ class AfterTracker:
         self.finished: Dict[str, Dict[str, Any]] = {}   # task id -> {at, ok, summary, name}
         self._consumed: Dict[str, float] = {}           # dependent id -> time of its last after-run
 
-    def record(self, task_id: str, ok: bool, summary: str = "", name: str = "") -> None:
+    def seed(self, tasks: Iterable[Any]) -> None:
+        """Load the records saved in the tasks' settings (after a restart)."""
         with self._lock:
-            self.finished[task_id] = {"at": time.time(), "ok": bool(ok), "summary": summary, "name": name}
+            for t in tasks or []:
+                meta = getattr(t, "metadata", None)
+                tid = getattr(t, "id", "")
+                if not isinstance(meta, dict) or not tid:
+                    continue
+                f = meta.get("last_finish")
+                if isinstance(f, dict) and f.get("at") and tid not in self.finished:
+                    self.finished[tid] = {"at": float(f["at"]), "ok": bool(f.get("ok")),
+                                          "summary": str(f.get("summary") or ""), "name": getattr(t, "name", "")}
+                c = meta.get("after_consumed_at")
+                if c and tid not in self._consumed:
+                    try:
+                        self._consumed[tid] = float(c)
+                    except (TypeError, ValueError):
+                        pass
+
+    def record(self, task_id: str, ok: bool, summary: str = "", name: str = "") -> Dict[str, Any]:
+        with self._lock:
+            rec = {"at": time.time(), "ok": bool(ok), "summary": summary, "name": name}
+            self.finished[task_id] = rec
+            return dict(rec)
 
     def status(self, dependent: Any) -> Tuple[bool, List[str]]:
         """(ready, what it still waits for)."""
@@ -121,3 +143,7 @@ class AfterTracker:
         with self._lock:
             self._consumed[getattr(dependent, "id", "")] = time.time()
             return {pid: dict(self.finished[pid]) for pid in ids if pid in self.finished}
+
+    def consumed_at(self, dependent_id: str) -> float:
+        with self._lock:
+            return self._consumed.get(dependent_id, 0.0)

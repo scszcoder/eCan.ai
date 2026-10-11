@@ -252,9 +252,12 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
             for flag_key in ('run_once',):
                 if db_settings.get(flag_key):
                     runtime_metadata[flag_key] = True
-            for scalar_key in ('completed_once_at', 'start_after_idle_min'):
+            for scalar_key in ('completed_once_at', 'start_after_idle_min', 'after_consumed_at'):
                 if db_settings.get(scalar_key) not in (None, ''):
                     runtime_metadata[scalar_key] = db_settings[scalar_key]
+            if isinstance(db_settings.get('last_finish'), dict):
+                # "after task": this prerequisite's last finish, kept across restarts.
+                runtime_metadata['last_finish'] = dict(db_settings['last_finish'])
             for scalar_key in ('run_class', 'overlap_policy'):
                 val = db_settings.get(scalar_key)
                 if isinstance(val, str) and val.strip():

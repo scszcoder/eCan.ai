@@ -8135,7 +8135,7 @@ class TaskRunner(Generic[Context]):
                 logger.info(f"[task-after] '{task.name}' is due but waits for {missing}")
                 return True
             if isinstance(msg, dict):
-                msg["upstream"] = self._after_tracker().consume(task)
+                msg["upstream"] = self._consume_after(task)
 
         # Due again while its previous run is still going.
         if _task_execution_future_running(task) or getattr(task.status, "state", None) == TaskState.working:
@@ -8188,7 +8188,19 @@ class TaskRunner(Generic[Context]):
         return False
 
     def _after_tracker(self) -> "_task_deps.AfterTracker":
-        return self.__dict__.setdefault("_after_tracker_obj", _task_deps.AfterTracker())
+        tracker = self.__dict__.get("_after_tracker_obj")
+        if tracker is None:
+            tracker = _task_deps.AfterTracker()
+            tracker.seed(getattr(self.agent, "tasks", None) or [])   # finishes saved before a restart
+            tracker = self.__dict__.setdefault("_after_tracker_obj", tracker)
+        return tracker
+
+    def _consume_after(self, dep: ManagedTask) -> dict:
+        """The prerequisites' finishes become this run's input; saved, so a
+        restart doesn't start the dependent again for the same finishes."""
+        upstream = self._after_tracker().consume(dep)
+        self._persist_task_settings(dep, after_consumed_at=self._after_tracker().consumed_at(dep.id))
+        return upstream
 
     def _on_run_finished(self, task: ManagedTask, future: Any) -> None:
         """A run ended: record it and start the tasks waiting for it ("after" trigger)."""
@@ -8209,14 +8221,20 @@ class TaskRunner(Generic[Context]):
                 pass
         else:
             summary = f"error: {exc}"[:500]
-        self._after_tracker().record(task.id, ok, summary, getattr(task, "name", ""))
+        rec = self._after_tracker().record(task.id, ok, summary, getattr(task, "name", ""))
+        dependents = [dep for dep in getattr(self.agent, "tasks", None) or []
+                      if dep is not task and _task_deps.has_after_trigger(dep)
+                      and task.id in _task_deps.after_config(dep)[0]]
+        if dependents:
+            # Only prerequisites save their finish: a chat task's turns never write.
+            self._persist_task_settings(task, last_finish={"at": rec["at"], "ok": rec["ok"],
+                                                           "summary": rec["summary"][:200]})
         meta = task.metadata if isinstance(task.metadata, dict) else {}
         if ok and meta.get("run_once") and not meta.get("completed_once_at"):
             self._persist_task_settings(task, completed_once_at=datetime.now().isoformat(timespec="seconds"))
             logger.info(f"[task-schedule] '{task.name}' finished its one run")
-        for dep in getattr(self.agent, "tasks", None) or []:
-            if dep is not task and _task_deps.has_after_trigger(dep) and task.id in _task_deps.after_config(dep)[0]:
-                self._fire_if_ready(dep)
+        for dep in dependents:
+            self._fire_if_ready(dep)
 
     def _fire_if_ready(self, dep: ManagedTask) -> None:
         by_id = {t.id: t for t in (getattr(self.agent, "tasks", None) or [])}
@@ -8238,7 +8256,7 @@ class TaskRunner(Generic[Context]):
                 return   # not due yet: its schedule starts it (prerequisites are done)
             msg, trigger = held, "schedule"   # the schedule rules consume the prerequisites
         else:
-            msg = {"__trigger_source__": "after", "upstream": self._after_tracker().consume(dep)}
+            msg = {"__trigger_source__": "after", "upstream": self._consume_after(dep)}
             trigger = "after"
         logger.info(f"[task-after] starting '{dep.name}' (prerequisites done)")
         if not self._stop_event.is_set():

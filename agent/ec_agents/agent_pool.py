@@ -289,9 +289,15 @@ def _roll_traffic_hour(now: float) -> None:
 
 
 def expected_turns(front_desk_id: str, ts: Optional[float] = None) -> Optional[float]:
-    """Typical turns in this weekday-hour, or None until there is history."""
+    """Typical turns in this weekday-hour, or None until there is history.
+    For a shared group: its front desks count the same members' turns, so the
+    largest of them."""
+    slot = _slot(ts if ts is not None else time.time())
     with _LOCK:
-        return _load_traffic().get(front_desk_id, {}).get(_slot(ts if ts is not None else time.time()))
+        traffic = _load_traffic()
+        vals = [traffic.get(fd, {}).get(slot) for fd in _group_fds.get(front_desk_id, [front_desk_id])]
+    vals = [v for v in vals if v is not None]
+    return max(vals) if vals else None
 
 
 # ── the active set (Phase 6c) ────────────────────────────────────────────────
@@ -354,16 +360,74 @@ def _target_min(pool_id: str, settings: Dict[str, int], now: float) -> int:
     return min(settings["max"], max(settings["min"], warm))
 
 
+# Front desks that share Q&A agents (several stores, one pool) are sized as ONE
+# group: members = all their members, min/max = the largest of theirs (max
+# capped at the members), idle = the shortest; every front desk in the group
+# gets the same active set.  Otherwise each would size the shared members from
+# its own view and the active sets would disagree.
+_group_fds: Dict[str, List[str]] = {}    # group key -> its front desks (groups of 2+)
+
+
+def _group_pools(all_pools: Dict[str, Dict[str, Any]]) -> List[List[str]]:
+    """Front desks whose members overlap (transitively), each group sorted."""
+    parent = {fd: fd for fd in all_pools}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    owner: Dict[str, str] = {}
+    for fd, p in all_pools.items():
+        for m in p["members"]:
+            if m in owner:
+                parent[find(fd)] = find(owner[m])
+            else:
+                owner[m] = fd
+    groups: Dict[str, List[str]] = {}
+    for fd in all_pools:
+        groups.setdefault(find(fd), []).append(fd)
+    return [sorted(g) for g in groups.values()]
+
+
+def _merged_pool(fds: List[str], all_pools: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    members = list(dict.fromkeys(m for fd in fds for m in all_pools[fd]["members"]))
+    sets = [all_pools[fd]["settings"] for fd in fds]
+    mx = min(len(members), max(s["max"] for s in sets))
+    return {"members": members, "settings": {"min": min(mx, max(s["min"] for s in sets)), "max": mx,
+                                             "idle_minutes": min(s["idle_minutes"] for s in sets)}}
+
+
+def group_of(front_desk_id: str) -> List[str]:
+    """The front desks sized together with this one (itself included)."""
+    with _LOCK:
+        return next((list(g) for g in _group_fds.values() if front_desk_id in g), [front_desk_id])
+
+
 def tick(now: Optional[float] = None, lookup: Optional[Callable[[str], Any]] = None) -> Dict[str, List[str]]:
-    """One controller pass over every pool. Returns {pool: active members}."""
+    """One controller pass over every pool. Returns {front desk: active members}."""
     lookup = lookup or _default_lookup
     now = time.time() if now is None else now
+    all_pools = pools()
+    groups = _group_pools(all_pools)
+    with _LOCK:
+        _group_fds.clear()
+        _group_fds.update({"+".join(g): g for g in groups if len(g) > 1})
     out = {}
-    for pool_id, pool in pools().items():
+    for g in groups:
+        key = g[0] if len(g) == 1 else "+".join(g)
+        pool = all_pools[g[0]] if len(g) == 1 else _merged_pool(g, all_pools)
         try:
-            out[pool_id] = _tick_pool(pool_id, pool, now, lookup)
+            act = _tick_pool(key, pool, now, lookup)
         except Exception as e:
-            logger.warning(f"[agent-pool] controller failed for pool {pool_id[-6:]}: {e}")
+            logger.warning(f"[agent-pool] controller failed for pool {key[-6:]}: {e}")
+            continue
+        if len(g) > 1:
+            with _LOCK:
+                for fd in g:
+                    _active[fd] = list(act)
+        for fd in g:
+            out[fd] = act
     return out
 
 
@@ -387,7 +451,13 @@ def set_pin(front_desk_id: str, size: Optional[int]) -> Optional[List[str]]:
             _pins[front_desk_id] = max(1, int(size))
     logger.info(f"[agent-pool] pool ...{front_desk_id[-6:]} "
                 f"{'unpinned (automatic)' if size is None else f'pinned to {max(1, int(size))}'}")
-    return _tick_pool(front_desk_id, pool, time.time(), _default_lookup)
+    return tick().get(front_desk_id)
+
+
+def _pin_for(pool_id: str) -> Optional[int]:
+    """A pin on any front desk of a shared group sizes the whole group."""
+    pins = [_pins[fd] for fd in _group_fds.get(pool_id, [pool_id]) if fd in _pins]
+    return max(pins) if pins else None
 
 
 def pin_of(front_desk_id: str) -> Optional[int]:
@@ -415,9 +485,10 @@ def _tick_pinned(pool_id: str, members: List[str], size: int, loads: Dict[str, i
 def _tick_pool(pool_id: str, pool: Dict[str, Any], now: float, lookup) -> List[str]:
     settings = pool["settings"]
     members = [m for m in pool["members"] if getattr(lookup(m), "_running", False)] or list(pool["members"])
-    if pool_id in _pins and members:
+    pin = _pin_for(pool_id)
+    if pin and members:
         loads = {m: agent_load(lookup(m)) if lookup(m) is not None else 0 for m in members}
-        return _tick_pinned(pool_id, members, _pins[pool_id], loads)
+        return _tick_pinned(pool_id, members, pin, loads)
     if settings["max"] <= 0 or not members:
         with _LOCK:
             _active[pool_id] = list(members)
@@ -491,8 +562,11 @@ def pool_view(front_desk_id: str, lookup: Optional[Callable[[str], Any]] = None)
         rows.append({"id": m, "name": getattr(getattr(ag, "card", None), "name", "") or m,
                      "active": m in active or not active, "running": bool(getattr(ag, "_running", False)),
                      "load": stats["load"].get(m, 0), "last_turn": _last_turn(m) or None})
+    shared = [fd for fd in group_of(front_desk_id) if fd != front_desk_id]
     return {"settings": stats["settings"], "members": rows, "scaling": scaling_enabled(),
             "pinned": _pins.get(front_desk_id),
+            # other front desks this pool is shared with (sized together with them)
+            "shared_with": shared,
             "active_count": sum(1 for r in rows if r["active"]),
             "wait_p50_s": stats["wait_p50_s"], "wait_p90_s": stats["wait_p90_s"],
             "turns_last_hour": stats["turns_last_hour"],
