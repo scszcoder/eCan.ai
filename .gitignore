@@ -190,3 +190,7 @@ deploy/ks/tcb/dist/
 
 # Local API key file the running app writes for the ecan CLI (utils/local_api.py)
 /local_api/
+
+# NAS credentials (never commit) — read at runtime by agent/ec_skills/nas/ugreen_nas.py
+nas.txt
+**/nas.txt

@@ -240,6 +240,13 @@ from agent.mcp.server.qianniu.qianniu_tools import (
     qianniu_open_session,
     qianniu_check_location,
 )
+from agent.mcp.server.nas.nas_tools import (
+    nas_save_text,
+    nas_upload_file,
+    nas_read_file,
+    nas_list_dir,
+    nas_delete_file,
+)
 # Helper -> cloud Skill Editor proxies. Wrapped in try/except so a stripped
 # cloud-worker build (missing the GUI relay module that the proxy bodies
 # import lazily) doesn't kill the whole server import — the tools just
@@ -3966,6 +3973,11 @@ tool_function_mapping = {
         "os_move_file": os_move_file,
         "os_copy_file_dir": os_copy_file_dir,
         "os_read_file": os_read_file,
+        "nas_save_text": nas_save_text,
+        "nas_upload_file": nas_upload_file,
+        "nas_read_file": nas_read_file,
+        "nas_list_dir": nas_list_dir,
+        "nas_delete_file": nas_delete_file,
         "os_read_document": os_read_document,
         "os_write_file": os_write_file,
         "os_screen_analyze": os_screen_analyze,

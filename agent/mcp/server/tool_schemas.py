@@ -2581,6 +2581,98 @@ def build_agent_mcp_tools_schemas():
     )
     add_tool_schema(tool_schema)
 
+    # UGREEN NAS (SMB) read/write tools. Paths are relative to the configured
+    # NAS base folder; credentials are resolved by the engine, never passed in.
+    _NAS_DESC = "<category>NAS</category><sub-category>UGREEN</sub-category>"
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="nas_save_text",
+        description=_NAS_DESC + "Write UTF-8 text (e.g. a JSON manifest or extracted metadata) to a file on the UGREEN NAS over SMB. remote_path is relative to the NAS base folder and may include subfolders (created automatically). Overwrites any existing file.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {"input": {
+                "type": "object",
+                "required": ["remote_path", "content"],
+                "properties": {
+                    "remote_path": {"type": "string", "description": "Destination path relative to the NAS base folder, e.g. 'PIC16F/index.json'"},
+                    "content": {"type": "string", "description": "UTF-8 text content to write"},
+                },
+            }},
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="nas_upload_file",
+        description=_NAS_DESC + "Upload a local file (e.g. a downloaded datasheet PDF) to the UGREEN NAS over SMB. Streams in chunks. remote_path is relative to the NAS base folder; leave empty to keep the local file name at the base folder.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {"input": {
+                "type": "object",
+                "required": ["local_path"],
+                "properties": {
+                    "local_path": {"type": "string", "description": "Full path of the local file to upload"},
+                    "remote_path": {"type": "string", "description": "Destination path on the NAS relative to the base folder (may include subfolders). Empty = basename at base folder."},
+                },
+            }},
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="nas_read_file",
+        description=_NAS_DESC + "Read a file from the UGREEN NAS over SMB. remote_path is relative to the NAS base folder. mode 'text' returns a UTF-8 string, 'base64' returns base64-encoded bytes (use for PDFs/images).",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {"input": {
+                "type": "object",
+                "required": ["remote_path"],
+                "properties": {
+                    "remote_path": {"type": "string", "description": "Path relative to the NAS base folder"},
+                    "mode": {"type": "string", "enum": ["text", "base64"], "default": "text", "description": "'text' = UTF-8 string, 'base64' = base64 of raw bytes"},
+                    "encoding": {"type": "string", "default": "utf-8", "description": "Text encoding when mode is 'text'"},
+                },
+            }},
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="nas_list_dir",
+        description=_NAS_DESC + "List a directory on the UGREEN NAS over SMB. remote_dir is relative to the NAS base folder (empty lists the base folder). Returns name/is_dir/size for each entry; an empty list means the directory is empty or absent.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {"input": {
+                "type": "object",
+                "required": [],
+                "properties": {
+                    "remote_dir": {"type": "string", "description": "Directory relative to the NAS base folder; empty = base folder"},
+                },
+            }},
+        },
+    )
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
+        name="nas_delete_file",
+        description=_NAS_DESC + "Delete a file on the UGREEN NAS over SMB. remote_path is relative to the NAS base folder. Deleting a missing file is treated as success.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {"input": {
+                "type": "object",
+                "required": ["remote_path"],
+                "properties": {
+                    "remote_path": {"type": "string", "description": "Path relative to the NAS base folder"},
+                },
+            }},
+        },
+    )
+    add_tool_schema(tool_schema)
+
     tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_read_document",
         description="<category>OS</category><sub-category>File</sub-category>Read a document as plain text: Excel (.xlsx/.xlsm, every sheet as tab-separated rows), CSV/TSV, PDF (text per page; reports scanned PDFs that have no text layer), Word (.docx, paragraphs and tables), PowerPoint (.pptx, text per slide and notes), or any text file (UTF-8/GBK detected). Legacy .xls/.doc/.ppt are not supported.",

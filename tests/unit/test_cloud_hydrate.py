@@ -128,15 +128,28 @@ class TestRefreshWithoutRestart:
 
 
 class TestFilesAFreshMachineNeeds:
-    def test_only_prompts_missing_here_are_written(self):
+    def test_missing_prompts_written_and_newer_cloud_copies_refresh_older_ones(self):
+        """Newer-wins: a prompt with no local file is added; an existing local
+        prompt is refreshed only when the cloud copy is strictly newer by its
+        own lastModified. Equal or older cloud copies are left alone (no churn)."""
         written = []
-        with patch("gui.ipc.w2p_handlers.prompt_cloud_sync.fetch_cloud_prompts",
-                   return_value=[{"id": "pr-1", "title": "a"}, {"id": "pr-2", "title": "b"}]), \
-             patch("gui.ipc.w2p_handlers.prompt_handler._load_all_prompts", return_value=[{"id": "pr-1"}]), \
+        cloud = [
+            {"id": "pr-1", "title": "a", "lastModified": "2026-01-01T00:00:00"},  # equal  -> skip
+            {"id": "pr-2", "title": "b", "lastModified": "2026-01-01T00:00:00"},  # missing-> add
+            {"id": "pr-3", "title": "c", "lastModified": "2026-02-01T00:00:00"},  # newer  -> update
+            {"id": "pr-4", "title": "d", "lastModified": "2025-01-01T00:00:00"},  # older  -> skip
+        ]
+        local = {"pr-1": "2026-01-01T00:00:00",
+                 "pr-3": "2026-01-15T00:00:00",
+                 "pr-4": "2026-06-01T00:00:00"}
+        with patch("gui.ipc.w2p_handlers.prompt_cloud_sync.fetch_cloud_prompts", return_value=cloud), \
+             patch.object(ch, "_local_prompt_content_times", return_value=dict(local)), \
+             patch.object(ch, "_restore_prompt_last_modified", lambda *a, **k: None), \
              patch("gui.ipc.w2p_handlers.prompt_handler._write_prompt_to_file",
                    side_effect=lambda p: written.append(p["id"]) or p):
             out = ch.hydrate_prompts()
-        assert out == {"added": ["pr-2"]} and written == ["pr-2"]
+        assert out == {"added": ["pr-2"], "updated": ["pr-3"]}
+        assert written == ["pr-2", "pr-3"]
 
     def test_only_own_skills_without_a_folder_are_downloaded(self, tmp_path):
         have = tmp_path / "有_skill"
@@ -158,7 +171,62 @@ class TestFilesAFreshMachineNeeds:
              patch("gui.ipc.w2p_handlers.skill_file_sync._resolve_skill_dir", side_effect=resolve), \
              patch("gui.ipc.w2p_handlers.skill_file_sync.download_skill_files_from_cloud", side_effect=download):
             out = ch.hydrate_skill_files(("s", "t", "e"), wait_s=5)
-        assert fetched == ["缺"] and out == {"downloaded": ["缺"], "missing": []}
+        # 有 exists with no version JSON (legacy/un-versioned) -> left alone;
+        # 缺 is missing -> downloaded; subscribed/external -> ignored.
+        assert fetched == ["缺"]
+        assert out == {"downloaded": ["缺"], "updated": [], "backed_up": [], "missing": []}
+
+    def test_a_newer_cloud_version_refreshes_a_timestamped_folder_after_backup(self, tmp_path):
+        """An own skill already on the save-timestamp scheme is refreshed when
+        the cloud version is strictly newer, and its folder is backed up first."""
+        from utils.skill_version import new_skill_version
+        have = tmp_path / "有_skill"
+        have.mkdir()
+        (have / "marker.txt").write_text("local work", encoding="utf-8")
+        local_v = "250101000000000"           # old timestamp version
+        cloud_v = new_skill_version(local_v)   # strictly newer timestamp
+        rows = [{"id": "s1", "name": "有", "version": cloud_v}]
+        fetched = []
+
+        def resolve(sk):
+            p = tmp_path / f"{sk['name']}_skill"
+            return p if p.is_dir() else None
+
+        def download(sk, **kw):
+            fetched.append(sk["name"])
+
+        with patch("agent.cloud_api.cloud_api.send_get_agent_skills_request_to_cloud", return_value=rows), \
+             patch("gui.ipc.w2p_handlers.skill_file_sync._resolve_skill_dir", side_effect=resolve), \
+             patch("gui.ipc.w2p_handlers.skill_file_sync.download_skill_files_from_cloud", side_effect=download), \
+             patch.object(ch, "_local_skill_version", return_value=local_v):
+            out = ch.hydrate_skill_files(("s", "t", "e"), wait_s=5)
+        assert fetched == ["有"]
+        assert out["downloaded"] == [] and out["updated"] == ["有"]
+        assert len(out["backed_up"]) == 1
+        backups = [p for p in tmp_path.iterdir() if p.name.startswith("有_skill.bak-")]
+        assert len(backups) == 1 and (backups[0] / "marker.txt").read_text(encoding="utf-8") == "local work"
+
+    def test_a_legacy_versioned_own_skill_is_never_auto_overwritten(self, tmp_path):
+        """A local skill on a legacy version ("1.0.0") is left alone even when
+        the cloud has a timestamp version that sorts newer -- it may be an
+        actively-edited working copy, so we never clobber it on startup."""
+        have = tmp_path / "有_skill"
+        have.mkdir()
+        rows = [{"id": "s1", "name": "有", "version": "250101000000000"}]
+        fetched = []
+
+        def resolve(sk):
+            p = tmp_path / f"{sk['name']}_skill"
+            return p if p.is_dir() else None
+
+        with patch("agent.cloud_api.cloud_api.send_get_agent_skills_request_to_cloud", return_value=rows), \
+             patch("gui.ipc.w2p_handlers.skill_file_sync._resolve_skill_dir", side_effect=resolve), \
+             patch("gui.ipc.w2p_handlers.skill_file_sync.download_skill_files_from_cloud",
+                   side_effect=lambda sk, **kw: fetched.append(sk["name"])), \
+             patch.object(ch, "_local_skill_version", return_value="1.0.0"):
+            out = ch.hydrate_skill_files(("s", "t", "e"), wait_s=5)
+        assert fetched == [] and out == {"downloaded": [], "updated": [], "backed_up": []}
+        assert not any(p.name.startswith("有_skill.bak-") for p in tmp_path.iterdir())
 
 
 def test_from_cloud_keeps_required_fields():
