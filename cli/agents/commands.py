@@ -296,6 +296,13 @@ def update(agent_id, name, description, status, config, vehicle):
         out.warning("No fields to update")
         return
 
+    from ..base.app_client import call_or_exit, edits_via_app
+    if edits_via_app(ctx.username):
+        # The app saves it and restarts the agent if it is running.
+        call_or_exit(out, 'save_agent', {'username': ctx.username, 'agent': [{'id': agent_id, **fields}]}, timeout=120)
+        out.success("Agent updated in the running app")
+        return
+
     try:
         result = ctx.db.agent_service.update_agent(agent_id, fields)
     except Exception as e:
@@ -338,6 +345,12 @@ def remove(agent_id, force):
     if not force and not out.confirm(f"Delete agent {agent_id}?"):
         return
 
+    from ..base.app_client import call_or_exit, edits_via_app
+    if edits_via_app(ctx.username):
+        call_or_exit(out, 'delete_agent', {'username': ctx.username, 'agent_id': agent_id}, timeout=120)
+        out.success("Agent deleted in the running app (it has stopped)")
+        return
+
     try:
         result = ctx.db.agent_service.delete_agent(agent_id)
     except Exception as e:
@@ -354,40 +367,43 @@ def remove(agent_id, force):
     cloud_sync(DataType.AGENT, {'id': agent_id}, Operation.DELETE)
 
 
+# ---- live commands: talk to the running app (cli/base/app_client.py) ----
+
+def _status_rows(agents_list):
+    return [[a.get('agent_id', '')[-12:], a.get('agent_name', ''), a.get('runtime_status', ''),
+             'yes' if a.get('enabled') else 'no', str(a.get('active_task_count', 0))] for a in agents_list]
+
+
 @agents.command()
 @requires_auth
 @click.argument('agent_id')
 @click.option('--task', '-t', required=True,
-              help='Task description for the agent to execute')
-@click.option('--async', 'async_mode', is_flag=True,
-              help='Run agent asynchronously (non-blocking)')
-def run(agent_id, task, async_mode):
+              help='What to ask the agent (sent as a chat message)')
+def run(agent_id, task):
     """
-    Execute an agent with a task.
+    Ask an agent to do something: sends it a chat message.
 
-    CONTROL command - starts agent execution.
-
-    Requires authentication. Use 'ecan auth login' first.
+    CONTROL command - needs the running app. The reply shows up in the app's
+    chat with the agent.
 
     Examples:
-      ecan agents run abc123 -t "Process this data"
-      ecan agents run abc123 --task "Scrape prices" --async
-
-    Note:
-      Agent execution is not yet fully implemented.
+      ecan agents run abc123 -t "Summarize today's orders"
     """
+    import time
+    import uuid
+    from ..base.app_client import call_or_exit
     ctx = get_context()
     out = get_output()
-
-    out.info(f"Starting agent {agent_id}...")
-    out.print(f"Task: {task}")
-
-    if async_mode:
-        out.info("Running in async mode...")
-        out.warning("Agent execution not yet implemented")
-    else:
-        out.warning("Agent execution not yet implemented")
-        out.print("See TODO in cli/main.py:agents_run for implementation details")
+    agent_id = _resolve_agent(ctx, out, agent_id)
+    now_ms = int(time.time() * 1000)
+    result = call_or_exit(out, 'send_chat', {
+        'chatId': f'cli-{agent_id}', 'id': uuid.uuid4().hex, 'role': 'user', 'content': task,
+        'senderId': ctx.username or 'cli', 'senderName': ctx.username or 'cli',
+        'receiverId': agent_id, 'status': 'sent', 'createAt': now_ms, 'time': now_ms,
+    }, timeout=60)
+    out.success("Sent. The reply appears in the app's chat with this agent.")
+    if isinstance(result, dict) and result.get('realChatId'):
+        out.print(f"Chat: {result['realChatId']}")
 
 
 @agents.command()
@@ -395,45 +411,123 @@ def run(agent_id, task, async_mode):
 @click.argument('agent_id')
 def stop(agent_id):
     """
-    Stop a running agent.
+    Disable an agent: it stops now (a turn in progress is cut off) and stays
+    off, also after a restart, until it is enabled again in the app.
 
-    CONTROL command - terminates an executing agent.
-
-    Requires authentication. Use 'ecan auth login' first.
+    CONTROL command - needs the running app.
 
     Examples:
       ecan agents stop abc123
-
-    Note:
-      Agent stop is not yet fully implemented.
     """
+    from ..base.app_client import call_or_exit
+    ctx = get_context()
     out = get_output()
-    out.info(f"Stopping agent {agent_id}...")
-    out.warning("Agent stop not yet implemented")
+    agent_id = _resolve_agent(ctx, out, agent_id)
+    result = call_or_exit(out, 'set_agent_enabled', {'agent_id': agent_id, 'enabled': False}) or {}
+    out.success(f"Agent stopped and disabled ({result.get('runtime_status', 'stopped')})")
 
 
 @agents.command()
 @click.argument('agent_id', required=False)
 @click.option('--watch', '-w', is_flag=True,
-              help='Watch for status changes continuously')
-def monitor(agent_id, watch):
+              help='Refresh every few seconds until Ctrl+C')
+@click.option('--interval', default=5, type=int, help='Seconds between refreshes with --watch (default: 5)')
+@click.option('--format', '-f', type=click.Choice(['table', 'json']), default='table',
+              help='Output format (default: table)')
+def monitor(agent_id, watch, interval, format):
     """
-    Monitor agent status.
+    Show what the running app's agents are doing.
 
-    QUERY command - displays agent status and metrics.
+    QUERY command - needs the running app.
 
     Examples:
-      ecan agents monitor abc123
       ecan agents monitor
-
-    Note:
-      Agent monitoring is not yet fully implemented.
+      ecan agents monitor abc123
+      ecan agents monitor --watch
     """
+    import time
+    from ..base.app_client import call_or_exit
+    ctx = get_context()
     out = get_output()
-
     if agent_id:
-        out.info(f"Monitoring agent {agent_id}...")
-    else:
-        out.info("Monitoring all agents...")
+        agent_id = _resolve_agent(ctx, out, agent_id)
+    while True:
+        if agent_id:
+            rows = [call_or_exit(out, 'get_agent_runtime_status', {'agent_id': agent_id}) or {}]
+        else:
+            rows = (call_or_exit(out, 'get_all_agents_runtime_status') or {}).get('agents') or []
+        if format == 'json':
+            out.json({'agents': rows})
+        else:
+            out.table("Agents", ["ID", "Name", "Status", "Enabled", "Running tasks"], _status_rows(rows))
+        if not watch:
+            return
+        try:
+            time.sleep(max(1, interval))
+        except KeyboardInterrupt:
+            return
 
-    out.warning("Agent monitoring not yet implemented")
+
+@agents.command()
+@click.argument('agent_id', required=False)
+@click.option('--pin', type=int, help='Keep exactly this many Q&A agents answering, now (no auto-scaling)')
+@click.option('--unpin', is_flag=True, help='Back to automatic sizing')
+@click.option('--format', '-f', type=click.Choice(['table', 'json']), default='table',
+              help='Output format (default: table)')
+def pool(agent_id, pin, unpin, format):
+    """
+    A front desk's Q&A pool: who is answering, who is parked, waits.
+
+    QUERY / CONTROL command - needs the running app. --pin lasts until
+    --unpin or an app restart; for a lasting size use
+    'ecan tasks update <front desk task> --pool-min N --pool-max N'.
+
+    Examples:
+      ecan agents pool                  # every pool
+      ecan agents pool frontdesk-1
+      ecan agents pool frontdesk-1 --pin 4
+      ecan agents pool frontdesk-1 --unpin
+    """
+    from ..base.app_client import call_or_exit
+    ctx = get_context()
+    out = get_output()
+    if (pin is not None or unpin) and not agent_id:
+        out.error("Name the front desk agent to pin or unpin")
+        raise SystemExit(1)
+    if pin is not None and unpin:
+        out.error("Use --pin or --unpin, not both")
+        raise SystemExit(1)
+    if pin is not None and pin < 1:
+        out.error("--pin must be 1 or more")
+        raise SystemExit(1)
+    if agent_id:
+        agent_id = _resolve_agent(ctx, out, agent_id)
+        if pin is not None or unpin:
+            ctx.require_auth()
+            view = (call_or_exit(out, 'set_agent_pool_pin', {'agent_id': agent_id, 'size': None if unpin else pin})
+                    or {}).get('pool')
+            out.success("Pool unpinned (automatic)" if unpin else f"Pool pinned to {pin}")
+        else:
+            view = (call_or_exit(out, 'get_agent_pool', {'agent_id': agent_id}) or {}).get('pool')
+            if not view:
+                out.info("This agent has no Q&A pool (not a running front desk)")
+                return
+        views = {agent_id: view} if view else {}
+    else:
+        views = (call_or_exit(out, 'get_agent_pools') or {}).get('pools') or {}
+    if format == 'json':
+        out.json({'pools': views})
+        return
+    if not views:
+        out.info("No front desk pools running")
+        return
+    for fd, v in views.items():
+        st = v.get('settings') or {}
+        size = f"pinned to {v['pinned']}" if v.get('pinned') else f"min {st.get('min')} / max {st.get('max')}"
+        out.print(f"Front desk {fd}: {v.get('active_count')} answering ({size}, park after "
+                  f"{st.get('idle_minutes')} idle min); wait p50 {v.get('wait_p50_s') or 0:.1f}s, "
+                  f"p90 {v.get('wait_p90_s') or 0:.1f}s; {v.get('turns_last_hour', 0)} turns last hour"
+                  + ("" if v.get('scaling', True) else " [scaling off]"))
+        out.table("Members", ["ID", "Name", "Answering", "Running", "Load"],
+                  [[m.get('id', '')[-12:], m.get('name', ''), 'yes' if m.get('active') else 'parked',
+                    'yes' if m.get('running') else 'no', str(m.get('load', 0))] for m in v.get('members') or []])

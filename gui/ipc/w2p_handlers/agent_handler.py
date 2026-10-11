@@ -391,6 +391,39 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             f"Error during get agents: {str(e)} "
         )
     
+def _stop_running_agent(agent: Any, reason: str) -> None:
+    """EC_Agent.stop(): its task loops, A2A server and subscriptions end.
+    An agent that never started (a cold lazy agent) is left alone -- reading
+    anything else from it would build it."""
+    if getattr(agent, '_running', False):
+        try:
+            agent.stop(reason=reason)
+        except Exception as e:
+            logger.warning(f"[agent_handler] stopping agent failed: {e}")
+
+
+def _should_run(agent: Any) -> bool:
+    """Running now, or a lazy agent that starts when it is first used."""
+    if getattr(agent, '_running', False):
+        return True
+    from agent.ec_agents.lazy_agent import LazyAgent
+    return isinstance(agent, LazyAgent) and agent.lazy_is_cold and bool(agent.__dict__.get('_lz_start'))
+
+
+def _swap_agent(agents: list, index: int, new_agent: Any) -> None:
+    """Replace an agent object with one rebuilt from the database: the old one
+    stops and the new one starts, so one copy runs, with the new settings."""
+    old = agents[index]
+    run = _should_run(old)
+    _stop_running_agent(old, 'agent saved; restarting with the new settings')
+    agents[index] = new_agent
+    if run:
+        try:
+            new_agent.start()
+        except Exception as e:
+            logger.error(f"[agent_handler] starting the saved agent failed: {e}")
+
+
 @IPCHandlerRegistry.handler('save_agent')
 def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """
@@ -483,7 +516,7 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                                 # Replace the agent in ctx.get_agents()
                                 agent_index = next((i for i, ag in enumerate(ctx.get_agents()) if ag.card.id == agent_id), None)
                                 if agent_index is not None:
-                                    ctx.get_agents()[agent_index] = updated_ec_agent
+                                    _swap_agent(ctx.get_agents(), agent_index, updated_ec_agent)
                                     logger.info(f"[agent_handler] ✅ Replaced agent in memory: {agent_id}")
                                 else:
                                     # Agent not in memory, add it (might be newly created or memory was cleared)
@@ -646,6 +679,8 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
                             (ag for ag in agents
                              if getattr(getattr(ag, 'card', None), 'id', None) == agent_id),
                             None)
+                        if deleted_agent is not None:
+                            _stop_running_agent(deleted_agent, 'agent deleted')
                         # Step 2: Delete from memory after database deletion
                         # succeeds. getattr-guarded: one malformed agent (no
                         # .card) must not abort the whole removal — a lingering
@@ -1871,6 +1906,54 @@ def handle_get_agent_pool(request: IPCRequest, params: Optional[Dict[str, Any]])
         return create_error_response(request, 'SERVICE_ERROR', str(e))
 
 
+@IPCHandlerRegistry.handler('get_cli_session')
+def handle_get_cli_session(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Who this app is signed in as, so a local tool (the ecan CLI) knows it
+    shares this app's database before routing edits through it."""
+    try:
+        from gui.ipc.handlers import resolve_username
+        return create_success_response(request, {'username': resolve_username(request, None) or ''})
+    except Exception as e:
+        return create_error_response(request, 'SERVICE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('get_agent_pools')
+def handle_get_agent_pools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Every front desk's Q&A pool (same rows as get_agent_pool), keyed by front desk id."""
+    try:
+        from agent.ec_agents.agent_pool import pool_view, pools
+        views = {fd: pool_view(fd) for fd in pools()}
+        return create_success_response(request, {'pools': {k: v for k, v in views.items() if v}})
+    except Exception as e:
+        logger.warning(f"[agent_handler] get_agent_pools failed: {e}")
+        return create_error_response(request, 'SERVICE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('set_agent_pool_pin')
+def handle_set_agent_pool_pin(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Pin a front desk's pool to exactly ``size`` answering members now
+    (``size: null`` = automatic again). In memory until the app restarts."""
+    try:
+        from agent.ec_agents.agent_pool import pool_view, set_pin
+        p = params or {}
+        agent_id = str(p.get('agent_id') or '')
+        size = p.get('size')
+        if not agent_id:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: agent_id')
+        if size is not None and (not str(size).isdigit() or int(size) < 1):
+            return create_error_response(request, 'INVALID_PARAMS', 'size must be a whole number >= 1, or null')
+        try:
+            active = set_pin(agent_id, None if size is None else int(size))
+        except ValueError as e:
+            return create_error_response(request, 'POOL_SCALING_OFF', str(e))
+        if active is None:
+            return create_error_response(request, 'POOL_NOT_FOUND', f'{agent_id} has no Q&A pool (not a running front desk)')
+        return create_success_response(request, {'pool': pool_view(agent_id)})
+    except Exception as e:
+        logger.warning(f"[agent_handler] set_agent_pool_pin failed: {e}")
+        return create_error_response(request, 'SERVICE_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('get_all_agents_runtime_status')
 def handle_get_all_agents_runtime_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Get runtime status for ALL agents in one call (efficient batch endpoint for polling).
@@ -2117,6 +2200,7 @@ def handle_toggle_agent_enabled(request: IPCRequest, params: Optional[Dict[str, 
                     break
 
             if ec_agent:
+                _stop_running_agent(ec_agent, 'stopped by the user')
                 # Cancel all active task futures
                 with ec_agent.task_lock:
                     for run_id, future in list(ec_agent.active_tasks.items()):
@@ -2214,6 +2298,7 @@ def handle_set_agent_enabled(request: IPCRequest, params: Optional[Dict[str, Any
                     break
 
             if ec_agent:
+                _stop_running_agent(ec_agent, 'agent disabled')
                 with ec_agent.task_lock:
                     for run_id, future in list(ec_agent.active_tasks.items()):
                         try:

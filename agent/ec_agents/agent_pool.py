@@ -367,9 +367,57 @@ def tick(now: Optional[float] = None, lookup: Optional[Callable[[str], Any]] = N
     return out
 
 
+# Manual size (ecan agents pool --pin N): exactly N members answer, no scaling,
+# until unpinned.  In memory only; an app restart forgets it.
+_pins: Dict[str, int] = {}
+
+
+def set_pin(front_desk_id: str, size: Optional[int]) -> Optional[List[str]]:
+    """Pin the pool's active size (None = back to automatic). Applies now;
+    returns the active members, or None if there is no such pool."""
+    pool = pools().get(front_desk_id)
+    if pool is None:
+        return None
+    if not scaling_enabled():
+        raise ValueError("pool sizing is off (ECAN_POOL_SCALING=0): every member answers")
+    with _LOCK:
+        if size is None:
+            _pins.pop(front_desk_id, None)
+        else:
+            _pins[front_desk_id] = max(1, int(size))
+    logger.info(f"[agent-pool] pool ...{front_desk_id[-6:]} "
+                f"{'unpinned (automatic)' if size is None else f'pinned to {max(1, int(size))}'}")
+    return _tick_pool(front_desk_id, pool, time.time(), _default_lookup)
+
+
+def pin_of(front_desk_id: str) -> Optional[int]:
+    return _pins.get(front_desk_id)
+
+
+def _tick_pinned(pool_id: str, members: List[str], size: int, loads: Dict[str, int]) -> List[str]:
+    target = min(size, len(members))
+    with _LOCK:
+        act = [m for m in (_active.get(pool_id) or []) if m in members]
+        before = list(act)
+        while len(act) < target:
+            act.append(min((m for m in members if m not in act), key=lambda m: loads[m]))
+        while len(act) > target:
+            act.remove(min(act, key=_last_turn))   # the one used least recently
+        _active[pool_id] = act
+        if act != before:
+            _changed_at[pool_id] = time.time()
+    if act != before:
+        logger.info(f"[agent-pool] pool ...{pool_id[-6:]} active {len(before)} -> {len(act)} (pinned to {size}); "
+                    f"active={[m[-6:] for m in act]}")
+    return act
+
+
 def _tick_pool(pool_id: str, pool: Dict[str, Any], now: float, lookup) -> List[str]:
     settings = pool["settings"]
     members = [m for m in pool["members"] if getattr(lookup(m), "_running", False)] or list(pool["members"])
+    if pool_id in _pins and members:
+        loads = {m: agent_load(lookup(m)) if lookup(m) is not None else 0 for m in members}
+        return _tick_pinned(pool_id, members, _pins[pool_id], loads)
     if settings["max"] <= 0 or not members:
         with _LOCK:
             _active[pool_id] = list(members)
@@ -444,6 +492,7 @@ def pool_view(front_desk_id: str, lookup: Optional[Callable[[str], Any]] = None)
                      "active": m in active or not active, "running": bool(getattr(ag, "_running", False)),
                      "load": stats["load"].get(m, 0), "last_turn": _last_turn(m) or None})
     return {"settings": stats["settings"], "members": rows, "scaling": scaling_enabled(),
+            "pinned": _pins.get(front_desk_id),
             "active_count": sum(1 for r in rows if r["active"]),
             "wait_p50_s": stats["wait_p50_s"], "wait_p90_s": stats["wait_p90_s"],
             "turns_last_hour": stats["turns_last_hour"],

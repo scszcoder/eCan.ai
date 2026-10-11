@@ -4,6 +4,8 @@
 Task Management Commands - CRUD operations and queries for tasks.
 """
 
+import json
+
 import click
 
 from ..base.context import get_context
@@ -290,6 +292,26 @@ def _apply_run_rules(ctx, out, settings, rules, task_id=None, task_name=''):
     return s
 
 
+def _via_app(ctx):
+    from ..base.app_client import edits_via_app
+    return edits_via_app(ctx.username)
+
+
+_TASK_RECORD_KEYS = ('id', 'name', 'description', 'source', 'priority', 'status', 'task_type', 'objectives',
+                     'schedule', 'trigger', 'progress', 'result', 'error_message', 'org_id')
+
+
+def _task_record(ctx, task_id):
+    """The whole stored task, as the app's save_agent_task expects it (a save
+    replaces every field, so nothing may be left out)."""
+    row = (ctx.db.task_service.get_task_by_id(task_id) or {}).get('data') or {}
+    rec = {k: row[k] for k in _TASK_RECORD_KEYS if row.get(k) is not None}
+    rec['metadata'] = row.get('metadata') if isinstance(row.get('metadata'), dict) else {}
+    rels = ctx.db.task_service.get_task_skills(task_id, role='primary') or {}
+    rec['skill_ids'] = [r.get('skill_id') for r in rels.get('data') or [] if r.get('skill_id')]
+    return rec
+
+
 def _existing_settings(ctx, task_id):
     try:
         result = ctx.db.task_service.get_task_by_id(task_id)
@@ -473,6 +495,16 @@ def add(name, description, priority, skill, var, browser, trigger, repeat_type, 
     if schedule is not None:
         task_data['schedule'] = schedule
 
+    if _via_app(ctx):
+        from ..base.app_client import call_or_exit
+        info = {k: v for k, v in task_data.items() if k != 'settings'}
+        info['metadata'] = task_data.get('settings') or {}
+        if skill_id:
+            info['skill_ids'] = [skill_id]
+        result = call_or_exit(out, 'new_agent_task', {'task_info': info}) or {}
+        out.success(f"Task created in the running app ({result.get('task_id', '')})")
+        return
+
     try:
         result = ctx.db.task_service.add_task(task_data)
     except Exception as e:
@@ -534,7 +566,8 @@ def update(task_id, name, description, status, priority, var, browser, trigger, 
       ecan tasks update daily-report --after scrape --after-require-success
       ecan tasks update product-export --reset-run-once
 
-    Run rules and pool size take effect when the app next starts.
+    With eCan running (signed in as you) the change goes through the app and
+    run rules and pool size apply right away; otherwise when it next starts.
     """
     ctx = get_context()
     out = get_output()
@@ -605,6 +638,16 @@ def update(task_id, name, description, status, priority, var, browser, trigger, 
         out.warning("No fields to update")
         return
 
+    if _via_app(ctx):
+        from ..base.app_client import call_or_exit
+        rec = _task_record(ctx, task_id)
+        rec.update({k: v for k, v in fields.items() if k != 'settings'})
+        if 'settings' in fields:
+            rec['metadata'] = fields['settings']
+        call_or_exit(out, 'save_agent_task', {'task_info': rec})
+        out.success("Task updated in the running app (run rules and pool size apply now)")
+        return
+
     try:
         result = ctx.db.task_service.update_task(task_id, fields)
     except Exception as e:
@@ -647,6 +690,12 @@ def remove(task_id, force):
     if not force and not out.confirm(f"Delete task {task_id}?"):
         return
 
+    if _via_app(ctx):
+        from ..base.app_client import call_or_exit
+        call_or_exit(out, 'delete_agent_task', {'task_id': task_id})
+        out.success("Task deleted in the running app (a run already in progress finishes)")
+        return
+
     try:
         result = ctx.db.task_service.delete_task(task_id)
     except Exception as e:
@@ -666,20 +715,96 @@ def remove(task_id, force):
 @tasks.command()
 @requires_auth
 @click.argument('task_id')
-def execute(task_id):
+@click.option('--input', 'inputs', multiple=True,
+              help='Input for this run, name=value (repeatable)')
+def execute(task_id, inputs):
     """
-    Execute a task immediately.
+    Run a task once, now.
 
-    CONTROL command - triggers immediate task execution.
-
-    Requires authentication. Use 'ecan auth login' first.
+    CONTROL command - needs the running app. The run is queued on the task's
+    own agent, like any other run (resources and run rules still apply).
 
     Examples:
       ecan tasks execute abc123
-
-    Note:
-      Task execution is not yet fully implemented.
+      ecan tasks execute "Daily Report" --input day=2026-10-11
     """
+    from ..base.app_client import call_or_exit
+    ctx = get_context()
     out = get_output()
-    out.info(f"Executing task {task_id}...")
-    out.warning("Task execution not yet implemented")
+    task_id = _resolve_task(ctx, out, task_id)
+    result = call_or_exit(out, 'launch_agent_task',
+                          {'task_id': task_id, 'task_inputs': _parse_vars(out, inputs) if inputs else {}}) or {}
+    out.success(f"Run queued for '{result.get('task_name') or task_id}'"
+                + (f" (run {result['run_id']})" if result.get('run_id') else ""))
+
+
+@tasks.command()
+@click.option('--format', '-f', type=click.Choice(['table', 'json']), default='table',
+              help='Output format (default: table)')
+def state(format):
+    """
+    Tasks that are waiting, held or missed a run, in the running app.
+
+    QUERY command - needs the running app. Only tasks with something to report
+    are listed.
+
+    Examples:
+      ecan tasks state
+    """
+    from ..base.app_client import call_or_exit
+    out = get_output()
+    states = (call_or_exit(out, 'get_task_run_states') or {}).get('states') or {}
+    if format == 'json':
+        out.json({'states': states})
+        return
+    if not states:
+        out.info("No task is waiting, held or has missed a run")
+        return
+    labels = {'waiting_resource': 'waiting for a resource', 'waiting_after': 'waiting for prerequisites',
+              'last_missed': 'missed a run'}
+    ctx = get_context()
+    rows = []
+    for tid, st in states.items():
+        name = ''
+        try:
+            name = ((ctx.db.task_service.get_task_by_id(tid) or {}).get('data') or {}).get('name') or ''
+        except Exception:
+            pass
+        for key, val in (st or {}).items():
+            rows.append([str(tid)[-12:], name, labels.get(key, key), json.dumps(val, ensure_ascii=False, default=str)])
+    out.table("Task run states", ["Task", "Name", "State", "Details"], rows)
+
+
+@tasks.command()
+@click.option('--format', '-f', type=click.Choice(['table', 'json']), default='table',
+              help='Output format (default: table)')
+def locks(format):
+    """
+    Exclusive resources in the running app: which run holds each, who waits.
+
+    QUERY command - needs the running app.
+
+    Examples:
+      ecan tasks locks
+    """
+    import time
+    from ..base.app_client import call_or_exit
+    out = get_output()
+    snap = call_or_exit(out, 'get_resource_locks') or {}
+    if format == 'json':
+        out.json(snap)
+        return
+    if not snap.get('enabled', True):
+        out.warning("The resource gate is off (ECAN_TASK_RESOURCE_GATE=0)")
+    held = snap.get('held') or {}
+    waiting = snap.get('waiting') or []
+    if not held and not waiting:
+        out.info("No resource is in use")
+        return
+    if held:
+        out.table("In use", ["Resource", "Held by", "Count"],
+                  [[k, str(v.get('holder', '')), str(v.get('count', ''))] for k, v in held.items()])
+    if waiting:
+        out.table("Waiting (in order)", ["Run", "Class", "For", "Waiting"],
+                  [[w.get('label') or w.get('holder', ''), w.get('class', ''), ', '.join(w.get('keys') or []),
+                    f"{max(0, time.time() - (w.get('since') or time.time())):.0f}s"] for w in waiting])

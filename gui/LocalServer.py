@@ -1633,6 +1633,11 @@ class ServerManager:
         # down — otherwise it would treat this deliberate shutdown as an
         # unexpected death and respawn the server immediately.
         self._shutdown_requested = True
+        try:
+            from utils import local_api
+            local_api.withdraw()
+        except Exception:
+            pass
 
         if self.uvicorn_server:
             logger.info("Stopping local Starlette server...")
@@ -1947,6 +1952,12 @@ class ServerManager:
                     else:
                         logger.info(f"🌐 Server accessible at: http://{host_bind}:{port}")
                     
+                    # Local tools (the ecan CLI) find and call us through this file.
+                    try:
+                        from utils import local_api
+                        local_api.publish(port)
+                    except Exception as _la_err:
+                        logger.warning(f"[local-api] could not publish: {_la_err}")
                     await server.serve()
                 
                 asyncio.run(serve_with_loop())

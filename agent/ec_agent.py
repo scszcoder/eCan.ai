@@ -58,6 +58,24 @@ load_dotenv()
 
 
 
+# Map trigger names to the 3 unified types: schedule, message, auto
+# Legacy names are mapped for backward compatibility
+TASK_TRIGGER_MAP = {
+	"schedule": "schedule",
+	"message": "message",
+	"auto": "auto",
+	# Started by the runner when its prerequisite tasks finish (task_deps).
+	"after": "after",
+	# Legacy backward-compat aliases
+	"interaction": "message",
+	"human chat": "message",
+	"agent message": "message",
+	"a2a_queue": "message",
+	"chat_queue": "message",
+	"manual": "auto",
+}
+
+
 class EC_Agent(Agent):
 	@time_execution_sync('--init (agent)')
 	def __init__(
@@ -582,25 +600,9 @@ class EC_Agent(Agent):
 			logger.info(f"[AGENT_START] Task details: task_id={getattr(task,'id',None)}, run_id={getattr(task,'run_id',None)}, queue_id={qid}")
 
 			# task.trigger is now a list (e.g. ["schedule"], ["schedule", "message"])
-			# Map trigger names to the 3 unified types: schedule, message, auto
-			# Legacy names are mapped for backward compatibility
-			TRIGGER_MAP = {
-				"schedule": "schedule",
-				"message": "message",
-				"auto": "auto",
-				# Started by the runner when its prerequisite tasks finish (task_deps).
-				"after": "after",
-				# Legacy backward-compat aliases
-				"interaction": "message",
-				"human chat": "message",
-				"agent message": "message",
-				"a2a_queue": "message",
-				"chat_queue": "message",
-				"manual": "auto",
-			}
 			unified_triggers = []
 			for t in task.trigger:
-				mapped = TRIGGER_MAP.get(t)
+				mapped = TASK_TRIGGER_MAP.get(t)
 				if mapped:
 					unified_triggers.append(mapped)
 				else:

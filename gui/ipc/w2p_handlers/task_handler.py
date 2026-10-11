@@ -656,6 +656,80 @@ def handle_get_task_run_states(request: IPCRequest, params: Optional[Dict[str, A
         return create_error_response(request, 'SERVICE_ERROR', str(e))
 
 
+@IPCHandlerRegistry.handler('get_resource_locks')
+def handle_get_resource_locks(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Exclusive resources (browsers, named resources): who holds each, who waits."""
+    try:
+        from agent.ec_tasks.resource_gate import gate_enabled, get_gate
+        return create_success_response(request, {'enabled': gate_enabled(), **get_gate().snapshot()})
+    except Exception as e:
+        logger.warning(f"[task_handler] get_resource_locks failed: {e}")
+        return create_error_response(request, 'SERVICE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('launch_agent_task')
+def handle_launch_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Run an existing task once now: queue one run on the loop it already has
+    (agent/ec_tasks/task_mcp_tools.launch_agent_task). Params: task_id or
+    task_name, optional agent_id (default: the agent that has the task) and
+    task_inputs (dict)."""
+    try:
+        from agent.ec_tasks.task_mcp_tools import launch_agent_task
+        ctx = get_handler_context(request, params)
+        p = dict(params or {})
+        task_id, task_name = str(p.get('task_id') or ''), str(p.get('task_name') or '')
+        if not (task_id or task_name):
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_id or task_name')
+        agent_id = str(p.get('agent_id') or '')
+        if not agent_id:
+            for ag in (ctx.get_agents() if ctx else []):
+                if any((task_id and getattr(t, 'id', None) == task_id) or (not task_id and getattr(t, 'name', None) == task_name)
+                       for t in list(getattr(ag, 'tasks', None) or [])):
+                    agent_id = getattr(getattr(ag, 'card', None), 'id', '') or ''
+                    break
+        if not agent_id:
+            return create_error_response(request, 'TASK_NOT_FOUND',
+                                         f'No running agent has task {task_id or task_name}')
+        result = launch_agent_task(getattr(ctx, 'main_window', None),
+                                   {'agent_id': agent_id, 'task_id': task_id, 'task_name': task_name,
+                                    'task_inputs': p.get('task_inputs') or {}})
+        if not result.get('success'):
+            return create_error_response(request, 'LAUNCH_TASK_ERROR', str(result.get('message') or result))
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.warning(f"[task_handler] launch_agent_task failed: {e}")
+        return create_error_response(request, 'LAUNCH_TASK_ERROR', str(e))
+
+
+# Settings the runner and the pool read from a running task's metadata on every
+# run (runner.py, resource_gate.py, task_deps.py, agent_pool.py).
+_LIVE_SETTING_KEYS = ('run_class', 'max_lateness_min', 'overlap_policy', 'after', 'exclusive_resources',
+                      'run_once', 'completed_once_at', 'start_after_idle_min', 'pool')
+
+
+def _apply_settings_to_running_tasks(task_id: str, settings: Dict[str, Any]) -> int:
+    """Saved run rules / pool size take effect on the running agents now,
+    not only after a restart. Returns how many running task objects changed."""
+    changed = 0
+    try:
+        from gui.ipc.context_bridge import get_handler_context
+        ctx = get_handler_context(None, None)
+        for ag in (ctx.get_agents() if ctx else []):
+            for t in list(getattr(ag, 'tasks', None) or []):
+                meta = getattr(t, 'metadata', None)
+                if getattr(t, 'id', None) != task_id or not isinstance(meta, dict):
+                    continue
+                for k in _LIVE_SETTING_KEYS:
+                    if k in settings:
+                        meta[k] = settings[k]
+                    else:
+                        meta.pop(k, None)
+                changed += 1
+    except Exception as e:
+        logger.warning(f"[task_handler] could not apply settings to running task {task_id}: {e}")
+    return changed
+
+
 @IPCHandlerRegistry.handler('refresh_agent_task_status')
 def handle_refresh_agent_task_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Refresh a single task status from database and return latest data."""
@@ -697,6 +771,13 @@ def handle_refresh_agent_task_status(request: IPCRequest, params: Optional[Dict[
             'REFRESH_TASK_STATUS_ERROR',
             f"Error during refresh task status: {str(e)}"
         )
+
+
+def _task_loop_running(agent, task_obj) -> bool:
+    """The task already has its execution loop on this agent."""
+    run_id = getattr(task_obj, 'run_id', None)
+    future = (getattr(agent, 'active_tasks', None) or {}).get(run_id) if run_id else None
+    return bool(future is not None and not future.done())
 
 
 @IPCHandlerRegistry.handler('run_agent_task')
@@ -804,14 +885,30 @@ def handle_run_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
         if not thread_pool:
             return create_error_response(request, 'RUN_TASK_ERROR', 'Thread pool executor not available')
 
-        future = thread_pool.submit(runner.launch_unified_run, task_obj, task_obj.trigger or ['message'])
-        if hasattr(agent, 'active_tasks') and hasattr(agent, 'task_lock') and getattr(task_obj, 'run_id', None):
-            with agent.task_lock:
-                agent.active_tasks[task_obj.run_id] = future
+        # One run, on the task's own loop. Starting launch_unified_run again
+        # would put a second long-lived loop on the same queue.
+        if not _task_loop_running(agent, task_obj):
+            if not getattr(task_obj, 'run_id', None):
+                import uuid
+                task_obj.run_id = str(uuid.uuid4())
+            from agent.ec_agent import TASK_TRIGGER_MAP
+            triggers = [TASK_TRIGGER_MAP.get(t, t) for t in (task_obj.trigger or [])]
+            # 'auto' would kick a run of its own on top of the one queued below.
+            triggers = [t for t in dict.fromkeys(triggers + ['message']) if t != 'auto']
+            future = thread_pool.submit(runner.launch_unified_run, task_obj, triggers)
+            if hasattr(agent, 'active_tasks') and hasattr(agent, 'task_lock'):
+                with agent.task_lock:
+                    agent.active_tasks[task_obj.run_id] = future
+        from agent.ec_tasks.task_mcp_tools import launch_agent_task
+        launched = launch_agent_task(getattr(ctx, 'main_window', None), {
+            'agent_id': getattr(getattr(agent, 'card', None), 'id', '') or '', 'task_id': task_id})
+        if not launched.get('success'):
+            return create_error_response(request, 'RUN_TASK_ERROR', str(launched.get('message') or launched))
 
         return create_success_response(request, {
             'message': 'Run agent task successful',
-            'task_id': task_id
+            'task_id': task_id,
+            'run_id': launched.get('run_id', ''),
         })
 
     except Exception as e:
@@ -1171,6 +1268,7 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
                 agent_id=agent_task_info.get('agent_id') if isinstance(agent_task_info, dict) else '',
                 request=request, params=params, preferred_skill_ids=skill_ids
             )
+            _apply_settings_to_running_tasks(actual_agent_task_id, agent_task_data.get('settings') or {})
 
             # Step 3: Clean up offline sync queue for this task (remove pending add/update operations)
             try:

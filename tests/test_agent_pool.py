@@ -341,3 +341,28 @@ def test_pick_for_customer_defaults_to_the_listeners(monkeypatch):
     assert ap.pick_for_customer("fd2", "b", lookup={"q9": _agent()}.get) == "q9"
     monkeypatch.setattr(ap, "_listeners_of", lambda fd: [])
     assert ap.pick_for_customer("fd3", "b", lookup=lambda i: None) == ""
+
+
+# ── manual size (ecan agents pool --pin) ──
+
+def test_pin_sets_the_size_now_and_holds_it(pool6, monkeypatch):
+    monkeypatch.setattr(ap, "_default_lookup", pool6.get)
+    ap._pins.clear()
+    assert len(ap.tick(now=1000.0, lookup=pool6.get)["fd"]) == 2
+    assert len(ap.set_pin("fd", 4)) == 4                        # at once, no cooldown
+    for m in pool6:
+        pool6[m] = _agent()                                     # all idle for a long time
+    assert len(ap.tick(now=1000.0 + 3600, lookup=pool6.get)["fd"]) == 4
+    assert len(ap.set_pin("fd", 1)) == 1
+    assert ap.pool_view("fd", lookup=pool6.get)["pinned"] == 1
+    assert len(ap.set_pin("fd", 9)) == 4                        # capped at the members
+    ap.set_pin("fd", None)
+    assert ap.pin_of("fd") is None
+    assert ap.set_pin("nope", 2) is None
+
+
+def test_pin_needs_scaling(pool6, monkeypatch):
+    monkeypatch.setenv("ECAN_POOL_SCALING", "0")
+    with pytest.raises(ValueError):
+        ap.set_pin("fd", 2)
+    ap._pins.clear()
