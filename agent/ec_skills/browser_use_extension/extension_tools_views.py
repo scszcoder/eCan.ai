@@ -622,3 +622,35 @@ class RagifyAsyncAction(BaseModel):
 		)
 	)
 
+
+# ── UGREEN NAS actions ──────────────────────────────────────────────────────
+class NasSaveFileAction(BaseModel):
+	"""Upload a local/downloaded file to the UGREEN NAS over SMB."""
+	local_path: str = Field(
+		description="Full path of the local file to upload (e.g. a downloaded datasheet PDF)."
+	)
+	remote_path: str = Field(
+		default="",
+		description=(
+			"Destination path on the NAS, RELATIVE to the configured base folder "
+			"(chips/microchip). May include subfolders, e.g. 'PIC16F/PIC16F877A/datasheet.pdf'. "
+			"LEAVE EMPTY to keep the local file's name at the base folder."
+		)
+	)
+
+
+class NasSaveTextAction(BaseModel):
+	"""Write text (e.g. a JSON manifest or extracted metadata) to a file on the NAS."""
+	remote_path: str = Field(
+		description="Destination path on the NAS relative to the base folder, e.g. 'PIC16F/index.json'."
+	)
+	content: str = Field(description="The text content to write (UTF-8).")
+
+
+class NasListAction(BaseModel):
+	"""List a directory on the NAS."""
+	remote_dir: str = Field(
+		default="",
+		description="Directory on the NAS relative to the base folder. EMPTY lists the base folder itself."
+	)
+

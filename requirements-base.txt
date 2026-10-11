@@ -421,3 +421,6 @@ neo4j>=5.0.0,<7.0.0         # Neo4j graph database (recommended)
 # gqlalchemy>=1.4.0,<2.0.0    # Memgraph graph database
 redis>=5.0.0,<8.0.0         # Redis storage backend
 pymongo>=4.0.0,<5.0.0       # MongoDB storage backend
+
+# --- NAS (SMB) access: UGREEN NAS read/write engine (agent/ec_skills/nas) ---
+smbprotocol>=1.15.0,<2.0.0  # Pure-Python SMB2/3 client for NAS read/write

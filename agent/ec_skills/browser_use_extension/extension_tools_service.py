@@ -32,6 +32,9 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     LabelsReformatAction,
     ListSessionMonitorsAction,
     SelectAgentsAction,
+    NasSaveFileAction,
+    NasSaveTextAction,
+    NasListAction,
     NormalizePageStateAction,
     PersistSessionMonitorsToSkillAction,
     RagQueryAction,
@@ -2456,6 +2459,60 @@ async def rename_file(params: FileRenameAction, browser_session: BrowserSession)
         os.rename(params.old_path, new_path)
         return ActionResult(extracted_content=f"Renamed {params.old_path} to {new_path}")
     return ActionResult(error=f"File {params.old_path} not found in downloaded files")
+
+
+@custom_controller.action(
+    'Save (upload) a local file to the UGREEN NAS over SMB. Use this to persist a '
+    'downloaded datasheet/document to shared storage. remote_path is relative to the '
+    'NAS base folder and may include subfolders.',
+    param_model=NasSaveFileAction)
+async def save_file_to_nas(params: NasSaveFileAction) -> ActionResult:
+    logger.info(f"[Browser Use Extension] NAS upload: {params.local_path} -> {params.remote_path or '(basename)'}")
+    try:
+        from agent.ec_skills.nas import ugreen_nas as _nas
+        res = _nas.nas_upload(params.local_path, params.remote_path or None)
+        return ActionResult(
+            extracted_content=f"Uploaded to NAS: {res['path']} ({res['bytes']} bytes)",
+            include_in_memory=True,
+        )
+    except Exception as e:
+        logger.error(f"[Browser Use Extension] NAS upload failed: {e}")
+        return ActionResult(error=f"NAS upload failed: {e}")
+
+
+@custom_controller.action(
+    'Write text content (e.g. a JSON manifest or extracted metadata) to a file on the '
+    'UGREEN NAS over SMB. remote_path is relative to the NAS base folder.',
+    param_model=NasSaveTextAction)
+async def save_text_to_nas(params: NasSaveTextAction) -> ActionResult:
+    logger.info(f"[Browser Use Extension] NAS write text -> {params.remote_path}")
+    try:
+        from agent.ec_skills.nas import ugreen_nas as _nas
+        res = _nas.nas_write_text(params.remote_path, params.content)
+        return ActionResult(
+            extracted_content=f"Wrote NAS file: {res['path']} ({res['bytes']} bytes)",
+            include_in_memory=True,
+        )
+    except Exception as e:
+        logger.error(f"[Browser Use Extension] NAS write failed: {e}")
+        return ActionResult(error=f"NAS write failed: {e}")
+
+
+@custom_controller.action(
+    'List a directory on the UGREEN NAS over SMB. remote_dir is relative to the NAS base '
+    'folder (empty lists the base folder). Use to check what has already been saved.',
+    param_model=NasListAction)
+async def list_nas(params: NasListAction) -> ActionResult:
+    try:
+        from agent.ec_skills.nas import ugreen_nas as _nas
+        entries = _nas.nas_list(params.remote_dir or "")
+        if not entries:
+            return ActionResult(extracted_content=f"NAS dir '{params.remote_dir or '(base)'}' is empty or does not exist.")
+        lines = [f"{'[D]' if e['is_dir'] else '   '} {e['name']} ({e['size']} bytes)" for e in entries]
+        return ActionResult(extracted_content=f"NAS dir '{params.remote_dir or '(base)'}' ({len(entries)} entries):\n" + "\n".join(lines))
+    except Exception as e:
+        logger.error(f"[Browser Use Extension] NAS list failed: {e}")
+        return ActionResult(error=f"NAS list failed: {e}")
 
 
 @custom_controller.action('Print label files to a specified printer. Supports PDF, PNG, JPG files.', param_model=FilesPrintAction)
