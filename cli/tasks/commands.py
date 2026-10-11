@@ -856,6 +856,37 @@ def _set_task_vars(ctx, out, task_id, new_vars, identity=None):
     cloud_sync(DataType.TASK, result.get("data") or {"id": task_id, "settings": settings}, Operation.UPDATE)
 
 
+def _allow_nas_upload_root(docs_root, out):
+    """Let the crawler upload its documents to the NAS: add docs_root to
+    ECAN_NAS_UPLOAD_ROOTS in <appdata>/run.env (read at app start). The NAS
+    engine only uploads files from the downloads folders and these roots."""
+    import os
+    import re
+    root = str(docs_root or "").strip()
+    if not root:
+        return
+    try:
+        from config.envi import getECBotDataHome
+        path = os.path.join(getECBotDataHome(), "run.env")
+        lines = open(path, encoding="utf-8").read().splitlines() if os.path.exists(path) else []
+        key = "ECAN_NAS_UPLOAD_ROOTS"
+        for i, line in enumerate(lines):
+            m = re.match(rf"\s*{key}\s*=(.*)$", line)
+            if m:
+                roots = [r.strip() for r in m.group(1).split(";") if r.strip()]
+                if root in roots:
+                    return
+                lines[i] = f"{key}={';'.join(roots + [root])}"
+                break
+        else:
+            lines.append(f"{key}={root}")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        out.info(f"NAS uploads allowed from {root} (run.env, applies at the next app start).")
+    except Exception as e:
+        out.warning(f"Could not add {root} to ECAN_NAS_UPLOAD_ROOTS: {e}")
+
+
 @tasks.command("chip-pilot")
 @requires_auth
 @click.option("--vendor", default="Microchip", show_default=True, help="part_vendor")
@@ -938,8 +969,13 @@ def chip_pilot(vendor, home_url, category, docs_root, worker_filter, batch_size,
     if worker_ids:
         out.info(f"{len(worker_ids)} worker task(s): part_vendor / docs_root / manager set.")
 
+    _allow_nas_upload_root(docs_root, out)
+
     if arm:
         settings, _name, _trig = _existing_settings(ctx, coord_id)
+        # Arming means "run again": forget a finished one-time run, or run_once
+        # would keep it from ever starting.
+        settings.pop("completed_once_at", None)
         if run_once:
             settings["run_once"] = True
         else:

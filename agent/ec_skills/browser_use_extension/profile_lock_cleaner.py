@@ -95,6 +95,14 @@ def reclaim_orphaned_profile(user_data_dir: str | Path | None) -> dict:
     Only processes launched with exactly this ``--user-data-dir`` are touched,
     so a person's own Chrome (a different profile) is never affected."""
     result = {"orphans_killed": [], "live_owners": []}
+    # A fingerprint browser outlives the app on purpose: the next start attaches
+    # to it (fingerprint_browser, its debug port in .ecan_cdp.json). Its parent
+    # is gone too, but it is not an orphan -- never kill it.
+    try:
+        if user_data_dir and (Path(user_data_dir) / ".ecan_cdp.json").is_file():
+            return result
+    except Exception:
+        pass
     owners = find_profile_owner_processes(user_data_dir)
     if not owners:
         return result
