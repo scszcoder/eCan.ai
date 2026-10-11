@@ -38,3 +38,15 @@ def test_ids_are_unique_across_processes_in_the_same_millisecond(tmp_path):
     q1, q2 = OfflineSyncQueue(tmp_path), OfflineSyncQueue(tmp_path)
     ids = [q1.add("task", {"id": str(i)}) for i in range(20)] + [q2.add("task", {"id": "x"})]
     assert len(set(ids)) == len(ids)
+
+
+def test_removing_a_resource_drops_what_the_cli_queued_for_it(tmp_path):
+    # 2026-10-11: the CLI queued an agent add; the app deleted the agent (and
+    # cleared its own queue for it); the merged-in stale add re-created it.
+    app, cli = OfflineSyncQueue(tmp_path), OfflineSyncQueue(tmp_path)
+    app.get_pending_tasks()
+    cli.add("agent", {"id": "agent_1"})
+    assert app.remove_tasks_by_resource("agent", "agent_1") == 1
+    assert app.get_pending_tasks() == []
+    cli.add("task", {"id": "task_9"})                       # cli saves again from its memory
+    assert [t["data"]["id"] for t in app.get_pending_tasks()] == ["task_9"]
