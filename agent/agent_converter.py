@@ -774,6 +774,20 @@ def convert_agent_dict_to_ec_agent(
     agent_data: Dict[str, Any],
     main_window: 'MainWindow'
 ) -> Optional[EC_Agent]:
+    """Convert agent data (dict) to EC_Agent object (see _convert_agent_dict_to_ec_agent);
+    logs what the build cost to memory.log ([agent-cost])."""
+    from utils import agent_cost
+    before = agent_cost.snapshot()
+    ec_agent = _convert_agent_dict_to_ec_agent(agent_data, main_window)
+    if ec_agent is not None:
+        agent_cost.log_delta("build", str(agent_data.get('name') or agent_data.get('id') or '?'), before)
+    return ec_agent
+
+
+def _convert_agent_dict_to_ec_agent(
+    agent_data: Dict[str, Any],
+    main_window: 'MainWindow'
+) -> Optional[EC_Agent]:
     """
     Convert agent data (dict) to EC_Agent object.
     

@@ -24,9 +24,26 @@ the agent scheduler/pool memory and the commit messages.
   controller (`[agent-pool]`). Before a customer build: one Feige/千牛 session with 3+ customers.
   Kill switches: `ECAN_A2A_LOCAL_FASTPATH=0`, `ECAN_A2A_SHARED_SERVER=0`, `ECAN_LAZY_AGENTS=0`,
   `ECAN_POOL_PICK=0`, `ECAN_POOL_SCALING=0`, `ECAN_TASK_RESOURCE_GATE=0`.
-- **Pools park, they don't stop.** An agent can't be stopped and started again in-process (see the
-  store-move item), so scale-down only stops routing to a member; an idle member still holds its
-  task-loop thread and memory worker. Revisit only if measurements show that matters.
+- **TODO (agreed 2026-10-11): pool scale-down to a real stop.** Pools park, they don't stop: a
+  parked member keeps its task-loop thread, memory worker, LLM clients and A2A registration.
+  Now that a stopped agent can be replaced by a fresh one built from the DB (`_swap_agent`,
+  re-enable), add a third tier: active -> parked (warm) -> stopped (cold).
+  1. **Measure first** (logging is in: `[agent-cost]` lines in runlogs/memory.log — build, start,
+     start after 10 s, stop after 3 s + gc, with the thread families added/removed). Read the
+     median per Q&A agent from a normal startup, plus one isolated restart (`ecan agents update
+     <qa agent> -d <same text>` stops and rebuilds it).
+  2. **Then decide:** worth it if a Q&A agent costs ~30-50 MB+ and a few threads. Proposed rules:
+     stop a member parked >= 30 min when the hourly forecast says it won't be needed in the next
+     30-60 min; always keep min active + 1 warm spare; never stop one with a turn running/queued or
+     active in another front desk's pool; rebuild cold members ~10 min before a forecast peak.
+- **TODO (agreed 2026-10-11): shared Q&A pool across stores in 快速生成.** The backend recipe
+  exists (`douyin_cs_multi` / `pdd_cs_multi`, `_deploy_live_chat_multi`); the tile was dropped
+  2026-10-10. Needed: (1) pool sizing per shared group, not per front desk (front desks sharing
+  members are sized together from their combined traffic); (2) verify the asking store reaches
+  the Q&A prompt and the knowledge search on every turn (a shared Q&A task has no store id);
+  (3) 快速生成: picking 客服 for a second store of a platform turns sharing on, with its options.
+- **TODO (agreed 2026-10-11): "after task" finishes survive a restart** (persist each task's last
+  finish time; today only in memory, see below).
 - **Lazy agents: any new loop over ALL agents must read only `LazyAgent._CHEAP` attributes**, or it
   builds every deferred agent (three such scans were found live; the audit list is in the 5c
   commits). Symptom: `[lazy-agent] building '<name>' on first use (... from <file:line>)` for many

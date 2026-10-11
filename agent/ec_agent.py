@@ -451,6 +451,8 @@ class EC_Agent(Agent):
 			return
 		name = getattr(self.card, "name", "?")
 		logger.info(f"[AGENT_STOP] Stopping '{name}': {reason}")
+		from utils import agent_cost
+		_cost_before = agent_cost.snapshot()
 		self._running = False
 		self._stopped = True
 		try:
@@ -482,6 +484,7 @@ class EC_Agent(Agent):
 		except Exception as e:
 			logger.debug(f"[AGENT_STOP] '{name}' memory manager stop failed: {e}")
 		logger.info(f"[AGENT_STOP] '{name}' stopped")
+		agent_cost.log_later("stop", name, _cost_before, 3.0)
 
 	def exit_a2a_server_in_thread(self):
 		if getattr(self, "a2a_server_thread", None) and self.a2a_server_thread.is_alive():
@@ -500,10 +503,16 @@ class EC_Agent(Agent):
 			if getattr(self, "_starting", False) or getattr(self, "_running", False):
 				return
 			self._starting = True
+		from utils import agent_cost
+		_cost_before = agent_cost.snapshot()
 		try:
 			self._start_body()
 		finally:
 			self._starting = False
+		if getattr(self, "_running", False):
+			_name = getattr(self.card, "name", "?")
+			agent_cost.log_delta("start", _name, _cost_before)
+			agent_cost.log_later("start", _name, _cost_before, 10.0)
 
 	def _start_body(self):
 		# ── Vehicle affinity gate (SHARED_SKILL_MULTI_TASK_PLAN Phase 1.5) ──
