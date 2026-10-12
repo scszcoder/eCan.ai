@@ -2381,7 +2381,12 @@ def _write_eval_result(value: Any, path: str, append: bool) -> str:
         text = "\n" + text
     with out.open("a" if append else "w", encoding="utf-8") as f:
         f.write(text)
-    count = f", {len(value)} items" if isinstance(value, (list, dict)) else ""
+    if isinstance(value, list):
+        count = f", {len(value)} items"
+    elif isinstance(value, dict):  # e.g. {"total": 766, "parts": [...]}: report the lists, not the keys
+        count = "".join(f", {k}: {len(v)} items" for k, v in value.items() if isinstance(v, list))
+    else:
+        count = ""
     preview = text.strip()[:200]
     return (f"Wrote {len(text.encode('utf-8'))} bytes{count} to {out} ({'appended' if append else 'overwritten'}). "
             f"Preview: {preview}{'...' if len(text.strip()) > 200 else ''}")
@@ -2396,6 +2401,14 @@ def _write_eval_result(value: Any, path: str, append: bool) -> str:
 async def evaluate_to_file(params: EvaluateToFileAction, browser_session: BrowserSession) -> ActionResult:
     if not params.path or not os.path.isabs(params.path):
         return ActionResult(error="evaluate_to_file: path must be an absolute local file path")
+    code = params.code
+    if params.code_file:
+        try:
+            code = Path(params.code_file).read_text(encoding="utf-8")
+        except Exception as e:
+            return ActionResult(error=f"evaluate_to_file: cannot read code_file: {e}")
+    if not code.strip():
+        return ActionResult(error="evaluate_to_file: pass `code` or `code_file`")
     try:
         cdp_session = await browser_session.get_or_create_cdp_session()
 
@@ -2408,17 +2421,17 @@ async def evaluate_to_file(params: EvaluateToFileAction, browser_session: Browse
                 timeout=float(params.timeout or 300.0),
             )
 
-        res = await _eval(params.code)
+        res = await _eval(code)
         # `async () => {...}` without the trailing `()` evaluates to the
         # function itself, which serializes to {} (2026-10-12: the planner's
         # first table dump). Call it, like browser-use's own evaluate does.
         if (res.get('result') or {}).get('type') == 'function':
-            res = await _eval(f"({params.code})()")
+            res = await _eval(f"({code})()")
         # A bare function body (top-level `return` / `await`) is a SyntaxError
         # as a script; run it as the body of an async function instead.
         _err = str(((res.get('exceptionDetails') or {}).get('exception') or {}).get('description') or '')
         if 'Illegal return statement' in _err or 'await is only valid' in _err:
-            res = await _eval(f"(async () => {{\n{params.code}\n}})()")
+            res = await _eval(f"(async () => {{\n{code}\n}})()")
     except asyncio.TimeoutError:
         return ActionResult(error=f"evaluate_to_file: script did not finish within {params.timeout}s; nothing written")
     except Exception as e:
@@ -2434,6 +2447,13 @@ async def evaluate_to_file(params: EvaluateToFileAction, browser_session: Browse
         summary = _write_eval_result(value, params.path, params.append)
     except Exception as e:
         return ActionResult(error=f"evaluate_to_file: write failed: {e}")
+    if params.save_code_to:
+        try:
+            Path(params.save_code_to).parent.mkdir(parents=True, exist_ok=True)
+            Path(params.save_code_to).write_text(code, encoding="utf-8")
+            summary += f" Script saved to {params.save_code_to} (reuse it with code_file)."
+        except Exception as e:
+            summary += f" Could not save the script: {e}"
     logger.info(f"[evaluate_to_file] {summary[:300]}")
     return ActionResult(extracted_content=summary, include_in_memory=True)
 

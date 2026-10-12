@@ -29,8 +29,17 @@ class EvaluateToFileAction(BaseModel):
 	"""Run JavaScript in the current page and write its result to a local file,
 	so bulk data (table rows, link lists) never has to pass through the model."""
 	code: str = Field(
+		default="",
 		description="JavaScript expression or async IIFE run in the page. Its value (string, or any "
 		"JSON-serializable value) is written to the file. It may click/paginate and await."
+	)
+	code_file: str = Field(
+		default="",
+		description="Absolute path of a saved .js script to run instead of `code` (see save_code_to)."
+	)
+	save_code_to: str = Field(
+		default="",
+		description="Absolute path to save the script to when it succeeds, so later calls can reuse it via code_file."
 	)
 	path: str = Field(description="Absolute local file path to write.")
 	append: bool = Field(default=False, description="Append (one entry per call) instead of overwriting.")

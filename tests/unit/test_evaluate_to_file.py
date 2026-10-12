@@ -79,6 +79,26 @@ def test_bare_function_body_is_wrapped(tmp_path):
     assert calls[1]["expression"] == "(async () => {\nconst p = []; return p;\n})()"
 
 
+def test_saved_script_is_reused_via_code_file(tmp_path):
+    # the next category reuses the working collection script instead of retyping it
+    script = tmp_path / "raw" / "collect_table.js"
+    session, calls = _session({"result": {"type": "object", "value": {"total": 2, "parts": ["A", "B"]}}})
+    first = EvaluateToFileAction(code="(async () => ({}))()", path=str(tmp_path / "a.json"), save_code_to=str(script))
+    out = asyncio.run(svc.evaluate_to_file(params=first, browser_session=session))
+    assert "parts: 2 items" in out.extracted_content and "saved" in out.extracted_content
+    assert script.read_text(encoding="utf-8") == "(async () => ({}))()"
+    again = EvaluateToFileAction(code_file=str(script), path=str(tmp_path / "b.json"))
+    asyncio.run(svc.evaluate_to_file(params=again, browser_session=session))
+    assert calls[1]["expression"] == "(async () => ({}))()"
+
+
+def test_missing_code_is_rejected(tmp_path):
+    session, _ = _session({"result": {"value": "x"}})
+    out = asyncio.run(svc.evaluate_to_file(params=EvaluateToFileAction(path=str(tmp_path / "a.json")),
+                                           browser_session=session))
+    assert "code" in out.error
+
+
 def test_append_adds_one_entry_per_call(tmp_path):
     _run({"result": {"value": "a,b"}}, tmp_path)
     _run({"result": {"value": "c,d"}}, tmp_path, append=True)
