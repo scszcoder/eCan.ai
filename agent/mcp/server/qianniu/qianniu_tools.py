@@ -71,11 +71,26 @@ def _humanize(base: float) -> None:
     time.sleep(base + random.uniform(0.1, 0.5))
 
 
+_WIN_CACHE_S = 3.0
+_win_cache = [0.0, None]
+
+
 def _find_window():
     # The 接待中心 chat window first (not the 千牛工作台 home) -- shared with the OCR
     # capture so the window we focus is the window we read.
+    # Cached briefly: each lookup lists every window on the desktop, and one send
+    # looked the window up 5-6 times (alpha yu 2026-10-12: 7 s unexplained
+    # between the screen read and the keystrokes of one reply).
+    now = time.monotonic()
+    if _win_cache[1] is not None and now - _win_cache[0] < _WIN_CACHE_S:
+        return _win_cache[1]
     from agent.mcp.server.qianniu.qianniu_ocr import qianniu_chat_window
-    return qianniu_chat_window()
+    win = qianniu_chat_window()
+    took = time.monotonic() - now
+    if took > 0.5:
+        logger.info(f"[qianniu] window lookup took {took:.1f}s")
+    _win_cache[0], _win_cache[1] = time.monotonic(), win
+    return win
 
 
 def _is_front(win) -> bool:
@@ -207,14 +222,26 @@ def _type_and_send(text: str) -> None:
     """Click the composer → clipboard → Ctrl+V → Enter (study §4.4: Enter sends,
     not the button). The bot's pacing (~1 s), which delivered on the alpha
     customer's machine; the jittered delays added ~1.5 s to every reply."""
+    t0 = time.monotonic()
+    steps = []
+
+    def step(name):
+        steps.append(f"{name}={time.monotonic() - t0:.1f}")
+
     _click_composer()
+    step("composer")
     clipboard_set_text(text)
+    step("clipboard")
     _ensure_front("pasting the reply")
     paste_hotkey()
+    step("paste")
     time.sleep(0.4)
     _ensure_front("pressing Enter to send")
     pyautogui.press("enter")
+    step("enter")
     time.sleep(0.3)
+    if time.monotonic() - t0 > 2.5:
+        logger.info(f"[qianniu_send] slow typing: {' '.join(steps)}s")
 
 
 def _open_conversation_by_name(name: str) -> tuple:
