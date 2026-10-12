@@ -14,13 +14,9 @@ from ..base.decorators import requires_auth
 
 def _resolve_skill(ctx, out, identifier):
     """Resolve an id-or-name to a concrete skill id, or exit with an error."""
-    from types import SimpleNamespace
     from ..base.resolve import resolve_entity_id
-    # resolve_entity_id dispatches non-'agent' kinds to service.query_tasks;
-    # skill_service exposes the same query shape under query_skills.
-    svc = SimpleNamespace(query_tasks=ctx.db.skill_service.query_skills)
     try:
-        resolved = resolve_entity_id(svc, identifier, 'skill')
+        resolved = resolve_entity_id(ctx.db.skill_service, identifier, 'skill')
     except ValueError as e:
         out.error(str(e))
         raise SystemExit(1)
