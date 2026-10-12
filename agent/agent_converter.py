@@ -776,7 +776,7 @@ def _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills):
             # reads the task, so the inheritance has to happen here or a
             # skill's requires[] never reaches placement.
             _inherit_skill_placement(task_obj, matched_skill)
-        else:
+        elif getattr(getattr(task_obj, 'skill', None), 'runnable', None) is None:
             task_name_lower = (getattr(task_obj, 'name', '') or '').lower()
             is_chat_task = 'chat' in task_name_lower
             task_skill = getattr(task_obj, 'skill', None)

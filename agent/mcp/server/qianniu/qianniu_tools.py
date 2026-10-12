@@ -187,8 +187,26 @@ def _find_search_box(ocr_data: list):
     return cands[0][1]
 
 
+# The reply composer, as fractions of the 接待中心 window (the standalone bot's
+# --composer-x/-y, which delivered on the alpha customer's machine).
+_COMPOSER_X, _COMPOSER_Y = 0.5, 0.90
+
+
+def _click_composer() -> None:
+    """Focus the reply box. Foregrounding the window does not: with the chat
+    already open, the paste and Enter went to whatever had focus and nothing was
+    sent (alpha 2026-10-12, v0.9.99ys: 'sent' twice, the buyer got nothing)."""
+    win = _find_window()
+    if not win or not getattr(win, "width", 0) or not getattr(win, "height", 0):
+        raise RuntimeError("千牛 window size unknown; cannot find the reply box")
+    _click(int(win.left + win.width * _COMPOSER_X), int(win.top + win.height * _COMPOSER_Y))
+    _humanize(0.25)
+
+
 def _type_and_send(text: str) -> None:
-    """Clipboard → Ctrl+V → Enter (study §4.4: Enter sends, not the button)."""
+    """Click the composer → clipboard → Ctrl+V → Enter (study §4.4: Enter sends,
+    not the button)."""
+    _click_composer()
     clipboard_set_text(text)
     _ensure_front("pasting the reply")
     paste_hotkey()
@@ -396,8 +414,10 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
     logger.info(f"[qianniu_send] sent ({route}; body={body_ok} header={header_text!r}) "
                 f"buyer={buyer!r}: {msg[:40]!r}")
     try:   # our reply reappears in 千牛 memory looking incoming; mark it as ours
-        from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.observer import record_sent
+        from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.observer import (
+            check_delivered_later, record_sent)
         record_sent(msg)
+        check_delivered_later(msg, buyer or expect_text[:16])
     except Exception as rec_err:
         logger.warning(f"[qianniu_send] could not record the sent text: {rec_err}")
     return _send_result(True, True, "", header_text)

@@ -314,3 +314,40 @@ def test_an_unread_dot_is_not_a_conversation_row():
 def test_a_read_marker_is_not_part_of_the_buyers_last_message():
     screen = REAL_SCREEN + [_real("..0", 600, 620)]
     assert qianniu_ocr.last_turn(screen, "sctisz", "倪好数码:小柒") == ("buyer", "有黑人牙膏吗")
+
+
+def test_the_reply_box_is_clicked_before_pasting():
+    """Alpha 2026-10-12 (v0.9.99ys): with the chat already open, paste + Enter
+    went to whatever had focus and nothing was sent. The composer is clicked
+    first, where the standalone bot clicks it (50% / 90% of the window)."""
+    from types import SimpleNamespace as NS
+    order = []
+    win = NS(hwnd=111, title="x-接待中心", left=141, top=70, width=1638, height=1000)
+    with patch.object(qianniu_tools, "_find_window", return_value=win), \
+            patch.object(qianniu_tools, "_is_front", return_value=True), \
+            patch.object(qianniu_tools, "_humanize"), \
+            patch.object(qianniu_tools.time, "sleep"), \
+            patch.object(qianniu_tools.pyautogui, "moveTo"), \
+            patch.object(qianniu_tools.pyautogui, "click", side_effect=lambda x, y: order.append(("click", x, y))), \
+            patch.object(qianniu_tools, "clipboard_set_text"), \
+            patch.object(qianniu_tools, "paste_hotkey", side_effect=lambda: order.append(("paste",))), \
+            patch.object(qianniu_tools.pyautogui, "press", side_effect=lambda k: order.append(("press", k))):
+        qianniu_tools._type_and_send("您好")
+    assert order == [("click", 141 + 819, 70 + 900), ("paste",), ("press", "enter")]
+
+
+def test_a_reply_never_seen_in_memory_is_reported_not_confirmed():
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import observer
+    logged = []
+    with patch.object(observer, "_DELIVERY_CHECK_S", 0.01), \
+            patch.object(observer.logger, "info", side_effect=lambda m: logged.append(("info", m))), \
+            patch.object(observer.logger, "warning", side_effect=lambda m: logged.append(("warn", m))):
+        observer.record_sent("这边帮您核实周末活动信息")
+        observer.record_sent("您好，在的")
+        observer._mark_sent_seen("您好，在的")          # the observer saw this one come back
+        observer.check_delivered_later("这边帮您核实周末活动信息", "sctisz")
+        observer.check_delivered_later("您好，在的", "sctisz")
+        import time as _t
+        _t.sleep(0.3)
+    kinds = sorted((k, "NOT CONFIRMED" in m, "delivered" in m) for k, m in logged)
+    assert kinds == [("info", False, True), ("warn", True, False)]

@@ -82,6 +82,43 @@ def record_sent(text: str) -> None:
             _sent_texts.popitem(last=False)
 
 
+# Sent texts seen back in 千牛 memory: the proof a send left the composer.
+_DELIVERY_CHECK_S = 15.0
+_sent_seen: "OrderedDict[str, float]" = OrderedDict()
+
+
+def _mark_sent_seen(text: str) -> None:
+    key = _norm_text(text)
+    with _sent_lock:
+        if key in _sent_texts and key not in _sent_seen:
+            _sent_seen[key] = time.monotonic()
+            while len(_sent_seen) > 200:
+                _sent_seen.popitem(last=False)
+
+
+def check_delivered_later(text: str, buyer: str) -> None:
+    """Warn if a reply qianniu_send typed never shows up in 千牛 memory: "sent"
+    there only means Enter was pressed in the buyer's verified chat (alpha
+    2026-10-12: two replies 'sent', neither reached the buyer)."""
+    key = _norm_text(text)
+    if not key:
+        return
+
+    def _check():
+        with _sent_lock:
+            seen = key in _sent_seen
+        if seen:
+            logger.info(f"[qianniu_send] delivered: reply to {buyer!r} is in 千牛 memory: {text[:30]!r}")
+        else:
+            logger.warning(f"[qianniu_send] NOT CONFIRMED: reply to {buyer!r} not in 千牛 memory "
+                           f"{_DELIVERY_CHECK_S:.0f}s after Enter -- probably still in the reply box or "
+                           f"lost (or the memory reader is blind: see [QIANNIU-MEM] heartbeat): {text[:30]!r}")
+
+    t = threading.Timer(_DELIVERY_CHECK_S, _check)
+    t.daemon = True
+    t.start()
+
+
 def _is_our_send(text: str) -> bool:
     key = _norm_text(text)
     if not key:
@@ -509,8 +546,10 @@ class QianniuMemObserver:
         self._scan_ms = (self._scan_ms + [ms])[-100:]
         # Our own sent reply in memory names the store's sender id (bot rule).
         for cand in candidates:
-            if cand.uid and _is_our_send(cand.text):
-                name_map.learn_store_self_id(cand.uid)
+            if _is_our_send(cand.text):
+                _mark_sent_seen(cand.text)
+                if cand.uid:
+                    name_map.learn_store_self_id(cand.uid)
         seller = (mem_locator.seller_id_of(candidates) if candidates else None) or \
             (name_map.store_self_id() or None)
         incoming = [c for c in candidates
