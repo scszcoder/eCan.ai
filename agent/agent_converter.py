@@ -710,6 +710,42 @@ def _inherit_skill_placement(task_obj, skill_obj) -> None:
         logger.warning(f"[AgentConverter] placement inheritance failed (non-fatal): {e}")
 
 
+def _bind_task_skills_from_db(main_window, task_objects, skill_objects, compiled_skills):
+    """Give a task without a skill the one its task-skill relation names.
+
+    Tasks are loaded before skills are compiled, so the relation read then
+    (create_agent_tasks) finds no skill object to attach. An agent whose tasks
+    come as bare ids (extra_data) has no stub skill either, and the name
+    fallback in _find_matching_skill_for_task misses whenever the task isn't
+    named after its skill (天猫客服前台001 -> 淘宝客服前台01).
+    """
+    unbound = [t for t in task_objects or [] if getattr(t, 'skill', None) is None and getattr(t, 'id', None)]
+    if not unbound:
+        return
+    try:
+        task_service = main_window.ec_db_mgr.task_service
+    except Exception:
+        return
+    pool = [sk for sk in list(skill_objects or []) + list(compiled_skills or [])
+            if sk is not None and getattr(sk, 'runnable', None) is not None]
+    by_id = {}
+    for sk in pool:
+        by_id.setdefault(str(getattr(sk, 'id', '') or ''), sk)
+    for task_obj in unbound:
+        try:
+            rels = (task_service.get_task_skills(task_obj.id, role=None) or {}).get('data') or []
+        except Exception as exc:
+            logger.warning(f"[AgentConverter] task-skill relation lookup failed for {task_obj.id}: {exc}")
+            continue
+        for rel in rels:
+            sk = by_id.get(str(rel.get('skill_id') or ''))
+            if sk is not None:
+                task_obj.skill = sk
+                logger.info(f"[AgentConverter] Bound task '{getattr(task_obj, 'name', '?')}' to skill "
+                            f"'{getattr(sk, 'name', '?')}' (id={rel.get('skill_id')}) from the task-skill relation")
+                break
+
+
 def _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills):
     """Attach executable skills to tasks and ensure chat tasks have message trigger."""
     logger.info(f"[AgentConverter] _attach_skills_and_triggers: {len(task_objects)} tasks, {len(skill_objects)} agent skills, {len(compiled_skills)} compiled skills")
@@ -962,6 +998,8 @@ def _convert_agent_dict_to_ec_agent(
         task_objects = _resolve_from_compiled_pool(
             task_stubs, compiled_tasks, 'task', agent_data.get('name')
         )
+
+        _bind_task_skills_from_db(main_window, task_objects, skill_objects, compiled_skills)
 
         # Skill attachment and trigger adjustment for tasks
         _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills)
