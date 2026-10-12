@@ -49,6 +49,22 @@ def test_report_marks_done_and_failed_and_frees_worker():
     assert res["done"] == 1
 
 
+def test_aborted_runs_requeue_without_using_attempts():
+    # 2026-10-12: an internet outage aborted every crawler run within a minute and
+    # marked 203 parts failed after 2 "attempts" that never reached a page
+    rows, workers = [], {}
+    _, sent = _round(rows, workers, names=("W1",))
+    for n in range(1, ex.MAX_ABORTS + 1):
+        report = {"type": "scrape_report", "batch_id": sent[-1][1]["batch_id"], "parts": [
+            {"part": p["part"], "state": "failed", "docs": 0, "error": "crawler run aborted before reporting"}
+            for p in sent[-1][1]["parts"]]}
+        _round(rows, workers, report=report, names=("W1",), sent=sent)
+        if n < ex.MAX_ABORTS:
+            assert _state(rows, "P1")["state"] == "assigned" and _state(rows, "P1")["attempts"] == ""
+            assert _state(rows, "P1")["note"] == f"aborted x{n}"
+    assert _state(rows, "P1")["state"] == "failed"
+
+
 def test_duplicate_report_is_ignored():
     rows, workers = [], {}
     _, sent = _round(rows, workers, names=("W1",))

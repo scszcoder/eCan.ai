@@ -19,6 +19,9 @@ from typing import Callable
 
 STALE_AFTER = timedelta(minutes=30)
 MAX_ATTEMPTS = 2
+MAX_ABORTS = 20  # an aborted run comes back within ~1 min, so this is ~20 min of outage per batch
+ABORTED = "crawler run aborted"  # what the crawler skill's RoundEnd reports
+ABORTED_NOTE = "aborted x"
 PART_COLS = ["part", "product page URL", "sub_plan", "state", "worker", "docs", "updated", "attempts", "note"]
 WORKER_COLS = ["worker", "state", "batch id", "assigned at"]
 
@@ -114,7 +117,15 @@ def run_round(rows: list[dict], workers: dict[str, dict], plan: list[dict], repo
                 if not r or r["state"] != "assigned" or r["worker"] != owner:
                     continue
                 docs = int(item.get("docs") or 0) if str(item.get("docs") or "0").isdigit() else 0
-                if item.get("state") == "done" and docs > 0:
+                if str(item.get("error") or "").startswith(ABORTED):
+                    # 2026-10-12: an internet outage aborted every run within a minute and
+                    # burned 203 parts' attempts untried; an aborted run says nothing about
+                    # the part, so requeue it and give up only after MAX_ABORTS
+                    aborts = int(r["note"][len(ABORTED_NOTE):] or 0) + 1 if r["note"].startswith(ABORTED_NOTE) else 1
+                    r.update(state="pending", worker="", note=f"{ABORTED_NOTE}{aborts}", updated=stamp)
+                    if aborts >= MAX_ABORTS:
+                        r.update(state="failed", attempts=str(MAX_ATTEMPTS))
+                elif item.get("state") == "done" and docs > 0:
                     r.update(state="done", docs=str(docs), note="", updated=stamp)
                 else:  # a done part with 0 docs is a failure
                     tries = int(r.get("attempts") or 0) + 1
