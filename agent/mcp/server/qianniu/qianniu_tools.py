@@ -200,20 +200,21 @@ def _click_composer() -> None:
     if not win or not getattr(win, "width", 0) or not getattr(win, "height", 0):
         raise RuntimeError("千牛 window size unknown; cannot find the reply box")
     _click(int(win.left + win.width * _COMPOSER_X), int(win.top + win.height * _COMPOSER_Y))
-    _humanize(0.25)
+    time.sleep(0.25)
 
 
 def _type_and_send(text: str) -> None:
     """Click the composer → clipboard → Ctrl+V → Enter (study §4.4: Enter sends,
-    not the button)."""
+    not the button). The bot's pacing (~1 s), which delivered on the alpha
+    customer's machine; the jittered delays added ~1.5 s to every reply."""
     _click_composer()
     clipboard_set_text(text)
     _ensure_front("pasting the reply")
     paste_hotkey()
-    _humanize(_POST_TYPE_DELAY)
+    time.sleep(0.4)
     _ensure_front("pressing Enter to send")
     pyautogui.press("enter")
-    _humanize(_POST_ACTION_DELAY)
+    time.sleep(0.3)
 
 
 def _open_conversation_by_name(name: str) -> tuple:
@@ -362,10 +363,50 @@ async def qianniu_send(mainwin, args):
         lock.release(holder)
 
 
+def send_reply(buyer: str, msg: str, expect_text: str) -> dict:
+    """qianniu_send for the reply direct-delivery path (no MCP round trip, no
+    front-desk LLM turn): the same desktop lock and fail-closed checks. Blocks
+    the calling thread. Returns the tool's result dict."""
+    buyer, expect_text = (buyer or "").strip(), (expect_text or "").strip()
+    logger.info(f"[qianniu_send] direct start buyer={buyer!r} expect={expect_text[:24]!r} "
+                f"msg_len={len(msg or '')}: {(msg or '')[:40]!r}")
+    if not msg or not (buyer or expect_text):
+        return {"chat_sent": False, "verified": False, "error": "need chat_msg and a buyer name or message text"}
+    lock = _lock()
+    holder = f"send-direct:{time.monotonic()}"
+    t0 = time.monotonic()
+    while not lock.try_acquire(holder) and time.monotonic() - t0 < _LOCK_WAIT_S:
+        time.sleep(0.2)
+    if lock.holder() != holder:
+        logger.warning(f"[qianniu_send] busy: desktop lock held by {lock.holder()!r}; not sent to "
+                       f"{buyer or expect_text[:16]!r}")
+        return {"chat_sent": False, "verified": False, "error": f"desktop busy ({lock.holder()!r})"}
+    waited = time.monotonic() - t0
+    try:
+        with _no_corner_failsafe():
+            res = _send_locked(buyer, msg, True, expect_text)
+        out = json.loads(res[0].text)
+    except Exception as e:
+        logger.error(f"[qianniu_send] {traceback.format_exc()}")
+        out = {"chat_sent": False, "verified": False, "error": str(e)}
+    finally:
+        lock.release(holder)
+    logger.info(f"[qianniu_send] direct done in {time.monotonic() - t0:.1f}s (lock wait {waited:.1f}s): "
+                f"sent={out.get('chat_sent')} {out.get('error') or ''}")
+    return out
+
+
 def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
     """qianniu_send's desktop part; the caller holds the desktop lock."""
+    t0 = time.monotonic()
+    marks = []
+
+    def mark(step):
+        marks.append(f"{step}={time.monotonic() - t0:.1f}s")
+
     if not _foreground():
         return _send_result(False, False, "千牛 window not found. Is it running?")
+    mark("front")
 
     short = bool(expect_text) and len(_norm(expect_text)) < _MIN_BODY_ID_CHARS
 
@@ -378,6 +419,7 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
         return bool(hdr and hdr.matched), False, hdr
 
     ocr_data = _read_qianniu()
+    mark("read")
     ok, body_ok, hdr = identify(ocr_data)
     route = "already open"
     if not ok and auto_open:
@@ -397,6 +439,7 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
         # (a fresh read costs ~6 s), else a new one.
         ocr_data = frames[-1] if frames else _read_qianniu()
         ok, body_ok, hdr = identify(ocr_data)
+        mark("opened")
     header_text = hdr.header_text if hdr else ""
     if not ok:
         if expect_text and body_ok and short:
@@ -411,8 +454,9 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
         return _send_result(False, False, f"{why} — refusing to send", header_text)
 
     _type_and_send(msg)
+    mark("typed")
     logger.info(f"[qianniu_send] sent ({route}; body={body_ok} header={header_text!r}) "
-                f"buyer={buyer!r}: {msg[:40]!r}")
+                f"buyer={buyer!r} [{' '.join(marks)}]: {msg[:40]!r}")
     try:   # our reply reappears in 千牛 memory looking incoming; mark it as ours
         from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.observer import (
             check_delivered_later, record_sent)

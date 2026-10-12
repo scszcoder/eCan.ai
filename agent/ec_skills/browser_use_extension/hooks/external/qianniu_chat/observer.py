@@ -71,11 +71,16 @@ def _norm_text(text: str) -> str:
     return "".join((text or "").split())
 
 
+_BACKSTOP_QUIET_S = 30.0
+_last_send_at = [0.0]
+
+
 def record_sent(text: str) -> None:
     """Called by qianniu_send after a successful send."""
     key = _norm_text(text)
     if not key:
         return
+    _last_send_at[0] = time.monotonic()
     with _sent_lock:
         _sent_texts[key] = time.monotonic()
         while len(_sent_texts) > 200:
@@ -269,7 +274,7 @@ def learn_enabled() -> bool:
 
 def _poll_interval_s() -> float:
     try:
-        return max(1.0, float(os.environ.get("ECAN_QIANNIU_POLL_S", "") or 3.0))
+        return max(1.0, float(os.environ.get("ECAN_QIANNIU_POLL_S", "") or 2.0))   # a scan takes ~1-1.7 s
     except (TypeError, ValueError):
         return 3.0
 
@@ -357,6 +362,7 @@ class QianniuMemObserver:
     def __init__(self, dispatch_fn=None):
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
+        self._last_live_dispatch = 0.0
         self._seen: "OrderedDict[str, float]" = OrderedDict()
         self._last_learn = 0.0
         # Override for tests / the reliability gate; defaults to the real
@@ -679,6 +685,7 @@ class QianniuMemObserver:
                                 f"{' (retry)' if retrying else ''}: {item['last_message'][:40]!r}"
                                 f" product={item['product_card'][:60] or None!r}")
                 if n:
+                    self._last_live_dispatch = time.monotonic()
                     self._nobody_since.pop(key, None)
                     self._note_dispatched_text(item["last_message"])
                     continue
@@ -814,6 +821,13 @@ class QianniuMemObserver:
         checked: set = set()
         while not self._stop.wait(interval):
             if not route_ready():
+                continue
+            # Not while a chat is live: the pass holds the desktop ~5-13 s and a
+            # reply waiting to be sent waits that long (alpha yt 2026-10-12, 7.5 s
+            # of one reply). The observer is evidently working then; the pass
+            # runs once the chat has been quiet for _BACKSTOP_QUIET_S.
+            quiet = time.monotonic() - max(self._last_live_dispatch, _last_send_at[0])
+            if quiet < _BACKSTOP_QUIET_S:
                 continue
             try:
                 backstop_sweep(self._cold_dispatch, self._already_handled,

@@ -4777,6 +4777,22 @@ class TaskRunner(Generic[Context]):
             )
             return True
 
+        # A site that sends without a browser (千牛, a desktop client) delivers the
+        # reply itself. The browser path below would wait for a browser session
+        # it never gets, then queue the reply for the front desk's LLM round
+        # (alpha 2026-10-12: 5 s wait + 2.4 s LLM + the queue per reply).
+        try:
+            _deliver_reply = getattr(_live_chat_bridge(), "deliver_reply", None)
+        except Exception:
+            _deliver_reply = None
+        if callable(_deliver_reply):
+            try:
+                return bool(_deliver_reply(_parsed))
+            except Exception as _dr_err:
+                logger.warning(f"[DIRECT-DELIVERY] site deliver_reply failed customer={_customer_name!r}: "
+                               f"{_dr_err}; the front desk takes the reply")
+                return False
+
         try:
             _live_chat_ledger_payload = _live_chat_bridge().trace_ledger.log_payload
         except Exception:
