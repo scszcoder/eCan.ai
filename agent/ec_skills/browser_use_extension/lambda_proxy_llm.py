@@ -123,6 +123,21 @@ def _summarize_validation_error(err: Exception, text: str) -> str:
             "Fix these and retry: " + "; ".join(lines))
 
 
+def _repair_completion(text: str, output_format: type[T]) -> T | None:
+    """Parse near-JSON (e.g. an unescaped quote inside a long code argument).
+
+    Only for output the model finished: closing a cut-off string would silently
+    drop the rest of a table the model was writing. The repaired object must
+    still fit *output_format*, else None.
+    """
+    try:
+        import json_repair
+        obj = json_repair.loads(text)
+        return output_format.model_validate(obj) if isinstance(obj, dict) else None
+    except Exception:
+        return None
+
+
 @dataclass
 class ChatLambdaProxy(BaseChatModel):
     """Browser-use compatible LLM that proxies calls through an AWS Lambda.
@@ -446,8 +461,22 @@ class ChatLambdaProxy(BaseChatModel):
                         parsed = json.loads(completion_text)
                         completion = output_format.model_validate(parsed)
                     except Exception as e:
+                        stop_reason = self._extract_stop_reason(data)
+                        repaired = (_repair_completion(completion_text, output_format)
+                                    if isinstance(e, json.JSONDecodeError) and stop_reason != 'length' else None)
+                        if repaired is not None:
+                            logger.warning(f"[ChatLambdaProxy] repaired malformed JSON output ({e})")
+                            return ChatInvokeCompletion(
+                                completion=repaired,
+                                usage=self._extract_usage(data),
+                                stop_reason=stop_reason,
+                            )
+                        pos = getattr(e, 'pos', None)
+                        near = completion_text[max(0, pos - 150):pos + 150] if isinstance(pos, int) else ''
                         logger.warning(
-                            f"[ChatLambdaProxy] Failed to parse output as {output_format.__name__}: {e}"
+                            f"[ChatLambdaProxy] Failed to parse output as {output_format.__name__}: {e} "
+                            f"(stop_reason={stop_reason}, len={len(completion_text)}) "
+                            f"start={completion_text[:300]!r} near_error={near!r}"
                         )
                         # Raise, don't return the raw text: browser-use does
                         # `completion.action` on it and the model only ever saw

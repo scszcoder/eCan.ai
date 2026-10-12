@@ -10,7 +10,7 @@ import pytest
 from browser_use.agent.views import AgentOutput
 from browser_use.tools.service import Tools
 
-from agent.ec_skills.browser_use_extension.lambda_proxy_llm import _summarize_validation_error
+from agent.ec_skills.browser_use_extension.lambda_proxy_llm import _repair_completion, _summarize_validation_error
 
 
 def _output_model():
@@ -53,3 +53,22 @@ def test_missing_action_list_says_use_done():
         _output_model().model_validate_json(text)
     msg = _summarize_validation_error(exc.value, text)
     assert "action: Field required" in msg and "`done` action" in msg
+
+
+_HEAD = '{"thinking": "", "evaluation_previous_goal": "", "memory": "", "next_goal": "", '
+
+
+def test_unescaped_quotes_in_a_long_argument_are_repaired():
+    # 2026-10-11: writing 40 sub-plan rows, the model left quotes unescaped
+    # ("Expecting ',' delimiter") and burned 3 of its 6 allowed failures
+    text = _HEAD + '"action": [{"done": {"text": "rows = ["PIC16F13214", "PIC16F13254"]\ndone", "success": true}}]}'
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(text)
+    out = _repair_completion(text, _output_model())
+    assert out is not None
+    assert out.action[0].model_dump(exclude_none=True)["done"]["text"] == 'rows = ["PIC16F13214", "PIC16F13254"]\ndone'
+
+
+def test_repair_still_enforces_the_schema():
+    text = _HEAD + '"action": [{"search_page": {"query": "PIC10"}},]}'
+    assert _repair_completion(text, _output_model()) is None
