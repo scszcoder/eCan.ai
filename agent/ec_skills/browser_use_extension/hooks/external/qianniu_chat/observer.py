@@ -327,6 +327,10 @@ def inject_item(item: dict, target_agent_id: str = "") -> int:
     """
     if not route_ready():
         return 0
+    if not target_agent_id:
+        from . import direct_qa
+        if direct_qa.forward(item):     # no front-desk LLM round (~2.5 s)
+            return 1
     from agent.ec_skills.browser_use_extension.event_monitor import (
         _build_normalized_browser_event, _dispatch_to_runners,
     )

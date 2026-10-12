@@ -66,3 +66,43 @@ def test_the_backstop_waits_while_a_chat_is_live():
         obs._cold_dispatch = obs._already_handled = None
         obs._backstop_loop()
     assert not sweep.called
+
+
+def _fd_world():
+    fd_task = SimpleNamespace(skill="fd-skill", metadata={"task_vars": {"qa_agent_ids": "qa1,qa2"}})
+    other = SimpleNamespace(skill="feige-skill", metadata={"task_vars": {"qa_agent_ids": "qa9"}})
+    agents = [SimpleNamespace(card=SimpleNamespace(id="fd_feige"), tasks=[other]),
+              SimpleNamespace(card=SimpleNamespace(id="fd_qn"), tasks=[fd_task])]
+    return SimpleNamespace(agents=agents)
+
+
+def test_a_buyer_message_goes_straight_to_the_picked_qa_agent_as_the_front_desk():
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import direct_qa
+    from agent.ec_skills import live_chat_dispatch
+    from agent.ec_agents import agent_pool
+    from agent.mcp.server.chat_utils import chat_tools
+    sent = []
+    direct_qa._recent.clear()
+    with patch("app_context.AppContext.get_main_window", return_value=_fd_world()), \
+            patch.object(live_chat_dispatch, "site_for_skill",
+                         side_effect=lambda s: "qianniu_chat" if s == "fd-skill" else "feige_chat"), \
+            patch.object(agent_pool, "pick_for_customer", side_effect=lambda fd, uid, ids: "qa2"), \
+            patch.object(chat_tools, "send_chat", side_effect=lambda mw, c: sent.append(c) or {"success": True}):
+        assert direct_qa.forward({"customer_id": "678614304", "customer_display_name": "sctisz",
+                                  "latest_message": "有格子衫吗？", "product_card": ""})
+        assert direct_qa.forward({"customer_id": "678614304", "customer_display_name": "sctisz",
+                                  "latest_message": "产品有质保吗？", "product_card": ""})
+    assert [(c["sender_agent_id"], c["recipient_agent_id"]) for c in sent] == [("fd_qn", "qa2")] * 2
+    assert json.loads(sent[1]["message"]) == {
+        "customer_id": "678614304", "customer_name": "sctisz", "latest_message": "产品有质保吗？",
+        "customer_recent_messages": ["有格子衫吗？", "产品有质保吗？"]}
+
+
+def test_without_a_qa_agent_the_front_desk_handles_the_message():
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import direct_qa
+    from agent.ec_skills import live_chat_dispatch
+    from agent.ec_agents import agent_pool
+    with patch("app_context.AppContext.get_main_window", return_value=_fd_world()), \
+            patch.object(live_chat_dispatch, "site_for_skill", return_value="qianniu_chat"), \
+            patch.object(agent_pool, "pick_for_customer", return_value=""):
+        assert direct_qa.forward({"customer_id": "1", "latest_message": "在吗"}) is False
