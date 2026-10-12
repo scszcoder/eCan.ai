@@ -33,6 +33,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     ListSessionMonitorsAction,
     SelectAgentsAction,
     NasSaveFileAction,
+    DownloadDocsToNasAction,
     NasSaveTextAction,
     NasListAction,
     NormalizePageStateAction,
@@ -2564,6 +2565,92 @@ async def save_file_to_nas(params: NasSaveFileAction) -> ActionResult:
     except Exception as e:
         logger.error(f"[Browser Use Extension] NAS upload failed: {e}")
         return ActionResult(error=f"NAS upload failed: {e}")
+
+
+def _doc_file_name(doc: dict) -> str:
+    """'<type> - <title>.<ext>' with only letters, digits, spaces, '-', '_' and '.'."""
+    base, ext = os.path.splitext(os.path.basename(urllib.parse.urlparse(doc["url"]).path))
+    title = str(doc.get("title") or "").strip()
+    # 2026-10-12: a page script returned "[object Object]" for every title, so
+    # all of a part's errata collapsed onto one file name; the URL's own file
+    # name is the reliable fallback
+    if not title or "[object" in title:
+        title = urllib.parse.unquote(base)
+    stem = " - ".join(s for s in (str(doc.get("type") or "").strip(), title) if s) or "document"
+    stem = " ".join("".join(c if c.isalnum() or c in " -_." else " " for c in stem).split())[:150]
+    return stem.rstrip(". ") + (ext.lower() or ".pdf")
+
+
+_DOWNLOAD_PARALLEL = 4
+
+
+def _fetch_to(url: str, path: str) -> int:
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 eCan-AI downloader"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        data = r.read()
+    with open(path, "wb") as wf:
+        wf.write(data)
+    return len(data)
+
+
+@custom_controller.action(
+    "Download every document listed in a JSON file (e.g. one written by evaluate_to_file) into a "
+    "local folder and upload each to the NAS — a whole part's documents in ONE action. Returns only "
+    "counts and file names.",
+    param_model=DownloadDocsToNasAction)
+async def download_docs_to_nas(params: DownloadDocsToNasAction) -> ActionResult:
+    # 2026-10-12: the chip crawler spent ~4 model steps per part on
+    # download_file/save_file_to_nas pairs, each resending the whole page.
+    try:
+        with open(params.docs_file, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        return ActionResult(error=f"download_docs_to_nas: cannot read docs_file: {e}")
+    docs = data.get("docs") if isinstance(data, dict) else data
+    if not isinstance(docs, list):
+        return ActionResult(error="download_docs_to_nas: docs_file must hold a list, or {\"docs\": [...]}")
+    from agent.ec_skills.nas import ugreen_nas as _nas
+
+    os.makedirs(params.local_dir, exist_ok=True)
+    jobs, seen, names = [], set(), set()
+    for doc in docs:
+        url = str((doc or {}).get("url") or "").strip() if isinstance(doc, dict) else ""
+        if not url.startswith("http") or url in seen:
+            continue
+        seen.add(url)
+        name = _doc_file_name(doc)
+        stem, ext = os.path.splitext(name)
+        n = 2
+        while name.lower() in names:  # two documents must never share a file
+            name, n = f"{stem} ({n}){ext}", n + 1
+        names.add(name.lower())
+        jobs.append((url, name))
+
+    # 2026-10-12: parts with ~22 documents took minutes one file at a time
+    gate = asyncio.Semaphore(_DOWNLOAD_PARALLEL)
+
+    async def save(url: str, name: str) -> str | None:
+        path = os.path.join(params.local_dir, name)
+        async with gate:
+            try:
+                # threads: a blocking download here would stall every agent on the loop
+                if not (os.path.exists(path) and os.path.getsize(path)):
+                    await asyncio.to_thread(_fetch_to, url, path)
+                if params.nas_dir:
+                    await asyncio.to_thread(_nas.nas_upload, path, f"{params.nas_dir.rstrip('/')}/{name}")
+                return None
+            except Exception as e:
+                return f"{name}: {e}"
+
+    errors = await asyncio.gather(*(save(url, name) for url, name in jobs))
+    saved = [name for (_, name), err in zip(jobs, errors) if err is None]
+    failed = [err for err in errors if err]
+    logger.info(f"[download_docs_to_nas] {params.local_dir}: {len(saved)} saved, {len(failed)} failed")
+    msg = f"{len(saved)} saved, {len(failed)} failed in {params.local_dir}. Saved: {saved}"
+    if failed:
+        msg += f" Failed: {failed}"
+    return ActionResult(extracted_content=msg, include_in_memory=True,
+                        error=None if saved or not failed else msg)
 
 
 @custom_controller.action(

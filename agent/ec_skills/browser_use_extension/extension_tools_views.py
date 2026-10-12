@@ -660,6 +660,20 @@ class NasSaveFileAction(BaseModel):
 	)
 
 
+class DownloadDocsToNasAction(BaseModel):
+	"""Download every document listed in a JSON file and upload each one to the NAS, in one action."""
+	docs_file: str = Field(
+		description="Absolute path of a JSON list of documents, e.g. written by evaluate_to_file: "
+		"[{\"type\": \"Data Sheets\", \"title\": \"...\", \"url\": \"https://.../x.pdf\"}, ...] "
+		"(or {\"docs\": [...]})."
+	)
+	local_dir: str = Field(description="Absolute local folder to save the files in (created if missing).")
+	nas_dir: str = Field(
+		default="",
+		description="Folder on the NAS, RELATIVE to the configured base folder. LEAVE EMPTY to skip the NAS upload."
+	)
+
+
 class NasSaveTextAction(BaseModel):
 	"""Write text (e.g. a JSON manifest or extracted metadata) to a file on the NAS."""
 	remote_path: str = Field(
