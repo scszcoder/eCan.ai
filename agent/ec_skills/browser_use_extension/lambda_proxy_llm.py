@@ -81,21 +81,29 @@ def _summarize_validation_error(err: Exception, text: str) -> str:
     if not errors:
         return f"Your last output did not match the required JSON schema: {str(err)[:400]}"
     used: set[str] = set()
+    item_keys: dict[int, set[str]] = {}
     try:
-        for item in json.loads(text).get('action') or []:
+        for idx, item in enumerate(json.loads(text).get('action') or []):
             if isinstance(item, dict):
                 used.update(item.keys())
+                item_keys[idx] = set(item.keys())
     except Exception:
         pass
     lines: list[str] = []
-    unknown = set(used)
+    failing = {int(e['loc'][1]) for e in errors
+               if len(e.get('loc', ())) > 1 and e['loc'][0] == 'action' and str(e['loc'][1]).isdigit()}
+    unknown = set().union(*(item_keys[i] for i in failing if i in item_keys)) if failing & item_keys.keys() else set(used)
     for e in errors:
         loc = [str(p) for p in e.get('loc', ())]
         if loc == ['action'] and e.get('type') == 'missing':
             lines.append("action: Field required -- every reply needs an `action` list; "
                          "to finish, call the `done` action and put your result in its `text`")
         elif loc and loc[0] == 'action':
-            hits = [k for k in used if k in loc]
+            # Only the failing item's own keys: a bad item 1 also draws
+            # "navigate: Field required" from the navigate model, which
+            # told the model its valid item 0 was broken too.
+            keys = item_keys.get(int(loc[1])) if len(loc) > 1 and str(loc[1]).isdigit() else None
+            hits = [k for k in (used if keys is None else keys) if k in loc]
             if not hits:
                 continue
             key = hits[0]
