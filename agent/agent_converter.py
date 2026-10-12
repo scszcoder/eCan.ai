@@ -707,6 +707,36 @@ def _inherit_skill_placement(task_obj, skill_obj) -> None:
         logger.warning(f"[AgentConverter] placement inheritance failed (non-fatal): {e}")
 
 
+def _bind_skills_from_task_rels(task_objects, compiled_skills, main_window):
+    """Attach each unbound task's skill by the id in agent_task_skill_rels.
+
+    create_agent_tasks reads that id before the skills are compiled, so it
+    finds no skill object and the task arrives here unbound. Left to the name
+    heuristics, task 'chip_docs_crawl_1' then shares more words with
+    'chip_docs_crawl_manager_00' than with its own 'chip_docs_crawler_00' and
+    every worker runs the manager skill.
+    """
+    task_service = getattr(getattr(main_window, 'ec_db_mgr', None), 'task_service', None)
+    if task_service is None:
+        return
+    by_id = {str(getattr(sk, 'id', '')): sk for sk in compiled_skills
+             if getattr(sk, 'runnable', None) is not None}
+    for task_obj in task_objects:
+        if getattr(getattr(task_obj, 'skill', None), 'runnable', None) is not None:
+            continue
+        try:
+            rels = task_service.get_task_skills(getattr(task_obj, 'id', ''), role=None) or {}
+            rel_rows = (rels.get('data') or []) if rels.get('success') else []
+        except Exception as exc:
+            logger.warning(f"[AgentConverter] skill rel lookup failed for task '{task_obj.name}': {exc}")
+            continue
+        skill = by_id.get(str(rel_rows[0].get('skill_id') or '')) if rel_rows else None
+        if skill is not None:
+            task_obj.skill = skill
+            logger.info(f"[AgentConverter] Bound task '{task_obj.name}' to skill "
+                        f"'{getattr(skill, 'name', '?')}' from its skill rel")
+
+
 def _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills):
     """Attach executable skills to tasks and ensure chat tasks have message trigger."""
     logger.info(f"[AgentConverter] _attach_skills_and_triggers: {len(task_objects)} tasks, {len(skill_objects)} agent skills, {len(compiled_skills)} compiled skills")
@@ -947,6 +977,7 @@ def convert_agent_dict_to_ec_agent(
         )
 
         # Skill attachment and trigger adjustment for tasks
+        _bind_skills_from_task_rels(task_objects, compiled_skills, main_window)
         _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills)
         
         # Update EC_Agent with resolved objects
