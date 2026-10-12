@@ -351,3 +351,24 @@ def test_a_reply_never_seen_in_memory_is_reported_not_confirmed():
         _t.sleep(0.3)
     kinds = sorted((k, "NOT CONFIRMED" in m, "delivered" in m) for k, m in logged)
     assert kinds == [("info", False, True), ("warn", True, False)]
+
+
+def test_the_backstop_answers_the_open_chat_even_when_its_preview_is_our_reply():
+    """Alpha yt 2026-10-12: 「学生有折扣吗？」 came in the same second as our
+    reply; the list preview kept our reply, the observer missed the message,
+    and the backstop skipped the row as 'store spoke last'. The open chat's own
+    last turn (on the same frame, no click) is the truth."""
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.typing_lock import get_lock
+    get_lock().release("")
+    sent, clicks = [], []
+    with patch.object(qianniu_tools, "ocr_qianniu_window", return_value=REAL_SCREEN), \
+            patch.object(qianniu_tools, "_foreground", return_value=True), \
+            patch.object(qianniu_tools, "_click", side_effect=lambda x, y: clicks.append((x, y))), \
+            patch.object(qianniu_tools, "_humanize"), \
+            patch.object(qianniu_tools, "_store_label", return_value="倪好数码:小柒"):
+        stats = qianniu_tools.backstop_sweep(lambda n, t: sent.append((n, t)), lambda n, t: False,
+                                             is_ours=lambda p: p == "节日有打折吗", checked=set())
+        again = qianniu_tools.backstop_sweep(lambda n, t: sent.append((n, t)), lambda n, t: (n, t) in sent,
+                                             is_ours=lambda p: p == "节日有打折吗", checked=set())
+    assert sent == [("sctisz", "有黑人牙膏吗")] and stats["dispatched"] == 1 and not clicks
+    assert again["dispatched"] == 0

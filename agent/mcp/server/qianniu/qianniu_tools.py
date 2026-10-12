@@ -687,6 +687,20 @@ def backstop_sweep(dispatch, already_handled, is_ours, checked: set, max_rows: i
         lock.release(holder)
     stats["rows"] = len(rows)
     store = _store_label()
+    # The OPEN chat is on this frame already: its last turn needs no click. Its
+    # list preview can't be trusted -- a buyer message arriving in the same
+    # second as our reply left our reply as the preview (alpha yt 2026-10-12,
+    # 「学生有折扣吗？」 under 「这边暂未查到质…」), and the memory observer missed it.
+    for name, _preview, _pt in rows:
+        if not verify_header_name(name, ocr_data, quiet=True).matched:
+            continue
+        side, text = last_turn(ocr_data, name, store)
+        if side == "buyer" and text and not is_ours(text) and not already_handled(name, text):
+            stats["dispatched"] += 1
+            logger.info(f"[QIANNIU-BACKSTOP] open chat {name!r}: buyer spoke last {text[:30]!r}, "
+                        f"not answered -> dispatching")
+            dispatch(name, text)
+        break
     for name, preview, pt in rows:
         key = (name, preview)
         if key in checked:
