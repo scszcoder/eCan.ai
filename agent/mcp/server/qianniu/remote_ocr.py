@@ -14,11 +14,12 @@ CN only for now: ``ocrImage`` is on the CN schema (the AWS AppSync schema does
 not have it), so intl builds use local OCR. ``ECAN_QIANNIU_REMOTE_OCR=0`` turns
 the remote path off.
 
-Images normally go inline (base64 in the GraphQL body). The CloudBase HTTP
-gateway in front of GraphQL caps request bodies at ~1 MB (HTTP 413), so an
-image that can't be made small enough -- or a 413 -- goes by URL instead: a
-presigned COS upload through the llm-proxy (``POST /v1/files``), then
-``ocrImage(input: {url})``; the server fetches it (cap ``_MAX_URL_BYTES``).
+Screens go by URL: a presigned COS upload through the llm-proxy
+(``POST /v1/files``), then ``ocrImage(input: {url})``; the server fetches it
+(cap ``_MAX_URL_BYTES``). CloudBase's HTTP gateway caps a JSON (text-type)
+body at 100 KB (EXCEED_MAX_PAYLOAD_SIZE, a fixed platform cap), ~70 KB of raw
+image after base64, so only small crops go inline (base64 in the GraphQL
+body). After one 413 the session stops trying inline.
 
 Results come back as RapidOCR-shaped lines ``(quad, text, confidence)`` in the
 pixels of the image sent, so the caller's normalize/scale/offset chain is the
@@ -39,11 +40,12 @@ _FAILED_READS_TO_BACK_OFF = 3
 _BACKOFF_S = 300.0
 _DISABLED_BACKOFF_S = 1800.0
 _TIMEOUT_S = 15.0
-# The CN HTTP gateway rejects bodies over ~1 MB with HTTP 413 (measured
-# 2026-10-10: a 792 KB image = 1.05 MB base64 was refused), far below the
-# ~6 MB callFunction ceiling. Screens go as JPEG at their own pixel size (bbox
-# coordinates stay valid) and must stay under this many raw bytes.
-_MAX_SEND_BYTES = 700 * 1024
+# Inline only below this many raw JPEG bytes: the gateway's 100 KB text-body
+# cap minus base64 (x1.33) and the GraphQL/JSON overhead (server team,
+# 2026-10-12; an 85 KB screen was refused). Images keep their pixel size, so
+# bbox coordinates stay valid; inline uses the first quality only (lower ones
+# blur the text), the rest only shrink an image too big for the URL cap.
+_MAX_SEND_BYTES = 60 * 1024
 _JPEG_QUALITIES = (85, 70, 55)
 # Server-side cap on an image fetched by URL (llm_proxy OCR_MAX_IMAGE_BYTES).
 _MAX_URL_BYTES = 4 * 1024 * 1024
@@ -61,6 +63,7 @@ mutation OcrImage($input: OcrInput!) {
 _state_lock = threading.Lock()
 _failed_reads = [0]
 _local_until = [0.0]
+_inline_refused = [False]   # a 413 this session: every read goes by URL
 
 
 class RemoteOcrError(RuntimeError):
@@ -145,19 +148,24 @@ def to_rapidocr_lines(result: dict) -> List[Tuple[list, str, Optional[float]]]:
 
 def _jpeg_bytes(path: str) -> Tuple[Optional[bytes], bytes]:
     """The image at *path* as JPEG (same pixel size, so bbox coordinates stay
-    valid): (bytes under _MAX_SEND_BYTES or None, smallest JPEG made)."""
+    valid): (full-quality JPEG to send inline, or None when it's over
+    _MAX_SEND_BYTES or the gateway refused inline this session; a JPEG under
+    _MAX_URL_BYTES if one could be made, for an original too big to upload)."""
     import io
     from PIL import Image
     with Image.open(path) as im:
         rgb = im.convert("RGB")
-    data = b""
+    first, data = None, b""
     for q in _JPEG_QUALITIES:
         buf = io.BytesIO()
         rgb.save(buf, format="JPEG", quality=q)
         data = buf.getvalue()
-        if len(data) <= _MAX_SEND_BYTES:
-            return data, data
-    return None, data
+        if first is None:
+            first = data
+        if len(data) <= _MAX_URL_BYTES:
+            break
+    inline = first if len(first) <= _MAX_SEND_BYTES and not _inline_refused[0] else None
+    return inline, data
 
 
 def _upload_for_url(path: str, smallest_jpeg: bytes) -> str:
@@ -216,9 +224,10 @@ def ocr_png(path: str) -> Tuple[List[Tuple[list, str, Optional[float]]], str]:
             return (to_rapidocr_lines(result),
                     f"remote{via}:{result.get('provider') or '?'}/{result.get('model') or '?'}")
         except _BodyTooLarge as exc:
-            # The gateway's body limit is lower than we assumed: go by URL.
+            # The gateway refused even a small image: URL for the rest of the session.
             last, image = exc, None
-            logger.info(f"[qianniu] server OCR: {exc}; sending by COS URL")
+            _inline_refused[0] = True
+            logger.info(f"[qianniu] server OCR: {exc}; sending by COS URL from now on")
         except Exception as exc:
             last = exc
             if _server_lacks_ocr(str(exc)):
