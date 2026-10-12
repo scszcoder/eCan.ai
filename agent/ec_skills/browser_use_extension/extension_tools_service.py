@@ -2398,13 +2398,27 @@ async def evaluate_to_file(params: EvaluateToFileAction, browser_session: Browse
         return ActionResult(error="evaluate_to_file: path must be an absolute local file path")
     try:
         cdp_session = await browser_session.get_or_create_cdp_session()
-        res = await asyncio.wait_for(
-            cdp_session.cdp_client.send.Runtime.evaluate(
-                params={'expression': params.code, 'returnByValue': True, 'awaitPromise': True},
-                session_id=cdp_session.session_id,
-            ),
-            timeout=float(params.timeout or 300.0),
-        )
+
+        async def _eval(expression: str) -> dict:
+            return await asyncio.wait_for(
+                cdp_session.cdp_client.send.Runtime.evaluate(
+                    params={'expression': expression, 'returnByValue': True, 'awaitPromise': True},
+                    session_id=cdp_session.session_id,
+                ),
+                timeout=float(params.timeout or 300.0),
+            )
+
+        res = await _eval(params.code)
+        # `async () => {...}` without the trailing `()` evaluates to the
+        # function itself, which serializes to {} (2026-10-12: the planner's
+        # first table dump). Call it, like browser-use's own evaluate does.
+        if (res.get('result') or {}).get('type') == 'function':
+            res = await _eval(f"({params.code})()")
+        # A bare function body (top-level `return` / `await`) is a SyntaxError
+        # as a script; run it as the body of an async function instead.
+        _err = str(((res.get('exceptionDetails') or {}).get('exception') or {}).get('description') or '')
+        if 'Illegal return statement' in _err or 'await is only valid' in _err:
+            res = await _eval(f"(async () => {{\n{params.code}\n}})()")
     except asyncio.TimeoutError:
         return ActionResult(error=f"evaluate_to_file: script did not finish within {params.timeout}s; nothing written")
     except Exception as e:

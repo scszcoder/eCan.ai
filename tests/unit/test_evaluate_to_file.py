@@ -42,6 +42,43 @@ def test_list_result_is_written_as_json(tmp_path):
     assert calls[0]["awaitPromise"] and calls[0]["returnByValue"]
 
 
+def test_uncalled_function_is_called(tmp_path):
+    # 2026-10-12: the planner sent `async () => {...}` without `()`; the
+    # function object serialized to {} and nothing was collected
+    results = iter([{"result": {"type": "function", "value": {}}},
+                    {"result": {"type": "object", "value": {"total": 1, "parts": ["PIC16F1509"]}}}])
+    session, calls = _session(None)
+
+    async def evaluate(params, session_id):
+        calls.append(params)
+        return next(results)
+
+    session_cdp = asyncio.run(session.get_or_create_cdp_session())
+    session_cdp.cdp_client.send.Runtime.evaluate = evaluate
+    params = EvaluateToFileAction(code="async () => ({total: 1})", path=str(tmp_path / "p.json"))
+    out = asyncio.run(svc.evaluate_to_file(params=params, browser_session=session))
+    assert out.error is None
+    assert calls[1]["expression"] == "(async () => ({total: 1}))()"
+    assert json.loads((tmp_path / "p.json").read_text(encoding="utf-8"))["parts"] == ["PIC16F1509"]
+
+
+def test_bare_function_body_is_wrapped(tmp_path):
+    # the planner's retry: a body with a top-level `return`
+    results = iter([{"exceptionDetails": {"exception": {"description": "SyntaxError: Illegal return statement"}}},
+                    {"result": {"type": "object", "value": ["PIC16F1509"]}}])
+    session, calls = _session(None)
+
+    async def evaluate(params, session_id):
+        calls.append(params)
+        return next(results)
+
+    asyncio.run(session.get_or_create_cdp_session()).cdp_client.send.Runtime.evaluate = evaluate
+    params = EvaluateToFileAction(code="const p = []; return p;", path=str(tmp_path / "p.json"))
+    out = asyncio.run(svc.evaluate_to_file(params=params, browser_session=session))
+    assert out.error is None
+    assert calls[1]["expression"] == "(async () => {\nconst p = []; return p;\n})()"
+
+
 def test_append_adds_one_entry_per_call(tmp_path):
     _run({"result": {"value": "a,b"}}, tmp_path)
     _run({"result": {"value": "c,d"}}, tmp_path, append=True)
