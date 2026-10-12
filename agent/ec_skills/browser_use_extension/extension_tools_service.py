@@ -44,6 +44,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     RemoveSessionMonitorAction,
     ReconfigureEventMonitorAction,
     RunCodeAction,
+    EvaluateToFileAction,
     RunShellScriptAction,
     SendChatAction,
     SendEmailAction,
@@ -2370,6 +2371,57 @@ async def bu_run_code(params: RunCodeAction) -> ActionResult:
             error_msg += f"\nStderr:\n{result['stderr']}"
         return ActionResult(error=error_msg)
 
+
+def _write_eval_result(value: Any, path: str, append: bool) -> str:
+    """Write a page-script result to *path*; return a short summary for the model."""
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if append and out.exists() and out.stat().st_size:
+        text = "\n" + text
+    with out.open("a" if append else "w", encoding="utf-8") as f:
+        f.write(text)
+    count = f", {len(value)} items" if isinstance(value, (list, dict)) else ""
+    preview = text.strip()[:200]
+    return (f"Wrote {len(text.encode('utf-8'))} bytes{count} to {out} ({'appended' if append else 'overwritten'}). "
+            f"Preview: {preview}{'...' if len(text.strip()) > 200 else ''}")
+
+
+@custom_controller.action(
+    "Run JavaScript in the current page and write its result straight to a local file "
+    "(the data does not come back to you, only a short summary). Use it to collect bulk data "
+    "such as every row of a paginated table: the script may click through pages and await.",
+    param_model=EvaluateToFileAction,
+)
+async def evaluate_to_file(params: EvaluateToFileAction, browser_session: BrowserSession) -> ActionResult:
+    if not params.path or not os.path.isabs(params.path):
+        return ActionResult(error="evaluate_to_file: path must be an absolute local file path")
+    try:
+        cdp_session = await browser_session.get_or_create_cdp_session()
+        res = await asyncio.wait_for(
+            cdp_session.cdp_client.send.Runtime.evaluate(
+                params={'expression': params.code, 'returnByValue': True, 'awaitPromise': True},
+                session_id=cdp_session.session_id,
+            ),
+            timeout=float(params.timeout or 300.0),
+        )
+    except asyncio.TimeoutError:
+        return ActionResult(error=f"evaluate_to_file: script did not finish within {params.timeout}s; nothing written")
+    except Exception as e:
+        return ActionResult(error=f"evaluate_to_file: {type(e).__name__}: {e}")
+    if res.get('exceptionDetails'):
+        d = res['exceptionDetails']
+        detail = (d.get('exception') or {}).get('description') or d.get('text') or 'unknown error'
+        return ActionResult(error=f"evaluate_to_file: JavaScript error, nothing written: {detail[:500]}")
+    value = (res.get('result') or {}).get('value')
+    if value is None:
+        return ActionResult(error="evaluate_to_file: script returned null/undefined; nothing written")
+    try:
+        summary = _write_eval_result(value, params.path, params.append)
+    except Exception as e:
+        return ActionResult(error=f"evaluate_to_file: write failed: {e}")
+    logger.info(f"[evaluate_to_file] {summary[:300]}")
+    return ActionResult(extracted_content=summary, include_in_memory=True)
 
 
 @custom_controller.action(
