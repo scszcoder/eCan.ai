@@ -254,6 +254,26 @@ class KnowledgeService:
     def dismiss_pending_import(self, pending_id: str) -> bool:
         return self._pending().remove(pending_id)
 
+    # ---- each store's current promotions, refreshed on a schedule and
+    #      auto-applied (promo_snapshots.py) ----
+    def _promos(self):
+        from knowledge.ks.promo_snapshots import PromoSnapshots
+        folder = getattr(self, "data_dir", None)
+        if not folder:
+            raise ValueError("Knowledge Service has no data folder")
+        return PromoSnapshots(folder)
+
+    def set_promos(self, store_id: str, promotions=None, summary: str = "", source: str = "") -> Dict[str, Any]:
+        """Overwrite a store's current-promotions snapshot (auto-applied, no review)."""
+        return self._promos().set(store_id, promotions=promotions, summary=summary, source=source)
+
+    def get_promos(self, store_id: str) -> Optional[Dict[str, Any]]:
+        return self._promos().get(store_id)
+
+    def promo_line(self, store_id: str, stale_after_min: float = 90) -> str:
+        """The dated "[当前活动] …" line for a Q&A turn, or "" if none/too old."""
+        return self._promos().line(store_id, stale_after_min=stale_after_min)
+
     def recheck_catalog(self, path: str, mapping: Dict[str, str]) -> Dict[str, Any]:
         headers, rows = catalog_import.read_table(path)
         products, report = catalog_import.build_products(rows, mapping)

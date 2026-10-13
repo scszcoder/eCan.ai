@@ -93,6 +93,7 @@ describe('FastDeployPanel', () => {
       store_id: 'douyin-小店',
       new_store: { name: '小店', platform: 'douyin', urls: [] },
       qa_agents: 8, mode: 'add', fetch_catalog: true,   // on by default: export the store's products once
+      fetch_promos: true,                               // on by default: keep current promotions fresh for Q&A
     } });
     await waitFor(() => expect(screen.getByText('pages.agents.fast_deploy_success')).toBeInTheDocument());
   });

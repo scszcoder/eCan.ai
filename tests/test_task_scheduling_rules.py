@@ -225,3 +225,43 @@ def test_start_after_idle_waits_for_the_browser_to_go_quiet(monkeypatch, inline_
     clock[0] = 5000.0 + 301
     timers[0][1]()                                       # the retry: quiet for 5 min now
     assert len(r.futures) == 2
+
+
+def test_start_after_idle_runs_anyway_past_the_cap(monkeypatch, inline_gate):
+    """A busy front desk's browser may never go quiet; start_after_idle_max_min
+    caps the wait so the one-time export runs instead of starving forever."""
+    from agent.ec_tasks import runner as runner_mod
+    clock = [5000.0]
+    monkeypatch.setattr("agent.ec_tasks.runner.time.time", lambda: clock[0])
+    monkeypatch.setattr(threading, "Timer", lambda *a, **k: SimpleNamespace(daemon=False, start=lambda: None))
+    # The browser is always busy: idle never reaches the 5-min threshold.
+    monkeypatch.setattr(runner_mod._resource_gate, "resource_keys", lambda *a, **k: ("browser:p1",))
+    monkeypatch.setattr(runner_mod._resource_gate, "gate_enabled", lambda: True)
+    monkeypatch.setattr(runner_mod._resource_gate.get_gate(), "idle_for", lambda keys: 10.0)
+    export = _task("导出商品", start_after_idle_min=5, start_after_idle_max_min=60, run_class="background")
+    r = _runner([export])
+    r._gate_agent_id = lambda: "ag1"
+    # Deferred while busy and within the 60-min cap.
+    assert r._unprompted_run_held(export, {}, "auto") is True
+    clock[0] = 5000.0 + 30 * 60
+    assert r._unprompted_run_held(export, {}, "auto") is True
+    # Past the cap: no longer held, so the one-time job runs (held=False).
+    clock[0] = 5000.0 + 61 * 60
+    assert r._unprompted_run_held(export, {}, "auto") is False
+
+
+def test_start_after_idle_no_cap_waits_indefinitely(monkeypatch, inline_gate):
+    """Without start_after_idle_max_min the deferral is unbounded (unchanged)."""
+    from agent.ec_tasks import runner as runner_mod
+    clock = [5000.0]
+    monkeypatch.setattr("agent.ec_tasks.runner.time.time", lambda: clock[0])
+    monkeypatch.setattr(threading, "Timer", lambda *a, **k: SimpleNamespace(daemon=False, start=lambda: None))
+    monkeypatch.setattr(runner_mod._resource_gate, "resource_keys", lambda *a, **k: ("browser:p1",))
+    monkeypatch.setattr(runner_mod._resource_gate, "gate_enabled", lambda: True)
+    monkeypatch.setattr(runner_mod._resource_gate.get_gate(), "idle_for", lambda keys: 10.0)
+    export = _task("导出商品", start_after_idle_min=5, run_class="background")
+    r = _runner([export])
+    r._gate_agent_id = lambda: "ag1"
+    assert r._unprompted_run_held(export, {}, "auto") is True
+    clock[0] = 5000.0 + 10 * 60 * 60                      # 10 hours later, still busy
+    assert r._unprompted_run_held(export, {}, "auto") is True

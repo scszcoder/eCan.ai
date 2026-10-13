@@ -379,6 +379,8 @@ class TestProductExportOption:
         assert len(export) == 1
         s = export[0]["settings"]
         assert s["run_once"] is True and s["run_class"] == "background" and s["start_after_idle_min"] == 5
+        # A busy front desk may never idle 5 min; the export still runs within the hour.
+        assert s["start_after_idle_max_min"] == 60
         assert s["task_vars"]["store_id"] == "shopA" and s["browser_identity"]   # the store's own browser
         fd = ctx.db.agent_service.create_agent_from_data.call_args_list[0].args[0]
         assert fd["name"] == "前台小张" and len(fd["tasks"]) == 2 and "skill_export" in fd["skills"]
@@ -396,6 +398,44 @@ class TestProductExportOption:
         ctx = _make_ctx()
         dc._deploy_douyin_cs({"store_id": "shopA", "qa_agents": 2}, ctx, "buyer@x")
         ctx.db.skill_service.query_skills.assert_not_called()
+
+
+class TestPromoRefreshOption:
+    """fetch_promos: a recurring background task that re-reads the store's
+    current promotions every 30 min and overwrites its auto-applied snapshot."""
+
+    CFG = {"store_id": "shopA", "qa_agents": 2, "fetch_promos": True}
+
+    def test_adds_the_recurring_promo_task_to_the_front_desk(self):
+        ctx = _make_ctx()
+        ctx.db.skill_service.query_skills.return_value = {"success": True, "data": [
+            {"id": "skill_promo", "name": "抖店营销导出"}]}
+        plan, log, created = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+        tasks = [c.args[0] for c in ctx.db.task_service.add_task.call_args_list]
+        promo = [t for t in tasks if t["name"].endswith("活动刷新")]
+        assert len(promo) == 1
+        p = promo[0]
+        assert p["trigger"] == "schedule" and p["schedule"]["repeat_number"] == 30
+        s = p["settings"]
+        assert s["run_class"] == "background" and s.get("run_once") is None
+        assert s["start_after_idle_min"] == 2 and s["start_after_idle_max_min"] == 10
+        fd = ctx.db.agent_service.create_agent_from_data.call_args_list[0].args[0]
+        assert "skill_promo" in fd["skills"]
+        assert any("活动刷新" in line or "Promotions" in line for line in log)
+
+    def test_missing_skill_is_reported_not_fatal(self):
+        ctx = _make_ctx()
+        ctx.db.skill_service.query_skills.return_value = {"success": True, "data": []}
+        plan, log, created = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+        tasks = [c.args[0]["name"] for c in ctx.db.task_service.add_task.call_args_list]
+        assert not any(n.endswith("活动刷新") for n in tasks)
+        assert any("抖店营销导出" in line for line in log)
+
+    def test_off_by_default(self):
+        ctx = _make_ctx()
+        dc._deploy_douyin_cs({"store_id": "shopA", "qa_agents": 2}, ctx, "buyer@x")
+        tasks = [c.args[0]["name"] for c in ctx.db.task_service.add_task.call_args_list]
+        assert not any(n.endswith("活动刷新") for n in tasks)
 
 
 class TestSharedQaPool:

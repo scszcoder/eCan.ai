@@ -32,6 +32,9 @@ export interface ScenarioSchema {
     schedule?: boolean;
     /** Offer to export the store's products into 商品知识 once (front desk task). */
     fetchCatalog?: boolean;
+    /** Keep the store's current promotions fresh for Q&A (front desk re-reads
+     *  them every 30 min; answers carry an "as of" time). */
+    fetchPromos?: boolean;
     /** Offer to share the Q&A agents of this platform's other stores (on by
      *  default when there are some): the new store's front desk joins them. */
     sharePool?: boolean;
@@ -61,6 +64,8 @@ export interface ScenarioConfig {
     scheduleUnit?: 'minutes' | 'hours' | 'days';
     /** Export the store's products once for review in 商品知识 → 导入. */
     fetchCatalog?: boolean;
+    /** Keep the store's current promotions fresh for Q&A (refreshed every 30 min). */
+    fetchPromos?: boolean;
     /** Share another store's Q&A agents: that store's front desk agent id
      *  ('' = this store gets its own; undefined = not decided yet). */
     shareWith?: string;
@@ -81,6 +86,7 @@ const DOUYIN_CS_SCHEMA: ScenarioSchema = {
     replaceMode: true,
     storeId: true,
     fetchCatalog: true,
+    fetchPromos: true,
     sharePool: true,
 };
 const PDD_CS_SCHEMA: ScenarioSchema = {
@@ -184,6 +190,7 @@ export function defaultConfig(s: BusinessScenario): ScenarioConfig {
         ...(s.schema.qaAgents ? { qaAgents: s.schema.qaAgents.default } : {}),
         ...(s.schema.replaceMode ? { mode: 'add' as const } : {}),
         ...(s.schema.fetchCatalog ? { fetchCatalog: true } : {}),
+        ...(s.schema.fetchPromos ? { fetchPromos: true } : {}),
         ...(s.schema.storeId ? { storeId: '' } : {}),
         ...(s.schema.stores ? { stores: [] } : {}),
         // First after-sales run: the next full hour; then every 30 minutes.

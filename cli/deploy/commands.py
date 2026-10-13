@@ -534,6 +534,7 @@ class _LiveChatProfile(NamedTuple):
     fd_legacy_skill_ids: tuple = ()   # earlier front-desk skills: replace mode clears their tasks too
     native_desktop: bool = False      # native client (千牛): no browser login profile, no Chrome pre-check, store URL optional
     catalog_skill_name: str = ""      # optional: skill that exports the store's products for 商品知识 (found by name)
+    promo_skill_name: str = ""        # optional: skill that reads the store's current promotions on a schedule (found by name)
 
 
 _DDCS_PROFILE = _LiveChatProfile(
@@ -548,6 +549,7 @@ _DDCS_PROFILE = _LiveChatProfile(
     env_append=_DDCS_FEIGE_ENV, env_set={}, find_skill_by_name=False,
     fd_legacy_skill_ids=(_DDCS_FD_LEGACY_SKILL_ID,),
     catalog_skill_name="抖店商品导出",
+    promo_skill_name="抖店营销导出",
 )
 
 # Pinduoduo (pdd_chat bundle). The bundle registers only when the process serves
@@ -760,8 +762,29 @@ def _qa_pool_settings(qa_n: int) -> dict:
 
 
 # The one-time product export on the front desk (cfg fetch_catalog): runs once,
-# in the background, only after the store's browser has been quiet for 5 min.
-_CATALOG_TASK_SETTINGS = {"run_once": True, "run_class": "background", "start_after_idle_min": 5}
+# in the background, preferably after the store's browser has been quiet for
+# 5 min -- but a live 客服 desk may never idle that long, so it exports anyway
+# once it has waited an hour (start_after_idle_max_min), rather than never.
+_CATALOG_TASK_SETTINGS = {"run_once": True, "run_class": "background",
+                          "start_after_idle_min": 5, "start_after_idle_max_min": 60}
+
+# The store's current promotions, refreshed on a schedule (promotions start and
+# stop through the day). It prefers a short browser lull but must refresh well
+# within its own cycle even on a busy desk, so the idle wait is capped at 10 min.
+# Each run overwrites the store's auto-applied snapshot (knowledge/ks/promo_snapshots.py).
+_PROMO_REFRESH_MIN = 30
+_PROMO_TASK_SETTINGS = {"run_class": "background",
+                        "start_after_idle_min": 2, "start_after_idle_max_min": 10}
+
+
+def _promo_schedule() -> dict:
+    """A recurring every-30-min schedule (same shape the Tasks page saves)."""
+    from datetime import datetime
+    return {
+        "repeat_type": "by minutes", "repeat_number": _PROMO_REFRESH_MIN, "repeat_unit": "by minutes",
+        "start_date_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "end_date_time": None, "time_out": 300,
+    }
 
 
 def _find_skill_named(ctx, name: str):
@@ -930,7 +953,8 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     b = _Builder(ctx, owner, org_id, profile.label)
 
     def _add_task(name: str, skill_id: str, extra_vars: dict | None = None,
-                  extra_settings: dict | None = None) -> str:
+                  extra_settings: dict | None = None, trigger: str = "auto",
+                  schedule: dict | None = None) -> str:
         tvars = dict(task_vars)
         if extra_vars:
             tvars.update(extra_vars)
@@ -938,7 +962,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
         if identity:
             settings["browser_identity"] = dict(identity)
         return b.task(name, skill_id, settings["task_vars"], settings.get("browser_identity"),
-                      extra_settings=extra_settings)
+                      trigger=trigger, schedule=schedule, extra_settings=extra_settings)
 
     # ── Runtime env → <appdata>/run.env (applied on next app start).
     if profile.env_append:
@@ -961,11 +985,28 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
                                  extra_settings=dict(_CATALOG_TASK_SETTINGS))
             extra_tasks = ((cat_task, cat_row["id"]),)
             log.append(_tr(f"Product export: the front desk will export this store's products once "
-                           f"(when its browser has been quiet for 5 min) for review in 商品知识 → 导入",
-                           f"商品导出：前台会在浏览器空闲 5 分钟后导出一次本店商品，导出结果在 商品知识 → 导入 中待你确认"))
+                           f"(when its browser has been quiet for 5 min, or within the hour if it stays "
+                           f"busy) for review in 商品知识 → 导入",
+                           f"商品导出：前台会在浏览器空闲 5 分钟后导出一次本店商品（若一直繁忙，最迟 1 小时内也会导出），"
+                           f"导出结果在 商品知识 → 导入 中待你确认"))
         else:
             log.append(_tr(f"Product export skipped: skill {profile.catalog_skill_name!r} not found",
                            f"未添加商品导出：找不到技能「{profile.catalog_skill_name}」"))
+    if cfg.get("fetch_promos") and profile.promo_skill_name:
+        # The store's current promotions, kept fresh for the Q&A agents: the front
+        # desk re-reads them every 30 min and overwrites the auto-applied snapshot.
+        promo_row = _find_skill_named(ctx, profile.promo_skill_name)
+        if promo_row:
+            promo_task = _add_task(f"{profile.fd_task_prefix}活动刷新", promo_row["id"],
+                                   trigger="schedule", schedule=_promo_schedule(),
+                                   extra_settings=dict(_PROMO_TASK_SETTINGS))
+            extra_tasks = extra_tasks + ((promo_task, promo_row["id"]),)
+            log.append(_tr(f"Promotions: the front desk re-reads this store's current promotions every "
+                           f"{_PROMO_REFRESH_MIN} min so Q&A answers deal questions with a fresh, dated figure",
+                           f"活动刷新：前台每 {_PROMO_REFRESH_MIN} 分钟读取一次本店当前活动，客服回答优惠问题时会带上刷新时间"))
+        else:
+            log.append(_tr(f"Promotions refresh skipped: skill {profile.promo_skill_name!r} not found",
+                           f"未添加活动刷新：找不到技能「{profile.promo_skill_name}」"))
     fd_agent_id = b.agent("前台小张", fd_skill_id, fd_task_id, vehicle_id, extra_tasks=extra_tasks)
     log.append(f"Created task {fd_name} → {profile.fd_skill_name}")
     log.append(f"Created front-desk agent 前台小张 ({fd_agent_id}, org=Sales)")

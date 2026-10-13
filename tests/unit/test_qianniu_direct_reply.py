@@ -98,6 +98,28 @@ def test_a_buyer_message_goes_straight_to_the_picked_qa_agent_as_the_front_desk(
         "customer_recent_messages": ["有格子衫吗？", "产品有质保吗？"]}
 
 
+def test_the_stores_current_promotions_ride_along_to_qa():
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import direct_qa
+    from agent.ec_skills import live_chat_dispatch
+    from agent.ec_agents import agent_pool
+    from agent.mcp.server.chat_utils import chat_tools
+    sent = []
+    direct_qa._recent.clear()
+    world = _fd_world()
+    world.agents[1].tasks[0].metadata["task_vars"]["store_id"] = "shopA"   # the 千牛 front desk's store
+    with patch("app_context.AppContext.get_main_window", return_value=world), \
+            patch.object(live_chat_dispatch, "site_for_skill",
+                         side_effect=lambda s: "qianniu_chat" if s == "fd-skill" else "feige_chat"), \
+            patch.object(agent_pool, "pick_for_customer", side_effect=lambda fd, uid, ids: "qa2"), \
+            patch.object(direct_qa, "_promo_line", side_effect=lambda sid: "[当前活动] 截至09:05：满199减30" if sid == "shopA" else ""), \
+            patch.object(chat_tools, "send_chat", side_effect=lambda mw, c: sent.append(c) or {"success": True}):
+        assert direct_qa.forward({"customer_id": "7", "customer_display_name": "买家",
+                                  "latest_message": "本月有活动吗", "product_card": "[商品卡片] 围巾 价格:￥99"})
+    recent = json.loads(sent[0]["message"])["customer_recent_messages"]
+    # product card first, then the dated promotions line, then the message
+    assert recent == ["[商品卡片] 围巾 价格:￥99", "[当前活动] 截至09:05：满199减30", "本月有活动吗"]
+
+
 def test_without_a_qa_agent_the_front_desk_handles_the_message():
     from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import direct_qa
     from agent.ec_skills import live_chat_dispatch

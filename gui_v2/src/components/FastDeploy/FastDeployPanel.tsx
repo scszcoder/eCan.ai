@@ -246,6 +246,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                         : a.scenario.schema.qaAgents ? { qa_agents: c.qaAgents } : {}),
                     ...(a.scenario.schema.replaceMode ? { mode: c.mode || 'add' } : {}),
                     ...(a.scenario.schema.fetchCatalog ? { fetch_catalog: !!c.fetchCatalog } : {}),
+                    ...(a.scenario.schema.fetchPromos ? { fetch_promos: !!c.fetchPromos } : {}),
                 },
             };
             try {

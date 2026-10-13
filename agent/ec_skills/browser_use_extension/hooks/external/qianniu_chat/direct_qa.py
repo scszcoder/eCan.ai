@@ -35,6 +35,18 @@ def _task_vars(task) -> dict:
     return tv if isinstance(tv, dict) else {}
 
 
+def _promo_line(store_id: str) -> str:
+    """The store's current-promotions line ("[当前活动] 截至HH:MM：…") for the Q&A
+    turn, or "" -- never raises, so a missing snapshot can't break a send."""
+    if not store_id:
+        return ""
+    try:
+        from knowledge.ks.service import get_service
+        return get_service().promo_line(store_id)
+    except Exception:
+        return ""
+
+
 def front_desk(mainwin):
     """(agent, task) of the running 千牛 front desk: a task whose skill is a
     qianniu_chat skill and that names its Q&A agents. Reads only cheap agent
@@ -71,6 +83,7 @@ def forward(item: dict) -> bool:
             return False
         name = str(item.get("customer_display_name") or "").strip()
         product = str(item.get("product_card") or "").strip()
+        promo = _promo_line(str(_task_vars(fd_task).get("store_id") or "").strip())
         with _lock:
             recent = (_recent.pop(uid, None) or []) + [msg]
             _recent[uid] = recent[-5:]
@@ -81,8 +94,9 @@ def forward(item: dict) -> bool:
             "customer_id": uid,
             "customer_name": name or uid,
             "latest_message": msg,
-            # the product the buyer asks about first (the Q&A prompt reads "[商品卡片] …")
-            "customer_recent_messages": ([product] if product else []) + recent,
+            # context the Q&A prompt reads: the product the buyer asks about first
+            # ("[商品卡片] …"), then the store's current promotions ("[当前活动] …")
+            "customer_recent_messages": ([product] if product else []) + ([promo] if promo else []) + recent,
         }, ensure_ascii=False)
         from agent.mcp.server.chat_utils.chat_tools import send_chat
         res = send_chat(mainwin, {"sender_agent_id": fd_id, "recipient_agent_id": qa_id, "message": message})

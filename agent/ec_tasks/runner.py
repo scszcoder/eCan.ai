@@ -8317,7 +8317,24 @@ class TaskRunner(Generic[Context]):
         if not keys:
             return False
         idle = _resource_gate.get_gate().idle_for(keys)
+        since = self.__dict__.setdefault("_idle_since", {})
         if idle >= idle_min * 60:
+            since.pop(task.id, None)
+            return False
+        # Still busy. A one-time export on the front desk's own browser (a live
+        # 客服 store) may never see a ``start_after_idle_min`` lull, so cap the
+        # wait: once the task has been deferred for ``start_after_idle_max_min``,
+        # run it anyway rather than starve it forever. No cap (0) keeps the old
+        # wait-indefinitely behaviour.
+        try:
+            idle_max_min = float(meta.get("start_after_idle_max_min") or 0)
+        except (TypeError, ValueError):
+            idle_max_min = 0.0
+        first_deferred = since.setdefault(task.id, time.time())
+        if idle_max_min > 0 and time.time() - first_deferred >= idle_max_min * 60:
+            logger.info(f"[task-schedule] '{task.name}' waited {idle_max_min:g} min for {list(keys)} "
+                        f"to go idle and they stayed busy; running the one-time job now")
+            since.pop(task.id, None)
             return False
         held = self.__dict__.setdefault("_idle_held", set())
         if task.id in held:

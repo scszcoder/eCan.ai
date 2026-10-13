@@ -4,11 +4,45 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-10-11_
+_Last updated: 2026-10-12_
 
 ---
 
 ## 🔴 Bugs (unfixed)
+
+### Catalog export only exists for Douyin; tmall/pdd 客服 answer with no product KB (2026-10-12)
+
+Response-quality complaints on 客服 (stalls like "稍后回复您 / 看商品详情页" on product-attribute
+questions) trace to an **empty 商品知识 base**. The base is filled only by the one-time catalog
+export (`cfg.fetch_catalog`, `cli/deploy/commands.py`).
+- **Fixed 2026-10-12:** the export was idle-deadlocked on busy stores — it runs on the front
+  desk's own browser with `start_after_idle_min:5`, and a live Feige desk never idles 5 min, so
+  `_unprompted_run_held` deferred it forever. Added `start_after_idle_max_min:60` (runner caps the
+  wait and runs the once-only job anyway). See `runner.py:_unprompted_run_held`,
+  `_CATALOG_TASK_SETTINGS`, tests in `test_task_scheduling_rules.py` / `test_deploy_douyin_cs.py`.
+- **Still open:** only `douyin_cs` has a `catalog_skill_name` (`抖店商品导出`, which drives
+  `fxg.jinritemai.com` — Douyin-only). `tmall_cs` (CS_SCHEMA) and `pdd_cs` (PDD_CS_SCHEMA) have no
+  `fetchCatalog` and no exporter skill, so 天猫/拼多多 stores never get a catalog. Needs
+  platform-specific exporters (`千牛商品导出`, `拼多多商品导出`) before wiring `catalog_skill_name`
+  + `fetchCatalog` on those profiles. Do NOT point them at `抖店商品导出` (wrong backend).
+
+### Real-time promotions: code shipped, two data pieces pending (2026-10-12)
+
+Promotions start/stop through the day, so a daily catalog snapshot can't answer "本月有活动吗"
+(it stalled in the yw log). **Code landed 2026-10-12** (all on master):
+- Storage: `knowledge/ks/promo_snapshots.py` (per-store JSON, auto-applied, TTL-trusted 90 min) +
+  `KnowledgeService.set_promos/get_promos/promo_line`; the skill calls `apply_snapshot(...)`.
+- Deploy: `_DDCS_PROFILE.promo_skill_name="抖店营销导出"` + a recurring (every-30-min) background
+  task (`活动刷新`), opt-in via `fetch_promos` (on by default in `DOUYIN_CS_SCHEMA`). Reuses the
+  idle cap (`start_after_idle_min:2`, `start_after_idle_max_min:10`).
+- Q&A injection: the front desk hands Q&A a dated `[当前活动] 截至HH:MM：…` line next to
+  `[商品卡片]` — **Feige** path (`feige_chat/actionable_items.py:_promo_line_for`, the live 抖店
+  front desk) and the 千牛 path (`qianniu_chat/direct_qa.py`, for when tmall gets a promo skill).
+- **Still pending (data, user builds in the editor):** (1) the `抖店营销导出` skill — read 抖店
+  营销中心, call `apply_snapshot(store_id, promotions=…, summary=…, source="抖店营销中心")`; publish
+  as public+rentable so the deploy finds it by name. (2) the Q&A prompt (`飞鸽客服问答00`) must read
+  `[当前活动]` and prefer it (or a just-seen card) over a stale 3 h product card for 活动/价格.
+- Only `douyin_cs` has a promo skill; tmall/pdd need their own 营销 readers (closed-env for 千牛).
 
 ### Left open after multi-task agents, agent pools and lazy agents (2026-10-11)
 
