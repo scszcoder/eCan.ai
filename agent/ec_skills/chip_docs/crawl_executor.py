@@ -13,6 +13,7 @@ Files under ``<docs_root>/<vendor>/``:
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -203,6 +204,8 @@ def node_main(state: dict) -> dict:
     refs = state.get("prompt_refs") or {}
     vendor, docs_root = refs.get("part_vendor") or "", (refs.get("docs_root") or "").rstrip("/\\")
     batch_size = int(refs.get("batch_size") or 3)
+    # Cap on crawlers given work; each runs its own Chrome, and 3 saturated a 4-core machine.
+    max_workers = int(refs.get("max_workers") or os.environ.get("ECAN_CRAWL_MAX_WORKERS") or 0)
     me = (state.get("attributes") or {}).get("agent_id") or ""
     root = Path(docs_root) / vendor
     status_path = root / "status.md"
@@ -222,8 +225,11 @@ def node_main(state: dict) -> dict:
                                   "message": json.dumps(batch, ensure_ascii=False)})
         return bool((res or {}).get("success"))
 
+    worker_names = sorted(a["name"] for a in agents if a["id"] != me)
+    if max_workers > 0:
+        worker_names = worker_names[:max_workers]
     result = run_round(rows, workers, load_sub_plans(root / "sub_plans"), report,
-                       sorted(a["name"] for a in agents if a["id"] != me), batch_size, vendor,
+                       worker_names, batch_size, vendor,
                        docs_root, me_name, send, datetime.now(timezone.utc))
     status_path.write_text(render_status(rows, workers, vendor), encoding="utf-8")
     try:

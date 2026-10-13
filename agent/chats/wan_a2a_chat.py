@@ -498,13 +498,28 @@ async def _subscribe_ws(
             logger.debug(f"[wan_a2a:WS] Connecting (attempt {retry_count + 1}): {ws_url[:80]}")
             # Both CN (TCB TCS) and Intl (AWS AppSync) use the same graphql-ws
             # protocol. The only difference is the auth header (Bearer vs API key).
-            await _graphql_ws_subscribe_loop(
+            acked = await _graphql_ws_subscribe_loop(
                 cfg=cfg, token=token, ws_url=ws_url,
                 channel_id=channel_id, sub_id=sub_id,
                 sub_query=sub_query, sub_variables=sub_variables,
                 mainwin=mainwin, on_message_callback=on_message_callback,
-                max_retries=max_retries,
+                max_retries=max_retries, ssl_ctx=ssl_ctx,
             )
+            # The inner loop returns (rather than raises) when the server
+            # closes the socket. Without a pause here a server that keeps
+            # closing during the handshake caused a tight reconnect loop.
+            if acked:
+                retry_count = 0
+                backoff = base_backoff
+            else:
+                retry_count += 1
+                backoff = min(base_backoff * (2 ** (retry_count - 1)), 60)
+                if retry_count in (1, 5, 10, 20):
+                    logger.warning(
+                        f"[wan_a2a:WS] Closed before ack (attempt {retry_count}/{max_retries}); "
+                        f"retrying in {backoff}s"
+                    )
+            await asyncio.sleep(backoff)
 
         except asyncio.CancelledError:
             logger.info("[wan_a2a:WS] Cancelled")
@@ -548,7 +563,7 @@ async def _subscribe_ws(
                 return
 
 
-async def _graphql_ws_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query, sub_variables, mainwin, on_message_callback, max_retries):
+async def _graphql_ws_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub_query, sub_variables, mainwin, on_message_callback, max_retries, ssl_ctx=None):
     """GraphQL WebSocket subscription loop (CN TCB / Intl AppSync unified).
 
     Both CN and Intl use the graphql-ws subprotocol over their respective WS
@@ -557,8 +572,15 @@ async def _graphql_ws_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub
     Args:
         cfg: CloudEndpointConfig instance with is_cn property
         ws_url: Pre-built WS URL with auth query params
+        ssl_ctx: Reusable SSL context (building one loads the CA bundle, which is costly)
+
+    Returns:
+        True if the server acknowledged the connection before it ended,
+        False if it ended before connection_ack (caller should back off).
     """
-    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    if ssl_ctx is None:
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    acked = False
     # Log tag reflects actual backend: TCB for CN, AppSync for Intl
     tag = "[wan_a2a:TCB]" if cfg.is_cn else "[wan_a2a:AppSync]"
 
@@ -583,6 +605,7 @@ async def _graphql_ws_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub
                         data = json.loads(msg.data)
                         if data.get("type") == "connection_ack":
                             logger.info(f"{tag} Connection acknowledged")
+                            acked = True
                             if mainwin:
                                 mainwin.set_wan_connected(True)
                             break
@@ -594,7 +617,7 @@ async def _graphql_ws_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub
                         logger.warning(f"{tag} Connection closed during ack: {msg}")
                         if mainwin:
                             mainwin.set_wan_connected(False)
-                        return
+                        return acked
 
                 # Step 2: start subscription
                 sub_payload = json.dumps({"query": sub_query, "variables": sub_variables})
@@ -626,7 +649,7 @@ async def _graphql_ws_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub
                         logger.warning(f"{tag} Connection closed during subscription ack: {msg}")
                         if mainwin:
                             mainwin.set_wan_connected(False)
-                        return
+                        return acked
 
                 # Step 3: message loop
                 while True:
@@ -650,17 +673,18 @@ async def _graphql_ws_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub
                         logger.info(f"{tag} WebSocket closed normally")
                         if mainwin:
                             mainwin.set_wan_connected(False)
-                        return
+                        return acked
                     elif msg.type == aiohttp.WSMsgType.ERROR:
                         logger.error(f"{tag} WebSocket error: {msg}")
                         if mainwin:
                             mainwin.set_wan_connected(False)
-                        return
+                        return acked
 
     except asyncio.CancelledError:
         logger.info(f"{tag} SSE connection cancelled")
         if mainwin:
             mainwin.set_wan_connected(False)
+        raise
     except aiohttp.ClientError as e:
         logger.error(f"{tag} SSE connection error: {e}")
         if mainwin:
@@ -669,6 +693,7 @@ async def _graphql_ws_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub
         logger.error(f"{tag} SSE error: {e}")
         if mainwin:
             mainwin.set_wan_connected(False)
+    return acked
 
 
 async def _call_callback(callback, data):
