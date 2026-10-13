@@ -2581,7 +2581,7 @@ def _doc_file_name(doc: dict) -> str:
     return stem.rstrip(". ") + (ext.lower() or ".pdf")
 
 
-_DOWNLOAD_PARALLEL = 4
+_DOWNLOAD_PARALLEL = 8
 
 
 def _fetch_to(url: str, path: str) -> int:
@@ -2626,6 +2626,16 @@ async def download_docs_to_nas(params: DownloadDocsToNasAction) -> ActionResult:
         names.add(name.lower())
         jobs.append((url, name))
 
+    # 2026-10-13: a retried part re-uploaded every file; one listing tells which
+    # are already on the NAS (same name and size)
+    on_nas = {}
+    if params.nas_dir:
+        try:
+            listing = await asyncio.to_thread(_nas.nas_list, params.nas_dir.rstrip('/'))
+            on_nas = {e["name"].lower(): e["size"] for e in listing if not e["is_dir"]}
+        except Exception as e:
+            logger.warning(f"[download_docs_to_nas] NAS listing failed, uploading everything: {e}")
+
     # 2026-10-12: parts with ~22 documents took minutes one file at a time
     gate = asyncio.Semaphore(_DOWNLOAD_PARALLEL)
 
@@ -2636,7 +2646,7 @@ async def download_docs_to_nas(params: DownloadDocsToNasAction) -> ActionResult:
                 # threads: a blocking download here would stall every agent on the loop
                 if not (os.path.exists(path) and os.path.getsize(path)):
                     await asyncio.to_thread(_fetch_to, url, path)
-                if params.nas_dir:
+                if params.nas_dir and on_nas.get(name.lower()) != os.path.getsize(path):
                     await asyncio.to_thread(_nas.nas_upload, path, f"{params.nas_dir.rstrip('/')}/{name}")
                 return None
             except Exception as e:

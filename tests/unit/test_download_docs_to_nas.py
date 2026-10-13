@@ -11,8 +11,9 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import Download
 from agent.ec_skills.nas import ugreen_nas
 
 
-def _run(tmp_path, monkeypatch, docs, fail_url=None, nas_dir="Microchip/docs/PIC10/PIC10F200"):
+def _run(tmp_path, monkeypatch, docs, fail_url=None, nas_dir="Microchip/docs/PIC10/PIC10F200", on_nas=()):
     fetched, uploaded = [], []
+    monkeypatch.setattr(ugreen_nas, "nas_list", on_nas if callable(on_nas) else lambda reldir: list(on_nas))
 
     def fake_fetch(url, path):
         if url == fail_url:
@@ -56,6 +57,21 @@ def test_existing_file_is_not_downloaded_again(tmp_path, monkeypatch):
     assert fetched == [] and len(uploaded) == 2
 
 
+def test_files_already_on_nas_with_same_size_are_not_uploaded_again(tmp_path, monkeypatch):
+    on_nas = [{"name": "data sheets - PIC10F200 202 Data Sheet.pdf", "is_dir": False, "size": 5},  # same size
+              {"name": "Errata - Silicon Errata.pdf", "is_dir": False, "size": 3}]  # partial upload
+    out, _, uploaded = _run(tmp_path, monkeypatch, DOCS, on_nas=on_nas)
+    assert "2 saved, 0 failed" in out.extracted_content
+    assert uploaded == ["Microchip/docs/PIC10/PIC10F200/Errata - Silicon Errata.pdf"]
+
+
+def test_nas_listing_failure_uploads_everything(tmp_path, monkeypatch):
+    def broken(reldir):
+        raise RuntimeError("NAS list failed")
+    out, _, uploaded = _run(tmp_path, monkeypatch, DOCS, on_nas=broken)
+    assert "2 saved, 0 failed" in out.extracted_content and len(uploaded) == 2
+
+
 def test_junk_titles_fall_back_to_url_names_and_never_collide(tmp_path, monkeypatch):
     # 2026-10-12: the page script returned "[object Object]" for every title and
     # a part's two errata were saved over each other
@@ -85,6 +101,7 @@ def test_downloads_run_in_parallel_but_capped(tmp_path, monkeypatch):
 
     monkeypatch.setattr(svc, "_fetch_to", slow_fetch)
     monkeypatch.setattr(ugreen_nas, "nas_upload", lambda local, remote: {})
+    monkeypatch.setattr(ugreen_nas, "nas_list", lambda reldir: [])
     docs = [{"type": "Errata", "title": f"E{i}", "url": f"https://x/e{i}.pdf"} for i in range(10)]
     docs_file = tmp_path / "docs.json"
     docs_file.write_text(json.dumps(docs), encoding="utf-8")
