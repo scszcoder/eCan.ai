@@ -22,6 +22,23 @@ from auth.auth_config import AuthConfig
 from utils.app_env import is_cn as _is_cn
 from utils.logger_helper import logger_helper as logger
 
+
+def _canonical_identity(user):
+    """Canonicalize a CN WeChat login to ONE suffix form.
+
+    A WeChat login reaches the client as either ``wechat_<openid>@local`` (the
+    openid-construction path) or the server's ``wechat_<hash>@wechat.local``
+    (the ``fetched`` fallback). Persisting whichever path happened to run made
+    the same person look like two identities downstream — owner/publish checks
+    broke until every comparison normalized. Canonicalize the WeChat suffix to
+    ``@local`` here (the form the local DB rows and the ``..._local`` data dir
+    already use). Emails and phone (``@phone.local``) are left unchanged."""
+    u = (user or "").strip()
+    if u.lower().endswith("@wechat.local"):
+        u = u[: -len("@wechat.local")] + "@local"
+    return u
+
+
 class AuthManager:
     """Manages authentication state and business logic."""
 
@@ -1696,7 +1713,7 @@ class AuthManager:
                 except Exception as e:
                     logger.warning(f"Error reading {self.acct_file}: {e}")
 
-            data["user"] = username
+            data["user"] = _canonical_identity(username)
             data["machine_role"] = role
             # Preserve language and theme if they exist
             # (don't overwrite them during login)
@@ -2286,7 +2303,7 @@ class AuthManager:
                         data = json.load(f)
                 except Exception:
                     data = {}
-            data["user"] = username
+            data["user"] = _canonical_identity(username)
             with open(self.acct_file, 'w') as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
@@ -2297,7 +2314,8 @@ class AuthManager:
             if exists(self.acct_file):
                 with open(self.acct_file, 'r') as f:
                     data = json.load(f)
-                    return data.get("user")
+                    val = data.get("user")
+                    return _canonical_identity(val) if val else val
             return None
         except Exception as e:
             logger.error(f"Failed to read saved username: {e}")

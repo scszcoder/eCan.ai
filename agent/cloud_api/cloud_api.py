@@ -1612,8 +1612,13 @@ def normalize_cloud_owner(owner: str) -> str:
     (email / CIAM / phone) carry no ``wechat_`` prefix and pass through.
     """
     o = owner or ""
-    if o.endswith("@local"):
-        o = o[: -len("@local")]
+    # Synthetic local suffix for CN logins: ``@local`` (older) and the real
+    # current forms ``@wechat.local`` (WeChat) / ``@phone.local`` (phone OTP).
+    # The cloud knows only the bare username, so strip whichever is present.
+    for suffix in ("@wechat.local", "@phone.local", "@local"):
+        if o.endswith(suffix):
+            o = o[: -len(suffix)]
+            break
     if o.startswith("wechat_"):
         o = o[len("wechat_"):]
     return o

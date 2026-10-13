@@ -743,7 +743,7 @@ def backstop_sweep(dispatch, already_handled, is_ours, checked: set, max_rows: i
     (``checked``, kept by the caller) -- so the seller's open chat is not
     switched on every pass. An opened row whose last turn is the buyer's is
     dispatched like a cold-start row. Returns counts."""
-    stats = {"rows": 0, "opened": 0, "dispatched": 0, "skipped": 0}
+    stats = {"rows": 0, "opened": 0, "dispatched": 0, "skipped": 0, "on_tab": False}
     lock = _lock()
     holder = "backstop"
     if not lock.try_acquire(holder):
@@ -756,6 +756,9 @@ def backstop_sweep(dispatch, already_handled, is_ours, checked: set, max_rows: i
             rows = conversation_rows(ocr_data, limit=max_rows)
     finally:
         lock.release(holder)
+    # on_tab False = 千牛 isn't showing the 正在接待 list (parked on 工作台/商品管理,
+    # or 接待中心 closed): a reply may be waiting and cannot go out until it is back.
+    stats["on_tab"] = bool(_on_tab)
     stats["rows"] = len(rows)
     store = _store_label()
     # The OPEN chat is on this frame already: its last turn needs no click. Its

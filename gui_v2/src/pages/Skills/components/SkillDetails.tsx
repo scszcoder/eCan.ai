@@ -478,8 +478,12 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 // ExtendedField
                 price: s.price,
                 price_model: s.price_model,
-                public: s.public,
-                rentable: s.rentable,
+                // Coerce to a definite boolean: an undefined flag leaves the
+                // checkbox value undefined, so validateFields() omits it and the
+                // save drops the key (new skills then defaulted to rentable=0
+                // even when the box looked checked).
+                public: !!s.public,
+                rentable: !!s.rentable,
 
                 extra_data: (s as any)?.extra_data,
 
@@ -595,8 +599,10 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 // ExtendedField
                 price: values.price,
                 price_model: values.price_model,
-                public: values.public,
-                rentable: values.rentable,
+                // Always send explicit booleans so the publish flags can't be
+                // dropped from the payload (see the init coercion above).
+                public: !!values.public,
+                rentable: !!values.rentable,
 
                 extra_data: (values as any).extra_data,
 

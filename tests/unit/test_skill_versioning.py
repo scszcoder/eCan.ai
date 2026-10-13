@@ -126,6 +126,15 @@ class TestSaveReadOnlyGate:
         resp, service = self._call_save(row_owner="")
         assert service.update_skill.called
 
+    def test_wechat_owner_saves_despite_local_suffix(self):
+        # The row stores the bare openid (AUTHOR); a WeChat login's username
+        # carries the synthetic '@wechat.local' suffix. normalize_cloud_owner
+        # must treat them as the same author (not SKILL_READ_ONLY).
+        resp, service = self._call_save(row_owner=AUTHOR,
+                                        saver_user=f"{AUTHOR}@wechat.local")
+        assert "error" not in resp or resp.get("error") != "SKILL_READ_ONLY"
+        assert service.update_skill.called
+
 
 class TestStoreAnnotation:
     def _annotate(self, local_version, cloud_version):

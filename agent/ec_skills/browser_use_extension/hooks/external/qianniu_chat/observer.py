@@ -74,6 +74,27 @@ def _norm_text(text: str) -> str:
 _BACKSTOP_QUIET_S = 30.0
 _last_send_at = [0.0]
 
+# When 千牛 isn't on the 接待中心 list (parked on 工作台/商品管理, or 接待中心 closed)
+# a computed reply can't go out; re-check this often for a BOUNDED burst so it
+# leaves within ~_BACKSTOP_RECOVER_S of 接待中心 returning, not a full backstop
+# interval (alpha yx 2026-10-13: a 千牛 reply stalled ~5.5 min on 商品管理).
+_BACKSTOP_RECOVER_S = 15.0
+_BACKSTOP_RECOVER_TRIES = 6
+
+
+def _backstop_recovery_state(on_tab: bool, fast_left: int, ready: bool, tries: int) -> tuple:
+    """Next ``(fast_left, ready)`` for the backstop cadence.
+
+    ``fast_left`` > 0 means the next waits use the short recover interval.
+    ``ready`` arms one burst per outage: a burst starts only on the first
+    off-list pass after the list was last reachable, so a long-closed 接待中心
+    falls back to the base interval instead of spinning OCR forever."""
+    if on_tab:
+        return 0, True                       # reachable: base cadence, armed for the next outage
+    if ready:
+        return tries, False                  # first off-list pass: start the bounded burst
+    return max(0, fast_left - 1), False      # burst in progress or spent: count down, don't re-arm
+
 
 def record_sent(text: str) -> None:
     """Called by qianniu_send after a successful send."""
@@ -816,14 +837,17 @@ class QianniuMemObserver:
     def _backstop_loop(self) -> None:
         """List-only OCR every ECAN_QIANNIU_BACKSTOP_S: answers a buyer message
         the memory observer never saw (see qianniu_tools.backstop_sweep)."""
-        interval = _backstop_interval_s()
-        if interval <= 0:
+        base = _backstop_interval_s()
+        if base <= 0:
             logger.info("[QIANNIU-BACKSTOP] off (ECAN_QIANNIU_BACKSTOP_S=0)")
             return
-        logger.info(f"[QIANNIU-BACKSTOP] on: 正在接待 list checked every {interval:.0f}s")
+        recover_s = min(_BACKSTOP_RECOVER_S, base)
+        logger.info(f"[QIANNIU-BACKSTOP] on: 正在接待 list checked every {base:.0f}s "
+                    f"({recover_s:.0f}s while 千牛 is off the 接待中心 list)")
         from agent.mcp.server.qianniu.qianniu_tools import backstop_sweep
         checked: set = set()
-        while not self._stop.wait(interval):
+        fast_left, ready = 0, True
+        while not self._stop.wait(recover_s if fast_left > 0 else base):
             if not route_ready():
                 continue
             # Not while a chat is live: the pass holds the desktop ~5-13 s and a
@@ -834,10 +858,20 @@ class QianniuMemObserver:
             if quiet < _BACKSTOP_QUIET_S:
                 continue
             try:
-                backstop_sweep(self._cold_dispatch, self._already_handled,
-                               _is_our_send_preview, checked)
+                stats = backstop_sweep(self._cold_dispatch, self._already_handled,
+                                       _is_our_send_preview, checked)
             except Exception as exc:
                 logger.warning(f"[QIANNIU-BACKSTOP] pass failed: {exc}")
+                stats = {}
+            # A sweep error counts as reachable (True) so a transient glitch does
+            # not trip the accelerated cadence.
+            on_tab = stats.get("on_tab", True)
+            was_fast = fast_left > 0
+            fast_left, ready = _backstop_recovery_state(on_tab, fast_left, ready, _BACKSTOP_RECOVER_TRIES)
+            if fast_left > 0 and not was_fast:
+                logger.warning(f"[QIANNIU-BACKSTOP] 千牛 is not on the 接待中心 list; a reply may be "
+                               f"waiting — re-checking every {recover_s:.0f}s for up to "
+                               f"{_BACKSTOP_RECOVER_TRIES} passes (open 接待中心 in 千牛)")
             if len(checked) > 500:
                 checked.clear()
 
