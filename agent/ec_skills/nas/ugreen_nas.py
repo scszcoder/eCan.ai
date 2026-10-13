@@ -178,6 +178,28 @@ def nas_upload(local_path: str, relpath: Optional[str] = None, *,
     lp = Path(local_path)
     if not lp.is_file():
         raise FileNotFoundError(f"local file not found: {local_path}")
+    try:
+        return _upload_once(lp, relpath, relative_to_base)
+    except Exception as e:
+        # 2026-10-12: after a network drop the cached SMB connection stayed dead and
+        # every later upload failed until the app restarted; reconnect and retry once
+        logger.warning(f"[nas] upload failed ({e}); reconnecting and retrying once")
+        _reset_session()
+        return _upload_once(lp, relpath, relative_to_base)
+
+
+def _reset_session() -> None:
+    import smbclient
+    with _session_lock:
+        _session_ready.clear()
+        try:
+            smbclient.reset_connection_cache(fail_on_error=False)
+        except Exception as e:
+            logger.warning(f"[nas] reset_connection_cache failed: {e}")
+
+
+def _upload_once(lp: Path, relpath: Optional[str], relative_to_base: bool) -> Dict[str, Any]:
+    local_path = str(lp)
     rel = relpath if relpath else lp.name
     _ensure_session()
     import smbclient
