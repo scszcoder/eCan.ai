@@ -269,6 +269,8 @@ class RunContext:
     # Vendor environment id, or the id of one of our registered browser
     # profiles when browser_type_setting == "fingerprint".
     browser_profile_id_setting: str = ""
+    # Per-step time limit (seconds) for browser-use; None keeps its 180 s default.
+    node_step_timeout: Any = None
 
     # Phase 6.7 (2026-04-24) dropped 18 fields:
     #   * 9 helpers — now in browser_node/build_helpers.py
@@ -5469,6 +5471,9 @@ class BrowserRunSession:
             llm=llm,
             max_actions_per_step=self.ctx.node_max_actions_per_step,
             **({'max_clickable_elements_length': self.ctx.node_dom_limit} if self.ctx.node_dom_limit else {}),
+            # 2026-10-13: one chip-crawler step downloads a whole part's documents
+            # (up to ~94 files) and browser-use's 180 s step limit cut it off
+            **({'step_timeout': self.ctx.node_step_timeout} if self.ctx.node_step_timeout else {}),
         )
         # Log the actual message_compaction settings (INFO level for visibility).
         if 'message_compaction' in agent_kwargs:
