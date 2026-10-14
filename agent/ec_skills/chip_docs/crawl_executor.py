@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable
 
 STALE_AFTER = timedelta(minutes=30)
-MAX_ATTEMPTS = 2
+MAX_ATTEMPTS = 3
 MAX_ABORTS = 20  # an aborted run comes back within ~1 min, so this is ~20 min of outage per batch
 ABORTED = "crawler run aborted"  # what the crawler skill's RoundEnd reports
 ABORTED_NOTE = "aborted x"
@@ -149,18 +149,20 @@ def run_round(rows: list[dict], workers: dict[str, dict], plan: list[dict], repo
         if r["state"] == "assigned" and r["worker"] not in busy:
             release(r)
 
-    # 3. a batch for every idle worker: same sub-plan, pending or failed under MAX_ATTEMPTS
-    def eligible(r: dict) -> bool:
-        return r["state"] == "pending" or (r["state"] == "failed" and int(r.get("attempts") or 0) < MAX_ATTEMPTS)
+    # 3. a batch for every idle worker: same sub-plan, pending parts first, then
+    # failed ones under MAX_ATTEMPTS (2026-10-13: retry failures only once the rest is done)
+    def retryable(r: dict) -> bool:
+        return r["state"] == "failed" and int(r.get("attempts") or 0) < MAX_ATTEMPTS
 
     for w in worker_names:
         workers.setdefault(w, {"state": "idle", "batch": "", "at": ""})
         if workers[w]["state"] != "idle":
             continue
-        first = next((r for r in rows if eligible(r)), None)
-        if first is None:
+        pool = [r for r in rows if r["state"] == "pending"] or [r for r in rows if retryable(r)]
+        if not pool:
             break
-        picked = [r for r in rows if eligible(r) and r["sub_plan"] == first["sub_plan"]][:batch_size]
+        picked = [r for r in pool if r["sub_plan"] == pool[0]["sub_plan"]][:batch_size]
+        first = picked[0]
         batch_id = f"{first['sub_plan']}-{first['part']}"
         batch = {"type": "scrape_batch", "batch_id": batch_id, "part_vendor": vendor, "docs_root": docs_root,
                  "coordinator": coordinator,
@@ -175,8 +177,7 @@ def run_round(rows: list[dict], workers: dict[str, dict], plan: list[dict], repo
         log.append(f"sent {batch_id} ({len(picked)} parts) to {w}")
 
     counts = {s: sum(r["state"] == s for r in rows) for s in ("pending", "assigned", "done", "failed")}
-    retryable = sum(r["state"] == "failed" and int(r.get("attempts") or 0) < MAX_ATTEMPTS for r in rows)
-    all_done = counts["pending"] == 0 and counts["assigned"] == 0 and retryable == 0
+    all_done = counts["pending"] == 0 and counts["assigned"] == 0 and not any(retryable(r) for r in rows)
     return {"all_done": all_done, "work_done": True, "summary": "; ".join(log) or "nothing to do", **counts}
 
 

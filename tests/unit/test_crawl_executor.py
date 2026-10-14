@@ -43,10 +43,24 @@ def test_report_marks_done_and_failed_and_frees_worker():
         {"part": "P3", "state": "failed", "error": "timeout | page"}]}
     res, sent2 = _round(rows, workers, report=report, names=("W1",))
     assert _state(rows, "P1")["state"] == "done" and _state(rows, "P1")["docs"] == "5"
-    # failed parts are retried in the same round, keeping the attempt count and error
     assert _state(rows, "P2")["attempts"] == "1" and _state(rows, "P3")["note"] == "timeout / page"
-    assert [p["part"] for p in sent2[0][1]["parts"]] == ["P2", "P3", "P4"]  # failed parts retried first
+    assert [p["part"] for p in sent2[0][1]["parts"]] == ["P4"]  # pending parts before failed ones
     assert res["done"] == 1
+
+
+def test_failed_parts_are_retried_only_after_every_pending_part():
+    rows, workers = [], {}
+    _round(rows, workers, names=())
+    for r in rows:
+        r["state"] = "done"
+    _state(rows, "P1").update(state="failed", attempts="2")
+    _state(rows, "P6").update(state="pending")
+    _, sent = _round(rows, workers, names=("W1",))
+    assert [p["part"] for p in sent[0][1]["parts"]] == ["P6"]
+    report = {"type": "scrape_report", "batch_id": sent[0][1]["batch_id"],
+              "parts": [{"part": "P6", "state": "done", "docs": 4}]}
+    _, sent = _round(rows, workers, report=report, names=("W1",), sent=sent)
+    assert [p["part"] for p in sent[-1][1]["parts"]] == ["P1"]  # third and last attempt
 
 
 def test_aborted_runs_requeue_without_using_attempts():
@@ -73,12 +87,12 @@ def test_duplicate_report_is_ignored():
     assert _state(rows, "P1")["state"] == "assigned" and "ignored" in res["summary"]
 
 
-def test_failed_twice_is_not_retried():
+def test_failed_max_attempts_is_not_retried():
     rows, workers = [], {}
     _round(rows, workers, names=())
     for r in rows:
         r["state"], r["attempts"] = "done", "0"
-    _state(rows, "P1").update(state="failed", attempts="2")
+    _state(rows, "P1").update(state="failed", attempts=str(ex.MAX_ATTEMPTS))
     res, sent = _round(rows, workers, names=("W1",))
     assert sent == [] and res["all_done"]
 
