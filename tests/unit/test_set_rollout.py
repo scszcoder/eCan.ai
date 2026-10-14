@@ -673,3 +673,57 @@ class TestMainExitCodes:
         assert rc == 0
         out = json.loads(capsys.readouterr().out)
         assert out["resolved"]["exclude"] == "1.1.0,0.9.0"
+
+
+# ---------------------------------------------------------------------------
+# Real BucketStore prefix composition (regression)
+# ---------------------------------------------------------------------------
+
+class _FakeS3:
+    """Captures the Prefix passed to list_objects_v2 and returns one dir."""
+
+    def __init__(self, release_dir: str):
+        self.release_dir = release_dir
+        self.seen_prefix = None
+
+    def list_objects_v2(self, Bucket, Prefix, Delimiter):  # noqa: N803
+        self.seen_prefix = Prefix
+        return {"CommonPrefixes": [{"Prefix": f"{Prefix}{self.release_dir}/"}]}
+
+
+class _FakeGen:
+    storage_backend = "s3"
+    bucket = "ecan-releases-1251680599"
+    base_path = ""
+    prefix = "production"
+    environment = "production"
+    cos = None
+
+    def __init__(self, release_dir: str):
+        self.s3 = _FakeS3(release_dir)
+
+    @staticmethod
+    def parse_version(version: str):
+        return tuple(int(p) for p in re.findall(r"\d+", version)) or (0,)
+
+
+class TestBucketStoreListPrefix:
+    """A doubled slash in the releases/ prefix matches nothing on COS/S3,
+    which made every promote see 'available: none'. The prefix must be
+    exactly '<env>/releases/'."""
+
+    def test_releases_prefix_has_no_double_slash(self):
+        gen = _FakeGen("v0.9.99yaa")
+        store = set_rollout.BucketStore(gen)
+        dirs = store.list_release_dirs()
+        assert gen.s3.seen_prefix == "production/releases/"
+        assert "//" not in gen.s3.seen_prefix
+        assert dirs == ["v0.9.99yaa"]
+
+    def test_letter_suffix_release_resolves_as_universal(self):
+        # The 0.9.99y* scheme must count as a universal (promotable) release.
+        gen = _FakeGen("v0.9.99yaa")
+        store = set_rollout.BucketStore(gen)
+        status = collect_status(store, "cn", "production", "stable")
+        versions = {a["version"] for a in status["available"]}
+        assert "0.9.99yaa" in versions

@@ -433,7 +433,11 @@ class BucketStore:
             )
 
     def list_release_dirs(self) -> List[str]:
-        prefix = self._key("releases/") + "/"
+        # NB: _key("releases") already joins with a slash; appending one more
+        # would yield "<env>/releases//" (double slash), which COS/S3 match
+        # literally and never find the single-slash "<env>/releases/v.../" keys
+        # -> "available: none" and every CN promote fails its universal guard.
+        prefix = self._key("releases") + "/"
         dirs: List[str] = []
         try:
             if self.backend == "cos":
