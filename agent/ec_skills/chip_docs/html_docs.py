@@ -33,6 +33,7 @@ MAX_PAGES = 3000
 # 2026-10-13: onlinedocs.microchip.com answered 503 to every client for hours;
 # stop the run instead of marking every document failed
 MAX_UNAVAILABLE = 3
+MAINTENANCE = "down for maintenance"
 
 
 def merge_html_urls(old: list[dict], new: list[dict]) -> int:
@@ -170,6 +171,9 @@ async def crawl_doc(page, job: dict, out: Path) -> dict:
     resp = await page.goto(job["url"], timeout=90000, wait_until="domcontentloaded")
     if resp is not None and resp.status >= 500:
         raise SiteUnavailable(f"{resp.status} for {job['url']}")
+    # 2026-10-13: after the 503s, onlinedocs served a "down for maintenance" page with status 200
+    if MAINTENANCE in (await page.inner_text("body")).lower():
+        raise SiteUnavailable(f"maintenance page for {job['url']}")
     base = doc_base(page.url)
     queue, seen, pages, images, failed = [in_doc(page.url, base) or page.url], set(), [], set(), []
     while queue and len(pages) < MAX_PAGES:
@@ -292,6 +296,10 @@ def main() -> None:
     c.add_argument("--limit", type=int, default=0)
     c.add_argument("--no-nas", action="store_true", help="keep the local copy only")
     a = ap.parse_args()
+    # the NAS upload roots (ECAN_NAS_UPLOAD_ROOTS) live in run.env, which only main.py loads
+    from dotenv import load_dotenv
+    from utils.run_env import run_env_path
+    load_dotenv(run_env_path(), override=False)
     profile = a.profile or a.root / "raw" / "_html_browser_profile"
     if a.cmd == "backfill":
         asyncio.run(backfill(a.root, profile, a.limit, a.headless))

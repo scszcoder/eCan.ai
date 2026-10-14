@@ -80,6 +80,7 @@ class FakePage:
 
     def __init__(self, pages, redirect=None):
         self.pages, self.redirect, self.url, self.visits = pages, redirect or {}, "", []
+        self.body = {}
         page = self
 
         class Req:
@@ -105,6 +106,9 @@ class FakePage:
     async def content(self):
         return f"<html>{self.url}</html>"
 
+    async def inner_text(self, selector):
+        return self.body.get(self.url, "topic text")
+
 
 def test_crawl_doc_follows_in_document_links_and_saves_pages_and_images(tmp_path):
     site = {
@@ -126,3 +130,12 @@ def test_crawl_doc_raises_when_the_site_is_down(tmp_path):
     page = FakePage({BASE + "index.html": (503, [], [])})
     with pytest.raises(hd.SiteUnavailable):
         asyncio.run(hd.crawl_doc(page, {"url": BASE + "index.html"}, tmp_path))
+
+
+def test_crawl_doc_raises_on_the_maintenance_page(tmp_path):
+    # 2026-10-13: served with status 200 once the 503s stopped
+    page = FakePage({BASE + "index.html": (200, [], [])})
+    page.body[BASE + "index.html"] = "404 | Microchip Technology The site is currently down for maintenance."
+    with pytest.raises(hd.SiteUnavailable):
+        asyncio.run(hd.crawl_doc(page, {"url": BASE + "index.html"}, tmp_path))
+    assert not (tmp_path / "manifest.json").exists()
