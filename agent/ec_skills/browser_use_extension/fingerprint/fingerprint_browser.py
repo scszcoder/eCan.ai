@@ -341,6 +341,43 @@ def _as_browser_exe(value: str, source: str) -> str:
     return ""
 
 
+def _playwright_browser_roots() -> list:
+    """Candidate ms-playwright install roots, most-specific first.
+
+    eCan does not keep its Playwright browsers in Playwright's own default
+    location. The desktop copies a bundled Chromium into its app-data dir
+    (``%LOCALAPPDATA%\\eCan\\ms-playwright`` on Windows) and points Playwright
+    at it via ``PLAYWRIGHT_BROWSERS_PATH`` on every start
+    (``agent/playwright/core/setup.py``). A fingerprint profile that recorded
+    no binary must look there too, or it reports "no Chromium binary found" on
+    a machine that actually has one. Order: the live
+    ``PLAYWRIGHT_BROWSERS_PATH``, the app-managed dir, then Playwright's OS
+    defaults.
+    """
+    roots: list = []
+
+    env = (os.getenv("PLAYWRIGHT_BROWSERS_PATH") or "").strip()
+    if env and env != "0":  # "0" means "beside the package"; not a shared root
+        roots.append(Path(env))
+
+    try:  # app-managed dir; best-effort so an import hiccup never blocks launch
+        from agent.playwright.core.utils import PlaywrightCoreUtils
+        roots.append(PlaywrightCoreUtils.get_app_data_path() / "ms-playwright")
+    except Exception:
+        pass
+
+    roots.append(Path.home() / "AppData/Local/ms-playwright")
+    roots.append(Path.home() / ".cache/ms-playwright")
+
+    seen, out = set(), []
+    for r in roots:
+        key = str(r)
+        if key not in seen:
+            seen.add(key)
+            out.append(r)
+    return out
+
+
 def resolve_browser_path(profile: dict) -> str:
     """Which binary to run.
 
@@ -356,11 +393,12 @@ def resolve_browser_path(profile: dict) -> str:
     env = _as_browser_exe((os.getenv("ECAN_CHROMIUM_PATH") or "").strip(), "ECAN_CHROMIUM_PATH")
     if env:
         return env
-    # Playwright's bundled Chromium, newest install first.
-    pw = Path.home() / "AppData/Local/ms-playwright"
-    if not pw.exists():
-        pw = Path.home() / ".cache/ms-playwright"
-    if pw.exists():
+    # Playwright's bundled Chromium, newest install first. eCan installs it in
+    # its own app-data dir, not only Playwright's default (see
+    # _playwright_browser_roots).
+    for pw in _playwright_browser_roots():
+        if not pw.exists():
+            continue
         builds = sorted((d for d in pw.glob("chromium-*") if d.is_dir()),
                         key=lambda d: d.name, reverse=True)
         for d in builds:
