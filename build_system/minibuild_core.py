@@ -848,7 +848,12 @@ if playwright_third_party.exists():
                                 # Calculate relative path from the symlink location
                                 rel_from_symlink = os.path.relpath(src_path, real_path)
                                 rel_path = os.path.join(os.path.relpath(dir_path, str(playwright_third_party)), rel_from_symlink)
-                                dest_path = os.path.join('third_party/ms-playwright', rel_path)
+                                # PyInstaller datas dest is the target DIRECTORY; it
+                                # appends basename(src). Passing the full file path makes
+                                # every file land at "<name>/<name>" (a dir named after
+                                # the file), which is how chrome.exe/chrome.dll went
+                                # missing and .pak/.dat became empty dirs in the pack.
+                                dest_path = os.path.join('third_party/ms-playwright', os.path.dirname(rel_path))
                                 pw_files.append((src_path, dest_path))
                 except Exception as e:
                     print(f'[SPEC] Warning: Failed to resolve symlink {{dir_path}}: {{e}}')
@@ -865,7 +870,7 @@ if playwright_third_party.exists():
                     real_path = os.path.realpath(src_path)
                     if os.path.isfile(real_path):
                         rel_path = os.path.relpath(src_path, str(playwright_third_party))
-                        dest_path = os.path.join('third_party/ms-playwright', rel_path)
+                        dest_path = os.path.join('third_party/ms-playwright', os.path.dirname(rel_path))
                         pw_files.append((real_path, dest_path))
                 except Exception as e:
                     print(f'[SPEC] Warning: Failed to resolve symlink {{src_path}}: {{e}}')
@@ -873,7 +878,7 @@ if playwright_third_party.exists():
             
             # Add regular file
             rel_path = os.path.relpath(src_path, str(playwright_third_party))
-            dest_path = os.path.join('third_party/ms-playwright', rel_path)
+            dest_path = os.path.join('third_party/ms-playwright', os.path.dirname(rel_path))
             pw_files.append((src_path, dest_path))
     
     data_files.extend(pw_files)
@@ -897,7 +902,9 @@ if browser_extensions_dir.exists():
             
             # Add as data file
             rel_path = os.path.relpath(src_path, str(browser_extensions_dir))
-            dest_path = os.path.join('third_party/browser_extensions', rel_path)
+            # dest is the target DIRECTORY (PyInstaller appends basename) — see the
+            # ms-playwright note above; the full path would nest each file.
+            dest_path = os.path.join('third_party/browser_extensions', os.path.dirname(rel_path))
             ext_files.append((src_path, dest_path))
     
     data_files.extend(ext_files)
