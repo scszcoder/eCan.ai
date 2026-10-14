@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-09-25T18:25:43.453991",
-  "total_tools": 136,
+  "generated_at": "2026-10-13T12:54:27.156086",
+  "total_tools": 158,
   "tools": [
     {
       "name": "rpa_supervisor_scheduling_work",
@@ -4037,6 +4037,428 @@
       "execution": null
     },
     {
+      "name": "amazon_template_inspect",
+      "title": null,
+      "description": "<category>E-Commerce</category><sub-category>Amazon Listing</sub-category>Read an Amazon category flat-file template (.xlsm/.xlsx downloaded from Seller Central 'Add Products via Upload') and report what it needs: dialect (legacy/unified), the marketplaces it is stamped for, the column each friendly spec key (sku, parentage, parent_sku, variation_theme, brand, product_type, product_id...) fills, and every REQUIRED field with its valid values. Call it before writing a listing spec; pass `field` to see one field's detail.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "template_path"
+            ],
+            "properties": {
+              "template_path": {
+                "type": "string",
+                "description": "Local path of the downloaded template."
+              },
+              "field": {
+                "type": "string",
+                "description": "Optional: one field API name to detail."
+              },
+              "max_values": {
+                "type": "integer",
+                "description": "Valid values listed per field (default 40)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "amazon_template_fill",
+      "title": null,
+      "description": "<category>E-Commerce</category><sub-category>Amazon Listing</sub-category>Fill an Amazon category template from a listing spec and write the tab-delimited upload file. Spec: {\"product_type\", \"brand\", \"marketplace\" (e.g. \"US\"), \"rows\": [{\"sku\", \"operation\" (create|update|partialupdate|delete), \"parentage\" (Parent|Child), \"parent_sku\", \"variation_theme\", \"asin\" (to match an existing ASIN), \"our_price\", \"quantity\", \"fields\": {<field API name>: value}}]}. A variation family is one Parent row plus Child rows. Price/stock are routed to the marketplace's own columns. Returns `upload_file` (upload THAT .txt, never the Excel file) plus warnings (missing required fields, values outside the template's lists).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "template_path",
+              "spec"
+            ],
+            "properties": {
+              "template_path": {
+                "type": "string",
+                "description": "Local path of the downloaded template."
+              },
+              "spec": {
+                "type": "object",
+                "description": "The listing spec (see description)."
+              },
+              "marketplace": {
+                "type": "string",
+                "description": "Country code or marketplace id being listed on; overrides spec.marketplace."
+              },
+              "out_path": {
+                "type": "string",
+                "description": "Optional output .xlsm path (default: <template>_filled.xlsm)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "amazon_parse_feedback",
+      "title": null,
+      "description": "<category>E-Commerce</category><sub-category>Amazon Listing</sub-category>Read the processing report Amazon returns for an uploaded template and list every error/warning by SKU and FIELD (Amazon writes the exact field fix as a cell comment on the report's Template tab). `done` is true only when no error remains except 18320 (missing main image). If not done: fix exactly the named fields, parent SKU first, refill and re-upload.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "report_path"
+            ],
+            "properties": {
+              "report_path": {
+                "type": "string",
+                "description": "Local path of the downloaded processing report (.xlsm/.xlsx/.txt/.csv)."
+              },
+              "batch_id": {
+                "type": "string",
+                "description": "Optional upload batch id (reference_id), echoed in the verdict."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ebay_api_status",
+      "title": null,
+      "description": "<category>E-Commerce</category><sub-category>eBay Listing</sub-category>Whether the eBay developer app is configured on this machine and the seller account is connected (API listing path). Call first.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {}
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ebay_category_suggest",
+      "title": null,
+      "description": "<category>E-Commerce</category><sub-category>eBay Listing</sub-category>Suggest eBay leaf categories for product keywords; returns category ids with their paths.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "query"
+            ],
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "marketplace": {
+                "type": "string",
+                "description": "eBay marketplace id, e.g. EBAY_US, EBAY_GB, EBAY_DE (default EBAY_US)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ebay_category_aspects",
+      "title": null,
+      "description": "<category>E-Commerce</category><sub-category>eBay Listing</sub-category>A category's item specifics (aspects): REQUIRED ones with valid values, recommended ones, whether each may vary across variations, and free-text vs selection-only.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "category_id"
+            ],
+            "properties": {
+              "category_id": {
+                "type": "string"
+              },
+              "marketplace": {
+                "type": "string",
+                "description": "eBay marketplace id, e.g. EBAY_US, EBAY_GB, EBAY_DE (default EBAY_US)."
+              },
+              "max_values": {
+                "type": "integer",
+                "description": "Values listed per aspect (default 30)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ebay_account_setup",
+      "title": null,
+      "description": "<category>E-Commerce</category><sub-category>eBay Listing</sub-category>The seller's business policies (shipping/fulfillment, payment, return) and inventory locations, whose ids a listing needs. Optionally create a location first: create_location={key, name, address:{addressLine1, city, stateOrProvince, postalCode, country}}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "marketplace": {
+                "type": "string",
+                "description": "eBay marketplace id, e.g. EBAY_US, EBAY_GB, EBAY_DE (default EBAY_US)."
+              },
+              "create_location": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ebay_upload_media",
+      "title": null,
+      "description": "<category>E-Commerce</category><sub-category>eBay Listing</sub-category>Upload LOCAL image and video files to eBay; returns eBay-hosted image URLs (for image_urls) and video ids (for video_ids).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "paths"
+            ],
+            "properties": {
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "video_wait_s": {
+                "type": "number",
+                "description": "Seconds to wait for a video to go LIVE (default 60)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ebay_publish_listing",
+      "title": null,
+      "description": "<category>E-Commerce</category><sub-category>eBay Listing</sub-category>Create or update and PUBLISH one eBay listing (single item or a variation family). Spec: {marketplace, category_id, condition (NEW, USED_EXCELLENT, ...), merchant_location_key, listing_policies:{fulfillment_policy_id, payment_policy_id, return_policy_id}, format (FIXED_PRICE), items:[{sku, title, description, aspects:{Name:[values]}, image_urls, video_ids, brand, mpn, upc, ean, price, quantity}], group (only for variations): {key, title, description, aspects (shared), image_urls, varies_by:{Color:[...], Size:[...]}, image_varies_by:[\"Color\"]}}. Idempotent by SKU/group key: on errors fix the named fields and call again.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "spec"
+            ],
+            "properties": {
+              "spec": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ebay_csv_inspect",
+      "title": null,
+      "description": "<category>E-Commerce</category><sub-category>eBay Listing</sub-category>Read an eBay Seller Hub bulk-listing CSV template: site, columns, required columns, item specifics (C:) columns.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "template_path"
+            ],
+            "properties": {
+              "template_path": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ebay_csv_fill",
+      "title": null,
+      "description": "<category>E-Commerce</category><sub-category>eBay Listing</sub-category>Fill an eBay bulk-listing CSV template. Spec: {action: Add|Revise|End, listings:[{sku, category_id, title, description, condition_id, price, quantity, pic_urls:[public URLs], aspects:{Brand: ...}, shipping_profile, return_profile, payment_profile, location, fields:{<exact column>: value}, variations:[{sku, specifics:{Color: Red}, price, quantity, pic_url}]}]}. Returns upload_file + warnings.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "template_path",
+              "spec"
+            ],
+            "properties": {
+              "template_path": {
+                "type": "string"
+              },
+              "spec": {
+                "type": "object"
+              },
+              "out_path": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "ebay_csv_parse_result",
+      "title": null,
+      "description": "<category>E-Commerce</category><sub-category>eBay Listing</sub-category>Read the results file of a Seller Hub bulk upload: per-row status, error codes/messages, listed item ids, and a done verdict.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "result_path"
+            ],
+            "properties": {
+              "result_path": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
       "name": "describe_self",
       "title": null,
       "description": "<category>Agent</category><sub-category>Self</sub-category>Get a structured description of the agent system including any combination of: agents, skills, tasks, tools, knowledge_base, prompts. Supports 'all' to show everything. Output in json, txt, or md format. Useful for agent self-introspection and capability discovery.",
@@ -5779,6 +6201,142 @@
       "execution": null
     },
     {
+      "name": "qianniu_send",
+      "title": null,
+      "description": "<category>Qianniu</category><sub-category>Messaging</sub-category>Send a text reply to one 千牛 (Taobao/Tmall seller) buyer, fail-closed. With expect_message_text (the buyer's own message) the open chat's BODY must show it; if it does not, the conversation whose 正在接待 list preview shows it is opened first (no buyer name needed). Without it, the chat header must name buyer_display_name. Refuses on any mismatch (never mis-delivers to the wrong buyer).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "chat_msg"
+            ],
+            "properties": {
+              "buyer_display_name": {
+                "type": "string",
+                "description": "Display name of the buyer, if known (may be empty when expect_message_text is given)"
+              },
+              "chat_msg": {
+                "type": "string",
+                "description": "Reply text to send"
+              },
+              "auto_open": {
+                "type": "boolean",
+                "default": true,
+                "description": "Open the buyer's conversation first if it is not the open one"
+              },
+              "expect_message_text": {
+                "type": "string",
+                "description": "The buyer's message this reply answers; identifies the buyer's conversation by its text"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "qianniu_receive",
+      "title": null,
+      "description": "<category>Qianniu</category><sub-category>Messaging</sub-category>OCR the currently-open 千牛 conversation and return the visible text lines (top to bottom). Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "qianniu_open_session",
+      "title": null,
+      "description": "<category>Qianniu</category><sub-category>Messaging</sub-category>Open a 千牛 (Taobao/Tmall) buyer's conversation: by the 正在接待 row whose preview shows message_text (no name needed), else by searching buyer_display_name. OCR-verifies the result. Does not send anything.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": {
+              "message_text": {
+                "type": "string",
+                "description": "The buyer's latest message (matched against the 正在接待 list previews)"
+              },
+              "buyer_display_name": {
+                "type": "string",
+                "description": "Display name of the buyer whose conversation to open"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "qianniu_check_location",
+      "title": null,
+      "description": "<category>Qianniu</category><sub-category>Messaging</sub-category>Verify 千牛 is in the right place before replying: on the 正在接待 tab AND the intended buyer's chat thread is loaded. Fail-closed on BOTH signals — the buyer's message must be in the chat body AND the header must name the buyer. May click the 正在接待 tab but never sends. Call this before qianniu_send; if thread_ok is false, qianniu_open_session then re-check.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": {
+              "expect_message_text": {
+                "type": "string",
+                "description": "The buyer's message text to confirm in the chat body"
+              },
+              "buyer_display_name": {
+                "type": "string",
+                "description": "The buyer whose name the chat header must show"
+              },
+              "ensure_reception_tab": {
+                "type": "boolean",
+                "description": "Click the 正在接待 tab if not already there (default true)"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
       "name": "azure_read_billing",
       "title": null,
       "description": "<category>Azure</category><sub-category>Cost Management</sub-category>Read detailed Azure billing information including costs by service and budget status. Requires Azure credentials.",
@@ -6013,6 +6571,233 @@
                 "type": "string",
                 "default": "utf-8",
                 "description": "Text encoding to use when mode is 'text' (e.g. 'utf-8', 'gbk', 'latin-1')"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "nas_save_text",
+      "title": null,
+      "description": "<category>NAS</category><sub-category>UGREEN</sub-category>Write UTF-8 text (e.g. a JSON manifest or extracted metadata) to a file on the UGREEN NAS over SMB. remote_path is relative to the NAS base folder and may include subfolders (created automatically). Overwrites any existing file.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "remote_path",
+              "content"
+            ],
+            "properties": {
+              "remote_path": {
+                "type": "string",
+                "description": "Destination path relative to the NAS base folder, e.g. 'PIC16F/index.json'"
+              },
+              "content": {
+                "type": "string",
+                "description": "UTF-8 text content to write"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "nas_upload_file",
+      "title": null,
+      "description": "<category>NAS</category><sub-category>UGREEN</sub-category>Upload a local file (e.g. a downloaded datasheet PDF) to the UGREEN NAS over SMB. Streams in chunks. remote_path is relative to the NAS base folder; leave empty to keep the local file name at the base folder.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "local_path"
+            ],
+            "properties": {
+              "local_path": {
+                "type": "string",
+                "description": "Full path of the local file to upload"
+              },
+              "remote_path": {
+                "type": "string",
+                "description": "Destination path on the NAS relative to the base folder (may include subfolders). Empty = basename at base folder."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "nas_read_file",
+      "title": null,
+      "description": "<category>NAS</category><sub-category>UGREEN</sub-category>Read a file from the UGREEN NAS over SMB. remote_path is relative to the NAS base folder. mode 'text' returns a UTF-8 string, 'base64' returns base64-encoded bytes (use for PDFs/images).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "remote_path"
+            ],
+            "properties": {
+              "remote_path": {
+                "type": "string",
+                "description": "Path relative to the NAS base folder"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "base64"
+                ],
+                "default": "text",
+                "description": "'text' = UTF-8 string, 'base64' = base64 of raw bytes"
+              },
+              "encoding": {
+                "type": "string",
+                "default": "utf-8",
+                "description": "Text encoding when mode is 'text'"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "nas_list_dir",
+      "title": null,
+      "description": "<category>NAS</category><sub-category>UGREEN</sub-category>List a directory on the UGREEN NAS over SMB. remote_dir is relative to the NAS base folder (empty lists the base folder). Returns name/is_dir/size for each entry; an empty list means the directory is empty or absent.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [],
+            "properties": {
+              "remote_dir": {
+                "type": "string",
+                "description": "Directory relative to the NAS base folder; empty = base folder"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "nas_delete_file",
+      "title": null,
+      "description": "<category>NAS</category><sub-category>UGREEN</sub-category>Delete a file on the UGREEN NAS over SMB. remote_path is relative to the NAS base folder. Deleting a missing file is treated as success.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "remote_path"
+            ],
+            "properties": {
+              "remote_path": {
+                "type": "string",
+                "description": "Path relative to the NAS base folder"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "os_read_document",
+      "title": null,
+      "description": "<category>OS</category><sub-category>File</sub-category>Read a document as plain text: Excel (.xlsx/.xlsm, every sheet as tab-separated rows), CSV/TSV, PDF (text per page; reports scanned PDFs that have no text layer), Word (.docx, paragraphs and tables), PowerPoint (.pptx, text per slide and notes), or any text file (UTF-8/GBK detected). Legacy .xls/.doc/.ppt are not supported.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "file_path"
+            ],
+            "properties": {
+              "file_path": {
+                "type": "string",
+                "description": "Full path of the document"
+              },
+              "sheet": {
+                "type": "string",
+                "description": "Excel only: read just this sheet (default: all sheets)"
+              },
+              "max_rows": {
+                "type": "integer",
+                "default": 300,
+                "description": "Excel/CSV: rows per sheet before cutting off"
+              },
+              "max_chars": {
+                "type": "integer",
+                "default": 40000,
+                "description": "Cut the returned text at this many characters"
               }
             }
           }
