@@ -183,6 +183,28 @@ class PlaywrightCoreUtils:
         logger.debug(f"Browser versions match: {src_version}")
         return False
     
+    # Where the runnable chromium browser binary lives inside a chromium-<build>
+    # dir, per platform. A copy that lost these (files turned into empty dirs, or
+    # chrome.exe dropped mid-copy) must NOT validate.
+    _CHROMIUM_EXE_RELPATHS = (
+        "chrome-win/chrome.exe",
+        "chrome-win64/chrome.exe",
+        "chrome-linux/chrome",
+        "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+    )
+
+    @staticmethod
+    def _chromium_binary_present(chromium_dir: Path) -> bool:
+        """True iff a chromium-<build> dir holds a non-empty, runnable browser."""
+        for rel in PlaywrightCoreUtils._CHROMIUM_EXE_RELPATHS:
+            exe = chromium_dir / rel
+            try:
+                if exe.is_file() and exe.stat().st_size > 0:
+                    return True
+            except OSError:
+                continue
+        return False
+
     @staticmethod
     def validate_browser_installation(path: Path) -> bool:
         """Validate if browser installation is valid"""
@@ -194,6 +216,23 @@ class PlaywrightCoreUtils:
 
         # Check key files - more practical validation method
         try:
+            # Gate 0 (authoritative for our use case): if a chromium build dir is
+            # present, it MUST contain a runnable browser binary. Without this,
+            # browsers.json / a bare folder makes a CORRUPT copy (chrome.exe
+            # missing or files turned into empty dirs) validate True forever, so
+            # copy_playwright_browsers keeps skipping the re-copy and the install
+            # never self-heals. See the 2026-09 "chrome.exe missing" field bug.
+            chromium_dirs = list(path.glob("chromium-*"))
+            if chromium_dirs and not any(
+                PlaywrightCoreUtils._chromium_binary_present(d) for d in chromium_dirs
+            ):
+                logger.debug(
+                    f"Installation validation failed: {path} - chromium dir(s) "
+                    f"present but no runnable browser binary "
+                    f"({[d.name for d in chromium_dirs]})"
+                )
+                return False
+
             # Method 1: Check browsers.json file (recommended but not mandatory)
             browsers_json = path / "browsers.json"
             if browsers_json.exists():
