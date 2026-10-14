@@ -114,3 +114,13 @@ def test_downloads_run_in_parallel_but_capped(tmp_path, monkeypatch):
 def test_all_failed_is_an_error(tmp_path, monkeypatch):
     out, _, _ = _run(tmp_path, monkeypatch, DOCS[:1], fail_url=DOCS[0]["url"])
     assert out.error and "0 saved, 1 failed" in out.error
+
+
+def test_login_only_secure_documents_are_skipped_not_failed(tmp_path, monkeypatch):
+    # 2026-10-13: the 403 on a myMicrochip secure document failed the whole dsPIC33A part
+    secure = {"type": "Data Sheets", "title": "dsPIC33A Cryptographic Accelerator Module Data Sheet",
+              "url": "https://www.microchip.com/myMicrochip/#/secure-document-download/63274/0"}
+    out, fetched, _ = _run(tmp_path, monkeypatch, DOCS + [secure])
+    assert out.error is None and "2 saved, 0 failed" in out.extracted_content
+    assert secure["url"] not in fetched
+    assert "Skipped (login-only secure documents" in out.extracted_content

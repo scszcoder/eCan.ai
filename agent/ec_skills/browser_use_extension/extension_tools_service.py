@@ -2624,11 +2624,17 @@ if _nas_actions_enabled():
 
         os.makedirs(params.local_dir, exist_ok=True)
         jobs, seen, names = [], set(), set()
+        restricted = []
         for doc in docs:
             url = str((doc or {}).get("url") or "").strip() if isinstance(doc, dict) else ""
             if not url.startswith("http") or url in seen:
                 continue
             seen.add(url)
+            # 2026-10-13: myMicrochip secure documents need a login (often an NDA); the
+            # 403 counted as a failure and the worker failed the whole part
+            if "secure-document-download" in url:
+                restricted.append(_doc_file_name(doc))
+                continue
             name = _doc_file_name(doc)
             stem, ext = os.path.splitext(name)
             n = 2
@@ -2670,6 +2676,8 @@ if _nas_actions_enabled():
         msg = f"{len(saved)} saved, {len(failed)} failed in {params.local_dir}. Saved: {saved}"
         if failed:
             msg += f" Failed: {failed}"
+        if restricted:
+            msg += f" Skipped (login-only secure documents, not a failure): {restricted}"
         return ActionResult(extracted_content=msg, include_in_memory=True,
                             error=None if saved or not failed else msg)
 
