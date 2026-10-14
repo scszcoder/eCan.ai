@@ -8,18 +8,31 @@ to the PDF; it parses far better for RAG (register tables, multi-page tables).
 crawled before the collect script knew about it, by re-reading each product
 page in a real Chrome (Microchip's CDN refuses plain HTTP clients).
 
+``crawl`` saves each HTML edition (one per unique ``html_url``; parts share
+them) under ``<root>/html/<doc id>/``: every page reachable by links that stay
+inside the document's folder, its images, and a ``manifest.json`` naming the
+parts that list it. Each finished document is mirrored to the NAS.
+
     python -m agent.ec_skills.chip_docs.html_docs backfill C:/chip_docs/Microchip
+    python -m agent.ec_skills.chip_docs.html_docs crawl C:/chip_docs/Microchip
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
-from pathlib import Path
+import re
+import urllib.parse
+from pathlib import Path, PurePosixPath
 
 from agent.ec_skills.chip_docs.crawl_executor import parse_status
 
 BACKFILL_LOG = "html_backfill_done.txt"
+CRAWL_LOG = "html_crawl_done.txt"
+MAX_PAGES = 3000
+# 2026-10-13: onlinedocs.microchip.com answered 503 to every client for hours;
+# stop the run instead of marking every document failed
+MAX_UNAVAILABLE = 3
 
 
 def merge_html_urls(old: list[dict], new: list[dict]) -> int:
@@ -92,6 +105,179 @@ async def backfill(root: Path, profile: Path, limit: int = 0, headless: bool = F
         await ctx.close()
 
 
+def html_jobs(root: Path) -> dict[str, dict]:
+    """Unique HTML editions across all doc lists: doc id -> {url, type, title, parts}."""
+    jobs: dict[str, dict] = {}
+    for f in sorted((root / "raw" / "docs").glob("*.json")):
+        for d in _load_docs(f):
+            url = d.get("html_url")
+            if not url:
+                continue
+            job = jobs.setdefault(doc_id(url), {"url": url, "type": d.get("type"), "title": d.get("title"),
+                                                "parts": []})
+            if f.stem not in job["parts"]:
+                job["parts"].append(f.stem)
+    return jobs
+
+
+def doc_id(url: str) -> str:
+    """The GUID in an onlinedocs URL (version suffix dropped), else a filesystem-safe path."""
+    m = re.search(r"GUID-[0-9A-F-]{36}", url, re.I)
+    if m:
+        return m.group(0).upper()
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", urllib.parse.urlparse(url).path.strip("/")) or "doc"
+
+
+def doc_base(final_url: str) -> str:
+    """The folder a document's pages live in: the landing page's URL up to its last '/'."""
+    u = urllib.parse.urlparse(final_url)
+    return f"{u.scheme}://{u.netloc}{u.path[:u.path.rfind('/') + 1]}"
+
+
+def in_doc(link: str, base: str) -> str | None:
+    """``link`` without query and fragment if it is a page of the document at ``base``."""
+    u = urllib.parse.urlparse(link)
+    clean = f"{u.scheme}://{u.netloc}{u.path}"
+    if not clean.startswith(base):
+        return None
+    return clean if PurePosixPath(u.path).suffix.lower() in ("", ".html", ".htm") else None
+
+
+def rel_path(url: str, base: str) -> str:
+    """Where a document URL is saved, relative to the document's folder."""
+    rel = urllib.parse.unquote(urllib.parse.urlparse(url[len(base):]).path) or "index.html"
+    if rel.endswith("/"):
+        rel += "index.html"
+    elif not PurePosixPath(rel).suffix:
+        rel += ".html"
+    parts = [p for p in rel.split("/") if p not in ("", ".", "..")]
+    return "/".join(re.sub(r'[<>:"\\|?*]', "_", p) for p in parts)
+
+
+class SiteUnavailable(Exception):
+    pass
+
+
+_PAGE_JS = """() => ({
+  links: [...document.querySelectorAll('a[href]')].map(a => a.href),
+  images: [...document.querySelectorAll('img[src]')].map(i => i.src),
+  title: document.title,
+})"""
+
+
+async def crawl_doc(page, job: dict, out: Path) -> dict:
+    """Save every page of one HTML document under ``out``. Returns its manifest."""
+    resp = await page.goto(job["url"], timeout=90000, wait_until="domcontentloaded")
+    if resp is not None and resp.status >= 500:
+        raise SiteUnavailable(f"{resp.status} for {job['url']}")
+    base = doc_base(page.url)
+    queue, seen, pages, images, failed = [in_doc(page.url, base) or page.url], set(), [], set(), []
+    while queue and len(pages) < MAX_PAGES:
+        url = queue.pop(0)
+        if url in seen:
+            continue
+        seen.add(url)
+        try:
+            if page.url.split("#")[0] != url:
+                resp = await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+                if resp is not None and resp.status >= 400:
+                    failed.append(f"{url}: HTTP {resp.status}")
+                    continue
+            # the table of contents and the topic body are filled in by scripts
+            await page.wait_for_load_state("networkidle", timeout=20000)
+        except Exception as e:
+            if "Timeout" not in type(e).__name__:
+                failed.append(f"{url}: {str(e).splitlines()[0][:200]}")
+                continue
+        info = await page.evaluate(_PAGE_JS)
+        target = out / rel_path(url, base)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(await page.content(), encoding="utf-8")
+        pages.append({"url": url, "file": rel_path(url, base), "title": info["title"]})
+        for link in info["links"]:
+            page_url = in_doc(link, base)
+            if page_url and page_url not in seen:
+                queue.append(page_url)
+        images.update(i for i in info["images"] if i.startswith(base))
+    for img in sorted(images):
+        target = out / rel_path(img, base)
+        if target.exists():
+            continue
+        try:
+            r = await page.request.get(img, timeout=60000)
+            if r.ok:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(await r.body())
+            else:
+                failed.append(f"{img}: HTTP {r.status}")
+        except Exception as e:
+            failed.append(f"{img}: {str(e).splitlines()[0][:200]}")
+    manifest = {**job, "base": base, "pages": pages, "images": len(images), "failed": failed,
+                "truncated": bool(queue)}
+    (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+    return manifest
+
+
+def mirror_to_nas(out: Path, nas_dir: str) -> int:
+    """Upload a document's folder; files already there with the same size are skipped."""
+    from agent.ec_skills.nas import ugreen_nas
+
+    listings: dict[str, dict] = {}
+    n = 0
+    for f in sorted(p for p in out.rglob("*") if p.is_file()):
+        remote = f"{nas_dir}/{f.relative_to(out).as_posix()}"
+        folder = str(PurePosixPath(remote).parent)
+        if folder not in listings:
+            listings[folder] = {e["name"]: e["size"] for e in ugreen_nas.nas_list(folder)}
+        if listings[folder].get(f.name) != f.stat().st_size:
+            ugreen_nas.nas_upload(str(f), remote)
+            n += 1
+    return n
+
+
+async def crawl(root: Path, profile: Path, limit: int = 0, nas: bool = True) -> None:
+    from playwright.async_api import async_playwright
+
+    log = root / "raw" / CRAWL_LOG
+    finished = set(log.read_text(encoding="utf-8").split()) if log.exists() else set()
+    todo = [(k, j) for k, j in html_jobs(root).items() if k not in finished]
+    if limit:
+        todo = todo[:limit]
+    print(f"{len(todo)} HTML documents to crawl", flush=True)
+    unavailable = 0
+    async with async_playwright() as p:
+        ctx = await p.chromium.launch_persistent_context(str(profile), channel="chrome", headless=False)
+        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        for i, (key, job) in enumerate(todo, 1):
+            out = root / "html" / key
+            try:
+                m = await crawl_doc(page, job, out)
+                unavailable = 0
+            except SiteUnavailable as e:
+                unavailable += 1
+                print(f"[{i}/{len(todo)}] {key}: site unavailable ({e})", flush=True)
+                if unavailable >= MAX_UNAVAILABLE:
+                    print("onlinedocs is unavailable; stopping. Re-run later to resume.", flush=True)
+                    break
+                continue
+            except Exception as e:
+                print(f"[{i}/{len(todo)}] {key}: FAILED {str(e).splitlines()[0][:200]}", flush=True)
+                continue
+            uploaded = 0
+            if nas:
+                try:
+                    uploaded = await asyncio.to_thread(mirror_to_nas, out, f"{root.name}/html/{key}")
+                except Exception as e:  # the local copy is kept; a re-run retries the upload
+                    print(f"[{i}/{len(todo)}] {key}: NAS mirror failed: {e}", flush=True)
+                    continue
+            with log.open("a", encoding="utf-8") as fh:
+                fh.write(key + "\n")
+            print(f"[{i}/{len(todo)}] {key}: {len(m['pages'])} pages, {m['images']} images, "
+                  f"{len(m['failed'])} failed, {uploaded} uploaded{' (truncated)' if m['truncated'] else ''}",
+                  flush=True)
+        await ctx.close()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -100,9 +286,17 @@ def main() -> None:
     b.add_argument("--profile", type=Path, help="Chrome profile dir (default <root>/raw/_html_browser_profile)")
     b.add_argument("--limit", type=int, default=0)
     b.add_argument("--headless", action="store_true", help="the product pages never load headless (2026-10-13)")
+    c = sub.add_parser("crawl", help="save every HTML edition's pages and images, mirrored to the NAS")
+    c.add_argument("root", type=Path, help="vendor folder, e.g. C:/chip_docs/Microchip")
+    c.add_argument("--profile", type=Path, help="Chrome profile dir (default <root>/raw/_html_browser_profile)")
+    c.add_argument("--limit", type=int, default=0)
+    c.add_argument("--no-nas", action="store_true", help="keep the local copy only")
     a = ap.parse_args()
+    profile = a.profile or a.root / "raw" / "_html_browser_profile"
     if a.cmd == "backfill":
-        asyncio.run(backfill(a.root, a.profile or a.root / "raw" / "_html_browser_profile", a.limit, a.headless))
+        asyncio.run(backfill(a.root, profile, a.limit, a.headless))
+    elif a.cmd == "crawl":
+        asyncio.run(crawl(a.root, profile, a.limit, not a.no_nas))
 
 
 if __name__ == "__main__":
