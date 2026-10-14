@@ -787,6 +787,8 @@ def update_browser_session_cache(
                         if evicted >= 2:
                             break
             cached_browser_sessions[browser_scope_key] = agent_session
+            if cached_browser_sessions is _bh.cached_browser_sessions:
+                _bh.evict_excess_chat_sessions(browser_scope_key)
             try:
                 setattr(agent_session, "_ecan_browser_scope_key", browser_scope_key)
             except Exception:
