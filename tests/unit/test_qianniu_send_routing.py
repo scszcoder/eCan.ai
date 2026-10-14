@@ -311,6 +311,25 @@ def test_an_unread_dot_is_not_a_conversation_row():
     assert qianniu_ocr.conversation_rows(rows) == [("sctisz", "节日有打折吗", (231, 361))]
 
 
+def test_grouping_headers_do_not_steal_a_buyer_row():
+    # "列表分组开启" on: the 「待回复(1)」/「已回复(2)」 section headers sit in the
+    # list column and used to pair with the buyer below (name='待回复(1)',
+    # preview='大作战panda'), so the cold sweep opened a bogus row, last_turn
+    # could not read it, and the real buyer was skipped and never answered
+    # (customer 2026-10-14: 大作战panda「这个牙线盒耐用吗」 waited 102s+).
+    screen = REAL_SCREEN + [_real("待回复(1)", 210, 336), _real("已回复(2)", 210, 520)]
+    assert qianniu_ocr.conversation_rows(screen) == [("sctisz", "节日有打折吗", (231, 361))]
+
+
+def test_a_buyer_message_that_contains_回复_is_not_a_grouping_header():
+    # The header filter is full-line anchored, so a buyer/preview line that
+    # merely contains 「回复」 (e.g. our own 「稍后回复您」) is never dropped.
+    assert qianniu_ocr._GROUP_HEADER.match("待回复(1)")
+    assert qianniu_ocr._GROUP_HEADER.match("已回复(2)")
+    assert not qianniu_ocr._GROUP_HEADER.match("这边帮您核实一下，稍后回复您。")
+    assert not qianniu_ocr._GROUP_HEADER.match("大作战panda")
+
+
 def test_a_read_marker_is_not_part_of_the_buyers_last_message():
     screen = REAL_SCREEN + [_real("..0", 600, 620)]
     assert qianniu_ocr.last_turn(screen, "sctisz", "倪好数码:小柒") == ("buyer", "有黑人牙膏吗")
