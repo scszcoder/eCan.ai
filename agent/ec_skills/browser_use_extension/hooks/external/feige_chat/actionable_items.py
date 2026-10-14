@@ -723,6 +723,31 @@ def _evaluate_item_filter(
     return True, ""
 
 
+def _promo_line_for(mainwin: object, agent_id: str) -> str:
+    """The front desk's store current-promotions line ("[当前活动] 截至HH:MM：…")
+    for the Q&A turn, or "". Never raises -- a missing snapshot (or no promo
+    refresh deployed) must not disturb dispatch."""
+    try:
+        store_id = ""
+        for ag in list(getattr(mainwin, "agents", None) or []):
+            if str(getattr(getattr(ag, "card", None), "id", "") or "") != str(agent_id or ""):
+                continue
+            for task in list(getattr(ag, "tasks", None) or []):
+                md = getattr(task, "metadata", None)
+                tv = md.get("task_vars") if isinstance(md, dict) else None
+                sid = (tv or {}).get("store_id") if isinstance(tv, dict) else None
+                if sid:
+                    store_id = str(sid)
+                    break
+            break
+        if not store_id:
+            return ""
+        from knowledge.ks.service import get_service
+        return get_service().promo_line(store_id)
+    except Exception:
+        return ""
+
+
 async def _try_auto_dispatch(
     config: dict,
     actionable: list,
@@ -873,6 +898,9 @@ async def _try_auto_dispatch(
         return min(candidates, key=lambda c: _agent_load(c["id"]))
 
     dispatched = 0
+    # The store's current promotions (store-wide, so once per call), handed to
+    # Q&A alongside the product card so deal questions get a fresh, dated answer.
+    promo_line = _promo_line_for(mainwin, caller_id)
     for item in actionable:
         # Resolve template fields
         resolved = {}
@@ -929,6 +957,9 @@ async def _try_auto_dispatch(
         _mt050e_prior = _get_recent_messages(cust_id)
         if _mt050e_prior:
             resolved["customer_recent_messages"] = _mt050e_prior
+        if promo_line:
+            resolved["customer_recent_messages"] = (
+                resolved.get("customer_recent_messages") or []) + [promo_line]
 
         message_str = json.dumps(resolved, ensure_ascii=False)
         send_config = {

@@ -58,6 +58,24 @@ load_dotenv()
 
 
 
+# Map trigger names to the 3 unified types: schedule, message, auto
+# Legacy names are mapped for backward compatibility
+TASK_TRIGGER_MAP = {
+	"schedule": "schedule",
+	"message": "message",
+	"auto": "auto",
+	# Started by the runner when its prerequisite tasks finish (task_deps).
+	"after": "after",
+	# Legacy backward-compat aliases
+	"interaction": "message",
+	"human chat": "message",
+	"agent message": "message",
+	"a2a_queue": "message",
+	"chat_queue": "message",
+	"manual": "auto",
+}
+
+
 class EC_Agent(Agent):
 	@time_execution_sync('--init (agent)')
 	def __init__(
@@ -433,6 +451,8 @@ class EC_Agent(Agent):
 			return
 		name = getattr(self.card, "name", "?")
 		logger.info(f"[AGENT_STOP] Stopping '{name}': {reason}")
+		from utils import agent_cost
+		_cost_before = agent_cost.snapshot()
 		self._running = False
 		self._stopped = True
 		try:
@@ -464,6 +484,7 @@ class EC_Agent(Agent):
 		except Exception as e:
 			logger.debug(f"[AGENT_STOP] '{name}' memory manager stop failed: {e}")
 		logger.info(f"[AGENT_STOP] '{name}' stopped")
+		agent_cost.log_later("stop", name, _cost_before, 3.0)
 
 	def exit_a2a_server_in_thread(self):
 		if getattr(self, "a2a_server_thread", None) and self.a2a_server_thread.is_alive():
@@ -482,10 +503,16 @@ class EC_Agent(Agent):
 			if getattr(self, "_starting", False) or getattr(self, "_running", False):
 				return
 			self._starting = True
+		from utils import agent_cost
+		_cost_before = agent_cost.snapshot()
 		try:
 			self._start_body()
 		finally:
 			self._starting = False
+		if getattr(self, "_running", False):
+			_name = getattr(self.card, "name", "?")
+			agent_cost.log_delta("start", _name, _cost_before)
+			agent_cost.log_later("start", _name, _cost_before, 10.0)
 
 	def _start_body(self):
 		# ── Vehicle affinity gate (SHARED_SKILL_MULTI_TASK_PLAN Phase 1.5) ──
@@ -582,25 +609,9 @@ class EC_Agent(Agent):
 			logger.info(f"[AGENT_START] Task details: task_id={getattr(task,'id',None)}, run_id={getattr(task,'run_id',None)}, queue_id={qid}")
 
 			# task.trigger is now a list (e.g. ["schedule"], ["schedule", "message"])
-			# Map trigger names to the 3 unified types: schedule, message, auto
-			# Legacy names are mapped for backward compatibility
-			TRIGGER_MAP = {
-				"schedule": "schedule",
-				"message": "message",
-				"auto": "auto",
-				# Started by the runner when its prerequisite tasks finish (task_deps).
-				"after": "after",
-				# Legacy backward-compat aliases
-				"interaction": "message",
-				"human chat": "message",
-				"agent message": "message",
-				"a2a_queue": "message",
-				"chat_queue": "message",
-				"manual": "auto",
-			}
 			unified_triggers = []
 			for t in task.trigger:
-				mapped = TRIGGER_MAP.get(t)
+				mapped = TASK_TRIGGER_MAP.get(t)
 				if mapped:
 					unified_triggers.append(mapped)
 				else:

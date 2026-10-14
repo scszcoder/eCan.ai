@@ -285,3 +285,25 @@ def handle_fast_deploy_generate(request: IPCRequest,
     except Exception as e:
         logger.error(f"[FastDeploy] error: {e}")
         return create_error_response(request, "FAST_DEPLOY_ERROR", str(e))
+
+
+@IPCHandlerRegistry.handler("fast_deploy.cs_pools")
+def handle_fast_deploy_cs_pools(request: IPCRequest,
+                                params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """This platform's existing 客服 deployments, grouped by the Q&A agents
+    they share -- the panel offers to share one with the store being deployed.
+    Read-only, from this app's database (no CLI run)."""
+    try:
+        from types import SimpleNamespace
+        from app_context import AppContext
+        from cli.deploy.commands import cs_pools
+        mgr = getattr(AppContext.get_main_window(), "ec_db_mgr", None)
+        if mgr is None:
+            return create_success_response(request, {"pools": []})
+        ctx = SimpleNamespace(db=SimpleNamespace(task_service=mgr.task_service, agent_service=mgr.agent_service,
+                                                 store_service=getattr(mgr, "store_service", None)))
+        scenario = str((params or {}).get("scenario") or "")
+        return create_success_response(request, {"pools": cs_pools(ctx, scenario)})
+    except Exception as e:
+        logger.warning(f"[FastDeploy] cs_pools failed: {e}")
+        return create_error_response(request, "FAST_DEPLOY_ERROR", str(e))

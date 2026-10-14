@@ -252,9 +252,12 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
             for flag_key in ('run_once',):
                 if db_settings.get(flag_key):
                     runtime_metadata[flag_key] = True
-            for scalar_key in ('completed_once_at', 'start_after_idle_min'):
+            for scalar_key in ('completed_once_at', 'start_after_idle_min', 'after_consumed_at'):
                 if db_settings.get(scalar_key) not in (None, ''):
                     runtime_metadata[scalar_key] = db_settings[scalar_key]
+            if isinstance(db_settings.get('last_finish'), dict):
+                # "after task": this prerequisite's last finish, kept across restarts.
+                runtime_metadata['last_finish'] = dict(db_settings['last_finish'])
             for scalar_key in ('run_class', 'overlap_policy'):
                 val = db_settings.get(scalar_key)
                 if isinstance(val, str) and val.strip():
@@ -707,34 +710,40 @@ def _inherit_skill_placement(task_obj, skill_obj) -> None:
         logger.warning(f"[AgentConverter] placement inheritance failed (non-fatal): {e}")
 
 
-def _bind_skills_from_task_rels(task_objects, compiled_skills, main_window):
-    """Attach each unbound task's skill by the id in agent_task_skill_rels.
+def _bind_task_skills_from_db(main_window, task_objects, skill_objects, compiled_skills):
+    """Give a task without a skill the one its task-skill relation names.
 
-    create_agent_tasks reads that id before the skills are compiled, so it
-    finds no skill object and the task arrives here unbound. Left to the name
-    heuristics, task 'chip_docs_crawl_1' then shares more words with
-    'chip_docs_crawl_manager_00' than with its own 'chip_docs_crawler_00' and
-    every worker runs the manager skill.
+    Tasks are loaded before skills are compiled, so the relation read then
+    (create_agent_tasks) finds no skill object to attach. An agent whose tasks
+    come as bare ids (extra_data) has no stub skill either, and the name
+    fallback in _find_matching_skill_for_task misses whenever the task isn't
+    named after its skill (天猫客服前台001 -> 淘宝客服前台01).
     """
-    task_service = getattr(getattr(main_window, 'ec_db_mgr', None), 'task_service', None)
-    if task_service is None:
+    unbound = [t for t in task_objects or [] if getattr(t, 'skill', None) is None and getattr(t, 'id', None)]
+    if not unbound:
         return
-    by_id = {str(getattr(sk, 'id', '')): sk for sk in compiled_skills
-             if getattr(sk, 'runnable', None) is not None}
-    for task_obj in task_objects:
-        if getattr(getattr(task_obj, 'skill', None), 'runnable', None) is not None:
-            continue
+    try:
+        task_service = main_window.ec_db_mgr.task_service
+    except Exception:
+        return
+    pool = [sk for sk in list(skill_objects or []) + list(compiled_skills or [])
+            if sk is not None and getattr(sk, 'runnable', None) is not None]
+    by_id = {}
+    for sk in pool:
+        by_id.setdefault(str(getattr(sk, 'id', '') or ''), sk)
+    for task_obj in unbound:
         try:
-            rels = task_service.get_task_skills(getattr(task_obj, 'id', ''), role=None) or {}
-            rel_rows = (rels.get('data') or []) if rels.get('success') else []
+            rels = (task_service.get_task_skills(task_obj.id, role=None) or {}).get('data') or []
         except Exception as exc:
-            logger.warning(f"[AgentConverter] skill rel lookup failed for task '{task_obj.name}': {exc}")
+            logger.warning(f"[AgentConverter] task-skill relation lookup failed for {task_obj.id}: {exc}")
             continue
-        skill = by_id.get(str(rel_rows[0].get('skill_id') or '')) if rel_rows else None
-        if skill is not None:
-            task_obj.skill = skill
-            logger.info(f"[AgentConverter] Bound task '{task_obj.name}' to skill "
-                        f"'{getattr(skill, 'name', '?')}' from its skill rel")
+        for rel in rels:
+            sk = by_id.get(str(rel.get('skill_id') or ''))
+            if sk is not None:
+                task_obj.skill = sk
+                logger.info(f"[AgentConverter] Bound task '{getattr(task_obj, 'name', '?')}' to skill "
+                            f"'{getattr(sk, 'name', '?')}' (id={rel.get('skill_id')}) from the task-skill relation")
+                break
 
 
 def _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills):
@@ -767,7 +776,7 @@ def _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills):
             # reads the task, so the inheritance has to happen here or a
             # skill's requires[] never reaches placement.
             _inherit_skill_placement(task_obj, matched_skill)
-        else:
+        elif getattr(getattr(task_obj, 'skill', None), 'runnable', None) is None:
             task_name_lower = (getattr(task_obj, 'name', '') or '').lower()
             is_chat_task = 'chat' in task_name_lower
             task_skill = getattr(task_obj, 'skill', None)
@@ -801,6 +810,20 @@ def _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills):
 
 
 def convert_agent_dict_to_ec_agent(
+    agent_data: Dict[str, Any],
+    main_window: 'MainWindow'
+) -> Optional[EC_Agent]:
+    """Convert agent data (dict) to EC_Agent object (see _convert_agent_dict_to_ec_agent);
+    logs what the build cost to memory.log ([agent-cost])."""
+    from utils import agent_cost
+    before = agent_cost.snapshot()
+    ec_agent = _convert_agent_dict_to_ec_agent(agent_data, main_window)
+    if ec_agent is not None:
+        agent_cost.log_delta("build", str(agent_data.get('name') or agent_data.get('id') or '?'), before)
+    return ec_agent
+
+
+def _convert_agent_dict_to_ec_agent(
     agent_data: Dict[str, Any],
     main_window: 'MainWindow'
 ) -> Optional[EC_Agent]:
@@ -976,8 +999,9 @@ def convert_agent_dict_to_ec_agent(
             task_stubs, compiled_tasks, 'task', agent_data.get('name')
         )
 
+        _bind_task_skills_from_db(main_window, task_objects, skill_objects, compiled_skills)
+
         # Skill attachment and trigger adjustment for tasks
-        _bind_skills_from_task_rels(task_objects, compiled_skills, main_window)
         _attach_skills_and_triggers(task_objects, skill_objects, compiled_skills)
         
         # Update EC_Agent with resolved objects

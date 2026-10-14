@@ -2,7 +2,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string, o?: any) => (o && o.defaultValue ? `${key}` : key) }),
+  useTranslation: () => ({
+    t: (key: string, o?: any) => (o && o.stores ? `${key}:${o.stores}` : o && o.n != null ? `${key}:${o.n}` : key),
+    i18n: { language: 'zh-CN' },
+  }),
 }));
 
 const executeRequest = jest.fn();
@@ -41,4 +44,22 @@ it('shows nothing for an agent without a pool', async () => {
   render(<AgentPoolPanel agentId="qa1" />);
   await waitFor(() => expect(executeRequest).toHaveBeenCalled());
   expect(screen.queryByTestId('agent-pool-panel')).not.toBeInTheDocument();
+});
+
+
+it('says which other stores share the pool', async () => {
+  executeRequest.mockResolvedValue({ success: true, data: { pool: { ...POOL, shared_desks: [
+    { id: 'fdB', name: '前台小王', store_id: 'douyin-店B', store_name: '店B' },
+    { id: 'fdC', name: '前台小李', store_id: 'douyin-店C' },
+  ] } } });
+  render(<AgentPoolPanel agentId="fdA" />);
+  expect(await screen.findByTestId('agent-pool-shared'))
+    .toHaveTextContent('pages.agents.pool.sharedWith:店B（前台小王）、douyin-店C（前台小李）');
+});
+
+it('an unshared pool says nothing about sharing; a pinned one says it is fixed', async () => {
+  executeRequest.mockResolvedValue({ success: true, data: { pool: { ...POOL, pinned: 3, shared_desks: [] } } });
+  render(<AgentPoolPanel agentId="fd1" />);
+  expect(await screen.findByTestId('agent-pool-panel')).toHaveTextContent('pages.agents.pool.summaryPinned:3');
+  expect(screen.queryByTestId('agent-pool-shared')).not.toBeInTheDocument();
 });

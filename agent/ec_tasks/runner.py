@@ -4777,6 +4777,22 @@ class TaskRunner(Generic[Context]):
             )
             return True
 
+        # A site that sends without a browser (千牛, a desktop client) delivers the
+        # reply itself. The browser path below would wait for a browser session
+        # it never gets, then queue the reply for the front desk's LLM round
+        # (alpha 2026-10-12: 5 s wait + 2.4 s LLM + the queue per reply).
+        try:
+            _deliver_reply = getattr(_live_chat_bridge(), "deliver_reply", None)
+        except Exception:
+            _deliver_reply = None
+        if callable(_deliver_reply):
+            try:
+                return bool(_deliver_reply(_parsed))
+            except Exception as _dr_err:
+                logger.warning(f"[DIRECT-DELIVERY] site deliver_reply failed customer={_customer_name!r}: "
+                               f"{_dr_err}; the front desk takes the reply")
+                return False
+
         try:
             _live_chat_ledger_payload = _live_chat_bridge().trace_ledger.log_payload
         except Exception:
@@ -7221,6 +7237,23 @@ class TaskRunner(Generic[Context]):
     
     # ==================== Resume Payload Building ====================
     
+    def _scope_turn_store(self, msg: Any) -> None:
+        """A task with no store of its own (a Q&A agent shared by several stores'
+        front desks) runs each turn for the store that dispatched it: put that
+        store on this run's scope, so usage, metering and logs carry it. Runs
+        inside the turn's own context copy, so it never outlives the turn."""
+        try:
+            from utils.log_scope import get_scope, update_scope
+            if (get_scope() or {}).get("store_id"):
+                return
+            from agent.ec_skills.prompt_variable_providers import _dispatched_store_id
+            message = getattr(msg, "message", None) or (msg.get("message") if isinstance(msg, dict) else None) or msg
+            store = _dispatched_store_id({"input": self._extract_text_from_message(message)})
+            if store:
+                update_scope(store_id=store)
+        except Exception:
+            pass
+
     def _extract_text_from_message(self, message) -> str:
         """Extract text from a Message object."""
         try:
@@ -8135,7 +8168,7 @@ class TaskRunner(Generic[Context]):
                 logger.info(f"[task-after] '{task.name}' is due but waits for {missing}")
                 return True
             if isinstance(msg, dict):
-                msg["upstream"] = self._after_tracker().consume(task)
+                msg["upstream"] = self._consume_after(task)
 
         # Due again while its previous run is still going.
         if _task_execution_future_running(task) or getattr(task.status, "state", None) == TaskState.working:
@@ -8188,7 +8221,19 @@ class TaskRunner(Generic[Context]):
         return False
 
     def _after_tracker(self) -> "_task_deps.AfterTracker":
-        return self.__dict__.setdefault("_after_tracker_obj", _task_deps.AfterTracker())
+        tracker = self.__dict__.get("_after_tracker_obj")
+        if tracker is None:
+            tracker = _task_deps.AfterTracker()
+            tracker.seed(getattr(self.agent, "tasks", None) or [])   # finishes saved before a restart
+            tracker = self.__dict__.setdefault("_after_tracker_obj", tracker)
+        return tracker
+
+    def _consume_after(self, dep: ManagedTask) -> dict:
+        """The prerequisites' finishes become this run's input; saved, so a
+        restart doesn't start the dependent again for the same finishes."""
+        upstream = self._after_tracker().consume(dep)
+        self._persist_task_settings(dep, after_consumed_at=self._after_tracker().consumed_at(dep.id))
+        return upstream
 
     def _on_run_finished(self, task: ManagedTask, future: Any) -> None:
         """A run ended: record it and start the tasks waiting for it ("after" trigger)."""
@@ -8209,14 +8254,20 @@ class TaskRunner(Generic[Context]):
                 pass
         else:
             summary = f"error: {exc}"[:500]
-        self._after_tracker().record(task.id, ok, summary, getattr(task, "name", ""))
+        rec = self._after_tracker().record(task.id, ok, summary, getattr(task, "name", ""))
+        dependents = [dep for dep in getattr(self.agent, "tasks", None) or []
+                      if dep is not task and _task_deps.has_after_trigger(dep)
+                      and task.id in _task_deps.after_config(dep)[0]]
+        if dependents:
+            # Only prerequisites save their finish: a chat task's turns never write.
+            self._persist_task_settings(task, last_finish={"at": rec["at"], "ok": rec["ok"],
+                                                           "summary": rec["summary"][:200]})
         meta = task.metadata if isinstance(task.metadata, dict) else {}
         if ok and meta.get("run_once") and not meta.get("completed_once_at"):
             self._persist_task_settings(task, completed_once_at=datetime.now().isoformat(timespec="seconds"))
             logger.info(f"[task-schedule] '{task.name}' finished its one run")
-        for dep in getattr(self.agent, "tasks", None) or []:
-            if dep is not task and _task_deps.has_after_trigger(dep) and task.id in _task_deps.after_config(dep)[0]:
-                self._fire_if_ready(dep)
+        for dep in dependents:
+            self._fire_if_ready(dep)
 
     def _fire_if_ready(self, dep: ManagedTask) -> None:
         by_id = {t.id: t for t in (getattr(self.agent, "tasks", None) or [])}
@@ -8238,7 +8289,7 @@ class TaskRunner(Generic[Context]):
                 return   # not due yet: its schedule starts it (prerequisites are done)
             msg, trigger = held, "schedule"   # the schedule rules consume the prerequisites
         else:
-            msg = {"__trigger_source__": "after", "upstream": self._after_tracker().consume(dep)}
+            msg = {"__trigger_source__": "after", "upstream": self._consume_after(dep)}
             trigger = "after"
         logger.info(f"[task-after] starting '{dep.name}' (prerequisites done)")
         if not self._stop_event.is_set():
@@ -8266,7 +8317,24 @@ class TaskRunner(Generic[Context]):
         if not keys:
             return False
         idle = _resource_gate.get_gate().idle_for(keys)
+        since = self.__dict__.setdefault("_idle_since", {})
         if idle >= idle_min * 60:
+            since.pop(task.id, None)
+            return False
+        # Still busy. A one-time export on the front desk's own browser (a live
+        # 客服 store) may never see a ``start_after_idle_min`` lull, so cap the
+        # wait: once the task has been deferred for ``start_after_idle_max_min``,
+        # run it anyway rather than starve it forever. No cap (0) keeps the old
+        # wait-indefinitely behaviour.
+        try:
+            idle_max_min = float(meta.get("start_after_idle_max_min") or 0)
+        except (TypeError, ValueError):
+            idle_max_min = 0.0
+        first_deferred = since.setdefault(task.id, time.time())
+        if idle_max_min > 0 and time.time() - first_deferred >= idle_max_min * 60:
+            logger.info(f"[task-schedule] '{task.name}' waited {idle_max_min:g} min for {list(keys)} "
+                        f"to go idle and they stayed busy; running the one-time job now")
+            since.pop(task.id, None)
             return False
         held = self.__dict__.setdefault("_idle_held", set())
         if task.id in held:
@@ -8655,6 +8723,7 @@ class TaskRunner(Generic[Context]):
                 _agent_pool.note_started(self._gate_agent_id(), msg)   # how long the turn waited
             except Exception:
                 pass
+            self._scope_turn_store(msg)
             # ws118: cap concurrent QA-turn executions (exclude the persistent
             # front-desk monitor — it must keep detecting). Acquire BEFORE the
             # LLM/tool work; released in the finally below.

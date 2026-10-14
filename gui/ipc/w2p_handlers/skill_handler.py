@@ -18,6 +18,17 @@ from pathlib import Path
 # Track locally-deleted skill IDs to prevent cloud re-sync from re-adding them
 _DELETED_SKILL_IDS: set = set()
 
+
+def _same_owner(a, b) -> bool:
+    """True if skill owner *a* and user *b* are the same author, tolerant of the
+    WeChat synthetic suffix: a WeChat login's username is ``wechat_<openid>@wechat.local``
+    while the row stores the bare ``wechat_<openid>``. normalize_cloud_owner strips
+    the suffix/prefix (same rule as the cloud/merge paths); an empty owner → False."""
+    from agent.cloud_api.cloud_api import normalize_cloud_owner
+    na = normalize_cloud_owner(str(a or '').strip()).lower()
+    nb = normalize_cloud_owner(str(b or '').strip()).lower()
+    return bool(na) and na == nb
+
 # Module-level HTTP session for cloud API calls (reused across requests)
 _cached_cloud_session: Optional[requests.Session] = None
 
@@ -736,7 +747,7 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                         # Auto-download files for the user's own cloud skills,
                         # and for SUBSCRIBED skills using the author's storage
                         # namespace (file_owner). Other third-party rows skip.
-                        _owner_mismatch = (sk.get('owner') or '').strip().lower() != (username or '').strip().lower()
+                        _owner_mismatch = not _same_owner(sk.get('owner'), username)
                         _is_subscribed_row = str(sk.get('source') or '').strip().lower() == 'subscribed'
                         if _owner_mismatch and not _is_subscribed_row:
                             skip_owner_mismatch += 1
@@ -1231,7 +1242,6 @@ def handle_get_subscribed_skill_ids(request: IPCRequest, params: Optional[Dict[s
         if not isinstance(skills, list):
             skills = []
 
-        username_norm = username.strip().lower()
         skill_ids = []
         seen_ids = set()
         for skill in skills:
@@ -1245,7 +1255,7 @@ def handle_get_subscribed_skill_ids(request: IPCRequest, params: Optional[Dict[s
             # Third-party subscribed skills usually retain the original cloud owner,
             # and may also be marked as external. Prefer explicit owner mismatch,
             # but keep `external` as a fallback signal for legacy rows.
-            is_owned_by_user = bool(owner) and owner == username_norm
+            is_owned_by_user = _same_owner(owner, username)
             is_external_subscription = source == 'external'
             is_builtin_local = ('resource/my_skills/' in path_value) or ('resource\\my_skills\\' in path_value)
 
@@ -1322,7 +1332,6 @@ def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any
         if not rows:
             logger.info("[get_public_skills] falling back to own-list public filter (legacy)")
             rows = _fetch_cloud_skills(request, params)
-        username_norm = username.strip().lower()
         skills = []
         seen = set()
 
@@ -1345,7 +1354,7 @@ def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any
                 continue
             if sk.get('public') is None:
                 sk['public'] = True  # normalize for the frontend store filter
-            if owner and owner == username_norm:
+            if _same_owner(owner, username):
                 continue
 
             key = str(sk.get('id') or '').strip()
@@ -1811,7 +1820,7 @@ def handle_update_subscribed_skill(request: IPCRequest, params: Optional[Dict[st
             return create_error_response(request, 'SKILL_NOT_SUBSCRIBED',
                                          '未订阅该技能 (skill is not subscribed on this machine)')
         owner = str(existing_data.get('owner') or '')
-        if owner and owner.lower() == username.lower():
+        if _same_owner(owner, username):
             # The author's local copy is the working copy; pulling the cloud one
             # over it would throw away unpublished edits.
             return create_error_response(request, 'UPDATE_OWN_SKILL',
@@ -2031,7 +2040,7 @@ def handle_unsubscribe_from_skill(request: IPCRequest, params: Optional[Dict[str
         # Prevent unsubscribing from own skill
         if existing.get('success') and existing.get('data'):
             skill_owner = existing['data'].get('owner', '')
-            if skill_owner and skill_owner.lower() == username.lower():
+            if _same_owner(skill_owner, username):
                 return create_error_response(
                     request, 'UNSUBSCRIBE_OWN_SKILL',
                     'Cannot unsubscribe from your own skill. Use delete instead.'
@@ -2305,11 +2314,19 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
         # ── Read-only gate: skills owned by another author (subscribed /
         #    third-party) can never be saved locally — only the author edits,
         #    subscribers re-download newer versions from the store.
-        _row_owner = str(((_existing_row or memory_skill_data or {}).get('owner')) or '').strip().lower()
-        if _row_owner and _row_owner != str(username).strip().lower():
+        #    Compare via normalize_cloud_owner (same as the cloud/merge paths at
+        #    L425/L642): a WeChat owner's local username carries a synthetic
+        #    suffix (wechat_<openid>@wechat.local) while the row stores the bare
+        #    wechat_<openid>; a raw compare made the author's own skill read-only.
+        from agent.cloud_api.cloud_api import normalize_cloud_owner
+        _row_owner_raw = str(((_existing_row or memory_skill_data or {}).get('owner')) or '').strip()
+        _row_owner = normalize_cloud_owner(_row_owner_raw).lower()
+        _saver_owner = normalize_cloud_owner(str(username or '').strip()).lower()
+        if _row_owner and _row_owner != _saver_owner:
             logger.warning(
                 f"[skill_handler] SKILL_READ_ONLY: save of '{skill_info.get('name', skill_id)}' "
-                f"rejected — owner '{_row_owner}' != current user '{username}'"
+                f"rejected — owner '{_row_owner_raw}' (norm '{_row_owner}') != current user "
+                f"'{username}' (norm '{_saver_owner}')"
             )
             return create_error_response(
                 request,
@@ -2672,12 +2689,11 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
         if not resolved_skill_record:
             try:
                 cloud_skills = _fetch_cloud_skills(request, params)
-                username_norm = str(username or '').strip().lower()
                 for sk in (cloud_skills or []):
                     cloud_id = str(sk.get('id') or '').strip()
                     cloud_askid = str(sk.get('askid') or '').strip()
                     cloud_owner = str(sk.get('owner') or '').strip().lower()
-                    if username_norm and cloud_owner and cloud_owner != username_norm:
+                    if cloud_owner and username and not _same_owner(cloud_owner, username):
                         continue
                     if requested_skill_id and requested_skill_id in {cloud_id, cloud_askid}:
                         resolved_skill_record = sk
@@ -2741,7 +2757,7 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
                 existing = {'success': True, 'data': resolved_skill_record}
             if existing.get('success') and existing.get('data'):
                 skill_owner = str(existing['data'].get('owner', '') or '').strip()
-                if skill_owner and skill_owner.lower() != username.lower():
+                if skill_owner and not _same_owner(skill_owner, username):
                     for delete_id in {requested_skill_id, local_db_skill_id, cloud_skill_id}:
                         if delete_id:
                             _DELETED_SKILL_IDS.discard(delete_id)

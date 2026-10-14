@@ -463,9 +463,9 @@ def _sync_created_to_cloud(ctx, created: dict, links: dict, log: list) -> None:
         return
     counts = {"synced": 0, "queued": 0, "failed": 0}
 
-    def push(dtype, data):
+    def push(dtype, data, op=Operation.ADD):
         try:
-            r = manager.sync_to_cloud(dtype, data, Operation.ADD) or {}
+            r = manager.sync_to_cloud(dtype, data, op) or {}
         except Exception:
             r = {}
         counts["synced" if r.get("synced") else "queued" if r.get("cached") else "failed"] += 1
@@ -478,6 +478,8 @@ def _sync_created_to_cloud(ctx, created: dict, links: dict, log: list) -> None:
 
     for tid in created.get("tasks", []):
         push(DataType.TASK, row(ctx.db.task_service, tid))
+    for tid in created.get("updated_tasks", []):   # e.g. a shared pool taking a new front desk
+        push(DataType.TASK, row(ctx.db.task_service, tid), Operation.UPDATE)
     for aid in created.get("agents", []):
         push(DataType.AGENT, row(ctx.db.agent_service, aid))
     for aid, tid in links.get("agent_task", []):
@@ -532,6 +534,7 @@ class _LiveChatProfile(NamedTuple):
     fd_legacy_skill_ids: tuple = ()   # earlier front-desk skills: replace mode clears their tasks too
     native_desktop: bool = False      # native client (千牛): no browser login profile, no Chrome pre-check, store URL optional
     catalog_skill_name: str = ""      # optional: skill that exports the store's products for 商品知识 (found by name)
+    promo_skill_name: str = ""        # optional: skill that reads the store's current promotions on a schedule (found by name)
 
 
 _DDCS_PROFILE = _LiveChatProfile(
@@ -546,6 +549,7 @@ _DDCS_PROFILE = _LiveChatProfile(
     env_append=_DDCS_FEIGE_ENV, env_set={}, find_skill_by_name=False,
     fd_legacy_skill_ids=(_DDCS_FD_LEGACY_SKILL_ID,),
     catalog_skill_name="抖店商品导出",
+    promo_skill_name="抖店营销导出",
 )
 
 # Pinduoduo (pdd_chat bundle). The bundle registers only when the process serves
@@ -758,8 +762,29 @@ def _qa_pool_settings(qa_n: int) -> dict:
 
 
 # The one-time product export on the front desk (cfg fetch_catalog): runs once,
-# in the background, only after the store's browser has been quiet for 5 min.
-_CATALOG_TASK_SETTINGS = {"run_once": True, "run_class": "background", "start_after_idle_min": 5}
+# in the background, preferably after the store's browser has been quiet for
+# 5 min -- but a live 客服 desk may never idle that long, so it exports anyway
+# once it has waited an hour (start_after_idle_max_min), rather than never.
+_CATALOG_TASK_SETTINGS = {"run_once": True, "run_class": "background",
+                          "start_after_idle_min": 5, "start_after_idle_max_min": 60}
+
+# The store's current promotions, refreshed on a schedule (promotions start and
+# stop through the day). It prefers a short browser lull but must refresh well
+# within its own cycle even on a busy desk, so the idle wait is capped at 10 min.
+# Each run overwrites the store's auto-applied snapshot (knowledge/ks/promo_snapshots.py).
+_PROMO_REFRESH_MIN = 30
+_PROMO_TASK_SETTINGS = {"run_class": "background",
+                        "start_after_idle_min": 2, "start_after_idle_max_min": 10}
+
+
+def _promo_schedule() -> dict:
+    """A recurring every-30-min schedule (same shape the Tasks page saves)."""
+    from datetime import datetime
+    return {
+        "repeat_type": "by minutes", "repeat_number": _PROMO_REFRESH_MIN, "repeat_unit": "by minutes",
+        "start_date_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "end_date_time": None, "time_out": 300,
+    }
 
 
 def _find_skill_named(ctx, name: str):
@@ -845,6 +870,19 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
 
     qa_n = int(cfg.get("qa_agents") or 8)  # matches the panel default
     log = []
+    # Share another store's Q&A pool (front desk agent id of that store), adding
+    # qa_agents_extra more Q&A agents to it.
+    share_with = str(cfg.get("share_with") or "").strip()
+    if share_with and profile.native_desktop:
+        raise RuntimeError(_tr("a 千牛 store runs alone on its machine; its Q&A agents can't be shared",
+                                "千牛店铺在本机单独运行，问答客服不能与其他店铺共享"))
+    if share_with:
+        share_group = next((g for g in cs_pools(ctx, profile.scenario)
+                            if any(d["agent_id"] == share_with for d in g["front_desks"])), None)
+        if share_group is None:
+            raise RuntimeError(_tr(f"the Q&A agents to share (front desk {share_with}) were not found",
+                                    f"找不到要共享的问答客服（前台 {share_with}）"))
+        qa_n = max(0, int(cfg.get("qa_agents_extra") or 0))
 
     # ── Store identity. NOT derivable from the URL: every seller of a platform
     #    shares one workstation URL, so resolve_store_id's URL fallback returns
@@ -915,7 +953,8 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     b = _Builder(ctx, owner, org_id, profile.label)
 
     def _add_task(name: str, skill_id: str, extra_vars: dict | None = None,
-                  extra_settings: dict | None = None) -> str:
+                  extra_settings: dict | None = None, trigger: str = "auto",
+                  schedule: dict | None = None) -> str:
         tvars = dict(task_vars)
         if extra_vars:
             tvars.update(extra_vars)
@@ -923,7 +962,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
         if identity:
             settings["browser_identity"] = dict(identity)
         return b.task(name, skill_id, settings["task_vars"], settings.get("browser_identity"),
-                      extra_settings=extra_settings)
+                      trigger=trigger, schedule=schedule, extra_settings=extra_settings)
 
     # ── Runtime env → <appdata>/run.env (applied on next app start).
     if profile.env_append:
@@ -934,7 +973,8 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     #    agent's id in task_vars -- the shared Q&A skill's pend_event filters on
     #    {{front_desk_agent_id}}, resolved from task_vars at task launch.
     fd_name = f"{profile.fd_task_prefix}001"
-    fd_task_id = _add_task(fd_name, fd_skill_id, extra_settings={"pool": _qa_pool_settings(qa_n)})
+    pool_n = qa_n + (share_group["qa_count"] if share_with else 0)
+    fd_task_id = _add_task(fd_name, fd_skill_id, extra_settings={"pool": _qa_pool_settings(pool_n)})
     extra_tasks = ()
     if cfg.get("fetch_catalog") and profile.catalog_skill_name:
         # The store's products for 商品知识: the front desk exports them once (its
@@ -945,14 +985,51 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
                                  extra_settings=dict(_CATALOG_TASK_SETTINGS))
             extra_tasks = ((cat_task, cat_row["id"]),)
             log.append(_tr(f"Product export: the front desk will export this store's products once "
-                           f"(when its browser has been quiet for 5 min) for review in 商品知识 → 导入",
-                           f"商品导出：前台会在浏览器空闲 5 分钟后导出一次本店商品，导出结果在 商品知识 → 导入 中待你确认"))
+                           f"(when its browser has been quiet for 5 min, or within the hour if it stays "
+                           f"busy) for review in 商品知识 → 导入",
+                           f"商品导出：前台会在浏览器空闲 5 分钟后导出一次本店商品（若一直繁忙，最迟 1 小时内也会导出），"
+                           f"导出结果在 商品知识 → 导入 中待你确认"))
         else:
             log.append(_tr(f"Product export skipped: skill {profile.catalog_skill_name!r} not found",
                            f"未添加商品导出：找不到技能「{profile.catalog_skill_name}」"))
+    if cfg.get("fetch_promos") and profile.promo_skill_name:
+        # The store's current promotions, kept fresh for the Q&A agents: the front
+        # desk re-reads them every 30 min and overwrites the auto-applied snapshot.
+        promo_row = _find_skill_named(ctx, profile.promo_skill_name)
+        if promo_row:
+            promo_task = _add_task(f"{profile.fd_task_prefix}活动刷新", promo_row["id"],
+                                   trigger="schedule", schedule=_promo_schedule(),
+                                   extra_settings=dict(_PROMO_TASK_SETTINGS))
+            extra_tasks = extra_tasks + ((promo_task, promo_row["id"]),)
+            log.append(_tr(f"Promotions: the front desk re-reads this store's current promotions every "
+                           f"{_PROMO_REFRESH_MIN} min so Q&A answers deal questions with a fresh, dated figure",
+                           f"活动刷新：前台每 {_PROMO_REFRESH_MIN} 分钟读取一次本店当前活动，客服回答优惠问题时会带上刷新时间"))
+        else:
+            log.append(_tr(f"Promotions refresh skipped: skill {profile.promo_skill_name!r} not found",
+                           f"未添加活动刷新：找不到技能「{profile.promo_skill_name}」"))
     fd_agent_id = b.agent("前台小张", fd_skill_id, fd_task_id, vehicle_id, extra_tasks=extra_tasks)
     log.append(f"Created task {fd_name} → {profile.fd_skill_name}")
     log.append(f"Created front-desk agent 前台小张 ({fd_agent_id}, org=Sales)")
+
+    if share_with:
+        fd_ids = [d["agent_id"] for d in share_group["front_desks"]] + [fd_agent_id]
+        _share_pool(ctx, share_group, fd_ids, pool_n, b, log)
+        shared_vars = {"front_desk_agent_id": ",".join(fd_ids)}
+        start = share_group["qa_count"]
+        qa_task_ids = [b.task(f"{profile.qa_task_prefix}共享{start + i:03d}", qa_skill_id, shared_vars, None)
+                       for i in range(1, qa_n + 1)]
+        qa_agent_ids = [b.agent(f"客服小{name}", qa_skill_id, tid, vehicle_id)
+                        for name, tid in zip(_draw_qa_names(qa_n), qa_task_ids)]
+        log.append(_tr(f"Q&A agents shared with {', '.join(d['store_name'] for d in share_group['front_desks'])}: "
+                       f"{share_group['qa_count']} existing + {qa_n} new",
+                       f"与 {'、'.join(d['store_name'] for d in share_group['front_desks'])} 共享问答客服："
+                       f"原有 {share_group['qa_count']} 个，新增 {qa_n} 个"))
+        plan = {"agents": len(b.created["agents"]), "skills": 0, "tasks": len(b.created["tasks"]),
+                "needs_login": needs_login, "shared_pool": True}
+        logger.info(f"[FastDeploy][{profile.scenario}] SUCCESS (shared pool): {plan['agents']} agent(s), "
+                    f"{plan['tasks']} task(s); pool of {pool_n} serves {len(fd_ids)} front desk(s)")
+        _sync_created_to_cloud(ctx, b.created, b.links, log)
+        return plan, log, b.created
 
     qa_task_ids = []
     for i in range(1, qa_n + 1):
@@ -987,6 +1064,87 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
 
 
 # ── Several stores on this machine, one shared Q&A pool ─────────────────────
+
+def _share_pool(ctx, group: dict, fd_ids: list, pool_n: int, b, log: list) -> None:
+    """Make an existing Q&A pool serve one more front desk: every Q&A task
+    accepts all the front desks, and drops its own store -- each turn names the
+    store that asked (the dispatch JSON's store_id); every front desk's pool
+    size covers all the members."""
+    svc = ctx.db.task_service
+    changed = b.created.setdefault("updated_tasks", [])
+
+    def update(tid: str, fn) -> None:
+        row = ((svc.query_tasks(id=tid) or {}).get("data") or [{}])[0]
+        md = dict(row.get("metadata") or {}) if isinstance(row.get("metadata"), dict) else {}
+        fn(md)
+        r = svc.update_task(tid, {"settings": md})
+        if not (isinstance(r, dict) and r.get("success")):
+            raise RuntimeError(_tr(f"update task {tid} failed: {(r or {}).get('error')}",
+                                    f"更新任务 {tid} 失败：{(r or {}).get('error')}"))
+        changed.append(tid)
+
+    def qa(md: dict) -> None:
+        tv = dict(md.get("task_vars") or {})
+        for k in ("store_id", "store_url", "store_urls"):
+            tv.pop(k, None)
+        tv["front_desk_agent_id"] = ",".join(fd_ids)
+        md["task_vars"] = tv
+
+    for tid in group["qa_task_ids"]:
+        update(tid, qa)
+    for d in group["front_desks"]:
+        update(d["task_id"], lambda md: md.update(pool=_qa_pool_settings(pool_n)))
+    log.append(f"Shared pool: {len(group['qa_task_ids'])} Q&A task(s) now serve {len(fd_ids)} front desk(s); "
+               f"each turn answers for the store that asked")
+    log.append(_tr("Restart eCan to apply the shared Q&A agents", "重启 eCan 后共享的问答客服生效"))
+
+
+def cs_pools(ctx, scenario: str) -> list:
+    """This platform's existing 客服 deployments, one entry per group of front
+    desks that share Q&A agents:
+    ``[{"front_desks": [{"agent_id", "task_id", "store_id", "store_name"}],
+        "qa_task_ids": [...], "qa_count": n}]``.  Read-only (the 快速生成 panel
+    offers to share one of them with a new store)."""
+    profile = _LIVE_CHAT_PROFILES.get(str(scenario or "").replace(_MULTI_SUFFIX, ""))
+    if not profile:
+        return []
+    rows = (ctx.db.task_service.query_tasks() or {}).get("data") or []
+    fd_tasks = {r["id"]: r for r in rows if str(r.get("name") or "").startswith(profile.fd_task_prefix)}
+    qa_by_fd: dict = {}
+    for r in rows:
+        if not str(r.get("name") or "").startswith(profile.qa_task_prefix):
+            continue
+        md = r.get("metadata") if isinstance(r.get("metadata"), dict) else {}
+        tv = md.get("task_vars") if isinstance(md.get("task_vars"), dict) else {}
+        for fd in str(tv.get("front_desk_agent_id") or "").split(","):
+            if fd.strip():
+                qa_by_fd.setdefault(fd.strip(), set()).add(r["id"])
+    desks = {}
+    for fd_agent, qa_ids in qa_by_fd.items():
+        rels = (ctx.db.agent_service.get_agent_task_associations(fd_agent) or {}).get("data") or []
+        fd_task = next((fd_tasks[x["task_id"]] for x in rels if x.get("task_id") in fd_tasks), None)
+        if fd_task is None:
+            continue   # the front desk agent is gone
+        sid = _task_store_id(fd_task)
+        name = sid
+        try:
+            name = (ctx.db.store_service.get_store(sid) or {}).get("name") or sid if sid else ""
+        except Exception:
+            pass
+        desks[fd_agent] = ({"agent_id": fd_agent, "task_id": fd_task["id"], "store_id": sid,
+                            "store_name": name}, qa_ids)
+    groups: list = []   # front desks sharing any Q&A task end up in one group
+    for fd_agent, (desk, qa_ids) in desks.items():
+        hit = [g for g in groups if g["qa"] & qa_ids]
+        merged = {"desks": [desk], "qa": set(qa_ids)}
+        for g in hit:
+            merged["desks"] += g["desks"]
+            merged["qa"] |= g["qa"]
+            groups.remove(g)
+        groups.append(merged)
+    return [{"front_desks": sorted(g["desks"], key=lambda d: d["store_name"]),
+             "qa_task_ids": sorted(g["qa"]), "qa_count": len(g["qa"])} for g in groups]
+
 
 def _login_profile_id(store_id: str) -> str:
     """A profile id for a store's login: the registry allows [A-Za-z0-9_-] only,

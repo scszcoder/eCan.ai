@@ -40,3 +40,10 @@ def pytest_configure(config):
 
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _cli_writes_db_directly(monkeypatch):
+    """CLI tests mock the database; a running eCan on the dev machine must not
+    take their edits (cli/tasks/commands.py routes through the app otherwise)."""
+    monkeypatch.setenv("ECAN_CLI_DIRECT_DB", "1")

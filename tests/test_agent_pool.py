@@ -341,3 +341,68 @@ def test_pick_for_customer_defaults_to_the_listeners(monkeypatch):
     assert ap.pick_for_customer("fd2", "b", lookup={"q9": _agent()}.get) == "q9"
     monkeypatch.setattr(ap, "_listeners_of", lambda fd: [])
     assert ap.pick_for_customer("fd3", "b", lookup=lambda i: None) == ""
+
+
+# ── manual size (ecan agents pool --pin) ──
+
+def test_pin_sets_the_size_now_and_holds_it(pool6, monkeypatch):
+    monkeypatch.setattr(ap, "_default_lookup", pool6.get)
+    ap._pins.clear()
+    assert len(ap.tick(now=1000.0, lookup=pool6.get)["fd"]) == 2
+    assert len(ap.set_pin("fd", 4)) == 4                        # at once, no cooldown
+    for m in pool6:
+        pool6[m] = _agent()                                     # all idle for a long time
+    assert len(ap.tick(now=1000.0 + 3600, lookup=pool6.get)["fd"]) == 4
+    assert len(ap.set_pin("fd", 1)) == 1
+    assert ap.pool_view("fd", lookup=pool6.get)["pinned"] == 1
+    assert len(ap.set_pin("fd", 9)) == 4                        # capped at the members
+    ap.set_pin("fd", None)
+    assert ap.pin_of("fd") is None
+    assert ap.set_pin("nope", 2) is None
+
+
+def test_pin_needs_scaling(pool6, monkeypatch):
+    monkeypatch.setenv("ECAN_POOL_SCALING", "0")
+    with pytest.raises(ValueError):
+        ap.set_pin("fd", 2)
+    ap._pins.clear()
+
+
+# -- shared pools: front desks of several stores sharing Q&A agents --
+
+def test_front_desks_sharing_members_are_sized_as_one_group(monkeypatch):
+    ap._active.clear()
+    ap._changed_at.clear()
+    ap._pins.clear()
+    monkeypatch.setattr(ap, "_ensure_controller", lambda: None)
+    monkeypatch.delenv("ECAN_POOL_SCALING", raising=False)
+    agents = {k: _agent() for k in ("q1", "q2", "q3", "q4", "solo1", "solo2")}
+    ap.register_pool("fdA", ["q1", "q2", "q3", "q4"], {"min": 1, "max": 4})
+    ap.register_pool("fdB", ["q1", "q2", "q3", "q4"], {"min": 3, "max": 4})
+    ap.register_pool("fdC", ["solo1", "solo2"], {"min": 1, "max": 2})
+    out = ap.tick(now=1000.0, lookup=agents.get)
+    assert out["fdA"] == out["fdB"] and len(out["fdA"]) == 3      # group min = largest min
+    assert ap.active_members("fdA") == ap.active_members("fdB")
+    assert len(out["fdC"]) == 1                                    # unrelated pool on its own
+    assert ap.group_of("fdA") == ["fdA", "fdB"] and ap.group_of("fdC") == ["fdC"]
+    assert ap.pool_view("fdA", lookup=agents.get)["shared_with"] == ["fdB"]
+    agents["fdB"] = SimpleNamespace(card=SimpleNamespace(name="前台小王"),
+                                    tasks=[SimpleNamespace(metadata={"task_vars": {"store_id": "douyin-店B"}})])
+    assert ap.pool_view("fdA", lookup=agents.get)["shared_desks"] == [
+        {"id": "fdB", "name": "前台小王", "store_id": "douyin-店B"}]
+
+
+def test_a_pin_on_one_front_desk_sizes_the_shared_group(monkeypatch):
+    ap._active.clear()
+    ap._changed_at.clear()
+    ap._pins.clear()
+    monkeypatch.setattr(ap, "_ensure_controller", lambda: None)
+    monkeypatch.delenv("ECAN_POOL_SCALING", raising=False)
+    agents = {k: _agent() for k in ("q1", "q2", "q3")}
+    monkeypatch.setattr(ap, "_default_lookup", agents.get)
+    ap.register_pool("fdA", ["q1", "q2", "q3"], {"min": 1, "max": 3})
+    ap.register_pool("fdB", ["q2", "q3"], {"min": 1, "max": 2})      # overlapping, not identical
+    assert len(ap.set_pin("fdB", 3)) == 3
+    assert ap.active_members("fdA") == ap.active_members("fdB")
+    ap.set_pin("fdB", None)
+    ap._pins.clear()

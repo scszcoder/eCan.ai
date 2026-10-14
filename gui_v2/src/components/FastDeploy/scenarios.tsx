@@ -32,6 +32,12 @@ export interface ScenarioSchema {
     schedule?: boolean;
     /** Offer to export the store's products into 商品知识 once (front desk task). */
     fetchCatalog?: boolean;
+    /** Keep the store's current promotions fresh for Q&A (front desk re-reads
+     *  them every 30 min; answers carry an "as of" time). */
+    fetchPromos?: boolean;
+    /** Offer to share the Q&A agents of this platform's other stores (on by
+     *  default when there are some): the new store's front desk joins them. */
+    sharePool?: boolean;
 }
 
 export interface BusinessScenario {
@@ -58,6 +64,20 @@ export interface ScenarioConfig {
     scheduleUnit?: 'minutes' | 'hours' | 'days';
     /** Export the store's products once for review in 商品知识 → 导入. */
     fetchCatalog?: boolean;
+    /** Keep the store's current promotions fresh for Q&A (refreshed every 30 min). */
+    fetchPromos?: boolean;
+    /** Share another store's Q&A agents: that store's front desk agent id
+     *  ('' = this store gets its own; undefined = not decided yet). */
+    shareWith?: string;
+    /** With shareWith: Q&A agents to add to the shared pool. */
+    qaExtra?: number;
+}
+
+/** A platform's existing 客服 deployment (front desks sharing Q&A agents). */
+export interface CsPool {
+    front_desks: { agent_id: string; task_id: string; store_id: string; store_name: string }[];
+    qa_task_ids: string[];
+    qa_count: number;
 }
 
 const CS_SCHEMA: ScenarioSchema = { storeId: true, qaAgents: { default: 6, min: 1, max: 16 } };
@@ -66,11 +86,14 @@ const DOUYIN_CS_SCHEMA: ScenarioSchema = {
     replaceMode: true,
     storeId: true,
     fetchCatalog: true,
+    fetchPromos: true,
+    sharePool: true,
 };
 const PDD_CS_SCHEMA: ScenarioSchema = {
     qaAgents: { default: 4, min: 1, max: 16 },
     replaceMode: true,
     storeId: true,
+    sharePool: true,
 };
 // Several stores on this machine: each gets its own login profile + front desk;
 // the Q&A agents are one pool shared by all of them.
@@ -167,6 +190,7 @@ export function defaultConfig(s: BusinessScenario): ScenarioConfig {
         ...(s.schema.qaAgents ? { qaAgents: s.schema.qaAgents.default } : {}),
         ...(s.schema.replaceMode ? { mode: 'add' as const } : {}),
         ...(s.schema.fetchCatalog ? { fetchCatalog: true } : {}),
+        ...(s.schema.fetchPromos ? { fetchPromos: true } : {}),
         ...(s.schema.storeId ? { storeId: '' } : {}),
         ...(s.schema.stores ? { stores: [] } : {}),
         // First after-sales run: the next full hour; then every 30 minutes.

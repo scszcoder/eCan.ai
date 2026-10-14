@@ -226,12 +226,20 @@ _LETTER_RANK: dict[str, int] = {chr(ord("a") + i): i + 1 for i in range(26)}
 
 
 def _trailing_letter_rank(value: str) -> int:
-    """Ordinal of a trailing single-letter build suffix (``a=1``…``z=26``),
-    or ``0`` if the value has no such suffix."""
-    if not value:
+    """Ordinal of the trailing letter build suffix, or ``0`` if there is none.
+
+    The whole run of trailing letters counts, base 27 (``a=1``…``z=26``,
+    ``ya`` = 25*27+1), the same order as the client's ``compare_versions``
+    and the appcast generator: ``0.9.99y < ya < yz < yaa``. Only the last
+    letter used to count, so ``ya`` sorted below ``y`` and ``yaa`` below ``yz``.
+    """
+    m = re.search(r"[a-z]+$", (value or "").lower())
+    if not m:
         return 0
-    last = value[-1].lower()
-    return _LETTER_RANK.get(last, 0)
+    rank = 0
+    for ch in m.group(0):
+        rank = rank * 27 + _LETTER_RANK[ch]
+    return rank
 
 
 def _version_key(value: str) -> Optional[tuple[tuple[int, ...], int]]:

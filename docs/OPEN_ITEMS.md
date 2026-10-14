@@ -4,11 +4,45 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-10-11_
+_Last updated: 2026-10-12_
 
 ---
 
 ## 🔴 Bugs (unfixed)
+
+### Catalog export only exists for Douyin; tmall/pdd 客服 answer with no product KB (2026-10-12)
+
+Response-quality complaints on 客服 (stalls like "稍后回复您 / 看商品详情页" on product-attribute
+questions) trace to an **empty 商品知识 base**. The base is filled only by the one-time catalog
+export (`cfg.fetch_catalog`, `cli/deploy/commands.py`).
+- **Fixed 2026-10-12:** the export was idle-deadlocked on busy stores — it runs on the front
+  desk's own browser with `start_after_idle_min:5`, and a live Feige desk never idles 5 min, so
+  `_unprompted_run_held` deferred it forever. Added `start_after_idle_max_min:60` (runner caps the
+  wait and runs the once-only job anyway). See `runner.py:_unprompted_run_held`,
+  `_CATALOG_TASK_SETTINGS`, tests in `test_task_scheduling_rules.py` / `test_deploy_douyin_cs.py`.
+- **Still open:** only `douyin_cs` has a `catalog_skill_name` (`抖店商品导出`, which drives
+  `fxg.jinritemai.com` — Douyin-only). `tmall_cs` (CS_SCHEMA) and `pdd_cs` (PDD_CS_SCHEMA) have no
+  `fetchCatalog` and no exporter skill, so 天猫/拼多多 stores never get a catalog. Needs
+  platform-specific exporters (`千牛商品导出`, `拼多多商品导出`) before wiring `catalog_skill_name`
+  + `fetchCatalog` on those profiles. Do NOT point them at `抖店商品导出` (wrong backend).
+
+### Real-time promotions: code shipped, two data pieces pending (2026-10-12)
+
+Promotions start/stop through the day, so a daily catalog snapshot can't answer "本月有活动吗"
+(it stalled in the yw log). **Code landed 2026-10-12** (all on master):
+- Storage: `knowledge/ks/promo_snapshots.py` (per-store JSON, auto-applied, TTL-trusted 90 min) +
+  `KnowledgeService.set_promos/get_promos/promo_line`; the skill calls `apply_snapshot(...)`.
+- Deploy: `_DDCS_PROFILE.promo_skill_name="抖店营销导出"` + a recurring (every-30-min) background
+  task (`活动刷新`), opt-in via `fetch_promos` (on by default in `DOUYIN_CS_SCHEMA`). Reuses the
+  idle cap (`start_after_idle_min:2`, `start_after_idle_max_min:10`).
+- Q&A injection: the front desk hands Q&A a dated `[当前活动] 截至HH:MM：…` line next to
+  `[商品卡片]` — **Feige** path (`feige_chat/actionable_items.py:_promo_line_for`, the live 抖店
+  front desk) and the 千牛 path (`qianniu_chat/direct_qa.py`, for when tmall gets a promo skill).
+- **Still pending (data, user builds in the editor):** (1) the `抖店营销导出` skill — read 抖店
+  营销中心, call `apply_snapshot(store_id, promotions=…, summary=…, source="抖店营销中心")`; publish
+  as public+rentable so the deploy finds it by name. (2) the Q&A prompt (`飞鸽客服问答00`) must read
+  `[当前活动]` and prefer it (or a just-seen card) over a stale 3 h product card for 活动/价格.
+- Only `douyin_cs` has a promo skill; tmall/pdd need their own 营销 readers (closed-env for 千牛).
 
 ### Left open after multi-task agents, agent pools and lazy agents (2026-10-11)
 
@@ -24,9 +58,44 @@ the agent scheduler/pool memory and the commit messages.
   controller (`[agent-pool]`). Before a customer build: one Feige/千牛 session with 3+ customers.
   Kill switches: `ECAN_A2A_LOCAL_FASTPATH=0`, `ECAN_A2A_SHARED_SERVER=0`, `ECAN_LAZY_AGENTS=0`,
   `ECAN_POOL_PICK=0`, `ECAN_POOL_SCALING=0`, `ECAN_TASK_RESOURCE_GATE=0`.
-- **Pools park, they don't stop.** An agent can't be stopped and started again in-process (see the
-  store-move item), so scale-down only stops routing to a member; an idle member still holds its
-  task-loop thread and memory worker. Revisit only if measurements show that matters.
+- **TODO (agreed 2026-10-11): pool scale-down to a real stop.** Pools park, they don't stop: a
+  parked member keeps its task-loop thread, memory worker, LLM clients and A2A registration.
+  Now that a stopped agent can be replaced by a fresh one built from the DB (`_swap_agent`,
+  re-enable), add a third tier: active -> parked (warm) -> stopped (cold).
+  1. **Measure first** (logging is in: `[agent-cost]` lines in runlogs/memory.log — build, start,
+     start after 10 s, stop after 3 s + gc, with the thread families added/removed). Read the
+     median per Q&A agent from a normal startup, plus one isolated restart (`ecan agents update
+     <qa agent> -d <same text>` stops and rebuilds it).
+     **Measured 2026-10-11 (idle agents, no chat yet):** build 2-4 MB each (sequential, clean);
+     isolated restart of 客服小敏: start +0.1 MB, +2 threads (`MemoryMgr-<agent>`, task-loop pool
+     thread), a `SkillExec` thread appears on its first run; stop freed those threads, RSS moved
+     within GC noise (+-20 MB). **Decision: parking is enough for idle members.** Re-measure
+     after a live chat session (an agent that has answered turns may hold LLM clients / caches):
+     restart one Q&A agent the same way and read its `[agent-cost] stop` line.
+  2. **Then decide:** worth it if a Q&A agent costs ~30-50 MB+ and a few threads. Proposed rules:
+     stop a member parked >= 30 min when the hourly forecast says it won't be needed in the next
+     30-60 min; always keep min active + 1 warm spare; never stop one with a turn running/queued or
+     active in another front desk's pool; rebuild cold members ~10 min before a forecast peak.
+- **Shared Q&A pool across stores (done 2026-10-11, not live-tested; docs/SHARED_QA_POOL.md).** 快速生成 → 客服 for a store
+  of 抖店/拼多多 when another store of the platform already has Q&A agents: "与本平台其他店铺共享问答客服"
+  is on by default (pool picker when several, "新增问答客服" count); the new store gets its own
+  front desk, the existing Q&A tasks accept it (`front_desk_agent_id` list) and drop their own
+  store, the front desks' pool size covers all members (`_share_pool`, `cs_pools`,
+  IPC `fast_deploy.cs_pools`). Pool controller sizes front desks sharing members as one group.
+  Each shared turn answers for the store that dispatched it (`resolve_store_id` reads the
+  dispatch JSON's `store_id`; KS policies/products follow; the LLM's tool args can't name the
+  store inside a run). 千牛 excluded (one store per machine). Open:
+  - **Live test with two stores** (two 抖店 logins, one shared pool): answers use each store's
+    policies/products; `[agent-pool]` shows one group.
+  - Usage/metering of a shared turn carries the asking store (runner `_scope_turn_store`,
+    per turn, in the turn's own context copy) -- unit-tested, not live.
+  - Takes effect after an app restart (running Q&A tasks keep their old front desk list).
+  - `douyin_cs_multi`/`pdd_cs_multi` (CLI only) still create the old shape (shared Q&A tasks
+    with no store, several stores in one deploy); same result, different entry point.
+- ~~"after task" finishes survive a restart~~ done 2026-10-11: a prerequisite saves `last_finish`,
+  a dependent saves `after_consumed_at` (task settings); the runner's tracker is seeded from them.
+  A dependent that should have started when its prerequisite finished, but the app died in that
+  instant, is not started at the next launch (it runs at the prerequisite's next finish).
 - **Lazy agents: any new loop over ALL agents must read only `LazyAgent._CHEAP` attributes**, or it
   builds every deferred agent (three such scans were found live; the audit list is in the 5c
   commits). Symptom: `[lazy-agent] building '<name>' on first use (... from <file:line>)` for many
@@ -36,12 +105,20 @@ the agent scheduler/pool memory and the commit messages.
   the file says `wechat_b603…`, the DB/cloud record is `wechat_o3YB…` (created while logged in as
   o3YB). Fix: log in as b603, give the file a new `skillId`, save in the Skill Editor, delete the
   o3YB copy (Fast Deploy finds the skill by exact name).
+- **CLI → running app (docs/LOCAL_API.md)**: verified live on 2026-10-11 with a throwaway agent
+  测试 (CLI run as the app's user via `ECAN_CLI_USER`): read commands, tasks add/update/remove and
+  agents update/remove through the app, `agents run` (chat delivered), `agents stop`, pin error path.
+  `tasks execute` re-tested after the fix: one loop started, a second execute reused it (2 runs,
+  1 loop); deleting the agent stopped it. **Not yet live:** `agents pool --pin` on a real front
+  desk (needs a front desk that has dispatched). `ecan agents add` still writes the database
+  directly.
+- **Saving a running agent now restarts it** (`_swap_agent`): a turn in progress at that moment is
+  cut off. Before, the rebuilt copy never started and the old one kept running out of sight.
 - **抖店 export column mapping untuned** (7a): needs one real export file.
 - **Staged import copies are kept after import** (`knowledge_service/staged_imports/`): the import
   job reads the file after the review list drops it. Prune old copies later.
-- **"after task" finishes are in memory**: a prerequisite that finished before a restart doesn't
-  count after it. A `queue_one` scheduled run due while its task is parked on input is dropped by
-  the existing parked-task guard.
+- A `queue_one` scheduled run due while its task is parked on input is dropped by the existing
+  parked-task guard.
 - **A Q&A agent with no chat skill can't answer a direct chat** (客服小晴: `No chat skill found …
   cannot auto-create chatter task`) — setup question, not lazy-agent related.
 - **Full suite, 2026-10-11** (every file under tests/, tests/unit, tests/ks, one pytest per file,

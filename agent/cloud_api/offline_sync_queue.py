@@ -442,6 +442,10 @@ class OfflineSyncQueue:
             int: Number of tasks removed
         """
         with self._lock:
+            # Tasks another process (the CLI) queued for this resource count too:
+            # left on disk, a stale add merged in later re-creates a deleted item.
+            with _interprocess_lock(self._lock_file):
+                self._merge_from_disk()
             removed_count = 0
             self._forget(
                 task.get('id') for task in self.pending_queue + self.failed_queue

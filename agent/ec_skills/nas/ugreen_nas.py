@@ -19,6 +19,12 @@ Target location (all overridable by env):
 
 Paths passed to the functions below are RELATIVE to ``base`` by default; pass
 ``relative_to_base=False`` to address the share root instead.
+
+Uploads only take local files from known folders (``nas_upload``): the app's
+``daily_work`` (browser downloads), the user's Downloads, and any folder listed
+in ECAN_NAS_UPLOAD_ROOTS (``;``-separated, e.g. the chip crawler's docs root,
+which ``ecan tasks chip-pilot`` adds). An agent steered by a web page can't
+copy arbitrary files (credentials, the database) to the NAS.
 """
 from __future__ import annotations
 
@@ -80,6 +86,45 @@ def _creds() -> tuple[str, str]:
         "NAS credentials not found. Set ECAN_NAS_USER / ECAN_NAS_PASSWORD, or "
         "provide a nas.txt (user:/passwd: lines) via ECAN_NAS_CREDS_FILE."
     )
+
+
+def nas_configured() -> bool:
+    """Credentials are available on this machine (env or a nas.txt). Without
+    them the NAS actions aren't offered to browser agents at all."""
+    if os.getenv("ECAN_NAS_USER") and os.getenv("ECAN_NAS_PASSWORD"):
+        return True
+    return _find_creds_file() is not None
+
+
+def upload_roots() -> List[Path]:
+    """Local folders files may be uploaded from (see the module docstring)."""
+    roots: List[Path] = []
+    try:
+        from config.envi import getECBotDataHome
+        roots.append(Path(getECBotDataHome()) / "daily_work")
+    except Exception:
+        pass
+    roots.append(Path.home() / "Downloads")
+    for part in re.split(r"[;\n]", os.getenv("ECAN_NAS_UPLOAD_ROOTS", "")):
+        if part.strip():
+            roots.append(Path(part.strip()))
+    return roots
+
+
+def _check_upload_source(lp: Path) -> None:
+    try:
+        real = lp.resolve()
+    except Exception as e:
+        raise PermissionError(f"local file not allowed for NAS upload: {lp} ({e})") from e
+    for root in upload_roots():
+        try:
+            if real.is_relative_to(root.resolve()):
+                return
+        except Exception:
+            continue
+    raise PermissionError(
+        f"local file not allowed for NAS upload: {lp} -- only files under the downloads folders "
+        f"or ECAN_NAS_UPLOAD_ROOTS can be uploaded")
 
 
 def nas_config() -> Dict[str, str]:
@@ -178,6 +223,7 @@ def nas_upload(local_path: str, relpath: Optional[str] = None, *,
     lp = Path(local_path)
     if not lp.is_file():
         raise FileNotFoundError(f"local file not found: {local_path}")
+    _check_upload_source(lp)
     try:
         return _upload_once(lp, relpath, relative_to_base)
     except Exception as e:

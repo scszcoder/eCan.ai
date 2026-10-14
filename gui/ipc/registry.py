@@ -177,6 +177,11 @@ class IPCHandlerRegistry:
             if not token:
                 logger.warning(f"[registry] TOKEN_REQUIRED: No token in request.token")
                 return False, "TOKEN_REQUIRED", None
+
+            # Local tools (the ecan CLI) use the per-start key in utils/local_api.py.
+            from utils.local_api import is_local_secret
+            if is_local_secret(token):
+                return True, None, None
             
             # Validate token
             if token_manager.validate_token(token):

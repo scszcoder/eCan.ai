@@ -3,7 +3,7 @@ win over the name heuristics, which pick 'chip_docs_crawl_manager_00' for task
 'chip_docs_crawl_1' (3 shared words vs 2 with its own 'chip_docs_crawler_00')."""
 from types import SimpleNamespace
 
-from agent.agent_converter import _attach_skills_and_triggers, _bind_skills_from_task_rels
+from agent.agent_converter import _attach_skills_and_triggers, _bind_task_skills_from_db
 
 CRAWLER = SimpleNamespace(id="skill_crawler", name="chip_docs_crawler_00", runnable=object())
 MANAGER = SimpleNamespace(id="skill_manager", name="chip_docs_crawl_manager_00", runnable=object())
@@ -27,7 +27,7 @@ def _mainwin(rels):
 
 
 def _bind(tasks, rels):
-    _bind_skills_from_task_rels(tasks, [CRAWLER, MANAGER], _mainwin(rels))
+    _bind_task_skills_from_db(_mainwin(rels), tasks, [], [CRAWLER, MANAGER])
     _attach_skills_and_triggers(tasks, [], [CRAWLER, MANAGER])
 
 
@@ -58,5 +58,5 @@ def test_an_already_runnable_skill_is_kept():
 
 def test_missing_task_service_is_harmless():
     t = _task("t1", "chip_docs_crawl_1")
-    _bind_skills_from_task_rels([t], [CRAWLER], SimpleNamespace())
+    _bind_task_skills_from_db(SimpleNamespace(), [t], [], [CRAWLER])
     assert t.skill is None

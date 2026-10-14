@@ -262,3 +262,16 @@ class TestVersionIgnoreBasicApi:
         mgr.ignore_version("2.0.0")
         mgr.clear_all()
         assert mgr.ignored_versions == set()
+
+
+def test_install_state_orders_multi_letter_build_suffixes_like_the_client():
+    """ya..yz and then yaa (2026-10-12): install_state ranked only the last
+    letter, so 0.9.99ya < 0.9.99y and 0.9.99yaa < 0.9.99yz."""
+    from ota.core.install_state import _compare_versions
+    from ota.core.appcast import compare_versions
+    order = ["0.9.99x", "0.9.99y", "0.9.99ya", "0.9.99yb", "0.9.99yz", "0.9.99yaa", "0.9.99yab", "0.9.99yzz", "1.0.0"]
+    for lo, hi in zip(order, order[1:]):
+        assert _compare_versions(lo, hi) == -1, (lo, hi)
+        assert _compare_versions(hi, lo) == 1, (hi, lo)
+        assert compare_versions(hi, lo) > 0, (hi, lo)
+    assert _compare_versions("eCan.cn-0.9.99yaa-windows-amd64-Setup.exe", "0.9.99yz") == 1

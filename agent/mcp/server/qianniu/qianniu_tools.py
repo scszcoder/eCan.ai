@@ -71,11 +71,26 @@ def _humanize(base: float) -> None:
     time.sleep(base + random.uniform(0.1, 0.5))
 
 
+_WIN_CACHE_S = 3.0
+_win_cache = [0.0, None]
+
+
 def _find_window():
     # The 接待中心 chat window first (not the 千牛工作台 home) -- shared with the OCR
     # capture so the window we focus is the window we read.
+    # Cached briefly: each lookup lists every window on the desktop, and one send
+    # looked the window up 5-6 times (alpha yu 2026-10-12: 7 s unexplained
+    # between the screen read and the keystrokes of one reply).
+    now = time.monotonic()
+    if _win_cache[1] is not None and now - _win_cache[0] < _WIN_CACHE_S:
+        return _win_cache[1]
     from agent.mcp.server.qianniu.qianniu_ocr import qianniu_chat_window
-    return qianniu_chat_window()
+    win = qianniu_chat_window()
+    took = time.monotonic() - now
+    if took > 0.5:
+        logger.info(f"[qianniu] window lookup took {took:.1f}s")
+    _win_cache[0], _win_cache[1] = time.monotonic(), win
+    return win
 
 
 def _is_front(win) -> bool:
@@ -187,15 +202,46 @@ def _find_search_box(ocr_data: list):
     return cands[0][1]
 
 
+# The reply composer, as fractions of the 接待中心 window (the standalone bot's
+# --composer-x/-y, which delivered on the alpha customer's machine).
+_COMPOSER_X, _COMPOSER_Y = 0.5, 0.90
+
+
+def _click_composer() -> None:
+    """Focus the reply box. Foregrounding the window does not: with the chat
+    already open, the paste and Enter went to whatever had focus and nothing was
+    sent (alpha 2026-10-12, v0.9.99ys: 'sent' twice, the buyer got nothing)."""
+    win = _find_window()
+    if not win or not getattr(win, "width", 0) or not getattr(win, "height", 0):
+        raise RuntimeError("千牛 window size unknown; cannot find the reply box")
+    _click(int(win.left + win.width * _COMPOSER_X), int(win.top + win.height * _COMPOSER_Y))
+    time.sleep(0.25)
+
+
 def _type_and_send(text: str) -> None:
-    """Clipboard → Ctrl+V → Enter (study §4.4: Enter sends, not the button)."""
+    """Click the composer → clipboard → Ctrl+V → Enter (study §4.4: Enter sends,
+    not the button). The bot's pacing (~1 s), which delivered on the alpha
+    customer's machine; the jittered delays added ~1.5 s to every reply."""
+    t0 = time.monotonic()
+    steps = []
+
+    def step(name):
+        steps.append(f"{name}={time.monotonic() - t0:.1f}")
+
+    _click_composer()
+    step("composer")
     clipboard_set_text(text)
+    step("clipboard")
     _ensure_front("pasting the reply")
     paste_hotkey()
-    _humanize(_POST_TYPE_DELAY)
+    step("paste")
+    time.sleep(0.4)
     _ensure_front("pressing Enter to send")
     pyautogui.press("enter")
-    _humanize(_POST_ACTION_DELAY)
+    step("enter")
+    time.sleep(0.3)
+    if time.monotonic() - t0 > 2.5:
+        logger.info(f"[qianniu_send] slow typing: {' '.join(steps)}s")
 
 
 def _open_conversation_by_name(name: str) -> tuple:
@@ -344,10 +390,50 @@ async def qianniu_send(mainwin, args):
         lock.release(holder)
 
 
+def send_reply(buyer: str, msg: str, expect_text: str) -> dict:
+    """qianniu_send for the reply direct-delivery path (no MCP round trip, no
+    front-desk LLM turn): the same desktop lock and fail-closed checks. Blocks
+    the calling thread. Returns the tool's result dict."""
+    buyer, expect_text = (buyer or "").strip(), (expect_text or "").strip()
+    logger.info(f"[qianniu_send] direct start buyer={buyer!r} expect={expect_text[:24]!r} "
+                f"msg_len={len(msg or '')}: {(msg or '')[:40]!r}")
+    if not msg or not (buyer or expect_text):
+        return {"chat_sent": False, "verified": False, "error": "need chat_msg and a buyer name or message text"}
+    lock = _lock()
+    holder = f"send-direct:{time.monotonic()}"
+    t0 = time.monotonic()
+    while not lock.try_acquire(holder) and time.monotonic() - t0 < _LOCK_WAIT_S:
+        time.sleep(0.2)
+    if lock.holder() != holder:
+        logger.warning(f"[qianniu_send] busy: desktop lock held by {lock.holder()!r}; not sent to "
+                       f"{buyer or expect_text[:16]!r}")
+        return {"chat_sent": False, "verified": False, "error": f"desktop busy ({lock.holder()!r})"}
+    waited = time.monotonic() - t0
+    try:
+        with _no_corner_failsafe():
+            res = _send_locked(buyer, msg, True, expect_text)
+        out = json.loads(res[0].text)
+    except Exception as e:
+        logger.error(f"[qianniu_send] {traceback.format_exc()}")
+        out = {"chat_sent": False, "verified": False, "error": str(e)}
+    finally:
+        lock.release(holder)
+    logger.info(f"[qianniu_send] direct done in {time.monotonic() - t0:.1f}s (lock wait {waited:.1f}s): "
+                f"sent={out.get('chat_sent')} {out.get('error') or ''}")
+    return out
+
+
 def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
     """qianniu_send's desktop part; the caller holds the desktop lock."""
+    t0 = time.monotonic()
+    marks = []
+
+    def mark(step):
+        marks.append(f"{step}={time.monotonic() - t0:.1f}s")
+
     if not _foreground():
         return _send_result(False, False, "千牛 window not found. Is it running?")
+    mark("front")
 
     short = bool(expect_text) and len(_norm(expect_text)) < _MIN_BODY_ID_CHARS
 
@@ -360,6 +446,7 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
         return bool(hdr and hdr.matched), False, hdr
 
     ocr_data = _read_qianniu()
+    mark("read")
     ok, body_ok, hdr = identify(ocr_data)
     route = "already open"
     if not ok and auto_open:
@@ -379,6 +466,7 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
         # (a fresh read costs ~6 s), else a new one.
         ocr_data = frames[-1] if frames else _read_qianniu()
         ok, body_ok, hdr = identify(ocr_data)
+        mark("opened")
     header_text = hdr.header_text if hdr else ""
     if not ok:
         if expect_text and body_ok and short:
@@ -393,11 +481,14 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
         return _send_result(False, False, f"{why} — refusing to send", header_text)
 
     _type_and_send(msg)
+    mark("typed")
     logger.info(f"[qianniu_send] sent ({route}; body={body_ok} header={header_text!r}) "
-                f"buyer={buyer!r}: {msg[:40]!r}")
+                f"buyer={buyer!r} [{' '.join(marks)}]: {msg[:40]!r}")
     try:   # our reply reappears in 千牛 memory looking incoming; mark it as ours
-        from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.observer import record_sent
+        from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.observer import (
+            check_delivered_later, record_sent)
         record_sent(msg)
+        check_delivered_later(msg, buyer or expect_text[:16])
     except Exception as rec_err:
         logger.warning(f"[qianniu_send] could not record the sent text: {rec_err}")
     return _send_result(True, True, "", header_text)
@@ -652,7 +743,7 @@ def backstop_sweep(dispatch, already_handled, is_ours, checked: set, max_rows: i
     (``checked``, kept by the caller) -- so the seller's open chat is not
     switched on every pass. An opened row whose last turn is the buyer's is
     dispatched like a cold-start row. Returns counts."""
-    stats = {"rows": 0, "opened": 0, "dispatched": 0, "skipped": 0}
+    stats = {"rows": 0, "opened": 0, "dispatched": 0, "skipped": 0, "on_tab": False}
     lock = _lock()
     holder = "backstop"
     if not lock.try_acquire(holder):
@@ -665,8 +756,25 @@ def backstop_sweep(dispatch, already_handled, is_ours, checked: set, max_rows: i
             rows = conversation_rows(ocr_data, limit=max_rows)
     finally:
         lock.release(holder)
+    # on_tab False = 千牛 isn't showing the 正在接待 list (parked on 工作台/商品管理,
+    # or 接待中心 closed): a reply may be waiting and cannot go out until it is back.
+    stats["on_tab"] = bool(_on_tab)
     stats["rows"] = len(rows)
     store = _store_label()
+    # The OPEN chat is on this frame already: its last turn needs no click. Its
+    # list preview can't be trusted -- a buyer message arriving in the same
+    # second as our reply left our reply as the preview (alpha yt 2026-10-12,
+    # 「学生有折扣吗？」 under 「这边暂未查到质…」), and the memory observer missed it.
+    for name, _preview, _pt in rows:
+        if not verify_header_name(name, ocr_data, quiet=True).matched:
+            continue
+        side, text = last_turn(ocr_data, name, store)
+        if side == "buyer" and text and not is_ours(text) and not already_handled(name, text):
+            stats["dispatched"] += 1
+            logger.info(f"[QIANNIU-BACKSTOP] open chat {name!r}: buyer spoke last {text[:30]!r}, "
+                        f"not answered -> dispatching")
+            dispatch(name, text)
+        break
     for name, preview, pt in rows:
         key = (name, preview)
         if key in checked:

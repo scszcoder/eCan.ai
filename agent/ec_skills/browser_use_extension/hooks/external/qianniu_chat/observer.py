@@ -71,15 +71,78 @@ def _norm_text(text: str) -> str:
     return "".join((text or "").split())
 
 
+_BACKSTOP_QUIET_S = 30.0
+_last_send_at = [0.0]
+
+# When 千牛 isn't on the 接待中心 list (parked on 工作台/商品管理, or 接待中心 closed)
+# a computed reply can't go out; re-check this often for a BOUNDED burst so it
+# leaves within ~_BACKSTOP_RECOVER_S of 接待中心 returning, not a full backstop
+# interval (alpha yx 2026-10-13: a 千牛 reply stalled ~5.5 min on 商品管理).
+_BACKSTOP_RECOVER_S = 15.0
+_BACKSTOP_RECOVER_TRIES = 6
+
+
+def _backstop_recovery_state(on_tab: bool, fast_left: int, ready: bool, tries: int) -> tuple:
+    """Next ``(fast_left, ready)`` for the backstop cadence.
+
+    ``fast_left`` > 0 means the next waits use the short recover interval.
+    ``ready`` arms one burst per outage: a burst starts only on the first
+    off-list pass after the list was last reachable, so a long-closed 接待中心
+    falls back to the base interval instead of spinning OCR forever."""
+    if on_tab:
+        return 0, True                       # reachable: base cadence, armed for the next outage
+    if ready:
+        return tries, False                  # first off-list pass: start the bounded burst
+    return max(0, fast_left - 1), False      # burst in progress or spent: count down, don't re-arm
+
+
 def record_sent(text: str) -> None:
     """Called by qianniu_send after a successful send."""
     key = _norm_text(text)
     if not key:
         return
+    _last_send_at[0] = time.monotonic()
     with _sent_lock:
         _sent_texts[key] = time.monotonic()
         while len(_sent_texts) > 200:
             _sent_texts.popitem(last=False)
+
+
+# Sent texts seen back in 千牛 memory: the proof a send left the composer.
+_DELIVERY_CHECK_S = 15.0
+_sent_seen: "OrderedDict[str, float]" = OrderedDict()
+
+
+def _mark_sent_seen(text: str) -> None:
+    key = _norm_text(text)
+    with _sent_lock:
+        if key in _sent_texts and key not in _sent_seen:
+            _sent_seen[key] = time.monotonic()
+            while len(_sent_seen) > 200:
+                _sent_seen.popitem(last=False)
+
+
+def check_delivered_later(text: str, buyer: str) -> None:
+    """Warn if a reply qianniu_send typed never shows up in 千牛 memory: "sent"
+    there only means Enter was pressed in the buyer's verified chat (alpha
+    2026-10-12: two replies 'sent', neither reached the buyer)."""
+    key = _norm_text(text)
+    if not key:
+        return
+
+    def _check():
+        with _sent_lock:
+            seen = key in _sent_seen
+        if seen:
+            logger.info(f"[qianniu_send] delivered: reply to {buyer!r} is in 千牛 memory: {text[:30]!r}")
+        else:
+            logger.warning(f"[qianniu_send] NOT CONFIRMED: reply to {buyer!r} not in 千牛 memory "
+                           f"{_DELIVERY_CHECK_S:.0f}s after Enter -- probably still in the reply box or "
+                           f"lost (or the memory reader is blind: see [QIANNIU-MEM] heartbeat): {text[:30]!r}")
+
+    t = threading.Timer(_DELIVERY_CHECK_S, _check)
+    t.daemon = True
+    t.start()
 
 
 def _is_our_send(text: str) -> bool:
@@ -232,7 +295,7 @@ def learn_enabled() -> bool:
 
 def _poll_interval_s() -> float:
     try:
-        return max(1.0, float(os.environ.get("ECAN_QIANNIU_POLL_S", "") or 3.0))
+        return max(1.0, float(os.environ.get("ECAN_QIANNIU_POLL_S", "") or 2.0))   # a scan takes ~1-1.7 s
     except (TypeError, ValueError):
         return 3.0
 
@@ -285,6 +348,10 @@ def inject_item(item: dict, target_agent_id: str = "") -> int:
     """
     if not route_ready():
         return 0
+    if not target_agent_id:
+        from . import direct_qa
+        if direct_qa.forward(item):     # no front-desk LLM round (~2.5 s)
+            return 1
     from agent.ec_skills.browser_use_extension.event_monitor import (
         _build_normalized_browser_event, _dispatch_to_runners,
     )
@@ -320,6 +387,7 @@ class QianniuMemObserver:
     def __init__(self, dispatch_fn=None):
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
+        self._last_live_dispatch = 0.0
         self._seen: "OrderedDict[str, float]" = OrderedDict()
         self._last_learn = 0.0
         # Override for tests / the reliability gate; defaults to the real
@@ -509,8 +577,10 @@ class QianniuMemObserver:
         self._scan_ms = (self._scan_ms + [ms])[-100:]
         # Our own sent reply in memory names the store's sender id (bot rule).
         for cand in candidates:
-            if cand.uid and _is_our_send(cand.text):
-                name_map.learn_store_self_id(cand.uid)
+            if _is_our_send(cand.text):
+                _mark_sent_seen(cand.text)
+                if cand.uid:
+                    name_map.learn_store_self_id(cand.uid)
         seller = (mem_locator.seller_id_of(candidates) if candidates else None) or \
             (name_map.store_self_id() or None)
         incoming = [c for c in candidates
@@ -640,6 +710,7 @@ class QianniuMemObserver:
                                 f"{' (retry)' if retrying else ''}: {item['last_message'][:40]!r}"
                                 f" product={item['product_card'][:60] or None!r}")
                 if n:
+                    self._last_live_dispatch = time.monotonic()
                     self._nobody_since.pop(key, None)
                     self._note_dispatched_text(item["last_message"])
                     continue
@@ -766,21 +837,41 @@ class QianniuMemObserver:
     def _backstop_loop(self) -> None:
         """List-only OCR every ECAN_QIANNIU_BACKSTOP_S: answers a buyer message
         the memory observer never saw (see qianniu_tools.backstop_sweep)."""
-        interval = _backstop_interval_s()
-        if interval <= 0:
+        base = _backstop_interval_s()
+        if base <= 0:
             logger.info("[QIANNIU-BACKSTOP] off (ECAN_QIANNIU_BACKSTOP_S=0)")
             return
-        logger.info(f"[QIANNIU-BACKSTOP] on: 正在接待 list checked every {interval:.0f}s")
+        recover_s = min(_BACKSTOP_RECOVER_S, base)
+        logger.info(f"[QIANNIU-BACKSTOP] on: 正在接待 list checked every {base:.0f}s "
+                    f"({recover_s:.0f}s while 千牛 is off the 接待中心 list)")
         from agent.mcp.server.qianniu.qianniu_tools import backstop_sweep
         checked: set = set()
-        while not self._stop.wait(interval):
+        fast_left, ready = 0, True
+        while not self._stop.wait(recover_s if fast_left > 0 else base):
             if not route_ready():
                 continue
+            # Not while a chat is live: the pass holds the desktop ~5-13 s and a
+            # reply waiting to be sent waits that long (alpha yt 2026-10-12, 7.5 s
+            # of one reply). The observer is evidently working then; the pass
+            # runs once the chat has been quiet for _BACKSTOP_QUIET_S.
+            quiet = time.monotonic() - max(self._last_live_dispatch, _last_send_at[0])
+            if quiet < _BACKSTOP_QUIET_S:
+                continue
             try:
-                backstop_sweep(self._cold_dispatch, self._already_handled,
-                               _is_our_send_preview, checked)
+                stats = backstop_sweep(self._cold_dispatch, self._already_handled,
+                                       _is_our_send_preview, checked)
             except Exception as exc:
                 logger.warning(f"[QIANNIU-BACKSTOP] pass failed: {exc}")
+                stats = {}
+            # A sweep error counts as reachable (True) so a transient glitch does
+            # not trip the accelerated cadence.
+            on_tab = stats.get("on_tab", True)
+            was_fast = fast_left > 0
+            fast_left, ready = _backstop_recovery_state(on_tab, fast_left, ready, _BACKSTOP_RECOVER_TRIES)
+            if fast_left > 0 and not was_fast:
+                logger.warning(f"[QIANNIU-BACKSTOP] 千牛 is not on the 接待中心 list; a reply may be "
+                               f"waiting — re-checking every {recover_s:.0f}s for up to "
+                               f"{_BACKSTOP_RECOVER_TRIES} passes (open 接待中心 in 千牛)")
             if len(checked) > 500:
                 checked.clear()
 

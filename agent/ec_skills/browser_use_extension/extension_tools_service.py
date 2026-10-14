@@ -2548,23 +2548,14 @@ async def rename_file(params: FileRenameAction, browser_session: BrowserSession)
     return ActionResult(error=f"File {params.old_path} not found in downloaded files")
 
 
-@custom_controller.action(
-    'Save (upload) a local file to the UGREEN NAS over SMB. Use this to persist a '
-    'downloaded datasheet/document to shared storage. remote_path is relative to the '
-    'NAS base folder and may include subfolders.',
-    param_model=NasSaveFileAction)
-async def save_file_to_nas(params: NasSaveFileAction) -> ActionResult:
-    logger.info(f"[Browser Use Extension] NAS upload: {params.local_path} -> {params.remote_path or '(basename)'}")
+def _nas_actions_enabled() -> bool:
+    """NAS actions only where NAS credentials exist: every registered action is
+    described in every browser agent's prompt (customer store agents too)."""
     try:
         from agent.ec_skills.nas import ugreen_nas as _nas
-        res = _nas.nas_upload(params.local_path, params.remote_path or None)
-        return ActionResult(
-            extracted_content=f"Uploaded to NAS: {res['path']} ({res['bytes']} bytes)",
-            include_in_memory=True,
-        )
-    except Exception as e:
-        logger.error(f"[Browser Use Extension] NAS upload failed: {e}")
-        return ActionResult(error=f"NAS upload failed: {e}")
+        return _nas.nas_configured()
+    except Exception:
+        return False
 
 
 def _doc_file_name(doc: dict) -> str:
@@ -2593,109 +2584,129 @@ def _fetch_to(url: str, path: str) -> int:
     return len(data)
 
 
-@custom_controller.action(
-    "Download every document listed in a JSON file (e.g. one written by evaluate_to_file) into a "
-    "local folder and upload each to the NAS — a whole part's documents in ONE action. Returns only "
-    "counts and file names.",
-    param_model=DownloadDocsToNasAction)
-async def download_docs_to_nas(params: DownloadDocsToNasAction) -> ActionResult:
-    # 2026-10-12: the chip crawler spent ~4 model steps per part on
-    # download_file/save_file_to_nas pairs, each resending the whole page.
-    try:
-        with open(params.docs_file, encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        return ActionResult(error=f"download_docs_to_nas: cannot read docs_file: {e}")
-    docs = data.get("docs") if isinstance(data, dict) else data
-    if not isinstance(docs, list):
-        return ActionResult(error="download_docs_to_nas: docs_file must hold a list, or {\"docs\": [...]}")
-    from agent.ec_skills.nas import ugreen_nas as _nas
-
-    os.makedirs(params.local_dir, exist_ok=True)
-    jobs, seen, names = [], set(), set()
-    for doc in docs:
-        url = str((doc or {}).get("url") or "").strip() if isinstance(doc, dict) else ""
-        if not url.startswith("http") or url in seen:
-            continue
-        seen.add(url)
-        name = _doc_file_name(doc)
-        stem, ext = os.path.splitext(name)
-        n = 2
-        while name.lower() in names:  # two documents must never share a file
-            name, n = f"{stem} ({n}){ext}", n + 1
-        names.add(name.lower())
-        jobs.append((url, name))
-
-    # 2026-10-13: a retried part re-uploaded every file; one listing tells which
-    # are already on the NAS (same name and size)
-    on_nas = {}
-    if params.nas_dir:
+if _nas_actions_enabled():
+    @custom_controller.action(
+        'Save (upload) a local file to the UGREEN NAS over SMB. Use this to persist a '
+        'downloaded datasheet/document to shared storage. remote_path is relative to the '
+        'NAS base folder and may include subfolders.',
+        param_model=NasSaveFileAction)
+    async def save_file_to_nas(params: NasSaveFileAction) -> ActionResult:
+        logger.info(f"[Browser Use Extension] NAS upload: {params.local_path} -> {params.remote_path or '(basename)'}")
         try:
-            listing = await asyncio.to_thread(_nas.nas_list, params.nas_dir.rstrip('/'))
-            on_nas = {e["name"].lower(): e["size"] for e in listing if not e["is_dir"]}
+            from agent.ec_skills.nas import ugreen_nas as _nas
+            res = _nas.nas_upload(params.local_path, params.remote_path or None)
+            return ActionResult(
+                extracted_content=f"Uploaded to NAS: {res['path']} ({res['bytes']} bytes)",
+                include_in_memory=True,
+            )
         except Exception as e:
-            logger.warning(f"[download_docs_to_nas] NAS listing failed, uploading everything: {e}")
+            logger.error(f"[Browser Use Extension] NAS upload failed: {e}")
+            return ActionResult(error=f"NAS upload failed: {e}")
 
-    # 2026-10-12: parts with ~22 documents took minutes one file at a time
-    gate = asyncio.Semaphore(_DOWNLOAD_PARALLEL)
 
-    async def save(url: str, name: str) -> str | None:
-        path = os.path.join(params.local_dir, name)
-        async with gate:
+    @custom_controller.action(
+        "Download every document listed in a JSON file (e.g. one written by evaluate_to_file) into a "
+        "local folder and upload each to the NAS — a whole part's documents in ONE action. Returns only "
+        "counts and file names.",
+        param_model=DownloadDocsToNasAction)
+    async def download_docs_to_nas(params: DownloadDocsToNasAction) -> ActionResult:
+        # 2026-10-12: the chip crawler spent ~4 model steps per part on
+        # download_file/save_file_to_nas pairs, each resending the whole page.
+        try:
+            with open(params.docs_file, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            return ActionResult(error=f"download_docs_to_nas: cannot read docs_file: {e}")
+        docs = data.get("docs") if isinstance(data, dict) else data
+        if not isinstance(docs, list):
+            return ActionResult(error="download_docs_to_nas: docs_file must hold a list, or {\"docs\": [...]}")
+        from agent.ec_skills.nas import ugreen_nas as _nas
+
+        os.makedirs(params.local_dir, exist_ok=True)
+        jobs, seen, names = [], set(), set()
+        for doc in docs:
+            url = str((doc or {}).get("url") or "").strip() if isinstance(doc, dict) else ""
+            if not url.startswith("http") or url in seen:
+                continue
+            seen.add(url)
+            name = _doc_file_name(doc)
+            stem, ext = os.path.splitext(name)
+            n = 2
+            while name.lower() in names:  # two documents must never share a file
+                name, n = f"{stem} ({n}){ext}", n + 1
+            names.add(name.lower())
+            jobs.append((url, name))
+
+        # 2026-10-13: a retried part re-uploaded every file; one listing tells which
+        # are already on the NAS (same name and size)
+        on_nas = {}
+        if params.nas_dir:
             try:
-                # threads: a blocking download here would stall every agent on the loop
-                if not (os.path.exists(path) and os.path.getsize(path)):
-                    await asyncio.to_thread(_fetch_to, url, path)
-                if params.nas_dir and on_nas.get(name.lower()) != os.path.getsize(path):
-                    await asyncio.to_thread(_nas.nas_upload, path, f"{params.nas_dir.rstrip('/')}/{name}")
-                return None
+                listing = await asyncio.to_thread(_nas.nas_list, params.nas_dir.rstrip('/'))
+                on_nas = {e["name"].lower(): e["size"] for e in listing if not e["is_dir"]}
             except Exception as e:
-                return f"{name}: {e}"
+                logger.warning(f"[download_docs_to_nas] NAS listing failed, uploading everything: {e}")
 
-    errors = await asyncio.gather(*(save(url, name) for url, name in jobs))
-    saved = [name for (_, name), err in zip(jobs, errors) if err is None]
-    failed = [err for err in errors if err]
-    logger.info(f"[download_docs_to_nas] {params.local_dir}: {len(saved)} saved, {len(failed)} failed")
-    msg = f"{len(saved)} saved, {len(failed)} failed in {params.local_dir}. Saved: {saved}"
-    if failed:
-        msg += f" Failed: {failed}"
-    return ActionResult(extracted_content=msg, include_in_memory=True,
-                        error=None if saved or not failed else msg)
+        # 2026-10-12: parts with ~22 documents took minutes one file at a time
+        gate = asyncio.Semaphore(_DOWNLOAD_PARALLEL)
 
+        async def save(url: str, name: str) -> str | None:
+            path = os.path.join(params.local_dir, name)
+            async with gate:
+                try:
+                    # threads: a blocking download here would stall every agent on the loop
+                    if not (os.path.exists(path) and os.path.getsize(path)):
+                        await asyncio.to_thread(_fetch_to, url, path)
+                    if params.nas_dir and on_nas.get(name.lower()) != os.path.getsize(path):
+                        await asyncio.to_thread(_nas.nas_upload, path, f"{params.nas_dir.rstrip('/')}/{name}")
+                    return None
+                except Exception as e:
+                    return f"{name}: {e}"
 
-@custom_controller.action(
-    'Write text content (e.g. a JSON manifest or extracted metadata) to a file on the '
-    'UGREEN NAS over SMB. remote_path is relative to the NAS base folder.',
-    param_model=NasSaveTextAction)
-async def save_text_to_nas(params: NasSaveTextAction) -> ActionResult:
-    logger.info(f"[Browser Use Extension] NAS write text -> {params.remote_path}")
-    try:
-        from agent.ec_skills.nas import ugreen_nas as _nas
-        res = _nas.nas_write_text(params.remote_path, params.content)
-        return ActionResult(
-            extracted_content=f"Wrote NAS file: {res['path']} ({res['bytes']} bytes)",
-            include_in_memory=True,
-        )
-    except Exception as e:
-        logger.error(f"[Browser Use Extension] NAS write failed: {e}")
-        return ActionResult(error=f"NAS write failed: {e}")
+        errors = await asyncio.gather(*(save(url, name) for url, name in jobs))
+        saved = [name for (_, name), err in zip(jobs, errors) if err is None]
+        failed = [err for err in errors if err]
+        logger.info(f"[download_docs_to_nas] {params.local_dir}: {len(saved)} saved, {len(failed)} failed")
+        msg = f"{len(saved)} saved, {len(failed)} failed in {params.local_dir}. Saved: {saved}"
+        if failed:
+            msg += f" Failed: {failed}"
+        return ActionResult(extracted_content=msg, include_in_memory=True,
+                            error=None if saved or not failed else msg)
 
 
-@custom_controller.action(
-    'List a directory on the UGREEN NAS over SMB. remote_dir is relative to the NAS base '
-    'folder (empty lists the base folder). Use to check what has already been saved.',
-    param_model=NasListAction)
-async def list_nas(params: NasListAction) -> ActionResult:
-    try:
-        from agent.ec_skills.nas import ugreen_nas as _nas
-        entries = _nas.nas_list(params.remote_dir or "")
-        if not entries:
-            return ActionResult(extracted_content=f"NAS dir '{params.remote_dir or '(base)'}' is empty or does not exist.")
-        lines = [f"{'[D]' if e['is_dir'] else '   '} {e['name']} ({e['size']} bytes)" for e in entries]
-        return ActionResult(extracted_content=f"NAS dir '{params.remote_dir or '(base)'}' ({len(entries)} entries):\n" + "\n".join(lines))
-    except Exception as e:
-        logger.error(f"[Browser Use Extension] NAS list failed: {e}")
-        return ActionResult(error=f"NAS list failed: {e}")
+    @custom_controller.action(
+        'Write text content (e.g. a JSON manifest or extracted metadata) to a file on the '
+        'UGREEN NAS over SMB. remote_path is relative to the NAS base folder.',
+        param_model=NasSaveTextAction)
+    async def save_text_to_nas(params: NasSaveTextAction) -> ActionResult:
+        logger.info(f"[Browser Use Extension] NAS write text -> {params.remote_path}")
+        try:
+            from agent.ec_skills.nas import ugreen_nas as _nas
+            res = _nas.nas_write_text(params.remote_path, params.content)
+            return ActionResult(
+                extracted_content=f"Wrote NAS file: {res['path']} ({res['bytes']} bytes)",
+                include_in_memory=True,
+            )
+        except Exception as e:
+            logger.error(f"[Browser Use Extension] NAS write failed: {e}")
+            return ActionResult(error=f"NAS write failed: {e}")
+
+
+    @custom_controller.action(
+        'List a directory on the UGREEN NAS over SMB. remote_dir is relative to the NAS base '
+        'folder (empty lists the base folder). Use to check what has already been saved.',
+        param_model=NasListAction)
+    async def list_nas(params: NasListAction) -> ActionResult:
+        try:
+            from agent.ec_skills.nas import ugreen_nas as _nas
+            entries = _nas.nas_list(params.remote_dir or "")
+            if not entries:
+                return ActionResult(extracted_content=f"NAS dir '{params.remote_dir or '(base)'}' is empty or does not exist.")
+            lines = [f"{'[D]' if e['is_dir'] else '   '} {e['name']} ({e['size']} bytes)" for e in entries]
+            return ActionResult(extracted_content=f"NAS dir '{params.remote_dir or '(base)'}' ({len(entries)} entries):\n" + "\n".join(lines))
+        except Exception as e:
+            logger.error(f"[Browser Use Extension] NAS list failed: {e}")
+            return ActionResult(error=f"NAS list failed: {e}")
 
 
 @custom_controller.action('Print label files to a specified printer. Supports PDF, PNG, JPG files.', param_model=FilesPrintAction)

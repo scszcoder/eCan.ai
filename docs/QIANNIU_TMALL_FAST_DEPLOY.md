@@ -65,7 +65,7 @@ It is NOT tied to the browser node, although it lives under
 
 ```
 千牛 client (buyer writes)
-  │  process-memory scan every ECAN_QIANNIU_POLL_S (3s)
+  │  process-memory scan every ECAN_QIANNIU_POLL_S (2s)
   ▼
 qianniu_chat observer ── item {customer_id, customer_display_name, latest_message, msg_id, identity_key}
   │  event_monitor._dispatch_to_runners  (type=browser_event, sub_type="qianniu_chat", session=None)

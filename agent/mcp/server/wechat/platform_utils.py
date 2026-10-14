@@ -49,7 +49,59 @@ def find_windows_by_title(title_keywords: list[str]) -> list[WindowInfo]:
 
 
 # --- Windows ---
+def _visible_window_titles_win32() -> list:
+    """(hwnd, title) of every visible top-level window, read WITHOUT sending a
+    message to the owning thread. GetWindowTextW (pygetwindow) sends WM_GETTEXT
+    to windows of this process, so a lookup from a worker thread waits on our
+    own busy Qt UI thread -- 8 s for one 千牛 send (alpha yv 2026-10-12).
+    InternalGetWindowText reads the stored title directly."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    out = []
+    buf = ctypes.create_unicode_buffer(512)
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def _each(hwnd, _lparam):
+        if user32.IsWindowVisible(hwnd):
+            n = user32.InternalGetWindowText(hwnd, buf, 512)
+            out.append((hwnd, buf.value[:n] if n else ""))
+        return True
+
+    user32.EnumWindows(_each, 0)
+    return out
+
+
+def _window_info_win32(hwnd, title: str) -> WindowInfo:
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    r = wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(r))
+    return WindowInfo(title=title, hwnd=hwnd, left=r.left, top=r.top, width=r.right - r.left,
+                      height=r.bottom - r.top, is_minimized=bool(user32.IsIconic(hwnd)))
+
+
 def _find_windows_win32(title_keywords: list[str]) -> list[WindowInfo]:
+    # Same matching as pygetwindow.getWindowsWithTitle (visible windows,
+    # case-insensitive substring, per keyword; exact titles first), without its
+    # GetWindowTextW (see _visible_window_titles_win32).
+    try:
+        titles = _visible_window_titles_win32()
+        results = []
+        kw_lower = {k.lower() for k in title_keywords}
+        for title_kw in title_keywords:
+            for hwnd, title in titles:
+                if title_kw.upper() not in title.upper():
+                    continue
+                info = _window_info_win32(hwnd, title)
+                if title.strip().lower() in kw_lower:
+                    results.insert(0, info)
+                else:
+                    results.append(info)
+        return results
+    except Exception as e:
+        logger.warning(f"[platform_utils] window enumeration failed ({e}); using pygetwindow")
     try:
         import pygetwindow as gw
         results = []

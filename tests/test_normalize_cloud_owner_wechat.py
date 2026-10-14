@@ -20,6 +20,15 @@ def test_wechat_bare_prefix_stripped():
     assert n("wechat_oABC123") == "oABC123"
 
 
+def test_wechat_dot_local_suffix_becomes_bare_openid():
+    # 2026-10-13: the real CN WeChat identity suffix is ``@wechat.local`` (not
+    # ``@local``); the owner "couldn't edit/publish their own skill" because the
+    # suffix survived → cloud saw a cross-owner and rejected the publish.
+    assert n("wechat_oABC123@wechat.local") == "oABC123"
+    assert n("wechat_b603a407904569a4ea88f9ac@wechat.local") == "b603a407904569a4ea88f9ac"
+    assert n("13800138000@phone.local") == "13800138000"  # CN phone OTP current form
+
+
 def test_non_wechat_logins_unchanged():
     assert n("user@gmail.com") == "user@gmail.com"       # Intl email
     assert n("13800138000@local") == "13800138000"       # CN phone OTP

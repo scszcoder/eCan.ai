@@ -21,13 +21,16 @@ interface PoolView {
   wait_p90_s: number;
   turns_last_hour: number;
   expected_turns_this_hour: number | null;
+  pinned?: number | null;
+  /** Other stores' front desks using the same Q&A agents (sized together). */
+  shared_desks?: { id: string; name: string; store_id: string; store_name?: string }[];
 }
 
 const POLL_MS = 5000;
 
 /** The Q&A pool a front-desk agent dispatches to (agent_pool.py); nothing for other agents. */
 const AgentPoolPanel: React.FC<{ agentId?: string }> = ({ agentId }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const k = (key: string, def: string, o?: any): string =>
     String(t(`pages.agents.pool.${key}`, { defaultValue: def, ...(o || {}) }));
   const [pool, setPool] = useState<PoolView | null>(null);
@@ -60,10 +63,22 @@ const AgentPoolPanel: React.FC<{ agentId?: string }> = ({ agentId }) => {
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
         {k('title', 'Q&A pool')}{' '}
         <span style={{ fontWeight: 400, opacity: 0.75 }}>
-          {k('summary', '{{active}} of {{total}} answering (min {{min}}, max {{max}})',
-            { active: pool.active_count, total: pool.members.length, min: s.min, max: s.max })}
+          {pool.pinned
+            ? k('summaryPinned', '{{active}} of {{total}} answering (fixed at {{n}})',
+              { active: pool.active_count, total: pool.members.length, n: pool.pinned })
+            : k('summary', '{{active}} of {{total}} answering (min {{min}}, max {{max}})',
+              { active: pool.active_count, total: pool.members.length, min: s.min, max: s.max })}
         </span>
       </div>
+      {pool.shared_desks && pool.shared_desks.length > 0 && (
+        <div data-testid="agent-pool-shared" style={{ fontSize: 12, marginBottom: 6 }}>
+          {k('sharedWith', 'Shared with {{stores}}: these Q&A agents also answer for them; the counts and sizing cover all of them.', {
+            stores: pool.shared_desks
+              .map((d) => `${d.store_name || d.store_id || d.name}${d.name && (d.store_name || d.store_id) ? `（${d.name}）` : ''}`)
+              .join(String(i18n?.language || '').startsWith('zh') ? '、' : ', '),
+          })}
+        </div>
+      )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
         {pool.members.map((m) => (
           <Tooltip key={m.id} title={!m.running ? k('notRunning', 'Not running on this computer')

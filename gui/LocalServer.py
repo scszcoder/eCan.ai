@@ -74,6 +74,14 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from starlette.requests import Request
 import uvicorn
 
+
+class RedactedToken(str):
+    """A login token / local CLI key: compares and hashes as the real value,
+    but repr() is '***', so a logged request dict doesn't leak it."""
+    def __repr__(self):
+        return "'***'"
+
+
 from agent.mcp.server.server import (
         handle_sse, sse_handle_messages, meca_mcp_server,
         meca_sse, meca_streamable_http, handle_streamable_http,
@@ -591,7 +599,9 @@ class RequestHandlers:
                 'method': method,
                 'params': request_params,
                 'source': 'graphql',
-                'token': extracted_token  # Token for validation only, not in params
+                # Token for validation only, not in params; prints as '***' so
+                # handlers that log the request don't write it to the log.
+                'token': RedactedToken(extracted_token) if extracted_token else extracted_token
             }
 
             # IPCHandlerRegistry now automatically handles background handlers in thread pool
@@ -1633,6 +1643,11 @@ class ServerManager:
         # down — otherwise it would treat this deliberate shutdown as an
         # unexpected death and respawn the server immediately.
         self._shutdown_requested = True
+        try:
+            from utils import local_api
+            local_api.withdraw()
+        except Exception:
+            pass
 
         if self.uvicorn_server:
             logger.info("Stopping local Starlette server...")
@@ -1947,6 +1962,12 @@ class ServerManager:
                     else:
                         logger.info(f"🌐 Server accessible at: http://{host_bind}:{port}")
                     
+                    # Local tools (the ecan CLI) find and call us through this file.
+                    try:
+                        from utils import local_api
+                        local_api.publish(port)
+                    except Exception as _la_err:
+                        logger.warning(f"[local-api] could not publish: {_la_err}")
                     await server.serve()
                 
                 asyncio.run(serve_with_loop())

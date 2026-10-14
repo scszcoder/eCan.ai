@@ -36,14 +36,23 @@ const pickOption = async (text: string) => {
   fireEvent.click(opt as Element);
 };
 
+// The panel also asks for the platform's existing 客服 deployments (to offer
+// sharing their Q&A agents); these are the deploy calls themselves.
+let csPools: any[] = [];
+const deployCalls = () => executeRequest.mock.calls.filter((c) => c[0] !== 'fast_deploy.cs_pools');
+let deployReply: any;
+
 beforeEach(() => {
   executeRequest.mockReset();
+  csPools = [];
   getStoreCatalog.mockReset();
   getStoreCatalog.mockResolvedValue({ success: true, data: { stores: [
     { store_id: 'douyin-老店', name: '老店', platform: 'douyin', store_urls: ['https://im.jinritemai.com/x'] },
     { store_id: 'pdd-别家', name: '别家', platform: 'pinduoduo', store_urls: [] },
   ] } });
-  executeRequest.mockResolvedValue({ success: true, data: { status: 'success', log: ['ok'], store_created: true } });
+  deployReply = { success: true, data: { status: 'success', log: ['ok'], store_created: true } };
+  executeRequest.mockImplementation((method: string) => Promise.resolve(
+    method === 'fast_deploy.cs_pools' ? { success: true, data: { pools: csPools } } : deployReply));
 });
 
 describe('Fast Deploy areas', () => {
@@ -75,20 +84,22 @@ describe('FastDeployPanel', () => {
     const cs = screen.getByTestId('fd-area-cs');
     expect(within(cs).getByText('pages.agents.fast_deploy_qa_agents')).toBeInTheDocument();
 
+    expect(screen.queryByTestId('fd-share-pool')).not.toBeInTheDocument();   // no other store to share with
     fireEvent.click(screen.getByTestId('fd-generate'));
-    await waitFor(() => expect(executeRequest).toHaveBeenCalledTimes(1));
-    const [method, payload] = executeRequest.mock.calls[0];
+    await waitFor(() => expect(deployCalls()).toHaveLength(1));
+    const [method, payload] = deployCalls()[0];
     expect(method).toBe('fast_deploy.generate');
     expect(payload).toEqual({ scenario: 'douyin_cs', config: {
       store_id: 'douyin-小店',
       new_store: { name: '小店', platform: 'douyin', urls: [] },
       qa_agents: 8, mode: 'add', fetch_catalog: true,   // on by default: export the store's products once
+      fetch_promos: true,                               // on by default: keep current promotions fresh for Q&A
     } });
     await waitFor(() => expect(screen.getByText('pages.agents.fast_deploy_success')).toBeInTheDocument());
   });
 
   it('a custom platform creates just the store, under the typed platform', async () => {
-    executeRequest.mockResolvedValue({ success: true, data: { status: 'success', store_created: true, log: ['created'] } });
+    deployReply = { success: true, data: { status: 'success', store_created: true, log: ['created'] } };
     render(<FastDeployPanel open onClose={() => {}} />);
     await waitFor(() => expect(getStoreCatalog).toHaveBeenCalled());
     fireEvent.click(screen.getByTestId('fd-platform-custom'));
@@ -98,9 +109,9 @@ describe('FastDeployPanel', () => {
     fireEvent.change(screen.getByTestId('fd-store-name'), { target: { value: '小铺' } });
     expect(screen.getByTestId('fd-area-add')).toBeDisabled();       // nothing deploys to 微店 yet
     fireEvent.click(screen.getByTestId('fd-generate'));
-    await waitFor(() => expect(executeRequest).toHaveBeenCalledTimes(1));
-    expect(executeRequest.mock.calls[0][0]).toBe('fast_deploy.create_store');
-    expect(executeRequest.mock.calls[0][1]).toEqual({ store_id: '微店-小铺', name: '小铺', platform: '微店', urls: [] });
+    await waitFor(() => expect(deployCalls()).toHaveLength(1));
+    expect(deployCalls()[0][0]).toBe('fast_deploy.create_store');
+    expect(deployCalls()[0][1]).toEqual({ store_id: '微店-小铺', name: '小铺', platform: '微店', urls: [] });
     await waitFor(() => expect(screen.getByText('pages.agents.fast_deploy_success')).toBeInTheDocument());
   });
 
@@ -116,6 +127,60 @@ describe('FastDeployPanel', () => {
     expect(screen.queryByTestId('fd-area-cs')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('fd-generate'));
     await new Promise((r) => setTimeout(r, 0));
-    expect(executeRequest).not.toHaveBeenCalled();
+    expect(deployCalls()).toHaveLength(0);
+  });
+
+  it('a second store shares the Q&A agents of the platform\'s other store by default', async () => {
+    csPools = [{ front_desks: [{ agent_id: 'fd_old', task_id: 't1', store_id: 'douyin-别的店', store_name: '别的店' }],
+                 qa_task_ids: ['q1', 'q2', 'q3'], qa_count: 3 }];
+    render(<FastDeployPanel open onClose={() => {}} />);
+    await waitFor(() => expect(getStoreCatalog).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId('fd-platform-douyin'));
+    openSelect('fd-store');
+    await pickOption('老店 (douyin-老店)');
+    fireEvent.click(screen.getByTestId('fd-area-add'));
+    const share = await screen.findByTestId('fd-share-pool');
+    await waitFor(() => expect(within(share).getByRole('checkbox')).toBeChecked());
+    expect(screen.queryByText('pages.agents.fast_deploy_qa_agents')).not.toBeInTheDocument();   // the pool's size instead
+    fireEvent.click(screen.getByTestId('fd-generate'));
+    await waitFor(() => expect(deployCalls()).toHaveLength(1));
+    const cfg = deployCalls()[0][1].config;
+    expect(cfg.share_with).toBe('fd_old');
+    expect(cfg.qa_agents_extra).toBe(0);
+    expect(cfg.qa_agents).toBeUndefined();
+  });
+
+  it('turning sharing off gives the store its own Q&A agents', async () => {
+    csPools = [{ front_desks: [{ agent_id: 'fd_old', task_id: 't1', store_id: 'douyin-别的店', store_name: '别的店' }],
+                 qa_task_ids: ['q1'], qa_count: 1 }];
+    render(<FastDeployPanel open onClose={() => {}} />);
+    await waitFor(() => expect(getStoreCatalog).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId('fd-platform-douyin'));
+    openSelect('fd-store');
+    await pickOption('老店 (douyin-老店)');
+    fireEvent.click(screen.getByTestId('fd-area-add'));
+    const share = await screen.findByTestId('fd-share-pool');
+    await waitFor(() => expect(within(share).getByRole('checkbox')).toBeChecked());
+    fireEvent.click(within(share).getByRole('checkbox'));
+    expect(screen.getByText('pages.agents.fast_deploy_qa_agents')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('fd-generate'));
+    await waitFor(() => expect(deployCalls()).toHaveLength(1));
+    const cfg = deployCalls()[0][1].config;
+    expect(cfg.share_with).toBeUndefined();
+    expect(cfg.qa_agents).toBe(8);
+  });
+
+  it('no sharing offered when the only pool is this store\'s own', async () => {
+    csPools = [{ front_desks: [{ agent_id: 'fd_self', task_id: 't1', store_id: 'douyin-老店', store_name: '老店' }],
+                 qa_task_ids: ['q1'], qa_count: 1 }];
+    render(<FastDeployPanel open onClose={() => {}} />);
+    await waitFor(() => expect(getStoreCatalog).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId('fd-platform-douyin'));
+    openSelect('fd-store');
+    await pickOption('老店 (douyin-老店)');
+    fireEvent.click(screen.getByTestId('fd-area-add'));
+    await waitFor(() => expect(executeRequest.mock.calls.some((c) => c[0] === 'fast_deploy.cs_pools')).toBe(true));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId('fd-share-pool')).not.toBeInTheDocument();
   });
 });

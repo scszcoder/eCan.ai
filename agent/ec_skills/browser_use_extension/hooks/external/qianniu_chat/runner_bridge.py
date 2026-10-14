@@ -7,10 +7,11 @@ call site treats a missing attribute as "this site has no such capability" and
 falls back to generic behaviour.
 
 What it does expose: the site name (so the registry can key it and
-``ECAN_LIVE_CHAT_SITE`` / ``set_active_site`` resolve), a trace label, and the
-desktop typing lock that serialises sends. Sending itself is done by the
-``qianniu_send`` MCP tool from the skill graph, not by the platform's browser
-direct-delivery fast path — which is why no send-tool name is advertised here.
+``ECAN_LIVE_CHAT_SITE`` / ``set_active_site`` resolve), a trace label, the
+desktop typing lock that serialises sends, and ``deliver_reply``: the runner's
+reply direct-delivery path hands a Q&A agent's reply here and it is sent with
+``qianniu_tools.send_reply`` (the ``qianniu_send`` checks, no browser, no
+front-desk LLM turn). The skill graph's ``qianniu_send`` stays the fallback.
 """
 from __future__ import annotations
 
@@ -26,6 +27,21 @@ class QianniuRunnerBridge:
     @property
     def typing_lock(self):
         return get_lock()
+
+    def deliver_reply(self, payload: dict) -> bool:
+        """Send a Q&A agent's reply ({customer_id, customer_name, response_text,
+        source_latest_message}) straight to the buyer -- the runner's reply
+        direct-delivery path, instead of a front-desk LLM turn that only turns
+        the reply into this same qianniu_send. False = not sent; the front desk
+        then takes the reply as before."""
+        from agent.mcp.server.qianniu.qianniu_tools import send_reply
+        from . import name_map
+        uid = str(payload.get("customer_id") or payload.get("customer_name") or "").strip()
+        given = str(payload.get("customer_name") or "").strip()
+        name = name_map.name_for(uid) or (given if given and given != uid else "")
+        expect = str(payload.get("source_latest_message") or "").strip()
+        res = send_reply(name, str(payload.get("response_text") or ""), expect)
+        return bool(res.get("chat_sent"))
 
     @property
     def node_tunable_number_fields(self):

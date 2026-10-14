@@ -20,6 +20,7 @@ def test_upload_reconnects_and_retries_once(tmp_path, monkeypatch):
         return {"path": relpath, "bytes": 5}
 
     monkeypatch.setattr(nas, "_upload_once", flaky)
+    monkeypatch.setenv("ECAN_NAS_UPLOAD_ROOTS", str(tmp_path))
     monkeypatch.setattr(nas, "_reset_session", lambda: resets.append(1))
     assert nas.nas_upload(str(f), "d/a.pdf")["bytes"] == 5
     assert calls == ["d/a.pdf", "d/a.pdf"] and resets == [1]
@@ -33,6 +34,7 @@ def test_second_failure_is_raised(tmp_path, monkeypatch):
         raise RuntimeError("still down")
 
     monkeypatch.setattr(nas, "_upload_once", dead)
+    monkeypatch.setenv("ECAN_NAS_UPLOAD_ROOTS", str(tmp_path))
     monkeypatch.setattr(nas, "_reset_session", lambda: None)
     with pytest.raises(RuntimeError):
         nas.nas_upload(str(f), "d/a.pdf")
