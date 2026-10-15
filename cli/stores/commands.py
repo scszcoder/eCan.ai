@@ -122,6 +122,65 @@ def update_store(store_id, name, platform, urls, profile_id):
     out.success(f"Store {store_id!r} updated")
 
 
+@stores.command('reconcile')
+@click.option('--store', 'store_id', default=None, help='Only this store (default: all)')
+@click.option('--format', '-f', 'format', type=click.Choice(['table', 'json']), default='table')
+def reconcile_stores(store_id, format):
+    """Report stores that have more than one front desk. QUERY command (read-only).
+
+    The target is exactly one front desk per store. Two can pile up when a
+    legacy single-store deploy (前台小张 / 飞鸽客服前台001) and a newer
+    store-scoped one (前台-<店铺名>) both landed. This only REPORTS and
+    recommends; it does not delete anything. Retiring the duplicate (which must
+    also clean the cloud copy) is done from the running app, not here.
+    """
+    from agent.ec_agents.store_overview import is_front_desk_name, plan_front_desk_reconcile
+    out = get_output()
+    ctx = get_context()
+    svc = getattr(ctx.db, "store_service", None)
+    if svc is None:
+        raise click.ClickException("store catalog unavailable (database has no store table yet)")
+    store_names = {r["store_id"]: r.get("name") or r["store_id"]
+                   for r in svc.list_stores(include_archived=False)}
+
+    res = ctx.db.agent_service.query_agents_with_relations(
+        include_skills=False, include_tasks=True, include_org=False)
+    agents = (res or {}).get("data") or []
+    front_desks = []
+    for a in agents:
+        aid, aname = a.get("id") or "", a.get("name") or ""
+        for t in a.get("tasks") or []:
+            tname = t.get("name") or ""
+            if not is_front_desk_name(tname):
+                continue
+            tv = ((t.get("metadata") or {}).get("task_vars") or {}) if isinstance(t.get("metadata"), dict) else {}
+            sid = str(tv.get("store_id") or "").strip()
+            if not sid or (store_id and sid != store_id):
+                continue
+            front_desks.append({"store_id": sid, "agent_id": aid, "agent_name": aname,
+                                 "task_id": t.get("id") or "", "task_name": tname})
+
+    plans = plan_front_desk_reconcile(front_desks, store_names)
+    if format == 'json':
+        out.json(plans)
+        return
+    if not plans:
+        out.success("No stores have duplicate front desks.")
+        return
+    rows = []
+    for p in plans:
+        keep = p["keep"]
+        rows.append([
+            p["store_id"], p["store_name"] or '-',
+            (keep.get("agent_name") if keep else '— pick —'),
+            ", ".join(sorted({r.get("agent_name") or "" for r in p["retire"]})) or '-',
+            p["note"],
+        ])
+    out.table('Duplicate front desks', ['store', 'name', 'keep', 'retire', 'note'], rows)
+    out.warning("Read-only. Retire duplicates from the running app (Stores page) so the "
+                "cloud copy is cleaned too; the CLI cannot remove the cloud rows.")
+
+
 @stores.command('archive')
 @click.argument('store_id')
 @click.option('--restore', is_flag=True, help='Bring an archived store back')
