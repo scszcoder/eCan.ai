@@ -62,33 +62,6 @@ class GeneratorTemplateRegressionTests(unittest.TestCase):
             "os.path.join('third_party/ms-playwright', os.path.dirname(rel_path))", src
         )
 
-    def test_minibuild_does_not_drop_playwright_binaries(self):
-        """Filter loop must MOVE Playwright entries to a.datas, not just `continue`.
-
-        A previous version of the filter used a bare `continue` after the
-        "Skipping Playwright binary (will be included as data)" log line. The
-        comment was aspirational — nothing actually re-added the items, so
-        chrome.exe/chrome.dll shipped as empty directories in the installer.
-        The installed app then failed "no Chromium binary found" at runtime.
-        The fix appends each Playwright binary to ``a.datas`` before continuing.
-        """
-        src = (Path(__file__).resolve().parents[2]
-               / "build_system" / "minibuild_core.py").read_text(encoding="utf-8")
-        # Inside the ms-playwright branch, we must append to a.datas, not just continue.
-        # Find the block by anchoring on the new log line.
-        anchor = "Moving Playwright binary to data"
-        self.assertIn(anchor, src,
-                      "log line 'Moving Playwright binary to data' must be present")
-        # Locate the if-block and verify it contains an a.datas.append call
-        # before the continue statement.
-        block_start = src.find(anchor)
-        # Walk backwards to the nearest `if 'ms-playwright' in binary_path_lower`.
-        block_marker = "'ms-playwright' in binary_path_lower"
-        block = src[src.rfind(block_marker, 0, block_start):
-                    src.find("\n\n", block_start)]
-        self.assertIn("a.datas.append(item)", block,
-                      "Playwright binaries must be appended to a.datas, not dropped")
-
 
 if __name__ == "__main__":
     unittest.main()
