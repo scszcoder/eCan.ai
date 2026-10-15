@@ -414,6 +414,14 @@ _ROW_PREVIEW_DY = (12, 45)        # a row = name line, preview line this far bel
 _TIMESTAMP_LINE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}\s*\d{1,2}:\d{2}|^\d{1,2}:\d{2}(:\d{2})?$")
 _BODY_NOISE = ("已读", "未读", "当前用户来自", "发送", "按Enter", "请输入")
 _WORDY_RE = re.compile(r"[一-鿿A-Za-z0-9]")
+# When "列表分组开启" (list grouping) is on, the 正在接待 list carries section
+# headers like 「待回复(1)」「已回复(2)」. They OCR as wordy lines and leak into
+# conversation_rows, so a header pairs with the buyer below it (name='待回复(1)',
+# preview='大作战panda') -- the cold sweep then opens the bogus row, last_turn
+# can't read it, and the real buyer is skipped and never answered (customer
+# 2026-10-14: 大作战panda「这个牙线盒耐用吗」 waited 102s+). Full-line match so a
+# buyer message that merely contains 「回复」 (e.g. 「稍后回复您」) is never dropped.
+_GROUP_HEADER = re.compile(r"^(待回复|已回复|未读消息|置顶)\s*[(（]?\d*[)）]?$")
 
 
 def conversation_rows(ocr_data: list, limit: int = 8) -> list:
@@ -432,6 +440,8 @@ def conversation_rows(ocr_data: list, limit: int = 8) -> list:
         # A red unread dot / badge OCRs as "." or a digit: not a row line
         # (yn alpha: row name '.', its "message" 「个关闭」 was dispatched).
         if len(_WORDY_RE.findall(t)) < 2:
+            continue
+        if _GROUP_HEADER.match(_norm(t)):   # 「待回复(1)」/「已回复(2)」 grouping header
             continue
         if cy > tab_y + 5 and left <= cx <= right and not any(s in t for s in _LIST_SKIP) \
                 and not (_TIMEISH.search(t) and len(t) <= 8):

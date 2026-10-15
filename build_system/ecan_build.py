@@ -805,6 +805,25 @@ begin
   // This is critical to avoid MoveFile error 183 (ERROR_ALREADY_EXISTS)
   // especially when Windows Program Compatibility Assistant Service holds file handles
   Sleep(2000);
+
+  // Remove the stale ``third_party`` tree left by pre-0.9.99yab installs.
+  // Those builds packed ms-playwright / browser_extensions with a
+  // name-over-name nesting bug (commit 97a11e7c8), so chrome.exe,
+  // chrome.dll and each <id>.crx landed as DIRECTORIES. This build ships
+  // them as FILES, and Inno cannot overwrite a directory with a file — it
+  // aborts with "MoveFile failed; error code 183 / cannot create a file
+  // when that file already exists" (otaerr0.png / installerr2.png,
+  // 2026-10-14: extension edibdbjcniadpccecjdfdjjppcpchdlm.crx; earlier
+  // cjpalhdlnbpafiamejdnhcphjbkeiagm.crx). The whole tree is
+  // installer-owned — NO user data; fingerprint profiles live under
+  // C:\ecan_browser_data, not here — and [Files] re-lays it from the
+  // payload, so wiping it first lets the fresh files copy cleanly. Guarded
+  // by DirExists (skipped on a clean first install); DelTree failures are
+  // ignored — worst case the copy hits 183 exactly as it did before.
+  if DirExists(ExpandConstant('{{app}}\\_internal\\third_party')) then
+    DelTree(ExpandConstant('{{app}}\\_internal\\third_party'), True, True, True);
+  if DirExists(ExpandConstant('{{app}}\\third_party')) then
+    DelTree(ExpandConstant('{{app}}\\third_party'), True, True, True);
 end;
 
 // Skip wizard pages in silent mode (OTA updates)

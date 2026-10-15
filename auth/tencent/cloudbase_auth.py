@@ -440,7 +440,16 @@ class CloudBaseAuthService:
         if not refresh_token:
             return AuthResult.fail("refresh_token is required", "INVALID_INPUT")
 
+        # ``client_id`` (the env id) is REQUIRED by CloudBase's OAuth2 token
+        # endpoint. Omitting it made every refresh 401 with
+        # NotAuthorizedException, so the desktop forced a full re-login ~45
+        # min after each sign-in (customer 2026-10-14: login 17:22 → refresh
+        # 18:07 fail → re-login → 18:57 fail again, every session). Sign-in
+        # (/auth/v1/signin) does not need it, which hid the gap; the proven
+        # headless path agent/cloud_api/api_keys._mint_access_token_from_refresh
+        # has always sent it. Match that.
         result = self._post("/auth/v1/token", {
+            "client_id": self.config.env_id,
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
         }, timeout=5, device_id=device_id)

@@ -405,3 +405,44 @@ class TestCloudBaseUserInfo:
         assert u.nickname is None
         assert u.avatar_url is None
         assert u.login_type == "password"
+
+
+# ============================================================
+# Token Refresh Tests
+# ============================================================
+
+class TestRefreshToken:
+    """The OAuth2 /auth/v1/token refresh grant must carry client_id.
+
+    Regression (customer 2026-10-14): refresh_token() omitted client_id, so
+    CloudBase 401'd every refresh with NotAuthorizedException and the desktop
+    forced a full re-login ~45 min after each sign-in. sign-in (/auth/v1/signin)
+    needs no client_id, which hid the gap.
+    """
+
+    def _service_with_env(self, service):
+        service.config.env_id = "sccb0-test-env"
+        return service
+
+    def test_refresh_sends_client_id(self, service, monkeypatch):
+        service = self._service_with_env(service)
+        captured = {}
+
+        def fake_post(endpoint, payload, **kwargs):
+            captured["endpoint"] = endpoint
+            captured["payload"] = payload
+            # minimal success shape for _wrap_token_response
+            return {"_http_status": 200, "access_token": "a", "refresh_token": "r"}
+
+        monkeypatch.setattr(service, "_post", fake_post)
+        service.refresh_token("the-refresh-token")
+
+        assert captured["endpoint"] == "/auth/v1/token"
+        assert captured["payload"]["client_id"] == "sccb0-test-env"
+        assert captured["payload"]["grant_type"] == "refresh_token"
+        assert captured["payload"]["refresh_token"] == "the-refresh-token"
+
+    def test_refresh_requires_token(self, service):
+        result = service.refresh_token("")
+        assert not result.success
+        assert result.error_code == "INVALID_INPUT"
