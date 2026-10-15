@@ -106,7 +106,7 @@ class TestDeployDouyinCs:
 
         # Front-desk task is created FIRST — the Q&A tasks carry its agent id.
         task_names = [c.args[0]["name"] for c in ctx.db.task_service.add_task.call_args_list]
-        assert task_names == ["飞鸽客服前台001", "飞鸽客服应答001", "飞鸽客服应答002", "飞鸽客服应答003"]
+        assert task_names == ["飞鸽客服前台-shopA", "飞鸽客服应答001", "飞鸽客服应答002", "飞鸽客服应答003"]
         for c in ctx.db.task_service.add_task.call_args_list:
             assert c.args[0]["trigger"] == "auto"
             assert c.args[0]["settings"]["task_vars"]["store_url"] == "https://shopA.example.com"
@@ -124,9 +124,9 @@ class TestDeployDouyinCs:
 
         calls = ctx.db.task_service.add_task.call_args_list
         fd_call, qa_calls = calls[0], calls[1:]
-        # First created agent (agent_1) is 前台小张
+        # First created agent (agent_1) is the store's front desk (store-scoped name)
         first_agent = ctx.db.agent_service.create_agent_from_data.call_args_list[0]
-        assert first_agent.args[0]["name"] == "前台小张"
+        assert first_agent.args[0]["name"] == "前台-shopA"
         assert "front_desk_agent_id" not in fd_call.args[0]["settings"]["task_vars"]
         for c in qa_calls:
             assert c.args[0]["settings"]["task_vars"]["front_desk_agent_id"] == "agent_1"
@@ -142,7 +142,7 @@ class TestDeployDouyinCs:
         agent_payloads = [c.args[0] for c in ctx.db.agent_service.create_agent_from_data.call_args_list]
         fd_agent, qa_agents = agent_payloads[0], agent_payloads[1:]
 
-        assert fd_agent["name"] == "前台小张"
+        assert fd_agent["name"] == "前台-shopA"
         assert all(a["name"].startswith("客服小") for a in qa_agents)
         assert len({a["name"] for a in qa_agents}) == len(qa_agents)  # unique names
         for a in agent_payloads:
@@ -375,15 +375,16 @@ class TestProductExportOption:
             {"id": "skill_export", "name": "抖店商品导出"}, {"id": "x", "name": "抖店商品导出 旧"}]}
         plan, log, created = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
         tasks = [c.args[0] for c in ctx.db.task_service.add_task.call_args_list]
-        export = [t for t in tasks if t["name"].endswith("商品导出")]
+        export = [t for t in tasks if "商品导出" in t["name"]]
         assert len(export) == 1
+        assert export[0]["name"] == "飞鸽客服前台商品导出-shopA"   # store-scoped
         s = export[0]["settings"]
         assert s["run_once"] is True and s["run_class"] == "background" and s["start_after_idle_min"] == 5
         # A busy front desk may never idle 5 min; the export still runs within the hour.
         assert s["start_after_idle_max_min"] == 60
         assert s["task_vars"]["store_id"] == "shopA" and s["browser_identity"]   # the store's own browser
         fd = ctx.db.agent_service.create_agent_from_data.call_args_list[0].args[0]
-        assert fd["name"] == "前台小张" and len(fd["tasks"]) == 2 and "skill_export" in fd["skills"]
+        assert fd["name"] == "前台-shopA" and len(fd["tasks"]) == 2 and "skill_export" in fd["skills"]
         assert any("商品导出" in line or "Product export" in line for line in log)
 
     def test_missing_skill_is_reported_not_fatal(self):
@@ -391,7 +392,7 @@ class TestProductExportOption:
         ctx.db.skill_service.query_skills.return_value = {"success": True, "data": []}
         plan, log, created = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
         tasks = [c.args[0]["name"] for c in ctx.db.task_service.add_task.call_args_list]
-        assert not any(n.endswith("商品导出") for n in tasks)
+        assert not any("商品导出" in n for n in tasks)
         assert any("抖店商品导出" in line for line in log)
 
     def test_off_by_request(self):
@@ -412,9 +413,10 @@ class TestPromoRefreshOption:
             {"id": "skill_promo", "name": "抖店营销导出"}]}
         plan, log, created = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
         tasks = [c.args[0] for c in ctx.db.task_service.add_task.call_args_list]
-        promo = [t for t in tasks if t["name"].endswith("活动刷新")]
+        promo = [t for t in tasks if "活动刷新" in t["name"]]
         assert len(promo) == 1
         p = promo[0]
+        assert p["name"] == "飞鸽客服前台活动刷新-shopA"   # store-scoped
         assert p["trigger"] == "schedule" and p["schedule"]["repeat_number"] == 30
         s = p["settings"]
         assert s["run_class"] == "background" and s.get("run_once") is None
@@ -428,14 +430,14 @@ class TestPromoRefreshOption:
         ctx.db.skill_service.query_skills.return_value = {"success": True, "data": []}
         plan, log, created = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
         tasks = [c.args[0]["name"] for c in ctx.db.task_service.add_task.call_args_list]
-        assert not any(n.endswith("活动刷新") for n in tasks)
+        assert not any("活动刷新" in n for n in tasks)
         assert any("抖店营销导出" in line for line in log)
 
     def test_off_by_default(self):
         ctx = _make_ctx()
         dc._deploy_douyin_cs({"store_id": "shopA", "qa_agents": 2}, ctx, "buyer@x")
         tasks = [c.args[0]["name"] for c in ctx.db.task_service.add_task.call_args_list]
-        assert not any(n.endswith("活动刷新") for n in tasks)
+        assert not any("活动刷新" in n for n in tasks)
 
 
 class TestSharedQaPool:
@@ -485,9 +487,9 @@ class TestSharedQaPool:
             {"store_id": "shopB", "share_with": "fdA", "qa_agents_extra": 1}, ctx, "buyer@x")
         assert plan["shared_pool"] is True
         names = [c.args[0]["name"] for c in ctx.db.task_service.add_task.call_args_list]
-        assert names == ["飞鸽客服前台001", "飞鸽客服应答共享003"]      # front desk B + 1 extra Q&A
+        assert names == ["飞鸽客服前台-shopB", "飞鸽客服应答共享003"]      # front desk B + 1 extra Q&A
         new_fd = ctx.db.agent_service.create_agent_from_data.call_args_list[0].args  # agent_1
-        assert new_fd[0]["name"] == "前台小张"
+        assert new_fd[0]["name"] == "前台-shopB"
         for tid in ("qa1", "qa2"):
             tv = saved[tid]["task_vars"]
             assert tv["front_desk_agent_id"] == "fdA,agent_1"

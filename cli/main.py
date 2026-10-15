@@ -20,7 +20,13 @@ import sys
 import click
 
 os.environ.setdefault('PYTHONUTF8', '1')
-os.environ.setdefault('ECAN_MODE', 'web')
+# NOTE: ECAN_MODE is deliberately NOT set at import time. The desktop GUI imports
+# cli submodules (e.g. fast_deploy_handler -> `from cli.deploy.commands import
+# cs_pools`), which imports this package via cli/__init__.py. An import-time
+# `setdefault('ECAN_MODE', 'web')` flipped the whole desktop process into web
+# mode, breaking every handler that resolves context by deployment mode
+# ("No session_id available"). It is now set only when the CLI actually runs
+# (the cli() group callback and main()), never as an import side effect.
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
@@ -64,6 +70,10 @@ def cli(ctx, output_json, quiet, verbose, no_color):
       ecan server start              # CONTROL: Start the web server
       ecan agents add -n "My Agent"  # OPERATION: Create a new agent
     """
+    # Running as the CLI: default to web mode (set here, not at import time, so
+    # a GUI helper import of a cli submodule never flips the desktop process).
+    os.environ.setdefault('ECAN_MODE', 'web')
+
     ctx.ensure_object(dict)
     ctx.obj['output_json'] = output_json
     ctx.obj['quiet'] = quiet
@@ -315,6 +325,9 @@ Invoke-Expression "$(_ECAN_COMPLETE=powershell ecan)"
 
 def main():
     """Main entry point."""
+    # Set here (not at import time) so importing cli.main from the desktop GUI
+    # does not flip the process into web mode. See the note near the top.
+    os.environ.setdefault('ECAN_MODE', 'web')
     try:
         cli()
     except KeyboardInterrupt:

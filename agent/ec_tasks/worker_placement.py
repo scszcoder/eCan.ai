@@ -121,6 +121,33 @@ def default_spawner(key: str) -> WorkerSpec:
         # with the parent. See config/instance.py.
         "ECAN_INSTANCE_ID": key,
     }
+
+    # Hand the worker the signed-in identity. A worker has no login UI, so
+    # without this it starts as user='?': it then opens the empty BASE
+    # ecan_base.db (not the user's '<base>/<user>_local/ecan_base.db') and
+    # builds 0 agents, and secure_store.get(..., username=None) misses the
+    # eCanAI API key (LLM=None). Both leave the store's front desk dead and no
+    # browser ever launches. Pass the parent's EXACT data home and the username
+    # the key was stored under (get_current_username), replayed in the worker
+    # via ECAN_WORKER_USER / ECAN_WORKER_DATA_HOME.
+    try:
+        from app_context import AppContext
+        from utils.env.secure_store import get_current_username
+        _mw = AppContext.get_main_window()
+        _data_home = str(getattr(_mw, "my_ecb_data_homepath", "") or "").strip()
+        if _data_home:
+            env["ECAN_WORKER_DATA_HOME"] = _data_home
+        _username = (get_current_username() or "").strip()
+        if _username:
+            env["ECAN_WORKER_USER"] = _username
+        if not _data_home or not _username:
+            logger.warning(
+                f"[default_spawner] worker {key!r} identity incomplete "
+                f"(data_home={_data_home!r}, user={_username!r}); it may not find "
+                f"its agents or API key")
+    except Exception as exc:
+        logger.warning(f"[default_spawner] could not resolve signed-in identity "
+                       f"for worker {key!r}: {exc}")
     log_path = os.path.join(_worker_runner_dir(), f"worker-{key}.out.log")
 
     if getattr(sys, "frozen", False):

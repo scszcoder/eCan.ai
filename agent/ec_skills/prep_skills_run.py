@@ -691,6 +691,55 @@ def _profile_exists(profile_id: str) -> bool:
         return True   # cannot check: leave the identity as the task has it
 
 
+def _provision_store_profile(store_id: str, task_vars) -> str:
+    """Create THIS machine's login profile for a store that has none, record it
+    on the store, and return its id.
+
+    A store-bound task with no profile would otherwise run in the shared default
+    browser; on a multi-store machine a second same-platform store then answers
+    through the first store's logged-in Chrome -- the two "stores" show up as two
+    tabs in one browser and only one stays online. Auto-provisioning gives each
+    store its own fingerprint browser instead. The profile id is the canonical
+    one (same as Fast Deploy), so this converges with any later deploy.
+
+    The profile starts empty: someone signs the store in once (Settings ->
+    Browser Profiles -> Launch). Best-effort -- on any failure returns "" and the
+    caller leaves the identity as-is (the pre-existing shared-browser behavior).
+    """
+    try:
+        from agent.ec_skills.browser_use_extension.fingerprint import profile_registry
+        from app_context import AppContext
+        pid = profile_registry.login_profile_id(store_id)
+        if profile_registry.get_profile(pid) is None:
+            domain = ""
+            try:
+                from urllib.parse import urlparse
+                url = str((task_vars or {}).get("store_url") or "").strip() if isinstance(task_vars, dict) else ""
+                if url:
+                    domain = urlparse(url if "://" in url else "https://" + url).hostname or ""
+            except Exception:
+                domain = ""
+            prof = profile_registry.make_profile(
+                pid, label=store_id, domain_name=domain, locale="zh-CN", store_id=store_id)
+            profile_registry.save_profile(prof)
+            logger.warning(
+                f"[apply_task_vars] store {store_id!r} had no browser profile; auto-created "
+                f"{pid!r} so it runs in its OWN fingerprint browser (not a shared tab). "
+                f"Sign it in once (Settings -> Browser Profiles -> Launch) before it can answer.")
+        # Record it on the store so later runs resolve it via _local_store_profile.
+        try:
+            mw = AppContext.get_main_window()
+            svc = getattr(getattr(mw, "ec_db_mgr", None), "store_service", None)
+            if svc is not None:
+                svc.upsert_store({"store_id": store_id, "browser_profile_id": pid})
+        except Exception as e:
+            logger.debug(f"[apply_task_vars] could not record profile on store {store_id!r}: {e}")
+        return pid
+    except Exception as e:
+        logger.warning(f"[apply_task_vars] auto-provision of store {store_id!r} profile failed: {e}")
+        return ""
+
+
 def _localize_browser_identity(task_vars, browser_identity):
     """The browser identity to run with ON THIS MACHINE.
 
@@ -702,6 +751,10 @@ def _localize_browser_identity(task_vars, browser_identity):
     fingerprint launch then fails closed with a clear message. Dropping it
     would fall back to the default browser -- on a multi-store machine possibly
     another store's logged-in Chrome, i.e. wrong-store replies.
+
+    A store-bound task that names NO profile anywhere is auto-provisioned one
+    (``_provision_store_profile``) rather than falling back to the shared default
+    browser, so two same-platform stores can never silently share one Chromium.
     """
     identity = dict(browser_identity) if isinstance(browser_identity, dict) else {}
     store_id = str((task_vars or {}).get("store_id") or "").strip() if isinstance(task_vars, dict) else ""
@@ -710,10 +763,18 @@ def _localize_browser_identity(task_vars, browser_identity):
         identity["browser_profile_id"] = local
         return identity
     pid = str(identity.get("browser_profile_id") or "").strip()
-    if pid and not _profile_exists(pid):
-        logger.warning(f"[apply_task_vars] browser profile {pid!r} is not on this machine "
-                       f"(the task was deployed elsewhere). Set this store's login profile on this "
-                       f"machine (Stores -> Edit); until then its browser will not start.")
+    if pid:
+        if not _profile_exists(pid):
+            logger.warning(f"[apply_task_vars] browser profile {pid!r} is not on this machine "
+                           f"(the task was deployed elsewhere). Set this store's login profile on this "
+                           f"machine (Stores -> Edit); until then its browser will not start.")
+        return identity if identity else browser_identity
+    # No profile named anywhere. If this task belongs to a store, give it its own
+    # login profile now instead of letting it share the default browser.
+    if store_id:
+        provisioned = _provision_store_profile(store_id, task_vars)
+        if provisioned:
+            identity["browser_profile_id"] = provisioned
     return identity if identity else browser_identity
 
 

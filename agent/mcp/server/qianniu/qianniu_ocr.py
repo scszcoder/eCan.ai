@@ -458,6 +458,26 @@ def conversation_rows(ocr_data: list, limit: int = 8) -> list:
     return rows
 
 
+def find_conversation_row_by_name(ocr_data: list, name: str):
+    """(click point, matched name) of the 正在接待 list row whose NAME matches
+    *name*, or (None, ""). 千牛's grouped list shows every active buyer's name
+    without opening their chat, so this switches to a specific buyer by clicking
+    their row -- no search box needed (which OCR frequently cannot locate, and
+    whose absence otherwise drops the reply outright when two buyers are active).
+    Caller re-verifies the header after the click, so a loose match is safe."""
+    want = _norm(name)
+    if not want:
+        return None, ""
+    for rname, _preview, pt in conversation_rows(ocr_data, limit=12):
+        n = _norm(rname)
+        if not n:
+            continue
+        # Exact, or a solid containment either way (OCR can clip a long name).
+        if n == want or (len(want) >= 4 and (want in n or n in want)):
+            return pt, rname
+    return None, ""
+
+
 def _colon_norm(s: str) -> str:
     return _norm(s).replace("：", ":")
 

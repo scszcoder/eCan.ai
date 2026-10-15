@@ -37,7 +37,7 @@ class TestPinduoduoSingleStore:
                                                   ctx, "me", dc._PDD_PROFILE)
         assert {k: plan[k] for k in ("agents", "skills", "tasks")} == {"agents": 3, "skills": 0, "tasks": 3}
         names = [t["name"] for t in _tasks(ctx)]
-        assert names == ["拼多多客服前台001", "拼多多客服应答001", "拼多多客服应答002"]
+        assert names == ["拼多多客服前台-拼多多一店", "拼多多客服应答001", "拼多多客服应答002"]
         linked = {c.args[1] for c in ctx.db.task_service.add_skill_to_task.call_args_list}
         assert linked == {dc._PDD_PROFILE.fd_skill_id, dc._PDD_PROFILE.qa_skill_id}
         run_env = (_env / "run.env").read_text(encoding="utf-8")

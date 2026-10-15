@@ -9509,19 +9509,35 @@ class TaskRunner(Generic[Context]):
                         auth_token_source = "tokens.AccessToken"
             api_key = mainwin.getWanApiKey() if mainwin else ""
             endpoint = mainwin.getWanApiEndpoint() if mainwin else ""
+            # The real-time WS endpoint is a SEPARATE host from the HTTP GraphQL
+            # endpoint (TCB: wss://ecan-graphql-ws-….run.tcloudbase.com/ws vs
+            # https://<env>.service.tcloudbase.com/api/graphql). Without it,
+            # AppSyncApiKeyConfig.resolved_ws_endpoint() falls back to the HTTP
+            # endpoint, so ws_connect hits /api/graphql, gets HTTP 200 instead of
+            # a 101 upgrade, and the task-status subscription fails every retry
+            # ("Invalid response status") — the front desk never receives cloud
+            # task events. Use the same accessor the working CloudLLMTask subs do.
+            ws_endpoint = ""
+            if mainwin:
+                try:
+                    ws_endpoint = mainwin.getWSApiEndpoint() or ""
+                except Exception:
+                    ws_endpoint = ""
 
             masked_token = f"{auth_token[:12]}...{auth_token[-6:]}" if auth_token and len(auth_token) > 18 else ("<short>" if auth_token else "<empty>")
             masked_api_key = f"{api_key[:8]}...{api_key[-4:]}" if api_key and len(api_key) > 12 else ("<short>" if api_key else "<empty>")
             logger.info(
                 f"[TaskStatus] Preparing subscription auth: run_id={run_id}, "
                 f"token_source={auth_token_source}, token={masked_token}, "
-                f"api_key={masked_api_key}, endpoint={endpoint or '<empty>'}"
+                f"api_key={masked_api_key}, endpoint={endpoint or '<empty>'}, "
+                f"ws_endpoint={ws_endpoint or '<empty>'}"
             )
-            
+
             config = AppSyncApiKeyConfig(
                 http_endpoint=endpoint,
                 api_key=api_key,
                 auth_token=auth_token,
+                ws_endpoint=ws_endpoint,
             )
 
             task_ref = task  # capture for callback closure

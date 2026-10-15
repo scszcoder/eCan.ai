@@ -39,6 +39,7 @@ from agent.mcp.server.qianniu.qianniu_ocr import (
     is_reception_tab,
     find_reception_tab_point,
     find_conversation_row,
+    find_conversation_row_by_name,
     conversation_rows,
     last_turn,
     qianniu_chat_window,
@@ -256,12 +257,29 @@ def _open_conversation_by_name(name: str) -> tuple:
         logger.warning(f"[qianniu] open {name!r}: layout not recognised; screen {ocr_dump(ocr_data)}")
         save_failure_shot("open_layout_unrecognised")
         return False, "", "layout not recognised as 千牛 (OCR drift); aborting"
+    # Prefer clicking the buyer's row in the 正在接待 list: their name is visible
+    # there even while another buyer's chat is open, so this is how we switch
+    # between two active buyers. The search box is often not locatable via OCR,
+    # and requiring it used to drop the reply entirely ("cannot open by name")
+    # when a second buyer was active. The header re-verify below makes a wrong
+    # row-click safe (it falls through to the search box, then aborts).
+    row_pt, row_name = find_conversation_row_by_name(ocr_data, name)
+    if row_pt:
+        logger.info(f"[qianniu] open {name!r}: clicking list row at {row_pt} (name {row_name!r})")
+        _click(row_pt[0], row_pt[1])
+        _humanize(_SETTLE_AFTER_OPEN)
+        v = verify_header_name(name)
+        if v.matched:
+            logger.info(f"[qianniu] open {name!r}: opened via list row, header {v.header_text!r}")
+            return True, v.header_text, ""
+        logger.info(f"[qianniu] open {name!r}: list-row click header {v.header_text!r} did not "
+                    f"match; falling back to search box")
     box = _find_search_box(ocr_data)
     if not box:
-        logger.warning(f"[qianniu] open {name!r}: no search box (anchors {_SEARCH_ANCHORS}); "
+        logger.warning(f"[qianniu] open {name!r}: no list row and no search box (anchors {_SEARCH_ANCHORS}); "
                        f"screen {ocr_dump(ocr_data)}")
         save_failure_shot("open_no_search_box")
-        return False, "", "search box not found via OCR; cannot open by name"
+        return False, "", "neither the buyer's list row nor a search box was found via OCR; cannot open by name"
     logger.info(f"[qianniu] open {name!r}: clicking search box at {box}, typing the name + Enter")
     _click(box[0], box[1])
     _humanize(_POST_TYPE_DELAY)

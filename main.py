@@ -16,6 +16,15 @@ import warnings
 from dotenv import load_dotenv
 load_dotenv()
 
+# Pin the deployment mode for the desktop process. Mode is normally inferred as
+# "desktop" only because ECAN_MODE is unset — which is fragile: any import-time
+# `os.environ.setdefault('ECAN_MODE', 'web')` (e.g. importing a cli submodule)
+# would silently flip the whole process into web mode and break context
+# resolution ("No session_id available"). setdefault keeps the documented
+# `ECAN_MODE=web python main.py` path and the Linux headless switch below (which
+# assigns 'web' explicitly) working.
+os.environ.setdefault('ECAN_MODE', 'desktop')
+
 # ============================================================================
 # CRITICAL (CN/Intl): Detect app variant from the running bundle BEFORE any
 # other imports. PyInstaller strips the build-time `ECAN_APP_ID` env var, so
