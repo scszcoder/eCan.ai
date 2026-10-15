@@ -691,6 +691,32 @@ def _profile_exists(profile_id: str) -> bool:
         return True   # cannot check: leave the identity as the task has it
 
 
+def _standard_fingerprint_for(store_id: str) -> str:
+    """A standard Windows-Chrome fingerprint template id for a brand-new store
+    profile, chosen deterministically from the store id so a store always starts
+    from the same device and two stores get distinct-but-stable fingerprints.
+
+    This is only the STARTING point: the operator can edit or swap the
+    fingerprint later (Settings -> Browser Profiles). Returns "" if no bundled
+    template is available, in which case the browser launches without a
+    fingerprint (the pre-existing behavior).
+    """
+    try:
+        import hashlib
+        from agent.ec_skills.browser_use_extension.fingerprint import fingerprint_service
+        wins = [p for p in fingerprint_service.list_profiles()
+                if str(p.get("platform") or "").lower().startswith("win")
+                or str(p.get("id") or "").lower().startswith("win")]
+        pool = wins or fingerprint_service.list_profiles()
+        if not pool:
+            return ""
+        idx = int(hashlib.sha256(store_id.encode("utf-8")).hexdigest(), 16) % len(pool)
+        return str(pool[idx].get("id") or "").strip()
+    except Exception as e:
+        logger.debug(f"[apply_task_vars] could not pick a standard fingerprint for {store_id!r}: {e}")
+        return ""
+
+
 def _provision_store_profile(store_id: str, task_vars) -> str:
     """Create THIS machine's login profile for a store that has none, record it
     on the store, and return its id.
@@ -719,13 +745,16 @@ def _provision_store_profile(store_id: str, task_vars) -> str:
                     domain = urlparse(url if "://" in url else "https://" + url).hostname or ""
             except Exception:
                 domain = ""
+            fp_name = _standard_fingerprint_for(store_id)
             prof = profile_registry.make_profile(
-                pid, label=store_id, domain_name=domain, locale="zh-CN", store_id=store_id)
+                pid, label=store_id, domain_name=domain, locale="zh-CN",
+                fingerprint_profile=fp_name, store_id=store_id)
             profile_registry.save_profile(prof)
             logger.warning(
                 f"[apply_task_vars] store {store_id!r} had no browser profile; auto-created "
-                f"{pid!r} so it runs in its OWN fingerprint browser (not a shared tab). "
-                f"Sign it in once (Settings -> Browser Profiles -> Launch) before it can answer.")
+                f"{pid!r} from standard fingerprint {fp_name or '(none available)'!r} so it runs "
+                f"in its OWN fingerprint browser (not a shared tab). Sign it in once "
+                f"(Settings -> Browser Profiles -> Launch) and edit the fingerprint there if needed.")
         # Record it on the store so later runs resolve it via _local_store_profile.
         try:
             mw = AppContext.get_main_window()
