@@ -258,6 +258,23 @@ def set_current_agent(agent):
     _current_agent_var.set(agent)
     logger.debug(f"[ExtensionTools] Set current agent instance: {type(agent).__name__}")
 
+def clear_current_agent(agent):
+    """Drop the current-agent references to ``agent`` once its run is over.
+
+    The ContextVar value lives in the calling task's context. When that
+    task is long-lived (anyio caches each event loop's root task in a
+    WeakKeyDictionary whose value references the loop, so it is never
+    freed), the context kept every finished agent alive: 2026-10-14
+    chip-docs crawl, 70 dead agents pinning ~3 GB of history and
+    per-step pydantic classes.
+    """
+    global _current_agent_instance
+    if _current_agent_var.get() is agent:
+        _current_agent_var.set(None)
+    if _current_agent_instance is agent:
+        _current_agent_instance = None
+
+
 def get_current_agent():
     """Get the current agent instance."""
     agent = _current_agent_var.get()

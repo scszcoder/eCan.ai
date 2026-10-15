@@ -452,6 +452,121 @@ class MemoryMonitor:
                    "objects (suspect native buffers / bytes held by few objects)"))
         except Exception as _gce:
             _mem_logger.warning(f"[MemoryMonitor] gc census failed (ignored): {_gce}")
+        self._trace_leak_roots(rss_mb)
+
+    def _trace_leak_roots(self, rss_mb: float) -> None:
+        """Opt-in (ECAN_MEM_REFCHAIN=1): name WHO keeps leaked objects alive.
+
+        The census showed pydantic model classes (browser-use's per-step
+        ActionModel / AgentOutput) growing without bound during chip-docs
+        crawls, while in isolation they plateau — so something in the app
+        retains them. Counts live browser-use Agents vs the agent cache
+        (an evicted-but-alive "zombie" agent pins every step's classes) and
+        walks gc referrers from one zombie (or one ActionModel class) up to
+        a module global. Stalls the process for seconds, so it runs at most
+        every ECAN_MEM_REFCHAIN_GAP_S (default 1800s).
+        """
+        if os.getenv("ECAN_MEM_REFCHAIN", "0") != "1":
+            return
+        now = time.time()
+        if now - getattr(self, "_last_refchain_ts", 0.0) < float(os.getenv("ECAN_MEM_REFCHAIN_GAP_S", "1800")):
+            return
+        self._last_refchain_ts = now
+        try:
+            from pydantic._internal._model_construction import ModelMetaclass
+            from browser_use import Agent as _BUAgent
+            from agent.ec_skills.browser_node import build_helpers as _bh
+            t0 = time.time()
+            objs = gc.get_objects()
+            # type(o), not isinstance(o, ...): isinstance on a dead
+            # weakref.proxy raises ReferenceError.
+            agents = [o for o in objs if issubclass(type(o), _BUAgent)]
+            cached_ids = {id(a) for a in _bh.cached_bu_agents.values()}
+            # EC_Agent subclasses browser-use's Agent but is a long-lived
+            # app agent (MainWindow.agents), not a per-run one.
+            from agent.ec_agent import EC_Agent
+            zombies = [a for a in agents if id(a) not in cached_ids and not isinstance(a, EC_Agent)]
+            by_mod: Dict[str, int] = {}
+            action_cls = None
+            for o in objs:
+                if issubclass(type(o), ModelMetaclass):
+                    by_mod[o.__module__] = by_mod.get(o.__module__, 0) + 1
+                    if action_cls is None and o.__name__.endswith("ActionModel") and o.__name__ != "ActionModel":
+                        action_cls = o
+            del objs
+            top_mods = sorted(by_mod.items(), key=lambda kv: -kv[1])[:8]
+            _app_logger.warning(
+                f"[MemoryMonitor] REFCHAIN rss={rss_mb:.0f}MB bu_agents={len(agents)} "
+                f"cached={len(cached_ids)} zombies={len(zombies)} model_classes_by_module: "
+                + "  ".join(f"{m}={c}" for m, c in top_mods))
+            target = zombies[0] if zombies else action_cls
+            del agents, zombies
+            if target is not None:
+                chain = self._backref_chain(target)
+                _app_logger.warning(
+                    f"[MemoryMonitor] REFCHAIN path for {type(target).__name__} "
+                    f"(took {time.time() - t0:.1f}s): " + "  <-  ".join(chain))
+        except Exception as exc:
+            _mem_logger.warning(f"[MemoryMonitor] refchain failed (ignored): {exc}")
+
+    @staticmethod
+    def _backref_chain(target: Any, max_nodes: int = 400) -> List[str]:
+        """BFS over gc referrers from target to the nearest module dict."""
+        import types
+        module_dicts = {id(m.__dict__): name for name, m in list(sys.modules.items()) if m is not None}
+        start = id(target)
+        parent: Dict[int, Optional[int]] = {start: None}
+        objs_by_id: Dict[int, Any] = {start: target}
+        queue = [start]
+        own = {id(parent), id(objs_by_id), id(queue)}
+        found = None
+        while queue and found is None and len(parent) < max_nodes:
+            cur_id = queue.pop(0)
+            for ref in gc.get_referrers(objs_by_id[cur_id]):
+                rid = id(ref)
+                if rid in parent or rid in own or type(ref) is types.FrameType:
+                    continue
+                parent[rid] = cur_id
+                objs_by_id[rid] = ref
+                if rid in module_dicts:
+                    found = rid
+                    break
+                queue.append(rid)
+            own.add(id(queue))
+
+        def describe(obj: Any, child_id: Optional[int]) -> str:
+            try:
+                return _describe(obj, child_id)
+            except Exception:
+                return type(obj).__name__
+
+        def _describe(obj: Any, child_id: Optional[int]) -> str:
+            if id(obj) in module_dicts:
+                key = next((k for k, v in obj.items() if id(v) == child_id), "?")
+                return f"module {module_dicts[id(obj)]}.{key}"
+            name = type(obj).__name__
+            if isinstance(obj, dict) and child_id is not None:
+                for k, v in obj.items():
+                    if id(v) == child_id:
+                        return f"dict[{str(k)[:60]!r}]"
+            if isinstance(obj, (list, tuple, set, frozenset, dict)):
+                return f"{name}(len={len(obj)})"
+            qual = getattr(obj, "__qualname__", None)
+            return f"{name}:{qual}" if qual else name
+
+        if found is None:
+            return [f"no module root within {len(parent)} nodes"]
+        chain, node = [], found
+        path = []
+        while node is not None:
+            path.append(node)
+            node = parent[node]
+        # path runs root -> ... -> target; describe each with its child id
+        for i, nid in enumerate(path):
+            child_id = path[i + 1] if i + 1 < len(path) else None
+            chain.append(describe(objs_by_id[nid], child_id))
+        chain.reverse()
+        return chain
 
     def _handle_live_chat_high_rss(self, rss_mb: float) -> None:
         msg = (

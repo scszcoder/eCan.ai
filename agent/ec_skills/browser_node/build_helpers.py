@@ -119,6 +119,18 @@ def _evict_bu_agent_if_needed() -> None:
                         agent.stop()
                 except Exception:
                     pass
+            scrub_bu_agent(agent)
+
+
+def scrub_bu_agent(agent: Any) -> None:
+    """Empty an agent just removed from ``cached_bu_agents`` (see
+    ``agent.scrub_evicted_bu_agent``). Lazy import: agent.py is a sibling
+    module loaded on demand elsewhere."""
+    try:
+        from agent.ec_skills.browser_node.agent import scrub_evicted_bu_agent
+        scrub_evicted_bu_agent(agent)
+    except Exception as exc:
+        logger.debug(f"[build_helpers] scrub of evicted agent failed: {exc}")
 
 
 # ─── Trivial helpers (0-1 closure refs in original) ──────────────────
@@ -681,7 +693,7 @@ def invalidate_browser_session_for_recovery(
         pass
     for key in removed_keys:
         try:
-            cached_bu_agents.pop(key, None)
+            scrub_bu_agent(cached_bu_agents.pop(key, None))
         except Exception:
             pass
     try:
@@ -757,7 +769,10 @@ def release_browser_cache_pressure(reason: str, aggressive: bool = False) -> int
             removed += 1
     if aggressive:
         try:
+            evicted = list(cached_bu_agents.values())
             cached_bu_agents.clear()
+            for agent in evicted:
+                scrub_bu_agent(agent)
         except Exception:
             pass
     return removed

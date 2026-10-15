@@ -1597,6 +1597,9 @@ async def run_agent_with_dispatch(
         msg = str(exc) or "CancelledError"
         return "fast-path" in msg
 
+    # Cache eviction defers its scrub while this is set (see
+    # scrub_evicted_bu_agent).
+    agent._ecan_run_active = True
     try:
         # Branch 1: native cancellation support.
         if cancellation_event and agent_class_name in ("CloudAgent", "PrivacyAgent"):
@@ -1695,6 +1698,15 @@ async def run_agent_with_dispatch(
                     delattr(agent, "_ecan_step_count")
             except Exception:
                 pass
+        agent._ecan_run_active = False
+        agent._ecan_run_ended_at = time.monotonic()
+        try:
+            from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                clear_current_agent,
+            )
+            clear_current_agent(agent)
+        except Exception:
+            pass
 
 
 def resolve_step_patch_config(
@@ -3000,6 +3012,8 @@ async def acquire_or_reuse_local_agent(
     profile is supplied — pre-start the browser session so CDP
     connects and we can inject stealth JS before any page loads.
     """
+    from agent.ec_skills.browser_node.agent import scrub_deferred_bu_agents
+    scrub_deferred_bu_agents()
     cached = cached_bu_agents.get(bu_scope_key)
 
     # Invalidate on class change or hook-config change.
@@ -3018,6 +3032,7 @@ async def acquire_or_reuse_local_agent(
         _bh.cached_bu_agents.pop(bu_scope_key, None)
         if bu_scope_key in _bh._cached_bu_agents_insertion_order:
             _bh._cached_bu_agents_insertion_order.remove(bu_scope_key)
+        _bh.scrub_bu_agent(cached)
         cached = None
 
     # New-chromium mode without keep_alive: browser-use closed this agent's
@@ -3034,6 +3049,7 @@ async def acquire_or_reuse_local_agent(
             _bh.cached_bu_agents.pop(bu_scope_key, None)
             if bu_scope_key in _bh._cached_bu_agents_insertion_order:
                 _bh._cached_bu_agents_insertion_order.remove(bu_scope_key)
+            _bh.scrub_bu_agent(cached)
             cached = None
 
     if cached is not None:
