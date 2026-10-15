@@ -46,6 +46,13 @@ def _resolve_user() -> str:
 
 
 def _data_home(user: str) -> str:
+    # The parent hands down its EXACT data home (``<base>/<log_user>``) so the
+    # worker opens the SAME ecan_base.db — reconstructing it from ``user`` here
+    # would need the parent's '@local'-sanitize rules (MainGUI.log_user) and
+    # drift from them silently leaves the worker on the empty base DB.
+    explicit = (os.environ.get("ECAN_WORKER_DATA_HOME") or "").strip()
+    if explicit:
+        return explicit
     from config.app_info import app_info
     return os.path.join(app_info.appdata_path, user) if user else app_info.appdata_path
 
