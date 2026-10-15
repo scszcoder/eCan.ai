@@ -1147,13 +1147,15 @@ def cs_pools(ctx, scenario: str) -> list:
 
 
 def _login_profile_id(store_id: str) -> str:
-    """A profile id for a store's login: the registry allows [A-Za-z0-9_-] only,
-    and store ids are often Chinese, so keep what fits plus a short hash."""
-    import hashlib
-    import re as _re
-    base = _re.sub(r"[^A-Za-z0-9_-]", "", store_id)[:40].strip("-_")
-    digest = hashlib.sha1(store_id.encode("utf-8")).hexdigest()[:8]
-    return f"{base}-{digest}-login" if base else f"store-{digest}-login"
+    """A profile id for a store's login. Delegates to the canonical (pure)
+    function in the fingerprint profile registry so Fast Deploy and the run-time
+    auto-provision (prep_skills_run) always agree on a store's profile id.
+    Imported from the module directly (not via ``_profile_registry()``) because
+    it is a deterministic string derivation, not a stateful registry call."""
+    from agent.ec_skills.browser_use_extension.fingerprint.profile_registry import (
+        login_profile_id,
+    )
+    return login_profile_id(store_id)
 
 
 def _store_urls_of(rec: dict, platform: str = "") -> list:
