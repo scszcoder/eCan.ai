@@ -6,7 +6,7 @@ ranges and rows. Columns are per chart; within a chart, families leave different
 columns empty, so each family's own parameter set is derived from the rows.
 
 Writes ``<root>/parameters/parameters.json`` (everything) and ``parameters.md``
-(readable summary). The API answers only inside a real Chrome session (Microchip's
+(readable summary), mirrored to the NAS. The API answers only inside a real Chrome session (Microchip's
 CDN refuses plain HTTP clients), so requests run from a loaded parametric page.
 
     python -m agent.ec_skills.chip_docs.param_columns C:/chip_docs/Microchip
@@ -133,7 +133,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("root", type=Path, help="vendor folder, e.g. C:/chip_docs/Microchip")
     ap.add_argument("--profile", type=Path, help="Chrome profile dir (default <root>/raw/_params_browser_profile)")
+    ap.add_argument("--no-nas", action="store_true", help="keep the local copy only")
     a = ap.parse_args()
+    # the NAS upload roots (ECAN_NAS_UPLOAD_ROOTS) live in run.env, which only main.py loads
+    from dotenv import load_dotenv
+    from utils.run_env import run_env_path
+    load_dotenv(run_env_path(), override=False)
     tree, views = asyncio.run(fetch(a.profile or a.root / "raw" / "_params_browser_profile"))
     charts = [describe_chart(c, views[c["id"]]) for c in charts_in_scope(tree)]
     fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -143,6 +148,11 @@ def main() -> None:
                                                     ensure_ascii=False, indent=1), encoding="utf-8")
     (out / "parameters.md").write_text(render_md(charts, fetched_at), encoding="utf-8")
     print(f"{len(charts)} charts -> {out}", flush=True)
+    if not a.no_nas:
+        from agent.ec_skills.nas import ugreen_nas
+        for name in ("parameters.json", "parameters.md"):
+            ugreen_nas.nas_upload(str(out / name), f"{a.root.name}/parameters/{name}")
+        print(f"mirrored to the NAS: {a.root.name}/parameters/", flush=True)
 
 
 if __name__ == "__main__":
