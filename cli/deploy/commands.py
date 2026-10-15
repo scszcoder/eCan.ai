@@ -88,8 +88,10 @@ _RECIPES = {
 # prompt variables, so the prompts can reference {{store_url}}.
 #
 # Agents: N Q&A agents 客服小X (X drawn from a Chinese given-name pool) and
-# one front-desk agent 前台小张, all under the Sales organization, pinned to
-# this machine's vehicle so the affinity gate starts them here.
+# one store-scoped front-desk agent 前台-<店铺名> (so a second store of the same
+# platform gets a distinctly named front desk, not another 前台小张), all under
+# the Sales organization, pinned to this machine's vehicle so the affinity gate
+# starts them here.
 
 _DDCS_QA_PROMPT_ID = "pr-287230"     # 飞鸽客服应答0
 _DDCS_FD_PROMPT_ID = "pr-330448"     # 飞鸽客服前台0
@@ -951,6 +953,12 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
             log.append(f"Sign store {rec['name']!r} in once (Settings → Browser Profiles → Launch): "
                        f"{identity['browser_profile_id']}")
     b = _Builder(ctx, owner, org_id, profile.label)
+    # Store-scope the front-desk task/agent names so deploying a SECOND store of
+    # the same platform does not produce another front desk with the identical
+    # display name (every single-store deploy used to name it 前台小张 / "...001",
+    # which made the per-store front desks indistinguishable in the UI). Matches
+    # the multi-store path's 前台-<name> / <prefix>-<name> convention.
+    store_name = str(rec.get("name") or store_id)
 
     def _add_task(name: str, skill_id: str, extra_vars: dict | None = None,
                   extra_settings: dict | None = None, trigger: str = "auto",
@@ -972,7 +980,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     # ── Front-desk task + agent FIRST: the Q&A tasks carry the front-desk
     #    agent's id in task_vars -- the shared Q&A skill's pend_event filters on
     #    {{front_desk_agent_id}}, resolved from task_vars at task launch.
-    fd_name = f"{profile.fd_task_prefix}001"
+    fd_name = f"{profile.fd_task_prefix}-{store_name}"
     pool_n = qa_n + (share_group["qa_count"] if share_with else 0)
     fd_task_id = _add_task(fd_name, fd_skill_id, extra_settings={"pool": _qa_pool_settings(pool_n)})
     extra_tasks = ()
@@ -981,7 +989,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
         # browser is signed in to the store) and stages the file for review.
         cat_row = _find_skill_named(ctx, profile.catalog_skill_name)
         if cat_row:
-            cat_task = _add_task(f"{profile.fd_task_prefix}商品导出", cat_row["id"],
+            cat_task = _add_task(f"{profile.fd_task_prefix}商品导出-{store_name}", cat_row["id"],
                                  extra_settings=dict(_CATALOG_TASK_SETTINGS))
             extra_tasks = ((cat_task, cat_row["id"]),)
             log.append(_tr(f"Product export: the front desk will export this store's products once "
@@ -997,7 +1005,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
         # desk re-reads them every 30 min and overwrites the auto-applied snapshot.
         promo_row = _find_skill_named(ctx, profile.promo_skill_name)
         if promo_row:
-            promo_task = _add_task(f"{profile.fd_task_prefix}活动刷新", promo_row["id"],
+            promo_task = _add_task(f"{profile.fd_task_prefix}活动刷新-{store_name}", promo_row["id"],
                                    trigger="schedule", schedule=_promo_schedule(),
                                    extra_settings=dict(_PROMO_TASK_SETTINGS))
             extra_tasks = extra_tasks + ((promo_task, promo_row["id"]),)
@@ -1007,9 +1015,10 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
         else:
             log.append(_tr(f"Promotions refresh skipped: skill {profile.promo_skill_name!r} not found",
                            f"未添加活动刷新：找不到技能「{profile.promo_skill_name}」"))
-    fd_agent_id = b.agent("前台小张", fd_skill_id, fd_task_id, vehicle_id, extra_tasks=extra_tasks)
+    fd_agent_name = f"前台-{store_name}"
+    fd_agent_id = b.agent(fd_agent_name, fd_skill_id, fd_task_id, vehicle_id, extra_tasks=extra_tasks)
     log.append(f"Created task {fd_name} → {profile.fd_skill_name}")
-    log.append(f"Created front-desk agent 前台小张 ({fd_agent_id}, org=Sales)")
+    log.append(f"Created front-desk agent {fd_agent_name} ({fd_agent_id}, org=Sales)")
 
     if share_with:
         fd_ids = [d["agent_id"] for d in share_group["front_desks"]] + [fd_agent_id]
