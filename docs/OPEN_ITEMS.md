@@ -974,37 +974,43 @@ proxy (password stays in secure-store, not the vault), `locale`, `domain_name`,
 store, so only the current assignee writes CONFIG back — no multi-writer
 conflict.
 
-**TODO (implementation batch — not started):**
-- [ ] **Vault I/O:** push profile CONFIG to the account vault on change; pull on
-      store assignment. Encrypt-at-rest for anything sensitive (proxy already
-      split out). Reuse COS skill-sync plumbing.
-- [ ] **Pristine-platoon provisioning:** on store assignment → pull CONFIG from
-      vault → if present, materialize locally (fresh local `user_data_dir`, same
-      fingerprint/proxy/binding), `login_state=needs_login`; if vault empty →
-      seed standard template (DONE below). Hook into the existing assignment
-      handoff (`store_placement`).
-- [ ] **Fix `runner.py:5542` (+ `:5625`):** per-run `browser_profile_id` is
-      dropped. `_build_browser_profile_and_callbacks` reads `browser_profile` /
-      `user_data_dir` from `_run_identity` but tasks carry `browser_profile_id`,
-      so it logs `effective profile='' user_data_dir=''` and falls back to the
-      shared `browser_profiles\default` dir; and `_apply_stealth_fp(...)` is
-      passed the *node* `browser_profile_id_setting`, ignoring the per-task id.
-      Resolve `browser_profile_id` (per-run → registry) into BOTH the
-      `user_data_dir` and the fingerprint. (Latent today — BrowserManager's
-      direct fingerprint launch masks it — but it's the mechanism that can
-      collapse two stores onto one Chromium.)
-- [ ] **One front desk per store (reconciliation):** target rule = exactly one
-      front-desk agent per store, named per store, carrying that store's
-      `browser_profile_id`. Build the guided "reconcile stores" action to retire
-      the legacy shared `前台小张`/`飞鸽客服前台001` when per-store `前台-<店铺名>`
-      agents exist. (Store-scoped naming for NEW deploys already landed,
-      `8cdd102f5`.)
+**TODO (implementation — client landed 2026-10-15; vault cloud side BLOCKED ON SERVER):**
+- [x] **Fix `runner.py:5542` (+ `:5625`)** (`d6b0a67b5`): the browser node now
+      resolves the per-run `browser_profile_id` (new
+      `build_helpers.user_data_dir_for_profile_id`) into BOTH the effective
+      `user_data_dir` and the fingerprint, instead of falling back to the shared
+      `browser_profiles\default` dir / the node's build-time id. Tests in
+      `test_browser_identity_phase3.py`.
 - [x] **Seed a standard fingerprint template when a store has no profile**
-      (`4e3478ebd`, 2026-10-15): `_provision_store_profile` now seeds a standard
-      Windows-Chrome template (deterministic per store) instead of an empty
-      fingerprint, as the editable starting point. NB only 2 win templates;
-      店A/店B both currently hash to `win_chrome_01` (distinct `user_data_dir`,
-      so still separate browsers).
+      (`4e3478ebd`): `_provision_store_profile` seeds a standard Windows-Chrome
+      template (deterministic per store) instead of an empty fingerprint. NB only
+      2 win templates; 店A/店B both hash to `win_chrome_01` (distinct
+      `user_data_dir`, so still separate browsers).
+- [x] **Vault I/O + pristine-platoon provisioning — CLIENT done** (`profile_vault.py`):
+      `pull_descriptor(store_id)` / `push_descriptor(profile)` over the
+      presigned-URL AppSync pattern (mirrors `skill_file_sync`); ships ONLY
+      `profile_registry.descriptor()` (no `user_data_dir`/proxy/cookies — the
+      stays-local guard still passes). Wired into `_provision_store_profile`:
+      pull → adopt the vault's fingerprint/locale when present, else seed the
+      standard template; push after create. **Gated OFF behind `ECAN_PROFILE_VAULT`**
+      (instant no-op, no network/log-spam) until the backend ops exist. Tests in
+      `test_profile_vault.py`.
+- [ ] **BLOCKED ON SERVER — vault cloud ops** (eCan_lambda, user's other terminal):
+      add `requestStoreProfileUploadUrl` / `requestStoreProfileDownloadUrl`
+      presigned-URL ops, key `profile-vault/<owner>/<store_id>.json`, owner-auth
+      check. Full contract: `docs/PROFILE_VAULT_SERVER_CONTRACT.md`. Then flip
+      `ECAN_PROFILE_VAULT=1` and validate the two-machine redeploy.
+- [x] **Front-desk reconciliation — REPORT done** (`b9e0dcd0d`): pure planner
+      `store_overview.plan_front_desk_reconcile` + `is_front_desk_name`, surfaced
+      as `ecan stores reconcile` (read-only; flags stores with >1 front desk,
+      recommends keeping the store-scoped one). Tests in
+      `test_front_desk_reconcile.py`.
+- [ ] **FOLLOW-UP — reconciliation ENACTMENT (app-side):** the CLI only reports,
+      because retiring a duplicate must also clean the CLOUD copy, which only the
+      running app's IPC teardown (`store_catalog.delete_*` → `handle_delete_agent`
+      / `handle_delete_agent_task`) does. Add a guided "retire duplicate front
+      desk" action on the Stores page that runs the planner, shows keep/retire,
+      confirms, then tears down the retired agent+task locally AND in the cloud.
 
 **Phase-2 (STATE, deferred, behind a flag):** periodic encrypted cookie/storage
 snapshots to the vault (lifecycle events — graceful stop / login refresh /

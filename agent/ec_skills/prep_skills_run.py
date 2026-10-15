@@ -728,9 +728,13 @@ def _provision_store_profile(store_id: str, task_vars) -> str:
     store its own fingerprint browser instead. The profile id is the canonical
     one (same as Fast Deploy), so this converges with any later deploy.
 
-    The profile starts empty: someone signs the store in once (Settings ->
-    Browser Profiles -> Launch). Best-effort -- on any failure returns "" and the
-    caller leaves the identity as-is (the pre-existing shared-browser behavior).
+    If the account's cloud vault holds this store's CONFIG (deployed on another
+    machine before), adopt its fingerprint/locale so the login converges across
+    machines (docs/PROFILE_VAULT_SERVER_CONTRACT.md); otherwise seed a standard
+    template. Either way the session itself does not travel: someone signs the
+    store in once (Settings -> Browser Profiles -> Launch). Best-effort -- on any
+    failure returns "" and the caller leaves the identity as-is (the pre-existing
+    shared-browser behavior).
     """
     try:
         from agent.ec_skills.browser_use_extension.fingerprint import profile_registry
@@ -745,15 +749,38 @@ def _provision_store_profile(store_id: str, task_vars) -> str:
                     domain = urlparse(url if "://" in url else "https://" + url).hostname or ""
             except Exception:
                 domain = ""
-            fp_name = _standard_fingerprint_for(store_id)
+            # Prefer the account vault's CONFIG for this store (same login on
+            # another machine); fall back to a fresh standard template.
+            vault_desc = None
+            try:
+                from agent.ec_agents import profile_vault
+                vault_desc = profile_vault.pull_descriptor(store_id)
+            except Exception as e:
+                logger.debug(f"[apply_task_vars] vault pull for {store_id!r} failed: {e}")
+            if isinstance(vault_desc, dict) and str(vault_desc.get("fingerprint_profile") or "").strip():
+                fp_name = str(vault_desc.get("fingerprint_profile")).strip()
+                domain = domain or str(vault_desc.get("domain_name") or "").strip()
+                locale = str(vault_desc.get("locale") or "").strip() or "zh-CN"
+                source = "cloud vault"
+            else:
+                fp_name = _standard_fingerprint_for(store_id)
+                locale = "zh-CN"
+                source = "standard fingerprint"
             prof = profile_registry.make_profile(
-                pid, label=store_id, domain_name=domain, locale="zh-CN",
+                pid, label=store_id, domain_name=domain, locale=locale,
                 fingerprint_profile=fp_name, store_id=store_id)
             profile_registry.save_profile(prof)
+            # Keep the account vault's copy in step (best-effort, async; no-op
+            # unless ECAN_PROFILE_VAULT is on). Only the CONFIG descriptor leaves.
+            try:
+                from agent.ec_agents import profile_vault
+                profile_vault.push_descriptor(prof)
+            except Exception as e:
+                logger.debug(f"[apply_task_vars] vault push for {store_id!r} failed: {e}")
             logger.warning(
                 f"[apply_task_vars] store {store_id!r} had no browser profile; auto-created "
-                f"{pid!r} from standard fingerprint {fp_name or '(none available)'!r} so it runs "
-                f"in its OWN fingerprint browser (not a shared tab). Sign it in once "
+                f"{pid!r} from {source} {fp_name or '(none available)'!r} so it runs in its OWN "
+                f"fingerprint browser (not a shared tab). Sign it in once "
                 f"(Settings -> Browser Profiles -> Launch) and edit the fingerprint there if needed.")
         # Record it on the store so later runs resolve it via _local_store_profile.
         try:
