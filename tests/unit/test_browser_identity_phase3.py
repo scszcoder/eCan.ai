@@ -65,6 +65,30 @@ class TestResolveStateBrowserIdentity:
         assert resolve_state_browser_identity({}) == {}
         assert resolve_state_browser_identity(None) == {}
 
+    def test_browser_profile_id_resolves_from_attributes(self):
+        # The per-task identity the live runtime seeds carries browser_profile_id.
+        state = {"attributes": {"browser_profile_id": "douyin-b"}}
+        assert resolve_state_browser_identity(state)["browser_profile_id"] == "douyin-b"
+
+
+class TestUserDataDirForProfileId:
+    def test_resolves_registry_user_data_dir(self):
+        from agent.ec_skills.browser_node import build_helpers as bh
+        with patch(
+            "agent.ec_skills.browser_use_extension.fingerprint.profile_registry.get_profile",
+            return_value={"id": "douyin-b", "user_data_dir": r"C:\ecan_browser_data\douyin-b_x"},
+        ):
+            assert bh.user_data_dir_for_profile_id("douyin-b") == r"C:\ecan_browser_data\douyin-b_x"
+
+    def test_empty_and_unknown_profile_give_empty(self):
+        from agent.ec_skills.browser_node import build_helpers as bh
+        assert bh.user_data_dir_for_profile_id("") == ""
+        with patch(
+            "agent.ec_skills.browser_use_extension.fingerprint.profile_registry.get_profile",
+            return_value=None,
+        ):
+            assert bh.user_data_dir_for_profile_id("nope") == ""
+
 
 class TestApplyTaskVarsBrowserIdentity:
     def test_seeds_identity_into_attributes(self):

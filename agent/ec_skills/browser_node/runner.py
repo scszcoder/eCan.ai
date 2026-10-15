@@ -5540,8 +5540,20 @@ class BrowserRunSession:
         # their own browser profile / user_data_dir / headless mode.
         _run_identity = _bh.resolve_state_browser_identity(self.state)
         _effective_profile = _run_identity.get("browser_profile") or self.ctx.node_profile
+        # A per-run/task browser_profile_id (a registered fingerprint login) wins
+        # over the node's build-time id, so tasks sharing one skill each run
+        # their own store login. The id carries that login's own user_data_dir
+        # and fingerprint; resolving them here is what stops two stores from
+        # collapsing onto the shared browser_profiles/default dir (one Chromium).
+        _effective_browser_profile_id = (
+            _run_identity.get("browser_profile_id")
+            or getattr(self.ctx, "browser_profile_id_setting", "")
+            or ""
+        )
         _effective_user_data_dir = (
-            _run_identity.get("user_data_dir") or self.ctx.user_data_dir_setting
+            _run_identity.get("user_data_dir")
+            or _bh.user_data_dir_for_profile_id(_effective_browser_profile_id)
+            or self.ctx.user_data_dir_setting
         )
         _effective_headless = _run_identity.get("headless")
         if _effective_headless is None:
@@ -5553,9 +5565,11 @@ class BrowserRunSession:
                 f"[BrowserAutomation] Per-run browser identity overrides for "
                 f"node={self.ctx.node_name}: {sorted(_run_identity.keys())} → "
                 f"effective profile={_effective_profile!r} "
+                f"browser_profile_id={_effective_browser_profile_id!r} "
                 f"user_data_dir={_effective_user_data_dir!r} "
                 f"headless={_effective_headless} "
                 f"(node config: profile={self.ctx.node_profile!r} "
+                f"browser_profile_id={getattr(self.ctx, 'browser_profile_id_setting', '')!r} "
                 f"user_data_dir={self.ctx.user_data_dir_setting!r} "
                 f"headless={self.ctx.node_headless})"
             )
@@ -5622,7 +5636,7 @@ class BrowserRunSession:
             profile_settings,
             calling_agent_id=self.calling_agent_id,
             node_name=self.ctx.node_name,
-            browser_profile_id=getattr(self.ctx, "browser_profile_id_setting", ""),
+            browser_profile_id=_effective_browser_profile_id,
         )
         _fp_dt_ms = (time.perf_counter() - _fp_t0) * 1000.0
         if _fp_dt_ms > 500.0:

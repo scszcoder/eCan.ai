@@ -556,6 +556,28 @@ def browser_type_for_identity(browser_type, browser_profile_id, BrowserType):
     return browser_type, False
 
 
+def user_data_dir_for_profile_id(browser_profile_id: str) -> str:
+    """The on-disk user_data_dir of a registered fingerprint profile, or "".
+
+    A per-task ``browser_profile_id`` names a store's login in the fingerprint
+    registry; its record carries the Chromium ``user_data_dir`` for that login.
+    Resolving it here lets the browser node honor the per-run identity instead
+    of falling back to the shared ``browser_profiles/default`` dir (which put
+    two stores in one Chromium). Returns "" for an empty id or an unknown
+    profile; never raises.
+    """
+    pid = str(browser_profile_id or "").strip()
+    if not pid:
+        return ""
+    try:
+        from agent.ec_skills.browser_use_extension.fingerprint import profile_registry as _reg
+        rec = _reg.get_profile(pid) or {}
+        return str(rec.get("user_data_dir") or "").strip()
+    except Exception as e:
+        logger.debug(f"[user_data_dir_for_profile_id] could not resolve {pid!r}: {e}")
+        return ""
+
+
 def resolve_state_browser_identity(state) -> dict:
     """Per-run browser identity overrides carried in state.
 
