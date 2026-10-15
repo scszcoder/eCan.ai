@@ -359,8 +359,18 @@ if __name__ == '__main__' and os.getenv('ECAN_RUN_SCRIPT'):
         with open(run_script, 'r', encoding='utf-8') as f:
             code = f.read()
         exec(compile(code, run_script, 'exec'), {'__name__': '__main__'})
-        # Script completed successfully - let it continue running (e.g., uvicorn server)
-        # DO NOT sys.exit(0) here as it would kill long-running servers
+        # The script ran to completion: an isolation worker drained on its parent
+        # closing stdin, or the Fast Deploy CLI finished. This process is a worker,
+        # NOT the GUI app, so it MUST exit here. Falling through to the Main
+        # Application Code below launches a FULL second instance — the cause of
+        # "after I close the app, another instance immediately starts" (customer
+        # 2026-10-15): every ex-worker / ex-CLI process turned into a ghost GUI
+        # (extra MainWindow, 11 agents, its own workers...). A script that runs a
+        # foreground server blocks inside exec and never reaches this line, so
+        # long-running servers are unaffected.
+        sys.exit(0)
+    except SystemExit:
+        raise
     except Exception as e:
         print(f"[Worker Process] Script execution failed: {e}")
         traceback.print_exc()

@@ -18,7 +18,33 @@ def _agent(*stores, status="active", name="a"):
                            tasks=[SimpleNamespace(metadata={"task_vars": {"store_id": s}}) for s in stores])
 
 
+class GateTests(unittest.TestCase):
+    """Isolation is OFF by default (worker path incomplete) — everything runs
+    in-process until ECAN_STORE_ISOLATION=1 opts back in."""
+
+    def test_default_off_two_same_platform_stores_stay_in_process(self):
+        mw = _mainwin({"a": "douyin", "b": "douyin"})
+        env = {k: v for k, v in os.environ.items() if k != "ECAN_STORE_ISOLATION"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(si.isolated_store_ids(mw, ["a", "b"]), set())
+            self.assertEqual(si.isolated_here(mw), set())
+
+    def test_env_opts_back_in(self):
+        mw = _mainwin({"a": "douyin", "b": "douyin"})
+        with mock.patch.dict(os.environ, {"ECAN_STORE_ISOLATION": "1"}):
+            self.assertEqual(si.isolated_store_ids(mw, ["a", "b"]), {"a", "b"})
+
+
 class PolicyTests(unittest.TestCase):
+    def setUp(self):
+        # PolicyTests exercise the grouping LOGIC, which only runs when isolation
+        # is enabled; the default-off behavior is covered by GateTests.
+        self._env = mock.patch.dict(os.environ, {"ECAN_STORE_ISOLATION": "1"})
+        self._env.start()
+
+    def tearDown(self):
+        self._env.stop()
+
     def test_two_stores_of_one_platform_each_get_a_process(self):
         mw = _mainwin({"a": "douyin", "b": "douyin", "c": "etsy"})
         self.assertEqual(si.isolated_store_ids(mw, ["a", "b", "c"]), {"a", "b"})
