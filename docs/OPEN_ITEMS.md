@@ -4,7 +4,7 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-10-12_
+_Last updated: 2026-10-15_
 
 ---
 
@@ -935,6 +935,85 @@ Open after v1:
 - Not verified on real machines yet: cookie restore through `Storage.setCookies`
   keeps a Douyin/飞鸽 session alive on the target; Windows firewall prompt on the
   receiver's first listener.
+
+### ⚡ Per-store browser profile: CONFIG-first cloud vault + commander/platoon provisioning (2026-10-15)
+
+**Agreed design (user approved 2026-10-15).** A store's browser profile (its
+login identity: fingerprint + proxy + binding) should be an account-level asset
+that survives any machine dying and can be (re)deployed to any machine —
+pristine platoon included. This is the CONFIG-first layer of the Fleet-transfer
+work above (the STATE/cookie-snapshot half is the "Open after v1" notes there,
+and stays phase-2 behind a flag). Prompted by a user run (build `9cd805e10`) of
+2 抖店 stores still showing "1 Chrome, 2 tabs": only 店B's front desk launched a
+fingerprint browser; the 2nd store's didn't — see
+`project_multistore_browser_autoprovision` memory.
+
+**Decisions locked:**
+1. **Source of truth = a per-account cloud vault** (reuse the COS skill-sync
+   pattern/credentials, new prefix — e.g. `profiles/<account>/`), NOT a
+   commander-hosted store. Commander is the *orchestrator*, not the sole holder,
+   so an abandoned commander is not fatal. (Alternative rejected: commander disk
+   as master — same single-point-of-failure one level up.)
+2. **CONFIG-first; STATE (cookies/`user_data_dir`) is opt-in / phase-2.** Live
+   session migration fights the anti-detection invariant (a session reappearing
+   on a new machine/IP looks like account-takeover → likely forces re-login
+   anyway) and is heavy/racy (hundreds of MB, file-locked while Chrome runs). So
+   do NOT sync it per task. CONFIG-sync alone already gives "redeploy a store to
+   any machine, comes up configured, needs only a one-time sign-in" (~80% of the
+   value, none of the risk).
+3. **Front-desk reconciliation = a guided CLI/GUI action the operator triggers**
+   (reports duplicates, confirm before rewriting agent/task rows), NOT a silent
+   auto-migration on launch (it's surgery on live rows).
+
+**Vault CONFIG fields (small, safe):** `fingerprint_profile` (template id),
+proxy (password stays in secure-store, not the vault), `locale`, `domain_name`,
+`store_id`, `login_state`, `machine_id`. Explicitly NOT in v1: `user_data_dir`,
+`install_salt`, cookies.
+
+**Single-writer is free:** `store_placement` already enforces one assignee per
+store, so only the current assignee writes CONFIG back — no multi-writer
+conflict.
+
+**TODO (implementation batch — not started):**
+- [ ] **Vault I/O:** push profile CONFIG to the account vault on change; pull on
+      store assignment. Encrypt-at-rest for anything sensitive (proxy already
+      split out). Reuse COS skill-sync plumbing.
+- [ ] **Pristine-platoon provisioning:** on store assignment → pull CONFIG from
+      vault → if present, materialize locally (fresh local `user_data_dir`, same
+      fingerprint/proxy/binding), `login_state=needs_login`; if vault empty →
+      seed standard template (DONE below). Hook into the existing assignment
+      handoff (`store_placement`).
+- [ ] **Fix `runner.py:5542` (+ `:5625`):** per-run `browser_profile_id` is
+      dropped. `_build_browser_profile_and_callbacks` reads `browser_profile` /
+      `user_data_dir` from `_run_identity` but tasks carry `browser_profile_id`,
+      so it logs `effective profile='' user_data_dir=''` and falls back to the
+      shared `browser_profiles\default` dir; and `_apply_stealth_fp(...)` is
+      passed the *node* `browser_profile_id_setting`, ignoring the per-task id.
+      Resolve `browser_profile_id` (per-run → registry) into BOTH the
+      `user_data_dir` and the fingerprint. (Latent today — BrowserManager's
+      direct fingerprint launch masks it — but it's the mechanism that can
+      collapse two stores onto one Chromium.)
+- [ ] **One front desk per store (reconciliation):** target rule = exactly one
+      front-desk agent per store, named per store, carrying that store's
+      `browser_profile_id`. Build the guided "reconcile stores" action to retire
+      the legacy shared `前台小张`/`飞鸽客服前台001` when per-store `前台-<店铺名>`
+      agents exist. (Store-scoped naming for NEW deploys already landed,
+      `8cdd102f5`.)
+- [x] **Seed a standard fingerprint template when a store has no profile**
+      (`4e3478ebd`, 2026-10-15): `_provision_store_profile` now seeds a standard
+      Windows-Chrome template (deterministic per store) instead of an empty
+      fingerprint, as the editable starting point. NB only 2 win templates;
+      店A/店B both currently hash to `win_chrome_01` (distinct `user_data_dir`,
+      so still separate browsers).
+
+**Phase-2 (STATE, deferred, behind a flag):** periodic encrypted cookie/storage
+snapshots to the vault (lifecycle events — graceful stop / login refresh /
+assignment release — NOT per task), restore-on-deploy, key custody per the
+Fleet-transfer "Open after v1" notes. Do not start until CONFIG-first is live
+and we see whether platforms honor a migrated session.
+
+Full design writeup: fold into `docs/FLEET_TRANSFER_DESIGN.md` (CONFIG-first
+section) when implementation starts.
 
 ### Decision point: several same-platform stores in ONE store process (Phase E) (2026-09-24)
 
