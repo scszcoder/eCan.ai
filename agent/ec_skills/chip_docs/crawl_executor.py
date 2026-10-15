@@ -9,11 +9,15 @@ worker, write status.md and mirror it to the NAS.
 Files under ``<docs_root>/<vendor>/``:
 - ``sub_plans/*.md``: ``| # | part | product page URL | category |`` (written by the planner)
 - ``status.md``: one row per part, plus a ``## Workers`` table
+
+Once every part is done, the documents' HTML editions are saved too (``html_docs.crawl``).
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -181,6 +185,29 @@ def run_round(rows: list[dict], workers: dict[str, dict], plan: list[dict], repo
     return {"all_done": all_done, "work_done": True, "summary": "; ".join(log) or "nothing to do", **counts}
 
 
+_html_crawl: threading.Thread | None = None
+
+
+def start_html_crawl(root: Path) -> bool:
+    """Save the HTML editions of every crawled document in the background, unless that is
+    already running. ``html_docs.crawl`` resumes from its log, so starting it again is safe."""
+    global _html_crawl
+    if _html_crawl is not None and _html_crawl.is_alive():
+        return False
+    from agent.ec_skills.chip_docs import html_docs
+    from utils.logger_helper import logger_helper as logger
+
+    def run() -> None:
+        try:
+            asyncio.run(html_docs.crawl(root, root / "raw" / "_html_browser_profile"))
+        except Exception as e:
+            logger.warning(f"[crawl_executor] HTML editions crawl failed: {e}")
+
+    _html_crawl = threading.Thread(target=run, name="ChipHtmlCrawl", daemon=True)
+    _html_crawl.start()
+    return True
+
+
 def parse_message(text: str) -> dict | None:
     """A worker message as a dict. Workers type their reports, and 2026-10-12 one
     wrote `{\\"part"...` mid-message, so plain json.loads dropped three reports and
@@ -237,6 +264,8 @@ def node_main(state: dict) -> dict:
         ugreen_nas.nas_upload(str(status_path), f"{vendor}/status.md")
     except Exception as e:  # the local status.md is the source of truth
         logger.warning(f"[crawl_executor] NAS mirror failed: {e}")
+    if result["all_done"] and start_html_crawl(root):
+        result["summary"] += "; started the HTML editions crawl"
     logger.info(f"[crawl_executor] {result}")
     state.setdefault("result", {})["llm_result"] = result
     return state

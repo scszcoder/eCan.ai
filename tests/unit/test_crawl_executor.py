@@ -143,3 +143,24 @@ def test_reads_the_existing_seven_column_status_and_sub_plans(tmp_path):
     rows, workers = ex.parse_status(old)
     assert rows[0]["state"] == "done" and rows[0]["docs"] == "21" and rows[0]["attempts"] == ""
     assert workers == {"W1": {"state": "idle", "batch": "", "at": "t"}}
+
+
+def test_html_crawl_starts_once_while_running(tmp_path, monkeypatch):
+    import threading
+    from agent.ec_skills.chip_docs import html_docs
+
+    release, calls = threading.Event(), []
+
+    async def fake_crawl(root, profile):
+        calls.append(root)
+        release.wait(5)
+
+    monkeypatch.setattr(html_docs, "crawl", fake_crawl)
+    monkeypatch.setattr(ex, "_html_crawl", None)
+    assert ex.start_html_crawl(tmp_path)
+    assert not ex.start_html_crawl(tmp_path)  # still running
+    release.set()
+    ex._html_crawl.join(5)
+    assert ex.start_html_crawl(tmp_path)  # finished: a later round resumes it
+    ex._html_crawl.join(5)
+    assert calls == [tmp_path, tmp_path]
