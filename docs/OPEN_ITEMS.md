@@ -1032,6 +1032,44 @@ and we see whether platforms honor a migrated session.
 Full design writeup: fold into `docs/FLEET_TRANSFER_DESIGN.md` (CONFIG-first
 section) when implementation starts.
 
+### Fresh-install browserless: missing Chromium on unsigned builds (2026-10-16)
+
+Field bug (customer zbb, pristine machine, yai): single douyin store, NO Chrome;
+`%LOCALAPPDATA%\eCan\ms-playwright\chromium-1181\chrome-win\` had the folder tree
+but no `chrome.exe`. NOT the multistore wiring issue. The installer DOES bundle
+Chromium (build log: `[SPEC] Added 110 Playwright files`, incl chrome.exe/.dll).
+On first run eCan copies the bundle to `%LOCALAPPDATA%\eCan\ms-playwright`
+(`agent/playwright/core/setup.py::ensure_playwright_browsers_ready`). On a
+pristine + UNSIGNED install, Windows Defender real-time protection quarantines the
+unsigned `chrome.exe` during/after that copy — tree lands, exe gone — and the
+setup error was swallowed (`agent/playwright/utils.py`), so the app came up
+"green" with no browser. Non-pristine machines (e.g. Admin) worked off a cached
+copy from a prior install. Confirm on a box via Windows Security → Protection
+history (a `chrome.exe` quarantine entry).
+
+Fixes landed:
+- **yak `946dc2ee0`** — `ensure_playwright_browsers_ready` re-validates the target
+  AFTER the copy; if `chrome.exe` is missing it logs an ERROR naming the cause
+  (AV quarantine) + the repair-script pointer and raises (caller keeps the app
+  up). Makes the next occurrence diagnosable instead of silent.
+- **yal (pending build) — installer self-excludes:** the Inno `[Code]`
+  `ssPostInstall` step (`build_system/ecan_build.py`) runs an elevated, base64
+  `-EncodedCommand` PowerShell that `Add-MpPreference -ExclusionPath` for every
+  user's `…\AppData\Local\eCan` (the copy target) and `%ProgramFiles%\eCan*`
+  before first launch. Best-effort (`SilentlyContinue`); scoped to eCan's own
+  paths only. Validated: py-compiles, b64 is quote/brace-free + decodes exact, PS
+  parses. The `.iss` itself only validates at build (no local ISCC). CAVEAT:
+  Tamper-Protected / policy-managed Defender refuses `Add-MpPreference` → those
+  machines still need the manual exclusion / repair script.
+- **Immediate unblock for already-installed boxes:** `fix_missing_chromium.ps1`
+  (in eCan_lambda/docs/support) — adds the Defender exclusions + restores
+  `chrome-win` from the install's bundled copy + verifies. FTP-and-run.
+
+Durable real fix: **sign the installer** — a signed `chrome.exe` is far less
+likely to be quarantined (and kills SmartScreen). BLOCKED short-term (company
+identity / no Microsoft code-signing cert yet). Until then the installer
+self-exclusion is the main prevention, with the repair script as fallback.
+
 ### Decision point: several same-platform stores in ONE store process (Phase E) (2026-09-24)
 
 Today each store on a machine with 2+ stores of one platform gets its own store

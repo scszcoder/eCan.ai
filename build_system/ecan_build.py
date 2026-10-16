@@ -589,6 +589,21 @@ class InstallerBuilder:
             custom_messages_extra3 = '\nchinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？'
             custom_messages_extra2 = '\nchinesesimplified.AdditionalIcons=附加图标：\nchinesesimplified.CreateDesktopIcon=创建桌面图标(&D)'
 
+            # Defender exclusions run from the installer's [Code] ssPostInstall step
+            # (see CurStepChanged). Baked as a base64 PowerShell -EncodedCommand so
+            # the .iss carries no quotes/braces (safe in both Pascal and this rf
+            # f-string). Uses only PowerShell env + wildcards — no Inno {app} — so
+            # it covers every user's eCan app-data (the first-run copy target that
+            # Defender quarantines) and the Program Files install dir. Best-effort.
+            import base64 as _b64
+            _defender_ps = (
+                "$ErrorActionPreference='SilentlyContinue';"
+                "Add-MpPreference -ExclusionPath \"$env:SystemDrive\\Users\\*\\AppData\\Local\\eCan\";"
+                "Add-MpPreference -ExclusionPath \"$env:ProgramFiles\\eCan*\";"
+                "if (${env:ProgramFiles(x86)}) { Add-MpPreference -ExclusionPath \"${env:ProgramFiles(x86)}\\eCan*\" }"
+            )
+            defender_exclusion_b64 = _b64.b64encode(_defender_ps.encode('utf-16-le')).decode('ascii')
+
             iss_content = rf"""
 ; eCan Installer Script
 ; Compression: LZMA2 + Non-Solid + Normal level (with splash screen, 4-6s startup)
@@ -722,15 +737,29 @@ end;
 
 // Handle installer step changes
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  AvResultCode: Integer;
 begin
   if CurStep = ssInstall then
   begin
     WizardForm.FormStyle := fsNormal;
   end;
-  
+
   if CurStep = ssPostInstall then
   begin
-    // Reserved for shell refresh if needed
+    // Windows Defender exclusions for eCan's own folders (Setup is elevated:
+    // PrivilegesRequired=admin). The app is UNSIGNED, so on a pristine machine
+    // Defender real-time protection tends to quarantine the unsigned Chromium
+    // chrome.exe when eCan copies its bundled browser engine to
+    // %LOCALAPPDATA%\eCan\ms-playwright on first run — the folder tree lands but
+    // chrome.exe is gone, so no fingerprint browser ever launches. Excluding
+    // every user's eCan app-data (the copy target) and the install dir before
+    // first launch prevents it. The command is passed as base64 -EncodedCommand
+    // to avoid quoting pitfalls, and is best-effort (SilentlyContinue inside) so
+    // a Tamper-Protected / policy-managed Defender that refuses the change never
+    // fails the install (those machines use the manual exclusion / repair script).
+    // Scoped to eCan's own paths only — no process or system-wide exclusions.
+    Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand {defender_exclusion_b64}', '', SW_HIDE, ewWaitUntilTerminated, AvResultCode);
   end;
 end;
 
