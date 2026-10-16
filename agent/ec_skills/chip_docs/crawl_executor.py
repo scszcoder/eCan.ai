@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -198,10 +199,13 @@ def start_html_crawl(root: Path) -> bool:
     from utils.logger_helper import logger_helper as logger
 
     def run() -> None:
+        # main.py sets WindowsSelectorEventLoopPolicy, whose loops can't start Chrome
+        loop_factory = asyncio.ProactorEventLoop if sys.platform == "win32" else None
         try:
-            asyncio.run(html_docs.crawl(root, root / "raw" / "_html_browser_profile"))
+            with asyncio.Runner(loop_factory=loop_factory) as runner:
+                runner.run(html_docs.crawl(root, root / "raw" / "_html_browser_profile"))
         except Exception as e:
-            logger.warning(f"[crawl_executor] HTML editions crawl failed: {e}")
+            logger.warning(f"[crawl_executor] HTML editions crawl failed: {e!r}")
 
     _html_crawl = threading.Thread(target=run, name="ChipHtmlCrawl", daemon=True)
     _html_crawl.start()

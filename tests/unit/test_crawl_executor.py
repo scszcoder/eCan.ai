@@ -164,3 +164,32 @@ def test_html_crawl_starts_once_while_running(tmp_path, monkeypatch):
     assert ex.start_html_crawl(tmp_path)  # finished: a later round resumes it
     ex._html_crawl.join(5)
     assert calls == [tmp_path, tmp_path]
+
+
+def test_html_crawl_loop_can_start_chrome_under_the_apps_selector_policy(tmp_path, monkeypatch):
+    # 2026-10-15: main.py sets WindowsSelectorEventLoopPolicy, whose loops can't start
+    # subprocesses, so Playwright failed to launch Chrome (NotImplementedError).
+    import asyncio
+    import sys
+    from agent.ec_skills.chip_docs import html_docs
+
+    loops = []
+
+    async def fake_crawl(root, profile):
+        loops.append(type(asyncio.get_running_loop()))
+
+    monkeypatch.setattr(html_docs, "crawl", fake_crawl)
+    monkeypatch.setattr(ex, "_html_crawl", None)
+    if sys.platform == "win32":
+        old = asyncio.get_event_loop_policy()
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        try:
+            assert ex.start_html_crawl(tmp_path)
+            ex._html_crawl.join(5)
+        finally:
+            asyncio.set_event_loop_policy(old)
+        assert loops == [asyncio.ProactorEventLoop]
+    else:
+        assert ex.start_html_crawl(tmp_path)
+        ex._html_crawl.join(5)
+        assert len(loops) == 1
