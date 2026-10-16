@@ -269,6 +269,8 @@ class RunContext:
     # Vendor environment id, or the id of one of our registered browser
     # profiles when browser_type_setting == "fingerprint".
     browser_profile_id_setting: str = ""
+    # Per-step time limit (seconds) for browser-use; None keeps its 180 s default.
+    node_step_timeout: Any = None
 
     # Phase 6.7 (2026-04-24) dropped 18 fields:
     #   * 9 helpers — now in browser_node/build_helpers.py
@@ -785,6 +787,8 @@ def update_browser_session_cache(
                         if evicted >= 2:
                             break
             cached_browser_sessions[browser_scope_key] = agent_session
+            if cached_browser_sessions is _bh.cached_browser_sessions:
+                _bh.evict_excess_chat_sessions(browser_scope_key)
             try:
                 setattr(agent_session, "_ecan_browser_scope_key", browser_scope_key)
             except Exception:
@@ -1593,6 +1597,9 @@ async def run_agent_with_dispatch(
         msg = str(exc) or "CancelledError"
         return "fast-path" in msg
 
+    # Cache eviction defers its scrub while this is set (see
+    # scrub_evicted_bu_agent).
+    agent._ecan_run_active = True
     try:
         # Branch 1: native cancellation support.
         if cancellation_event and agent_class_name in ("CloudAgent", "PrivacyAgent"):
@@ -1691,6 +1698,15 @@ async def run_agent_with_dispatch(
                     delattr(agent, "_ecan_step_count")
             except Exception:
                 pass
+        agent._ecan_run_active = False
+        agent._ecan_run_ended_at = time.monotonic()
+        try:
+            from agent.ec_skills.browser_use_extension.extension_tools_service import (
+                clear_current_agent,
+            )
+            clear_current_agent(agent)
+        except Exception:
+            pass
 
 
 def resolve_step_patch_config(
@@ -3009,6 +3025,8 @@ async def acquire_or_reuse_local_agent(
     profile is supplied — pre-start the browser session so CDP
     connects and we can inject stealth JS before any page loads.
     """
+    from agent.ec_skills.browser_node.agent import scrub_deferred_bu_agents
+    scrub_deferred_bu_agents()
     cached = cached_bu_agents.get(bu_scope_key)
 
     # Invalidate on class change or hook-config change.
@@ -3027,6 +3045,7 @@ async def acquire_or_reuse_local_agent(
         _bh.cached_bu_agents.pop(bu_scope_key, None)
         if bu_scope_key in _bh._cached_bu_agents_insertion_order:
             _bh._cached_bu_agents_insertion_order.remove(bu_scope_key)
+        _bh.scrub_bu_agent(cached)
         cached = None
 
     # New-chromium mode without keep_alive: browser-use closed this agent's
@@ -3043,6 +3062,7 @@ async def acquire_or_reuse_local_agent(
             _bh.cached_bu_agents.pop(bu_scope_key, None)
             if bu_scope_key in _bh._cached_bu_agents_insertion_order:
                 _bh._cached_bu_agents_insertion_order.remove(bu_scope_key)
+            _bh.scrub_bu_agent(cached)
             cached = None
 
     if cached is not None:
@@ -5482,6 +5502,9 @@ class BrowserRunSession:
             llm=llm,
             max_actions_per_step=self.ctx.node_max_actions_per_step,
             **({'max_clickable_elements_length': self.ctx.node_dom_limit} if self.ctx.node_dom_limit else {}),
+            # 2026-10-13: one chip-crawler step downloads a whole part's documents
+            # (up to ~94 files) and browser-use's 180 s step limit cut it off
+            **({'step_timeout': self.ctx.node_step_timeout} if self.ctx.node_step_timeout else {}),
         )
         # Log the actual message_compaction settings (INFO level for visibility).
         if 'message_compaction' in agent_kwargs:

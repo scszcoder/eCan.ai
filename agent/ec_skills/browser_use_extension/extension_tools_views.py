@@ -25,6 +25,27 @@ class RunCodeAction(BaseModel):
 	)
 
 
+class EvaluateToFileAction(BaseModel):
+	"""Run JavaScript in the current page and write its result to a local file,
+	so bulk data (table rows, link lists) never has to pass through the model."""
+	code: str = Field(
+		default="",
+		description="JavaScript expression or async IIFE run in the page. Its value (string, or any "
+		"JSON-serializable value) is written to the file. It may click/paginate and await."
+	)
+	code_file: str = Field(
+		default="",
+		description="Absolute path of a saved .js script to run instead of `code` (see save_code_to)."
+	)
+	save_code_to: str = Field(
+		default="",
+		description="Absolute path to save the script to when it succeeds, so later calls can reuse it via code_file."
+	)
+	path: str = Field(description="Absolute local file path to write.")
+	append: bool = Field(default=False, description="Append (one entry per call) instead of overwriting.")
+	timeout: float = Field(default=300.0, description="Seconds to wait for the script. Default: 300.")
+
+
 class RunShellScriptAction(BaseModel):
 	"""Execute a shell script. Auto-detects OS and uses appropriate shell
 	(PowerShell on Windows, bash on Linux, zsh on macOS)."""
@@ -636,6 +657,20 @@ class NasSaveFileAction(BaseModel):
 			"(chips/microchip). May include subfolders, e.g. 'PIC16F/PIC16F877A/datasheet.pdf'. "
 			"LEAVE EMPTY to keep the local file's name at the base folder."
 		)
+	)
+
+
+class DownloadDocsToNasAction(BaseModel):
+	"""Download every document listed in a JSON file and upload each one to the NAS, in one action."""
+	docs_file: str = Field(
+		description="Absolute path of a JSON list of documents, e.g. written by evaluate_to_file: "
+		"[{\"type\": \"Data Sheets\", \"title\": \"...\", \"url\": \"https://.../x.pdf\"}, ...] "
+		"(or {\"docs\": [...]})."
+	)
+	local_dir: str = Field(description="Absolute local folder to save the files in (created if missing).")
+	nas_dir: str = Field(
+		default="",
+		description="Folder on the NAS, RELATIVE to the configured base folder. LEAVE EMPTY to skip the NAS upload."
 	)
 
 

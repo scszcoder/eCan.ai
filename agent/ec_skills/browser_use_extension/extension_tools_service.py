@@ -33,6 +33,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     ListSessionMonitorsAction,
     SelectAgentsAction,
     NasSaveFileAction,
+    DownloadDocsToNasAction,
     NasSaveTextAction,
     NasListAction,
     NormalizePageStateAction,
@@ -44,6 +45,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     RemoveSessionMonitorAction,
     ReconfigureEventMonitorAction,
     RunCodeAction,
+    EvaluateToFileAction,
     RunShellScriptAction,
     SendChatAction,
     SendEmailAction,
@@ -255,6 +257,23 @@ def set_current_agent(agent):
     _current_agent_instance = agent
     _current_agent_var.set(agent)
     logger.debug(f"[ExtensionTools] Set current agent instance: {type(agent).__name__}")
+
+def clear_current_agent(agent):
+    """Drop the current-agent references to ``agent`` once its run is over.
+
+    The ContextVar value lives in the calling task's context. When that
+    task is long-lived (anyio caches each event loop's root task in a
+    WeakKeyDictionary whose value references the loop, so it is never
+    freed), the context kept every finished agent alive: 2026-10-14
+    chip-docs crawl, 70 dead agents pinning ~3 GB of history and
+    per-step pydantic classes.
+    """
+    global _current_agent_instance
+    if _current_agent_var.get() is agent:
+        _current_agent_var.set(None)
+    if _current_agent_instance is agent:
+        _current_agent_instance = None
+
 
 def get_current_agent():
     """Get the current agent instance."""
@@ -2371,6 +2390,89 @@ async def bu_run_code(params: RunCodeAction) -> ActionResult:
         return ActionResult(error=error_msg)
 
 
+def _write_eval_result(value: Any, path: str, append: bool) -> str:
+    """Write a page-script result to *path*; return a short summary for the model."""
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if append and out.exists() and out.stat().st_size:
+        text = "\n" + text
+    with out.open("a" if append else "w", encoding="utf-8") as f:
+        f.write(text)
+    if isinstance(value, list):
+        count = f", {len(value)} items"
+    elif isinstance(value, dict):  # e.g. {"total": 766, "parts": [...]}: report the lists, not the keys
+        count = "".join(f", {k}: {len(v)} items" for k, v in value.items() if isinstance(v, list))
+    else:
+        count = ""
+    preview = text.strip()[:200]
+    return (f"Wrote {len(text.encode('utf-8'))} bytes{count} to {out} ({'appended' if append else 'overwritten'}). "
+            f"Preview: {preview}{'...' if len(text.strip()) > 200 else ''}")
+
+
+# evaluate_to_file feeds the chip-crawler's download_docs_to_nas action, so it is
+# registered only where NAS is configured (under the _nas_actions_enabled() gate
+# below) — every registered action is described in every browser agent's prompt,
+# including customer 客服 agents, and this one is crawler-only.
+async def evaluate_to_file(params: EvaluateToFileAction, browser_session: BrowserSession) -> ActionResult:
+    if not params.path or not os.path.isabs(params.path):
+        return ActionResult(error="evaluate_to_file: path must be an absolute local file path")
+    code = params.code
+    if params.code_file:
+        try:
+            code = Path(params.code_file).read_text(encoding="utf-8")
+        except Exception as e:
+            return ActionResult(error=f"evaluate_to_file: cannot read code_file: {e}")
+    if not code.strip():
+        return ActionResult(error="evaluate_to_file: pass `code` or `code_file`")
+    try:
+        cdp_session = await browser_session.get_or_create_cdp_session()
+
+        async def _eval(expression: str) -> dict:
+            return await asyncio.wait_for(
+                cdp_session.cdp_client.send.Runtime.evaluate(
+                    params={'expression': expression, 'returnByValue': True, 'awaitPromise': True},
+                    session_id=cdp_session.session_id,
+                ),
+                timeout=float(params.timeout or 300.0),
+            )
+
+        res = await _eval(code)
+        # `async () => {...}` without the trailing `()` evaluates to the
+        # function itself, which serializes to {} (2026-10-12: the planner's
+        # first table dump). Call it, like browser-use's own evaluate does.
+        if (res.get('result') or {}).get('type') == 'function':
+            res = await _eval(f"({code})()")
+        # A bare function body (top-level `return` / `await`) is a SyntaxError
+        # as a script; run it as the body of an async function instead.
+        _err = str(((res.get('exceptionDetails') or {}).get('exception') or {}).get('description') or '')
+        if 'Illegal return statement' in _err or 'await is only valid' in _err:
+            res = await _eval(f"(async () => {{\n{code}\n}})()")
+    except asyncio.TimeoutError:
+        return ActionResult(error=f"evaluate_to_file: script did not finish within {params.timeout}s; nothing written")
+    except Exception as e:
+        return ActionResult(error=f"evaluate_to_file: {type(e).__name__}: {e}")
+    if res.get('exceptionDetails'):
+        d = res['exceptionDetails']
+        detail = (d.get('exception') or {}).get('description') or d.get('text') or 'unknown error'
+        return ActionResult(error=f"evaluate_to_file: JavaScript error, nothing written: {detail[:500]}")
+    value = (res.get('result') or {}).get('value')
+    if value is None:
+        return ActionResult(error="evaluate_to_file: script returned null/undefined; nothing written")
+    try:
+        summary = _write_eval_result(value, params.path, params.append)
+    except Exception as e:
+        return ActionResult(error=f"evaluate_to_file: write failed: {e}")
+    if params.save_code_to:
+        try:
+            Path(params.save_code_to).parent.mkdir(parents=True, exist_ok=True)
+            Path(params.save_code_to).write_text(code, encoding="utf-8")
+            summary += f" Script saved to {params.save_code_to} (reuse it with code_file)."
+        except Exception as e:
+            summary += f" Could not save the script: {e}"
+    logger.info(f"[evaluate_to_file] {summary[:300]}")
+    return ActionResult(extracted_content=summary, include_in_memory=True)
+
 
 @custom_controller.action(
     "Execute a shell script. Auto-detects OS shell (PowerShell/bash/zsh).",
@@ -2471,7 +2573,41 @@ def _nas_actions_enabled() -> bool:
         return False
 
 
+def _doc_file_name(doc: dict) -> str:
+    """'<type> - <title>.<ext>' with only letters, digits, spaces, '-', '_' and '.'."""
+    base, ext = os.path.splitext(os.path.basename(urllib.parse.urlparse(doc["url"]).path))
+    title = str(doc.get("title") or "").strip()
+    # 2026-10-12: a page script returned "[object Object]" for every title, so
+    # all of a part's errata collapsed onto one file name; the URL's own file
+    # name is the reliable fallback
+    if not title or "[object" in title:
+        title = urllib.parse.unquote(base)
+    stem = " - ".join(s for s in (str(doc.get("type") or "").strip(), title) if s) or "document"
+    stem = " ".join("".join(c if c.isalnum() or c in " -_." else " " for c in stem).split())[:150]
+    return stem.rstrip(". ") + (ext.lower() or ".pdf")
+
+
+_DOWNLOAD_PARALLEL = 8
+
+
+def _fetch_to(url: str, path: str) -> int:
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 eCan-AI downloader"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        data = r.read()
+    with open(path, "wb") as wf:
+        wf.write(data)
+    return len(data)
+
+
 if _nas_actions_enabled():
+    # Crawler-only action, gated with the NAS actions it feeds (defined above).
+    custom_controller.action(
+        "Run JavaScript in the current page and write its result straight to a local file "
+        "(the data does not come back to you, only a short summary). Use it to collect bulk data "
+        "such as every row of a paginated table: the script may click through pages and await.",
+        param_model=EvaluateToFileAction,
+    )(evaluate_to_file)
+
     @custom_controller.action(
         'Save (upload) a local file to the UGREEN NAS over SMB. Use this to persist a '
         'downloaded datasheet/document to shared storage. remote_path is relative to the '
@@ -2489,6 +2625,84 @@ if _nas_actions_enabled():
         except Exception as e:
             logger.error(f"[Browser Use Extension] NAS upload failed: {e}")
             return ActionResult(error=f"NAS upload failed: {e}")
+
+
+    @custom_controller.action(
+        "Download every document listed in a JSON file (e.g. one written by evaluate_to_file) into a "
+        "local folder and upload each to the NAS — a whole part's documents in ONE action. Returns only "
+        "counts and file names.",
+        param_model=DownloadDocsToNasAction)
+    async def download_docs_to_nas(params: DownloadDocsToNasAction) -> ActionResult:
+        # 2026-10-12: the chip crawler spent ~4 model steps per part on
+        # download_file/save_file_to_nas pairs, each resending the whole page.
+        try:
+            with open(params.docs_file, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            return ActionResult(error=f"download_docs_to_nas: cannot read docs_file: {e}")
+        docs = data.get("docs") if isinstance(data, dict) else data
+        if not isinstance(docs, list):
+            return ActionResult(error="download_docs_to_nas: docs_file must hold a list, or {\"docs\": [...]}")
+        from agent.ec_skills.nas import ugreen_nas as _nas
+
+        os.makedirs(params.local_dir, exist_ok=True)
+        jobs, seen, names = [], set(), set()
+        restricted = []
+        for doc in docs:
+            url = str((doc or {}).get("url") or "").strip() if isinstance(doc, dict) else ""
+            if not url.startswith("http") or url in seen:
+                continue
+            seen.add(url)
+            # 2026-10-13: myMicrochip secure documents need a login (often an NDA); the
+            # 403 counted as a failure and the worker failed the whole part
+            if "secure-document-download" in url:
+                restricted.append(_doc_file_name(doc))
+                continue
+            name = _doc_file_name(doc)
+            stem, ext = os.path.splitext(name)
+            n = 2
+            while name.lower() in names:  # two documents must never share a file
+                name, n = f"{stem} ({n}){ext}", n + 1
+            names.add(name.lower())
+            jobs.append((url, name))
+
+        # 2026-10-13: a retried part re-uploaded every file; one listing tells which
+        # are already on the NAS (same name and size)
+        on_nas = {}
+        if params.nas_dir:
+            try:
+                listing = await asyncio.to_thread(_nas.nas_list, params.nas_dir.rstrip('/'))
+                on_nas = {e["name"].lower(): e["size"] for e in listing if not e["is_dir"]}
+            except Exception as e:
+                logger.warning(f"[download_docs_to_nas] NAS listing failed, uploading everything: {e}")
+
+        # 2026-10-12: parts with ~22 documents took minutes one file at a time
+        gate = asyncio.Semaphore(_DOWNLOAD_PARALLEL)
+
+        async def save(url: str, name: str) -> str | None:
+            path = os.path.join(params.local_dir, name)
+            async with gate:
+                try:
+                    # threads: a blocking download here would stall every agent on the loop
+                    if not (os.path.exists(path) and os.path.getsize(path)):
+                        await asyncio.to_thread(_fetch_to, url, path)
+                    if params.nas_dir and on_nas.get(name.lower()) != os.path.getsize(path):
+                        await asyncio.to_thread(_nas.nas_upload, path, f"{params.nas_dir.rstrip('/')}/{name}")
+                    return None
+                except Exception as e:
+                    return f"{name}: {e}"
+
+        errors = await asyncio.gather(*(save(url, name) for url, name in jobs))
+        saved = [name for (_, name), err in zip(jobs, errors) if err is None]
+        failed = [err for err in errors if err]
+        logger.info(f"[download_docs_to_nas] {params.local_dir}: {len(saved)} saved, {len(failed)} failed")
+        msg = f"{len(saved)} saved, {len(failed)} failed in {params.local_dir}. Saved: {saved}"
+        if failed:
+            msg += f" Failed: {failed}"
+        if restricted:
+            msg += f" Skipped (login-only secure documents, not a failure): {restricted}"
+        return ActionResult(extracted_content=msg, include_in_memory=True,
+                            error=None if saved or not failed else msg)
 
 
     @custom_controller.action(

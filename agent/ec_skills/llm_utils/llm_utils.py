@@ -3952,10 +3952,14 @@ def run_async_in_sync(awaitable):
         loop.close()
 
 
+_WORKER_CLEANUP_GRACE_S = 10.0
+
+
 def _run_async_in_worker_thread_once(awaitable_or_factory):
     """Legacy per-call thread fallback (used when persistent loop is unavailable)."""
     result_holder = {}
     error_holder = {}
+    result_ready = threading.Event()
 
     def _worker():
         if sys.platform.startswith("win"):
@@ -3981,6 +3985,7 @@ def _run_async_in_worker_thread_once(awaitable_or_factory):
         except Exception as e:
             error_holder["error"] = e
         finally:
+            result_ready.set()
             try:
                 pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
                 for t in pending:
@@ -4000,7 +4005,18 @@ def _run_async_in_worker_thread_once(awaitable_or_factory):
     from utils.log_scope import wrap_context
     t = Thread(target=wrap_context(_worker), name="playwright-worker", daemon=True)
     t.start()
-    t.join()
+    result_ready.wait()
+    # The result is in; don't let a leftover task that never finishes its
+    # cancellation hold it hostage. Observed 2026-10-11 19:23: browser-use
+    # stopped after consecutive failures, the run returned, and the node
+    # thread then sat in join() forever, so the skill never reached its
+    # next node.
+    t.join(timeout=_WORKER_CLEANUP_GRACE_S)
+    if t.is_alive():
+        logger.warning(
+            f"[playwright-worker] loop cleanup still running {_WORKER_CLEANUP_GRACE_S:.0f}s "
+            f"after the result; returning without it (daemon thread left behind)"
+        )
     if "error" in error_holder:
         raise error_holder["error"]
     return result_holder.get("result")
