@@ -10,6 +10,7 @@ wan_a2a_chat.py - A2A Messaging over Cloud (CN/Intl unified)
 
 import json
 import ssl
+import time
 import asyncio
 import aiohttp
 import base64
@@ -467,6 +468,11 @@ async def _subscribe_ws(
     """
     retry_count = 0
     base_backoff = 5
+    # A healthy (acked) session that ran at least this long is a normal socket
+    # drop, not flapping: reconnect immediately so live A2A delivery to 客服
+    # agents isn't delayed. A shorter acked session keeps base_backoff to avoid
+    # the tight reconnect loop a server closing right after ack would cause.
+    min_healthy_session_s = 5
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
     # Auth-failure tracking: applies longer backoff and clearer logging
     # when server keeps rejecting the token (e.g. 1h JWT expired and
@@ -498,6 +504,7 @@ async def _subscribe_ws(
             logger.debug(f"[wan_a2a:WS] Connecting (attempt {retry_count + 1}): {ws_url[:80]}")
             # Both CN (TCB TCS) and Intl (AWS AppSync) use the same graphql-ws
             # protocol. The only difference is the auth header (Bearer vs API key).
+            conn_started = time.monotonic()
             acked = await _graphql_ws_subscribe_loop(
                 cfg=cfg, token=token, ws_url=ws_url,
                 channel_id=channel_id, sub_id=sub_id,
@@ -506,11 +513,13 @@ async def _subscribe_ws(
                 max_retries=max_retries, ssl_ctx=ssl_ctx,
             )
             # The inner loop returns (rather than raises) when the server
-            # closes the socket. Without a pause here a server that keeps
-            # closing during the handshake caused a tight reconnect loop.
+            # closes the socket. A healthy session that ran a while reconnects
+            # immediately (no added A2A latency); a very short acked session is
+            # flapping, so keep base_backoff to avoid a tight reconnect loop.
             if acked:
                 retry_count = 0
-                backoff = base_backoff
+                backoff = (0 if time.monotonic() - conn_started >= min_healthy_session_s
+                           else base_backoff)
             else:
                 retry_count += 1
                 backoff = min(base_backoff * (2 ** (retry_count - 1)), 60)
