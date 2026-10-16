@@ -1005,12 +1005,23 @@ conflict.
       as `ecan stores reconcile` (read-only; flags stores with >1 front desk,
       recommends keeping the store-scoped one). Tests in
       `test_front_desk_reconcile.py`.
-- [ ] **FOLLOW-UP — reconciliation ENACTMENT (app-side):** the CLI only reports,
-      because retiring a duplicate must also clean the CLOUD copy, which only the
-      running app's IPC teardown (`store_catalog.delete_*` → `handle_delete_agent`
-      / `handle_delete_agent_task`) does. Add a guided "retire duplicate front
-      desk" action on the Stores page that runs the planner, shows keep/retire,
-      confirms, then tears down the retired agent+task locally AND in the cloud.
+- [x] **reconciliation ENACTMENT — CLI done (yak):** `ecan stores reconcile`
+      now also reports STALE Q&A wiring (`store_overview.plan_qa_rewire`: a Q&A
+      pool pointed at a dead `front_desk_agent_id`) and gained `--apply`
+      (`--force` to skip the prompt): it retires duplicate front desks and
+      re-points stale Q&A, through the running app's handlers
+      (`delete_agent`/`delete_agent_task`/`save_agent_task`, so the CLOUD copy is
+      cleaned and running tasks update) when `edits_via_app`, else direct DB +
+      `cloud_sync`. Ambiguous stores (no single store-scoped front desk) are
+      skipped for a human. Productionizes the one-off
+      `fix_frontdesk_wiring.py`. Tests: `test_front_desk_reconcile.py`.
+      NOTE: the three CLI primitives were there all along — `ecan agents remove`,
+      `ecan tasks remove`, `ecan tasks update --var front_desk_agent_id=…` — the
+      gap was the one-shot planner+enactment, which this fills.
+- [ ] **FOLLOW-UP — reconciliation ENACTMENT (GUI):** a guided "retire duplicate
+      front desk / fix wiring" action on the Stores page (the CLI `--apply`
+      engine behind a visible confirm), part of the Repair panel (see "Remote
+      quick-patch / self-repair" below).
 
 **Phase-2 (STATE, deferred, behind a flag):** periodic encrypted cookie/storage
 snapshots to the vault (lifecycle events — graceful stop / login refresh /
