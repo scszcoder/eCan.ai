@@ -485,6 +485,13 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         _card_run_count: dict = {}   # key -> consecutive re-emissions with no quiet gap
         _card_storm_logged: dict = {}    # key -> True once the storm warning is logged
         handover_seen: set = set()   # talk_ids already acked for a button 人工 handover
+        # wsXXX: caps for the per-card tracking dicts above.  These are keyed by
+        # f"card|{conversation_id}|{text}" and grow forever on a long-running
+        # observer (one entry per distinct card ever seen).  Pruned periodically
+        # by _prune_card_tracking() from the reconnect health loop.
+        _CARD_TRACK_MAX = 5000
+        _CARD_TRACK_TTL_S = 86400.0   # 24h — well past any dedup/storm window
+        _last_card_prune_ts = [0.0]
         stats = {"frames": 0, "msgs": 0}
         # ws059: arm WS-owns-dispatch (which pauses the DOM monitor scrape) only on the
         # FIRST actually-received frame — NOT at CDP-handler registration. A pre-existing
@@ -1128,6 +1135,23 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
             while True:
                 try:
                     await asyncio.sleep(10.0)
+                    # (0) prune per-card tracking dicts so a long-running observer
+                    # session doesn't accumulate one entry per distinct card forever.
+                    try:
+                        _now_p = time.time()
+                        if _now_p - _last_card_prune_ts[0] >= 600.0:
+                            _last_card_prune_ts[0] = _now_p
+                            for _d in (_card_seen_ts, _card_last_ts, _card_run_count,
+                                       _card_storm_logged):
+                                if len(_d) > _CARD_TRACK_MAX:
+                                    # keying scheme: "card|<conversation_id>|<text>" —
+                                    # drop the oldest half by insertion order (CPython
+                                    # dicts preserve it) rather than scanning every key.
+                                    _drop = list(_d.keys())[:len(_d) - _CARD_TRACK_MAX]
+                                    for _k in _drop:
+                                        _d.pop(_k, None)
+                    except Exception:
+                        pass
                     # (1) attach any jinritemai tab we are not yet on (missed targetCreated)
                     try:
                         _tinfos = (await client.send_raw("Target.getTargets", {})).get("targetInfos", [])

@@ -481,10 +481,33 @@ def unregister_inflight_placeholder(customer_key: str, source_msg_id: str) -> No
 # (mt015) regressed this — an older turn's reply would kill the new
 # turn's placeholder, leaving customers with no acknowledgment for
 # 3+ minutes while the Q&A bot processed the new question.  Observed
-# in the 2026-05-20 22:52 flood: 客户02 港澳台运费 had no placeholder
-# because 客户02's earlier 婴儿66码 reply arrived first and cancelled.
+# in the 2026-05-20 22:52 flood: 客户 02 港澳台运费 had no placeholder
+# because 客户 02's earlier 婴儿 66 码 reply arrived first and cancelled.
 _REAL_REPLY_AT: dict[tuple[str, str], float] = {}
 REAL_REPLY_SUPPRESS_S: float = 60.0
+# mtXXX: prevent unbounded growth of _REAL_REPLY_AT.  Every successful
+# reply stamps both (customer, msg_id) and (customer, "") slots.  Without
+# periodic pruning these accumulate forever, leaking memory on long-running
+# sessions with thousands of customer interactions.
+_REAL_REPLY_AT_MAX_ENTRIES = 2000
+
+
+def _prune_real_reply_timestamps_if_needed() -> None:
+    """Drop stale entries from _REAL_REPLY_AT when the dict gets too large.
+
+    Called under _REGISTRY_LOCK.  Keeps only the most recent
+    _REAL_REPLY_AT_MAX_ENTRIES entries, discarding everything else.
+    This is a blunt-force cap; the alternative (per-entry TTL) would
+    require storing timestamps alongside values and complicates the
+    hot path in is_real_reply_recent().
+    """
+    if len(_REAL_REPLY_AT) <= _REAL_REPLY_AT_MAX_ENTRIES:
+        return
+    # Sort by timestamp ascending and keep only the newest entries
+    items = sorted(_REAL_REPLY_AT.items(), key=lambda kv: kv[1])
+    to_keep = items[-_REAL_REPLY_AT_MAX_ENTRIES:]
+    _REAL_REPLY_AT.clear()
+    _REAL_REPLY_AT.update(to_keep)
 
 
 def _reply_key(customer_key: str, source_msg_id: str) -> tuple[str, str]:
@@ -568,6 +591,10 @@ def mark_real_reply_delivered(customer_key: str, source_msg_id: str = "") -> Non
         # 2026-05-24 mt038E: also stamp the empty-msg-id slot for
         # key-mismatch suppression — see cancel() for full rationale.
         _REAL_REPLY_AT[(str(customer_key), "")] = now
+        # Prune AFTER the writes so the dict is capped at
+        # _REAL_REPLY_AT_MAX_ENTRIES (pruning before would leave
+        # cap + (entries written this call) every time it fires).
+        _prune_real_reply_timestamps_if_needed()
         # ws009: a real reply ends this customer's unanswered streak — clear the
         # first-unanswered anchor so the NEXT question anchors to its own arrival.
         _FIRST_SEEN_BY_CUSTOMER.pop(str(customer_key), None)
@@ -953,6 +980,7 @@ def _cancel_conversation_aliases(
                 f"cancelled cust={cust!r} src_msg={msg!r} because the reply "
                 f"was delivered as {customer_key!r}"
             )
+        _prune_real_reply_timestamps_if_needed()
     for cust, msg, task in inflight:
         try:
             task.cancel()
@@ -997,6 +1025,7 @@ def cancel(customer_key: str, source_msg_id: str = "") -> bool:
         # id + cancel with ''), 客户15 (arm with '' + cancel with real
         # id).  Both saw mis-fired placeholders post-real-reply.
         _REAL_REPLY_AT[(str(customer_key), "")] = now
+        _prune_real_reply_timestamps_if_needed()
         inflight_task = _INFLIGHT_PLACEHOLDER_TASKS.pop(key, None)
     if entry is not None:
         elapsed = now - entry.armed_at
@@ -1057,6 +1086,7 @@ def cancel_any_for_customer(customer_key: str) -> int:
             _REAL_REPLY_AT[k] = now
         # Also stamp empty-src so unknown-src placeholders are suppressed
         _REAL_REPLY_AT[(customer_key, "")] = now
+        _prune_real_reply_timestamps_if_needed()
     if cancelled:
         logger.debug(
             f"[placeholder_timer] cancelled {cancelled} timers for "
