@@ -1144,6 +1144,44 @@ compiler itself. Spawn entrypoint is `agent.ec_tasks.worker_entry` (NOT the ECS
 `cloud_worker/worker_main.py`); the isolated worker is a separate OS process
 (`worker_placement.default_spawner`).
 
+### Remote quick-patch / self-repair of a customer install (idea, 2026-10-16)
+
+Need: apply a DEPLOYMENT/data fix to a customer's installed app (e.g. the
+front-desk reconcile runbook — retire a duplicate desk, re-point a stale Q&A
+`front_desk_agent_id`, re-run Fast Deploy) WITHOUT a full rebuild/reinstall.
+Split cleanly:
+  - **Data/deployment fixes** (90% of cases): mutate DB rows + config via the
+    app's existing IPC handlers (`delete_agent`, `fast_deploy.generate`,
+    `stores reconcile`). Low-risk, reversible.
+  - **Code hot-patches:** keep on the OTA path (already ed25519-signed). The app
+    is PyInstaller-frozen; a real code change is a build. Do NOT build an
+    arbitrary-code overlay — it voids every signing/whitelist guarantee.
+
+**Security line (non-negotiable):** any "run this to fix it" mechanism is remote
+code/command execution. A hidden page that runs arbitrary scripts (the first
+`ctrl-alt-t` sketch) is the worst shape (powerful + invisible + no audit) and an
+FTP-a-script flow is the phishing shape. So: never execute raw code/scripts —
+only a WHITELIST of ops the app already knows, SIGNED (reuse the OTA ed25519
+key), owner- and time-SCOPED, report-first + explicit CONSENT + UNDO + AUDIT log.
+
+**Two tracks:**
+1. **Near-term, lightweight (preferred first step):** the user already has a
+   copilot agent — give it prompts + the runbook ops (and a diagnosis template)
+   so it can walk/apply the deployment fix on the customer machine. Quick and
+   dirty; no new signed-runner infra. Risk: it's still acting through whatever
+   access the copilot has — keep it to the known IPC/CLI ops, report-first.
+2. **Robust (future):** a signed, declarative **maintenance-recipe runner** — a
+   JSON recipe of whitelisted ops (`stores.reconcile`, `agent.delete`,
+   `store.redeploy`, …) + `owner`/`expires`/`sig`, executed through existing IPC
+   handlers behind a visible **Stores → Repair** panel (this subsumes the
+   reconcile ENACTMENT TODO). Delivery, best→worst: (a) cloud-pushed over
+   `PassiveCommandService`/AppSync (zero customer action; note its ws_endpoint
+   bug is still open), (b) a short maintenance CODE the customer pastes → app
+   fetches that signed recipe by code (presigned-URL pattern, like
+   `skill_file_sync`), (c) signed `.ecanfix` file loaded offline (FTP idea, made
+   safe by the signature — verify before any op). Signing + cloud-push channel =
+   an eCan_lambda (server) piece. `ctrl-alt-t` stays diagnostics-only.
+
 ### ⚡ Store placement: the assignment decides where a store runs (2026-09-24)
 
 Design: `docs/STORE_PLACEMENT_DESIGN.md` (D1 auto-claim, D2 run when the cloud
