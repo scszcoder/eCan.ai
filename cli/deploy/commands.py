@@ -159,7 +159,10 @@ _DDCS_FEIGE_ENV = {
     "ECAN_FEIGE_SEND_RETRY_ON_EMPTY": "1",
     "ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S": "10",
     "ECAN_FEIGE_TIMEOUT_PRESUME_DELIVERED": "1",
-    "ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S": "6",
+    # 过渡句 (placeholder) is OFF by default for 抖店: speed is good enough that a
+    # stand-by line is unwanted. Forced to 0 via env_set below (not seeded here),
+    # so a redeploy flips existing installs too; a 店主 can still switch it back
+    # on per store in the feige_chat Config panel (GUI tier outranks this env).
     "ECAN_FEIGE_DUMP_ON_MARSHAL_FAIL": "1",
     "ECAN_FEIGE_FC_FRAME_DUMP": "0",
     "ECAN_FEIGE_CARD_RESOLVE_WAIT": "1",
@@ -548,7 +551,10 @@ _DDCS_PROFILE = _LiveChatProfile(
              (_DDCS_QA_RAG_PROMPT_ID, "飞鸽RAG路由分类0", "qa"),
              (_DDCS_FD_PROMPT_ID, "飞鸽客服前台0", "fd")),
     fd_task_prefix="飞鸽客服前台", qa_task_prefix="飞鸽客服应答",
-    env_append=_DDCS_FEIGE_ENV, env_set={}, find_skill_by_name=False,
+    env_append=_DDCS_FEIGE_ENV,
+    # Force 过渡句 off on every (re)deploy — overwrites a previously seeded "6".
+    env_set={"ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S": "0"},
+    find_skill_by_name=False,
     fd_legacy_skill_ids=(_DDCS_FD_LEGACY_SKILL_ID,),
     catalog_skill_name="抖店商品导出",
     promo_skill_name="抖店营销导出",
