@@ -10345,6 +10345,25 @@ _last_known_agent_id_by_node: dict[str, str] = {}   # "node|scope" -> agent_id
 _known_agent_ids_by_node: dict[str, set] = {}       # node_name -> {agent_id, ...}
 
 
+def _run_browser_profile_id(state: dict) -> str:
+    """The run's ``browser_profile_id`` (a store's login identity), read the
+    same way :func:`resolve_state_browser_identity` does — state root, then
+    ``attributes``, then ``attributes.params``.  Store-deterministic and seeded
+    per task at run start, so it partitions two front desks that share ONE
+    skill (hence one node id) onto different stores.  Returns "" when absent."""
+    try:
+        st = state if isinstance(state, dict) else {}
+        attrs = st.get("attributes", {}) if isinstance(st.get("attributes"), dict) else {}
+        params = attrs.get("params", {}) if isinstance(attrs.get("params"), dict) else {}
+        for src in (st, attrs, params):
+            v = src.get("browser_profile_id")
+            if v not in (None, ""):
+                return str(v).strip()
+    except Exception:
+        pass
+    return ""
+
+
 def _agent_recovery_scope(state: dict) -> str:
     """Per-task disambiguator for the mt068 recovery cache.
 
@@ -10364,15 +10383,30 @@ def _agent_recovery_scope(state: dict) -> str:
     return ""
 
 
+def _agent_recovery_node_key(node_name: str, state: dict) -> str:
+    """Node key for the recovery caches, partitioned by the run's browser
+    profile so two front desks that share ONE skill (identical node id) but
+    serve different stores never read back each other's agent id.  Without a
+    profile the key is the bare node (legacy single-store behaviour)."""
+    prof = _run_browser_profile_id(state)
+    return f"{node_name}@{prof}" if prof else node_name
+
+
 def _record_or_recover_agent_id(node_name: str, state: dict, agent_id) -> "str | None":
-    """Record a live agent_id for (node, task scope), or recover the last
+    """Record a live agent_id for (node, store, task scope), or recover the last
     known one when the live resolution came back empty.  See the cache
-    comment above for the sharing-safety rules."""
+    comment above for the sharing-safety rules.
+
+    The node key is partitioned by the run's ``browser_profile_id`` (store), so
+    the ``len(known) == 1`` single-store fast-path and the last-known fallback
+    can only ever return an id recorded for THIS store — two stores sharing one
+    skill/node id no longer cross-contaminate the recovered id."""
+    node_key = _agent_recovery_node_key(node_name, state)
     scope = _agent_recovery_scope(state)
-    scoped_key = f"{node_name}|{scope}"
+    scoped_key = f"{node_key}|{scope}"
     if agent_id:
         _last_known_agent_id_by_node[scoped_key] = agent_id
-        _known_agent_ids_by_node.setdefault(node_name, set()).add(agent_id)
+        _known_agent_ids_by_node.setdefault(node_key, set()).add(agent_id)
         return agent_id
 
     recovered = _last_known_agent_id_by_node.get(scoped_key)
@@ -10384,19 +10418,19 @@ def _record_or_recover_agent_id(node_name: str, state: dict, agent_id) -> "str |
         )
         return recovered
 
-    known = _known_agent_ids_by_node.get(node_name) or set()
+    known = _known_agent_ids_by_node.get(node_key) or set()
     if len(known) == 1:
         sole = next(iter(known))
         logger.warning(
             f"[BrowserAutomation] mt068: agent_id empty for node={node_name} "
-            f"scope={scope!r}; single known agent for this node — recovered "
+            f"scope={scope!r}; single known agent for this store — recovered "
             f"agent_id={sole!r}"
         )
         return sole
     if len(known) > 1:
         logger.warning(
             f"[BrowserAutomation] mt068: agent_id empty for node={node_name} "
-            f"scope={scope!r} and {len(known)} agents share this node "
+            f"scope={scope!r} and {len(known)} agents share this node/store "
             f"(shared skill); declining ambiguous recovery"
         )
     return None

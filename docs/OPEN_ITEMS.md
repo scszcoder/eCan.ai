@@ -1040,6 +1040,47 @@ Middle option worth weighing then: per-store front desks (each bound to its
 store's browser) sharing ONE Q&A pool -- most of the memory, same
 store-scoping prerequisites on the Q&A side.
 
+**Live confirmation on yai (2026-10-16, customer `C:\Users\Admin`, owner
+`o3YBk2WG34…`, stores `douyin-抖音二号`/`douyin-抖音三号`).** yai's per-task
+`browser_profile_id` fix worked (TWO Chrome, each store its own
+`user_data_dir`), but one store stayed silent. Three in-process
+cross-contamination vectors, all from running 2 同平台 stores in one process
+(`ECAN_STORE_ISOLATION` off) where both front desks share ONE skill → ONE node
+id `browser_automation_0t5L6`:
+  1. **Agent-id recovery crossed stores** — `_record_or_recover_agent_id`
+     (`build_node.py`) keyed its caches by the shared node id alone; a degraded
+     WS re-entry (empty `state.attributes.agent_id`) recovered the OTHER store's
+     id via the `len(known)==1` / last-known fallback → PreDispatch sent as the
+     wrong store's front desk (`frontdesk_dispatch.py:2879` `sender_agent_id =
+     ctx.calling_agent_id`). **FIXED in yai→yaj:** the recovery caches + scope
+     are now partitioned by the run's `browser_profile_id` (store) — see
+     `_agent_recovery_node_key` / `_run_browser_profile_id`; the single-store
+     fast-path can only return an id recorded for THIS store. Tests:
+     `test_browser_identity_phase3.py::TestTwoStoresShareOneSkill`.
+  2. **`新消息` browser_event not store-qualified** — `_augment_match_fields`
+     (`runner.py:2957`) adds `senderId` filtering only for chat/a2a events, NOT
+     `browser_event`, so a detection on either store's session matches EVERY
+     front desk's `browser_event:新消息` rule → 抖音三号's detection can resume
+     抖音二号's desk (which then finds nothing on its own session → the message
+     is swallowed → silence). **NOT fixed (needs live Feige validation):** the
+     normalized event (`event_monitor._build_normalized_browser_event`) carries
+     only `session_id=id(session)`, no store; the fix is to thread the session's
+     `browser_profile_id`/`store_id` into the event AND add a browser_event
+     match-field keyed on the task's store. Tractable but touches battle-tested
+     detection+routing — do it on a live two-store 抖店 run, not blind.
+  3. **Deterministic total silence = stale deploy wiring** (NOT code): 抖音二号's
+     Q&A pool pend-waits on `front_desk_agent_id=agent_a57354ffe68d4286` but the
+     live front desk registered as `agent_7ca0a254b8d3435d` (re-created after the
+     Q&A pool was wired), and the legacy `前台小张`/`飞鸽客服前台001` is still
+     deployed on 抖音三号's profile `167bb80f`. **Customer fix = the reconcile
+     runbook:** retire `前台小张`, then clean-redeploy 抖音二号 (its profile
+     `6a4b2c53` is store-keyed so login persists). `ecan stores reconcile` flags
+     it.
+The definitive guarantee remains process isolation (re-enable
+`ECAN_STORE_ISOLATION`, blocked on worker skill-compilation). Vectors 1 & 3 get
+抖音二号 answering; vector 2 is the residual intermittent cross-routing until
+isolation or the store-qualified browser_event lands.
+
 ### ⚡ Store placement: the assignment decides where a store runs (2026-09-24)
 
 Design: `docs/STORE_PLACEMENT_DESIGN.md` (D1 auto-claim, D2 run when the cloud

@@ -530,9 +530,15 @@ def _agent_pin_suffix(state, node_name: str) -> str:
         except Exception:
             pass
         if not agent_id:
+            # No resolvable agent (degraded re-entry). The final scope key still
+            # appends ``@browser_profile_id=<store>`` (see _identity_scope_suffix),
+            # so two stores stay distinct even on this bare base; the recovered
+            # agent id above is now profile-partitioned so it can never belong to
+            # the other store.
             logger.debug(
                 f"[BrowserAutomation] Pinned scope for node={node_name} has no "
-                f"resolvable agent — using legacy shared scope node:{node_name}"
+                f"resolvable agent — using store-qualified scope node:{node_name} "
+                f"(+ browser-profile identity suffix)"
             )
         return f":{agent_id}" if agent_id else ""
     except Exception:
