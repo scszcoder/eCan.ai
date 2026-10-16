@@ -156,6 +156,8 @@ from agent.mcp.server.integrations.ebay_listing_tools import (
     ebay_csv_fill,
     ebay_csv_parse_result,
 )
+from agent.mcp.server.weather.weather_tools import get_weather
+from agent.mcp.server.kb.kb_mining_tools import query_qa_history, propose_kb_candidate
 from agent.mcp.server.integrations.customer_data_tools import (
     query_price,
     query_inventories,
@@ -4082,6 +4084,11 @@ tool_function_mapping = {
         "query_price": query_price,
         "query_inventories": query_inventories,
         "query_order": query_order,
+        # Weather lookup for shipping-time expectations
+        "get_weather": get_weather,
+        # KB mining: read captured Q&A history + propose candidates
+        "query_qa_history": query_qa_history,
+        "propose_kb_candidate": propose_kb_candidate,
         # Amazon listing via the category flat file
         "amazon_template_inspect": amazon_template_inspect,
         "amazon_template_fill": amazon_template_fill,

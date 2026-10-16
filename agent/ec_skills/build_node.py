@@ -621,6 +621,11 @@ _CLOUD_TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "query_price": ("agent.mcp.server.integrations.customer_data_tools", "query_price"),
     "query_inventories": ("agent.mcp.server.integrations.customer_data_tools", "query_inventories"),
     "query_order": ("agent.mcp.server.integrations.customer_data_tools", "query_order"),
+    # Weather lookup for shipping-time expectations (ship-from / destination).
+    "get_weather": ("agent.mcp.server.weather.weather_tools", "get_weather"),
+    # KB mining: read captured Q&A history + propose candidates (self-learning KB).
+    "query_qa_history": ("agent.mcp.server.kb.kb_mining_tools", "query_qa_history"),
+    "propose_kb_candidate": ("agent.mcp.server.kb.kb_mining_tools", "propose_kb_candidate"),
     # Chat / communication
     "send_chat": ("agent.mcp.server.chat_utils.chat_tools", "async_send_chat"),
     "list_chat_agents": ("agent.mcp.server.chat_utils.chat_tools", "async_list_chat_agents"),
