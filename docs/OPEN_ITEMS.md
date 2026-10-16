@@ -1081,6 +1081,69 @@ The definitive guarantee remains process isolation (re-enable
 抖音二号 answering; vector 2 is the residual intermittent cross-routing until
 isolation or the store-qualified browser_event lands.
 
+**Vector-2 client landed, gated OFF (`8fcb94db0`, yaj+1):** store-scoped
+browser_event dispatch behind `ECAN_STORE_SCOPED_BROWSER_EVENTS` (default off).
+The detecting session's `browser_profile_id` is stamped onto the event
+(`event_monitor`: http-polling bridge + ws_frontier `_evt`, threaded via
+`ActiveMonitorSet`→`start_monitors`→`ensure_started`, profile pulled from the
+`browser_scope_key`'s `@browser_profile_id=` tail in `browser_node/runner`); and
+`_augment_match_fields` (`ec_tasks/runner.py`) adds a browser_event match-field
+`browser_profile_id == login_profile_id(store_id)` so a front desk only resumes
+for its own store. Both ends use the same canonical value (verified). **Must be
+validated on a live two-store 抖店 Feige run before default-on** (adds a filter
+to battle-tested detection routing). Tests: `test_store_scoped_browser_events.py`.
+
+### Worker skill-compilation → re-enable ECAN_STORE_ISOLATION (plan, 2026-10-16)
+
+The real finish for multi-store (TODO #1). Today an isolated store worker
+(`agent/ec_tasks/worker_entry.py` → `start_domain_agents` → `load_agents_from_db`)
+builds EC_Agents from DB rows via `convert_agent_dict_to_ec_agent`, which resolves
+each task's executable skill out of `mainwin.agent_skills` (the COMPILED pool). On
+the worker that pool is `WorkerContext.agent_skills = []`
+(`agent/ec_tasks/worker_context.py:72-79`), so every skill stays a DB stub with
+`runnable=None` → a front-desk agent with no runnable chat skill comes up inert and
+never opens a browser (the yah/yai "agents green, no Chrome" when isolation was
+tried).
+
+**Minimal change (reuse MAIN's exact pipeline, so app and worker compile
+identically):** in `start_domain_agents` (`worker_entry.py`, before
+`load_agents_from_db`), populate `ctx.agent_skills` by calling
+`agent/ec_skills/build_agent_skills.build_agent_skills(ctx)` (headless-safe — no
+PySide6/pyautogui at import; the cloud ECS worker already compiles via
+`load_skill_from_folder(..., mainwin=None)` + `flowgram2langgraph_v2`). The worker
+has no running loop there, so `asyncio.run(...)` is fine. Update the
+`worker_context.py:72-79` comment that asserts the pool "stays empty".
+  - **Lighter alt (preferred if boot latency / offline robustness matters):** build
+    the pool DB-only — `_load_skills_from_database_async` + `_convert_db_skill_to_object`
+    per row — skipping `_load_skills_from_cloud_async` (the parent already owns cloud
+    sync; avoids a second DB writer racing the parent on the shared sqlite).
+  - Do NOT register a Qt progress callback in the worker (`set_status_callback` is
+    opt-in/None by design).
+**Then** flip `ECAN_STORE_ISOLATION` default on
+(`agent/ec_agents/store_isolation.py:39`) ONLY after live validation.
+
+**Headless-safety risks (low):** `build_node` must keep its lazy PySide6/pyautogui
+guards (the worker runs on Windows with a display, so run-time use is fine; only
+import/compile must stay guarded — it already is). Compile-path reads of
+`AppContext.get_main_window()` (e.g. `_inject_toolset_skillset_variables`,
+`_get_cached_browser_use_llm`) resolve to the `WorkerContext`; they use
+`getattr(..., None)` defaults, but any NEW attribute the compile path reaches
+without a default surfaces as a worker-context gap (caught by
+`tests/test_worker_entry.py`).
+
+**Must validate live (can't be proven in checkout):** (1) the spawned
+`worker_entry` process logs `✅ Converted DB skill … (runnable: <CompiledStateGraph>)`
+and the front-desk chat task resolves to a non-None `runnable` (no
+`[SKILL_WARNING] Skill has runnable=None`, no `⚠️ No skill matched`); (2) the
+isolated front desk opens its fingerprint browser and services a live chat end to
+end; (3) worker boot latency with the full compile is acceptable (else DB-only
+build); (4) no double-writer corruption on the shared sqlite from a worker cloud→DB
+write racing the parent; (5) the worker's checkpointer matches the desktop's
+(`EC_Skill.set_work_flow` → `build_checkpointer()`). No change needed to the
+compiler itself. Spawn entrypoint is `agent.ec_tasks.worker_entry` (NOT the ECS
+`cloud_worker/worker_main.py`); the isolated worker is a separate OS process
+(`worker_placement.default_spawner`).
+
 ### ⚡ Store placement: the assignment decides where a store runs (2026-09-24)
 
 Design: `docs/STORE_PLACEMENT_DESIGN.md` (D1 auto-claim, D2 run when the cloud
