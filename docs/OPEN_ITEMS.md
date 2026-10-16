@@ -1047,28 +1047,47 @@ setup error was swallowed (`agent/playwright/utils.py`), so the app came up
 copy from a prior install. Confirm on a box via Windows Security → Protection
 history (a `chrome.exe` quarantine entry).
 
+**UPDATE 2026-10-16 — the REAL root cause (not client-side Defender):** zbb's
+Windows Defender Protection history is CLEAN (no chrome.exe entry), and the
+INSTALL's own `_internal\third_party\ms-playwright\chromium-1181\chrome-win\` has
+all the DATA files (.pak/.dat/.bin, correct sizes) but NONE of the PE binaries
+(chrome.exe, chrome.dll, the DLLs). So the **installer is shipped WITHOUT the
+chromium executables** — deterministic, hits every fresh machine. A complete
+chromium is 106 files incl 22 PE binaries; the build logged "Added 110 Playwright
+files", so the PEs were collected but dropped between PyInstaller and the
+installer: the spec removes the Playwright binaries from `a.binaries` to re-ship
+as data (`minibuild_core.py:1038`), and PyInstaller's datas/binaries dedupe (or
+the build runner's own Defender eating the unsigned PEs from the dist before Inno)
+drops the executables while the data survives.
+
+ALSO CORRECTED: the CN (and intl) installer is **per-user, non-elevated**
+(`privileges_required: "lowest"`, `default_dir: {localappdata}\eCan.cn`), so an
+installer-time `Add-MpPreference` can NOT run — the earlier "installer
+self-excludes" idea was reverted as dead code for these installs.
+
 Fixes landed:
 - **yak `946dc2ee0`** — `ensure_playwright_browsers_ready` re-validates the target
-  AFTER the copy; if `chrome.exe` is missing it logs an ERROR naming the cause
-  (AV quarantine) + the repair-script pointer and raises (caller keeps the app
-  up). Makes the next occurrence diagnosable instead of silent.
-- **yal (pending build) — installer self-excludes:** the Inno `[Code]`
-  `ssPostInstall` step (`build_system/ecan_build.py`) runs an elevated, base64
-  `-EncodedCommand` PowerShell that `Add-MpPreference -ExclusionPath` for every
-  user's `…\AppData\Local\eCan` (the copy target) and `%ProgramFiles%\eCan*`
-  before first launch. Best-effort (`SilentlyContinue`); scoped to eCan's own
-  paths only. Validated: py-compiles, b64 is quote/brace-free + decodes exact, PS
-  parses. The `.iss` itself only validates at build (no local ISCC). CAVEAT:
-  Tamper-Protected / policy-managed Defender refuses `Add-MpPreference` → those
-  machines still need the manual exclusion / repair script.
+  AFTER the first-run copy; if `chrome.exe` is missing it logs an ERROR + the
+  repair-script pointer and raises. Diagnosable instead of silent.
+- **build completeness guard (`ecan_build._ensure_chromium_in_dist`)** — before
+  Inno packages, re-lay the complete chromium from `third_party` into the dist
+  (fixes the PyInstaller dedupe drop) and FAIL the build if it still isn't whole
+  (catches the runner-Defender-ate-the-source case, with a message to exclude the
+  runner work dir). So a browserless installer can never ship again. Validated:
+  py-compiles; `_chromium_complete` returns (True,True) on a good tree,
+  (True,False) on the broken dist, (False,False) when there's no chromium.
+- **RUNNER (one-time, user):** on the win-runner, elevated,
+  `Add-MpPreference -ExclusionPath "C:\actions-runner\_work"` so the runner's
+  Defender stops eating the unsigned chromium during the build.
 - **Immediate unblock for already-installed boxes:** `fix_missing_chromium.ps1`
-  (in eCan_lambda/docs/support) — adds the Defender exclusions + restores
-  `chrome-win` from the install's bundled copy + verifies. FTP-and-run.
+  (eCan_lambda/docs/support) — run ELEVATED with `-SourceDir` pointing at a
+  COMPLETE `ms-playwright` (Admin box or dev repo); it copies the whole
+  `chrome-win` (all PE files) into the per-user appdata + verifies.
 
-Durable real fix: **sign the installer** — a signed `chrome.exe` is far less
-likely to be quarantined (and kills SmartScreen). BLOCKED short-term (company
-identity / no Microsoft code-signing cert yet). Until then the installer
-self-exclusion is the main prevention, with the repair script as fallback.
+Durable belt-and-suspenders: **sign the installer** (BLOCKED short-term — no
+code-signing cert). Signing would also stop any per-client Defender from eating
+the exe post-install, which this build fix does not address (not observed on zbb,
+but possible elsewhere — the yak verify + repair script cover it).
 
 ### Decision point: several same-platform stores in ONE store process (Phase E) (2026-09-24)
 

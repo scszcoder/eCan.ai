@@ -337,6 +337,14 @@ class InstallerBuilder:
                 print("[WARNING] Inno Setup not found, skipping installer creation")
                 return True
 
+            # Guarantee the bundled Chromium is COMPLETE in the dist before Inno
+            # packages it — else we ship a browserless installer (every fresh
+            # install gets the folder tree but no chrome.exe). Fails the build if
+            # it can't be made whole.
+            if not self._ensure_chromium_in_dist():
+                print("[ERROR] Bundled Chromium is incomplete — refusing to build a browserless installer")
+                return False
+
             # Create Inno Setup script
             iss_file = self._create_inno_script()
             if not iss_file:
@@ -356,6 +364,98 @@ class InstallerBuilder:
             r"C:\Program Files\Inno Setup 6\ISCC.exe"
         ]
         return any(Path(path).exists() for path in inno_paths)
+
+    @staticmethod
+    def _chromium_complete(ms_playwright: Path) -> "tuple[bool, bool]":
+        """(has_chromium, is_complete) for an ms-playwright dir. Complete means
+        every chromium-<build> holds a non-empty chrome.exe AND chrome.dll (the
+        executables Defender/dedup tends to drop while leaving the .pak data)."""
+        chromium_dirs = list(ms_playwright.glob("chromium-*")) if ms_playwright.exists() else []
+        if not chromium_dirs:
+            return (False, False)
+        for d in chromium_dirs:
+            ok = False
+            for sub in ("chrome-win", "chrome-win64"):
+                exe, dll = d / sub / "chrome.exe", d / sub / "chrome.dll"
+                try:
+                    if (exe.is_file() and exe.stat().st_size > 0
+                            and dll.is_file() and dll.stat().st_size > 0):
+                        ok = True
+                except OSError:
+                    pass
+            if not ok:
+                return (True, False)
+        return (True, True)
+
+    def _ensure_chromium_in_dist(self) -> bool:
+        """Guarantee the bundled Chromium's EXECUTABLES are in the dist before
+        Inno packages it.
+
+        The PyInstaller spec pulls the Playwright binaries out of ``a.binaries``
+        to re-ship them as data; on some runs the chromium PE files (chrome.exe,
+        chrome.dll, the DLLs) get dropped from the onedir dist — a PyInstaller
+        datas/binaries dedupe, or the build runner's Defender quarantining the
+        unsigned PEs — while the data files (.pak/.dat/.bin) survive. The result
+        is a browserless installer: every fresh install lands the folder tree but
+        no chrome.exe, and nothing self-heals. Re-lay the complete chromium from
+        ``third_party`` and FAIL the build if it can't be made whole, so a
+        browserless installer can never ship again.
+        """
+        try:
+            import shutil
+            installer_config = self.config.config.get("installer", {})
+            app_info = self.config.get_app_info()
+            dist_basename = (installer_config.get("app_name")
+                             or installer_config.get("windows", {}).get("app_name")
+                             or app_info.get("name", "eCan"))
+            source = self.project_root / "third_party" / "ms-playwright"
+            dest = (self.project_root / "dist" / dist_basename
+                    / "_internal" / "third_party" / "ms-playwright")
+
+            has_src, src_complete = self._chromium_complete(source)
+            if not has_src:
+                print(f"[CHROMIUM] No bundled chromium in {source}; nothing to verify "
+                      f"(installer will have no bundled browser).")
+                return True
+            if not src_complete:
+                print(f"[CHROMIUM][FATAL] third_party chromium is INCOMPLETE at {source} "
+                      f"(chrome.exe/chrome.dll missing). The build runner's Defender most "
+                      f"likely quarantined the unsigned chromium — exclude the runner work "
+                      f"dir (e.g. C:\\actions-runner\\_work) from Defender and rebuild.")
+                return False
+
+            if not dest.exists():
+                print(f"[CHROMIUM] dist has no chromium dir yet, laying the full tree: {dest}")
+            # Re-lay any file missing or size-mismatched in dest (fixes the dropped
+            # PE binaries without recopying the whole ~500 MB tree). Also repairs
+            # the legacy case where a file landed as a directory.
+            copied = 0
+            for src_file in source.rglob("*"):
+                if not src_file.is_file():
+                    continue
+                dst_file = dest / src_file.relative_to(source)
+                try:
+                    if dst_file.is_dir():
+                        shutil.rmtree(dst_file, ignore_errors=True)
+                    if (not dst_file.exists()) or dst_file.stat().st_size != src_file.stat().st_size:
+                        dst_file.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src_file, dst_file)
+                        copied += 1
+                except OSError as e:
+                    print(f"[CHROMIUM] Warning: could not re-lay {dst_file}: {e}")
+            print(f"[CHROMIUM] Re-laid {copied} file(s) into the dist chromium.")
+
+            _, dest_complete = self._chromium_complete(dest)
+            if not dest_complete:
+                print(f"[CHROMIUM][FATAL] dist chromium STILL incomplete at {dest} after "
+                      f"re-lay (chrome.exe/chrome.dll missing). Refusing to ship a "
+                      f"browserless installer.")
+                return False
+            print(f"[CHROMIUM] OK: dist chromium complete (chrome.exe + chrome.dll present).")
+            return True
+        except Exception as e:
+            print(f"[CHROMIUM][FATAL] completeness guard failed: {e}")
+            return False
 
     def _ensure_windows_icon_quality(self) -> bool:
         """Ensure Windows icon quality and configuration"""
@@ -589,21 +689,6 @@ class InstallerBuilder:
             custom_messages_extra3 = '\nchinesesimplified.RemoveUserDataPrompt=是否删除用户数据和设置？'
             custom_messages_extra2 = '\nchinesesimplified.AdditionalIcons=附加图标：\nchinesesimplified.CreateDesktopIcon=创建桌面图标(&D)'
 
-            # Defender exclusions run from the installer's [Code] ssPostInstall step
-            # (see CurStepChanged). Baked as a base64 PowerShell -EncodedCommand so
-            # the .iss carries no quotes/braces (safe in both Pascal and this rf
-            # f-string). Uses only PowerShell env + wildcards — no Inno {app} — so
-            # it covers every user's eCan app-data (the first-run copy target that
-            # Defender quarantines) and the Program Files install dir. Best-effort.
-            import base64 as _b64
-            _defender_ps = (
-                "$ErrorActionPreference='SilentlyContinue';"
-                "Add-MpPreference -ExclusionPath \"$env:SystemDrive\\Users\\*\\AppData\\Local\\eCan\";"
-                "Add-MpPreference -ExclusionPath \"$env:ProgramFiles\\eCan*\";"
-                "if (${env:ProgramFiles(x86)}) { Add-MpPreference -ExclusionPath \"${env:ProgramFiles(x86)}\\eCan*\" }"
-            )
-            defender_exclusion_b64 = _b64.b64encode(_defender_ps.encode('utf-16-le')).decode('ascii')
-
             iss_content = rf"""
 ; eCan Installer Script
 ; Compression: LZMA2 + Non-Solid + Normal level (with splash screen, 4-6s startup)
@@ -737,8 +822,6 @@ end;
 
 // Handle installer step changes
 procedure CurStepChanged(CurStep: TSetupStep);
-var
-  AvResultCode: Integer;
 begin
   if CurStep = ssInstall then
   begin
@@ -747,19 +830,7 @@ begin
 
   if CurStep = ssPostInstall then
   begin
-    // Windows Defender exclusions for eCan's own folders (Setup is elevated:
-    // PrivilegesRequired=admin). The app is UNSIGNED, so on a pristine machine
-    // Defender real-time protection tends to quarantine the unsigned Chromium
-    // chrome.exe when eCan copies its bundled browser engine to
-    // %LOCALAPPDATA%\eCan\ms-playwright on first run — the folder tree lands but
-    // chrome.exe is gone, so no fingerprint browser ever launches. Excluding
-    // every user's eCan app-data (the copy target) and the install dir before
-    // first launch prevents it. The command is passed as base64 -EncodedCommand
-    // to avoid quoting pitfalls, and is best-effort (SilentlyContinue inside) so
-    // a Tamper-Protected / policy-managed Defender that refuses the change never
-    // fails the install (those machines use the manual exclusion / repair script).
-    // Scoped to eCan's own paths only — no process or system-wide exclusions.
-    Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand {defender_exclusion_b64}', '', SW_HIDE, ewWaitUntilTerminated, AvResultCode);
+    // Reserved for shell refresh if needed
   end;
 end;
 
