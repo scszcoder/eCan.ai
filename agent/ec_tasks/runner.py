@@ -2952,6 +2952,30 @@ class TaskRunner(Generic[Context]):
 
                 def _augment_match_fields(event_type: str, fields: list, agent_ids_value: str):
                     augmented = list(fields or [])
+                    # Store-scope browser_event routing (gated OFF by default): a
+                    # front desk only resumes for its OWN store's detection, so one
+                    # 抖店 store's 新消息 can't wake another store's desk and swallow
+                    # the turn. The event is stamped with the detecting session's
+                    # browser_profile_id (event_monitor); match on the task's own
+                    # store login. Flag: ECAN_STORE_SCOPED_BROWSER_EVENTS. Needs a
+                    # live two-store Feige run before default-on.
+                    _bse_on = (os.getenv("ECAN_STORE_SCOPED_BROWSER_EVENTS", "") or "").strip().lower() in (
+                        "1", "true", "yes", "on")  # canonical: event_monitor._store_scoped_browser_events_enabled
+                    if event_type == "browser_event" and _bse_on:
+                        try:
+                            from agent.ec_skills.prompt_variable_providers import resolve_store_id
+                            from agent.ec_skills.browser_use_extension.fingerprint.profile_registry import (
+                                login_profile_id,
+                            )
+                            _sid = resolve_store_id(task_vars)
+                            if _sid:
+                                _prof = login_profile_id(_sid)
+                                if _prof:
+                                    augmented.append({"event_path": "browser_profile_id",
+                                                      "literal": _prof})
+                        except Exception as _bse_err:
+                            logger.debug(f"[EventRouting] browser_event store-scope skipped: {_bse_err}")
+                        return augmented
                     # NOTE: a2a_task_result and a2a_response are A2A task result events
                     # that should also receive senderId filtering for proper routing
                     supported = {

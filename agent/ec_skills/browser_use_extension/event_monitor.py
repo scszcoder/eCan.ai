@@ -1770,6 +1770,23 @@ def _build_normalized_browser_event(
     return event.to_dict()
 
 
+def _store_scoped_browser_events_enabled() -> bool:
+    """Gate (default OFF) for store-scoping browser_event dispatch.
+
+    When ON, a detection event is stamped with the detecting session's
+    ``browser_profile_id`` (a store's login) and the front-desk pend rule only
+    resumes for its OWN store's events (see ``_augment_match_fields`` in
+    ``ec_tasks/runner.py``). Fixes the multi-store over-wake where one 抖店
+    store's `新消息` detection resumes the other store's front desk (which then
+    finds nothing on its own session → the message is swallowed). Kept OFF until
+    validated on a live two-store Feige run, since it adds a match filter to
+    battle-tested detection routing.  Flag: ``ECAN_STORE_SCOPED_BROWSER_EVENTS``.
+    """
+    import os as _os
+    return (_os.getenv("ECAN_STORE_SCOPED_BROWSER_EVENTS", "") or "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
 @dataclass
 class ActiveMonitorSet:
     """Tracks all running monitors for a browser_automation node."""
@@ -1777,6 +1794,7 @@ class ActiveMonitorSet:
     monitors: List[Any] = field(default_factory=list)  # PollingCapture instances etc.
     configs: List[EventMonitorConfig] = field(default_factory=list)
     agent_id: str = ""
+    browser_profile_id: str = ""   # the store login this monitor set runs under
     monitor_set_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
 
 
@@ -1997,7 +2015,8 @@ def _dispatch_to_runners(
     return dispatched
 
 
-def _build_bridge_callback(label: str, monitor_set_id: str, target_agent_id: str = "", session: Any = None):
+def _build_bridge_callback(label: str, monitor_set_id: str, target_agent_id: str = "",
+                           session: Any = None, browser_profile_id: str = ""):
     """Build an on_message callback that bridges PollingCapture matches to runners.
 
     The callback signature matches PollingCapture's on_message:
@@ -2039,6 +2058,8 @@ def _build_bridge_callback(label: str, monitor_set_id: str, target_agent_id: str
             "params": params_obj,
             "timestamp": int(time.time() * 1000),
         }
+        if _store_scoped_browser_events_enabled() and browser_profile_id:
+            event["browser_profile_id"] = browser_profile_id
         _dispatch_to_runners(sub_type, event, target_agent_id=target_agent_id)
 
     def _bridge(url: str, method: str, status: int, body: str, rule: str):
@@ -2127,6 +2148,7 @@ async def start_monitors(
     session,  # BrowserSession
     configs: List[EventMonitorConfig],
     agent_id: str = "",
+    browser_profile_id: str = "",
 ) -> Optional[ActiveMonitorSet]:
     """Start all configured event monitors on the given BrowserSession.
 
@@ -2159,7 +2181,9 @@ async def start_monitors(
             )
             return existing_set
 
-        monitor_set = ActiveMonitorSet(configs=configs, agent_id=agent_id or "")
+        monitor_set = ActiveMonitorSet(
+            configs=configs, agent_id=agent_id or "",
+            browser_profile_id=browser_profile_id or "")
 
         for cfg in configs:
             logger.info(
@@ -2172,7 +2196,8 @@ async def start_monitors(
                 continue
             if cfg.source_type == "http_polling":
                 monitor = await _start_http_polling_monitor(
-                    session, cfg, monitor_set.monitor_set_id, monitor_set.agent_id
+                    session, cfg, monitor_set.monitor_set_id, monitor_set.agent_id,
+                    browser_profile_id=monitor_set.browser_profile_id,
                 )
                 if monitor:
                     monitor_set.monitors.append(monitor)
@@ -2190,7 +2215,8 @@ async def start_monitors(
                     monitor_set.monitors.append(monitor)
             elif cfg.source_type == "dom_mutation":
                 monitor = await _start_dom_mutation_monitor(
-                    session, cfg, monitor_set.monitor_set_id, monitor_set.agent_id
+                    session, cfg, monitor_set.monitor_set_id, monitor_set.agent_id,
+                    browser_profile_id=monitor_set.browser_profile_id,
                 )
                 if monitor:
                     monitor_set.monitors.append(monitor)
@@ -2220,7 +2246,8 @@ async def start_monitors(
         return None
 
 async def _start_http_polling_monitor(
-    session, cfg: EventMonitorConfig, monitor_set_id: str, target_agent_id: str = ""
+    session, cfg: EventMonitorConfig, monitor_set_id: str, target_agent_id: str = "",
+    browser_profile_id: str = "",
 ):
     """Start a PollingCapture instance for an HTTP polling monitor config."""
     try:
@@ -2244,7 +2271,9 @@ async def _start_http_polling_monitor(
             min_body_length=cfg.min_body_length,
         )
 
-        bridge_callback = _build_bridge_callback(cfg.label, monitor_set_id, target_agent_id, session=session)
+        bridge_callback = _build_bridge_callback(
+            cfg.label, monitor_set_id, target_agent_id, session=session,
+            browser_profile_id=browser_profile_id)
 
         capture = PollingCapture(
             session=session,
@@ -2292,13 +2321,16 @@ async def stop_monitors(monitor_set: Optional[ActiveMonitorSet], session=None) -
 
 
 async def _start_dom_mutation_monitor(
-    session, cfg: EventMonitorConfig, monitor_set_id: str, target_agent_id: str = ""
+    session, cfg: EventMonitorConfig, monitor_set_id: str, target_agent_id: str = "",
+    browser_profile_id: str = "",
 ):
     """Start a DOM mutation monitor using CDP's DOM events."""
     try:
         logger.info(f"[EventMonitor] Starting DOM mutation monitor '{cfg.label}'...")
-        
-        bridge_callback = _build_bridge_callback(cfg.label, monitor_set_id, target_agent_id)
+
+        bridge_callback = _build_bridge_callback(
+            cfg.label, monitor_set_id, target_agent_id, session=session,
+            browser_profile_id=browser_profile_id)
         
         # Get CDP client from session
         cdp_client = session.cdp_client if hasattr(session, 'cdp_client') else None
@@ -2331,6 +2363,7 @@ async def _start_dom_mutation_monitor(
             "config": cfg,
             "monitor_set_id": monitor_set_id,
             "agent_id": target_agent_id or "",
+            "browser_profile_id": browser_profile_id or "",
             "last_check": time.time(),
             "last_customer_count": 0,
             "last_keys": [],
@@ -2737,6 +2770,10 @@ async def _start_dom_mutation_monitor(
                     "event_method": "WS.frontier", "domain": "WS",
                     "event": _norm, "params": _params,
                 }
+                if _store_scoped_browser_events_enabled():
+                    _prof = mutation_state.get("browser_profile_id") or ""
+                    if _prof:
+                        _evt["browser_profile_id"] = _prof
                 def _legacy_dispatch() -> None:
                     _dispatch_to_runners(
                         cfg.label, _evt,

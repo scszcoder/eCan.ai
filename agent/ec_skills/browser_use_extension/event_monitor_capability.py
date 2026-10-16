@@ -104,7 +104,8 @@ class EventMonitorCapability:
         except Exception:
             return str(normalized)
 
-    async def ensure_started(self, configs: List[Any], agent_id: str = "") -> Any:
+    async def ensure_started(self, configs: List[Any], agent_id: str = "",
+                             browser_profile_id: str = "") -> Any:
         logger.info(
             f"[EventMonitorCapability] ensure_started called: "
             f"incoming_labels={[getattr(c, 'label', '') for c in (configs or [])]}, "
@@ -155,7 +156,8 @@ class EventMonitorCapability:
                 pass
             if desired_sig != current_sig:
                 logger.info("[EventMonitorCapability] Desired monitor config differs from active set; replacing monitors")
-                return await self.replace_monitors(configs, agent_id=agent_id)
+                return await self.replace_monitors(configs, agent_id=agent_id,
+                                                   browser_profile_id=browser_profile_id)
             self.state.enabled = True
             self.state.status = "running"
             return current
@@ -164,7 +166,8 @@ class EventMonitorCapability:
         try:
             from agent.ec_skills.browser_use_extension.event_monitor import start_monitors
 
-            monitor_set = await start_monitors(self.session, configs=configs, agent_id=agent_id)
+            monitor_set = await start_monitors(self.session, configs=configs, agent_id=agent_id,
+                                               browser_profile_id=browser_profile_id)
             self.set_active_monitor_set(monitor_set)
             return monitor_set
         except Exception as exc:
@@ -186,11 +189,13 @@ class EventMonitorCapability:
         self.state.status = "stopped"
         self.state.enabled = False
 
-    async def replace_monitors(self, configs: List[Any], agent_id: str = "") -> Any:
+    async def replace_monitors(self, configs: List[Any], agent_id: str = "",
+                               browser_profile_id: str = "") -> Any:
         current = self.get_active_monitor_set()
         if current:
             await self.stop()
-        return await self.ensure_started(configs, agent_id=agent_id)
+        return await self.ensure_started(configs, agent_id=agent_id,
+                                         browser_profile_id=browser_profile_id)
 
     async def check_dom_monitors(self) -> None:
         from agent.ec_skills.browser_use_extension.event_monitor import check_dom_monitors_periodically

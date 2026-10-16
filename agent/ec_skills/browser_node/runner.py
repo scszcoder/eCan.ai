@@ -1985,10 +1985,23 @@ async def start_event_monitors_for_agent(
             f"skill={skill_name}, scope={browser_scope_key}"
         )
         configs_copy = _copy.deepcopy(event_monitor_configs)
+        # The store login this monitor set runs under; lets browser_event
+        # dispatch be store-scoped so one store's detection does not wake
+        # another store's front desk (gated by ECAN_STORE_SCOPED_BROWSER_EVENTS,
+        # read on the dispatch side). browser_scope_key carries the identity as
+        # ``@browser_profile_id=<value>``.
+        _monitor_profile_id = ""
+        try:
+            _marker = "@browser_profile_id="
+            if _marker in (browser_scope_key or ""):
+                _monitor_profile_id = browser_scope_key.split(_marker, 1)[1].split("@", 1)[0]
+        except Exception:
+            _monitor_profile_id = ""
         capability = get_event_monitor_capability(bs, create=True)
         active = (
             await capability.ensure_started(
-                configs=configs_copy, agent_id=calling_agent_id or ""
+                configs=configs_copy, agent_id=calling_agent_id or "",
+                browser_profile_id=_monitor_profile_id,
             )
             if capability
             else None
