@@ -2079,9 +2079,12 @@ class LightragServer:
         # immediately sets _monitor_running=True again, masking the False.
         # The join is bounded so app exit is not blocked if the thread is
         # slow to observe _monitor_running=False; os._exit(0) reaps it.
+        # timeout=2.5 covers a single 60s health-check interval's worst-case
+        # sleep wake-up plus a small margin, reducing transient thread
+        # accumulation under rapid start/stop bursts.
         if hasattr(self, '_self_health_check_thread') and self._self_health_check_thread:
             if self._self_health_check_thread.is_alive():
-                self._self_health_check_thread.join(timeout=1)
+                self._self_health_check_thread.join(timeout=2.5)
             self._self_health_check_thread = None
 
         # Unregister the proxy-change callback. The closure captures `self`,
