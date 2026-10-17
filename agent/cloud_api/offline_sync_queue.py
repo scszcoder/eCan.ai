@@ -301,12 +301,16 @@ class OfflineSyncQueue:
                 return [task for task in self.failed_queue if task['data_type'] == data_type]
             return self.failed_queue.copy()
     
-    def retry_failed_task(self, task_id: str):
+    def retry_failed_task(self, task_id: str) -> bool:
         """
         Move failed task back to pending queue
 
         Args:
             task_id: Task ID
+
+        Returns:
+            bool: True if the task was moved back to pending, False if it was
+                  not found in the failed queue or is non-retryable.
         """
         with self._lock:
             for task in self.failed_queue:
@@ -314,7 +318,7 @@ class OfflineSyncQueue:
                     # Never retry permanent failures (auth/ownership/configuration, etc.)
                     if bool(task.get('non_retryable')):
                         logger.info(f"[OfflineSyncQueue] Skip retry non-retryable task: {task_id}")
-                        break
+                        return False
                     # Reset status
                     task['status'] = 'pending'
                     task['retry_count'] = 0
@@ -324,6 +328,19 @@ class OfflineSyncQueue:
                     self.failed_queue.remove(task)
                     self._save_queue()
                     logger.info(f"[OfflineSyncQueue] Retry failed task: {task_id}")
+                    return True
+            return False
+
+    def flag_auto_recycled(self, task_id: str) -> None:
+        """Mark a pending task as already having received one automatic
+        retry cycle from the failed queue. sync_pending_queue() consults this
+        so a permanently-failing task is not recycled (with retry_count
+        reset to 0) every auto-retry tick forever."""
+        with self._lock:
+            for task in self.pending_queue:
+                if task['id'] == task_id:
+                    task['auto_recycled'] = True
+                    self._save_queue()
                     break
 
     def get_pending(self) -> List[Dict[str, Any]]:
