@@ -2190,6 +2190,56 @@ def patch_eventbus_dispatch_for_shutdown(agent: Any) -> None:
             )
 
 
+def _exc_chain_has_queue_shutdown(exc) -> bool:
+    """True if a QueueShutDown is anywhere in *exc*'s cause/context chain.
+
+    A reused browser session whose bubus event bus was shut down (e.g. by a
+    cancelled prior run) raises QueueShutDown from browser-use on the next
+    dispatch, often re-wrapped as RuntimeError — so match by chain and by name.
+    """
+    try:
+        from bubus.service import QueueShutDown as _QSD
+    except Exception:
+        _QSD = None
+    seen: set = set()
+    cur = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if _QSD is not None and isinstance(cur, _QSD):
+            return True
+        if type(cur).__name__ == "QueueShutDown":
+            return True
+        if "QueueShutDown" in (str(cur) or ""):  # chain broken by `raise ... from None`
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
+def _force_recreate_cached_session(browser_scope_key, agent=None) -> None:
+    """Flag a scope's cached browser session for rebuild on the next run.
+
+    ``get_or_create_browser_session`` skips reuse and recreates when the cached
+    session carries ``_ecan_force_recreate`` (build_helpers). Without this, a
+    session with a dead event bus is reused on every retry and fails with
+    QueueShutDown forever (customer 2026-10-17: PDD front desk, 41 failures in
+    ~2 min). Best-effort; never raises into the caller's error path.
+    """
+    try:
+        sess = None
+        if browser_scope_key:
+            sess = _bh.cached_browser_sessions.get(browser_scope_key)
+        if sess is None and agent is not None:
+            sess = getattr(agent, "browser_session", None)
+        if sess is not None:
+            setattr(sess, "_ecan_force_recreate", True)
+            logger.warning(
+                f"[BrowserAutomation] Browser session for scope={browser_scope_key} "
+                f"flagged for rebuild (dead event bus); next run will recreate it"
+            )
+    except Exception as exc:
+        logger.debug(f"[BrowserAutomation] force-recreate flag failed: {exc}")
+
+
 def register_agent_for_extension_tools(
     agent: Any,
     *,
@@ -6806,6 +6856,15 @@ class BrowserRunSession:
             err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode")
             logger.error(err_msg)
             send_skill_editor_log("error", err_msg)
+            # A reused browser session whose bubus event bus was shut down fails
+            # every retry with QueueShutDown — the cached session is poisoned.
+            # Flag it so the next invocation builds a fresh session instead of
+            # reusing the dead one (stops the retry churn).
+            if _exc_chain_has_queue_shutdown(e):
+                _force_recreate_cached_session(
+                    locals().get("_browser_scope_key"),
+                    agent=locals().get("agent"),
+                )
             # Re-raise the exception so LangGraph can mark the node as failed
             _err_text = str(e).strip() or repr(e)
             raise RuntimeError(f"Browser automation failed: {_err_text}") from e
