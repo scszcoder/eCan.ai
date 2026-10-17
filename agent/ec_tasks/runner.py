@@ -9196,9 +9196,12 @@ class TaskRunner(Generic[Context]):
             from agent.cloud_api.cloud_api import run_cloud_tasks
 
             session = requests.Session()
-            client_id = self._get_client_id()
-            result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
-                                     options={"host_name": host_name, "passive_client_id": client_id})
+            try:
+                client_id = self._get_client_id()
+                result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
+                                         options={"host_name": host_name, "passive_client_id": client_id})
+            finally:
+                session.close()
 
             if not result.get("success"):
                 error_msg = result.get("error", "runCloudTasks failed")
@@ -9270,67 +9273,70 @@ class TaskRunner(Generic[Context]):
         # Fall back to queryCloudTaskRunId polling only for scheduled triggers
         # where runCloudTasks didn't return a runID.
         session = requests.Session()
-        cloud_run_id = None
-        client_id = self._get_client_id()
-
-        cloud_helper_skill_name = None  # may be set from runCloudTasks response
-
-        logger.info(f"[HybridCloud] Step 1: Launching cloud task via runCloudTasks (task_id={task.id}, trigger={trigger_type})")
         try:
-            from agent.cloud_api.cloud_api import run_cloud_tasks
+            cloud_run_id = None
+            client_id = self._get_client_id()
 
-            result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
-                                     options={"host_name": host_name, "passive_client_id": client_id})
+            cloud_helper_skill_name = None  # may be set from runCloudTasks response
 
-            if result.get("success"):
-                run_ids = result.get("run_ids", {})
-                cloud_run_id = run_ids.get(task.id)
-                if not cloud_run_id:
-                    cloud_run_id = next(iter(run_ids.values()), None)
-
-                # Extract local_helper_skill_name from response extras
-                extras = result.get("extras", {})
-                task_extras = extras.get(task.id) or extras.get("_default") or {}
-                cloud_helper_skill_name = task_extras.get("local_helper_skill_name")
-                if cloud_helper_skill_name:
-                    logger.info(f"[HybridCloud] Cloud returned local_helper_skill_name: {cloud_helper_skill_name}")
-
-            if cloud_run_id:
-                logger.info(f"[HybridCloud] Got cloud runID from runCloudTasks: {cloud_run_id}")
-            else:
-                logger.warning(f"[HybridCloud] runCloudTasks did not return a runID: {result.get('error', result)}")
-        except Exception as e:
-            logger.warning(f"[HybridCloud] runCloudTasks call failed (will try polling): {e}")
-
-        # Fall back to polling for scheduled triggers if runCloudTasks didn't yield a runID
-        if not cloud_run_id and trigger_type == "schedule":
-            logger.info(f"[HybridCloud] Step 1b: Falling back to polling for cloud runID (task_id={task.id}, host={host_name})")
+            logger.info(f"[HybridCloud] Step 1: Launching cloud task via runCloudTasks (task_id={task.id}, trigger={trigger_type})")
             try:
-                from agent.cloud_api.cloud_api import query_cloud_task_run_id_with_retry
+                from agent.cloud_api.cloud_api import run_cloud_tasks
 
-                run_id_result = query_cloud_task_run_id_with_retry(
-                    session, token, task.id, host_name,
-                    meta_data={"owner": username},
-                    endpoint=endpoint,
-                    max_wait_seconds=120,
-                    poll_interval=5,
-                )
+                result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
+                                         options={"host_name": host_name, "passive_client_id": client_id})
 
-                if run_id_result.get("success"):
-                    cloud_run_id = run_id_result["run_id"]
-                    logger.info(f"[HybridCloud] Got cloud runID via polling: {cloud_run_id}")
+                if result.get("success"):
+                    run_ids = result.get("run_ids", {})
+                    cloud_run_id = run_ids.get(task.id)
+                    if not cloud_run_id:
+                        cloud_run_id = next(iter(run_ids.values()), None)
+
+                    # Extract local_helper_skill_name from response extras
+                    extras = result.get("extras", {})
+                    task_extras = extras.get(task.id) or extras.get("_default") or {}
+                    cloud_helper_skill_name = task_extras.get("local_helper_skill_name")
+                    if cloud_helper_skill_name:
+                        logger.info(f"[HybridCloud] Cloud returned local_helper_skill_name: {cloud_helper_skill_name}")
+
+                if cloud_run_id:
+                    logger.info(f"[HybridCloud] Got cloud runID from runCloudTasks: {cloud_run_id}")
                 else:
-                    error_msg = run_id_result.get("error", "Failed to get cloud runID")
-                    logger.error(f"[HybridCloud] Failed to get cloud runID: {error_msg}")
-                    return {"success": False, "error": error_msg}, True
+                    logger.warning(f"[HybridCloud] runCloudTasks did not return a runID: {result.get('error', result)}")
             except Exception as e:
-                logger.error(f"[HybridCloud] Error polling for cloud runID: {e}")
-                logger.error(traceback.format_exc())
-                return {"success": False, "error": f"RunID poll error: {e}"}, True
+                logger.warning(f"[HybridCloud] runCloudTasks call failed (will try polling): {e}")
 
-        if not cloud_run_id:
-            logger.error(f"[HybridCloud] Could not obtain cloud runID for task {task.id}")
-            return {"success": False, "error": "No cloud runID obtained"}, True
+            # Fall back to polling for scheduled triggers if runCloudTasks didn't yield a runID
+            if not cloud_run_id and trigger_type == "schedule":
+                logger.info(f"[HybridCloud] Step 1b: Falling back to polling for cloud runID (task_id={task.id}, host={host_name})")
+                try:
+                    from agent.cloud_api.cloud_api import query_cloud_task_run_id_with_retry
+
+                    run_id_result = query_cloud_task_run_id_with_retry(
+                        session, token, task.id, host_name,
+                        meta_data={"owner": username},
+                        endpoint=endpoint,
+                        max_wait_seconds=120,
+                        poll_interval=5,
+                    )
+
+                    if run_id_result.get("success"):
+                        cloud_run_id = run_id_result["run_id"]
+                        logger.info(f"[HybridCloud] Got cloud runID via polling: {cloud_run_id}")
+                    else:
+                        error_msg = run_id_result.get("error", "Failed to get cloud runID")
+                        logger.error(f"[HybridCloud] Failed to get cloud runID: {error_msg}")
+                        return {"success": False, "error": error_msg}, True
+                except Exception as e:
+                    logger.error(f"[HybridCloud] Error polling for cloud runID: {e}")
+                    logger.error(traceback.format_exc())
+                    return {"success": False, "error": f"RunID poll error: {e}"}, True
+
+            if not cloud_run_id:
+                logger.error(f"[HybridCloud] Could not obtain cloud runID for task {task.id}")
+                return {"success": False, "error": "No cloud runID obtained"}, True
+        finally:
+            session.close()
 
         # Step 2a: Start onTaskStatus subscription for this cloud run
         try:

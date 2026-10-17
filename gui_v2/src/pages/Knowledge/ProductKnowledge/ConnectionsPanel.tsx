@@ -156,7 +156,7 @@ const ConnectionsPanel: React.FC<{ onChanged?: () => void }> = ({ onChanged }) =
         </Col>
       </Row>
 
-      <Modal open={!!editing} title={editing?.id ? k('edit') : k('add')} onCancel={() => setEditing(null)} onOk={save} okText={k('save')} destroyOnClose>
+      <Modal open={!!editing} title={editing?.id ? k('edit') : k('add')} onCancel={() => setEditing(null)} onOk={save} okText={k('save')} destroyOnHidden>
         <Form form={form} layout="vertical">
           <Form.Item name="name" label={k('name')} rules={[{ required: true }]}><Input placeholder={k('namePlaceholder')} /></Form.Item>
           <Form.Item name="plane" label={k('kind')}>
@@ -178,7 +178,7 @@ const ConnectionsPanel: React.FC<{ onChanged?: () => void }> = ({ onChanged }) =
         </Form>
       </Modal>
 
-      <Modal open={!!login} title={k('signInTo', { name: login?.name })} onCancel={() => setLogin(null)} onOk={doLogin} okText={k('signIn')} destroyOnClose>
+      <Modal open={!!login} title={k('signInTo', { name: login?.name })} onCancel={() => setLogin(null)} onOk={doLogin} okText={k('signIn')} destroyOnHidden>
         <Form form={loginForm} layout="vertical">
           <Form.Item name="email" label={k('email')} rules={[{ required: true }]}><Input autoComplete="username" /></Form.Item>
           <Form.Item name="password" label={k('password')} rules={[{ required: true }]}><Input.Password autoComplete="current-password" /></Form.Item>

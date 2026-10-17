@@ -82,7 +82,8 @@ const DetailsCard = styled(Card, {
     .ant-card-head {
         flex-shrink: 0;
     }
-    .ant-card-body {
+    /* Only the direct body child gets flex; nested cards have their own rules */
+    > .ant-card-body {
         flex: 1 1 0;
         min-height: 0;
         overflow: hidden;

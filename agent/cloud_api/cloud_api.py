@@ -846,12 +846,12 @@ def set_up_cloud():
 
 async def set_up_cloud8():
     REGION = 'us-east-1'
-    this_session = None
-    # session = requests.Session()
 
-    async with aiohttp.ClientSession() as session:
-        this_session = session
-    return this_session
+    # NOTE: previously this returned a session created inside `async with`,
+    # i.e. an already-closed ClientSession (connector drained) that any caller
+    # would misuse. Callers now receive a live session and own closing it.
+    session = aiohttp.ClientSession()
+    return session
 
 
 # interface appsync, directly use HTTP request.

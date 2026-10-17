@@ -30,3 +30,34 @@ def test_progress_resets_idle_time(monkeypatch):
     progress.note_task_progress("task_progress_t2")
     now[0] += 10.0
     assert progress.seconds_since_progress("task_progress_t2") == 10.0
+
+
+def test_stale_progress_entries_are_evicted(monkeypatch):
+    """Unbounded growth guard: dead tasks must not accumulate forever.
+
+    Task IDs are UUIDs and note_task_progress() runs on every busy node, so
+    without eviction every task that ever ran leaves a permanent entry.
+    """
+    progress._TASK_LAST_PROGRESS.clear()
+    now = [10_000.0]
+    monkeypatch.setattr(progress.time, "monotonic", lambda: now[0])
+
+    progress.note_task_progress("task_evict_old")
+    now[0] += progress._PROGRESS_TTL_SEC + 1.0
+    # A write for a different task triggers the sweep and drops the stale one.
+    progress.note_task_progress("task_evict_new")
+
+    assert "task_evict_old" not in progress._TASK_LAST_PROGRESS
+    assert "task_evict_new" in progress._TASK_LAST_PROGRESS
+
+
+def test_seconds_since_progress_lazily_expires(monkeypatch):
+    progress._TASK_LAST_PROGRESS.clear()
+    now = [20_000.0]
+    monkeypatch.setattr(progress.time, "monotonic", lambda: now[0])
+
+    progress.note_task_progress("task_lazy_expire")
+    now[0] += progress._PROGRESS_TTL_SEC + 5.0
+
+    assert progress.seconds_since_progress("task_lazy_expire") is None
+    assert "task_lazy_expire" not in progress._TASK_LAST_PROGRESS

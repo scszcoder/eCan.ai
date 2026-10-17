@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import {
-  App, Badge, Button, Card, Descriptions, Empty, Popconfirm, Select, Space, Statistic, Table, Tag, Tooltip, Typography,
-} from 'antd';
+ import {
+   App, Badge, Button, Card, Descriptions, Empty, Popconfirm, Select, Space, Statistic, Table, Tag, Tooltip, Typography,
+ } from 'antd';
+ import { AppstoreOutlined, EditOutlined, DeleteOutlined, SyncOutlined, SwapOutlined, ShopOutlined, FundOutlined, ClusterOutlined, EnvironmentOutlined } from '@ant-design/icons';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useFastDeployStore } from '@/stores/fastDeployStore';
 import { useUserStore } from '@/stores/userStore';
@@ -12,8 +13,80 @@ import { platformLabel } from '@/components/FastDeploy/scenarios';
 import type { StoreDeletePlan, StoreMachine, StoreMeter, StoreRow } from './types';
 import MoveStoreModal from './MoveStoreModal';
 import { TransferList, useFleetTransfers } from '@/components/Fleet/FleetTransfers';
+import styled from '@emotion/styled';
 
 const LOGIN_COLORS: Record<string, string> = { ok: 'green', needs_login: 'orange', unknown: 'default' };
+
+/** The outer DetailsCard zeros `.ant-card-body` padding and the app's global.css
+ *  forces 8px on every card body; reclaim sensible padding for THIS panel's
+ *  nested cards so text and controls don't hug the card borders. */
+ /**
+  * Scoped visual de-noising for the store detail panel.
+  *
+  * global.css decorates every `.ant-card-bordered` card with a heavy 4-layer
+  * shadow, top-glow ::before, and hover-lift. Inside the borderless DetailsCard
+  * this produces multiple stacked borders + shadows (the "too many thick edges"
+  * look). We strip it for every card nested inside this panel, restoring flat
+  * hairline-styled sections.
+  */
+ const StoreDetailPanel = styled.div`
+    /* Section cards lose the heavy global decoration */
+    .ant-card-bordered {
+        border: 1px solid rgba(255, 255, 255, 0.07) !important;
+        border-radius: 10px !important;
+        box-shadow: none !important;
+        background: rgba(255, 255, 255, 0.02) !important;
+        transform: none !important;
+        transition: border-color 0.15s ease !important;
+    }
+    .ant-card-bordered:hover {
+        border-color: rgba(255, 255, 255, 0.12) !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+    .ant-card-bordered::before {
+        display: none !important;
+    }
+
+    /* Headers: compact, no gradient band */
+    .ant-card-bordered .ant-card-head {
+        height: auto !important;
+        min-height: auto !important;
+        padding: 0 20px !important;
+        background: transparent !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    }
+    .ant-card-bordered .ant-card-head-wrapper {
+        padding: 10px 0;
+    }
+    .ant-card-bordered .ant-card-head-title {
+        font-size: 14px !important;
+        font-weight: 600 !important;
+    }
+
+    /* Bodies: comfortable breathing room */
+    .ant-card-bordered .ant-card-body {
+        padding: 16px 20px !important;
+    }
+
+    /* Descriptions rendered borderless: airy label/value rows */
+    .ant-descriptions-item-label {
+        color: rgba(255, 255, 255, 0.45) !important;
+        font-size: 13px !important;
+    }
+    .ant-descriptions-item-content {
+        font-size: 14px !important;
+    }
+    /* Strip dividers between description rows */
+    .ant-descriptions-view,
+    .ant-descriptions-row,
+    .ant-descriptions-item {
+        border: none !important;
+    }
+    .ant-descriptions-row > td {
+        border-bottom: none !important;
+    }
+`;
 
 interface Props {
   store: StoreRow | null;
@@ -37,7 +110,10 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
   const ts = (k: string, d: string, o?: Record<string, unknown>) =>
     t(`pages.stores.${k}`, { defaultValue: d, ...(o || {}) }) as string;
   const zh = (i18n.language || '').toLowerCase().startsWith('zh');
-
+ 
+  const cardTitle = (icon: React.ReactNode, text: string) => (
+    <Space size={6}>{icon}<span>{text}</span></Space>
+  );
   if (!store) return <Empty description={ts('select', 'Select a store')} style={{ marginTop: 48 }} />;
 
   const act = async (run: () => Promise<any>, ok?: string) => {
@@ -75,6 +151,7 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
   const meterName = (m: StoreMeter) =>
     (zh ? m.display_name_zh : m.display_name_en) || m.display_name_zh || m.display_name_en
     || `${m.scenario_code}.${m.meter_code}`;
+
 
   // Ask the backend what goes with the store first, so the confirm names it.
   const confirmDelete = async () => {
@@ -131,40 +208,58 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
   };
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%', padding: 16 }}>
-      <Card size="small" title={ts('definition', 'Store')}
+    <StoreDetailPanel style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', paddingRight: 4, paddingBottom: 8 }}>
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Card 
+        title={cardTitle(<ShopOutlined />, ts('definition', 'Store'))}
         extra={
-          <Space size={4}>
+          <Space size={8}>
             {def && (
-              <Button size="small" onClick={() => onEdit({ store_id: store.storeId, name: def.name,
+              <Button size="small" icon={<EditOutlined />} onClick={() => onEdit({ store_id: store.storeId, name: def.name,
                 platform: def.platform, store_urls: def.store_urls || [], browser_profile_id: def.browser_profile_id })}>
                 {ts('edit', 'Edit')}
               </Button>
             )}
-            <Button size="small" type="primary" onClick={deploy}>{ts('deploy_agents', 'Deploy agents')}</Button>
+            <Button size="small" type="primary" icon={<AppstoreOutlined />} onClick={deploy}>{ts('deploy_agents', 'Deploy agents')}</Button>
           </Space>
         }
+        styles={{ header: { padding: '12px 16px' }, body: { padding: 16 } }}
       >
-        <Descriptions size="small" column={1}>
-          <Descriptions.Item label={ts('name', 'Name')}>{def?.name || store.label || store.storeId}</Descriptions.Item>
-          <Descriptions.Item label={ts('platform', 'Platform')}>{platformLabel(def?.platform || store.platform, i18n.language) || ts('none', '—')}</Descriptions.Item>
-          <Descriptions.Item label={ts('urls_short', 'URLs')}>
+         <Descriptions column={1} size="middle" styles={{ label: { color: 'rgba(255,255,255,0.45)', fontSize: 13, padding: '6px 0' } }}>
+          <Descriptions.Item label="Name">{def?.name || store.label || store.storeId}</Descriptions.Item>
+          <Descriptions.Item label="Platform"><Typography.Text type="secondary">{platformLabel(def?.platform || store.platform, i18n.language) || ts('none', '—')}</Typography.Text></Descriptions.Item>
+          <Descriptions.Item label="URLs">
             {def?.store_urls?.length
-              ? <Space direction="vertical" size={0}>{def.store_urls.map((u) => <Typography.Text key={u} copyable>{u}</Typography.Text>)}</Space>
-              : ts('none', '—')}
+              ? def.store_urls.map((u) => <Typography.Text key={u} copyable ellipsis style={{ fontSize: 14 }}>{u}</Typography.Text>)
+              : <Typography.Text type="secondary">—</Typography.Text>}
           </Descriptions.Item>
-          <Descriptions.Item label={ts('profile', 'Login profile')}>{def?.browser_profile_id || ts('none', '—')}</Descriptions.Item>
+          <Descriptions.Item label="Login Profile"><Typography.Text type="secondary" copyable>{def?.browser_profile_id || ts('none', '—')}</Typography.Text></Descriptions.Item>
         </Descriptions>
       </Card>
-      <Card size="small" title={ts('placement', 'Where it runs')}
+      <Card
+        title={cardTitle(<EnvironmentOutlined />, ts('placement', 'Where it runs'))}
         extra={archived ? (
-          <Space size={4}>
-            <Button size="small" loading={busy}
+          <Space size={8}>
+            <Button size="small" icon={<SyncOutlined />} loading={busy}
               onClick={() => act(() => api.archiveStore(store.storeId, true))}>{ts('restore', 'Restore')}</Button>
-            <Button size="small" danger loading={busy || deleting} onClick={confirmDelete}>{ts('delete', 'Delete')}</Button>
+            <Button size="small" danger icon={<DeleteOutlined />} loading={busy || deleting} onClick={confirmDelete}>{ts('delete', 'Delete')}</Button>
           </Space>
         ) : (
-          <Space size={4}>
+          <Space size={8}>
+            <Popconfirm title={ts('archive_confirm', 'Archive this store?')}
+              onConfirm={() => act(() => api.archiveStore(store.storeId))}>
+              <Button size="small" loading={busy}>{ts('archive', 'Archive')}</Button>
+            </Popconfirm>
+            <Button size="small" danger type="primary" icon={<DeleteOutlined />} loading={busy || deleting} onClick={confirmDelete}>
+              {ts('delete', 'Delete')}
+            </Button>
+          </Space>
+        )}
+        styles={{ header: { padding: '12px 16px' }, body: { padding: 16 } }}
+      >
+        {!archived && (
+          <Space size={8} wrap style={{ marginBottom: 16 }}>
             {/* Assign to any machine on the account -- this one or another. */}
             <Select size="small" style={{ minWidth: 200 }} loading={busy}
               placeholder={ts('assign_to', 'Assign to…')}
@@ -182,40 +277,36 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
               {ts('unassign', 'Unassign')}
             </Button>
             {/* Reassigning alone leaves the login behind; this brings it along. */}
-            <Button size="small" disabled={!(store.assignedVehicleId || store.reportedVehicleId)}
+            <Button size="small" icon={<SwapOutlined />} disabled={!(store.assignedVehicleId || store.reportedVehicleId)}
               onClick={() => setMoveOpen(true)}>
               {t('fleet.move_button', { defaultValue: 'Move with login…' })}
             </Button>
-            <Popconfirm title={ts('archive_confirm', 'Archive this store?')}
-              onConfirm={() => act(() => api.archiveStore(store.storeId))}>
-              <Button size="small" danger loading={busy}>{ts('archive', 'Archive')}</Button>
-            </Popconfirm>
-            <Button size="small" danger type="primary" loading={busy || deleting} onClick={confirmDelete}>
-              {ts('delete', 'Delete')}
-            </Button>
           </Space>
         )}
-      >
         {cloud ? (
-          <Descriptions size="small" column={1}>
+          <Descriptions column={1} size="middle" styles={{ label: { color: 'rgba(255,255,255,0.45)', fontSize: 13, padding: '6px 0' } }}>
             <Descriptions.Item label={ts('store_id', 'Store ID')}>
-              <Typography.Text copyable>{store.storeId}</Typography.Text>
-              {store.platform && <Tag style={{ marginLeft: 8 }}>{platformLabel(store.platform, i18n.language)}</Tag>}
+              <Space size={8}>
+                <Typography.Text copyable>{store.storeId}</Typography.Text>
+                {store.platform && <Tag style={{ marginInlineEnd: 0 }}>{platformLabel(store.platform, i18n.language)}</Tag>}
+              </Space>
             </Descriptions.Item>
             <Descriptions.Item label={ts('assigned', 'Assigned to')}>
               {machine(store.assignedVehicleId, store.assignedVehicleOnline)}
             </Descriptions.Item>
             <Descriptions.Item label={ts('reported', 'Running on')}>
-              <Space size={4}>
+              <Space size={8} wrap>
                 {machine(store.reportedVehicleId, store.reportedVehicleOnline)}
-                {store.misplaced && <Tag color="red">{ts('misplaced', 'Running somewhere other than assigned')}</Tag>}
+                {store.misplaced && <Tag color="red" style={{ marginInlineEnd: 0 }}>{ts('misplaced', 'Running somewhere other than assigned')}</Tag>}
               </Space>
             </Descriptions.Item>
             <Descriptions.Item label={ts('login', 'Login')}>
-              <Tag color={LOGIN_COLORS[store.loginState || 'unknown'] || 'default'}>{store.loginState || 'unknown'}</Tag>
+              <Tag color={LOGIN_COLORS[store.loginState || 'unknown'] || 'default'} style={{ marginInlineEnd: 0 }}>{store.loginState || 'unknown'}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label={ts('last_report', 'Last report')}>
-              {store.lastReportedAt ? new Date(store.lastReportedAt).toLocaleString() : ts('none', '—')}
+              <Typography.Text type="secondary">
+                {store.lastReportedAt ? new Date(store.lastReportedAt).toLocaleString() : ts('none', '—')}
+              </Typography.Text>
             </Descriptions.Item>
           </Descriptions>
         ) : (
@@ -231,51 +322,81 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
           onClose={() => setMoveOpen(false)} onMoved={() => { refreshTransfers(); onChanged(); }} />
       )}
 
-      <Card size="small" title={ts('outcomes', 'Outcomes')}>
-        <Space size={32} wrap style={{ marginBottom: store.local.meters.length ? 12 : 0 }}>
+      <Card
+        title={cardTitle(<FundOutlined />, ts('outcomes', 'Outcomes'))}
+        styles={{ header: { padding: '12px 16px' }, body: { padding: 16 } }}
+      >
+        <Space size={32} wrap style={{ marginBottom: store.local.meters.length ? 16 : 0 }}>
           {cloud && (
             <Tooltip title={ts('billed_hint', 'What this account was charged for AI usage by this store, not the vendor cost.')}>
-              <Statistic title={ts('billed_30d', 'Billed, last 30 days')} prefix="¥"
-                value={((store.llm30d?.costFen || 0) / 100).toFixed(2)} />
+              <Statistic
+                title={ts('billed_30d', 'Billed, last 30 days')}
+                prefix="¥"
+                value={((store.llm30d?.costFen || 0) / 100)}
+                precision={2}
+                valueStyle={{ fontSize: 24, fontWeight: 500 }}
+              />
             </Tooltip>
           )}
         </Space>
         {store.local.meters.length ? (
           <Table<StoreMeter>
-            size="small" pagination={false} rowKey={(m) => `${m.scenario_code}.${m.meter_code}`}
+            pagination={false} rowKey={(m) => `${m.scenario_code}.${m.meter_code}`}
             dataSource={store.local.meters}
             columns={[
               { title: ts('meter', 'Outcome'), key: 'n', render: (_, m) =>
                   <Tooltip title={m.definition || undefined}><span>{meterName(m)}</span></Tooltip> },
-              { title: ts('last_7d', 'Last 7 days'), key: 'd7', render: (_, m) => `${m.d7} ${m.unit}` },
-              { title: ts('last_30d', 'Last 30 days'), key: 'd30', render: (_, m) => `${m.d30} ${m.unit}` },
+              { title: ts('last_7d', 'Last 7 days'), key: 'd7', align: 'right', render: (_, m) => `${m.d7} ${m.unit}` },
+              { title: ts('last_30d', 'Last 30 days'), key: 'd30', align: 'right', render: (_, m) => `${m.d30} ${m.unit}` },
             ]}
           />
         ) : (
-          <Typography.Text type="secondary">{ts('no_outcomes', 'No outcomes recorded for this store yet.')}</Typography.Text>
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={<Typography.Text type="secondary">{ts('no_outcomes', 'No outcomes recorded for this store yet.')}</Typography.Text>}
+            style={{ padding: 16 }}
+          />
         )}
       </Card>
 
-      <Card size="small" title={ts('agents_tasks', 'Agents & tasks')}>
+      <Card
+        title={cardTitle(<ClusterOutlined />, ts('agents_tasks', 'Agents & tasks'))}
+        styles={{ header: { padding: '12px 16px' }, body: { padding: 16 } }}
+      >
         {store.local.agents.length ? (
           <Table
-            size="small" pagination={false} rowKey="id" dataSource={store.local.agents}
+            pagination={false} rowKey="id" dataSource={store.local.agents}
             columns={[
               { title: ts('agent', 'Agent'), key: 'n', render: (_, a: any) =>
-                  <Typography.Link onClick={() => navigate(`/agents/details/${a.id}`)}>{a.name || a.id}</Typography.Link> },
+                  <Typography.Link style={{ fontSize: 14 }} onClick={() => navigate(`/agents/details/${a.id}`)}>{a.name || a.id}</Typography.Link> },
               { title: ts('state', 'State'), key: 's', render: (_, a: any) =>
-                  <Badge status={a.running ? 'success' : 'default'}
-                    text={a.running ? ts('running_here', 'Running here') : ts('not_running_here', 'Not running here')} /> },
+                  <Badge
+                    status={a.running ? 'success' : 'default'}
+                    text={<Typography.Text style={{ fontSize: 13 }} type={a.running ? 'secondary' : undefined}>
+                      {a.running ? ts('running_here', 'Running here') : ts('not_running_here', 'Not running here')}
+                    </Typography.Text>}
+                  /> },
               { title: ts('tasks', 'Tasks'), key: 't', render: (_, a: any) =>
-                  store.local.tasks.filter((x) => x.agent_id === a.id).map((x) =>
-                    <Tag key={x.id} style={{ cursor: 'pointer' }} onClick={() => navigate('/tasks')}>{x.name || x.id}</Tag>) },
+                  <Space size={4} wrap>
+                    {store.local.tasks.filter((x) => x.agent_id === a.id).map((x) =>
+                      <Tag key={x.id} style={{ cursor: 'pointer', marginInlineEnd: 0 }} onClick={() => navigate('/tasks')}>
+                        {x.name || x.id}
+                      </Tag>)
+                    }
+                  </Space> },
             ]}
           />
         ) : (
-          <Typography.Text type="secondary">{ts('no_agents', 'No agents on this machine serve this store.')}</Typography.Text>
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={<Typography.Text type="secondary">{ts('no_agents', 'No agents on this machine serve this store.')}</Typography.Text>}
+            style={{ padding: 16 }}
+          />
         )}
       </Card>
     </Space>
+      </div>
+    </StoreDetailPanel>
   );
 };
 

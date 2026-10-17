@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { App, Form, Input, Modal, Radio, Select } from 'antd';
+import styled from '@emotion/styled';
 import { get_ipc_api } from '@/services/ipc_api';
 import { PLATFORMS, platformValue } from '@/components/FastDeploy/scenarios';
 
@@ -24,6 +25,45 @@ interface Props {
   onClose: () => void;
   onSaved: (storeId: string) => void;
 }
+
+/** Vertical form with tightened rhythm: antd's default 24px item gap plus a
+ *  full label row leaves a lot of dead space in a short dialog. */
+const CompactForm = styled.div`
+  .ant-form-item {
+    margin-bottom: 10px;
+  }
+  .ant-form-item:last-child {
+    margin-bottom: 0;
+  }
+  .ant-form-item-label {
+    padding-bottom: 2px;
+  }
+  .ant-form-item-label > label {
+    height: auto;
+    font-size: 13px;
+  }
+  .ant-form-item-explain,
+  .ant-form-item-extra {
+    margin-top: 2px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  /* Undo global.css's 40px-tall "Select 样式" inside this dialog: it fights
+   * size="small" (misaligned text) and, in tags mode, its 38px line-height on
+   * .ant-select-selection-item makes each tag taller than the control, so the
+   * selected platform text gets clipped away. */
+  .ant-select-selector {
+    min-height: auto !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+  .ant-select-selection-search-input,
+  .ant-select-selection-item,
+  .ant-select-selection-placeholder {
+    line-height: inherit !important;
+    height: auto !important;
+  }
+`;
 
 const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) => {
   const { t, i18n } = useTranslation();
@@ -85,57 +125,63 @@ const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) =>
       onOk={submit}
       confirmLoading={saving}
       okText={ts('save', 'Save')}
+      width={440}
       destroyOnHidden
+      styles={{ body: { padding: '12px 20px 4px' }, footer: { marginTop: 12 } }}
     >
-      <Form form={form} layout="vertical"
-        onValuesChange={(changed, all) => {
-          // The id is <platform>-<name> until the user edits it, so same-named
-          // shops on two platforms get distinct ids. Fixed once created.
-          if (('name' in changed || 'platform' in changed) && !idTouched && !editing) {
-            const name = String(all.name || '').trim();
-            const platform = String(all.platform || '').trim();
-            form.setFieldsValue({ store_id: name ? (platform ? `${platform}-${name}` : name) : '' });
-          }
-          if ('store_id' in changed) setIdTouched(true);
-        }}
-      >
-        <Form.Item name="name" label={ts('name', 'Name')} rules={[{ required: true, whitespace: true }]}>
-          <Input placeholder={ts('name_ph', 'e.g. 小店一号')} />
-        </Form.Item>
-        <Form.Item name="store_id" label={ts('store_id', 'Store ID')}
-          extra={ts('store_id_hint', 'Permanent. Every 飞鸽 seller shares one workstation URL, so this, not the URL, is what tells stores apart.')}
-          rules={[{ required: true, whitespace: true },
-            { validator: (_, v) => (/^https?:\/\//i.test(String(v || '')) ? Promise.reject(ts('id_is_url', 'Use a name, not a URL')) : Promise.resolve()) }]}>
-          <Input disabled={!!editing} />
-        </Form.Item>
-        {/* Pick one, or type a platform that is not listed and press Enter. The
-            field holds a single string; tags mode is only how free text gets in. */}
-        <Form.Item name="platform" label={ts('platform', 'Platform')} rules={[{ required: true, whitespace: true }]}
-          extra={ts('platform_hint', 'Not listed? Type its name and press Enter.')}
-          getValueProps={(v) => ({ value: v ? [v] : [] })}
-          normalize={(v) => platformValue(Array.isArray(v) ? String(v[v.length - 1] || '') : v)}>
-          <Select mode="tags" showSearch optionFilterProp="label"
-            options={[
-              ...PLATFORMS.map((p) => ({ value: p.value, label: zh ? p.nameZh : p.nameEn })),
-              ...customPlatforms.map((v) => ({ value: v, label: v })),
-            ]} />
-        </Form.Item>
-        <Form.Item name="urls" label={ts('urls', 'Store URLs (one per line)')}>
-          <Input.TextArea rows={3} placeholder="https://…" />
-        </Form.Item>
-        <Form.Item name="browser_profile_id" label={ts('profile', 'Login profile')}
-          extra={ts('profile_hint', 'The browser profile signed in to this store. It stays on this machine.')}>
-          <Select allowClear options={profiles.map((p) => ({ value: p.id, label: p.label || p.id }))} />
-        </Form.Item>
-        {!editing && (
-          <Form.Item name="assign" label={ts('runs_on', 'Runs on')}>
-            <Radio.Group options={[
-              { value: 'here', label: ts('this_machine', 'This machine') },
-              { value: 'none', label: ts('unassigned', 'Unassigned: the first machine to run it claims it') },
-            ]} />
+      <CompactForm>
+        <Form form={form} layout="vertical" size="small" colon={false}
+          onValuesChange={(changed, all) => {
+            // The id is <platform>-<name> until the user edits it, so same-named
+            // shops on two platforms get distinct ids. Fixed once created.
+            if (('name' in changed || 'platform' in changed) && !idTouched && !editing) {
+              const name = String(all.name || '').trim();
+              const platform = String(all.platform || '').trim();
+              form.setFieldsValue({ store_id: name ? (platform ? `${platform}-${name}` : name) : '' });
+            }
+            if ('store_id' in changed) setIdTouched(true);
+          }}
+        >
+          <Form.Item name="name" label={ts('name', 'Name')} required rules={[{ required: true, whitespace: true }]}>
+            <Input placeholder={ts('name_ph', 'e.g. Shop One')} allowClear />
           </Form.Item>
-        )}
-      </Form>
+          <Form.Item name="store_id" label={ts('store_id', 'Store ID')} required
+            extra={ts('store_id_hint', 'Permanent. Every Feige seller shares one workstation URL, so this, not the URL, is what tells stores apart.')}
+            rules={[{ required: true, whitespace: true },
+              { validator: (_, v) => (/^https?:\/\//i.test(String(v || '')) ? Promise.reject(ts('id_is_url', 'Use a name, not a URL')) : Promise.resolve()) }]}>
+            <Input disabled={!!editing} allowClear />
+          </Form.Item>
+          {/* Pick one, or type a platform that is not listed and press Enter. The
+              field holds a single string; tags mode is only how free text gets in. */}
+          <Form.Item name="platform" label={ts('platform', 'Platform')} required
+            extra={ts('platform_hint', 'Not listed? Type its name and press Enter.')}
+            getValueProps={(v) => ({ value: v ? [v] : [] })}
+            normalize={(v) => platformValue(Array.isArray(v) ? String(v[v.length - 1] || '') : v)}>
+            <Select mode="tags" showSearch optionFilterProp="label"
+              options={[
+                ...PLATFORMS.map((p) => ({ value: p.value, label: zh ? p.nameZh : p.nameEn })),
+                ...customPlatforms.map((v) => ({ value: v, label: v })),
+              ]} />
+          </Form.Item>
+          <Form.Item name="urls" label={ts('urls', 'Store URLs (one per line)')}>
+            <Input.TextArea rows={2} placeholder="https://…" style={{ fontFamily: 'monospace' }} />
+          </Form.Item>
+          <Form.Item name="browser_profile_id" label={ts('profile', 'Login profile')}
+            extra={ts('profile_hint', 'The browser profile signed in to this store. It stays on this machine.')}>
+            <Select allowClear placeholder={ts('profile_ph', 'Select or type…')}
+              options={profiles.map((p) => ({ value: p.id, label: p.label || p.id }))} />
+          </Form.Item>
+          {!editing && (
+            <Form.Item name="assign" label={ts('runs_on', 'Runs on')}
+              extra={ts('unassigned_hint', 'Pick "This machine" to assign now, or "Unassigned" so the first machine to run it claims it automatically.')}>
+              <Radio.Group optionType="button" buttonStyle="solid" size="small" options={[
+                { value: 'here', label: ts('this_machine', 'This machine') },
+                { value: 'none', label: ts('unassigned_short', 'Unassigned') },
+              ]} />
+            </Form.Item>
+          )}
+        </Form>
+      </CompactForm>
     </Modal>
   );
 };

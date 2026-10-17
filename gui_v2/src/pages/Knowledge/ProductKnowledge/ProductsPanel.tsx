@@ -178,7 +178,7 @@ const ProductsPanel: React.FC<Props> = ({ overview, onChanged, draft, onDraftCon
       />
 
       <Drawer
-        width={760} open={!!editing} destroyOnClose
+        width={760} open={!!editing} destroyOnHidden
         title={editing?.id ? k('edit') : attachPath ? k('reviewDraft') : k('new')}
         onClose={() => { setEditing(null); setAttachPath(undefined); }}
         extra={

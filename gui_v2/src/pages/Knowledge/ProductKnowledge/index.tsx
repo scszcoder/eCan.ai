@@ -42,7 +42,7 @@ const StoreModal: React.FC<{ store: Partial<KSStore> | null; onClose: () => void
   };
   return (
     <Modal open={!!store} title={value.id ? k('edit') : k('add')} onCancel={onClose} onOk={save} okText={k('save')}
-           okButtonProps={{ disabled: !value.name?.trim() }} destroyOnClose>
+           okButtonProps={{ disabled: !value.name?.trim() }} destroyOnHidden>
       <Text type="secondary">{k('name')} *</Text>
       <Input value={value.name} onChange={e => setValue({ ...value, name: e.target.value })} style={{ marginBottom: 8 }} />
       <Text type="secondary">{k('platform')}</Text>

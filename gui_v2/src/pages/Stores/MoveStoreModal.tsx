@@ -60,10 +60,16 @@ const MoveStoreModal: React.FC<Props> = ({ open, store, machines, thisVehicleId,
   return (
     <Modal open={open} title={tf('move_title', 'Move store with its login')} onCancel={onClose}
       onOk={submit} okText={tf('move_ok', 'Move')} confirmLoading={busy}
+      width={520}
       okButtonProps={{ disabled: !target || !agreed, danger: true }} destroyOnHidden>
-      <Space direction="vertical" size={12} style={{ width: '100%' }}>
-        <Select style={{ width: '100%' }} placeholder={tf('move_to', 'Move to…')}
-          value={target} onChange={setTarget} options={options} />
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <div>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>
+            {tf('move_to_label', 'Move to')}
+          </Typography.Text>
+          <Select style={{ width: '100%' }} placeholder={tf('move_to', 'Move to…')}
+            value={target} onChange={setTarget} options={options} />
+        </div>
         <Alert type="warning" showIcon message={tf('move_warn_title', 'A live seller login will be copied')}
           description={
             <Space direction="vertical" size={4}>
