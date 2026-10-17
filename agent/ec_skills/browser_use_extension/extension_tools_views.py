@@ -672,6 +672,12 @@ class DownloadDocsToNasAction(BaseModel):
 		default="",
 		description="Folder on the NAS, RELATIVE to the configured base folder. LEAVE EMPTY to skip the NAS upload."
 	)
+	html_dir: str = Field(
+		default="",
+		description="Absolute local folder for the documents' HTML editions (each doc's `html_url`), saved once "
+		"per document and shared by every part. LEAVE EMPTY to skip HTML editions."
+	)
+	nas_html_dir: str = Field(default="", description="NAS folder for the HTML editions, RELATIVE to the base folder.")
 
 
 class NasSaveTextAction(BaseModel):

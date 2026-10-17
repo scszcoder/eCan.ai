@@ -2592,8 +2592,42 @@ def _doc_file_name(doc: dict) -> str:
 _DOWNLOAD_PARALLEL = 8
 
 
+async def _save_html_editions(docs: list, params, gate: asyncio.Semaphore) -> str:
+    """Save each listed document's HTML edition once under html_dir/<doc id>/ and mirror
+    it to nas_html_dir. Editions are shared by many parts, and a failed one does not fail
+    the part (its PDF is saved)."""
+    from pathlib import Path
+    from agent.ec_skills.chip_docs import static_html
+    from agent.ec_skills.nas import ugreen_nas as _nas
+
+    urls = list(dict.fromkeys(str(d.get("html_url") or "").strip() for d in docs if isinstance(d, dict)))
+    urls = [u for u in urls if u.startswith("http")]
+
+    async def save(url: str) -> str | None:
+        async with gate:
+            try:
+                dest, files = await asyncio.to_thread(static_html.save_edition, url, Path(params.html_dir))
+                if params.nas_html_dir:
+                    for rel in files:
+                        await asyncio.to_thread(_nas.nas_upload, str(dest / rel),
+                                                f"{params.nas_html_dir.rstrip('/')}/{dest.name}/{rel}")
+                return "saved" if files else "have"
+            except Exception as e:
+                return f"{url}: {e}"
+
+    results = await asyncio.gather(*(save(u) for u in urls))
+    failed = [r for r in results if r not in ("saved", "have")]
+    logger.info(f"[download_docs_to_nas] HTML editions: {results.count('saved')} saved, "
+                f"{results.count('have')} already saved, {len(failed)} failed")
+    msg = (f" HTML editions: {results.count('saved')} saved, {results.count('have')} already saved, "
+           f"{len(failed)} failed (not a part failure).")
+    return msg + (f" HTML failed: {failed}" if failed else "")
+
+
 def _fetch_to(url: str, path: str) -> int:
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 eCan-AI downloader"})
+    from agent.ec_skills.chip_docs.static_html import HEADERS
+    # 2026-10-16: st.com drops requests that don't look like a browser's
+    req = urllib.request.Request(url, headers=HEADERS)
     with urllib.request.urlopen(req, timeout=120) as r:
         data = r.read()
     with open(path, "wb") as wf:
@@ -2695,6 +2729,8 @@ if _nas_actions_enabled():
             msg += f" Failed: {failed}"
         if restricted:
             msg += f" Skipped (login-only secure documents, not a failure): {restricted}"
+        if params.html_dir:
+            msg += await _save_html_editions(docs, params, gate)
         return ActionResult(extracted_content=msg, include_in_memory=True,
                             error=None if saved or not failed else msg)
 

@@ -112,7 +112,8 @@ def html_jobs(root: Path) -> dict[str, dict]:
     for f in sorted((root / "raw" / "docs").glob("*.json")):
         for d in _load_docs(f):
             url = d.get("html_url")
-            if not url:
+            # other vendors' editions (ST) are saved per part by download_docs_to_nas
+            if not url or "onlinedocs.microchip.com" not in url:
                 continue
             job = jobs.setdefault(doc_id(url), {"url": url, "type": d.get("type"), "title": d.get("title"),
                                                 "parts": []})
@@ -248,6 +249,8 @@ async def crawl(root: Path, profile: Path, limit: int = 0, nas: bool = True) -> 
     if limit:
         todo = todo[:limit]
     print(f"{len(todo)} HTML documents to crawl", flush=True)
+    if not todo:
+        return
     unavailable = 0
     async with async_playwright() as p:
         ctx = await p.chromium.launch_persistent_context(str(profile), channel="chrome", headless=False)

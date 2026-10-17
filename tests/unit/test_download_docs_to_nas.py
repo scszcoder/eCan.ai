@@ -124,3 +124,69 @@ def test_login_only_secure_documents_are_skipped_not_failed(tmp_path, monkeypatc
     assert out.error is None and "2 saved, 0 failed" in out.extracted_content
     assert secure["url"] not in fetched
     assert "Skipped (login-only secure documents" in out.extracted_content
+
+
+def test_html_editions_are_saved_once_and_mirrored(tmp_path, monkeypatch):
+    # 2026-10-16: ST lists an HTML edition next to some PDFs; editions are shared by many
+    # parts, so each is saved once under html_dir/<doc id>/ and mirrored to nas_html_dir
+    from agent.ec_skills.chip_docs import static_html
+
+    calls = []
+
+    def fake_save(url, out_root):
+        calls.append(url)
+        dest = out_root / static_html.doc_id(url)
+        if (dest / static_html.DONE).exists():
+            return dest, []
+        (dest / "asset").mkdir(parents=True)
+        for rel in ("index.html", "asset/f.webp"):
+            (dest / rel).write_bytes(b"x")
+        (dest / static_html.DONE).write_text("{}")
+        return dest, ["index.html", "asset/f.webp"]
+
+    monkeypatch.setattr(static_html, "save_edition", fake_save)
+    docs = [dict(DOCS[0], html_url="https://www.st.com/resource/en/application_note/an4879-usb.html"), DOCS[1]]
+    html_dir = tmp_path / "html"
+
+    def run():
+        uploaded = []
+        monkeypatch.setattr(svc, "_fetch_to", lambda url, path: open(path, "wb").write(b"%PDF-"))
+        monkeypatch.setattr(ugreen_nas, "nas_upload", lambda local, remote: uploaded.append(remote) or {})
+        monkeypatch.setattr(ugreen_nas, "nas_list", lambda reldir: [])
+        docs_file = tmp_path / "docs.json"
+        docs_file.write_text(json.dumps(docs), encoding="utf-8")
+        params = DownloadDocsToNasAction(docs_file=str(docs_file), local_dir=str(tmp_path / "part"), nas_dir="ST/docs/x",
+                                         html_dir=str(html_dir), nas_html_dir="ST/html")
+        return asyncio.run(svc.download_docs_to_nas(params=params)), uploaded
+
+    out, uploaded = run()
+    assert "2 saved, 0 failed" in out.extracted_content and "HTML editions: 1 saved" in out.extracted_content
+    assert sorted(u for u in uploaded if u.startswith("ST/html")) == ["ST/html/an4879/asset/f.webp",
+                                                                      "ST/html/an4879/index.html"]
+    out, uploaded = run()  # the next part sharing the edition
+    assert "HTML editions: 0 saved, 1 already saved" in out.extracted_content
+    assert not any(u.startswith("ST/html") for u in uploaded)
+
+
+def test_html_editions_are_ignored_without_html_dir(tmp_path, monkeypatch):
+    from agent.ec_skills.chip_docs import static_html
+    monkeypatch.setattr(static_html, "save_edition", lambda *a: (_ for _ in ()).throw(AssertionError("called")))
+    out, _, _ = _run(tmp_path, monkeypatch, [dict(DOCS[0], html_url="https://www.st.com/x/an1-a.html")])
+    assert "1 saved" in out.extracted_content and "HTML" not in out.extracted_content
+
+
+def test_failed_html_edition_does_not_fail_the_part(tmp_path, monkeypatch):
+    from agent.ec_skills.chip_docs import static_html
+
+    def broken(url, out_root):
+        raise OSError("HTTP Error 503")
+    monkeypatch.setattr(static_html, "save_edition", broken)
+    monkeypatch.setattr(svc, "_fetch_to", lambda url, path: open(path, "wb").write(b"%PDF-"))
+    monkeypatch.setattr(ugreen_nas, "nas_upload", lambda local, remote: {})
+    monkeypatch.setattr(ugreen_nas, "nas_list", lambda reldir: [])
+    docs_file = tmp_path / "docs.json"
+    docs_file.write_text(json.dumps([dict(DOCS[0], html_url="https://www.st.com/x/an1-a.html")]), encoding="utf-8")
+    params = DownloadDocsToNasAction(docs_file=str(docs_file), local_dir=str(tmp_path / "p"), html_dir=str(tmp_path / "h"))
+    out = asyncio.run(svc.download_docs_to_nas(params=params))
+    assert out.error is None and "1 saved" in out.extracted_content
+    assert "HTML editions: 0 saved, 0 already saved, 1 failed" in out.extracted_content and "503" in out.extracted_content

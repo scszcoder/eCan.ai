@@ -55,6 +55,22 @@ def test_html_jobs_dedupes_shared_documents_and_lists_their_parts(tmp_path):
     assert jobs[GUID]["parts"] == ["ATtiny25", "ATtiny45"]
 
 
+def test_html_jobs_take_only_onlinedocs_editions(tmp_path):
+    # 2026-10-16: ST's HTML editions (www.st.com) are saved per part by download_docs_to_nas
+    docs = tmp_path / "raw" / "docs"
+    docs.mkdir(parents=True)
+    (docs / "STM32F103C8.json").write_text(json.dumps(
+        [{"url": "p", "html_url": "https://www.st.com/resource/en/application_note/an4879-usb.html"}]), encoding="utf-8")
+    assert hd.html_jobs(tmp_path) == {}
+
+
+def test_crawl_with_nothing_to_do_opens_no_browser(tmp_path, monkeypatch):
+    import playwright.async_api as pw
+    monkeypatch.setattr(pw, "async_playwright", lambda: (_ for _ in ()).throw(AssertionError("browser opened")))
+    (tmp_path / "raw" / "docs").mkdir(parents=True)
+    asyncio.run(hd.crawl(tmp_path, tmp_path / "profile"))
+
+
 def test_doc_id_base_and_paths():
     assert hd.doc_id(BASE + "index.html") == GUID
     assert hd.doc_id("https://onlinedocs.microchip.com/g/" + GUID.lower()) == GUID
