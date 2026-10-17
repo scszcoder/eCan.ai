@@ -38,3 +38,38 @@ def test_second_failure_is_raised(tmp_path, monkeypatch):
     monkeypatch.setattr(nas, "_reset_session", lambda: None)
     with pytest.raises(RuntimeError):
         nas.nas_upload(str(f), "d/a.pdf")
+
+
+def test_every_smb_call_carries_the_credentials(tmp_path, monkeypatch):
+    # 2026-10-16: one worker's failed upload reset the shared connection cache while other
+    # uploads were mid-flight; their new connections had no registered session and failed
+    # "SpnegoError (7): No credentials", whole parts at a time. Calls now log in themselves.
+    import io
+    import sys
+    import types
+
+    calls = []
+
+    def needs_creds(name):
+        def call(*args, **kwargs):
+            calls.append(name)
+            if kwargs.get("username") != "u" or kwargs.get("password") != "p":
+                raise RuntimeError("SpnegoError (7): No credentials were supplied")
+            return io.BytesIO() if name == "open_file" else []
+        return call
+
+    fake = types.ModuleType("smbclient")
+    for name in ("open_file", "makedirs", "scandir", "remove"):
+        setattr(fake, name, needs_creds(name))
+    fake.register_session = lambda *a, **k: None
+    fake.reset_connection_cache = lambda **k: None
+    monkeypatch.setitem(sys.modules, "smbclient", fake)
+    monkeypatch.setattr(nas, "nas_config", lambda: {"host": "h", "share": "s", "base": "b"})
+    monkeypatch.setattr(nas, "_creds", lambda: ("u", "p"))
+    monkeypatch.setenv("ECAN_NAS_UPLOAD_ROOTS", str(tmp_path))
+    f = tmp_path / "a.pdf"
+    f.write_bytes(b"%PDF-")
+    nas._session_ready.clear()
+    assert nas.nas_upload(str(f), "d/a.pdf")["bytes"] == 5
+    assert nas.nas_list("d") == []
+    assert {"open_file", "makedirs", "scandir"} <= set(calls)

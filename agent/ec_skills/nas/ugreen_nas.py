@@ -150,6 +150,15 @@ def _ensure_session():
         logger.info(f"[nas] SMB session registered for \\\\{host} as '{user}'")
 
 
+def _auth() -> Dict[str, str]:
+    """Credentials for every smbclient call. 2026-10-16: one upload's reconnect reset the
+    shared connection cache while other uploads were mid-flight; their new connections had
+    no registered session and failed "SpnegoError (7): No credentials", whole parts at a
+    time. With credentials on the call, a new connection logs in by itself."""
+    user, pwd = _creds()
+    return {"username": user, "password": pwd}
+
+
 def _unc(relpath: str = "", *, relative_to_base: bool = True) -> str:
     """Build a UNC path. ``relpath`` uses / or \\ separators; '..' is rejected."""
     cfg = nas_config()
@@ -171,7 +180,7 @@ def nas_makedirs(reldir: str = "", *, relative_to_base: bool = True) -> str:
     import smbclient
     path = _unc(reldir, relative_to_base=relative_to_base)
     try:
-        smbclient.makedirs(path, exist_ok=True)
+        smbclient.makedirs(path, exist_ok=True, **_auth())
     except Exception as e:
         raise RuntimeError(f"NAS makedirs failed for '{reldir}': {e}") from e
     return path
@@ -184,11 +193,11 @@ def nas_write_bytes(relpath: str, data: bytes, *, relative_to_base: bool = True)
     path = _unc(relpath, relative_to_base=relative_to_base)
     parent = str(PurePosixPath(path.replace("\\", "/")).parent).replace("/", "\\")
     try:
-        smbclient.makedirs(parent, exist_ok=True)
+        smbclient.makedirs(parent, exist_ok=True, **_auth())
     except Exception:
         pass
     try:
-        with smbclient.open_file(path, mode="wb") as f:
+        with smbclient.open_file(path, mode="wb", **_auth()) as f:
             f.write(data)
     except Exception as e:
         raise RuntimeError(f"NAS write failed for '{relpath}': {e}") from e
@@ -205,7 +214,7 @@ def nas_read_bytes(relpath: str, *, relative_to_base: bool = True) -> bytes:
     import smbclient
     path = _unc(relpath, relative_to_base=relative_to_base)
     try:
-        with smbclient.open_file(path, mode="rb") as f:
+        with smbclient.open_file(path, mode="rb", **_auth()) as f:
             return f.read()
     except Exception as e:
         raise RuntimeError(f"NAS read failed for '{relpath}': {e}") from e
@@ -252,12 +261,12 @@ def _upload_once(lp: Path, relpath: Optional[str], relative_to_base: bool) -> Di
     path = _unc(rel, relative_to_base=relative_to_base)
     parent = str(PurePosixPath(path.replace("\\", "/")).parent).replace("/", "\\")
     try:
-        smbclient.makedirs(parent, exist_ok=True)
+        smbclient.makedirs(parent, exist_ok=True, **_auth())
     except Exception:
         pass
     total = 0
     try:
-        with open(lp, "rb") as src, smbclient.open_file(path, mode="wb") as dst:
+        with open(lp, "rb") as src, smbclient.open_file(path, mode="wb", **_auth()) as dst:
             while True:
                 chunk = src.read(1024 * 256)
                 if not chunk:
@@ -278,7 +287,7 @@ def nas_list(reldir: str = "", *, relative_to_base: bool = True) -> List[Dict[st
     path = _unc(reldir, relative_to_base=relative_to_base)
     out: List[Dict[str, Any]] = []
     try:
-        for e in smbclient.scandir(path):
+        for e in smbclient.scandir(path, **_auth()):
             try:
                 is_dir = e.is_dir()
                 size = 0 if is_dir else e.stat().st_size
@@ -299,7 +308,7 @@ def nas_delete(relpath: str, *, relative_to_base: bool = True) -> Dict[str, Any]
     from smbprotocol.exceptions import SMBOSError
     path = _unc(relpath, relative_to_base=relative_to_base)
     try:
-        smbclient.remove(path)
+        smbclient.remove(path, **_auth())
     except SMBOSError:
         return {"path": path, "deleted": False, "reason": "not found"}
     except Exception as e:
