@@ -141,7 +141,7 @@ def test_html_editions_are_saved_once_and_mirrored(tmp_path, monkeypatch):
         (dest / "asset").mkdir(parents=True)
         for rel in ("index.html", "asset/f.webp"):
             (dest / rel).write_bytes(b"x")
-        (dest / static_html.DONE).write_text("{}")
+        (dest / static_html.DONE).write_text(json.dumps({"files": ["index.html", "asset/f.webp"]}))
         return dest, ["index.html", "asset/f.webp"]
 
     monkeypatch.setattr(static_html, "save_edition", fake_save)
@@ -166,6 +166,43 @@ def test_html_editions_are_saved_once_and_mirrored(tmp_path, monkeypatch):
     out, uploaded = run()  # the next part sharing the edition
     assert "HTML editions: 0 saved, 1 already saved" in out.extracted_content
     assert not any(u.startswith("ST/html") for u in uploaded)
+
+
+def test_html_edition_whose_nas_upload_failed_is_uploaded_by_the_next_part(tmp_path, monkeypatch):
+    # 2026-10-16 21:40: a NAS hiccup left 17 editions saved locally (.complete) but not on the
+    # NAS, and every later part counted them "already saved", so they were never mirrored
+    from agent.ec_skills.chip_docs import static_html
+
+    def fake_save(url, out_root):
+        dest = out_root / static_html.doc_id(url)
+        if (dest / static_html.DONE).exists():
+            return dest, []
+        dest.mkdir(parents=True)
+        (dest / "index.html").write_bytes(b"x")
+        (dest / static_html.DONE).write_text(json.dumps({"files": ["index.html"]}))
+        return dest, ["index.html"]
+
+    monkeypatch.setattr(static_html, "save_edition", fake_save)
+    monkeypatch.setattr(svc, "_fetch_to", lambda url, path: open(path, "wb").write(b"%PDF-"))
+    monkeypatch.setattr(ugreen_nas, "nas_list", lambda reldir: [])
+    docs_file = tmp_path / "docs.json"
+    docs_file.write_text(json.dumps([dict(DOCS[0], html_url="https://www.st.com/x/an1-a.html")]), encoding="utf-8")
+    params = DownloadDocsToNasAction(docs_file=str(docs_file), local_dir=str(tmp_path / "p"), nas_dir="d",
+                                     html_dir=str(tmp_path / "h"), nas_html_dir="ST/html")
+
+    def broken(local, remote):
+        if remote.startswith("ST/html"):
+            raise RuntimeError("STATUS_NETWORK_NAME_DELETED")
+    monkeypatch.setattr(ugreen_nas, "nas_upload", broken)
+    out = asyncio.run(svc.download_docs_to_nas(params=params))
+    assert "HTML editions: 0 saved, 0 already saved, 1 failed" in out.extracted_content
+
+    uploaded = []
+    monkeypatch.setattr(ugreen_nas, "nas_upload", lambda local, remote: uploaded.append(remote))
+    out = asyncio.run(svc.download_docs_to_nas(params=params))
+    assert "HTML editions: 1 saved" in out.extracted_content and "ST/html/an1/index.html" in uploaded
+    out = asyncio.run(svc.download_docs_to_nas(params=params))
+    assert "HTML editions: 0 saved, 1 already saved" in out.extracted_content
 
 
 def test_html_editions_are_ignored_without_html_dir(tmp_path, monkeypatch):

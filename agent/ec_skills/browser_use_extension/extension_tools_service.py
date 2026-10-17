@@ -2686,6 +2686,9 @@ async def _download_shared(docs: list, jobs: list, restricted: list, params) -> 
                         error=None if saved or not failed else msg)
 
 
+_HTML_ON_NAS = ".on_nas"
+
+
 async def _save_html_editions(docs: list, params, gate: asyncio.Semaphore) -> str:
     """Save each listed document's HTML edition once under html_dir/<doc id>/ and mirror
     it to nas_html_dir. Editions are shared by many parts, and a failed one does not fail
@@ -2697,15 +2700,26 @@ async def _save_html_editions(docs: list, params, gate: asyncio.Semaphore) -> st
     urls = list(dict.fromkeys(str(d.get("html_url") or "").strip() for d in docs if isinstance(d, dict)))
     urls = [u for u in urls if u.startswith("http")]
 
+    def save_and_mirror(url: str) -> str:
+        # one crawler at a time per edition: two uploading it at once hit "file is being
+        # used by another process" on the NAS
+        with _path_lock("html:" + static_html.doc_id(url)):
+            dest, files = static_html.save_edition(url, Path(params.html_dir))
+            if not params.nas_html_dir:
+                return "saved" if files else "have"
+            if (dest / _HTML_ON_NAS).exists():
+                return "have"
+            # 2026-10-16: a NAS hiccup left 17 editions complete locally but not on the NAS,
+            # and later parts counted them as saved; the NAS copy has its own marker now
+            for rel in files or json.loads((dest / static_html.DONE).read_text(encoding="utf-8"))["files"]:
+                _nas.nas_upload(str(dest / rel), f"{params.nas_html_dir.rstrip('/')}/{dest.name}/{rel}")
+            (dest / _HTML_ON_NAS).write_text("", encoding="utf-8")
+            return "saved"
+
     async def save(url: str) -> str | None:
         async with gate:
             try:
-                dest, files = await asyncio.to_thread(static_html.save_edition, url, Path(params.html_dir))
-                if params.nas_html_dir:
-                    for rel in files:
-                        await asyncio.to_thread(_nas.nas_upload, str(dest / rel),
-                                                f"{params.nas_html_dir.rstrip('/')}/{dest.name}/{rel}")
-                return "saved" if files else "have"
+                return await asyncio.to_thread(save_and_mirror, url)
             except Exception as e:
                 return f"{url}: {e}"
 
