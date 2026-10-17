@@ -485,7 +485,7 @@ def unregister_inflight_placeholder(customer_key: str, source_msg_id: str) -> No
 # because 客户 02's earlier 婴儿 66 码 reply arrived first and cancelled.
 _REAL_REPLY_AT: dict[tuple[str, str], float] = {}
 REAL_REPLY_SUPPRESS_S: float = 60.0
-# mtXXX: prevent unbounded growth of _REAL_REPLY_AT.  Every successful
+# mt055: prevent unbounded growth of _REAL_REPLY_AT.  Every successful
 # reply stamps both (customer, msg_id) and (customer, "") slots.  Without
 # periodic pruning these accumulate forever, leaking memory on long-running
 # sessions with thousands of customer interactions.

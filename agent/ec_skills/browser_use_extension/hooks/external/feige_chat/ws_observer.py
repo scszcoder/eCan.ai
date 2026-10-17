@@ -485,10 +485,10 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         _card_run_count: dict = {}   # key -> consecutive re-emissions with no quiet gap
         _card_storm_logged: dict = {}    # key -> True once the storm warning is logged
         handover_seen: set = set()   # talk_ids already acked for a button 人工 handover
-        # wsXXX: caps for the per-card tracking dicts above.  These are keyed by
+        # mt055: caps for the per-card tracking dicts above.  These are keyed by
         # f"card|{conversation_id}|{text}" and grow forever on a long-running
         # observer (one entry per distinct card ever seen).  Pruned periodically
-        # by _prune_card_tracking() from the reconnect health loop.
+        # by the reconnect health loop.
         _CARD_TRACK_MAX = 5000
         _CARD_TRACK_TTL_S = 86400.0   # 24h — well past any dedup/storm window
         _last_card_prune_ts = [0.0]
@@ -1145,8 +1145,9 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                                        _card_storm_logged):
                                 if len(_d) > _CARD_TRACK_MAX:
                                     # keying scheme: "card|<conversation_id>|<text>" —
-                                    # drop the oldest half by insertion order (CPython
-                                    # dicts preserve it) rather than scanning every key.
+                                    # trim the dict back to _CARD_TRACK_MAX by dropping
+                                    # the oldest entries (CPython dicts preserve insertion
+                                    # order, so list(_d.keys())[:N] is the first N inserts).
                                     _drop = list(_d.keys())[:len(_d) - _CARD_TRACK_MAX]
                                     for _k in _drop:
                                         _d.pop(_k, None)
