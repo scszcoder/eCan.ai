@@ -684,11 +684,24 @@ class OfflineSyncManager:
         # If needed, also get failed tasks and retry
         if include_failed:
             failed_tasks = self.sync_queue.get_failed_tasks()
-            if failed_tasks:
-                logger.info(f"[OfflineSyncManager] Found {len(failed_tasks)} failed tasks, will retry them")
+            # Only recycle each failed task ONCE into the auto-retry loop.
+            # Without this gate, a task that exhausts 3 retries lands in the
+            # failed queue, gets pulled back with retry_count reset to 0,
+            # fails 3 more times, and repeats every auto-retry tick forever
+            # (observed 2026-10-16: 53 stale agent_delete_* tasks cycled for
+            # 90 min, ~1736 cloud calls, 1736 ERROR log lines). Genuine
+            # transient outages recover within one extra cycle; genuinely
+            # permanent errors must not spin forever. Manual retry via
+            # retry_failed_task() is unaffected.
+            recyclable = [t for t in failed_tasks if not t.get('auto_recycled')]
+            if recyclable:
+                logger.info(f"[OfflineSyncManager] Found {len(failed_tasks)} failed tasks, retrying {len(recyclable)} (rest already recycled once)")
                 # Move failed tasks back to pending queue
-                for task in failed_tasks:
-                    self.sync_queue.retry_failed_task(task['id'])
+                for task in recyclable:
+                    if self.sync_queue.retry_failed_task(task['id']):
+                        # Remember this task already got its extra auto-retry
+                        # cycle so the next tick skips it.
+                        self.sync_queue.flag_auto_recycled(task['id'])
                 # Re-get pending tasks (now includes failed tasks)
                 pending_tasks = self.sync_queue.get_pending_tasks()
 
@@ -745,6 +758,7 @@ class OfflineSyncManager:
                     # Check for duplicate key errors - record already exists, treat as success
                     errors = result.get('errors', [])
                     error_str = ', '.join(str(e) for e in errors)
+                    error_str_lower = error_str.lower()
                     if self._is_duplicate_error(errors):
                         self.sync_queue.mark_success(task_id)
                         synced_count += 1
@@ -827,7 +841,19 @@ class OfflineSyncManager:
                         failed_count += 1
                         logger.error(f"[OfflineSyncManager] ❌ Queue task hit non-retryable cloud error, stopping retries: {task_id}")
                         cursor += 1
-                    elif 'NOT_FOUND' in error_str and operation == 'update':
+                    elif ('not_found' in error_str_lower or 'not found' in error_str_lower) and operation == 'delete':
+                        # DELETE failed because the record is already absent in
+                        # the cloud. That is the desired end state, so the delete
+                        # is effectively done — retrying it can never converge
+                        # (the record will never reappear) and just floods the
+                        # log every 5 min forever. Mark it successful so the task
+                        # leaves the queue. (Observed 2026-10-16: 53 stale
+                        # agent_delete_* tasks retried for 90 min, ~1736 calls.)
+                        logger.info(f"[OfflineSyncManager] ✅ Queue task NOT_FOUND on DELETE — record already gone in cloud, treating as success: {task_id}")
+                        self.sync_queue.mark_success(task_id)
+                        synced_count += 1
+                        cursor += 1
+                    elif ('not_found' in error_str_lower or 'not found' in error_str_lower) and operation == 'update':
                         # UPDATE failed because resource doesn't exist in cloud.
                         # Retry with ADD to register it first.
                         logger.info(f"[OfflineSyncManager] 🔄 Queue task NOT_FOUND on UPDATE, retrying with ADD: {task_id}")
