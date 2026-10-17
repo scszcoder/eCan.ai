@@ -678,6 +678,13 @@ class DownloadDocsToNasAction(BaseModel):
 		"per document and shared by every part. LEAVE EMPTY to skip HTML editions."
 	)
 	nas_html_dir: str = Field(default="", description="NAS folder for the HTML editions, RELATIVE to the base folder.")
+	shared_dir: str = Field(
+		default="",
+		description="Store each document ONCE under <shared_dir>/<doc type>/ instead of in the part's folder (for "
+		"vendors that attach the same documents to many parts); the part gets an index.json naming its files. "
+		"With nas_shared_dir set, the local copy is only a buffer, deleted once on the NAS. LEAVE EMPTY for per-part copies."
+	)
+	nas_shared_dir: str = Field(default="", description="NAS folder of the shared store, RELATIVE to the base folder.")
 
 
 class NasSaveTextAction(BaseModel):

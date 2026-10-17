@@ -2592,6 +2592,100 @@ def _doc_file_name(doc: dict) -> str:
 _DOWNLOAD_PARALLEL = 8
 
 
+_shared_lock = threading.Lock()
+_path_locks: dict[str, threading.Lock] = {}
+_shared_on_nas: dict[str, dict[str, int]] = {}  # NAS folder -> {lower-case name: size}
+
+
+def _path_lock(key: str) -> threading.Lock:
+    with _shared_lock:
+        return _path_locks.setdefault(key, threading.Lock())
+
+
+def _shared_nas_sizes(folder: str) -> dict[str, int]:
+    """The shared store's NAS folder listing, read once per process and kept up to date."""
+    from agent.ec_skills.nas import ugreen_nas as _nas
+    with _path_lock("nas:" + folder):
+        if folder not in _shared_on_nas:
+            try:
+                _shared_on_nas[folder] = {e["name"].lower(): e["size"] for e in _nas.nas_list(folder)
+                                          if not e["is_dir"]}
+            except Exception as e:
+                logger.warning(f"[download_docs_to_nas] NAS listing of {folder} failed: {e}")
+                return {}
+        return _shared_on_nas[folder]
+
+
+def _save_shared(url: str, folder: str, name: str, params) -> None:
+    """One document into the shared store, unless it is already there. Crawlers run in
+    one process, so a per-file lock keeps two of them from fetching the same document."""
+    from agent.ec_skills.nas import ugreen_nas as _nas
+    path = os.path.join(params.shared_dir, folder, name)
+    nas_folder = f"{params.nas_shared_dir.strip('/')}/{folder}" if params.nas_shared_dir else ""
+    with _path_lock(path):
+        if nas_folder and _shared_nas_sizes(nas_folder).get(name.lower()):
+            return
+        if not (os.path.exists(path) and os.path.getsize(path)):  # else: a buffer left by a failed upload
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            _fetch_to(url, path + ".part")
+            os.replace(path + ".part", path)
+        if nas_folder:
+            _nas.nas_upload(path, f"{nas_folder}/{name}")
+            _shared_nas_sizes(nas_folder)[name.lower()] = os.path.getsize(path)
+            os.remove(path)  # the NAS is the store; the local file was only a buffer
+
+
+async def _download_shared(docs: list, jobs: list, restricted: list, params) -> ActionResult:
+    """download_docs_to_nas with shared_dir: each document stored once under
+    <shared_dir>/<doc type>/ (or its NAS folder), and the part indexed in index.json."""
+    from agent.ec_skills.nas import ugreen_nas as _nas
+    by_url = {str(d.get("url") or "").strip(): d for d in docs if isinstance(d, dict)}
+    store = os.path.basename(params.shared_dir.rstrip("/\\"))
+    gate = asyncio.Semaphore(_DOWNLOAD_PARALLEL)
+
+    async def save(url: str, name: str) -> dict:
+        folder = _doc_file_name({"url": "x.pdf", "title": by_url[url].get("type") or "Other"})[:-4]
+        entry = dict(by_url[url])
+        async with gate:
+            try:
+                await asyncio.to_thread(_save_shared, url, folder, name, params)
+                entry["file"] = f"{store}/{folder}/{name}"
+            except Exception as e:
+                entry["error"] = str(e)
+        return entry
+
+    index = await asyncio.gather(*(save(url, name) for url, name in jobs))
+    saved = [e["file"] for e in index if "file" in e]
+    failed = [f"{e.get('title')}: {e['error']}" for e in index if "error" in e]
+    index_path = os.path.join(params.local_dir, "index.json")
+    with open(index_path, "w", encoding="utf-8") as f:
+        json.dump(index, f, ensure_ascii=False, indent=1)
+    where = index_path
+    if params.nas_dir:
+        try:
+            await asyncio.to_thread(_nas.nas_upload, index_path, f"{params.nas_dir.rstrip('/')}/index.json")
+            where = f"NAS {params.nas_dir.rstrip('/')}/index.json"
+            if params.nas_shared_dir:  # NAS-only: nothing of the part stays local
+                os.remove(index_path)
+                try:
+                    os.rmdir(params.local_dir)
+                except OSError:
+                    pass
+        except Exception as e:
+            failed.append(f"index.json: {e}")
+    logger.info(f"[download_docs_to_nas] {params.local_dir}: {len(saved)} saved, {len(failed)} failed (shared store)")
+    msg = (f"{len(saved)} saved, {len(failed)} failed. Each document is stored once in the shared store "
+           f"({params.nas_shared_dir or params.shared_dir}); this part's index: {where}. Saved: {saved}")
+    if failed:
+        msg += f" Failed: {failed}"
+    if restricted:
+        msg += f" Skipped (login-only secure documents, not a failure): {restricted}"
+    if params.html_dir:
+        msg += await _save_html_editions(docs, params, gate)
+    return ActionResult(extracted_content=msg, include_in_memory=True,
+                        error=None if saved or not failed else msg)
+
+
 async def _save_html_editions(docs: list, params, gate: asyncio.Semaphore) -> str:
     """Save each listed document's HTML edition once under html_dir/<doc id>/ and mirror
     it to nas_html_dir. Editions are shared by many parts, and a failed one does not fail
@@ -2693,6 +2787,9 @@ if _nas_actions_enabled():
                 name, n = f"{stem} ({n}){ext}", n + 1
             names.add(name.lower())
             jobs.append((url, name))
+
+        if params.shared_dir:
+            return await _download_shared(docs, jobs, restricted, params)
 
         # 2026-10-13: a retried part re-uploaded every file; one listing tells which
         # are already on the NAS (same name and size)
