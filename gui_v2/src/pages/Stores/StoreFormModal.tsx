@@ -48,6 +48,21 @@ const CompactForm = styled.div`
     font-size: 12px;
     line-height: 1.5;
   }
+  /* Undo global.css's 40px-tall "Select 样式" inside this dialog: it fights
+   * size="small" (misaligned text) and, in tags mode, its 38px line-height on
+   * .ant-select-selection-item makes each tag taller than the control, so the
+   * selected platform text gets clipped away. */
+  .ant-select-selector {
+    min-height: auto !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+  .ant-select-selection-search-input,
+  .ant-select-selection-item,
+  .ant-select-selection-placeholder {
+    line-height: inherit !important;
+    height: auto !important;
+  }
 `;
 
 const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) => {
