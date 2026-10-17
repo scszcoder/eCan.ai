@@ -621,6 +621,7 @@
       "profile": "Login profile",
       "profile_hint": "The browser profile signed in to this store. It stays on this machine.",
       "runs_on": "Runs on",
+      "unassigned_hint": "Pick \"This machine\" to assign now, or \"Unassigned\" so the first machine to run it claims it automatically.",
       "unassigned": "Unassigned: the first machine to run it claims it",
       "definition": "Store",
       "edit": "Edit",
@@ -676,7 +677,9 @@
       "tasks": "Tasks",
       "running_here": "Running here",
       "not_running_here": "Not running here",
-      "no_agents": "No agents on this machine serve this store."
+      "no_agents": "No agents on this machine serve this store.",
+      "profile_ph": "Select or type…",
+      "unassigned_short": "Unassigned"
     },
     "warehouses": {
       "title": "Warehouses",
@@ -4323,8 +4326,8 @@
     "system_avatars": "System Avatars",
     "my_avatars": "My Avatars",
     "upload_avatar": "Upload Avatar",
-    "uploading": "Uploading...",
-    "upload_success": "Upload successful!",
+    "uploading": "Uploading…",
+    "upload_success": "Upload successful",
     "upload_failed": "Upload failed",
     "load_system_failed": "Failed to load system avatars",
     "no_system_avatars": "No system avatars available",
@@ -4399,10 +4402,6 @@
       "rating": "Top rated",
       "default": "Default"
     },
-    "upload_new": "Upload New Avatar",
-    "uploading": "Uploading…",
-    "upload_success": "Upload successful",
-    "upload_failed": "Upload failed",
     "related": "Similar style",
     "apply_to_agent": "Apply to Agent",
     "apply_placeholder": "Select an agent",

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Badge, Button, Checkbox, List, Space, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Badge, Button, Checkbox, List, Space, Tag, Tooltip, Typography, theme } from 'antd';
 import { PlusOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import type { StoreRow } from './types';
 import { platformLabel } from '@/components/FastDeploy/scenarios';
@@ -30,22 +30,34 @@ const StoreList: React.FC<StoreListProps> = ({
   stores, thisVehicleId, selectedId, onSelect, loading, onRefresh, showArchived, onShowArchived, cloudError, onAdd,
 }) => {
   const { t, i18n } = useTranslation();
+  const { token } = theme.useToken();
   const ts = (k: string, d: string) => t(`pages.stores.${k}`, d) as string;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography.Text strong style={{ color: '#fff' }}>{ts('title', 'Stores')}</Typography.Text>
-        <Space size={4}>
+      <div style={{
+        padding: '12px 16px',
+        borderBottom: `1px solid ${token.colorBorderSecondary}`,
+        flexShrink: 0,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+      }}>
+        <Typography.Title level={5} style={{ margin: 0, color: token.colorText, fontWeight: 500 }}>
+          {ts('title', 'Stores')}
+        </Typography.Title>
+        <Space size={8}>
           <Checkbox checked={showArchived} onChange={(e) => onShowArchived(e.target.checked)}>
             {ts('show_archived', 'Show archived')}
           </Checkbox>
           <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={onRefresh} />
-          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={onAdd}>{ts('new_store', 'New store')}</Button>
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={onAdd}>
+            {ts('new_store', 'New store')}
+          </Button>
         </Space>
       </div>
       {cloudError && (
-        <Alert type="warning" showIcon style={{ margin: '0 12px 8px' }}
+        <Alert type="warning" showIcon style={{ margin: '8px 16px 8px' }}
           message={ts('cloud_unavailable', 'Placement unavailable; showing local data only')}
           description={cloudError} />
       )}
@@ -58,19 +70,23 @@ const StoreList: React.FC<StoreListProps> = ({
             return (
               <List.Item
                 onClick={() => onSelect(s.storeId)}
-                style={{ cursor: 'pointer', paddingLeft: 16, paddingRight: 12,
-                  background: selectedId === s.storeId ? 'rgba(255,255,255,0.06)' : 'transparent' }}
+                style={{
+                  cursor: 'pointer',
+                  padding: '12px 16px',
+                  background: selectedId === s.storeId ? token.colorBgTextHover : 'transparent',
+                }}
               >
-                <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                  <Space size={6}>
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <Space size={8} wrap>
                     <Badge status={placementBadge(s, thisVehicleId)} />
-                    <Typography.Text strong>{s.label || s.storeId}</Typography.Text>
+                    <Typography.Text strong style={{ fontSize: 14 }}>{s.label || s.storeId}</Typography.Text>
                     {s.platform && <Tag>{platformLabel(s.platform, i18n.language)}</Tag>}
-                    {s.status === 'archived' && <Tag>{ts('archived', 'archived')}</Tag>}
+                    {s.status === 'archived' && <Tag color="warning">{ts('archived', 'archived')}</Tag>}
                     {attention && (
-                      <Tooltip title={s.misplaced ? ts('misplaced', 'Running somewhere other than assigned')
+                      <Tooltip title={s.misplaced
+                        ? ts('misplaced', 'Running somewhere other than assigned')
                         : ts('needs_login', 'Needs login')}>
-                        <WarningOutlined style={{ color: '#faad14' }} />
+                        <WarningOutlined style={{ color: '#faad14', fontSize: 12 }} />
                       </Tooltip>
                     )}
                   </Space>
