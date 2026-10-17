@@ -187,6 +187,16 @@ def run_round(rows: list[dict], workers: dict[str, dict], plan: list[dict], repo
 
 
 _html_crawl: threading.Thread | None = None
+_sent_batches: set[str] = set()  # batch ids this app process handed out
+
+
+def forget_batches_of_earlier_runs(workers: dict[str, dict], sent: set[str]) -> None:
+    """Mark busy workers whose batch this process never sent as stale. 2026-10-16: after a
+    restart, batches sent by the old app 10 minutes earlier looked busy; no worker would
+    report them, and as rounds only follow a message, the coordinator waited forever."""
+    for v in workers.values():
+        if v["state"] == "busy" and v["batch"] not in sent:
+            v["at"] = ""  # run_round reclaims a busy worker with no assignment time
 
 
 def start_html_crawl(root: Path) -> bool:
@@ -255,7 +265,12 @@ def node_main(state: dict) -> dict:
     def send(worker: str, batch: dict) -> bool:
         res = send_chat(mainwin, {"sender_agent_id": me, "recipient_agent_name": worker,
                                   "message": json.dumps(batch, ensure_ascii=False)})
-        return bool((res or {}).get("success"))
+        ok = bool((res or {}).get("success"))
+        if ok:
+            _sent_batches.add(batch["batch_id"])
+        return ok
+
+    forget_batches_of_earlier_runs(workers, _sent_batches)
 
     worker_names = sorted(a["name"] for a in agents if a["id"] != me)
     if max_workers > 0:

@@ -108,6 +108,18 @@ def test_stale_batch_and_drifted_rows_are_reclaimed():
     assert _state(rows, "P5")["state"] == "pending"
 
 
+def test_batches_from_before_an_app_restart_are_reclaimed_at_once():
+    # 2026-10-16 23:08: after a restart the coordinator saw its 3 workers "busy" with batches
+    # sent 10 minutes earlier by the old app; nothing would ever report them and the round
+    # only reclaims after 30 minutes, so it waited forever ("nothing to do")
+    rows, workers = [], {}
+    _, sent = _round(rows, workers, names=("W1", "W2"))
+    ex.forget_batches_of_earlier_runs(workers, {sent[0][1]["batch_id"]})  # W1's batch is ours
+    res, sent2 = _round(rows, workers, names=("W1", "W2"), now=NOW + timedelta(minutes=5))
+    assert "reclaimed stale batch" in res["summary"] and [w for w, _ in sent2] == ["W2"]
+    assert workers["W1"]["state"] == "busy"
+
+
 def test_failed_send_leaves_parts_pending():
     rows, workers = [], {}
     res, _ = _round(rows, workers, names=("W1",), fail_send=("W1",))
