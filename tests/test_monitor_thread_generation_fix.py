@@ -188,7 +188,7 @@ def main():
     server.stop()
     server2.stop()
     # stop() already joined the monitor/health threads with bounded timeouts
-    # (vllm: 2s, self_health_check: 2.5s, parent-monitor: 3s). 1.0s gives the
+    # (vllm: 2s, self_health_check: 1s, parent-monitor: 3s). 1.0s gives the
     # daemon threads a full wake-up window to observe generation mismatch and
     # exit cleanly before the assertion, eliminating any CI-flaky risk on
     # slow runners where a thread was still inside time.sleep(1) when joined.
