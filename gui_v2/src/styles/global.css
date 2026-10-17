@@ -359,78 +359,79 @@ html, body {
 }
 
 /* 卡片样式 - 优化视觉层次，无动画 */
-.ant-card {
-    background: linear-gradient(
-        135deg,
-        rgba(30, 41, 59, 0.95) 0%,
-        rgba(30, 41, 59, 0.9) 100%
-    ) !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
-    border-radius: 16px !important;
-    box-shadow: 
-        0 4px 12px rgba(0, 0, 0, 0.25),
-        0 8px 24px rgba(0, 0, 0, 0.15),
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
-        inset 0 0 0 1px rgba(59, 130, 246, 0.05) !important;
-    transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease !important;
-    position: relative;
-    overflow: hidden;
-    
-    /* 添加顶部微光效果 - 静态 */
-    &::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 1px;
-        background: linear-gradient(
-            90deg,
-            transparent,
-            rgba(59, 130, 246, 0.3),
-            transparent
-        );
-    }
-}
-
-.ant-card:hover {
-    box-shadow: 
-        0 6px 16px rgba(0, 0, 0, 0.3),
-        0 12px 32px rgba(0, 0, 0, 0.2),
-        0 0 0 1px rgba(59, 130, 246, 0.3),
-        inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
-    border-color: rgba(59, 130, 246, 0.4) !important;
-    transform: translateY(-1px) !important;
-}
-
-.ant-card-head {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-    padding: 12px 24px !important;
-    min-height: 48px !important;
-    height: 48px !important;
-    background: linear-gradient(
-        135deg,
-        rgba(59, 130, 246, 0.1) 0%,
-        transparent 100%
-    );
-    display: flex !important;
-    align-items: center !important;
-}
-
-.ant-card-head-wrapper {
-    height: 100% !important;
-    display: flex !important;
-    align-items: center !important;
-}
-
-.ant-card-head-title {
-    color: rgba(248, 250, 252, 0.95) !important;
-    font-weight: 600 !important;
-    font-size: 16px !important;
-    line-height: 24px !important;
-    display: flex !important;
-    align-items: center !important;
-}
+ /* Only decorate DEFAULT (bordered) cards; keep antd's variant="borderless" cards truly flat */
+ .ant-card-bordered {
+     background: linear-gradient(
+         135deg,
+         rgba(30, 41, 59, 0.95) 0%,
+         rgba(30, 41, 59, 0.9) 100%
+     ) !important;
+     border: 1px solid rgba(255, 255, 255, 0.12) !important;
+     border-radius: 16px !important;
+     box-shadow: 
+         0 4px 12px rgba(0, 0, 0, 0.25),
+         0 8px 24px rgba(0, 0, 0, 0.15),
+         inset 0 1px 0 rgba(255, 255, 255, 0.08),
+         inset 0 0 0 1px rgba(59, 130, 246, 0.05) !important;
+     transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease !important;
+     position: relative;
+     overflow: hidden;
+     
+     /* 添加顶部微光效果 - 静态 */
+     &::before {
+         content: '';
+         position: absolute;
+         top: 0;
+         left: 0;
+         right: 0;
+         height: 1px;
+         background: linear-gradient(
+             90deg,
+             transparent,
+             rgba(59, 130, 246, 0.3),
+             transparent
+         );
+     }
+ }
+ 
+ .ant-card-bordered:hover {
+     box-shadow: 
+         0 6px 16px rgba(0, 0, 0, 0.3),
+         0 12px 32px rgba(0, 0, 0, 0.2),
+         0 0 0 1px rgba(59, 130, 246, 0.3),
+         inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+     border-color: rgba(59, 130, 246, 0.4) !important;
+     transform: translateY(-1px) !important;
+ }
+ 
+ .ant-card-bordered .ant-card-head {
+     border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+     padding: 12px 24px !important;
+     min-height: 48px !important;
+     height: 48px !important;
+     background: linear-gradient(
+         135deg,
+         rgba(59, 130, 246, 0.1) 0%,
+         transparent 100%
+     );
+     display: flex !important;
+     align-items: center !important;
+ }
+ 
+ .ant-card-bordered .ant-card-head-wrapper {
+     height: 100% !important;
+     display: flex !important;
+     align-items: center !important;
+ }
+ 
+ .ant-card-bordered .ant-card-head-title {
+     color: rgba(248, 250, 252, 0.95) !important;
+     font-weight: 600 !important;
+     font-size: 16px !important;
+     line-height: 24px !important;
+     display: flex !important;
+     align-items: center !important;
+ }
 
 .ant-card-body {
     padding: 8px !important;

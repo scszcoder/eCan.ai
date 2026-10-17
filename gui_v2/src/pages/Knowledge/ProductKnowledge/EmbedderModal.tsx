@@ -76,7 +76,7 @@ const EmbedderModal: React.FC<{ open: boolean; onClose: () => void; onSaved: () 
 
   return (
     <Modal open={open} title={k('title')} onCancel={onClose} onOk={save} okText={k('save')} width={620}
-           okButtonProps={{ disabled: preset !== 'app' && (!baseUrl.trim() || !model.trim()) }} destroyOnClose>
+           okButtonProps={{ disabled: preset !== 'app' && (!baseUrl.trim() || !model.trim()) }} destroyOnHidden>
       <Paragraph type="secondary" style={{ fontSize: 12 }}>{k('intro')}</Paragraph>
       <Radio.Group value={preset} onChange={e => choose(e.target.value)} style={{ marginBottom: 12 }}>
         <Space direction="vertical">

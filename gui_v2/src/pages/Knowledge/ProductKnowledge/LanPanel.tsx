@@ -195,7 +195,7 @@ const LanPanel: React.FC<{ onChanged?: () => void }> = ({ onChanged }) => {
 
       <Modal open={!!pairTarget} title={k('pairTitle', { name: pairTarget?.name || pairTarget?.url })} okText={k('pair')}
              okButtonProps={{ disabled: !/^\d{6}$/.test(pairCode.replace(/\s/g, '')), loading: busy }}
-             onOk={pair} onCancel={() => { setPairTarget(null); setPairCode(''); }} destroyOnClose>
+             onOk={pair} onCancel={() => { setPairTarget(null); setPairCode(''); }} destroyOnHidden>
         <Paragraph>{k('pairHint')}</Paragraph>
         <Input size="large" maxLength={7} value={pairCode} placeholder="123 456" style={{ fontFamily: 'monospace', letterSpacing: 4, textAlign: 'center' }}
                onChange={e => setPairCode(e.target.value.replace(/[^\d ]/g, ''))} onPressEnter={pair} />
