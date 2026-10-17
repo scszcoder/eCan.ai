@@ -20,13 +20,23 @@ def test_attribution_headers_from_scope():
 
 
 def test_no_scope_no_headers():
-    assert ls.attribution_headers() == {}
+    # No attribution ids without a scope; only the routing priority (default low).
+    assert ls.attribution_headers() == {"X-Ecan-Priority": "low"}
 
 
 def test_partial_scope_only_present_ids():
     with ls.scope(agent_id="agent_x"):
         h = ls.attribution_headers()
-    assert h == {"X-Ecan-Agent-Id": "agent_x"}
+    assert h == {"X-Ecan-Agent-Id": "agent_x", "X-Ecan-Priority": "low"}
+
+
+def test_priority_defaults_low_and_scope_can_raise_it():
+    # The llm_proxy rescues "high" (customer-service) calls with a DeepSeek→Qwen
+    # fallback; everything else defaults to "low" until a CS path opts in.
+    with ls.scope(agent_id="a"):
+        assert ls.attribution_headers()["X-Ecan-Priority"] == "low"
+    with ls.scope(agent_id="a", priority="high"):
+        assert ls.attribution_headers()["X-Ecan-Priority"] == "high"
 
 
 def test_openai_proxy_build_headers_includes_attribution():
