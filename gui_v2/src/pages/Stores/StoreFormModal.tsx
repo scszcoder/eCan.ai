@@ -146,7 +146,7 @@ const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) =>
             <Input placeholder={ts('name_ph', 'e.g. Shop One')} allowClear />
           </Form.Item>
           <Form.Item name="store_id" label={ts('store_id', 'Store ID')} required
-            extra={ts('store_id_hint', 'Permanent. All 飞鸽 sellers share one workstation URL, so this ID (not the URL) is what tells stores apart.')}
+            extra={ts('store_id_hint', 'Permanent. Every Feige seller shares one workstation URL, so this, not the URL, is what tells stores apart.')}
             rules={[{ required: true, whitespace: true },
               { validator: (_, v) => (/^https?:\/\//i.test(String(v || '')) ? Promise.reject(ts('id_is_url', 'Use a name, not a URL')) : Promise.resolve()) }]}>
             <Input disabled={!!editing} allowClear />
@@ -154,7 +154,7 @@ const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) =>
           {/* Pick one, or type a platform that is not listed and press Enter. The
               field holds a single string; tags mode is only how free text gets in. */}
           <Form.Item name="platform" label={ts('platform', 'Platform')} required
-            extra={ts('platform_hint', 'Not listed? Type the platform name and press Enter to add it.')}
+            extra={ts('platform_hint', 'Not listed? Type its name and press Enter.')}
             getValueProps={(v) => ({ value: v ? [v] : [] })}
             normalize={(v) => platformValue(Array.isArray(v) ? String(v[v.length - 1] || '') : v)}>
             <Select mode="tags" showSearch optionFilterProp="label"
