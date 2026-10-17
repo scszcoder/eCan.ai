@@ -143,10 +143,10 @@ const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) =>
           }}
         >
           <Form.Item name="name" label={ts('name', 'Name')} required rules={[{ required: true, whitespace: true }]}>
-            <Input placeholder={ts('name_ph', 'e.g. 小店一号')} allowClear />
+            <Input placeholder={ts('name_ph', 'e.g. Shop One')} allowClear />
           </Form.Item>
           <Form.Item name="store_id" label={ts('store_id', 'Store ID')} required
-            extra={ts('store_id_hint', '创建后不可修改。所有飞鸽商家共用同一个工作台网址，店铺靠这个 ID 而不是网址区分。')}
+            extra={ts('store_id_hint', 'Permanent. All 飞鸽 sellers share one workstation URL, so this ID (not the URL) is what tells stores apart.')}
             rules={[{ required: true, whitespace: true },
               { validator: (_, v) => (/^https?:\/\//i.test(String(v || '')) ? Promise.reject(ts('id_is_url', 'Use a name, not a URL')) : Promise.resolve()) }]}>
             <Input disabled={!!editing} allowClear />
@@ -154,7 +154,7 @@ const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) =>
           {/* Pick one, or type a platform that is not listed and press Enter. The
               field holds a single string; tags mode is only how free text gets in. */}
           <Form.Item name="platform" label={ts('platform', 'Platform')} required
-            extra={ts('platform_hint', '列表中没有？输入平台名称后按回车即可添加。')}
+            extra={ts('platform_hint', 'Not listed? Type the platform name and press Enter to add it.')}
             getValueProps={(v) => ({ value: v ? [v] : [] })}
             normalize={(v) => platformValue(Array.isArray(v) ? String(v[v.length - 1] || '') : v)}>
             <Select mode="tags" showSearch optionFilterProp="label"
@@ -167,16 +167,16 @@ const StoreFormModal: React.FC<Props> = ({ open, editing, onClose, onSaved }) =>
             <Input.TextArea rows={2} placeholder="https://…" style={{ fontFamily: 'monospace' }} />
           </Form.Item>
           <Form.Item name="browser_profile_id" label={ts('profile', 'Login profile')}
-            extra={ts('profile_hint', '登录了该店铺的浏览器档案，只保存在本机。')}>
-            <Select allowClear placeholder={ts('profile_ph', '选择或新建…')}
+            extra={ts('profile_hint', 'The browser profile signed in to this store. It stays on this machine.')}>
+            <Select allowClear placeholder={ts('profile_ph', 'Select or type…')}
               options={profiles.map((p) => ({ value: p.id, label: p.label || p.id }))} />
           </Form.Item>
           {!editing && (
             <Form.Item name="assign" label={ts('runs_on', 'Runs on')}
-              extra={ts('unassigned_hint', '选「本机」立即分配；选「暂不分配」后，第一台运行它的机器会自动认领。')}>
+              extra={ts('unassigned_hint', 'Pick "This machine" to assign now, or "Unassigned" so the first machine to run it claims it automatically.')}>
               <Radio.Group optionType="button" buttonStyle="solid" size="small" options={[
                 { value: 'here', label: ts('this_machine', 'This machine') },
-                { value: 'none', label: ts('unassigned_short', '暂不分配') },
+                { value: 'none', label: ts('unassigned_short', 'Unassigned') },
               ]} />
             </Form.Item>
           )}
