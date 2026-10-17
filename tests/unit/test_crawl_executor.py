@@ -68,6 +68,7 @@ def test_aborted_runs_requeue_without_using_attempts():
     # marked 203 parts failed after 2 "attempts" that never reached a page
     rows, workers = [], {}
     _, sent = _round(rows, workers, names=("W1",))
+    _state(rows, "P7").update(state="done", updated=NOW.isoformat())  # other parts still finish
     for n in range(1, ex.MAX_ABORTS + 1):
         report = {"type": "scrape_report", "batch_id": sent[-1][1]["batch_id"], "parts": [
             {"part": p["part"], "state": "failed", "docs": 0, "error": "crawler run aborted before reporting"}
@@ -77,6 +78,36 @@ def test_aborted_runs_requeue_without_using_attempts():
             assert _state(rows, "P1")["state"] == "assigned" and _state(rows, "P1")["attempts"] == ""
             assert _state(rows, "P1")["note"] == f"aborted x{n}"
     assert _state(rows, "P1")["state"] == "failed"
+
+
+def test_aborts_while_no_part_finishes_are_not_counted():
+    # 2026-10-17: the LLM account ran out of credits; every run aborted and 36 untried
+    # parts used up MAX_ABORTS within 2.5 hours
+    rows, workers = [], {}
+    _, sent = _round(rows, workers, names=("W1",))
+    _state(rows, "P7").update(state="done", updated=(NOW - timedelta(hours=1)).isoformat())
+    _state(rows, "P1")["note"] = f"aborted x{ex.MAX_ABORTS - 1}"
+    for _ in range(ex.MAX_ABORTS * 2):
+        report = {"type": "scrape_report", "batch_id": sent[-1][1]["batch_id"], "parts": [
+            {"part": p["part"], "state": "failed", "docs": 0, "error": "crawler run aborted before reporting"}
+            for p in sent[-1][1]["parts"]]}
+        _round(rows, workers, report=report, names=("W1",), sent=sent)
+    assert _state(rows, "P1")["state"] == "assigned" and _state(rows, "P1")["note"] == f"aborted x{ex.MAX_ABORTS - 1}"
+    assert _state(rows, "P2")["note"] == ""
+
+
+def test_aborts_count_once_no_untried_part_is_left():
+    # only parts that already aborted remain: the parts, not an outage, are the likely cause
+    rows, workers = [], {}
+    _round(rows, workers, names=())
+    for r in rows:
+        r.update(state="done", updated=(NOW - timedelta(hours=1)).isoformat())
+    _state(rows, "P1").update(state="pending", note="aborted x3")
+    _, sent = _round(rows, workers, names=("W1",))
+    report = {"type": "scrape_report", "batch_id": sent[0][1]["batch_id"], "parts": [
+        {"part": "P1", "state": "failed", "docs": 0, "error": "crawler run aborted before reporting"}]}
+    _round(rows, workers, report=report, names=("W1",), sent=sent)
+    assert _state(rows, "P1")["note"] == "aborted x4"
 
 
 def test_duplicate_report_is_ignored():

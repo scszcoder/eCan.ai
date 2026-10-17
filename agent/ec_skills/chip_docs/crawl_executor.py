@@ -28,6 +28,7 @@ MAX_ATTEMPTS = 3
 MAX_ABORTS = 20  # an aborted run comes back within ~1 min, so this is ~20 min of outage per batch
 ABORTED = "crawler run aborted"  # what the crawler skill's RoundEnd reports
 ABORTED_NOTE = "aborted x"
+OUTAGE_AFTER = timedelta(minutes=10)  # workers finish ~2 parts a minute when healthy
 PART_COLS = ["part", "product page URL", "sub_plan", "state", "worker", "docs", "updated", "attempts", "note"]
 WORKER_COLS = ["worker", "state", "batch id", "assigned at"]
 
@@ -93,6 +94,16 @@ def _parse_time(s: str) -> datetime | None:
         return None
 
 
+def _outage(rows: list[dict], now: datetime) -> bool:
+    """No part finished lately while untried parts wait: the workers are failing, not the parts.
+    2026-10-17: the LLM account ran out of credits; every run aborted, and in 2.5 hours
+    36 parts that were never tried used up all MAX_ABORTS and were marked failed."""
+    done = [t for r in rows if r["state"] == "done" and (t := _parse_time(r["updated"]))]
+    if done and now - max(done) <= OUTAGE_AFTER:
+        return False
+    return any(r["state"] == "pending" and not r["note"].startswith(ABORTED_NOTE) for r in rows)
+
+
 def run_round(rows: list[dict], workers: dict[str, dict], plan: list[dict], report: dict | None,
               worker_names: list[str], batch_size: int, vendor: str, docs_root: str,
               coordinator: str, send: Callable[[str, dict], bool], now: datetime) -> dict:
@@ -118,12 +129,15 @@ def run_round(rows: list[dict], workers: dict[str, dict], plan: list[dict], repo
         if owner is None:
             log.append(f"ignored report for {report.get('batch_id')} (not outstanding)")
         else:
+            outage = _outage(rows, now)
             for item in report.get("parts") or []:
                 r = by_part.get(str((item or {}).get("part") or "").upper())
                 if not r or r["state"] != "assigned" or r["worker"] != owner:
                     continue
                 docs = int(item.get("docs") or 0) if str(item.get("docs") or "0").isdigit() else 0
-                if str(item.get("error") or "").startswith(ABORTED):
+                if str(item.get("error") or "").startswith(ABORTED) and outage:
+                    release(r)  # say nothing about the part; keep its abort count
+                elif str(item.get("error") or "").startswith(ABORTED):
                     # 2026-10-12: an internet outage aborted every run within a minute and
                     # burned 203 parts' attempts untried; an aborted run says nothing about
                     # the part, so requeue it and give up only after MAX_ABORTS
