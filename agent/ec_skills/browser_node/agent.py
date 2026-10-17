@@ -12,6 +12,8 @@ This module owns the helpers that keep the cached agent reusable:
   restore the full ``AgentOutput`` schema (browser-use clobbers it
   to ``DoneAgentOutput`` when ``max_steps`` or ``max_failures`` is
   reached, which would lose all custom actions on the next round).
+* :func:`scrub_evicted_bu_agent` — drop an evicted agent's history,
+  state and per-step schema classes so a lingering reference is cheap.
 
 Future scope: the per-round agent construction logic and the
 ``agent.step`` monkey-patch installer (cancellation polling, tab
@@ -23,6 +25,8 @@ follow-up commit.
 from __future__ import annotations
 
 import asyncio
+import time
+import weakref
 from typing import Any
 
 from utils.logger_helper import logger_helper as logger
@@ -234,6 +238,73 @@ def _trim_history_list(agent: Any, mode: str) -> None:
         keep_n = _parse_trim_n(mode)
         if len(hist.history) > keep_n:
             del hist.history[:-keep_n]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Eviction scrub
+# ─────────────────────────────────────────────────────────────────────
+
+# Heavy per-agent attributes dropped on eviction. ActionModel/AgentOutput
+# are rebuilt every step as fresh pydantic classes, and each history item's
+# model_output pins its step's classes — ~50 MB per finished crawl agent.
+_SCRUB_ATTRS = (
+    "ActionModel", "AgentOutput", "DoneActionModel", "DoneAgentOutput",
+    "_ecan_full_AgentOutput", "_message_manager", "browser_session",
+)
+# Agents evicted while running; weak so this set never keeps one alive.
+_DEFERRED_SCRUB: "weakref.WeakSet[Any]" = weakref.WeakSet()
+# The caller still reads agent.state / browser_session right after run().
+_DEFERRED_SCRUB_GRACE_S = 120.0
+
+
+def scrub_evicted_bu_agent(agent: Any) -> None:
+    """Drop an evicted browser-use agent's heavy state.
+
+    Evicted agents should be garbage, but something in the app still
+    references them (2026-10-14 chip-docs crawl: 70 evicted agents alive
+    at 2.9 GB, 32k leaked ActionModel classes). Until that holder is
+    found, empty the agent so whatever holds it holds a small shell.
+
+    Attributes are *replaced*, never cleared in place: ``run()`` returns
+    ``agent.history`` itself, and a caller may still be reading it.
+    An agent evicted mid-run (``run_agent_with_dispatch`` sets
+    ``_ecan_run_active``) is parked in a weak set and scrubbed by
+    :func:`scrub_deferred_bu_agents` at a later agent acquire, after its
+    caller has finished reading it.
+    """
+    if agent is None:
+        return
+    if getattr(agent, "_ecan_run_active", False):
+        _DEFERRED_SCRUB.add(agent)
+        return
+    try:
+        from browser_use.agent.views import AgentHistoryList, AgentState
+        agent.history = AgentHistoryList(history=[], usage=None)
+        agent.state = AgentState()
+    except Exception as exc:
+        logger.debug(f"[browser_node.agent] scrub: history/state reset failed: {exc}")
+    for attr in _SCRUB_ATTRS:
+        try:
+            if hasattr(agent, attr):
+                setattr(agent, attr, None)
+        except Exception:
+            pass
+    try:
+        agent.token_cost_service.usage_history = []
+    except Exception:
+        pass
+
+
+def scrub_deferred_bu_agents() -> None:
+    """Scrub agents evicted mid-run once their run has been over a while."""
+    now = time.monotonic()
+    for agent in list(_DEFERRED_SCRUB):
+        if getattr(agent, "_ecan_run_active", False):
+            continue
+        if now - getattr(agent, "_ecan_run_ended_at", 0.0) < _DEFERRED_SCRUB_GRACE_S:
+            continue
+        _DEFERRED_SCRUB.discard(agent)
+        scrub_evicted_bu_agent(agent)
 
 
 def _parse_trim_n(mode: str) -> int:

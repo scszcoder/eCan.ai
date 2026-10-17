@@ -265,9 +265,13 @@ def execute_code_safe(
             # Compile the code first to catch syntax errors
             compiled_code = compile(code, "<user_code>", "exec")
             
-            # Execute the code
-            exec(compiled_code, safe_globals, safe_locals)
-        
+            # Execute the code in ONE namespace, like a module. With separate
+            # globals/locals, top-level names are invisible inside
+            # comprehensions and functions (NameError: 'next_num' in <genexpr>).
+            namespace = {**safe_globals, **safe_locals}
+            exec(compiled_code, namespace)
+            safe_locals = {k: v for k, v in namespace.items() if k not in safe_globals or v is not safe_globals[k]}
+
         # Check for a return value (last expression or 'result' variable)
         if "result" in safe_locals:
             result.return_value = safe_locals["result"]

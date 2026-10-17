@@ -621,6 +621,11 @@ _CLOUD_TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "query_price": ("agent.mcp.server.integrations.customer_data_tools", "query_price"),
     "query_inventories": ("agent.mcp.server.integrations.customer_data_tools", "query_inventories"),
     "query_order": ("agent.mcp.server.integrations.customer_data_tools", "query_order"),
+    # Weather lookup for shipping-time expectations (ship-from / destination).
+    "get_weather": ("agent.mcp.server.weather.weather_tools", "get_weather"),
+    # KB mining: read captured Q&A history + propose candidates (self-learning KB).
+    "query_qa_history": ("agent.mcp.server.kb.kb_mining_tools", "query_qa_history"),
+    "propose_kb_candidate": ("agent.mcp.server.kb.kb_mining_tools", "propose_kb_candidate"),
     # Chat / communication
     "send_chat": ("agent.mcp.server.chat_utils.chat_tools", "async_send_chat"),
     "list_chat_agents": ("agent.mcp.server.chat_utils.chat_tools", "async_list_chat_agents"),
@@ -11464,6 +11469,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     except Exception:
         node_dom_limit = None
 
+    node_step_timeout = None
+    try:
+        step_timeout_val = str((inputs.get("stepTimeout") or {}).get("content") or "").strip()
+        if step_timeout_val.isdigit():
+            node_step_timeout = int(step_timeout_val)
+    except Exception:
+        node_step_timeout = None
+
     # Per-node tool filter. Every registered action is serialized into
     # output_schema on EVERY step (56 actions = 66.4KB of a 107KB body,
     # measured 2026-09-16 against CloudBase's ~100KB cap), so a node that needs
@@ -11700,6 +11713,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         node_use_vision=node_use_vision, node_use_thinking=node_use_thinking,
         node_max_actions_per_step=node_max_actions_per_step,
         node_dom_limit=node_dom_limit, node_dom_focus_selector=node_dom_focus_selector,
+        node_step_timeout=node_step_timeout,
         node_allowed_actions=node_allowed_actions,
         node_excluded_actions=node_excluded_actions,
         node_profile=node_profile, node_headless=node_headless,

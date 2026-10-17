@@ -721,7 +721,7 @@ class BrowserSessionManager:
                 try:
                     from agent.ec_skills.browser_node import build_helpers as _bh
                     if scope in _bh.cached_bu_agents:
-                        _bh.cached_bu_agents.pop(scope, None)
+                        _bh.scrub_bu_agent(_bh.cached_bu_agents.pop(scope, None))
                 except Exception:
                     pass
                 logger.info(

@@ -119,6 +119,18 @@ def _evict_bu_agent_if_needed() -> None:
                         agent.stop()
                 except Exception:
                     pass
+            scrub_bu_agent(agent)
+
+
+def scrub_bu_agent(agent: Any) -> None:
+    """Empty an agent just removed from ``cached_bu_agents`` (see
+    ``agent.scrub_evicted_bu_agent``). Lazy import: agent.py is a sibling
+    module loaded on demand elsewhere."""
+    try:
+        from agent.ec_skills.browser_node.agent import scrub_evicted_bu_agent
+        scrub_evicted_bu_agent(agent)
+    except Exception as exc:
+        logger.debug(f"[build_helpers] scrub of evicted agent failed: {exc}")
 
 
 # ─── Trivial helpers (0-1 closure refs in original) ──────────────────
@@ -709,7 +721,7 @@ def invalidate_browser_session_for_recovery(
         pass
     for key in removed_keys:
         try:
-            cached_bu_agents.pop(key, None)
+            scrub_bu_agent(cached_bu_agents.pop(key, None))
         except Exception:
             pass
     try:
@@ -748,6 +760,26 @@ def invalidate_browser_session_for_recovery(
     return removed
 
 
+# 2026-10-13: chat-scoped sessions are never evicted at MAX_BROWSER_CACHE_SIZE, and an
+# agent driven by agent-to-agent messages (the chip-docs crawler) gets a new chat id
+# per message: 150 sessions and their worker threads piled up until the app crashed
+# at 7.5 GB. Keep only the most recent chat sessions.
+MAX_CHAT_BROWSER_SESSIONS = int(os.environ.get("ECAN_MAX_CHAT_BROWSER_SESSIONS", "8"))
+
+
+def evict_excess_chat_sessions(keep_key: str = "") -> int:
+    """Release the oldest chat-scoped sessions beyond MAX_CHAT_BROWSER_SESSIONS."""
+    chat_keys = [k for k in cached_browser_sessions if k.startswith("chat:") and k != keep_key]
+    excess = len(chat_keys) + (1 if keep_key.startswith("chat:") else 0) - MAX_CHAT_BROWSER_SESSIONS
+    removed = 0
+    for key in chat_keys[:max(excess, 0)]:
+        session = cached_browser_sessions.get(key)
+        if session is not None and invalidate_browser_session_for_recovery(
+                session, reason="chat session cap", stop_worker=True):
+            removed += 1
+    return removed
+
+
 def release_browser_cache_pressure(reason: str, aggressive: bool = False) -> int:
     removed = 0
     keys = list(cached_browser_sessions.keys())
@@ -765,7 +797,10 @@ def release_browser_cache_pressure(reason: str, aggressive: bool = False) -> int
             removed += 1
     if aggressive:
         try:
+            evicted = list(cached_bu_agents.values())
             cached_bu_agents.clear()
+            for agent in evicted:
+                scrub_bu_agent(agent)
         except Exception:
             pass
     return removed
@@ -1258,6 +1293,7 @@ async def get_or_create_browser_session(
                 _cached_browser_sessions_insertion_order.append(browser_scope_key)
             
             cached_browser_sessions[browser_scope_key] = auto_browser.browser_session
+            evict_excess_chat_sessions(browser_scope_key)
             note_session_owner(auto_browser.browser_session, calling_agent_id)
             return auto_browser.browser_session
 

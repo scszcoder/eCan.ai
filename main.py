@@ -8,6 +8,17 @@ import subprocess
 import time
 import warnings
 
+# 2026-10-13: the app died twice in hours-long runs with an access violation in
+# Python's _wmi.pyd (platform's WMI query). Every platform caller of
+# _wmi_query catches OSError and falls back to the registry/`ver`, so skip WMI.
+if sys.platform == "win32":
+    import platform as _platform
+
+    def _no_wmi_query(*_args):
+        raise OSError("WMI disabled (crashes under load)")
+
+    _platform._wmi_query = _no_wmi_query
+
 # ============================================================================
 # Load .env file BEFORE any other imports that depend on environment variables.
 # This must happen at the very top — before dotenv import, before any project

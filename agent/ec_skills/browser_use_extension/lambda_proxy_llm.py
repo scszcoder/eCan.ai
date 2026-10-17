@@ -81,21 +81,29 @@ def _summarize_validation_error(err: Exception, text: str) -> str:
     if not errors:
         return f"Your last output did not match the required JSON schema: {str(err)[:400]}"
     used: set[str] = set()
+    item_keys: dict[int, set[str]] = {}
     try:
-        for item in json.loads(text).get('action') or []:
+        for idx, item in enumerate(json.loads(text).get('action') or []):
             if isinstance(item, dict):
                 used.update(item.keys())
+                item_keys[idx] = set(item.keys())
     except Exception:
         pass
     lines: list[str] = []
-    unknown = set(used)
+    failing = {int(e['loc'][1]) for e in errors
+               if len(e.get('loc', ())) > 1 and e['loc'][0] == 'action' and str(e['loc'][1]).isdigit()}
+    unknown = set().union(*(item_keys[i] for i in failing if i in item_keys)) if failing & item_keys.keys() else set(used)
     for e in errors:
         loc = [str(p) for p in e.get('loc', ())]
         if loc == ['action'] and e.get('type') == 'missing':
             lines.append("action: Field required -- every reply needs an `action` list; "
                          "to finish, call the `done` action and put your result in its `text`")
         elif loc and loc[0] == 'action':
-            hits = [k for k in used if k in loc]
+            # Only the failing item's own keys: a bad item 1 also draws
+            # "navigate: Field required" from the navigate model, which
+            # told the model its valid item 0 was broken too.
+            keys = item_keys.get(int(loc[1])) if len(loc) > 1 and str(loc[1]).isdigit() else None
+            hits = [k for k in (used if keys is None else keys) if k in loc]
             if not hits:
                 continue
             key = hits[0]
@@ -113,6 +121,21 @@ def _summarize_validation_error(err: Exception, text: str) -> str:
         lines = [f"{'.'.join(str(p) for p in e.get('loc', ()))}: {e.get('msg')}" for e in errors[:3]]
     return ("Your last output did not match the action schema, nothing was executed. "
             "Fix these and retry: " + "; ".join(lines))
+
+
+def _repair_completion(text: str, output_format: type[T]) -> T | None:
+    """Parse near-JSON (e.g. an unescaped quote inside a long code argument).
+
+    Only for output the model finished: closing a cut-off string would silently
+    drop the rest of a table the model was writing. The repaired object must
+    still fit *output_format*, else None.
+    """
+    try:
+        import json_repair
+        obj = json_repair.loads(text)
+        return output_format.model_validate(obj) if isinstance(obj, dict) else None
+    except Exception:
+        return None
 
 
 @dataclass
@@ -438,8 +461,22 @@ class ChatLambdaProxy(BaseChatModel):
                         parsed = json.loads(completion_text)
                         completion = output_format.model_validate(parsed)
                     except Exception as e:
+                        stop_reason = self._extract_stop_reason(data)
+                        repaired = (_repair_completion(completion_text, output_format)
+                                    if isinstance(e, json.JSONDecodeError) and stop_reason != 'length' else None)
+                        if repaired is not None:
+                            logger.warning(f"[ChatLambdaProxy] repaired malformed JSON output ({e})")
+                            return ChatInvokeCompletion(
+                                completion=repaired,
+                                usage=self._extract_usage(data),
+                                stop_reason=stop_reason,
+                            )
+                        pos = getattr(e, 'pos', None)
+                        near = completion_text[max(0, pos - 150):pos + 150] if isinstance(pos, int) else ''
                         logger.warning(
-                            f"[ChatLambdaProxy] Failed to parse output as {output_format.__name__}: {e}"
+                            f"[ChatLambdaProxy] Failed to parse output as {output_format.__name__}: {e} "
+                            f"(stop_reason={stop_reason}, len={len(completion_text)}) "
+                            f"start={completion_text[:300]!r} near_error={near!r}"
                         )
                         # Raise, don't return the raw text: browser-use does
                         # `completion.action` on it and the model only ever saw

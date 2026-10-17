@@ -787,6 +787,15 @@ async def before_session_setup_hook_v2(
                     _ds.mark_sent_for_turn(dedup_cust, dedup_reply, source_msg_id)
                 except Exception:
                     pass
+
+                # Capture this resolved turn for the self-learning KB feed.
+                # Safe: record_qa never raises into the send path.
+                try:
+                    from agent.ec_skills.qa_capture import record_qa
+                    record_qa(state, payload, ctx)
+                except Exception:
+                    pass
+
                 claim_active = False
 
                 # Release qa_response_pending lock — soft-import: the call

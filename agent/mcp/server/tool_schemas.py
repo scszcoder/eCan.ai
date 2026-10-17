@@ -2251,6 +2251,18 @@ def build_agent_mcp_tools_schemas():
     add_query_inventories_tool_schema(tool_schemas)
     add_query_order_tool_schema(tool_schemas)
 
+    # Weather lookup for shipping-time expectations (ship-from / destination).
+    from agent.mcp.server.weather.weather_tools import add_get_weather_tool_schema
+    add_get_weather_tool_schema(tool_schemas)
+
+    # KB mining: read captured Q&A history + propose candidates (self-learning KB).
+    from agent.mcp.server.kb.kb_mining_tools import (
+        add_query_qa_history_tool_schema,
+        add_propose_kb_candidate_tool_schema,
+    )
+    add_query_qa_history_tool_schema(tool_schemas)
+    add_propose_kb_candidate_tool_schema(tool_schemas)
+
     # Amazon listing via the category flat file (inspect / fill / parse report).
     add_amazon_listing_tool_schemas(tool_schemas)
     # eBay listing: Sell Inventory API path + Seller Hub bulk-CSV path.
