@@ -53,9 +53,10 @@ def test_ssl_context_is_built_once_and_reused():
     import ssl as _ssl
 
     from agent.ec_tasks import appsync_pubsub as ap
+    from utils import shared_ssl
 
-    ap._shared_ssl_ctx = None  # reset any context a prior test warmed
+    shared_ssl._shared_ssl_ctx = None  # reset any context a prior test warmed
     first = ap._get_shared_ssl_context()
-    second = ap._get_shared_ssl_context()
+    second = shared_ssl.get_shared_ssl_context()
     assert isinstance(first, _ssl.SSLContext)
-    assert first is second  # same object — not rebuilt per call
+    assert first is second  # one object process-wide — not rebuilt per call

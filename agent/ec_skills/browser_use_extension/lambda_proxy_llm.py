@@ -432,7 +432,10 @@ class ChatLambdaProxy(BaseChatModel):
         output_format: type[T] | None,
     ) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
         """Execute a single HTTP request to the Lambda proxy."""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        # Shared TLS context: a bare AsyncClient() reloads the CA bundle from
+        # disk on every LLM step, blocking the browser-use event loop.
+        from utils.shared_ssl import get_shared_ssl_context
+        async with httpx.AsyncClient(timeout=self.timeout, verify=get_shared_ssl_context()) as client:
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
 
