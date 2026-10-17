@@ -1,6 +1,8 @@
 import asyncio
 import base64
 import json
+import ssl
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional
@@ -11,6 +13,29 @@ import certifi
 import httpx
 
 from utils.logger_helper import logger_helper as logger
+
+
+# One process-wide TLS context. Both ``httpx.AsyncClient()`` and
+# ``ssl.create_default_context()`` otherwise load the CA bundle from disk on
+# EVERY construction — a synchronous call that, when it runs on the event loop
+# (the A2A cloud-directory heartbeat builds one client per registered agent
+# every cycle), froze the loop up to 3.5s and made two-store runs "卡". Build
+# it once and reuse: an SSLContext is loop-agnostic config, safe to share
+# across the main qasync loop and the per-front-desk CDP loops.
+_shared_ssl_ctx: Optional[ssl.SSLContext] = None
+_shared_ssl_lock = threading.Lock()
+
+
+def _get_shared_ssl_context() -> ssl.SSLContext:
+    global _shared_ssl_ctx
+    ctx = _shared_ssl_ctx
+    if ctx is None:
+        with _shared_ssl_lock:
+            ctx = _shared_ssl_ctx
+            if ctx is None:
+                ctx = ssl.create_default_context(cafile=certifi.where())
+                _shared_ssl_ctx = ctx
+    return ctx
 
 
 @dataclass(frozen=True)
@@ -168,7 +193,7 @@ async def _post_graphql(
 ) -> Dict[str, Any]:
     headers = {"Content-Type": "application/json", "cache-control": "no-cache"}
     headers.update(_build_auth_headers(auth_token, api_key))
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=_get_shared_ssl_context()) as client:
         resp = await client.post(
             http_endpoint,
             json={"query": query, "variables": variables},
@@ -356,9 +381,7 @@ async def _subscribe(
             return
 
         try:
-            import ssl
-
-            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            ssl_context = _get_shared_ssl_context()
 
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(
