@@ -80,6 +80,18 @@ class LightragServer:
 
         self._monitor_running = False
         self._monitor_thread = None
+        # Generation counter + lock: start() bumps the generation, stop()
+        # bumps it too. Each background thread captures the generation it was
+        # created with and re-checks it before acting; a stale thread (created
+        # by an earlier start() that stop() failed to join in time) sees a
+        # generation mismatch and exits without touching shared state.
+        # Without this, stop() sets _monitor_running=False but the old
+        # thread may still be inside its time.sleep(2); when start() then
+        # sets _monitor_running=True and spawns a new thread, the OLD thread
+        # wakes up, sees True again, and lives on — leaking one thread per
+        # restart cycle.
+        self._thread_generation = 0
+        self._thread_generation_lock = threading.Lock()
         self._self_health_check_interval = 60  # seconds
         self._self_health_check_thread = None
         self._last_health_check_time = 0
@@ -2009,15 +2021,30 @@ class LightragServer:
         self.last_restart_time = time.time()
         
         success = self._start_server_process(wait_gating=wait_ready)
-        if success and not self._monitor_running and not self.disable_parent_monitoring:
-            self._monitor_running = True
-            self._monitor_thread = threading.Thread(target=self._monitor_parent, daemon=True)
-            self._monitor_thread.start()
-        # Always start self-health check to detect hangs
+        # Bump generation ONCE for this start cycle; both the parent-monitor
+        # and self-health-check threads must share it, or the monitor thread
+        # sees the health-check's bump and exits on its first loop check.
         if success:
+            generation = self._next_thread_generation()
             self._monitor_running = True
-            self._start_self_health_check()
+            if not self.disable_parent_monitoring:
+                self._monitor_thread = threading.Thread(
+                    target=self._monitor_parent, name="LightragParentMonitor",
+                    args=(generation,), daemon=True,
+                )
+                self._monitor_thread.start()
+            self._start_self_health_check(generation)
         return success
+
+    def _next_thread_generation(self) -> int:
+        """Bump and return the next thread generation under the lock."""
+        with self._thread_generation_lock:
+            self._thread_generation += 1
+            return self._thread_generation
+
+    def _current_thread_generation(self) -> int:
+        with self._thread_generation_lock:
+            return self._thread_generation
 
     def stop(self, force: bool = False):
         """Stop the LightRAG server.
@@ -2027,6 +2054,12 @@ class LightragServer:
                    This will interrupt all running LLM/embedding HTTP requests.
                    If False (default), use graceful termination.
         """
+        # Bump generation + clear running flag so ANY in-flight background
+        # thread (monitor_parent / self_health_check) exits on its next loop.
+        # Threads capture their creation generation and bail on mismatch,
+        # which also covers the race where start() re-sets _monitor_running
+        # True again before the old thread observed the False.
+        self._next_thread_generation()
         self._monitor_running = False
         # Stop vLLM error monitor thread via Event (replaces _vllm_error_monitor_active)
         if hasattr(self, '_vllm_monitor_event') and self._vllm_monitor_event:
@@ -2034,6 +2067,13 @@ class LightragServer:
         if hasattr(self, '_vllm_error_monitor_thread') and self._vllm_error_monitor_thread:
             self._vllm_error_monitor_thread.join(timeout=2)
             self._vllm_error_monitor_thread = None
+        # Join the parent-monitor thread if it is still alive. Bounded so a
+        # slow thread can't block stop() indefinitely; the generation check
+        # in the loop guarantees it will exit after at most one sleep cycle.
+        if hasattr(self, '_monitor_thread') and self._monitor_thread:
+            if self._monitor_thread.is_alive():
+                self._monitor_thread.join(timeout=3)
+            self._monitor_thread = None
         # Join self-health check thread to prevent leak on restart.
         # Without this, the old thread continues running because start()
         # immediately sets _monitor_running=True again, masking the False.
@@ -2210,25 +2250,40 @@ class LightragServer:
     def is_running(self):
         return self.proc is not None and self.proc.poll() is None
 
-    def _monitor_parent(self):
-        while self._monitor_running and self.parent_pid:
+    def _monitor_parent(self, creation_gen: int = 0):
+        """Background loop that checks if the parent process is still alive.
+
+        Args:
+            creation_gen: The thread generation captured at thread creation.
+                          The loop exits when the global generation advances,
+                          which signals stop() without relying on a simple
+                          boolean flag that can race with start().
+        """
+        while (self._monitor_running and self.parent_pid and
+               self._current_thread_generation() == creation_gen):
              if not self._is_process_alive(self.parent_pid):
-                 logger.warning(f"[LightragServer] Parent process {self.parent_pid} died, stopping server...")
-                 self.stop()
-                 sys.exit(0)
+                  logger.warning(f"[LightragServer] Parent process {self.parent_pid} died, stopping server...")
+                  self.stop()
+                  sys.exit(0)
              time.sleep(2)
 
-    def _start_self_health_check(self):
-        """Start background self-health check thread to detect hangs"""
+    def _start_self_health_check(self, creation_gen: int = 0):
+        """Start background self-health check thread to detect hangs.
+
+        Uses the shared start-cycle generation when one is provided (from
+        start()), otherwise bumps its own. A stale thread whose generation
+        no longer matches the current one exits on its next loop check.
+        """
         self._self_health_check_thread = threading.Thread(
             target=self._self_health_check_loop,
             name="LightragSelfHealthCheck",
-            daemon=True
+            args=(creation_gen,),
+            daemon=True,
         )
         self._self_health_check_thread.start()
         logger.info("[LightragServer] Self-health check thread started")
 
-    def _self_health_check_loop(self):
+    def _self_health_check_loop(self, creation_gen: int = 0):
         """Background loop that checks if the server is responding"""
         import requests
         port = 9621
@@ -2238,7 +2293,8 @@ class LightragServer:
             pass
 
         check_count = 0
-        while getattr(self, '_monitor_running', True):
+        while (getattr(self, '_monitor_running', True) and
+               self._current_thread_generation() == creation_gen):
             time.sleep(self._self_health_check_interval)
             check_count += 1
             try:

@@ -43,6 +43,11 @@ RECENT_DISPATCH_S = 60.0   # the list check leaves a conversation alone this lon
 # echo per reply, including two the thread check wrongly called missing.
 _ECHOES: Dict[str, List[Tuple[str, float]]] = {}
 _ECHO_KEEP_S = 300.0
+# mt055 (memory): hard cap on distinct uids tracked in _ECHOES. Per-uid lists
+# are TTL'd and capped at 20, but the dict itself only ever grows (one key per
+# customer uid, no eviction) — a long-running shop accumulates every customer
+# it ever answered. Enforce this cap on every write.
+_ECHO_UID_CAP: int = 2000
 
 
 def _norm(text: str) -> str:
@@ -54,6 +59,15 @@ def record_echo(uid: str, text: str) -> None:
     kept = [(t, at) for t, at in _ECHOES.get(uid, []) if now - at < _ECHO_KEEP_S]
     kept.append((_norm(text), now))
     _ECHOES[uid] = kept[-20:]
+    # mt055 (memory): cap the number of distinct uids tracked. When at
+    # cap, drop the uids whose newest echo is oldest (LRU).
+    if len(_ECHOES) >= _ECHO_UID_CAP:
+        _by_newest = sorted(
+            _ECHOES.items(),
+            key=lambda kv: max((at for _, at in kv[1]), default=0.0),
+        )
+        for k, _v in _by_newest[: max(0, len(_by_newest) - _ECHO_UID_CAP + 1)]:
+            _ECHOES.pop(k, None)
 
 
 def echoed_since(uid: str, text: str, since: float) -> bool:

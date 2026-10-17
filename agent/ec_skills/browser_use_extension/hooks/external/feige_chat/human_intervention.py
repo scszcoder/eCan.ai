@@ -63,6 +63,13 @@ HUMAN_HANDLED_TTL_S: float = 120.0
 # direct-delivery hot-path uses the scoped check exclusively post-mt036.
 _HANDLED_QUESTIONS: dict[tuple[str, str], float] = {}
 
+# mt055 (memory): hard cap on _HANDLED_QUESTIONS. Keys are (customer,
+# question_msg_id) which is unique per question, so in a long-running
+# customer-service session the dict grows forever (one entry per answered
+# question, no TTL, no expiry). Enforce this cap on every write: drop the
+# oldest entries (by timestamp) when the cap is reached.
+HANDLED_QUESTIONS_CAP: int = 5000
+
 # 2026-05-26 mt048B: human-typed bubble TEXT keyed by the same
 # ``(customer, question_msg_id)`` pair as ``_HANDLED_QUESTIONS``.
 # Captured at mark-time so the LLM relevance judge can compare the
@@ -80,6 +87,12 @@ _HANDLED_QUESTIONS_TEXT: dict[tuple[str, str], str] = {}
 _RECENT_HUMAN_REPLIES: dict[str, list[tuple[str, float]]] = {}
 RECENT_HUMAN_REPLY_TTL_S: float = 600.0
 RECENT_HUMAN_REPLY_MAX: int = 3
+# mt055 (memory): hard cap on the number of distinct customers remembered in
+# _RECENT_HUMAN_REPLIES. Without an upper bound, a long-running customer-service
+# session accumulates one customer-key per unique customer forever (the per-
+# customer list is TTL'd+bounded, but the dict itself only ever grows). When the
+# key count exceeds this, the least-recently-touched customers are dropped.
+RECENT_HUMAN_REPLY_CUSTOMER_CAP: int = 1000
 
 # Per-customer baseline agent-bubble msg_id.  Recorded on the FIRST
 # scrape per customer per process lifetime.  Used by mt017 detection to
@@ -208,6 +221,19 @@ def mark_handled(
             _HANDLED_QUESTIONS[(cust, qid)] = now
             if txt:
                 _HANDLED_QUESTIONS_TEXT[(cust, qid)] = txt
+            # mt055 (memory): every key is unique per question msg_id with no
+            # TTL/eviction, so _HANDLED_QUESTIONS grows without bound. Drop
+            # the oldest entries (by timestamp) until the dict is back at the
+            # cap. We do it one entry at a time with min() rather than the
+            # batched sort+slice used in _RECENT_HUMAN_REPLIES / PDD _ECHOES
+            # because mark_handled is on the direct-delivery hot path: each
+            # call adds exactly one entry, so the while loop runs at most
+            # once and avoids an O(n log n) sort per write.
+            while len(_HANDLED_QUESTIONS) > HANDLED_QUESTIONS_CAP:
+                oldest = min(_HANDLED_QUESTIONS.items(), key=lambda kv: kv[1])
+                k = oldest[0]
+                _HANDLED_QUESTIONS.pop(k, None)
+                _HANDLED_QUESTIONS_TEXT.pop(k, None)
     logger.info(
         f"[HUMAN-INTERVENTION] cust={cust!r} marked human-handled "
         f"msg_id=...{(msg_id or '')[-8:]} "
@@ -307,6 +333,17 @@ def record_human_reply(customer_key: str, reply_text: str) -> None:
     now = time.time()
     cutoff = now - RECENT_HUMAN_REPLY_TTL_S
     with _LOCK:
+        # mt055 (memory): cap the number of distinct customers tracked. One
+        # key per customer with no eviction — a long-running session that
+        # serves thousands of customers grows this dict forever. When at
+        # cap, drop the customers whose newest entry is oldest (LRU).
+        if len(_RECENT_HUMAN_REPLIES) >= RECENT_HUMAN_REPLY_CUSTOMER_CAP:
+            _by_newest = sorted(
+                _RECENT_HUMAN_REPLIES.items(),
+                key=lambda kv: max((ts for _, ts in kv[1]), default=0.0),
+            )
+            for k, v in _by_newest[: max(0, len(_by_newest) - RECENT_HUMAN_REPLY_CUSTOMER_CAP + 1)]:
+                _RECENT_HUMAN_REPLIES.pop(k, None)
         lst = _RECENT_HUMAN_REPLIES.setdefault(cust, [])
         lst[:] = [(t, ts) for (t, ts) in lst if ts >= cutoff and t != txt]
         lst.append((txt, now))
