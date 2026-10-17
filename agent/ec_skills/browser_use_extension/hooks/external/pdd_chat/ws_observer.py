@@ -332,6 +332,8 @@ async def _watch_list(client, sid: str, state: _State, session: Any, target_id: 
     cannot be read, the observer stops claiming dispatch and the DOM monitor resumes.
     """
     last_stats = time.time()
+    watch_started = time.time()
+    zero_frame_warned = False
     while True:
         await asyncio.sleep(LIST_CHECK_S)
         if target_id:
@@ -344,6 +346,18 @@ async def _watch_list(client, sid: str, state: _State, session: Any, target_id: 
             last_stats = time.time()
             idle = f"{time.time() - state.last_frame_at:.0f}s" if state.last_frame_at else "never"
             logger.info(f"[PDD-WS] stats {state.stats} last frame {idle} ago")
+        # An observer that never gets a frame still claims dispatch, so the page
+        # monitor stays paused and its readiness is frozen at "starting" (customer
+        # 2026-10-17: observers that replaced a working one sat at frames=0 for 20
+        # min while every reply fell back to slow LLM browser runs). Say it once.
+        age = time.time() - watch_started
+        if not zero_frame_warned and state.stats.get("frames", 0) == 0 and age >= 120:
+            zero_frame_warned = True
+            logger.warning(
+                f"[PDD-WS] observer on tab …{str(target_id)[-6:]} has received 0 socket "
+                f"frames in {age:.0f}s but still claims dispatch — page monitor stays "
+                f"paused (readiness frozen); label={state.label!r}"
+            )
 
 
 # One observer per chat tab: (cdp_url, target_id) -> its client. A monitor restart
@@ -403,7 +417,10 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
         await client.send_raw("Network.enable", {}, session_id=sid)
         state.shop = session
         ws_session.set_dispatch_live(True, session)
-        logger.info(f"[PDD-WS] observer live on tab {target_id[-6:]} label={label!r}")
+        logger.info(
+            f"[PDD-WS] observer live on tab {target_id[-6:]} label={label!r} "
+            f"session={id(session):x} replaced_previous={previous is not None}"
+        )
         state.rescan = lambda: _cold_start(client, sid, state, reason="rescan after undecodable push")
         await _ensure_single_session(client, sid, target_id, state)
         await _cold_start(client, sid, state)

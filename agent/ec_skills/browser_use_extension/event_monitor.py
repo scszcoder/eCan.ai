@@ -2365,6 +2365,7 @@ async def _start_dom_mutation_monitor(
             "agent_id": target_agent_id or "",
             "browser_profile_id": browser_profile_id or "",
             "last_check": time.time(),
+            "started_at": time.time(),
             "last_customer_count": 0,
             "last_keys": [],
             "last_status": "starting",
@@ -2559,6 +2560,23 @@ async def _start_dom_mutation_monitor(
                             # MAIN-tab recovery scan itself now fires from the top of check_now
                             # (ws104), independent of this branch.
                             if not _coldstart_recovery_active():
+                                # Silent before: a WS observer that claims dispatch
+                                # but receives nothing freezes this set's readiness
+                                # snapshot at status=starting forever (customer
+                                # 2026-10-17, 拼多多). Say so, at most once a minute.
+                                _now = time.time()
+                                if _now - float(self.state.get("_ws_pause_logged_at") or 0) >= 60:
+                                    self.state["_ws_pause_logged_at"] = _now
+                                    _tid = str(self.state.get("target_id") or "")
+                                    logger.info(
+                                        f"[EventMonitor] DOM poll paused: WS dispatch live "
+                                        f"label={getattr(cfg, 'label', '')!r} "
+                                        f"set={self.state.get('monitor_set_id', '')} "
+                                        f"target=…{_tid[-6:]} "
+                                        f"last_status={self.state.get('last_status')} "
+                                        f"last_url={str(self.state.get('last_current_url') or '')[:80]!r} "
+                                        f"age={_now - float(self.state.get('started_at') or _now):.0f}s"
+                                    )
                                 return
                 except Exception:
                     pass

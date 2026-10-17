@@ -2436,7 +2436,21 @@ async def navigate_blank_tab_to_store_url(browser_session: Any, state: dict | No
         current_target = sm.get_target(latest_focus) if latest_focus else None
         current_url = str(getattr(current_target, "url", "") or "").strip()
         if current_url not in _BLANK_TAB_URLS:
-            return None  # a real page is loaded — don't hijack it
+            # A real page is loaded — don't hijack it. Log where the tab actually
+            # is (once per URL per session): before, only the blank-tab case was
+            # logged, so a tab sitting on a login/other page was invisible.
+            if getattr(browser_session, "_ecan_landing_logged_url", None) != current_url:
+                try:
+                    setattr(browser_session, "_ecan_landing_logged_url", current_url)
+                except Exception:
+                    pass
+                _on_site = _same_site(current_url, store_url)
+                (logger.info if _on_site else logger.warning)(
+                    f"[BrowserAutomation] Focused tab url={current_url[:120]!r} "
+                    f"({'on' if _on_site else 'NOT on'} the store site) — no pre-navigation; "
+                    f"store_url={store_url}"
+                )
+            return None
         if os.environ.get("ECAN_BACKGROUND_CHAT_PAGE_GUARD", "1") != "0":
             _chat_owner = _another_browser_owns_live_chat(browser_session, state)
             if _chat_owner:

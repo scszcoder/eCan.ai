@@ -893,10 +893,18 @@ def _validate_monitor_ready(control_state: dict, cfg: DispatchConfig) -> bool:
     if status not in cfg.allowed_statuses or (
         cfg.require_url_path and cfg.require_url_path not in current_url
     ):
+        # Which set/tab and for how long: a set stuck in "starting" for minutes
+        # means its DOM poll never ran (e.g. paused under a dead WS observer),
+        # not a slow page — see "[EventMonitor] DOM poll paused" lines.
+        _started = control_state.get("started_at") or control_state.get("last_check")
+        _age = f"{time.time() - float(_started):.0f}s" if _started else "?"
+        _tid = str(control_state.get("target_id") or "")
         logger.info(
             f"[BrowserAutomation] {cfg.log_tag} skipped: monitor not ready "
             f"(status={status}, current_url={current_url}, "
-            f"require_path={cfg.require_url_path!r})"
+            f"require_path={cfg.require_url_path!r}, "
+            f"set={control_state.get('monitor_set_id', '')}, target=…{_tid[-6:]}, "
+            f"monitor_age={_age})"
         )
         return False
     return True
