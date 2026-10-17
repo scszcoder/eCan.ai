@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import logging
 import os
 import time
 import threading
@@ -617,7 +618,11 @@ class AppSyncPassiveClient:
         
         # Log full envelope before sending
         logger.debug(f"[_publish_step_result] Sending envelope: runId={envelope['runId']}, stepId={envelope['stepId']}, result_len={len(envelope['result'])}, dom_tree_len={len(envelope['dom_tree'])}")
-        logger.debug(f"[_publish_step_result] Full envelope: {envelope}")
+        if logger.isEnabledFor(logging.DEBUG):
+            # envelope carries a dom_tree of up to ~200KB; str(envelope) in
+            # the f-string runs BEFORE logger.debug() decides to discard the
+            # message, so we must guard here just like worker_main._handle_envelope.
+            logger.debug(f"[_publish_step_result] Full envelope: {envelope}")
 
         auth_headers = _build_auth_headers(self._config.auth_token)
 
