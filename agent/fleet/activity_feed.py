@@ -263,8 +263,7 @@ class FleetFeed:
     async def _subscribe_loop(self, channel: str, on_message, what: str) -> None:
         """Stay subscribed to *channel* (AppSync-compatible graphql-ws; CN TCB and intl)."""
         import aiohttp
-        import certifi
-        import ssl
+        from utils.shared_ssl import get_shared_ssl_context
         from agent.chats.wan_chat import _resolve_ws_token
         from agent.cloud_api.cloud_api import gen_wan_subscription_connection_string
         from agent.cloud_api.endpoints import get_endpoint_config
@@ -279,7 +278,7 @@ class FleetFeed:
                     continue
                 auth = token.split("/@@/", 1)[-1] if token and "/@@/" in token else token
                 url = cfg.build_ws_url(auth)
-                ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+                ssl_ctx = get_shared_ssl_context()
                 timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=330)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.ws_connect(url, protocols=["graphql-ws"], ssl=ssl_ctx,

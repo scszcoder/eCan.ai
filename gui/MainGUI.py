@@ -775,7 +775,10 @@ class MainWindow:
                 )
                 return
             import httpx
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            from utils.shared_ssl import get_shared_ssl_context
+            # Runs on the main qasync loop per inbound WAN message: reuse one TLS
+            # context instead of reloading the CA bundle on every message.
+            async with httpx.AsyncClient(timeout=30.0, verify=get_shared_ssl_context()) as client:
                 resp = await client.post(target_url, json=payload)
                 logger.info(
                     f"[MainWindow] 🌐 bridged WAN→local A2A for {to_agent_id} "

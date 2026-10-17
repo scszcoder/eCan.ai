@@ -34,6 +34,7 @@ import httpx
 from agent.a2a.discovery.directory import AgentDirectory, AgentEndpoint, get_directory
 from agent.ec_tasks.appsync_pubsub import AppSyncApiKeyConfig
 from utils.logger_helper import logger_helper as logger
+from utils.shared_ssl import get_shared_ssl_context
 
 LAN_PROBE_TIMEOUT_SEC = 1.5
 LAN_PROBE_CACHE_TTL_SEC = 30.0
@@ -174,7 +175,7 @@ async def send_to_agent(
 
 async def _post_lan(url: str, payload: dict, timeout: float) -> dict:
     """HTTP POST a JSON payload to a LAN A2A endpoint and return the parsed reply."""
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, verify=get_shared_ssl_context()) as client:
         resp = await client.post(url, json=payload)
         resp.raise_for_status()
         try:

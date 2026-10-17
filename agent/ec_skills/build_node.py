@@ -24,6 +24,7 @@ from agent.ec_tasks.pending_events import register_async_operation, resolve_asyn
 from langchain_core.messages import HumanMessage, SystemMessage
 from agent.ec_skill import node_builder
 from utils.logger_helper import logger_helper as logger
+from utils.shared_ssl import get_shared_ssl_context
 from utils.logger_helper import get_traceback, truncate_for_log
 from langgraph.types import interrupt
 from utils.env.secure_store import secure_store, get_current_username
@@ -6382,7 +6383,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # Configure timeout for proxy compatibility (especially Clash)
             # Increased read timeout to handle slow proxy responses
             timeout = httpx.Timeout(connect=15.0, read=180.0, write=30.0, pool=15.0)
-            with httpx.Client(timeout=timeout) as client:
+            with httpx.Client(timeout=timeout, verify=get_shared_ssl_context()) as client:
                 # follow redirects to avoid 302 on some endpoints
                 response = client.request(**request_args, follow_redirects=True)
                 logger.debug(f"HTTP API response received: {response}")
@@ -6434,7 +6435,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # Configure timeout for proxy compatibility (especially Clash)
             # Increased read timeout to handle slow proxy responses
             timeout = httpx.Timeout(connect=15.0, read=180.0, write=30.0, pool=15.0)
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout, verify=get_shared_ssl_context()) as client:
                 response = await client.request(**request_args)
                 response.raise_for_status()
                 state.setdefault('results', []).append(response.json())
