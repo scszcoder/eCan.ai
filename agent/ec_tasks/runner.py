@@ -3616,7 +3616,11 @@ class TaskRunner(Generic[Context]):
                 except Exception:
                     event_session_id = ""
             logger.info(f"[ROUTING] Routing event '{etype}' (rule='{resolved_etype}') - {len(tasks_list)} tasks available")
-            if etype == "browser_event":
+            if etype == "browser_event" and logger.isEnabledFor(logging.DEBUG):
+                # browser_event fires on every DOM mutation, so this diagnostic
+                # must not cost anything unless DEBUG is actually on. Building
+                # the list calls _get_task_session_id per task and json.dumps
+                # serialises it -- both wasted work at INFO level.
                 try:
                     task_debug = [
                         {
@@ -3627,7 +3631,7 @@ class TaskRunner(Generic[Context]):
                         }
                         for t in tasks_list if t
                     ]
-                    logger.info(f"[ROUTING] browser_event tasks_list={json.dumps(task_debug, ensure_ascii=True)}")
+                    logger.debug(f"[ROUTING] browser_event tasks_list={json.dumps(task_debug, ensure_ascii=True)}")
                 except Exception:
                     pass
 

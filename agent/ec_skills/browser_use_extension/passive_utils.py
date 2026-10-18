@@ -308,6 +308,9 @@ async def publish_step_result(
             if attempt < max_retries:
                 delay = base_delay * (2 ** (attempt - 1))  # 1s, 2s, 4s
                 logger.warning(f"[publish_step_result] Attempt {attempt}/{max_retries} failed: {e}. Retrying in {delay:.1f}s...")
+                # Must NOT block the event loop: this is called from the
+                # browser-use asyncio loop, and a 1-4 s sleep here stalls
+                # every other task (CDP, WS, GUI) on that loop.
                 await asyncio.sleep(delay)
             else:
                 logger.error(f"[publish_step_result] All {max_retries} attempts failed. Last error: {e}")
