@@ -605,7 +605,8 @@ async def _start_live_chat_ws_frame_capture(session: Any, target_id: str, label:
         try:
             _pjf = (_live_chat_env("ECAN_LIVE_CHAT_PROBE_JS_FILE") or "").strip()
             if _pjf and os.path.isfile(_pjf):
-                _txt = open(_pjf, encoding="utf-8").read().strip()
+                with open(_pjf, encoding="utf-8") as f:
+                    _txt = f.read().strip()
                 if _txt:
                     _probe_js = _txt
                     logger.info(f"[LIVE-CHAT-WS-CAPTURE] probe JS overridden from file {_pjf} ({len(_txt)} chars)")
