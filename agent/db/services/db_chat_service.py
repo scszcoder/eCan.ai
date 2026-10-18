@@ -914,6 +914,21 @@ class DBChatService(BaseService):
                 "error": None
             }
 
+    def prune_older_than(self, days: int) -> dict:
+        """Delete chat messages (and their attachment rows) and chat
+        notifications older than *days*. Chats themselves are kept, so a
+        conversation's identity survives; only its old history goes. Bulk
+        deletes skip the ORM cascade, hence attachments first."""
+        cutoff_ms = int((time_module.time() - max(1, int(days)) * 86400) * 1000)
+        with self.session_scope() as session:
+            old_ids = session.query(Message.id).filter(Message.createAt < cutoff_ms)
+            n_att = session.query(Attachment).filter(Attachment.messageId.in_(old_ids.subquery().select())) \
+                .delete(synchronize_session=False)
+            n_msg = session.query(Message).filter(Message.createAt < cutoff_ms).delete(synchronize_session=False)
+            n_notif = session.query(ChatNotification).filter(ChatNotification.timestamp < cutoff_ms) \
+                .delete(synchronize_session=False)
+        return {"messages": n_msg, "attachments": n_att, "notifications": n_notif}
+
     def set_notification_feedback(self, uid: str, item_key: str, feedback: dict) -> dict:
         """Store the user's rating/comment for one item of a result notification
         under content["feedback"][item_key], so it shows again on reload."""

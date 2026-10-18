@@ -3275,6 +3275,13 @@ class MainWindow:
                 logger.error(f"[MainWindow] âŒ Agent ultra-parallel process failed: {e}")
                 agents_built = False
             
+            # Prune chat history / generated media past retention (daily).
+            try:
+                from utils.data_retention import start_retention
+                start_retention(self)
+            except Exception as e:
+                logger.warning(f"[MainWindow] data retention not started (non-critical): {e}")
+
             # Install wake recovery callbacks now that agents are ready
             try:
                 from utils.power_monitor import get_power_monitor
