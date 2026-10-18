@@ -3126,6 +3126,13 @@ class AuthManager:
             self.refresh_task.cancel()
         self.refresh_task = None
 
+    def _wx_access_token_refreshable(self) -> bool:
+        """True when the WeChat AccessToken is a CloudBase JWT, the only kind
+        refreshWeChatToken can refresh. An opaque website session token (no
+        dots) has no weChatSession row on the server to refresh from."""
+        at = (self.tokens or {}).get('AccessToken') or (self.tokens or {}).get('access_token') or ''
+        return isinstance(at, str) and at.count('.') == 2
+
     # Errors that mean the refresh token itself is invalid and retrying won't help.
     _FATAL_REFRESH_ERRORS = {'NotAuthorizedException', 'InvalidParameterException', 'UserNotFoundException'}
 
@@ -3165,6 +3172,24 @@ class AuthManager:
                     if not ok:
                         logger.warning("AuthManager: WeChat session token not found — stopping refresh loop")
                         break
+                    # A QR login through the unified login callback hands the
+                    # desktop an opaque website session token (no dots), not a
+                    # CloudBase JWT. registerWeChatSession stores NO weChatSession
+                    # row for it ("refreshWeChatToken does not apply"), so a refresh
+                    # always answers SESSION_EXPIRED "session not found" -- which
+                    # signed every such login out 45 min later while the 30-day
+                    # session token kept authenticating every call (customer
+                    # 2026-10-18: back at the QR screen at 22:50, signed out since
+                    # 15:41). Nothing to refresh: stay signed in on the session token.
+                    if not self._wx_access_token_refreshable():
+                        if not getattr(self, '_wx_opaque_announced', False):
+                            self._wx_opaque_announced = True
+                            logger.info(
+                                "AuthManager: website-session login (opaque token) — no WeChat "
+                                "token to refresh; HTTP and WS run on the 30-day session token."
+                            )
+                        consecutive_failures = 0
+                        continue
                     logger.info("AuthManager: Refreshing WeChat token via session token...")
                     ok2, result = self._refresh_wechat_token(session_tok)
                     if ok2:
