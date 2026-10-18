@@ -269,7 +269,17 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state, prompt_src, promp
             
             if messages_to_add:
                 history_messages = [sanitize_message_for_history(m) for m in messages_to_add]
-                state["history"].extend(history_messages)
+                # The first system prompt goes to the FRONT of a history that already
+                # holds turns (restored chat transcript, a pend node's human message):
+                # appended after them, the LLM node would send it twice -- once
+                # prepended, once mid-conversation. An empty history is unaffected.
+                if (history_messages and isinstance(messages_to_add[0], SystemMessage)
+                        and state["history"]
+                        and not any(isinstance(h, SystemMessage) for h in state["history"])):
+                    state["history"].insert(0, history_messages[0])
+                    state["history"].extend(history_messages[1:])
+                else:
+                    state["history"].extend(history_messages)
                 state["prompts"] = history_messages
                 logger.debug(f"[LLM_HOOKS] Added {len(messages_to_add)} non-duplicate messages to history")
             else:
