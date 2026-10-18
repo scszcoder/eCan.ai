@@ -1908,6 +1908,11 @@ export class IPCAPI {
     );
     }
 
+    /** New task with an existing task's definition (skill, trigger, schedule, settings) under a new name. */
+    public async copyAgentTask(username: string, task_id: string, new_name: string, agent_id?: string): Promise<APIResponse<{ task_id: string }>> {
+        return apiRouter.execute({ method: 'copy_agent_task' }, { username, task_id, new_name, agent_id: agent_id || '' });
+    }
+
     public async deleteAgentTask(username: string, agent_task_id: string): Promise<APIResponse<void>> {
         return apiRouter.execute(
       {

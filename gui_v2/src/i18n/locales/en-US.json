@@ -818,6 +818,13 @@
       "agent_id": "Agent ID",
       "error_fetching": "Error_fetching",
       "fetch_failed": "Fetch_failed",
+      "sharedTask": {
+        "title": "Task \"{{task}}\" already belongs to another agent",
+        "content": "\"{{task}}\" is assigned to: {{agents}}. When one task is shared by several agents, a message sent to one agent may be handled by another. Create a copy \"{{copyName}}\" for this agent (same skill, trigger and settings) so it has a task of its own.",
+        "copy": "Create a copy (recommended)",
+        "keep": "Keep shared",
+        "copyFailed": "Could not copy the task: {{error}}"
+      },
       "fetched_agents": "Fetched_agents",
       "description": "Description",
       "description_placeholder": "Enter agent description",

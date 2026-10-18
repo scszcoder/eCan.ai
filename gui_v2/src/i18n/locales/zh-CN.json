@@ -850,6 +850,13 @@
       "agent_id": "智能体ID",
       "error_fetching": "获取错误",
       "fetch_failed": "获取失败",
+      "sharedTask": {
+        "title": "任务「{{task}}」已分配给其他智能体",
+        "content": "「{{task}}」已分配给：{{agents}}。同一个任务分给多个智能体时，发给某个智能体的消息可能由别的智能体来处理。建议为本智能体创建一份副本「{{copyName}}」（同样的技能、触发方式和设置），由它单独负责。",
+        "copy": "创建副本（推荐）",
+        "keep": "仍然共享",
+        "copyFailed": "创建任务副本失败：{{error}}"
+      },
       "fetched_agents": "已获取智能体",
       "description": "描述",
       "description_placeholder": "请输入智能体描述",

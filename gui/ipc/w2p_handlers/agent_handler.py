@@ -1728,10 +1728,11 @@ def handle_query_agent_task_rels(request: IPCRequest, params: Optional[list[Any]
         input_data = json.loads(input_str) if isinstance(input_str, str) else input_str
         
         agent_id = input_data.get('agent_id')
+        task_id = input_data.get('task_id')
         limit = input_data.get('limit', 500)
         offset = input_data.get('offset', 0)
-        
-        logger.debug(f"[agent_handler] query_agent_task_rels: agent_id={agent_id}, limit={limit}, offset={offset}")
+
+        logger.debug(f"[agent_handler] query_agent_task_rels: agent_id={agent_id}, task_id={task_id}, limit={limit}, offset={offset}")
         
         # Get database manager
         ctx = get_handler_context(request, params)
@@ -1748,6 +1749,8 @@ def handle_query_agent_task_rels(request: IPCRequest, params: Optional[list[Any]
             query = db_session.query(DBAgentTaskRel)
             if agent_id:
                 query = query.filter(DBAgentTaskRel.agent_id == agent_id)
+            if task_id:
+                query = query.filter(DBAgentTaskRel.task_id == task_id)
 
             # Apply pagination
             total_count = query.count()
