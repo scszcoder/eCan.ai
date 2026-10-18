@@ -3021,7 +3021,7 @@
         },
         "policies": {
           "intro": "Write each rule once as your default. A store only needs an override where it differs; everything else is inherited.",
-          "docHint": "Fill in each section below (scroll down for all of them) and click Save once. Lines in <!-- --> are hints and are not saved. Leave a section empty if it does not apply.",
+          "docHint": "Type into each section's box below (the grey text is an example), click a section on the right to jump to it, and click Save once. Leave a section empty if it does not apply.",
           "unsavedSwitch": "Save or discard your changes first",
           "unknownSections": "Not saved — not a rule section: {{names}}",
           "nothingChanged": "Nothing changed",
