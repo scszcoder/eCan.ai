@@ -635,7 +635,33 @@ async def _scrape_and_override_last_message(
                         typing_holder_getter=typing_holder_getter,
                     )
                     _bt_text = str((_bt or {}).get("text") or "").strip()
-                    if (_bt or {}).get("scrape_ok") and _bt_text:
+                    # The newest customer bubble may be an OLD question already
+                    # answered, not text sent with this card: folding it made the
+                    # Q&A answer it again while the new question went unanswered
+                    # (2026-10-18 肽斯特 14:50: "现在拍能发货吗" re-answered). Fold
+                    # only an unanswered bubble that is not the turn dispatched
+                    # last -- the mt030 rule the text path applies below.
+                    _bt_stale = ""
+                    try:
+                        _bt_ab = (_bt or {}).get("latest_agent_bubble") or {}
+                        _bt_aidx = int(_bt_ab.get("index")) if isinstance(_bt_ab, dict) and _bt_ab.get("index") is not None else -1
+                        _bt_cidx = int((_bt or {}).get("index")) if (_bt or {}).get("index") is not None else -1
+                        _bt_atext = str(_bt_ab.get("text") or "").strip() if isinstance(_bt_ab, dict) else ""
+                        from .dispatch_state import is_placeholder_text as _bt_is_ph
+                        if _bt_aidx > _bt_cidx >= 0 and not (_bt_atext and _bt_is_ph(_bt_atext)):
+                            _bt_stale = "already_answered"
+                        _bt_prev = (customer_last_dispatched_msg_id or {}).get(customer_key)
+                        _bt_mid = str((_bt or {}).get("msg_id") or "").strip()
+                        if not _bt_stale and _bt_prev and _bt_mid and _bt_mid == str(_bt_prev):
+                            _bt_stale = "dispatched_last_turn"
+                    except Exception:
+                        _bt_stale = ""
+                    if _bt_stale:
+                        logger.info(
+                            f"[BrowserAutomation] {log_tag} ws160 bundled-text fold skipped "
+                            f"cust={customer_key!r} ({_bt_stale}): {_bt_text[:40]!r}"
+                        )
+                    elif (_bt or {}).get("scrape_ok") and _bt_text:
                         # drop the card-synth line(s) ("[商品卡片] …"); the remainder
                         # is the customer's genuine typed question.
                         _bt_q = "\n".join(

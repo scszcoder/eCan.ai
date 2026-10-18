@@ -366,7 +366,8 @@ def is_placeholder_text(text: str) -> bool:
     return False
 
 
-def remember_agent_reply(customer: str, reply_text: str) -> str:
+def remember_agent_reply(customer: str, reply_text: str,
+                         source_msg_id: str = "", source_text: str = "") -> str:
     """Record the latest intended agent reply for DOM-echo suppression.
 
     The value is normalized before storage because sidebar extraction applies
@@ -384,6 +385,8 @@ def remember_agent_reply(customer: str, reply_text: str) -> str:
         return ""
     last_agent_reply_by_customer[cust] = reply_norm
     _append_recent_agent_reply(cust, reply_norm)
+    if (source_msg_id or source_text) and not is_placeholder_text(reply_text or ""):
+        _note_reply_turn(cust, source_msg_id, source_text)
     # ws187: feed the Q&A context buffer with the RAW reply text (the ledgers
     # above store normalized text for echo matching only). Placeholders and
     # synthetic card identities excluded — the LLM needs its real answers to
@@ -445,8 +448,36 @@ def real_reply_since(customer: str, since_ts: float) -> str:
 
 CROSS_IDENTITY_TWIN_WINDOW_S = 30.0
 
+# Which buyer turn each recent real reply answered, per identity:
+# cust -> [(source_msg_id, normalized question text, ts)]. Lets the twin guard
+# tell "the same turn answered twice" from "the next question".
+_reply_turns: dict[str, list[tuple[str, str, float]]] = {}
 
-def cross_identity_twin(customer: str, window: float = CROSS_IDENTITY_TWIN_WINDOW_S) -> str:
+
+def _note_reply_turn(cust: str, source_msg_id: str, source_text: str) -> None:
+    now = time.time()
+    with _recent_replies_lock:
+        lst = [t for t in _reply_turns.get(cust, []) if now - t[2] < RECENT_REPLY_TTL_S]
+        lst.append((str(source_msg_id or "").strip(), normalize_reply_text(source_text or ""), now))
+        _reply_turns[cust] = lst[-RECENT_REPLY_MAX_PER_CUSTOMER:]
+
+
+def _same_turn(turns: list[tuple[str, str, float]], source_msg_id: str, source_text: str) -> bool:
+    sid = str(source_msg_id or "").strip()
+    text = normalize_reply_text(source_text or "")
+    for t_sid, t_text, _ in turns:
+        if sid and t_sid and sid == t_sid:
+            return True
+        # Card-text folding can prefix the question on one identity; the
+        # shorter text inside the longer one is the same turn.
+        if text and t_text and (text == t_text or (min(len(text), len(t_text)) >= 4
+                                                  and (text in t_text or t_text in text))):
+            return True
+    return False
+
+
+def cross_identity_twin(customer: str, window: float = CROSS_IDENTITY_TWIN_WINDOW_S,
+                        source_msg_id: str = "", source_text: str = "") -> str:
     """The OTHER identity of *customer*'s conversation (``card:<talk>`` <-> the
     bound real name) when a real reply was queued for it within *window*, else
     "". A nameless product card dispatches as card:<talk> while the named row
@@ -469,7 +500,20 @@ def cross_identity_twin(customer: str, window: float = CROSS_IDENTITY_TWIN_WINDO
         return ""
     if not other or other == cust or other.startswith("card:") == cust.startswith("card:"):
         return ""
-    return other if real_reply_since(other, time.time() - window) else ""
+    since = time.time() - window
+    if not real_reply_since(other, since):
+        return ""
+    # Only the SAME turn is a twin. The other identity being answered for a
+    # different question is no reason to drop this answer (2026-10-18: "是不是
+    # 透气？" answered under card:<talk> was dropped because the named row had
+    # just been answered about the product card). Turns not recorded -> as before.
+    if source_msg_id or source_text:
+        o_cust, _ = _fingerprint(other, "x")
+        with _recent_replies_lock:
+            turns = [t for t in _reply_turns.get(o_cust, []) if t[2] >= since]
+        if turns and not _same_turn(turns, source_msg_id, source_text):
+            return ""
+    return other
 
 
 def matches_recent_agent_reply(customer: str, sidebar_text: str) -> str:

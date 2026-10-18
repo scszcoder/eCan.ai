@@ -4875,6 +4875,8 @@ class TaskRunner(Generic[Context]):
             _live_chat_ledger_payload = None
 
         _source_msg_id = str(_parsed.get("source_customer_msg_id") or "").strip()
+        # The buyer question this reply answers (with the id: which turn it is).
+        _source_text = str(_parsed.get("source_latest_message") or "").strip()
         try:
             record_pending_delivery = (
                 _live_chat_bridge().delivery_durability.record_pending_delivery
@@ -5207,7 +5209,8 @@ class TaskRunner(Generic[Context]):
             # A site whose one conversation can surface under two identities
             # (飞鸽: card:<talk> and the bound name) drops the twin reply here.
             _twin_fn = getattr(_live_chat_ds, "cross_identity_twin", None)
-            _twin = _twin_fn(_customer_name) if callable(_twin_fn) else ""
+            _twin = (_twin_fn(_customer_name, source_msg_id=_source_msg_id, source_text=_source_text)
+                     if callable(_twin_fn) else "")
             if _twin:
                 logger.info(
                     f"[DIRECT-DELIVERY] Twin skip: customer={_customer_name!r} is the same "
@@ -5231,6 +5234,8 @@ class TaskRunner(Generic[Context]):
                 _reply_norm = _live_chat_ds.remember_agent_reply(
                     _customer_name,
                     _response_text,
+                    source_msg_id=_source_msg_id,
+                    source_text=_source_text,
                 )
                 if _reply_norm:
                     logger.info(
@@ -5367,7 +5372,8 @@ class TaskRunner(Generic[Context]):
             # the bind, and went out 9 s later).
             try:
                 _twin_fn2 = getattr(_live_chat_ds, "cross_identity_twin", None)
-                _twin2 = _twin_fn2(_customer_name) if callable(_twin_fn2) else ""
+                _twin2 = (_twin_fn2(_customer_name, source_msg_id=_source_msg_id, source_text=_source_text)
+                          if callable(_twin_fn2) else "")
             except Exception:
                 _twin2 = ""
             if _twin2:
@@ -6078,7 +6084,9 @@ class TaskRunner(Generic[Context]):
                     except Exception:
                         pass
                     try:
-                        _live_chat_ds.remember_agent_reply(_customer_name, _response_text)
+                        _live_chat_ds.remember_agent_reply(_customer_name, _response_text,
+                                                           source_msg_id=_source_msg_id,
+                                                           source_text=_source_text)
                     except Exception:
                         pass
                 _cleanup_live_chat_delivery_state(
@@ -6817,6 +6825,8 @@ class TaskRunner(Generic[Context]):
                                     )
                                     _live_chat_ds.remember_agent_reply(
                                         _customer_name, _response_text,
+                                        source_msg_id=_source_msg_id,
+                                        source_text=_source_text,
                                     )
                                 except Exception:
                                     pass

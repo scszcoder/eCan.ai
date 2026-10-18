@@ -388,6 +388,44 @@ def _get_agent_by_name(agent_name: str, mainwin=None):
         return None
 
 
+def _auto_distribute_peers(sender_id: str, recipient_id: str,
+                           all_agents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Agents send_chat may rotate this message to instead of *recipient_id*.
+
+    Peers share a skill with the target (same capability). A front desk's pool
+    (PreDispatch / pick_for_customer) already chose the recipient by load, so a
+    pooled sender gets no peers: rotating overrode that choice. And "shares a
+    skill" spans stores -- every store's Q&A agents run the same skill -- so the
+    rotation landed on another store's agent, whose task drops a dispatch from
+    this sender (2026-10-18: 抖店 turns sent to a 拼多多 Q&A agent, lost).
+    Otherwise peers are limited to agents that listen to this sender; with no
+    listener information, the shared-skill rule stands.
+    """
+    target_skills: List[str] = []
+    for a in all_agents:
+        if a.get("id") == recipient_id:
+            target_skills = a.get("skills", [])
+            break
+    if not target_skills:
+        return []
+    peers = [a for a in all_agents
+             if a.get("id") != sender_id and a.get("id") != recipient_id
+             and any(s in target_skills for s in a.get("skills", []))]
+    if not peers:
+        return []
+    try:
+        from agent.ec_agents import agent_pool
+        if sender_id in agent_pool.pools():
+            return []
+        from agent.ec_tasks.runner import find_my_listeners
+        listeners = set(find_my_listeners(sender_id))
+        if listeners:
+            peers = [a for a in peers if a.get("id") in listeners]
+    except Exception as e:
+        logger.debug(f"[send_chat] auto-distribute peer filter skipped: {e}")
+    return peers
+
+
 def _get_all_agents(mainwin=None) -> List[Dict[str, Any]]:
     """Get all available agents."""
     try:
@@ -1031,23 +1069,7 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         dispatch = _get_dispatch_state(resolved_sender_id)
         all_agents = _get_all_agents(mainwin)
 
-        # Determine the target agent's skills so we can find peers
-        # (agents with the same skill = same capability)
-        target_skills = []
-        for a in all_agents:
-            if a.get("id") == resolved_recipient_id:
-                target_skills = a.get("skills", [])
-                break
-        # Peer agents: share at least one skill with the target, excluding sender
-        if target_skills:
-            peer_agents = [
-                a for a in all_agents
-                if a.get("id") != resolved_sender_id
-                and a.get("id") != resolved_recipient_id
-                and any(s in target_skills for s in a.get("skills", []))
-            ]
-        else:
-            peer_agents = []
+        peer_agents = _auto_distribute_peers(resolved_sender_id, resolved_recipient_id, all_agents)
         # Include the original target in the pool for tracking
         eligible_agents = [a for a in all_agents if a.get("id") == resolved_recipient_id] + peer_agents
 
