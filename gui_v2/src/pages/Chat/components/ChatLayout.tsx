@@ -126,6 +126,8 @@ export interface ChatLayoutProps {
   chatContextTitle?: React.ReactNode;
   chatContextContent?: React.ReactNode;
   hasNewAgentNotifications?: boolean;
+  /** Bumped when a result arrives live; each bump opens the notifications panel. */
+  openNotificationsSignal?: number;
   onRightPanelToggle?: (rightCollapsed: boolean) => void;
 }
 
@@ -139,6 +141,7 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
   chatContextTitle,
   chatContextContent,
   hasNewAgentNotifications = false,
+  openNotificationsSignal = 0,
   onRightPanelToggle,
 }) => {
   const { t } = useTranslation();
@@ -150,6 +153,12 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
   useEffect(() => {
     onRightPanelToggle?.(rightCollapsed);
   }, [rightCollapsed, onRightPanelToggle]);
+
+  useEffect(() => {
+    if (!openNotificationsSignal) return;
+    setRightMode('notifications');
+    setRightCollapsed(false);
+  }, [openNotificationsSignal]);
 
   const openRightMode = (mode: 'notifications' | 'context') => {
     setRightCollapsed((c) => {

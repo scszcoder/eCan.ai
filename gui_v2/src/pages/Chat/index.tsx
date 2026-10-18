@@ -97,6 +97,15 @@ const ChatPage: React.FC = () => {
 
     // 使用全局Notification管理器和Message管理器
     const { hasNew, markAsRead } = useChatNotifications(activeChatId || '');
+    // A result pushed live into the open chat opens the result panel.
+    const [openNotificationsSignal, setOpenNotificationsSignal] = useState(0);
+    useEffect(() => {
+        const onArrived = ({ chatId }: { chatId: string }) => {
+            if (chatId && chatId === activeChatId) setOpenNotificationsSignal(n => n + 1);
+        };
+        eventBus.on('chat:notificationArrived', onArrived);
+        return () => { eventBus.off('chat:notificationArrived', onArrived); };
+    }, [activeChatId]);
     const { allMessages, unreadCounts, markAsRead: markMessageAsRead, updateMessages, addMessageToChat, updateMessage } = useMessages();
 
     // 新增独立的 loading Status
@@ -1614,6 +1623,7 @@ const ChatPage: React.FC = () => {
                 chatNotificationTitle={t('pages.chat.chatNotificationTitle')}
                 chatNotificationContent={renderRightPanel()}
                 hasNewAgentNotifications={hasNew}
+                openNotificationsSignal={openNotificationsSignal}
                 onRightPanelToggle={(collapsed) => {
                     if (!collapsed) {
                         markAsRead();
