@@ -95,9 +95,31 @@ def _fd_slot(shop):
     return _FEIGE_FD_DISPATCH_REG_BY_SHOP.get(k) if k else _FEIGE_FD_DISPATCH_REG.get("slot")
 
 
+def _agent_label(reg) -> str:
+    agent = reg[2] if isinstance(reg, (tuple, list)) and len(reg) > 2 else None
+    card = getattr(agent, "card", None)
+    return str(getattr(card, "name", "") or getattr(card, "id", "") or getattr(agent, "name", "") or "")
+
+
+# (shop key, agent, agent) pairs already warned about.
+_SHARED_STORE_WARNED: set = set()
+
+
 def _set_fd_slot(shop, reg) -> None:
     from .ws_session import _k
     k = _k(shop)
+    # Two front desks on one store share its browser and its sidebar: they take
+    # each other's tabs and race for the same customers (2026-10-18: 前台小张 and
+    # 前台-抖音三号 both on store B's profile). Say so; one front desk per store.
+    prev = _FEIGE_FD_DISPATCH_REG_BY_SHOP.get(k) if k else _FEIGE_FD_DISPATCH_REG.get("slot")
+    a_prev, a_new = _agent_label(prev), _agent_label(reg)
+    if a_prev and a_new and a_prev != a_new and (k, a_prev, a_new) not in _SHARED_STORE_WARNED:
+        _SHARED_STORE_WARNED.add((k, a_prev, a_new))
+        logger.warning(
+            f"[FrontDesk] two front desks serve the same store ({k or 'default'}): "
+            f"'{a_prev}' and '{a_new}' — they share one browser and will close each other's "
+            f"tabs and race for customers. Keep one front desk per store."
+        )
     if k:
         _FEIGE_FD_DISPATCH_REG_BY_SHOP[k] = reg
     else:

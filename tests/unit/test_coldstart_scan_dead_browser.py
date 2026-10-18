@@ -51,3 +51,18 @@ def test_live_browser_is_probed_again(probes):
     _scan(sess)
     assert probes == [sess]
     assert id(sess) not in fd._COLDSTART_DEAD_SESSIONS
+
+
+def test_two_front_desks_on_one_store_are_reported_once(probes, monkeypatch):
+    warned = []
+    monkeypatch.setattr(fd.logger, "warning", lambda msg, *a, **k: warned.append(msg))
+    monkeypatch.setattr(fd, "_FEIGE_FD_DISPATCH_REG_BY_SHOP", {})
+    monkeypatch.setattr(fd, "_SHARED_STORE_WARNED", set())
+    zhang = SimpleNamespace(card=SimpleNamespace(name="前台小张", id="a1"))
+    san = SimpleNamespace(card=SimpleNamespace(name="前台-抖音三号", id="a2"))
+    fd._set_fd_slot("douyin-167bb80f-login", (None, None, zhang))
+    fd._set_fd_slot("douyin-167bb80f-login", (None, None, zhang))   # same agent again: fine
+    assert warned == []
+    fd._set_fd_slot("douyin-167bb80f-login", (None, None, san))
+    fd._set_fd_slot("douyin-167bb80f-login", (None, None, san))
+    assert len(warned) == 1 and "前台小张" in warned[0] and "前台-抖音三号" in warned[0]
