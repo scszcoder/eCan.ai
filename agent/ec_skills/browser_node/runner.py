@@ -2356,6 +2356,10 @@ def extract_store_url(workflow_state: dict | None) -> str | None:
         if isinstance(urls, (list, tuple)) and urls:
             cand = urls[0]
     cand = str(cand or "").strip()
+    # A store URL copied from a detection tab carries its marker; navigating the
+    # main tab there made the sweep close the agent's own tab (2026-10-18).
+    from utils.detection_tab import strip_detection_marker
+    cand = strip_detection_marker(cand)
     return cand if cand.lower().startswith(("http://", "https://")) else None
 
 

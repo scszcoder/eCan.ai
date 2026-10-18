@@ -255,25 +255,6 @@ async def _open_detection_tab(session: Any, monitor_url: str) -> str:
 
         client = _DetCDPClient(url=cdp_url)
         await client.start()
-        # Close stale detection tabs left over from previous app sessions (the
-        # browser can outlive the app). Recognized by _DETECTION_TAB_MARKER;
-        # without this they accumulate one per restart AND a reattaching
-        # browser session can adopt one as its main tab (rows=0 blindness).
-        try:
-            stale = await client.send_raw("Target.getTargets", {})
-            for info in (stale or {}).get("targetInfos", []) if isinstance(stale, dict) else []:
-                if str(info.get("type") or "") != "page":
-                    continue
-                if _is_detection_tab_url(info.get("url")):
-                    tid_stale = str(info.get("targetId") or "")
-                    if tid_stale:
-                        await client.send_raw("Target.closeTarget", {"targetId": tid_stale})
-                        logger.info(
-                            f"[EventMonitor] closed stale detection tab ...{tid_stale[-6:]} "
-                            f"from a previous session"
-                        )
-        except Exception as _stale_err:
-            logger.debug(f"[EventMonitor] stale detection-tab sweep skipped: {_stale_err}")
         # Stamp the new tab with the marker fragment (path routing on the
         # monitored sites; the fragment does not affect page load).
         marked_url = monitor_url.split("#", 1)[0] + _DETECTION_TAB_MARKER
@@ -282,6 +263,34 @@ async def _open_detection_tab(session: Any, monitor_url: str) -> str:
             {"url": marked_url, "newWindow": False, "background": True},
         )
         tid = str((res or {}).get("targetId") or "") if isinstance(res, dict) else ""
+        if tid:
+            _SESSION_DETECTION_TAB_IDS.add(tid)
+        # Close stale detection tabs left over from previous app sessions (the
+        # browser can outlive the app). Recognized by _DETECTION_TAB_MARKER;
+        # without this they accumulate one per restart AND a reattaching
+        # browser session can adopt one as its main tab (rows=0 blindness).
+        # Done AFTER creating the new tab, and never the new tab or the
+        # agent's focused tab: closing a marked main tab first left the browser
+        # with no tabs and Chrome exited (2026-10-18, store URL saved with the
+        # marker; two agents sharing one browser closed each other's tab).
+        try:
+            keep = {tid, str(getattr(session, "agent_focus_target_id", "") or "")}
+            stale = await client.send_raw("Target.getTargets", {})
+            for info in (stale or {}).get("targetInfos", []) if isinstance(stale, dict) else []:
+                if str(info.get("type") or "") != "page":
+                    continue
+                if _is_detection_tab_url(info.get("url")):
+                    tid_stale = str(info.get("targetId") or "")
+                    # Only tabs from a PREVIOUS app session: another agent on a
+                    # shared browser opened its live detection tab in this one.
+                    if tid_stale and tid_stale not in keep and tid_stale not in _SESSION_DETECTION_TAB_IDS:
+                        await client.send_raw("Target.closeTarget", {"targetId": tid_stale})
+                        logger.info(
+                            f"[EventMonitor] closed stale detection tab ...{tid_stale[-6:]} "
+                            f"from a previous session"
+                        )
+        except Exception as _stale_err:
+            logger.debug(f"[EventMonitor] stale detection-tab sweep skipped: {_stale_err}")
         return tid
     except Exception as exc:
         logger.warning(f"[EventMonitor] dedicated detection tab open failed: {exc}")
@@ -1127,7 +1136,11 @@ def _normalize_url_for_monitor(value: str) -> str:
 # renders the conversation list -> every DOM path saw rows=0 for the whole
 # session while the real logged-in tab sat unused). Marked tabs are excluded
 # from monitor-target resolution and stale ones are closed at setup.
-_DETECTION_TAB_MARKER = "#ecan_det"
+from utils.detection_tab import DETECTION_TAB_MARKER as _DETECTION_TAB_MARKER
+
+# Detection tabs opened by THIS app session (any agent). The stale sweep only
+# closes marked tabs not in here -- leftovers from a previous session.
+_SESSION_DETECTION_TAB_IDS: set = set()
 
 
 def _is_detection_tab_url(url: Any) -> bool:
