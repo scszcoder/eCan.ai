@@ -2656,6 +2656,9 @@ async def _download_shared(docs: list, jobs: list, restricted: list, params) -> 
 
     index = await asyncio.gather(*(save(url, name) for url, name in jobs))
     saved = [e["file"] for e in index if "file" in e]
+    # login-only documents are not downloaded, but the index says they exist
+    index += [dict(d, restricted=True) for d in docs if isinstance(d, dict)
+              and (d.get("restricted") or "secure-document-download" in str(d.get("url") or ""))]
     failed = [f"{e.get('title')}: {e['error']}" for e in index if "error" in e]
     index_path = os.path.join(params.local_dir, "index.json")
     with open(index_path, "w", encoding="utf-8") as f:
@@ -2791,7 +2794,8 @@ if _nas_actions_enabled():
             seen.add(url)
             # 2026-10-13: myMicrochip secure documents need a login (often an NDA); the
             # 403 counted as a failure and the worker failed the whole part
-            if "secure-document-download" in url:
+            # 2026-10-18: a page script marks NXP account-only documents "restricted"
+            if "secure-document-download" in url or doc.get("restricted"):
                 restricted.append(_doc_file_name(doc))
                 continue
             name = _doc_file_name(doc)

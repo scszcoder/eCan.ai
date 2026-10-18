@@ -294,6 +294,17 @@ def test_shared_store_next_part_fetches_only_new_documents(tmp_path, monkeypatch
                                              "ST/files/Errata Sheets/Errata Sheets - ES096.pdf"]
 
 
+def test_shared_store_skips_restricted_documents_but_indexes_them(tmp_path, monkeypatch):
+    # 2026-10-18: NXP reference manuals and many errata need an NXP account; the download is a login page
+    rm = {"type": "Reference Manual", "title": "K64P144M120SF5RM Kinetis K64 Reference Manual",
+          "url": "https://www.nxp.com/webapp/Download?colCode=K64P144M120SF5RM", "restricted": True}
+    out, fetched, nas = _shared(tmp_path, monkeypatch, ST_DOCS + [rm])
+    assert out.error is None and "2 saved, 0 failed" in out.extracted_content
+    assert rm["url"] not in fetched and "Skipped (login-only" in out.extracted_content
+    index = json.loads(nas["ST/docs/STM32F103C8/index.json"])
+    assert index[-1]["restricted"] is True and index[-1]["url"] == rm["url"] and "file" not in index[-1]
+
+
 def test_shared_store_failed_document_is_listed_in_the_index(tmp_path, monkeypatch):
     out, _, nas = _shared(tmp_path, monkeypatch, ST_DOCS, fail_url=ST_DOCS[0]["url"])
     assert "1 saved, 1 failed" in out.extracted_content
