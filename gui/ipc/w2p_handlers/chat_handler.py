@@ -659,7 +659,16 @@ def handle_get_file_content(request: IPCRequest, params: Optional[dict]) -> IPCR
         # Normalize path and check security
         file_path = os.path.abspath(file_path)
         allowed_dir = os.path.abspath(allowed_dir)
-        if not file_path.startswith(allowed_dir):
+        in_media_dir = False
+        # Media the app generated itself (media-gen nodes), shown in the chat's
+        # result panel on the desktop app.
+        try:
+            from agent.ec_skills.media.media_gen_node import generated_medias_root
+            media_dir = os.path.abspath(generated_medias_root())
+            in_media_dir = os.path.normcase(file_path).startswith(os.path.normcase(media_dir) + os.sep)
+        except Exception:
+            pass
+        if not file_path.startswith(allowed_dir) and not in_media_dir:
             logger.warning(f"Access denied to file: {file_path} (not in allowed directory: {allowed_dir})")
             return create_error_response(request, 'ACCESS_DENIED', 'File access denied for security reasons')
         # Check if file exists

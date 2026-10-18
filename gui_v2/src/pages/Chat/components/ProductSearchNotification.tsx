@@ -4,6 +4,8 @@ import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { TableOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { Button } from 'antd';
+import { isDesktopPlatform } from '@/config/platform';
+import { FileUtils } from '../utils/fileUtils';
 
 const { Title } = Typography;
 
@@ -171,7 +173,7 @@ const renderCell = (value: any, key: string, t: (s: string) => string, onImageCl
   if (key === 'app_specific' && Array.isArray(value)) return renderAppSpecific(value, t);
   
   // Handle main_image field - display image with click to enlarge
-  if (key === 'main_image' && typeof value === 'string' && value.startsWith('http')) {
+  if (key === 'main_image' && typeof value === 'string' && (value.startsWith('http') || value.startsWith('data:image/'))) {
     return (
       <div 
         style={{ 
@@ -404,20 +406,49 @@ const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void
   );
 };
 
+// On the desktop app an item may carry `local_image` (a file the agent saved on
+// this machine): show that, read over IPC, instead of the remote `main_image`
+// URL (which may be a signed link that expires). The web app keeps the URL.
+const useLocalImages = (items: any[]): any[] => {
+  const [dataUrls, setDataUrls] = React.useState<Record<string, string>>({});
+  const paths = Array.isArray(items)
+    ? items.map(it => (it && typeof it.local_image === 'string' ? it.local_image : '')).filter(Boolean)
+    : [];
+  const pathsKey = paths.join('\n');
+  React.useEffect(() => {
+    if (!isDesktopPlatform() || !paths.length) return;
+    let cancelled = false;
+    Promise.all(paths.map(async p => [p, await FileUtils.getFileThumbnail(p)] as const)).then(pairs => {
+      if (cancelled) return;
+      const found: Record<string, string> = {};
+      pairs.forEach(([p, url]) => { if (url) found[p] = url; });
+      setDataUrls(found);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathsKey]);
+  if (!Array.isArray(items)) return [];
+  return items.map(it => {
+    if (!it || typeof it !== 'object' || !('local_image' in it)) return it;
+    const { local_image, ...rest } = it;
+    return dataUrls[local_image] ? { ...rest, main_image: dataUrls[local_image] } : rest;
+  });
+};
+
 const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
   const { t } = useTranslation();
   const [viewMode, setViewMode] = React.useState<'table' | 'list'>('table');
   const [imageModalVisible, setImageModalVisible] = React.useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = React.useState('');
-  
+
   // 使用LinkClickProcess器
   useLinkClickHandler();
-  
+  const Items = useLocalImages(content?.Items || []);
+
   if (!content) return null;
   // 只Process业务Content部分，不解构 isRead、time、uid
   const {
     title,
-    Items = [],
     summary,
     comments,
     statistics,
