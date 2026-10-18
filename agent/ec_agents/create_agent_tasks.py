@@ -578,13 +578,19 @@ async def _load_agent_tasks_from_database_async(main_win):
 
         # Convert to ManagedTask objects and filter by owner
         # Skill resolution will be handled by agent_converter after this
+        # Same person, two spellings: a CN WeChat login is ``wechat_<openid>@local``
+        # here, but the task editor saves the bare ``wechat_<openid>``. A strict
+        # match dropped every GUI-created task at startup; its agent then ran a
+        # trigger-less stub, so chat runs never parked/resumed.
+        from agent.cloud_api.cloud_api import normalize_cloud_owner
+        me = normalize_cloud_owner(str(username or '')).lower()
         db_agent_tasks = []
         filtered_count = 0
         for agent_task_dict in db_agent_tasks_data:
             task_owner = agent_task_dict.get('owner')
             task_name = agent_task_dict.get('name', 'Unknown')
-            
-            if task_owner == username:
+
+            if normalize_cloud_owner(str(task_owner or '')).lower() == me:
                 agent_task_obj = _convert_db_agent_task_to_object(agent_task_dict, main_win)
                 if agent_task_obj:
                     db_agent_tasks.append(agent_task_obj)
