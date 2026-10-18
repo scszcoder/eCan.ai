@@ -52,11 +52,35 @@ def test_opaque_website_token_is_never_refreshed_and_stays_signed_in(monkeypatch
     assert am.refresh_calls == 0
 
 
-def test_jwt_login_session_expired_still_signs_out(monkeypatch):
+class _Sup:
+    def __init__(self):
+        self.cleared = []
+
+    def notify_session_cleared(self, source=""):
+        self.cleared.append(source)
+
+
+@pytest.fixture
+def sup(monkeypatch):
+    import auth.session_supervisor as ss
+    s = _Sup()
+    monkeypatch.setattr(ss, "get_session_supervisor", lambda: s)
+    return s
+
+
+def test_jwt_login_session_expired_still_signs_out_and_tells_the_gui(monkeypatch, sup):
     am = _manager("aaa.bbb.ccc", (False, {"code": "SESSION_EXPIRED", "error": "Session expired"}))
     asyncio.run(_one_round(am, monkeypatch))
     assert am.refresh_calls == 1
     assert am.signed_in is False
+    assert sup.cleared == ["refresh_loop_wechat_session_expired"]   # the window gets the logout notice
+
+
+def test_opaque_login_sends_no_logout_notice(monkeypatch, sup):
+    am = _manager("Zk3x9QpL0aVb7Yt2Wm5Rn8Hc4Jd6Ue1Sg0Fo3Iq7Pl2",
+                  (False, {"code": "SESSION_EXPIRED", "error": "WeChat session not found"}))
+    _run_loop(am, monkeypatch)
+    assert sup.cleared == []
 
 
 def test_jwt_login_refresh_success_installs_token(monkeypatch):

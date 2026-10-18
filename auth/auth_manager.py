@@ -3126,6 +3126,18 @@ class AuthManager:
             self.refresh_task.cancel()
         self.refresh_task = None
 
+    def _notify_session_cleared(self, source: str) -> None:
+        """Tell the GUI the session ended (logout notice + redirect). Without
+        it a sign-out from the background refresh loop stayed invisible until
+        some later call happened to check the flag."""
+        try:
+            from auth.session_supervisor import get_session_supervisor
+            sup = get_session_supervisor()
+            if sup is not None:
+                sup.notify_session_cleared(source=source)
+        except Exception as e:
+            logger.debug(f"[AuthManager] notify_session_cleared skipped ({source}): {e}")
+
     def _wx_access_token_refreshable(self) -> bool:
         """True when the WeChat AccessToken is a CloudBase JWT, the only kind
         refreshWeChatToken can refresh. An opaque website session token (no
@@ -3214,6 +3226,7 @@ class AuthManager:
                             # Expected behavior: WeChat 10min token expired.
                             logger.warning("AuthManager: WeChat session expired — please re-scan QR code")
                             self.signed_in = False
+                            self._notify_session_cleared("refresh_loop_wechat_session_expired")
                             break
                         # WX_TOKEN_EXPIRED / transient: HTTP still works on the
                         # 30-day session token — keep looping (with backoff) in
@@ -3298,6 +3311,7 @@ class AuthManager:
                             "User must re-login."
                         )
                         self.signed_in = False
+                        self._notify_session_cleared("refresh_loop_fatal_refresh_error")
                         break
 
                     # Transient: keep retrying (the backoff at the top of the loop handles delay)
