@@ -9459,6 +9459,28 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             #   后续统一命名为 1:1 后可删除此别名，保留 send_chat 即可。
             accepted_event_types.add("chat_message")
 
+        # A pend waiting for another agent's answer (a2a_response /
+        # a2a_task_result -- the resume side treats them as one) must also wake
+        # on that answer when it arrives labelled chat_message: the runner's
+        # send_response_back reply is normalized to chat_message because it
+        # carries no senderType. Only a sender that is a known agent counts, so
+        # the user's chat-panel messages still don't wake it (2026-10-18:
+        # 做图经理小李 parked on pend_waitWang ignored 小王's finished result).
+        _waits_for_agent = bool(accepted_event_types & {"a2a_response", "a2a_task_result"})
+        if _waits_for_agent:
+            accepted_event_types.update({"a2a_response", "a2a_task_result"})
+
+        def _chat_is_from_agent(_payload):
+            try:
+                _env = _payload.get("_event_envelope") or {}
+                _sid = str((_env.get("context") or {}).get("senderId") or _env.get("source") or "").strip()
+                if not _sid:
+                    return False
+                from agent.agent_service import get_agent_by_id
+                return get_agent_by_id(_sid) is not None
+            except Exception:
+                return False
+
         # DEBUG: Log which events we're waiting for
         logger.info(f"[pend_event_node][DEBUG] Accepted event types: {sorted(accepted_event_types)}, node={node_name}")
 
@@ -9473,13 +9495,23 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                     _rp_event_type = _env.get("type", "") or ""
 
             # DEBUG: Log detailed event matching status
-            _matches = _rp_event_type in accepted_event_types
+            _agent_reply = (
+                _waits_for_agent
+                and _rp_event_type in ("chat_message", "send_chat")
+                and _rp_event_type not in accepted_event_types
+                and _chat_is_from_agent(resume_payload)
+            )
+            if _agent_reply:
+                logger.info(f"[pend_event_node] {_rp_event_type} from an agent taken as its a2a reply, node={node_name}")
+            _matches = _rp_event_type in accepted_event_types or _agent_reply
             logger.info(f"[pend_event_node][DEBUG] Event received: type={_rp_event_type!r}, matches={_matches}, accepted={sorted(accepted_event_types)}, node={node_name}")
 
             log_msg = f"[pend_event_node] RESUMED: event_type={_rp_event_type}, node={node_name}, payload_keys={list(resume_payload.keys()) if isinstance(resume_payload, dict) else '?'}"
             logger.info(log_msg)
             send_skill_editor_log("log", log_msg)
 
+            if _agent_reply:
+                break
             if _rp_event_type in accepted_event_types:
                 # ``send_chat`` only counts as a human-chat match when the
                 # payload actually came from a human. Otherwise it's the
