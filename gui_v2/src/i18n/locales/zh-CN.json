@@ -4330,6 +4330,13 @@
     "pass": "通过",
     "reason": "说明",
     "file": "文件",
+    "thumb_up": "满意",
+    "thumb_down": "不满意",
+    "accepted": "已采用",
+    "comment_placeholder": "对这张图的意见，例如：背景再亮一些，瓶子再大一点",
+    "revise": "按意见修改",
+    "accept": "采用",
+    "feedback_save_failed": "保存评价失败",
     "knowledge": {
       "graph": {
         "circularLayout": "环形布局",

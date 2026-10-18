@@ -6,6 +6,7 @@ import { TableOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { Button } from 'antd';
 import { isDesktopPlatform } from '@/config/platform';
 import { FileUtils } from '../utils/fileUtils';
+import ResultFeedback, { type ItemFeedbackValue } from './ResultFeedback';
 
 const { Title } = Typography;
 
@@ -278,7 +279,16 @@ const getAllKeys = (items: any[]) => {
   return [...main.filter(k => keys.has(k)), ...rest];
 };
 
-const ProductTable: React.FC<{ items: any[], onImageClick?: (url: string) => void }> = ({ items, onImageClick }) => {
+// Rating / comment / revise / accept widgets on results that ask for them (`review: true`).
+export type ResultReview = { chatId: string; notifUid: string; feedback?: Record<string, ItemFeedbackValue> };
+const itemKeyOf = (item: any, idx: number) => String(item?.product_name || item?.id || idx);
+const renderReview = (review: ResultReview | undefined, item: any, idx: number) => {
+  if (!review?.chatId || !review?.notifUid) return null;
+  const key = itemKeyOf(item, idx);
+  return <ResultFeedback chatId={review.chatId} notifUid={review.notifUid} itemKey={key} initial={review.feedback?.[key]} />;
+};
+
+const ProductTable: React.FC<{ items: any[], onImageClick?: (url: string) => void, review?: ResultReview }> = ({ items, onImageClick, review }) => {
   const { t } = useTranslation();
   const keys = getAllKeys(items);
   const columns = keys.map(key => ({
@@ -294,6 +304,10 @@ const ProductTable: React.FC<{ items: any[], onImageClick?: (url: string) => voi
     <Table
       columns={columns}
       dataSource={items.map((item, idx) => ({ ...item, key: idx }))}
+      expandable={review ? {
+        expandedRowRender: (record: any) => renderReview(review, record, record.key),
+        defaultExpandAllRows: true,
+      } : undefined}
       pagination={false}
       scroll={{ x: Math.max(900, keys.length * 120) }}
       bordered
@@ -304,7 +318,7 @@ const ProductTable: React.FC<{ items: any[], onImageClick?: (url: string) => voi
 };
 
 // 新增 ProductList Component
-const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void }> = ({ items, onImageClick }) => {
+const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void, review?: ResultReview }> = ({ items, onImageClick, review }) => {
   const { t } = useTranslation();
   if (!Array.isArray(items) || items.length === 0) return null;
   const keys = getAllKeys(items);
@@ -400,6 +414,7 @@ const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void
               </div>
             </div>
           </div>
+          {renderReview(review, item, idx)}
         </Card>
       ))}
     </div>
@@ -435,9 +450,10 @@ const useLocalImages = (items: any[]): any[] => {
   });
 };
 
-const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
+const ProductSearchNotification: React.FC<{ content: any, review?: ResultReview }> = ({ content, review: reviewCtx }) => {
   const { t } = useTranslation();
-  const [viewMode, setViewMode] = React.useState<'table' | 'list'>('table');
+  const review = content?.review === true ? reviewCtx : undefined;
+  const [viewMode, setViewMode] = React.useState<'table' | 'list'>(review ? 'list' : 'table');
   const [imageModalVisible, setImageModalVisible] = React.useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = React.useState('');
 
@@ -499,8 +515,8 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
           <>
             <SectionTitle>{t('agentnotify.result')}</SectionTitle>
             {viewMode === 'table' ? 
-              <ProductTable items={Items} onImageClick={handleImageClick} /> : 
-              <ProductList items={Items} onImageClick={handleImageClick} />
+              <ProductTable items={Items} onImageClick={handleImageClick} review={review} /> :
+              <ProductList items={Items} onImageClick={handleImageClick} review={review} />
             }
           </>
         )}

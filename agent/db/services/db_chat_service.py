@@ -914,6 +914,24 @@ class DBChatService(BaseService):
                 "error": None
             }
 
+    def set_notification_feedback(self, uid: str, item_key: str, feedback: dict) -> dict:
+        """Store the user's rating/comment for one item of a result notification
+        under content["feedback"][item_key], so it shows again on reload."""
+        if not uid or not item_key or not isinstance(feedback, dict):
+            return {"success": False, "id": uid, "data": None, "error": "uid, item_key and feedback are required"}
+        with self.session_scope() as session:
+            notif = session.query(ChatNotification).filter(ChatNotification.uid == uid).first()
+            if not notif:
+                return {"success": False, "id": uid, "data": None, "error": f"Notification {uid} not found"}
+            content = dict(notif.content) if isinstance(notif.content, dict) else {"content": notif.content}
+            all_feedback = dict(content.get("feedback") or {})
+            entry = {**(all_feedback.get(item_key) or {}), **feedback, "updatedAt": int(time_module.time() * 1000)}
+            all_feedback[item_key] = entry
+            content["feedback"] = all_feedback
+            notif.content = content          # reassign: JSON columns don't track in-place edits
+            session.flush()
+            return {"success": True, "id": uid, "data": notif.to_dict(), "error": None}
+
     def query_chat_notifications(self, chatId: str, limit: int = 20, offset: int = 0, reverse: bool = False) -> dict:
         """
         Query chat notifications with pagination.
@@ -988,7 +1006,10 @@ class DBChatService(BaseService):
         # Push actual data after database write if successful, otherwise push original data
         if db_result and isinstance(db_result, dict) and 'data' in db_result:
             logger.debug("[db_chat_service] push chat notification content:", db_result['data'])
-            web_gui.get_ipc_api().push_chat_notification(chatId, db_result['data'])
+            _saved = db_result['data'] if isinstance(db_result['data'], dict) else {}
+            # uid/timestamp let the panel de-duplicate pushes and save feedback on this notification.
+            web_gui.get_ipc_api().push_chat_notification(
+                chatId, db_result['data'], timestamp=_saved.get('timestamp'), uid=_saved.get('uid'))
         else:
             logger.warning(f"[db_chat_service] DB write failed for notification in chat {chatId}, trying direct WebSocket push")
             # Still try to push the notification via WebSocket directly

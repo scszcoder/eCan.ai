@@ -1293,7 +1293,16 @@ const ChatPage: React.FC = () => {
             updateMessage(activeChatId, userMessage.id, { status: 'error' as const });
         }
     }, [activeChatId, chats, addMessageToChat, allMessages, updateMessage, currentUserId, currentUserName, agentId]);
-    
+
+    // The result panel's "revise" / "accept" buttons send their request as the user's message.
+    useEffect(() => {
+        const onSend = ({ chatId, text }: { chatId: string; text: string }) => {
+            if (chatId && chatId === activeChatId && text) handleMessageSend(text, []);
+        };
+        eventBus.on('chat:sendUserMessage', onSend);
+        return () => { eventBus.off('chat:sendUserMessage', onSend); };
+    }, [activeChatId, handleMessageSend]);
+
     const currentChat = (!activeChatId || !chats || chats.length === 0)
         ? null
         : chats.find((c) => c.id === activeChatId) || null;

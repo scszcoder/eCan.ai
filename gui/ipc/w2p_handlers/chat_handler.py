@@ -871,6 +871,28 @@ def handle_get_chat_notifications(request: IPCRequest, params: Optional[dict]) -
         logger.error(f"Error in get_chat_notifications handler: {e}")
         return create_error_response(request, 'GET_CHAT_NOTIFICATIONS_ERROR', str(e))
 
+@IPCHandlerRegistry.handler('set_chat_notification_feedback')
+def handle_set_chat_notification_feedback(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
+    """Save the user's rating / comment for one item of a result notification
+    (params: uid, itemKey, feedback {thumb, stars, comment, accepted})."""
+    try:
+        uid = (params or {}).get('uid')
+        item_key = (params or {}).get('itemKey')
+        feedback = (params or {}).get('feedback')
+        if not uid or not item_key or not isinstance(feedback, dict):
+            return create_error_response(request, 'INVALID_PARAMS', 'uid, itemKey and feedback are required')
+        allowed = {'thumb', 'stars', 'comment', 'accepted'}
+        feedback = {k: v for k, v in feedback.items() if k in allowed}
+        ctx = get_handler_context(request, params)
+        result = ctx.get_db_chat_service().set_notification_feedback(uid, str(item_key), feedback)
+        if not result.get('success'):
+            return create_error_response(request, 'SET_FEEDBACK_ERROR', result.get('error') or 'failed')
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"Error in set_chat_notification_feedback handler: {e}")
+        return create_error_response(request, 'SET_FEEDBACK_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('clean_chat_unread')
 def handle_clean_chat_unread(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     """

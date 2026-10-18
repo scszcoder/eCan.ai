@@ -103,7 +103,7 @@ const EmptyContainer = styled.div`
   z-index: 1;
 `;
 
-const NotificationTemplateRenderer: React.FC<{ content: any }> = ({ content }) => {
+const NotificationTemplateRenderer: React.FC<{ content: any, chatId?: string, uid?: string }> = ({ content, chatId, uid }) => {
   const { t } = useTranslation();
   const defaultTemplate = t('pages.chat.chatNotification.templates.product_search');
   const template = content?.render_template || defaultTemplate;
@@ -131,7 +131,12 @@ const NotificationTemplateRenderer: React.FC<{ content: any }> = ({ content }) =
           itemsLen: Array.isArray((normalized as any)?.Items) ? (normalized as any).Items.length : 'n/a',
         });
       } catch {}
-      return <ProductSearchNotification content={normalized} />;
+      return (
+        <ProductSearchNotification
+          content={normalized}
+          review={chatId && uid ? { chatId, notifUid: uid, feedback: content?.feedback } : undefined}
+        />
+      );
   }
 };
 
@@ -320,7 +325,7 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
                   <TimestampText>{timestamp}</TimestampText>
                 </div>
               ),
-              children: <NotificationTemplateRenderer content={n.content} />,
+              children: <NotificationTemplateRenderer content={n.content} chatId={chatId} uid={n.uid} />,
             };
           })}
         />

@@ -145,6 +145,15 @@ class NotificationManager {
     this.notifyListeners(chatId);
   }
 
+  // Keep the in-memory copy of a notification's feedback in step with what was saved.
+  setItemFeedback(chatId: string, uid: string, itemKey: string, entry: Record<string, any>): void {
+    const list = this.chatNotificationItems.get(chatId) || [];
+    const n = list.find(x => x.uid === uid);
+    if (!n) return;
+    const content = (n.content && typeof n.content === 'object') ? n.content : {};
+    n.content = { ...content, feedback: { ...(content.feedback || {}), [itemKey]: { ...((content.feedback || {})[itemKey] || {}), ...entry } } };
+  }
+
   // Remove指定 chatId 的特定Notification
   removeNotification(chatId: string, uid: string): void {
     const list = this.chatNotificationItems.get(chatId) || [];

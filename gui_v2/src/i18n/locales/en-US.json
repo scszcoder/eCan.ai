@@ -4271,6 +4271,13 @@
     "pass": "Passed",
     "reason": "Notes",
     "file": "File",
+    "thumb_up": "Good",
+    "thumb_down": "Not good",
+    "accepted": "Accepted",
+    "comment_placeholder": "What to change, e.g. lighter background, bigger bottle",
+    "revise": "Revise with this",
+    "accept": "Accept",
+    "feedback_save_failed": "Could not save your rating",
     "knowledge": {
       "graph": {
         "circularLayout": "Circular",
