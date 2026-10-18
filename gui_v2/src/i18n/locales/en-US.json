@@ -4266,6 +4266,11 @@
     "summary": "Summary",
     "table_view": "Table_view",
     "view_details": "View_details",
+    "main_image": "Image",
+    "product_name": "Name",
+    "pass": "Passed",
+    "reason": "Notes",
+    "file": "File",
     "knowledge": {
       "graph": {
         "circularLayout": "Circular",

@@ -4325,6 +4325,11 @@
     "summary": "摘要",
     "table_view": "表格视图",
     "view_details": "查看详情",
+    "main_image": "图片",
+    "product_name": "名称",
+    "pass": "通过",
+    "reason": "说明",
+    "file": "文件",
     "knowledge": {
       "graph": {
         "circularLayout": "环形布局",

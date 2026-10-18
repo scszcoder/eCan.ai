@@ -508,7 +508,15 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
         {/* Summary 区域 */}
         {summary && (
           <div style={{ margin: '28px 0 0 0' }}>
-            <SummaryTable summary={summary} />
+            {typeof summary === 'string' ? (
+              // A plain-text summary: show it as text, not as a per-character comparison table.
+              <>
+                <SectionTitle>{getI18nLabel(t, 'summary')}</SectionTitle>
+                <div style={{ color: '#ddd', fontSize: 15, whiteSpace: 'pre-wrap' }}>{summary}</div>
+              </>
+            ) : (
+              <SummaryTable summary={summary} />
+            )}
           </div>
         )}
 
