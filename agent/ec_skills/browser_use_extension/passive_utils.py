@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from utils.logger_helper import logger_helper as logger
+from utils.shared_ssl import get_shared_ssl_context
 
 
 def _truncate_string(value: str, limit: int) -> str:
@@ -279,25 +280,29 @@ async def publish_step_result(
     base_delay = 1.0
     last_error: Exception | None = None
 
+    def _post_once() -> Any:
+        # Sync client avoids the sniffio "unknown async library" error in
+        # run_async_in_sync contexts; it runs in a worker thread (below) so the
+        # POST (up to 30s) never blocks the event loop.
+        with httpx.Client(verify=get_shared_ssl_context()) as client:
+            resp = client.post(
+                http_endpoint,
+                json={"query": _publish_step_result_mutation(), "variables": {"input": envelope}},
+                headers=headers,
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     for attempt in range(1, max_retries + 1):
         try:
-            # Use sync client to avoid sniffio "unknown async library" error
-            # when called from run_async_in_sync contexts
-            with httpx.Client() as client:
-                resp = client.post(
-                    http_endpoint,
-                    json={"query": _publish_step_result_mutation(), "variables": {"input": envelope}},
-                    headers=headers,
-                    timeout=30.0,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if isinstance(data, dict) and data.get("errors"):
-                    logger.error(f"[publish_step_result] GraphQL errors (attempt {attempt}/{max_retries}): {data.get('errors')}")
-                    raise RuntimeError(f"publish_step_result failed: {data.get('errors')}")
-                if attempt > 1:
-                    logger.info(f"[publish_step_result] ✅ Succeeded on retry attempt {attempt}")
-                return  # Success
+            data = await asyncio.to_thread(_post_once)
+            if isinstance(data, dict) and data.get("errors"):
+                logger.error(f"[publish_step_result] GraphQL errors (attempt {attempt}/{max_retries}): {data.get('errors')}")
+                raise RuntimeError(f"publish_step_result failed: {data.get('errors')}")
+            if attempt > 1:
+                logger.info(f"[publish_step_result] ✅ Succeeded on retry attempt {attempt}")
+            return  # Success
         except Exception as e:
             last_error = e
             if attempt < max_retries:

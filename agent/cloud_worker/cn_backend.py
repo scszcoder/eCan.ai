@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from utils.logger_helper import logger_helper as logger
+from utils.shared_ssl import get_shared_ssl_context
 
 _TASK_FIELDS = (
     "id owner name description status taskType triggerType action "
@@ -101,7 +102,7 @@ class CNBackendClient:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.access_token}",
         }
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=get_shared_ssl_context()) as client:
             resp = await client.post(
                 self.endpoint,
                 json={"query": query, "variables": variables or {}},
@@ -176,7 +177,7 @@ class CNBackendClient:
         prefix = listing.get("prefix", "")
         objects = listing.get("objects") or []
         count = 0
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=get_shared_ssl_context()) as client:
             for obj in objects:
                 key = obj.get("key") or ""
                 if not key.startswith(prefix):
@@ -207,6 +208,6 @@ class CNBackendClient:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers = dict(grant.get("headers") or {})
         headers.setdefault("Content-Type", "application/json")
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=get_shared_ssl_context()) as client:
             resp = await client.put(grant["url"], content=body, headers=headers, timeout=60.0)
             resp.raise_for_status()

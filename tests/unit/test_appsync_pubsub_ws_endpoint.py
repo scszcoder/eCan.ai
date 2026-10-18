@@ -42,3 +42,21 @@ def test_explicit_ws_endpoint_wins_over_aws_derivation():
     http = "https://abc123.appsync-api.us-east-1.amazonaws.com/graphql"
     cfg = AppSyncApiKeyConfig(http_endpoint=http, api_key="k", ws_endpoint=TCB_WS)
     assert cfg.resolved_ws_endpoint() == TCB_WS
+
+
+def test_ssl_context_is_built_once_and_reused():
+    """The TLS context must be a process-wide singleton. Building it per call
+    (httpx.AsyncClient() / ssl.create_default_context()) loads the CA bundle
+    from disk synchronously; on the event loop the A2A heartbeat did that once
+    per registered agent every cycle and froze the loop up to 3.5s. Reuse keeps
+    it to one disk load for the whole process."""
+    import ssl as _ssl
+
+    from agent.ec_tasks import appsync_pubsub as ap
+    from utils import shared_ssl
+
+    shared_ssl._shared_ssl_ctx = None  # reset any context a prior test warmed
+    first = ap._get_shared_ssl_context()
+    second = shared_ssl.get_shared_ssl_context()
+    assert isinstance(first, _ssl.SSLContext)
+    assert first is second  # one object process-wide — not rebuilt per call

@@ -513,6 +513,24 @@ class OfflineSyncManager:
         error_str = ' '.join(str(e) for e in errors).lower()
 
         if 'foreign key constraint fails' not in error_str:
+            # CN/TCB reports a missing parent as a plain GraphQL "Agent not
+            # found" / "Skill not found" rather than a MySQL FK violation.
+            # Treat it the same for relationship rows, so the parent-sync path
+            # (and its orphan check) runs instead of a blind retry loop.
+            if data_type in (DataType.AGENT_SKILL, DataType.AGENT_TASK,
+                             DataType.AGENT_TOOL, DataType.SKILL_TOOL):
+                if 'agent not found' in error_str:
+                    return {
+                        'dependency_type': DataType.AGENT,
+                        'dependency_operation': Operation.ADD,
+                        'message': 'Agent not found in cloud',
+                    }
+                if 'skill not found' in error_str:
+                    return {
+                        'dependency_type': DataType.SKILL,
+                        'dependency_operation': Operation.ADD,
+                        'message': 'Skill not found in cloud',
+                    }
             return None
 
         # Parse foreign key constraint error to determine which parent is missing
@@ -628,6 +646,40 @@ class OfflineSyncManager:
 
         except Exception as e:
             logger.error(f"[OfflineSyncManager] Error extracting parent data: {e}")
+            return None
+
+    def _parent_exists_locally(self, dependency_type: DataType, child_data: Dict[str, Any]) -> Optional[bool]:
+        """Whether the relationship's parent row is still in the local DB.
+
+        True/False when the lookup succeeded; None when it can't be told (no
+        parent id, no DB, lookup error) — callers act only on an explicit False.
+        Agents and skills are hard-deleted locally, so False means the parent
+        was deleted and the queued relationship is an orphan.
+        """
+        try:
+            if dependency_type == DataType.AGENT:
+                parent_id = child_data.get('agid') or child_data.get('agent_id')
+            elif dependency_type == DataType.SKILL:
+                parent_id = child_data.get('skid') or child_data.get('skill_id')
+            else:
+                return None
+            if not parent_id:
+                return None
+            from app_context import AppContext
+            ec_db_mgr = AppContext.get_ec_db_mgr()
+            if not ec_db_mgr:
+                return None
+            if dependency_type == DataType.AGENT:
+                svc = getattr(ec_db_mgr, 'agent_service', None)
+                result = svc.query_agents(id=parent_id) if svc else None
+            else:
+                svc = getattr(ec_db_mgr, 'skill_service', None)
+                result = svc.query_skills(id=parent_id) if svc else None
+            if not result or not result.get('success'):
+                return None
+            return bool(result.get('data'))
+        except Exception as e:
+            logger.debug(f"[OfflineSyncManager] local parent lookup failed: {e}")
             return None
 
     def sync_pending_queue(self, max_tasks: int = None, timeout_per_task: float = 10.0, include_failed: bool = True) -> Dict[str, Any]:
@@ -893,9 +945,11 @@ class OfflineSyncManager:
                             failed_count += 1
                             logger.warning(f"[OfflineSyncManager] ⚠️ Queue task ADD fallback also failed: {task_id}")
                         cursor += 1
-                    elif 'foreign key constraint' in error_str.lower():
-                        # Foreign key constraint error - parent record doesn't exist in cloud
-                        # Try to sync the parent record first, then retry this task
+                    elif ('foreign key constraint' in error_str.lower()
+                          or self._check_foreign_key_error(errors, data_type)):
+                        # Foreign key constraint error (AWS) or "Agent/Skill not
+                        # found" on a relationship row (CN) - the parent record
+                        # doesn't exist in cloud. Sync the parent first, then retry.
                         fk_info = self._check_foreign_key_error(errors, data_type)
                         if fk_info:
                             logger.warning(f"[OfflineSyncManager] ⚠️ FK constraint error for {task_id}: {fk_info['message']}")
@@ -904,6 +958,22 @@ class OfflineSyncManager:
                             dependency_type = fk_info.get('dependency_type')
                             dependency_operation = fk_info.get('dependency_operation')
                             if dependency_type and dependency_operation:
+                                # Parent deleted locally too → the relationship is an
+                                # orphan; there is nothing to sync and retrying can
+                                # never converge (customer run 2026-10-17: 4
+                                # agent_skill.add + 4 agent_task.add for deleted
+                                # agents retried all day). Also prevents
+                                # _extract_parent_data's minimal-record fallback from
+                                # resurrecting a deleted agent/skill in the cloud.
+                                if self._parent_exists_locally(dependency_type, data) is False:
+                                    logger.info(
+                                        f"[OfflineSyncManager] 🗑️ {task_id}: parent {dependency_type} "
+                                        f"no longer exists locally — orphaned relation, discarding"
+                                    )
+                                    self.sync_queue.mark_success(task_id)
+                                    synced_count += 1
+                                    cursor += 1
+                                    continue
                                 parent_data = self._extract_parent_data(data, dependency_type, data_type, task)
                                 if parent_data:
                                     logger.info(f"[OfflineSyncManager] 🔄 Attempting to sync parent {dependency_type} first...")

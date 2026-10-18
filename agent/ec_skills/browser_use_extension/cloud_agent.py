@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 import httpx
+from utils.shared_ssl import get_shared_ssl_context
 from browser_use.agent.service import Agent
 from browser_use.agent.views import ActionResult, AgentHistory, AgentStepInfo, StepMetadata
 from browser_use.browser.views import BrowserStateHistory, BrowserStateSummary, PageInfo, TabInfo
@@ -312,7 +313,7 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
             "cache-control": "no-cache",
         }
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=get_shared_ssl_context()) as client:
             resp = await client.post(
                 self.appsync_url,
                 json={"query": mutation, "variables": {"input": payload}},
@@ -353,7 +354,7 @@ class HttpPassivePubSubTransport:
         return h
 
     async def publish_command(self, cmd: PassiveBrowserCommand) -> None:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=get_shared_ssl_context()) as client:
             resp = await client.post(self.publish_endpoint, json=cmd.model_dump(), headers=self._headers(), timeout=30.0)
             resp.raise_for_status()
 
@@ -376,7 +377,7 @@ class HttpPassivePubSubTransport:
     ) -> PassiveBrowserStepResult:
         deadline = time.time() + max(1.0, float(timeout_s))
         last_error: Exception | None = None
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=get_shared_ssl_context()) as client:
             while time.time() < deadline:
                 if cancellation_event and cancellation_event.is_set():
                     raise asyncio.CancelledError(

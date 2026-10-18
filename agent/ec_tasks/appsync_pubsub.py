@@ -7,10 +7,13 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from uuid import uuid4
 
 import aiohttp
-import certifi
 import httpx
 
 from utils.logger_helper import logger_helper as logger
+# One process-wide TLS context: building it per call on the event loop (the A2A
+# cloud-directory heartbeat does one call per registered agent every cycle)
+# froze the loop up to 3.5s and made two-store runs "卡". See utils/shared_ssl.
+from utils.shared_ssl import get_shared_ssl_context as _get_shared_ssl_context
 
 
 @dataclass(frozen=True)
@@ -168,7 +171,7 @@ async def _post_graphql(
 ) -> Dict[str, Any]:
     headers = {"Content-Type": "application/json", "cache-control": "no-cache"}
     headers.update(_build_auth_headers(auth_token, api_key))
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=_get_shared_ssl_context()) as client:
         resp = await client.post(
             http_endpoint,
             json={"query": query, "variables": variables},
@@ -356,9 +359,7 @@ async def _subscribe(
             return
 
         try:
-            import ssl
-
-            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            ssl_context = _get_shared_ssl_context()
 
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(

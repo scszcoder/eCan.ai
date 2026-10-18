@@ -13,11 +13,24 @@ from cli.deploy import chrome_precheck as cp
 def test_not_installed_fails_with_download_link(monkeypatch):
     import agent.mcp.server.chrome_launcher as cl
     monkeypatch.setattr(cl, "find_chrome", lambda: {"found": False, "path": "", "in_path": False})
+    # No bundled Chromium either → only then does the deploy block.
+    monkeypatch.setattr(cp, "_resolve_bundled_chromium", lambda: None)
     ok, log, msg = cp.run_chrome_precheck()
     assert ok is False
     assert cp.CHROME_DOWNLOAD_URL in msg
     assert any(cp.CHROME_DOWNLOAD_URL in line for line in log)
     assert any("未检测到" in line for line in log)  # bilingual instruction
+
+
+def test_bundled_chromium_passes_without_system_chrome(monkeypatch):
+    """No separately-installed Google Chrome, but eCan's bundled Chromium is
+    present → deploy proceeds (the fingerprint runtime launches that Chromium)."""
+    import agent.mcp.server.chrome_launcher as cl
+    monkeypatch.setattr(cl, "find_chrome", lambda: {"found": False, "path": "", "in_path": False})
+    monkeypatch.setattr(cp, "_resolve_bundled_chromium", lambda: r"C:\Users\x\AppData\Local\eCan\ms-playwright\chromium-1181\chrome-win\chrome.exe")
+    ok, log, msg = cp.run_chrome_precheck()
+    assert ok is True and msg == ""
+    assert any("bundled Chromium" in line for line in log)
 
 
 def test_found_adds_path_and_updates_shortcuts(monkeypatch, tmp_path):

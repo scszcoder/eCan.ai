@@ -449,6 +449,20 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
                 inbound_transport = str(metadata.get("transport") or "a2a").strip()
                 inbound_chat_id = str(metadata.get("chatId") or params.get("chatId") or "").strip()
                 
+                # The A2A SDK request shape nests it one level deeper:
+                # params.metadata.params.senderId (send_chat's in-process
+                # delivery). Missed, a skill with no pend_event (nothing to
+                # recover the sender from) replied into a non-existent chat
+                # and the calling agent never got its result.
+                _meta_params = metadata.get("params") if isinstance(metadata, dict) else None
+                if not inbound_sender_id and isinstance(_meta_params, dict) and _meta_params.get("senderId"):
+                    inbound_sender_id = str(_meta_params.get("senderId") or "").strip()
+                    inbound_sender_name = str(_meta_params.get("senderName") or "").strip()
+                    inbound_sender_type = str(_meta_params.get("senderType") or "").strip()
+                    inbound_transport = str(_meta_params.get("transport") or "a2a").strip()
+                    if not inbound_chat_id:
+                        inbound_chat_id = str(_meta_params.get("chatId") or "").strip()
+
                 # If not found in metadata, check params.senderId directly
                 # This is where _build_chat_message puts the senderId
                 if not inbound_sender_id and isinstance(params, dict):

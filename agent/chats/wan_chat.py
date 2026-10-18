@@ -1,5 +1,4 @@
 import json
-import ssl
 import asyncio
 from typing import Optional
 import aiohttp
@@ -14,8 +13,8 @@ import os
 import websockets
 import websocket as ws_client_module
 from websockets.exceptions import ConnectionClosed as ConnectionClosedError
-import certifi
 from utils.logger_helper import logger_helper as logger
+from utils.shared_ssl import get_shared_ssl_context
 from agent.cloud_api.endpoints import get_endpoint_config
 
 # Wan Chat Logic
@@ -173,7 +172,7 @@ async def wanSendMessage8(msg_req, mainwin):
         logger.debug("about to send wan msg: "+json.dumps(variables), "wanSendMessage", mainwin)
 
         def _sync_post():
-            with httpx.Client(verify=certifi.where(), timeout=30.0) as client:
+            with httpx.Client(verify=get_shared_ssl_context(), timeout=30.0) as client:
                 return client.post(
                     url=cfg.graphql_endpoint,
                     headers=headers,
@@ -322,7 +321,7 @@ async def subscribeToWanChat(mainwin, auth_token, chat_id="nobody", max_retries=
             ws_host = cfg.host
             logger.debug(f"[wan_chat] Connecting: {ws_url[:80]}, host={ws_host}, is_cn={cfg.is_cn}")
 
-            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            ssl_context = get_shared_ssl_context()
             timeout = aiohttp.ClientTimeout(total=60, connect=60, sock_read=300)
 
             if cfg.is_cn:

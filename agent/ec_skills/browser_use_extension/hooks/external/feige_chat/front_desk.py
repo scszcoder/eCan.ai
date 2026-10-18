@@ -1307,7 +1307,9 @@ async def before_session_setup_hook(
                     )
                     _hp_b_pre_reply = _ds.remember_agent_reply(
                         _hp_b_pre_cust,
-                        _hp_b_payload.get("response_text") or ""
+                        _hp_b_payload.get("response_text") or "",
+                        source_msg_id=str(_hp_b_payload.get("source_customer_msg_id") or ""),
+                        source_text=str(_hp_b_payload.get("source_latest_message") or ""),
                     )
                     if _hp_b_pre_cust and _hp_b_pre_reply:
                         logger.info(

@@ -10,6 +10,7 @@ from PIL import Image
 
 from config.envi import getECBotDataHome
 from utils.logger_helper import logger_helper as logger
+from utils.shared_ssl import get_shared_ssl_context
 import traceback
 from config.constants import API_DEV_MODE
 
@@ -141,7 +142,7 @@ def lan_http_request2(query_js, imgs, session, token, lan_endpoint):
             logger.error(f"❌ Error: File not found -> {file_path}")
 
     timeout = httpx.Timeout(connect=10.0, read=100.0, write=30.0, pool=10.0)
-    with httpx.Client(timeout=timeout,
+    with httpx.Client(timeout=timeout, verify=get_shared_ssl_context(),
                       event_hooks={"request": [lambda r: logger.debug(f"🔍 Raw HTTP Request: {r}")]}) as client:
         try:
             logger.debug("no need to read files, img is already there...")
@@ -202,7 +203,7 @@ async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoin
     # Tuned timeouts: connect fast, read allows for OCR processing, pool prevents hanging
     timeout = httpx.Timeout(connect=10.0, read=30.0, write=15.0, pool=10.0)
     limits = httpx.Limits(max_keepalive_connections=1, max_connections=5)
-    async with httpx.AsyncClient(timeout=timeout, limits=limits, http2=False) as client:
+    async with httpx.AsyncClient(timeout=timeout, limits=limits, http2=False, verify=get_shared_ssl_context()) as client:
         try:
             logger.debug(f"preparing multipart files for upload... {len(imgs or [])}")
             # Pre-read all images into (name, bytes) pairs so we can rebuild

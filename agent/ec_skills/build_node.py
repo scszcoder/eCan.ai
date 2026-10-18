@@ -11,10 +11,11 @@ from urllib.parse import urlparse, parse_qsl, urlunparse
 from pathlib import Path
 
 # Process-level guard to prevent duplicate messages from parallel pend_event_node executions.
-# Key: (skill_name, node_name, chat_id) → True once sent.
+# Key: (skill_name, node_name, chat_id) → the last prompt sent; re-sending that
+# same prompt is a duplicate, a different one is a new question.
 # mt101: added size limit and insertion order tracking to prevent unbounded growth.
 _MAX_PEND_GLOBAL_SENT_SIZE = 1000  # Cap to prevent memory leak
-_PEND_GLOBAL_SENT: dict[tuple, bool] = {}
+_PEND_GLOBAL_SENT: dict[tuple, str] = {}
 _PEND_GLOBAL_SENT_LOCK = threading.Lock()
 _PEND_GLOBAL_SENT_INSERTION_ORDER: list[tuple] = []  # Track insertion order for FIFO eviction
 from agent.mcp.local_client import mcp_call_tool
@@ -24,6 +25,7 @@ from agent.ec_tasks.pending_events import register_async_operation, resolve_asyn
 from langchain_core.messages import HumanMessage, SystemMessage
 from agent.ec_skill import node_builder
 from utils.logger_helper import logger_helper as logger
+from utils.shared_ssl import get_shared_ssl_context
 from utils.logger_helper import get_traceback, truncate_for_log
 from langgraph.types import interrupt
 from utils.env.secure_store import secure_store, get_current_username
@@ -6382,7 +6384,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # Configure timeout for proxy compatibility (especially Clash)
             # Increased read timeout to handle slow proxy responses
             timeout = httpx.Timeout(connect=15.0, read=180.0, write=30.0, pool=15.0)
-            with httpx.Client(timeout=timeout) as client:
+            with httpx.Client(timeout=timeout, verify=get_shared_ssl_context()) as client:
                 # follow redirects to avoid 302 on some endpoints
                 response = client.request(**request_args, follow_redirects=True)
                 logger.debug(f"HTTP API response received: {response}")
@@ -6434,7 +6436,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # Configure timeout for proxy compatibility (especially Clash)
             # Increased read timeout to handle slow proxy responses
             timeout = httpx.Timeout(connect=15.0, read=180.0, write=30.0, pool=15.0)
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout, verify=get_shared_ssl_context()) as client:
                 response = await client.request(**request_args)
                 response.raise_for_status()
                 state.setdefault('results', []).append(response.json())
@@ -7972,6 +7974,37 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 pass
             return {}
 
+        def _store_tool_result(st: dict, tool_name: str, result) -> None:
+            """Record this node's tool output as ``state["tool_result"][node_name]``.
+
+            tool_result is keyed by node name (_promote_llm_output, media-gen,
+            _trim_tool_result); conditions and templates read
+            ``tool_result[<node>][field]``. Assigning the raw CallToolResult to
+            the whole key wiped every other node's entry, so a looping skill's
+            router failed ("'CallToolResult' object is not subscriptable") after
+            its first tool call and the run fell off the end. Stored JSON-shaped
+            (text trimmed; the full text is in history) so checkpoints, logs and
+            prompt injection can read it.
+            """
+            if not isinstance(st, dict):
+                return
+            tr = st.get("tool_result")
+            if not isinstance(tr, dict):
+                tr = {}
+            if isinstance(result, list):   # multi-tool: [{"tool_name", "result", ...}]
+                entry = {"tool_name": tool_name, "results": result}
+            else:
+                text = _extract_tool_result_text(result) if result is not None else ""
+                if len(text) > 2000:
+                    text = text[:2000] + f"...[trimmed {len(text)} chars, see history]"
+                entry = {"tool_name": tool_name, "text": text,
+                         "is_error": bool(getattr(result, "isError", False))}
+                payload = _extract_tool_result_payload(result)
+                if isinstance(payload, dict) and payload:
+                    entry["data"] = payload
+            tr[node_name] = entry
+            st["tool_result"] = tr
+
         def _apply_mcp_result_to_llm_state(st: dict, tool_name: str, result) -> None:
             try:
                 if not isinstance(st, dict):
@@ -8595,7 +8628,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     _mt_succeeded.append(_entry)
 
             if _mt_succeeded:
-                state['tool_result'] = _mt_succeeded
+                _store_tool_result(state, ",".join(e['tool_name'] for e in _mt_succeeded), _mt_succeeded)
 
             log_msg = f"[MCP Multi-Tool] Completed {len(_tool_calls_to_run)} tool(s) ({len(_mt_succeeded)} succeeded)"
             logger.info(log_msg)
@@ -8656,7 +8689,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     tool_result = run_async_in_sync(run_tool_call())
                     
                     # Store initial result and correlation_id
-                    state["tool_result"] = tool_result
+                    _store_tool_result(state, _actual_tool_name, tool_result)
                     
                     # Check if MCP tool execution failed using MCP standard isError field
                     tool_failed = False
@@ -8942,9 +8975,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 log_msg = f"[RUN_LOCAL] ✅ Local MCP tool result: {tool_result}"
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
-                
-                state["tool_result"] = tool_result
-                
+
+                _store_tool_result(state, _actual_tool_name, tool_result)
+
                 # Check if MCP tool execution failed using MCP standard isError field
                 tool_failed = False
                 error_message = None
@@ -9009,8 +9042,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
 
-            # Add the result to the state (result is a dict, not a list)
-            state["tool_result"] = tool_result
+            # Add the result to the state, under this node's name
+            _store_tool_result(state, _actual_tool_name, tool_result)
             
             # Check if MCP tool execution failed using MCP standard isError field
             tool_failed = False
@@ -9053,21 +9086,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
 
-                # Trim large tool_result to reduce state serialization overhead.
-                # Full data is already in history (via add_to_history above).
-                try:
-                    _tr = state.get("tool_result")
-                    if _tr and hasattr(_tr, "content") and isinstance(_tr.content, list):
-                        _total_len = sum(len(getattr(c, "text", "") or "") for c in _tr.content)
-                        if _total_len > 2000:
-                            from mcp.types import TextContent as _TC
-                            _tr.content = [_TC(type="text", text=f"[trimmed {_total_len} chars, see history]")]
-                            if hasattr(_tr, "meta"):
-                                _tr.meta = None
-                            logger.debug(f"Trimmed tool_result from {_total_len} chars to save state serialization")
-                except Exception:
-                    pass
-
+                # Large text is trimmed in _store_tool_result (full text is in history).
                 # Enforce overall tool_result dict size limit
                 _trim_tool_result(state)
 
@@ -9282,13 +9301,19 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             # Guard: prevent duplicate sends across parallel task executions.
             # Use a process-level key (skill + node + chat_id) so the flag survives
             # even when state["attributes"] is reinitialized by _node_state_baseline.
+            # The value is the LAST question this node sent to this chat; only
+            # that one counts as already sent. A resume re-runs this node from
+            # the top with the same question (LangGraph), however long the user
+            # took to reply, so it must never re-send it. A node that asks a NEW
+            # question (prompt templated from the LLM) must send it -- a plain
+            # "sent" flag per (skill, node, chat) silenced every later question.
             _pend_sent_key = f"_pend_sent_{node_name}"
             _global_key = (skill_name, node_name, _chat_id)
             _attrs_for_guard = state.get("attributes", {})
-            _prompt_already_sent = bool(str(_attrs_for_guard.get("prompt_to_human", "")).strip())
-            _flag_already_sent = _attrs_for_guard.get(_pend_sent_key, False)
+            _prompt_already_sent = str(_attrs_for_guard.get("prompt_to_human", "")).strip() == str(_msg_to_send).strip()
+            _flag_already_sent = _attrs_for_guard.get(_pend_sent_key) == str(_msg_to_send)
             with _PEND_GLOBAL_SENT_LOCK:
-                _global_already_sent = _PEND_GLOBAL_SENT.get(_global_key, False)
+                _global_already_sent = _PEND_GLOBAL_SENT.get(_global_key) == str(_msg_to_send)
             _already_sent = _global_already_sent or _prompt_already_sent or _flag_already_sent
             if not _already_sent:
                 _sent = False
@@ -9317,9 +9342,14 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                                 pass
                         sender = ChatMessageSender(agent_obj)
                         sender.send_text(_chat_id, _msg_to_send)
+                        _sent = True
                         logger.info(f"[pend_event] Sent prompt to GUI chat={_chat_id}, len={len(_msg_to_send)}")
                     except Exception as _send_err:
                         logger.info(f"[pend_event] Failed to send prompt: {_send_err}")
+                # The runner reads this: the user has this question already, so it
+                # neither re-posts the run's result nor replays the run's message.
+                if _sent:
+                    info["prompt_delivered"] = True
 
                 # Mark as sent in all three places.
                 # mt101: added FIFO eviction to prevent unbounded growth.
@@ -9329,12 +9359,13 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                         oldest_key = _PEND_GLOBAL_SENT_INSERTION_ORDER.pop(0)
                         if oldest_key in _PEND_GLOBAL_SENT:
                             _PEND_GLOBAL_SENT.pop(oldest_key)
-                    _PEND_GLOBAL_SENT[_global_key] = True
+                    _PEND_GLOBAL_SENT[_global_key] = str(_msg_to_send)
                     if _global_key not in _PEND_GLOBAL_SENT_INSERTION_ORDER:
                         _PEND_GLOBAL_SENT_INSERTION_ORDER.append(_global_key)
                 if isinstance(state.get("attributes"), dict):
-                    state["attributes"][_pend_sent_key] = True
+                    state["attributes"][_pend_sent_key] = str(_msg_to_send)
             else:
+                info["prompt_delivered"] = True   # sent moments ago (same question, this turn)
                 logger.info(f"[pend_event] Guard BLOCKED send (global={_global_already_sent}, prompt={_prompt_already_sent}, flag={_flag_already_sent}), skipping")
 
         log_msg = f"[pend_event_node] Waiting for event: type={main_event}, browser_label={browser_event_label}, timer={timer_name}, node={node_name}"
@@ -9376,6 +9407,19 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
             try:
                 _env = _payload.get("_event_envelope") or {}
                 _ctx = _env.get("context") or {}
+                # Sent by an agent -> not a human, whatever the flags say: the
+                # chat window's "Hello! How can I help you today?" greeting is
+                # posted as the agent (role=agent, senderId=agent_...) yet
+                # carries human=True / senderType=human, and would otherwise be
+                # taken as the user's message.
+                _sid = str(_ctx.get("senderId") or "").strip()
+                if _sid:
+                    try:
+                        from agent.agent_service import get_agent_by_id
+                        if get_agent_by_id(_sid) is not None:
+                            return False
+                    except Exception:
+                        pass
                 if str(_ctx.get("senderType", "")).lower() == "human":
                     return True
                 _patch = _payload.get("_state_patch") or {}
@@ -9404,7 +9448,12 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         # plain basic_chatter skill on a user-facing agent (e.g. "helper")
         # parks forever — observed 2026-05-15 for a "helper_chat" task that
         # consumed every user "hello" via the skip path.
-        if "human_chat" in accepted_event_types:
+        # Same for ``chat_message`` -- the skill editor's default pend event
+        # (``human_chat`` is labelled legacy there). With the alias on
+        # human_chat only, a chat_message pend skipped the user's reply as a
+        # "send_chat confirmation" and stayed parked: a looping chat skill
+        # resumed from the chat panel never advanced.
+        if "human_chat" in accepted_event_types or "chat_message" in accepted_event_types:
             accepted_event_types.add("send_chat")
             # TODO(统一命名): normalize_event 将 send_chat → chat_message，所以也需要接受 chat_message。
             #   后续统一命名为 1:1 后可删除此别名，保留 send_chat 即可。
@@ -10478,7 +10527,7 @@ def _cleanup_build_node_caches() -> dict[str, int]:
         old_size = len(_PEND_GLOBAL_SENT)
         # Keep only the most recent entries (FIFO eviction)
         items_to_keep = _PEND_GLOBAL_SENT_INSERTION_ORDER[-_MAX_PEND_GLOBAL_SENT_SIZE:] if _PEND_GLOBAL_SENT_INSERTION_ORDER else []
-        new_dict = {k: True for k in items_to_keep if k in _PEND_GLOBAL_SENT}
+        new_dict = {k: _PEND_GLOBAL_SENT[k] for k in items_to_keep if k in _PEND_GLOBAL_SENT}
         _PEND_GLOBAL_SENT.clear()
         _PEND_GLOBAL_SENT.update(new_dict)
         _PEND_GLOBAL_SENT_INSERTION_ORDER = items_to_keep

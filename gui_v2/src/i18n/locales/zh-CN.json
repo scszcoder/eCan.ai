@@ -2296,6 +2296,7 @@
       "skill": "技能",
       "skillPlaceholder": "选择技能",
       "noSkillsAssociated": "尚未关联任何技能。点击\"添加\"以关联技能。",
+      "skillRequired": "请先关联技能再保存：没有技能的任务无法运行。",
       "priorityLabel": "优先级",
       "triggerLabel": "触发器",
       "triggerPlaceholder": "选择触发来源",
@@ -3079,7 +3080,7 @@
         },
         "policies": {
           "intro": "每条规则只需写一次作为默认。只有店铺不同的地方才需要单独覆盖，其余自动沿用默认。",
-          "docHint": "在下方各小节中填写（向下滚动可看到全部），填完点一次保存即可。<!-- --> 中的内容是提示，不会保存。不适用的小节留空即可。",
+          "docHint": "在下方每个小节的输入框中填写（灰色文字是示例，直接输入即可），点击右侧小节可快速跳转；填完点一次保存。不适用的小节留空即可。",
           "unsavedSwitch": "请先保存或放弃当前修改",
           "unknownSections": "以下标题不是规则小节，未保存：{{names}}",
           "nothingChanged": "没有修改",

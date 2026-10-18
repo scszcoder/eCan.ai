@@ -13,6 +13,7 @@ import httpx
 import websocket
 
 from utils.logger_helper import logger_helper as logger
+from utils.shared_ssl import get_shared_ssl_context
 from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserCommand, PassiveBrowserStepResult
 from agent.cloud_api.cloud_api import _track_appsync_ws_thread
 
@@ -626,7 +627,7 @@ class AppSyncPassiveClient:
 
         auth_headers = _build_auth_headers(self._config.auth_token)
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=get_shared_ssl_context()) as client:
             resp = await client.post(
                 self._config.http_endpoint,
                 json={"query": _publish_step_result_mutation(), "variables": {"input": envelope}},

@@ -699,18 +699,24 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             let shouldClearUnread = false;
 
             setPageMessages(prev => {
-                // Remove local messages that have been confirmed by global messages
-                // This handles both "sending" status and "complete" status messages
-                // that were sent by the current user (optimistic updates)
-                const filteredPrev = prev.filter(localMsg => {
+                // Replace the current user's local messages (optimistic updates)
+                // with their confirmed global copy. Replace, not remove: only
+                // global messages newer than the latest one kept here are merged
+                // back below, so once a reply was newer the user's own message
+                // was dropped and stayed gone until a reload. Each global message
+                // confirms at most one local one (same text sent twice in 5s).
+                const usedGlobalIds = new Set<string>();
+                const filteredPrev = prev.map(localMsg => {
                     // Keep messages that are not from current user (incoming messages)
                     if (localMsg.senderId && localMsg.senderId !== currentUserId) {
-                        return true;
+                        return localMsg;
                     }
-                    
+
                     // For messages from current user, check if they're confirmed in globalMsgs
-                    // Match by: content AND (senderId OR senderName) AND approximate time (within 5s)
-                    const isConfirmedByGlobal = globalMsgs.some(gm => {
+                    // Match by: same id, else content AND (senderId OR senderName) AND approximate time (within 5s)
+                    const unused = (gm: any) => !(gm.id && usedGlobalIds.has(gm.id));
+                    const confirmed = globalMsgs.find(gm => unused(gm) && gm.id && gm.id === localMsg.id) || globalMsgs.find(gm => {
+                        if (!unused(gm)) return false;
                         // Check if content matches
                         const contentMatches = gm.content === localMsg.content;
                         // Check if sender matches (by id or name)
@@ -723,9 +729,12 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                         
                         return contentMatches && senderMatches && timeMatches;
                     });
-                    
-                    // Remove if confirmed by global, keep if not
-                    return !isConfirmedByGlobal;
+
+                    if (confirmed) {
+                        if (confirmed.id) usedGlobalIds.add(confirmed.id);
+                        return confirmed;
+                    }
+                    return localMsg;
                 });
                 
                 // Only merge messages that are newer than the latest in current pageMessages

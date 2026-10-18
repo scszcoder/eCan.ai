@@ -121,6 +121,12 @@ os.environ['PYTHONUTF8'] = '1'
 # ============================================================================
 os.environ.setdefault('TIMEOUT_ScreenshotEvent', '30')  # Increase from 8s to 30s
 os.environ.setdefault('TIMEOUT_BrowserStartEvent', '90')  # Increase from 30s to 90s for slow browser initialization
+# browser-use checks PyPI for a newer version on EVERY Agent.run(): a fresh
+# httpx client (synchronous CA-bundle load) + a network fetch of up to 3s, on
+# the persistent browser-use event loop. In the 2026-10-17 customer log it was
+# the blocker in 10/10 STALL-DIAG dumps on the 拼多多 front-desk loop. We pin
+# the version ourselves, so the check is pure cost.
+os.environ.setdefault('BROWSER_USE_VERSION_CHECK', 'false')
 
 # ============================================================================
 # Increase Python recursion limit (general safety margin)

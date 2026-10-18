@@ -91,6 +91,9 @@ class _FakeAsyncClient:
     posted = []
     reply = _FakeResponse(200, {"success": True})
 
+    def __init__(self, **kwargs):  # real client takes verify=/timeout= etc.
+        self.init_kwargs = kwargs
+
     async def __aenter__(self):
         return self
 
