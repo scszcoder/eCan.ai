@@ -927,6 +927,32 @@ on the profile record. Both hardcode a policy, so decide deliberately.
 
 ## 🔵 Planned work
 
+### 10-day unattended 客服 run — plan (2026-10-18)
+
+Goal (customer ask): the 客服 desktop runs ≥10 days with no one at the PC. Order: **soak test
+first** (measure what actually fails), then **watchdog + alerts** (every failure either heals
+itself or reaches the owner within minutes), then the rest. Inventory of what exists today:
+
+| # | Piece | Today | To do |
+|---|---|---|---|
+| 1 | **Soak test** | none | Real PC, 2 抖店 stores, 10 days; daily RSS/threads/Chrome-process/handle counts, disk, reply latency, every restart and its cause. `utils/memory_monitor.py` (memory.log, 30 s) and `runlogs/process_heartbeat.json` already record RSS/threads. |
+| 2 | **Start at boot** | none (Inno `[Tasks]` = desktop icon only, `build_system/ecan_build.py:692-1009`) | Run key or logon scheduled task + settings toggle. |
+| 3 | **Restart on crash/hang** | heartbeat file written every 5 s (`utils/crash_boundary.py:204-268`), read only by the NEXT launch; no supervisor | Small external watchdog (scheduled task / service): pid alive + fresh `updated_at`, else kill + relaunch; report the restart. |
+| 4 | **Sign back in after restart** | CN restore needs a keyring password (`auth_manager.py:2503`) → WeChat QR users land on the QR screen; 30-day session token never re-minted | Restore from the saved 30-day WeChat session token at startup; re-mint before day 30 (server: re-mint from the website session token). |
+| 5 | **Agents + store browsers after restart** | yes (`MainGUI` phase 3; `browser_manager.py:1202-1228` reattaches/starts per-profile Chrome, cookies persist) | Covered once 2–4 work. |
+| 6 | **Store browser dies** | `browser_watchdog.py` exists but OFF (`ECAN_BROWSER_WATCHDOG=1`, :88-91) — customer 2026-10-18: store B's Chrome died 14:57 and stayed dead 8 h | Turn it on for front desks (after testing); stop the coldstart/bot-toggle retry storm when there is no SessionManager (~24k failed evals in 16 h). |
+| 7 | **Store site logged out** | only generic `monitor_hb=page_mismatch` (`event_monitor.py:3128-3157`); PDD "账户在别处登录" detected | Explicit `login=logged_out` in AGENT-STATUS per platform (login/QR page URL patterns) → alert. A human re-scan stays necessary; the goal is knowing within minutes. |
+| 8 | **Owner alerts off the machine** | fleet feed (`agent/fleet/activity_feed.py`) is pull-only; balance low/zero = in-app banner only (`proxy_errors.py:100-111`) | Push (e.g. WeChat message) for: app restarted/died, eCan signed out, store logged out, agent silent N min, balance low/zero. Needs a server-side sender (user's server terminal). Server-side "machine went silent" alarm off the fleet feed. |
+| 9 | **Sleep / wake** | sleep inhibitor has an 8 h cap (`utils/sleep_inhibitor.py:63`); `utils/power_monitor.py:178` subclasses `QObject` without importing it → NameError, wake recovery never installed; `wake_recovery.py` step 2 re-subscribes WAN per agent on every wake with no dedupe (thread/connection leak if enabled as is) | Fix the import + make WAN re-subscribe idempotent, then enable and test; no inhibitor cap while front desks run; fast deploy sets/warns power settings. |
+| 10 | **Windows Update reboot** | nothing (no `RegisterApplicationRestart`, no end-session handling) | Covered by 2 + 4; optionally `RegisterApplicationRestart`. |
+| 11 | **Growth** | logs rotate (eCan.log 10 MB×5, wscap 20 MB×5); no pruning of chat messages / notifications / qa_history, `generated_medias`, version snapshots; chatter-task `InMemorySaver` threads never deleted | Retention by age/count; cap per-thread checkpoints for long-lived chatter tasks. |
+| 12 | **OTA** | auto-check shows a modal dialog (`gui/WebGUI.py:1969-2002`) → needs a click; relaunch then hits #4 | Unattended policy: defer or install-and-relaunch at a quiet hour; depends on #4. |
+| 13 | **Site layout changes** | not preventable | Covered by 7/8 (agent silent → alert). |
+
+Already fixed on the way (2026-10-18, unbuilt): QR login silently signed out after 45 min
+(6bf22cb6f); refresh-loop sign-out now tells the window (84e0dd037); GUI WebSocket force-closed
+every 5 min (469475ec3).
+
 ### RAG work — starts after the chip-docs crawler runs on the cloud side (2026-10-09)
 
 The user has a batch of RAG work queued behind the chip-docs crawler; it will be
