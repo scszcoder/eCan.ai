@@ -142,6 +142,8 @@ class AuthManager:
             try:
                 if self.try_restore_cloudbase_session():
                     logger.info("[AuthManager.__init__] CloudBase session restored from stored credentials")
+                elif self.try_restore_wechat_session():
+                    logger.info("[AuthManager.__init__] WeChat session restored from the saved 30-day session token")
             except Exception as e:
                 logger.warning(f"[AuthManager.__init__] Failed to restore CloudBase session: {e}")
 
@@ -2474,6 +2476,54 @@ class AuthManager:
             logger.error(f"AuthManager: Failed to restore session: {e}")
             return False
 
+    def try_restore_wechat_session(self) -> bool:
+        """Sign a WeChat QR user back in at startup from the saved 30-day eCan
+        session token -- no QR scan, no password (QR logins have none, so
+        try_restore_cloudbase_session never applied and every restart landed
+        on the QR screen; an unattended 客服 PC could not recover).
+
+        The session token is the bearer for HTTP GraphQL and the WS bridge, so
+        it is all a restored session needs. There is no CloudBase/WeChat access
+        token to refresh: the refresh loop leaves the session alone
+        (tokens["Source"] = "session_restore"). An expired token (local exp
+        claim) is not restored; a server-side rejection later goes through the
+        normal session-expired path.
+        """
+        if not self._is_cn:
+            return False
+        username = self._get_saved_username() or ""
+        if not username.startswith("wechat_"):
+            return False
+        self.current_user = username
+        ok, session_tok = self._get_wechat_session_token()
+        if not ok or not session_tok:
+            logger.debug(f"[try_restore_wechat_session] no saved session token for {username}")
+            return False
+        exp = self._decode_token_expiry_unsafe(session_tok)
+        if exp is None or exp <= int(time.time()) + 60:
+            logger.info(f"[try_restore_wechat_session] saved session token for {username} is expired; QR needed")
+            return False
+        self.tokens = {
+            "AccessToken": session_tok,
+            "IdToken": None,
+            "RefreshToken": None,
+            "ExpiresIn": max(0, exp - int(time.time())),
+            "TokenType": "Bearer",
+            "Source": "session_restore",
+        }
+        self.signed_in = True
+        self.user_profile = {**(self.user_profile or {}), "username": username, "login_type": "wechat"}
+        logger.info(f"[try_restore_wechat_session] restored {username} "
+                    f"(session token valid {max(0, exp - int(time.time())) // 86400} more days)")
+        try:
+            from auth.session_supervisor import get_session_supervisor
+            sup = get_session_supervisor()
+            if sup:
+                sup.notify_token_installed()
+        except Exception as e:
+            logger.debug(f"[try_restore_wechat_session] supervisor notify skipped: {e}")
+        return True
+
     def try_restore_cloudbase_session(self) -> bool:
         """Attempt to restore CloudBase session from stored credentials silently at startup.
 
@@ -3142,6 +3192,8 @@ class AuthManager:
         """True when the WeChat AccessToken is a CloudBase JWT, the only kind
         refreshWeChatToken can refresh. An opaque website session token (no
         dots) has no weChatSession row on the server to refresh from."""
+        if (self.tokens or {}).get('Source') == 'session_restore':
+            return False   # restored from the session token: no WeChat token to refresh
         at = (self.tokens or {}).get('AccessToken') or (self.tokens or {}).get('access_token') or ''
         return isinstance(at, str) and at.count('.') == 2
 

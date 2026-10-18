@@ -816,6 +816,38 @@ const LoginCN: React.FC = () => {
     });
   }, [messageApi, navigate, t]);
 
+  // After an app restart the backend may already have restored the session
+  // (WeChat user, saved 30-day session token). The desktop frontend drops its
+  // IPC token on every cold start, so without this the QR screen showed even
+  // though no scan was needed -- an unattended PC could not come back alone.
+  const resumeTriedRef = useRef(false);
+  useEffect(() => {
+    if (resumeTriedRef.current || !isDesktopPlatform()) return;
+    resumeTriedRef.current = true;
+    (async () => {
+      const role = siteRole(form.getFieldValue('role'));
+      const resp = await cloudbaseAuth.resumeSession(role);
+      if (!resp.success || !resp.data) return;
+      const ui: any = resp.data.userInfo || {};
+      const loginType = (resp.loginType || 'wechat') as 'password' | 'google' | 'wechat' | 'phone';
+      setLoginProgress('success');
+      saveLoginSession(
+        resp.data.token,
+        {
+          username: ui.username || ui.email || '',
+          email: ui.email || '',
+          name: ui.nickname || '',
+          picture: ui.avatarUrl || '',
+          login_type: loginType,
+        },
+        role,
+        loginType,
+      );
+      setLoginSuccessful(true);
+      setLoginProgress('redirecting');
+    })().catch((e) => console.warn('[LoginCN] resume of restored session failed:', e));
+  }, [form, saveLoginSession]);
+
   // 发送手机验证码
   const handleSendCode = useCallback(async (phone: string) => {
     if (countdown > 0) return;

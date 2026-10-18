@@ -1452,6 +1452,69 @@ def handle_cloudbase_phone_signup(request: IPCRequest,
 # 检查配置
 # ============================================================
 
+@IPCHandlerRegistry.handler("cloudbase_resume_session")
+def handle_cloudbase_resume_session(request: IPCRequest,
+                                    params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Continue a session the backend restored at startup (e.g. a WeChat
+    user from the saved 30-day session token), without a QR scan.
+
+    The desktop frontend drops its IPC token on every cold start, so after a
+    restart it always showed the login page even when AuthManager was signed
+    in. The CN login page calls this on mount; when signed in it gets the same
+    {token, user_info} a QR login returns and the main window is launched.
+    Otherwise it answers {resumed: False} and the login page stays.
+    """
+    try:
+        from app_context import AppContext
+        login = AppContext.get_login()
+        am = getattr(login, "auth_manager", None) if login is not None else None
+        if am is None or not am.is_signed_in() or not am.get_current_user():
+            return create_success_response(request, {"resumed": False})
+        user_identifier = am.get_current_user()
+        profile = am.get_user_profile() if hasattr(am, "get_user_profile") else {}
+        profile = profile if isinstance(profile, dict) else {}
+        machine_role = (params or {}).get("role") or getattr(am, "machine_role", None) or "Commander"
+        login_type = profile.get("login_type") or "wechat"
+
+        from gui.ipc.token_manager import token_manager
+        session_token = token_manager.generate_token(user_identifier, machine_role)
+
+        if os.getenv("ECAN_MODE", "desktop") != "web" and AppContext.get_main_window() is None:
+            from gui.LoginoutGUI import LoginRequest, LoginType
+            launch_request = LoginRequest(LoginType.USERNAME_PASSWORD, username=user_identifier,
+                                          password="", role=machine_role, schedule_mode="manual")
+            loop = AppContext.main_loop
+            if loop and loop.is_running():
+                import asyncio as _asyncio
+                _asyncio.run_coroutine_threadsafe(login._async_launch_main_window(launch_request), loop)
+            else:
+                logger.error("[CloudBaseResume] main event loop not running; MainWindow launch skipped")
+
+        logger.info(f"[CloudBaseResume] resumed restored session for {user_identifier} ({login_type})")
+        return create_success_response(request, {
+            "resumed": True,
+            "token": session_token,
+            "refresh_token": session_token,
+            "message": auth_messages.get_message("login_success"),
+            "user_info": {
+                "username": user_identifier,
+                "email": profile.get("email", "") or "",
+                "phone": profile.get("phone_number", "") or "",
+                "role": machine_role,
+                "name": profile.get("name", "") or "",
+                "given_name": "",
+                "family_name": "",
+                "picture": profile.get("picture", "") or "",
+                "email_verified": bool(profile.get("email")),
+                "login_type": login_type,
+                "uuid": profile.get("sub", "") or "",
+            },
+        })
+    except Exception as e:
+        logger.warning(f"[CloudBaseResume] could not resume the restored session: {e}")
+        return create_success_response(request, {"resumed": False})
+
+
 @IPCHandlerRegistry.handler("cloudbase_check_config")
 def handle_cloudbase_check_config(request: IPCRequest,
                                   params: Optional[Dict[str, Any]]) -> IPCResponse:
