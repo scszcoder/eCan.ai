@@ -240,6 +240,8 @@ _BACKSTOP_PROCESS_START: float = time.monotonic()
 
 # ws178: rate-limit for the nameless-row DOM dump (see the scan JS debug block).
 _NAMELESS_DUMP_AT: dict = {}
+# id(browser_session) -> True while its browser is dead (cold-start scan paused, said once).
+_COLDSTART_DEAD_SESSIONS: dict = {}
 
 _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){""" + _ROW_PREVIEW_FALLBACK_JS + r"""
   function readName(row){
@@ -401,6 +403,21 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None, browser_sessio
                 break
     if browser_session is None:
         return 0
+    # A dead / not-yet-started browser has no SessionManager or root CDP client:
+    # every probe below would fail ("SessionManager not initialized" / "Root CDP
+    # client not initialized") on every ~5 s tick -- ~24k failed evals over 16 h
+    # in a customer log (2026-10-18, store B's Chrome dead for 8 h). Skip; say so
+    # once per dead episode.
+    if (getattr(browser_session, "session_manager", None) is None
+            or getattr(browser_session, "_cdp_client_root", None) is None):
+        if not _COLDSTART_DEAD_SESSIONS.get(id(browser_session)):
+            _COLDSTART_DEAD_SESSIONS[id(browser_session)] = True
+            logger.warning(
+                "[BrowserAutomation] coldstart recovery scan paused: this store's browser is "
+                "not connected (no SessionManager / CDP root) — resumes when it is back"
+            )
+        return 0
+    _COLDSTART_DEAD_SESSIONS.pop(id(browser_session), None)
     _tid = None
     try:
         if await ensure_feige_tab_reachable(browser_session):
