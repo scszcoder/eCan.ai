@@ -7570,7 +7570,14 @@ class TaskRunner(Generic[Context]):
                     break
                 
                 # Validate task
-                if not self._validate_task_for_execution(current_task):
+                try:
+                    _valid = self._validate_task_for_execution(current_task)
+                except ValueError:
+                    # No skill: say so in the chat the message came from, or
+                    # the user just sees an agent that never answers.
+                    self._notify_skill_missing(current_task, msg)
+                    raise
+                if not _valid:
                     consecutive_validation_failures += 1
                     if consecutive_validation_failures >= max_validation_failures:
                         logger.error(f"[WORKER] Task '{current_task.name}' failed validation {consecutive_validation_failures} times, stopping execution loop")
@@ -8092,6 +8099,30 @@ class TaskRunner(Generic[Context]):
         except Exception:
             pass
     
+    def _notify_skill_missing(self, task: ManagedTask, msg: Any) -> None:
+        """Tell the chat a message was dropped because its task has no skill."""
+        try:
+            if msg is None:
+                return
+            event = normalize_event("", msg)
+            chat_id = ((event.get("context") or {}).get("chatId")
+                       or (event.get("data") or {}).get("chatId"))
+            if not chat_id:
+                return
+            try:
+                from utils.i18n_helper import detect_language
+                lang = detect_language(default_lang="zh-CN", supported_languages=["zh-CN", "en-US"])
+            except Exception:
+                lang = "zh-CN"
+            text = (f"⚠️ Task \"{task.name}\" has no Skill attached, so this message cannot be handled. "
+                    f"Open the task in Tasks, choose its Skill and save."
+                    if lang == "en-US" else
+                    f"⚠️ 任务「{task.name}」没有绑定技能，无法处理这条消息。请在「任务」中打开该任务，选择技能后保存。")
+            from agent.chats.chat_utils import _notify_chat_undeliverable
+            _notify_chat_undeliverable(chat_id, text)
+        except Exception as e:
+            logger.warning(f"[SKILL_MISSING] could not notify the chat: {e}")
+
     def _validate_task_for_execution(self, task: ManagedTask) -> bool:
         """Validate a task is ready for execution.
         

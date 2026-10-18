@@ -2236,6 +2236,7 @@
       "skill": "Skill",
       "skillPlaceholder": "Select a skill",
       "noSkillsAssociated": "No skills associated. Click Add to associate a skill.",
+      "skillRequired": "Attach a skill before saving: a task without a skill cannot run.",
       "priorityLabel": "Priority",
       "triggerLabel": "Trigger",
       "scheduleDetails": "Schedule",

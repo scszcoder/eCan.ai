@@ -2296,6 +2296,7 @@
       "skill": "技能",
       "skillPlaceholder": "选择技能",
       "noSkillsAssociated": "尚未关联任何技能。点击\"添加\"以关联技能。",
+      "skillRequired": "请先关联技能再保存：没有技能的任务无法运行。",
       "priorityLabel": "优先级",
       "triggerLabel": "触发器",
       "triggerPlaceholder": "选择触发来源",
