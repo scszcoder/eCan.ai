@@ -1130,6 +1130,14 @@ try:
         except Exception as e:
             logger.warning(f"Failed to start memory monitor: {e}")
 
+        # Diagnostic: log each new visible window of eCan's process tree (which
+        # program opens the "3 black blank windows" customers report).
+        try:
+            from utils.window_census import start_window_census
+            start_window_census()
+        except Exception as e:
+            logger.warning(f"Failed to start window census: {e}")
+
         # Print current running mode
         progress_manager.update_progress(65, splash_msg('config_runtime'))
         if app_settings.is_dev_mode:
