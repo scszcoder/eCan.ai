@@ -4,11 +4,32 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-10-15_
+_Last updated: 2026-10-18_
 
 ---
 
 ## 🔴 Bugs (unfixed)
+
+### Chat skills lose an in-progress step on app restart — durable checkpoints (2026-10-18)
+
+Desktop compiles every skill with LangGraph's `InMemorySaver` (`agent/checkpointing.py`;
+durable sqlite/postgres exist only via `ECAN_CHECKPOINTER`, meant for cloud pods). The run's
+`thread_id` is a runtime uuid in `task.metadata["config"]` (`ec_tasks/executor.py:prepare_config`),
+never stored, and "parked on an interrupt" is in-memory task status. So a restart loses all run
+state.
+- **Partly fixed (aa76ab9ac, yar):** opt-in `restore_chat_history: N`
+  (`agent/ec_tasks/chat_transcript.py`) reloads the chat's last N messages into `history` on a
+  fresh run, so a chat skill (做图经理小李) carries on the conversation after a restart.
+- **Still open:** a step in progress at restart is lost — e.g. 小李 parked on `pend_waitWang`
+  waiting for 做图专家小王's images: the handoff is gone and the user has to ask again; skill
+  attributes (`delivered_images`, `accepted_images`, `job_status`) also reset.
+- **Fix = durable checkpoints, as a separate, carefully tested change:** an opt-in per skill
+  SQLite checkpointer on desktop; a stored per-(task, chat) `thread_id`; and the runner resuming
+  the parked step on the first message after a restart (treat a thread with a pending interrupt
+  as `input_required`). Risks to cover: every step writes to disk (keep high-rate skills like the
+  Feige front desk off it), all state must be serialisable (`checkpointing.assert_checkpoint_safe`),
+  the executor's checkpoint cleanup (`_clear_skill_module_caches`) must not delete a parked
+  durable thread, and the other agent's half (小王's job) is lost on restart too.
 
 ### Catalog export only exists for Douyin; tmall/pdd 客服 answer with no product KB (2026-10-12)
 
