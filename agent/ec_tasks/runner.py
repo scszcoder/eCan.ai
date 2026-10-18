@@ -108,6 +108,58 @@ _PRIORITY_HIGH_EVENT_TYPES = {"chat_message", "human_chat", "a2a", "channel_mess
 _DIRECT_LIVE_CHAT_DELIVERY_LOCK = threading.Lock()
 
 
+def _interrupt_prompts(step: Any) -> List[str]:
+    """The questions a paused run's pend_event node(s) DELIVERED to the user's
+    chat (``prompt_delivered``, set by build_node's pend_event node). Code-built
+    interrupts carry ``prompt_to_human`` without posting it -- the runner's
+    result send is how the user sees those -- so they are not counted."""
+    try:
+        interrupts = step.get("__interrupt__") or ()
+        prompts = []
+        for i in interrupts:
+            v = getattr(i, "value", None) or {}
+            if isinstance(v, dict) and v.get("prompt_delivered"):
+                p = str(v.get("prompt_to_human") or "").strip()
+                if p:
+                    prompts.append(p)
+        return prompts
+    except Exception:
+        return []
+
+
+def _interrupt_prompt_is_from_result(step: Any, values: Any) -> bool:
+    """True when the run paused on a pend_event whose question to the user is
+    part of the run's result (e.g. a prompt templated from the LLM's JSON):
+    the user already has it, so the result must not be sent as a reply too."""
+    try:
+        prompts = _interrupt_prompts(step)
+        if not prompts or not isinstance(values, dict):
+            return False
+        strings: List[str] = []
+
+        def _collect(o: Any, depth: int = 0) -> None:
+            if depth > 6:
+                return
+            if isinstance(o, str):
+                strings.append(o)
+                if o.lstrip().startswith(("{", "[")):
+                    try:
+                        _collect(json.loads(o), depth + 1)
+                    except ValueError:
+                        pass
+            elif isinstance(o, dict):
+                for v in o.values():
+                    _collect(v, depth + 1)
+            elif isinstance(o, (list, tuple)):
+                for v in o:
+                    _collect(v, depth + 1)
+
+        _collect(values.get("result"))
+        return any(p in s for p in prompts for s in strings)
+    except Exception:
+        return False
+
+
 def _live_chat_bridge():
     """Return the active live-chat bundle's runner bridge, or None.
 
@@ -10072,6 +10124,13 @@ class TaskRunner(Generic[Context]):
                 _is_async_callback = isinstance(msg, dict) and msg.get("type") == "async_callback"
                 _is_message_trigger = trigger_type == "message"
                 _should_auto_resume = _is_async_callback or _is_message_trigger
+                # A pend node that just asked the user something waits for the
+                # ANSWER; the message that started this run came before the
+                # question, so replaying it would be taken as the answer.
+                _asked = _is_interrupted and _is_message_trigger and _interrupt_prompts(response.get("step"))
+                if _asked:
+                    _should_auto_resume = False
+                    logger.info("[EXECUTOR] Initial run paused on a question to the user — waiting for the reply (no auto-resume)")
 
                 if _is_interrupted and _should_auto_resume:
                     logger.info(f"[EXECUTOR] Initial run interrupted at pend_event — auto-resuming (trigger={trigger_type}, async_cb={_is_async_callback})")
@@ -10581,6 +10640,11 @@ class TaskRunner(Generic[Context]):
                         already_sent = (current_state.values.get("attributes") or {}).get("chat_response_sent", False)
                         if already_sent:
                             logger.debug("[COMPLETE] Skipping send_response_back (interrupted): chat node already sent response")
+                        elif _interrupt_prompt_is_from_result(step, current_state.values):
+                            # The pend node's question was built from the run's
+                            # output and shown to the user; sending the output
+                            # too posted it again as raw JSON.
+                            logger.info("[COMPLETE] Skipping send_response_back (interrupted): pend prompt already carries the result")
                         else:
                             try:
                                 from agent.ec_skills.llm_utils.llm_utils import send_response_back
