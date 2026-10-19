@@ -190,8 +190,7 @@ def _ids_for_role(ids: List[str], provider_type: str) -> List[str]:
         return [i for i in ids if "embedding" in i.lower()]
     if provider_type == "rerank":
         return [i for i in ids if "rerank" in i.lower()]
-    return [i for i in ids
-            if "embedding" not in i.lower() and "rerank" not in i.lower()]
+    return [i for i in ids if _is_chat_model(i)]   # not embedding/rerank/speech/image/video/OCR
 
 
 def merge_ecanai_models_to_providers(providers: List[Dict[str, Any]],

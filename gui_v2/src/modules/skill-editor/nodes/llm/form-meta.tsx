@@ -436,7 +436,10 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                   const value = modelField.value || listedValues[0] || '';
                   // A model the list doesn't have (typed in, or newer than this
                   // app's list) is kept and shown -- the llm-proxy serves it.
-                  const modelOptions = value && !listedValues.includes(value)
+                  // Only a model no provider lists is shown as an extra entry -- another
+                  // provider's model (left over from a provider switch) is not this one's.
+                  const listedAnywhere = Object.values(modelMap).some(opts => opts.some(o => o.value === value));
+                  const modelOptions = value && !listedValues.includes(value) && !listedAnywhere
                     ? [...listed, { label: value, value }] : listed;
 
                   // Pick the provider's first model only when the PROVIDER changes
