@@ -3098,6 +3098,9 @@
           "nothingChanged": "没有修改",
           "savedCount": "已保存 {{saved}} 项，清除 {{removed}} 项",
           "discard": "放弃修改",
+          "loadTemplate": "载入标准模板",
+          "templateLoaded": "已把标准模板填入 {{count}} 个空白小节，请按本店实际政策修改后点「保存」",
+          "templateNothingEmpty": "所有小节都已填写，标准模板不会覆盖已有内容",
           "unsaved": "有未保存的修改",
           "sections": "小节",
           "hints": {

@@ -3039,6 +3039,9 @@
           "nothingChanged": "Nothing changed",
           "savedCount": "Saved {{saved}} section(s), cleared {{removed}}",
           "discard": "Discard changes",
+          "loadTemplate": "Load standard template",
+          "templateLoaded": "Filled {{count}} empty section(s) with the standard template -- edit to your real policy, then Save",
+          "templateNothingEmpty": "Every section is already filled; the template never overwrites existing text",
           "unsaved": "Unsaved changes",
           "sections": "Sections",
           "hints": {
