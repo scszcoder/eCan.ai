@@ -194,12 +194,33 @@ class PlaywrightCoreUtils:
     )
 
     @staticmethod
+    def _chromium_binary_runnable(exe: Path, timeout: float = 5.0) -> bool:
+        """True iff *exe* actually starts and exits cleanly for --version.
+
+        A file that exists and has bytes is not proven runnable: AV quarantine
+        can leave a stub/truncated file in place, or the binary may fail to
+        launch for other reasons. Spawn it with a throwaway flag instead of
+        trusting size alone. See the 2026-10-19 "chrome.exe present but
+        exits immediately (code 3)" field bug.
+        """
+        try:
+            from utils.subprocess_helper import run_no_window
+            result = run_no_window(
+                [str(exe), "--headless=new", "--no-sandbox", "--disable-gpu", "--version"],
+                capture_output=True, timeout=timeout,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    @staticmethod
     def _chromium_binary_present(chromium_dir: Path) -> bool:
         """True iff a chromium-<build> dir holds a non-empty, runnable browser."""
         for rel in PlaywrightCoreUtils._CHROMIUM_EXE_RELPATHS:
             exe = chromium_dir / rel
             try:
-                if exe.is_file() and exe.stat().st_size > 0:
+                if (exe.is_file() and exe.stat().st_size > 0
+                        and PlaywrightCoreUtils._chromium_binary_runnable(exe)):
                     return True
             except OSError:
                 continue
