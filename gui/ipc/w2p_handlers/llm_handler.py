@@ -124,9 +124,11 @@ def handle_get_llm_providers(request: IPCRequest, params: Optional[Dict[str, Any
         # Merge RyoAIS models using shared utility
         providers = merge_ryoais_models_to_providers(providers, ryoais_models=ryoais_models, provider_type='llm')
 
-        # Merge eCanAI dynamic models (live GET <llm-proxy>/v1/models)
-        from gui.ecanai_utils import merge_ecanai_models_to_providers
+        # Merge eCanAI dynamic models (live GET <llm-proxy>/v1/models), and every
+        # cloud provider's models from the same live / saved catalogue
+        from gui.ecanai_utils import merge_ecanai_models_to_providers, merge_live_models_to_providers
         providers = merge_ecanai_models_to_providers(providers, provider_type='llm')
+        providers = merge_live_models_to_providers(providers)
 
         logger.info(f"Retrieved {len(providers)} LLM providers")
 
@@ -894,7 +896,13 @@ def handle_get_llm_providers_with_credentials(request: IPCRequest, params: Optio
 
         # Merge RyoAIS models using shared utility
         all_providers = merge_ryoais_models_to_providers(all_providers, ryoais_models=ryoais_models, provider_type='llm')
-        
+
+        # The skill editor's model choices: the llm-proxy's live catalogue (saved
+        # locally for offline use); the build-time list only when neither exists.
+        from gui.ecanai_utils import merge_ecanai_models_to_providers, merge_live_models_to_providers
+        all_providers = merge_ecanai_models_to_providers(all_providers, provider_type='llm')
+        all_providers = merge_live_models_to_providers(all_providers)
+
         # Enhance providers with API key information
         enhanced_providers = []
         for provider in all_providers:

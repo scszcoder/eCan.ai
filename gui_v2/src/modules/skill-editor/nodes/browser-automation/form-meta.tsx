@@ -865,16 +865,28 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 {({ field: providerField }) => {
                   const provider = (providerField.value as string) || providers[0] || 'OpenAI';
                   const models = modelMap[provider] || [];
-                  const modelOptions = models.map(m => ({ label: m, value: m }));
                   const value = modelField.value || models[0] || '';
-                  if (value && models.length && !models.includes(value)) {
-                    setTimeout(() => modelField.onChange(models[0]), 0);
-                  }
+                  // A model the list doesn't have (typed in, or newer than this
+                  // app's list) is kept and shown -- the llm-proxy serves it.
+                  const modelOptions = [...models, ...(value && !models.includes(value) ? [value] : [])]
+                    .map(m => ({ label: m, value: m }));
+                  // Pick the provider's first model only when the PROVIDER changes,
+                  // never just because a model is missing from the list.
+                  const prevProvider = useRef(provider);
+                  useEffect(() => {
+                    const switched = prevProvider.current !== provider;
+                    prevProvider.current = provider;
+                    if (switched && models.length && !models.includes(value)) {
+                      setTimeout(() => modelField.onChange(models[0]), 0);
+                    }
+                  }, [provider]);
                   return (
                     <Select
                       value={value}
-                      onChange={(val) => modelField.onChange(val as string)}
+                      onChange={(val) => modelField.onChange(String(val ?? '').trim())}
                       optionList={modelOptions}
+                      filter
+                      allowCreate
                       style={{ width: '100%' }}
                       dropdownMatchSelectWidth
                       size="small"

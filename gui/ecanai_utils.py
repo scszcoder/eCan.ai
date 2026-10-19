@@ -18,13 +18,18 @@ untouched — the frontend then falls back to default_model.
 """
 
 import json
+import re
 import time
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from utils.logger_helper import logger_helper as logger
 
 _CACHE_TTL_S = 300
-_models_cache: Dict[str, Any] = {"ts": 0.0, "ids": None}
+_models_cache: Dict[str, Any] = {"ts": 0.0, "ids": None, "rows": None}
+# The last live list, saved so a restart without network still shows the
+# server's models; the build-time llm_providers.json is the last resort.
+_LIVE_FILE = "llm_live_models.json"
 
 _ROLE_KEY_ENV = {
     "llm": "ECANAI_LLM_API_KEY",
@@ -52,20 +57,132 @@ def _api_key(provider_type: str) -> str:
     return ""
 
 
-def _fetch_model_ids(base_url: str, api_key: str) -> Optional[List[str]]:
-    """GET <base_url>/models; None on any failure (cache misses stay cheap)."""
+def _fetch_model_rows(base_url: str, api_key: str) -> Optional[List[Dict[str, str]]]:
+    """GET <base_url>/models -> [{id, owned_by}]; None on any failure."""
     import urllib.request as _rq
     try:
         req = _rq.Request(base_url.rstrip("/") + "/models",
                           headers={"Authorization": f"Bearer {api_key}"})
         with _rq.urlopen(req, timeout=10) as resp:
             body = json.load(resp)
-        ids = [str(m.get("id")) for m in (body.get("data") or [])
-               if isinstance(m, dict) and m.get("id")]
-        return ids or None
+        rows = [{"id": str(m.get("id")),
+                 "owned_by": str(m.get("owned_by") or m.get("provider") or "")}
+                for m in (body.get("data") or []) if isinstance(m, dict) and m.get("id")]
+        return rows or None
     except Exception as exc:
         logger.debug(f"[ecanai_utils] model fetch failed: {exc}")
         return None
+
+
+def _fetch_model_ids(base_url: str, api_key: str) -> Optional[List[str]]:
+    """GET <base_url>/models; None on any failure (cache misses stay cheap)."""
+    rows = _fetch_model_rows(base_url, api_key)
+    return [r["id"] for r in rows] if rows else None
+
+
+def _live_file() -> Path:
+    from config.app_info import app_info
+    return Path(app_info.appdata_path) / _LIVE_FILE
+
+
+def _save_live(rows: List[Dict[str, str]]) -> None:
+    try:
+        path = _live_file()
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"fetched_at": time.time(), "models": rows}, ensure_ascii=False),
+                       encoding="utf-8")
+        tmp.replace(path)
+    except Exception as exc:
+        logger.debug(f"[ecanai_utils] could not save the live model list: {exc}")
+
+
+def _load_saved() -> Optional[List[Dict[str, str]]]:
+    try:
+        data = json.loads(_live_file().read_text(encoding="utf-8"))
+        rows = [r for r in (data.get("models") or []) if isinstance(r, dict) and r.get("id")]
+        return rows or None
+    except Exception:
+        return None
+
+
+def live_model_rows(providers: List[Dict[str, Any]]) -> Tuple[Optional[List[Dict[str, str]]], str]:
+    """The llm-proxy's model list: (rows, source). Live (memory cache, else a
+    fetch -- which is then saved), else the list saved by the last good fetch,
+    else (None, "none") -- callers keep the build-time llm_providers.json."""
+    now = time.time()
+    if _models_cache.get("rows") and now - _models_cache["ts"] < _CACHE_TTL_S:
+        return _models_cache["rows"], "live"
+    target = next((p for p in providers if isinstance(p, dict) and _is_ecanai(p)), None)
+    base_url = str((target or {}).get("base_url") or "").strip()
+    api_key = _api_key("llm") if base_url else ""
+    rows = _fetch_model_rows(base_url, api_key) if (base_url and api_key) else None
+    if rows:
+        _models_cache.update(ts=now, rows=rows, ids=[r["id"] for r in rows])
+        _save_live(rows)
+        return rows, "live"
+    saved = _load_saved()
+    if saved:
+        return saved, "saved"
+    return None, "none"
+
+
+# Local / self-hosted providers list their own models (ollama_utils, ryoais_utils).
+_LOCAL_PROVIDERS = {"ollama", "ryoais"}
+
+
+# The catalogue is one flat list: speech, image/video and OCR models share the
+# chat providers' owners (owned_by "qwen" covers wan2.x and cosyvoice too).
+_NON_CHAT = re.compile(r"embedding|rerank|tts|asr|paraformer|cosyvoice|^wan\d|image|t2i|i2i|t2v|i2v|ocr")
+
+
+def _is_chat_model(model_id: str) -> bool:
+    return not _NON_CHAT.search(str(model_id or "").lower())
+
+
+def _name_prefix(model: str) -> str:
+    m = re.match(r"[a-z]+", str(model or "").lower())
+    return m.group(0) if m and len(m.group(0)) >= 3 else ""
+
+
+def _provider_keys(provider: Dict[str, Any]) -> set:
+    return {str(provider.get(k) or "").strip().lower() for k in ("name", "provider", "display_name")} - {""}
+
+
+def merge_live_models_to_providers(providers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Every cloud provider's model choices from the llm-proxy's catalogue (all
+    LLM calls go through it), so a model added on the server appears without an
+    app release. A model is a provider's when its owned_by names the provider,
+    else when its id starts like the provider's build-time models (qwen…,
+    deepseek…). A provider the catalogue says nothing about keeps its
+    build-time list. Mutates and returns *providers*."""
+    try:
+        rows, source = live_model_rows(providers)
+        if not rows:
+            return providers
+        llm_rows = [r for r in rows if _is_chat_model(r["id"])]
+        for p in providers:
+            if not isinstance(p, dict) or _is_ecanai(p):
+                continue
+            keys = _provider_keys(p)
+            if keys & _LOCAL_PROVIDERS:
+                continue
+            bundled = [m for m in (p.get("supported_models") or []) if isinstance(m, dict)]
+            prefixes = {_name_prefix(m.get("model_id") or m.get("name")) for m in bundled} - {""}
+            mine = [r for r in llm_rows
+                    if (r.get("owned_by") and r["owned_by"].lower() in keys)
+                    or (not r.get("owned_by") and _name_prefix(r["id"]) in prefixes)]
+            if not mine:
+                continue
+            by_id = {str(m.get("model_id") or m.get("name")): m for m in bundled}
+            p["supported_models"] = [
+                {**by_id.get(r["id"], {}), "name": r["id"], "model_id": r["id"],
+                 "display_name": (by_id.get(r["id"]) or {}).get("display_name") or r["id"]}
+                for r in mine]
+            p["models_source"] = source
+        logger.debug(f"[ecanai_utils] provider model lists from the {source} llm-proxy catalogue")
+    except Exception as exc:
+        logger.warning(f"[ecanai_utils] live model merge skipped: {exc}")
+    return providers
 
 
 def _ids_for_role(ids: List[str], provider_type: str) -> List[str]:
@@ -92,18 +209,11 @@ def merge_ecanai_models_to_providers(providers: List[Dict[str, Any]],
         if not base_url:
             return providers
 
-        now = time.time()
-        ids = _models_cache["ids"] if (now - _models_cache["ts"] < _CACHE_TTL_S) else None
-        if ids is None:
-            api_key = _api_key(provider_type)
-            if not api_key:
-                logger.debug("[ecanai_utils] no account API key synced — skipping model fetch")
-                return providers
-            ids = _fetch_model_ids(base_url, api_key)
-            if ids is None:
-                return providers
-            _models_cache["ts"] = now
-            _models_cache["ids"] = ids
+        rows, _src = live_model_rows(providers)
+        if not rows:
+            logger.debug("[ecanai_utils] no live or saved model list — keeping the build-time row")
+            return providers
+        ids = [r["id"] for r in rows]
 
         role_ids = _ids_for_role(ids, provider_type)
         if not role_ids:
