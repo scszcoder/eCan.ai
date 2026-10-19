@@ -1972,6 +1972,16 @@
       "openEditor": "Open in Editor",
       "openInEditor": "Open in Editor",
       "noPathWarning": "No file path available for this skill",
+      "runForStore": {
+        "button": "Run once for a store",
+        "title": "Run once for a store",
+        "ok": "Run",
+        "explain": "Runs this skill once in the chosen store's signed-in browser (e.g. export the store's products). The store's front desk runs it after its browser has been quiet a few minutes (within an hour at most); the temporary task is removed when it finishes.",
+        "noStores": "No store front desk is running. Deploy the store's customer service with Fast Deploy and start it first.",
+        "queued": "Queued for {{store}} (runs on {{agent}}) once the store's browser is quiet",
+        "already": "Already queued for {{store}} (on {{agent}})",
+        "failed": "Could not queue the run"
+      },
       "thirdPartySkillNoEditor": "This skill was published by another user and cannot be opened in the editor",
       "skillId": "Skill ID",
       "dbId": "DB ID",

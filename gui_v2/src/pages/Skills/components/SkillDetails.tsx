@@ -45,6 +45,7 @@ import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 import { logger } from '@/utils/logger';
 import { IPCAPI } from '@/services/ipc/api';
+import { RunForStoreButton } from './RunForStoreButton';
 import { warnIfSkillCloudSyncFailed } from '@/modules/skill-editor/utils/cloud-sync-notice';
 import { StyledFormItem, StyledCard, FormContainer, buttonStyle, primaryButtonStyle } from '@/components/Common/StyledForm';
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
@@ -1671,6 +1672,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                 >
                                     {t('pages.skills.run', 'Run')}
                                 </Button>
+                                {/* 为店铺运行一次: one run in a store's browser (same as `ecan skills run-for-store`) */}
+                                {skill?.id && <RunForStoreButton skill={String(skill.id)} style={{ ...buttonStyle, height: 36 }} />}
                                 {/* More menu for less common actions */}
                                 <Dropdown
                                     menu={{
@@ -1738,6 +1741,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                 >
                                     {t('pages.skills.run', 'Run')}
                                 </Button>
+                                {skill?.id && !isThirdPartySkill && <RunForStoreButton skill={String(skill.id)} style={{ ...buttonStyle, height: 36 }} />}
                                 <Tooltip title={t('pages.skills.readOnlyPublic', 'This is a public skill. You can subscribe but not edit.')}>
                                     <Button
                                         icon={<LockOutlined />}

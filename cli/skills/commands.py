@@ -530,3 +530,43 @@ def dedupe(apply_changes, delete_duplicates):
     out.success(f"Merged {merged} duplicate(s)" + (f", deleted {deleted}" if delete_duplicates else "") + ".")
     if not delete_duplicates:
         out.info("Duplicate rows kept (now unreferenced) — remove with 'ecan skills remove <id>' or re-run with --apply --delete.")
+
+
+@skills.command('run-for-store')
+@requires_auth
+@click.argument('skill')
+@click.option('--store', '-s', 'store_id', default=None,
+              help='Store id to run it for (omit to list the stores it can run for)')
+def run_for_store(skill, store_id):
+    """
+    Run a skill ONCE for one store (为店铺运行一次), e.g. a product export.
+
+    The run goes to the agent that already runs that store (its front desk,
+    signed in to the store's browser) as a one-off background task: it starts
+    once the store's browser has been quiet a few minutes (within an hour at
+    most) and is removed when it finishes. A second request while one is
+    queued reports the queued one.
+
+    CONTROL command - needs the running app. The Skills page button does the same.
+
+    Examples:
+      ecan skills run-for-store 抖店商品导出
+      ecan skills run-for-store 抖店商品导出 --store douyin-抖音二号
+    """
+    from ..base.app_client import call_or_exit
+    out = get_output()
+    if not store_id:
+        stores = (call_or_exit(out, 'skills.store_hosts', {}) or {}).get('stores') or []
+        if not stores:
+            out.warning("No store has an agent running in the app.")
+            return
+        out.table('Stores it can run for', ['Store', 'Name', 'Runs on'],
+                  [[s.get('store_id', ''), s.get('store_name', ''), s.get('agent_name', '')] for s in stores])
+        out.info(f"Run with: ecan skills run-for-store {skill} --store <Store>")
+        return
+    res = call_or_exit(out, 'skills.run_for_store', {'skill': skill, 'store_id': store_id}, timeout=60) or {}
+    where = f"{res.get('store_name') or store_id} (on {res.get('agent_name', '?')})"
+    if res.get('already_queued'):
+        out.info(f"Already queued for {where}: {res.get('task_name')}")
+    else:
+        out.success(f"Queued for {where}: runs once the store's browser has been quiet, then is removed.")

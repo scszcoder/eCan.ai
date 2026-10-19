@@ -8405,6 +8405,11 @@ class TaskRunner(Generic[Context]):
             logger.info(f"[task-schedule] '{task.name}' finished its one run")
         for dep in dependents:
             self._fire_if_ready(dep)
+        if meta.get("one_off"):
+            # "Run once for a store" (agent/ec_tasks/one_off.py): its run is over,
+            # whatever the outcome -- remove it so nothing accumulates.
+            from agent.ec_tasks.one_off import retire as _retire_one_off
+            _retire_one_off(self.agent, task, ok)
 
     def _fire_if_ready(self, dep: ManagedTask) -> None:
         by_id = {t.id: t for t in (getattr(self.agent, "tasks", None) or [])}

@@ -3084,6 +3084,16 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'live_chat_site.set' }, { site });
     }
 
+    /** 为店铺运行一次: stores a skill can be run once for (their agent runs in the app). */
+    public async getSkillStoreHosts<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'skills.store_hosts' });
+    }
+
+    /** Queue one run of a skill for a store (same handler as `ecan skills run-for-store`). */
+    public async runSkillForStore<T>(skill: string, storeId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'skills.run_for_store' }, { skill, store_id: storeId }, { timeout: 60000 });
+    }
+
     /** Did the cloud take the latest save of this skill? (waits up to ~20 s) */
     public async getSkillCloudSyncStatus<T>(skillId: string): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'skill_cloud_sync_status' }, { skillId }, { timeout: 35000 });
